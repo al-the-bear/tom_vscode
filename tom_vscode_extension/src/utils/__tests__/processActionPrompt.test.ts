@@ -14,6 +14,7 @@
  *   PA-6 the session: picked on the page, else the process's for the position being run, else the
  *        queue default
  *   PA-4 the default template names only variables an action provides
+ *   PA-8 the decision dialog: at a decision position its options, each the move it makes; null elsewhere
  *   PA-7 confirming a user action: the dialog says it is a user action, names the position, gives what
  *        is to be done (its description, else its name) and asks to confirm that it is done
  */
@@ -41,6 +42,7 @@ import {
     positionText,
     actionSession,
     userActionConfirmation,
+    decisionDialog,
 } from '../processActionPrompt.js';
 
 const YAML = `
@@ -112,9 +114,8 @@ describe('process action prompts', () => {
         const b2 = selectSubstep(selectStep(start, d, 'b'), d, 'b2');
         const decide = processActionValues(d, b2, move(d, b2, 'proceed'), '', '');
         assert.equal(decide.role, 'checker');
-        assert.match(decide['action-after'], /stays at this position until the user decides/, 'a decision point: the state stays');
-        const again = move(d, move(d, b2, 'proceed').target, 'proceed');
-        assert.equal(processActionValues(d, again.target, again, '', '')['action-label'], 'Run again');
+        assert.match(decide['action-after'], /moved to the decision after this position: the user decides there/, 'a decision point: on to its decision');
+        assert.equal(move(d, move(d, b2, 'proceed').target, 'proceed').label, 'Decide…', 'at the decision nothing runs again: the user decides');
     });
 
     test('PA-3: what runs here', () => {
@@ -198,5 +199,19 @@ phases:
         assert.equal(c.confirm, 'I confirm I have done it');
         const plain = userActionConfirmation(d, selectStep(start, d, 'plain'))!;
         assert.match(plain.detail, /To do: plain/, 'no description: its name says what');
+    });
+
+    test('PA-8: the decision dialog', () => {
+        const d = def();
+        const start = selectProcess(d);
+        assert.equal(decisionDialog(d, start), null, 'not at a decision');
+        const gate = selectStep(start, d, 'g');
+        const decision = move(d, gate, 'proceed').target;
+        const dialog = decisionDialog(d, decision)!;
+        assert.match(dialog.message, /^Decide how the process goes on after /);
+        assert.match(dialog.detail, /nothing is queued/);
+        assert.deepEqual(dialog.options.map((o) => [o.kind, o.label]),
+            [['gate-passed', 'Gate passed — go on to two › c'], ['gate-failed', 'Gate failed — run g again'], ['repeat', 'Repeat the phase one']],
+            'the phase is repeatable and ends at its gate');
     });
 });

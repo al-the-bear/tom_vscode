@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tom-ai.dev/schemas/process.schema.json",
   "title": "Tom process definition (<id>.process.yaml)",
-  "description": "A process: phases of steps (some grouping sub-steps), each phase ending with a quality-gate step and optionally a post-gate step whose todos are done before the next phase starts. Lives at _ai/processes/<id>/<id>.process.yaml beside <id>.md, the process description. Checked by validateProcessDefinition (src/utils/processDefinition.ts), which also enforces what a schema cannot: ids unique within their scope, maxIterations only with repeatable.",
+  "description": "A process: phases of steps (some grouping sub-steps), each phase ending with a quality-gate step and optionally a post-gate step whose todos are done before the next phase starts. Lives at _ai/processes/<id>/<id>.process.yaml beside <id>.md, the process description. Checked by validateProcessDefinition (src/utils/processDefinition.ts), which also enforces what a schema cannot: ids unique within their scope, maxIterations only with repeatable, onFail only on a gate and naming a step of its phase.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -122,6 +122,10 @@
         "userAction": {
           "type": "boolean",
           "description": "Done by the user, not by an agent (reviewing, answering, approving): runs no prompt — no prompt or session allowed — and Proceed asks the user to confirm it is done. Not on a gate, nor on a step with sub-steps (flag the sub-steps); the validator enforces both."
+        },
+        "onFail": {
+          "type": "string",
+          "description": "Gate only: where a failed gate goes — the id of one of the phase's steps (or the gate's own id). Unset: the gate is run again. The validator refuses it on other steps and checks the id."
         }
       }
     },

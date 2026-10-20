@@ -7,6 +7,14 @@
  * before the next phase starts. Phases, steps and sub-steps may be repeatable;
  * a step or sub-step may name the role that does it.
  *
+ * Whether a level is repeated is decided at a **decision position**, which
+ * the engine puts after every decision point — after a gate, at the end of
+ * every phase, after every repeatable sub-step and at the end of every
+ * repeatable step — without anything in the definition. There the user picks
+ * repeat (each repeatable level that ends there) or go on; after a gate,
+ * passed (go on) or failed (back to the gate's `onFail` step, by default the
+ * gate itself).
+ *
  * On disk a process is `_ai/processes/<id>/<id>.process.yaml` (the structure,
  * validated here and by `src/config/process.schema.json`) plus
  * `_ai/processes/<id>/<id>.md` (its description). The state a quest is in —
@@ -73,6 +81,15 @@ export interface ProcessStep extends ProcessSubstep {
     substeps?: ProcessSubstep[];
 }
 
+/** A phase's quality gate. */
+export interface ProcessGate extends ProcessStep {
+    /**
+     * Where a failed gate goes: the id of one of the phase's steps (or the
+     * gate's own id). Unset: the gate is run again.
+     */
+    onFail?: string;
+}
+
 /** The optional step after a passed gate: its todos close the phase. */
 export interface ProcessPostGateStep extends ProcessStep {
     /** Todos written into the process. */
@@ -93,7 +110,7 @@ export interface ProcessPhase {
     maxIterations?: number;
     steps: ProcessStep[];
     /** Every phase ends with a quality gate. */
-    gate: ProcessStep;
+    gate: ProcessGate;
     postGate?: ProcessPostGateStep;
 }
 
@@ -154,6 +171,7 @@ const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatabl
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
+const GATE_KEYS = [...STEP_KEYS, 'onFail'];
 const TODO_KEYS = ['title', 'description'];
 
 type Raw = Record<string, unknown>;
@@ -279,7 +297,13 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
             if (phase.gate === undefined) {
                 err(`${path}.gate`, 'a phase ends with a quality gate step');
             } else {
-                noteStep(checkStep(phase.gate, `${path}.gate`, STEP_KEYS), `${path}.gate`);
+                noteStep(checkStep(phase.gate, `${path}.gate`, GATE_KEYS), `${path}.gate`);
+                if (isObject(phase.gate) && phase.gate.onFail !== undefined) {
+                    const targets = [...(Array.isArray(phase.steps) ? phase.steps.filter(isObject).map((x) => x.id) : []), phase.gate.id];
+                    if (typeof phase.gate.onFail !== 'string' || !targets.includes(phase.gate.onFail)) {
+                        err(`${path}.gate.onFail`, `the step a failed gate goes back to: one of ${targets.filter((t) => typeof t === 'string').map((t) => `"${t}"`).join(', ')}`);
+                    }
+                }
                 if (isObject(phase.gate) && phase.gate.userAction !== undefined) {
                     err(`${path}.gate.userAction`, 'a gate is the agents\' check; the user\'s approval is the Gate passed / failed decision');
                 }
@@ -338,7 +362,9 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
     const ordered = {
         ...pick(def, ['id', 'name', 'summary']),
         phases: def.phases.map((p) => {
-            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate: step(p.gate) };
+            const gate = step(p.gate);
+            if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
+            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate };
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -367,17 +393,19 @@ export interface ProcessState {
     /** The process is finished (its last step done); the position stays where it ended. */
     completed: boolean;
     /**
-     * This position's prompt was run (Proceed at a decision point — a gate, or
-     * where a repeat is possible): the position stays until the user decides.
-     * Dropped by every move and every change of position.
+     * At the decision position after this one: the position was run (it is a
+     * decision point — a gate, the end of a phase, a repeatable sub-step or the
+     * end of a repeatable step) and the user decides how the process goes on.
+     * Dropped by every move and every change of position. Older state files
+     * wrote it as `ran`.
      */
-    ran?: true;
+    decision?: true;
 }
 
-/** The state without the `ran` flag: a position not run yet. */
+/** The state at the position itself, not at the decision after it. */
 export function notRun(state: ProcessState): ProcessState {
-    if (!state.ran) { return state; }
-    const { ran: _ran, ...rest } = state;
+    if (!state.decision) { return state; }
+    const { decision: _decision, ...rest } = state;
     return rest;
 }
 
@@ -627,6 +655,8 @@ export interface ProcessMove {
     label: string;
     /** The state the move leads to. */
     target: ProcessState;
+    /** One of the options of the decision the quest is at; chosen in the decision dialog, not shown in the action bar. */
+    branchOption?: true;
 }
 
 const LEVEL_TITLE: Record<ProcessLevel, string> = { phase: 'phase', step: 'step', substep: 'sub-step' };
@@ -700,78 +730,123 @@ function canRepeat(node: { repeatable?: boolean; maxIterations?: number } | unde
 }
 
 /**
+ * Whether the end of `pos` is a decision point — a decision position follows
+ * it: a gate's end, a phase's end, a repeatable sub-step, the end of a
+ * repeatable step (gates and post-gate steps included). Structural: a level
+ * at its maxIterations still has its decision, which then offers going on.
+ */
+function isDecisionPoint(pos: Position): boolean {
+    const entry = pos.entries[pos.stepIndex];
+    const subs = entry.step.substeps ?? [];
+    const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
+    const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
+    return (entry.kind === 'gate' && stepEnds)
+        || phaseEnds
+        || subs[pos.substepIndex]?.repeatable === true
+        || (stepEnds && entry.step.repeatable === true);
+}
+
+const nameOf = (node: { id: string; name?: string }): string => node.name || node.id;
+
+/** Where a move leads, for a label: the step (and sub-step), with the phase when it is another one. */
+function whereTo(def: ProcessDefinition, from: ProcessState, to: ProcessState): string {
+    const phase = findPhase(def, to.phase);
+    const step = findStep(phase, to.step);
+    const sub = findSubstep(step, to.substep);
+    const parts = [to.phase !== from.phase && phase ? nameOf(phase) : '', step ? nameOf(step) : to.step, sub ? nameOf(sub) : ''];
+    return parts.filter(Boolean).join(' › ');
+}
+
+/**
+ * The options at the decision position after `pos`: go on (gate passed after
+ * a gate; finish the process at its end), a repeat of each repeatable level
+ * that ends there (below its maxIterations), and after a gate, gate failed —
+ * back to the gate's `onFail` step, by default the gate run again.
+ */
+function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Position, forward: ProcessState | null): ProcessMove[] {
+    const entry = pos.entries[pos.stepIndex];
+    const subs = entry.step.substeps ?? [];
+    const isGate = entry.kind === 'gate';
+    const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
+    const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
+    const onward = forward ? `go on to ${whereTo(def, here, forward)}` : '';
+    const options: ProcessMove[] = [];
+    if (!forward) {
+        options.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish the process' : 'Finish the process', target: { ...here, completed: true } });
+    } else if (isGate && stepEnds) {
+        options.push({ kind: 'gate-passed', label: `Gate passed — ${onward}`, target: forward });
+    } else {
+        options.push({ kind: 'finish', label: onward.charAt(0).toUpperCase() + onward.slice(1), target: forward });
+    }
+    if (isGate && stepEnds) {
+        const gate = pos.phase.gate;
+        const back = gate.onFail && gate.onFail !== gate.id ? findStep(pos.phase, gate.onFail) : undefined;
+        options.push(back
+            ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, 1) }
+            : { kind: 'gate-failed', label: `Gate failed — run ${nameOf(gate)} again`, target: changeIteration(here, def, 'step', 1) });
+    }
+    const sub = subs[pos.substepIndex];
+    if (sub && canRepeat(sub, here.substepIteration)) {
+        options.push({ kind: 'repeat', level: 'substep', label: `Repeat ${nameOf(sub)}`, target: changeIteration(here, def, 'substep', 1) });
+    }
+    if (stepEnds && !isGate && canRepeat(entry.step, here.stepIteration)) {
+        options.push({ kind: 'repeat', level: 'step', label: `Repeat the step ${nameOf(entry.step)}`, target: changeIteration(here, def, 'step', 1) });
+    }
+    if (phaseEnds && canRepeat(pos.phase, here.phaseIteration)) {
+        options.push({ kind: 'repeat', level: 'phase', label: `Repeat the phase ${nameOf(pos.phase)}`, target: changeIteration(here, def, 'phase', 1) });
+    }
+    return options.map((o) => ({ ...o, branchOption: true as const }));
+}
+
+/**
  * The moves offered at `state`, in the order the action bar shows them:
  *
- * - `proceed` — the only move that runs anything: the prompt of THIS position
- *   is queued, then the state moves on to the next position (which runs only
- *   when the user proceeds again). At a decision point — a gate, the end of
- *   the last step, or where a repeat is possible — what comes next depends on
- *   the run, so the position stays, marked `ran`, and the user decides with
- *   one of the moves below; offered there again as "Run again";
- * - the forward move — `gate-passed` at the end of a gate; `finish-process` at
- *   the end of the last step; `finish` (of the outermost level ending here)
- *   where a repeat is possible too;
- * - `repeat` of the sub-step, step and phase whose repeat point this is: a
- *   repeatable sub-step always, a repeatable step at its last sub-step, a
- *   repeatable phase at its last step — each below its maxIterations; a new
- *   iteration starts at the first step / sub-step inside it;
- * - `gate-failed` at the end of a gate: the gate is run again;
- * - `skip` — the forward position, without running this one;
- * - `back` — the previous position, a correction (iterations kept).
+ * - at a position: `proceed` — the only move that runs anything: the prompt
+ *   of THIS position is queued (a user action is confirmed), then the state
+ *   moves on — to the next position, or, at a decision point, to the decision
+ *   position after it; `skip` — the same target, without running; `back` —
+ *   the previous position (its decision, when it has one), a correction;
+ * - at a **decision position**: `proceed` ("Decide…") opens the options,
+ *   which follow as moves marked `branchOption` — go on (`finish`;
+ *   `gate-passed` after a gate; `finish-process` at the end), `gate-failed`
+ *   (back to the gate's `onFail` step, or the gate again), `repeat` of each
+ *   repeatable level ending there — then `back` (to the position itself).
  *
- * Every move except `proceed` only moves the state, and leads to a position
- * not run yet. A finished process offers only `back` ("Reopen"); no process,
- * nothing.
+ * Only a decision position repeats or decides. A finished process offers only
+ * `back` ("Reopen"); no process, nothing.
  */
 export function availableMoves(def: ProcessDefinition | null, state: ProcessState): ProcessMove[] {
     if (!def || !state.process) { return []; }
     if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: notRun({ ...state, completed: false }) }]; }
     const pos = positionOf(def, state);
     if (!pos) { return []; }
-    const entry = pos.entries[pos.stepIndex];
-    const subs = entry.step.substeps ?? [];
-    const isGate = entry.kind === 'gate';
-    const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
-    const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
     const here = notRun(state);
-
-    const repeats: ProcessMove[] = [];
-    const repeat = (level: ProcessLevel): void => {
-        repeats.push({ kind: 'repeat', level, label: `Repeat ${LEVEL_TITLE[level]}`, target: changeIteration(here, def, level, 1) });
-    };
-    if (canRepeat(subs[pos.substepIndex], state.substepIteration)) { repeat('substep'); }
-    if (stepEnds && !isGate && canRepeat(entry.step, state.stepIteration)) { repeat('step'); }
-    if (phaseEnds && canRepeat(pos.phase, state.phaseIteration)) { repeat('phase'); }
-
     const forwardRaw = forwardTarget(def, here, pos);
     const forward = forwardRaw ? notRun(forwardRaw) : null;
-    const decision = !forward || (isGate && stepEnds) || repeats.length > 0;
     const moves: ProcessMove[] = [];
-    // A user action runs nothing: Proceed confirms it is done — once.
-    const byUser = userActionAt(def, state) !== null;
-    if (decision) {
-        if (!(byUser && state.ran)) {
-            moves.push({ kind: 'proceed', label: byUser ? 'Confirm done' : state.ran ? 'Run again' : 'Proceed', target: { ...here, ran: true } });
-        }
-    } else {
-        moves.push({ kind: 'proceed', label: byUser ? 'Confirm done' : 'Proceed', target: forward! });
+    if (state.decision && isDecisionPoint(pos)) {
+        moves.push({ kind: 'proceed', label: 'Decide…', target: state });
+        moves.push(...decisionOptions(def, here, pos, forward));
+        moves.push({ kind: 'back', label: 'Back', target: here });
+        return moves;
     }
-    if (!forward) {
-        moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish process' : 'Finish process', target: { ...here, completed: true } });
-    } else if (isGate && stepEnds) {
-        moves.push({ kind: 'gate-passed', label: 'Gate passed', target: forward });
-    } else if (repeats.length) {
-        const level: ProcessLevel = phaseEnds ? 'phase' : stepEnds && subs.length ? 'step' : 'substep';
-        moves.push({ kind: 'finish', level, label: `Finish ${LEVEL_TITLE[level]}`, target: forward });
+    const next = isDecisionPoint(pos) || !forward ? { ...here, decision: true as const } : forward;
+    moves.push({ kind: 'proceed', label: userActionAt(def, state) ? 'Confirm done' : 'Proceed', target: next });
+    moves.push({ kind: 'skip', label: 'Skip', target: next });
+    const backRaw = backTarget(def, here, pos);
+    if (backRaw) {
+        const prev = positionOf(def, backRaw);
+        moves.push({ kind: 'back', label: 'Back', target: prev && isDecisionPoint(prev) ? { ...notRun(backRaw), decision: true } : notRun(backRaw) });
     }
-    moves.push(...repeats);
-    if (isGate && stepEnds) {
-        moves.push({ kind: 'gate-failed', label: 'Gate failed — run again', target: changeIteration(here, def, 'step', 1) });
-    }
-    if (forward) { moves.push({ kind: 'skip', label: 'Skip', target: forward }); }
-    const back = backTarget(def, here, pos);
-    if (back) { moves.push({ kind: 'back', label: 'Back', target: notRun(back) }); }
     return moves;
+}
+
+/** The decision the quest is at — its options — or null when it is not at a decision position. */
+export function decisionAt(def: ProcessDefinition | null, state: ProcessState): { options: ProcessMove[] } | null {
+    if (!def || !state.process || state.completed || !state.decision) { return null; }
+    const pos = positionOf(def, state);
+    if (!pos || !isDecisionPoint(pos)) { return null; }
+    return { options: availableMoves(def, state).filter((m) => m.branchOption) };
 }
 
 // ============================================================================
@@ -909,7 +984,10 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
         lines.push('', '**User action** — this position is done by the user, not by an agent: do not do its work and do not move past it; the user confirms it with Proceed in the PROCESS view.');
     }
     if (state.completed) { lines.push('', 'The process is finished: its last step is done.'); }
-    if (state.ran && !state.completed) { lines.push('', 'This position has been run; the user decides how the process goes on (finish, repeat, gate passed or failed).'); }
+    const decision = decisionAt(def, state);
+    if (decision) {
+        lines.push('', `**Decision** — this position has run; the user decides here how the process goes on: ${decision.options.map((o) => o.label).join('; ')}. An agent does not decide it and does not move past it.`);
+    }
     lines.push('', 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }
@@ -937,7 +1015,7 @@ export function parseProcessState(text: string): ProcessState {
             step: str('step'), stepIteration: num('stepIteration'),
             substep: str('substep'), substepIteration: num('substepIteration'),
             completed: raw.completed === true,
-            ...(raw.ran === true ? { ran: true as const } : {}),
+            ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
         };
     } catch {
         return { ...EMPTY_PROCESS_STATE };
@@ -955,7 +1033,7 @@ export function stringifyProcessState(state: ProcessState, updated: string): str
         substep: state.substep,
         substepIteration: state.substepIteration,
         ...(state.completed ? { completed: true } : {}),
-        ...(state.ran ? { ran: true } : {}),
+        ...(state.decision ? { decision: true } : {}),
         updated,
     });
 }

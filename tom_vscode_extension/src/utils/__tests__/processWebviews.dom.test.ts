@@ -13,8 +13,11 @@
  *   PW-6  editor: validation errors are listed and the field marked; choosing another process
  *         with unsaved changes hands them to the host
  *   PW-7  PROCESS view: the action bar shows the moves the host offers, Proceed first with a play
- *         icon ("Run again" a rerun icon), and posts the one clicked; the template button opens the
- *         template editor; a run position and a finished process say so; a gate has −/+
+ *         icon, and posts the one clicked; the template button opens the template editor; at a decision a
+ *         banner lists the options and the bar shows only Decide… (a fork icon) and Back; a finished
+ *         process says so; a gate has −/+
+ *   PW-14 editor: the gate card chooses where a failed gate goes — run it again (no onFail) or back to
+ *         one of the phase's steps
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
  *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
  *         makes it an object, clearing every field removes it
@@ -134,10 +137,21 @@ describe('PROCESS view', () => {
         assert.deepEqual(posted.pop(), { type: 'action', kind: 'repeat', level: 'step' });
         buttons[3].click();
         assert.deepEqual(posted.pop(), { type: 'action', kind: 'skip' });
-        assert.equal(w.document.querySelector('.ran'), null, 'not run yet: no note');
-        send(w, panelState({ state: { ...STATE, ran: true }, moves: [{ kind: 'proceed', level: null, label: 'Run again', to: 'Build #2 › Review #1 › Read' }, ...MOVES.slice(1)] }));
-        assert.match(w.document.querySelector('.ran').textContent, /has been run — decide how the process goes on/);
-        assert.ok(w.document.querySelector('[data-move="proceed"] .codicon-debug-rerun'), 'Run again: a rerun icon');
+        assert.equal(w.document.querySelector('.branch-decision'), null, 'not at a decision: no banner');
+        send(w, panelState({
+            state: { ...STATE, decision: true },
+            moves: [
+                { kind: 'proceed', level: null, label: 'Decide…', to: 'Build #2 › Review #1 › Read' },
+                { kind: 'finish', level: null, label: 'Go on to Gate', to: 'Build #2 › Gate #1', branchOption: true },
+                { kind: 'repeat', level: 'step', label: 'Repeat the step Review', to: 'Build #2 › Review #2 › Read', branchOption: true },
+                { kind: 'back', level: null, label: 'Back', to: 'Build #2 › Review #1 › Read' },
+            ],
+        }));
+        const banner = w.document.querySelector('.branch-decision');
+        assert.match(banner.textContent, /Decision — how does the process go on\?/);
+        assert.deepEqual($(w, '.bd-options li').map((li) => li.textContent), ['Go on to Gate', 'Repeat the step Review'], 'the options, listed');
+        assert.deepEqual($(w, '.actions [data-move]').map((b) => b.dataset.move), ['proceed', 'back'], 'the options are chosen in the dialog, not in the bar');
+        assert.ok(w.document.querySelector('[data-move="proceed"] .codicon-repo-forked'), 'Decide…: a fork icon');
         w.document.querySelector('[data-templates]').click();
         assert.deepEqual(posted.pop(), { type: 'openTemplates' });
         send(w, panelState({ state: { ...STATE, step: 'gate', substep: '' }, moves: [] }));
@@ -263,6 +277,19 @@ describe('process editor', () => {
         w.document.querySelector('[data-op="save"]').click();
         const saved = [...posted].reverse().find((m) => m.type === 'save') as Record<string, Win>;
         assert.equal(saved.definition.phases[0].steps[1].substeps[1].userAction, true);
+    });
+
+    test('PW-14: where a failed gate goes', () => {
+        const { w } = setup('processEditor');
+        load(w);
+        const pick = field(w, 'phases.0.gate.onFail');
+        assert.deepEqual($(w, '[data-path="phases.0.gate.onFail"] option').map((o) => o.textContent), ['Run the gate again', 'Back to 1. Code', 'Back to 2. Review']);
+        assert.equal(pick.value, '', 'run it again by default');
+        pick.value = 'review';
+        pick.dispatchEvent(new w.Event('change', { bubbles: true }));
+        w.document.querySelector('[data-op="save"]').click();
+        assert.equal(field(w, 'phases.0.gate.onFail').value, 'review');
+        assert.equal(field(w, 'phases.0.steps.0.onFail'), null, 'only the gate has one');
     });
 
     test('PW-8: prompt fields', () => {

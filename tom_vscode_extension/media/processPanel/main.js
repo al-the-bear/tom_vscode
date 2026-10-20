@@ -94,15 +94,34 @@
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
+    /** The decision the quest is at — its options, from the host's moves — or null. */
+    function decisionHere(c) {
+        if (!c || !c.state || !c.state.decision || c.state.completed) { return null; }
+        var options = (c.moves || []).filter(function (m) { return m.branchOption; });
+        return options.length ? { options: options } : null;
+    }
+
+    function decisionBanner(decision) {
+        return '<div class="branch-decision">'
+            + '<div class="bd-head"><span class="codicon codicon-repo-forked"></span> Decision — how does the process go on?</div>'
+            + '<div class="bd-name">This position has run.</div>'
+            + '<ul class="bd-options">' + decision.options.map(function (o) { return '<li title="' + esc(o.to) + '">' + esc(o.label) + '</li>'; }).join('') + '</ul>'
+            + '<div class="bd-hint">Click Decide… to choose.</div>'
+            + '</div>';
+    }
+
     function actionBar(moves) {
         var byUser = !!userActionHere(current);
-        var buttons = (moves || []).map(function (m) {
-            var user = byUser && m.kind === 'proceed';
+        var atDecision = !!decisionHere(current);
+        // A decision's options are chosen in its dialog (Decide…), not here.
+        var buttons = (moves || []).filter(function (m) { return !m.branchOption; }).map(function (m) {
+            var user = byUser && !atDecision && m.kind === 'proceed';
+            var decide = atDecision && m.kind === 'proceed';
             var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue'
-                : user ? 'person'
-                    : m.kind === 'proceed' && m.label === 'Run again' ? 'debug-rerun' : MOVE_ICON[m.kind] || 'circle';
+                : decide ? 'repo-forked'
+                    : user ? 'person' : MOVE_ICON[m.kind] || 'circle';
             var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
-            return '<button class="icon act act-' + m.kind + (user ? ' act-user' : '') + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
+            return '<button class="icon act act-' + m.kind + (user ? ' act-user' : '') + (decide ? ' act-branch' : '') + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
                 + esc(m.label + ' → ' + m.to) + '"><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
         }).join('');
         return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
@@ -138,9 +157,10 @@
         }
         var html = c.state.process && c.definition ? actionBar(c.moves) : '';
         var action = userActionHere(c);
-        if (action) { html += userActionBanner(action, !!c.state.ran); }
+        var decision = decisionHere(c);
+        if (decision) { html += decisionBanner(decision); }
+        else if (action) { html += userActionBanner(action, false); }
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
-        else if (c.state.ran && !action) { html += '<div class="ran"><span class="codicon codicon-debug-pause"></span> This position has been run — decide how the process goes on.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
         }));

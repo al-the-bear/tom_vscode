@@ -6,7 +6,9 @@
  * the process allows from here. Proceed (the only one that runs anything)
  * opens the action page (processAction-handler.ts), which queues the prompt of
  * the current position and then moves on — or, at a decision point, stays
- * marked as run. At a user action (a step the user does) Proceed instead asks
+ * marked as run. At a decision position (after a gate, a phase's end or a
+ * repeatable level) Proceed opens the decision's options in a dialog — go on,
+ * repeat, gate passed / failed — and the one picked moves the state. At a user action (a step the user does) Proceed instead asks
  * the user to confirm it is done, and only moves the state; Finish …, Repeat …, Gate passed / failed, Finish process,
  * Skip and Back only move the state, at once. Usually the agent moves the state
  * (`tomAi_setProcessState`); the view lets the user see it at a glance and set
@@ -23,7 +25,7 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
-import { positionText, userActionConfirmation } from '../utils/processActionPrompt';
+import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction } from '../services/processActionService';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
@@ -84,7 +86,10 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             stepRole: store.currentRole(),
             chatRole,
             moves: entry?.definition
-                ? store.moves().map((m) => ({ kind: m.kind, level: m.level ?? null, label: m.label, to: positionText(entry.definition!, m.target) }))
+                ? store.moves().map((m) => ({
+                    kind: m.kind, level: m.level ?? null, label: m.label, to: positionText(entry.definition!, m.target),
+                    ...(m.branchOption ? { branchOption: true } : {}),
+                }))
                 : [],
         });
     }
@@ -108,8 +113,19 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'action':
                 if (msg.kind === 'proceed') {
-                    // A user action runs no prompt: the user confirms it is done.
                     const def = store.currentDefinition();
+                    // A decision runs nothing: the user picks how the process goes on.
+                    const decide = def ? decisionDialog(def, store.state) : null;
+                    if (decide) {
+                        const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail: decide.detail }, ...decide.options.map((o) => o.label));
+                        const option = decide.options.find((o) => o.label === picked);
+                        if (option) {
+                            const result = await confirmProcessAction(option.kind, option.level, '');
+                            this.report(result.ok ? { ok: true } : result);
+                        }
+                        break;
+                    }
+                    // A user action runs no prompt: the user confirms it is done.
                     const ask = def ? userActionConfirmation(def, store.state) : null;
                     if (ask) {
                         const answer = await vscode.window.showWarningMessage(ask.message, { modal: true, detail: ask.detail }, ask.confirm);

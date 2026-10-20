@@ -140,8 +140,20 @@
             + '</select></span>';
     }
 
+    /** The gate's failure target: one of the phase's steps, or the gate run again (unset). */
+    function onFailField(path, gate, phaseStepsList) {
+        var value = gate.onFail || '';
+        var options = [{ value: '', label: 'Run the gate again' }].concat(phaseStepsList.map(function (s, i) {
+            return { value: s.id, label: 'Back to ' + (i + 1) + '. ' + (s.name || s.id) };
+        }));
+        return '<label class="on-fail" title="Where the decision after the gate goes when the gate failed">If the gate fails: '
+            + '<select data-path="' + path + '.onFail">' + options.map(function (o) {
+                return '<option value="' + esc(o.value) + '"' + (o.value === value ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+            }).join('') + '</select></label>';
+    }
+
     /** A step card; `kind` is step, gate, post-gate or substep. */
-    function stepCard(step, path, kind, index, count) {
+    function stepCard(step, path, kind, index, count, phaseStepsList) {
         var title = { step: 'Step ' + (index + 1), gate: 'Quality gate', 'post-gate': 'Post-gate step', substep: 'Sub-step ' + (index + 1) }[kind];
         var html = '<div class="card ' + kind + '" data-node="' + path + '">'
             + '<div class="card-head"><span class="kind">' + title + '</span>'
@@ -157,7 +169,8 @@
             + '</div>'
             + description(path, step.description, 2)
             + promptField(path, step.prompt)
-            + sessionFields(path, step.session);
+            + sessionFields(path, step.session)
+            + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '');
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -192,7 +205,7 @@
             + sessionFields(path, phase.session)
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
-            + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1)
+            + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1, steps)
             + (phase.postGate ? stepCard(phase.postGate, path + '.postGate', 'post-gate', 0, 1)
                 : '<button class="add" data-op="add-postgate" data-path="' + path + '"><span class="codicon codicon-add"></span> post-gate step (todos after the gate passed)</button>')
             + '</details>';

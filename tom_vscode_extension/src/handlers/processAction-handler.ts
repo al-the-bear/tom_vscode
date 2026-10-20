@@ -85,7 +85,7 @@ async function send(): Promise<void> {
         quest: store.activeQuest,
         process: def.name || def.id,
         from: positionText(def, store.state),
-        to: move.target.ran ? 'stays here — you decide how the process goes on' : positionText(def, move.target),
+        to: move.target.decision ? 'the decision after it — you decide how the process goes on' : positionText(def, move.target),
         startedPrompts: positionPrompts(def, store.state),
         custom,
         preview: buildProcessActionPrompt(store, move, custom, undefined, sessionOverride),

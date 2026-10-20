@@ -18,12 +18,15 @@
  *         nothing when the position did not change or the step names no role
  *   PD-12 the `prompt` field on phase, step, gate, post-gate and sub-step: accepted, written back,
  *         a process variable of its level
- *   PD-13 the moves offered at each position: proceed (runs this position: on to the next one, or —
- *         at a decision point — stays, marked as run), finish <level> where a repeat is possible,
- *         repeat sub-step / step / phase at their repeat points (capped by maxIterations), gate passed /
- *         failed, finish process at the end, skip, back; each with the state it leads to
- *   PD-18 the `ran` flag: written and read back, offered as "Run again", dropped by every move and
- *         every change of position, kept by a change that leaves the position
+ *   PD-13 the moves offered at each position: proceed (runs it; on to the next position, or at a decision
+ *         point to the decision after it), skip, back; at a decision "Decide…" and its options — go on
+ *         (gate passed after a gate, finish the process at the end), gate failed, a repeat of every
+ *         repeatable level ending there (capped by maxIterations) — then back; each with its target
+ *   PD-18 the decision flag: written as `decision` and read back (an older file's `ran` reads as it),
+ *         dropped by every move and every change of position, kept by a change that leaves the position
+ *   PD-20 a gate's onFail: a failed gate goes back to that step of its phase, else the gate runs again;
+ *         validated (a step of the phase, only on a gate), written back, in the schema; the context block
+ *         says a decision is the user's
  *   PD-14 a finished process: the completed flag is written and read back, only "back" (reopen) is
  *         offered, and any other change clears it
  *   PD-15 a gate can always be run again: its iteration counts up although it is not marked repeatable
@@ -326,10 +329,12 @@ describe('process definitions', () => {
     test('PD-13: the moves at each position', () => {
         const def = definition();
         const kinds = (s: ReturnType<typeof selectProcess>): string[] => availableMoves(def, s).map((m) => m.level ? `${m.kind}:${m.level}` : m.kind);
-        const at = (m: { target: { phase: string; step: string; substep: string; phaseIteration: number; stepIteration: number; substepIteration: number; ran?: boolean } }): string =>
-            `${m.target.phase}#${m.target.phaseIteration}/${m.target.step}#${m.target.stepIteration}/${m.target.substep}#${m.target.substepIteration}${m.target.ran ? ' (ran)' : ''}`;
+        const at = (m: { target: { phase: string; step: string; substep: string; phaseIteration: number; stepIteration: number; substepIteration: number; decision?: boolean; completed?: boolean } }): string =>
+            `${m.target.phase}#${m.target.phaseIteration}/${m.target.step}#${m.target.stepIteration}/${m.target.substep}#${m.target.substepIteration}${m.target.decision ? ' (decision)' : ''}${m.target.completed ? ' (finished)' : ''}`;
         const move = (s: ReturnType<typeof selectProcess>, kind: string, level?: string) =>
             availableMoves(def, s).find((m) => m.kind === kind && (level === undefined || m.level === level))!;
+        const options = (s: ReturnType<typeof selectProcess>): string[] =>
+            availableMoves(def, s).filter((m) => m.branchOption).map((m) => `${m.level ? `${m.kind}:${m.level}` : m.kind} ${m.label}`);
 
         const start = selectProcess(def);
         assert.deepEqual(kinds(start), ['proceed', 'skip'], 'the very first step: nowhere back to');
@@ -338,64 +343,64 @@ describe('process definitions', () => {
         assert.deepEqual(move(start, 'skip').target, move(start, 'proceed').target, 'skip moves on without running');
 
         const read = selectStep(start, def, 'review');
-        assert.deepEqual(kinds(read), ['proceed', 'skip', 'back'], 'inside a repeatable step: no decision yet');
+        assert.deepEqual(kinds(read), ['proceed', 'skip', 'back'], 'no decision inside a step');
         assert.equal(at(move(read, 'proceed')), 'draft#1/review#1/comment#1');
         assert.equal(at(move(read, 'back')), 'draft#1/write#1/#1');
 
         const comment = selectSubstep(read, def, 'comment');
-        assert.deepEqual(kinds(comment), ['proceed', 'finish:step', 'repeat:substep', 'repeat:step', 'skip', 'back'],
-            'the last sub-step of a repeatable step: a decision point');
-        assert.equal(at(move(comment, 'proceed')), 'draft#1/review#1/comment#1 (ran)', 'a decision point: runs and stays');
-        assert.equal(move(comment, 'finish').label, 'Finish step');
-        assert.equal(at(move(comment, 'finish')), 'draft#1/gate#1/#1');
-        assert.equal(at(move(comment, 'repeat', 'substep')), 'draft#1/review#1/comment#2');
-        assert.equal(at(move(comment, 'repeat', 'step')), 'draft#1/review#2/read#1', 'a new step iteration starts at its first sub-step');
-        assert.equal(at(move(comment, 'back')), 'draft#1/review#1/read#1');
+        assert.deepEqual(kinds(comment), ['proceed', 'skip', 'back'], 'a decision point decides nothing itself');
+        const decision = move(comment, 'proceed').target;
+        assert.equal(at(move(comment, 'proceed')), 'draft#1/review#1/comment#1 (decision)', 'on to the decision after it');
+        assert.deepEqual(kinds(decision), ['proceed', 'finish', 'repeat:substep', 'repeat:step', 'back']);
+        assert.equal(move(decision, 'proceed').label, 'Decide…');
+        assert.deepEqual(options(decision), ['finish Go on to Draft gate', 'repeat:substep Repeat Comment', 'repeat:step Repeat the step Review']);
+        assert.equal(at(move(decision, 'finish')), 'draft#1/gate#1/#1');
+        assert.equal(at(move(decision, 'repeat', 'substep')), 'draft#1/review#1/comment#2');
+        assert.equal(at(move(decision, 'repeat', 'step')), 'draft#1/review#2/read#1', 'a new step iteration starts at its first sub-step');
+        assert.equal(at(move(decision, 'back')), 'draft#1/review#1/comment#1', 'back from the decision: the position itself');
+        assert.equal(availableMoves(def, decision).find((m) => m.kind === 'skip'), undefined, 'a decision is decided, not skipped');
 
         const gate = selectStep(start, def, 'gate');
-        assert.deepEqual(kinds(gate), ['proceed', 'gate-passed', 'gate-failed', 'skip', 'back']);
-        assert.equal(at(move(gate, 'proceed')), 'draft#1/gate#1/#1 (ran)', 'a gate: runs and stays for the verdict');
-        assert.equal(at(move(gate, 'gate-passed')), 'draft#1/tidy#1/#1');
-        assert.equal(at(move(gate, 'gate-failed')), 'draft#1/gate#2/#1');
-        assert.equal(at(move(gate, 'back')), 'draft#1/review#1/comment#1', 'back into a step: its last sub-step');
+        assert.deepEqual(kinds(gate), ['proceed', 'skip', 'back']);
+        assert.equal(at(move(gate, 'back')), 'draft#1/review#1/comment#1 (decision)', 'back across a decision point: its decision');
+        const verdict = move(gate, 'proceed').target;
+        assert.deepEqual(options(verdict), ['gate-passed Gate passed — go on to Tidy up', 'gate-failed Gate failed — run Draft gate again']);
+        assert.equal(at(move(verdict, 'gate-passed')), 'draft#1/tidy#1/#1');
+        assert.equal(at(move(verdict, 'gate-failed')), 'draft#1/gate#2/#1');
 
         const tidy = selectStep(start, def, 'tidy');
-        assert.deepEqual(kinds(tidy), ['proceed', 'finish:phase', 'repeat:phase', 'skip', 'back']);
-        assert.equal(at(move(tidy, 'finish')), 'ship#1/release#1/#1');
-        assert.equal(at(move(tidy, 'repeat', 'phase')), 'draft#2/write#1/#1', 'a new phase iteration starts at its first step');
-        assert.deepEqual(kinds({ ...tidy, phaseIteration: 3 }), ['proceed', 'skip', 'back'], 'maxIterations reached: no decision left');
-        assert.equal(at(move({ ...tidy, phaseIteration: 3 }, 'proceed')), 'ship#1/release#1/#1');
+        const end = move(tidy, 'proceed').target;
+        assert.equal(at({ target: end }), 'draft#1/tidy#1/#1 (decision)', 'the end of a phase is a decision point');
+        assert.deepEqual(options(end), ['finish Go on to Ship › Release', 'repeat:phase Repeat the phase Draft']);
+        assert.equal(at(move(end, 'repeat', 'phase')), 'draft#2/write#1/#1', 'a new phase iteration starts at its first step');
+        assert.deepEqual(options({ ...end, phaseIteration: 3 }), ['finish Go on to Ship › Release'], 'maxIterations reached: only on');
 
         const release = selectPhase(start, def, 'ship');
-        assert.equal(at(move(release, 'back')), 'draft#1/tidy#1/#1', 'back across a phase boundary: the last step of the previous phase');
-        const shipGate = selectStep(release, def, 'gate');
-        assert.deepEqual(kinds(shipGate), ['proceed', 'finish-process', 'gate-failed', 'back'], 'the last gate: passing it finishes the process');
-        assert.equal(at(move(shipGate, 'proceed')), 'ship#1/gate#1/#1 (ran)');
-        const done = move(shipGate, 'finish-process').target;
-        assert.equal(done.completed, true);
-        assert.equal(at(move(shipGate, 'finish-process')), 'ship#1/gate#1/#1');
+        assert.equal(at(move(release, 'back')), 'draft#1/tidy#1/#1 (decision)', 'back across a phase boundary: the previous phase\'s end');
+        const shipVerdict = move(selectStep(release, def, 'gate'), 'proceed').target;
+        assert.deepEqual(options(shipVerdict), ['finish-process Gate passed — finish the process', 'gate-failed Gate failed — run Ship gate again']);
+        assert.equal(move(shipVerdict, 'finish-process').target.completed, true);
         assert.deepEqual(availableMoves(def, EMPTY_PROCESS_STATE), [], 'no process, no moves');
     });
 
-    test('PD-18: the ran flag', () => {
+    test('PD-18: the decision flag', () => {
         const def = definition();
         const defs = new Map([['review_flow', def]]);
         const gate = selectStep(selectProcess(def), def, 'gate');
-        const ran = availableMoves(def, gate).find((m) => m.kind === 'proceed')!.target;
-        assert.equal(ran.ran, true);
-        assert.deepEqual(parseProcessState(stringifyProcessState(ran, 'x')), ran, 'written and read back');
-        assert.doesNotMatch(stringifyProcessState(gate, 'x'), /ran/, 'only a run position writes the flag');
-        const moves = availableMoves(def, ran);
-        assert.equal(moves[0].kind, 'proceed');
-        assert.equal(moves[0].label, 'Run again');
-        assert.equal(moves[0].target.ran, true, 'running again stays');
-        for (const m of moves.slice(1)) { assert.equal(m.target.ran, undefined, `${m.kind} leads to a position not run yet`); }
-        const moved = applyProcessChange(ran, defs, { step: 'review' });
-        assert.equal(moved.ok && moved.state.ran, undefined, 'a change of position drops it');
-        const same = applyProcessChange(ran, defs, { completed: false });
-        assert.equal(same.ok && same.state.ran, true, 'a change that leaves the position keeps it');
-        const iterated = changeIteration(ran, def, 'step', 1);
-        assert.equal(iterated.ran, undefined, 'a new iteration has not run');
+        const decision = availableMoves(def, gate).find((m) => m.kind === 'proceed')!.target;
+        assert.equal(decision.decision, true);
+        assert.deepEqual(parseProcessState(stringifyProcessState(decision, 'x')), decision, 'written and read back');
+        assert.match(stringifyProcessState(decision, 'x'), /decision: true/);
+        assert.deepEqual(parseProcessState(stringifyProcessState(gate, 'x').replace('updated:', 'ran: true\nupdated:')), decision, 'an older file\'s ran reads as a decision');
+        assert.doesNotMatch(stringifyProcessState(gate, 'x'), /decision/, 'only a decision writes the flag');
+        for (const m of availableMoves(def, decision).filter((x) => x.kind !== 'proceed')) {
+            assert.equal(m.target.decision, undefined, `${m.kind} leads to a position`);
+        }
+        const moved = applyProcessChange(decision, defs, { step: 'review' });
+        assert.equal(moved.ok && moved.state.decision, undefined, 'a change of position drops it');
+        const same = applyProcessChange(decision, defs, { completed: false });
+        assert.equal(same.ok && same.state.decision, true, 'a change that leaves the position keeps it');
+        assert.equal(changeIteration(decision, def, 'step', 1).decision, undefined, 'a new iteration is a position');
     });
 
     test('PD-14: a finished process', () => {
@@ -524,9 +529,9 @@ phases:
         const proceed = (st: typeof start) => availableMoves(def, st).find((m) => m.kind === 'proceed');
         assert.equal(proceed(answer)!.label, 'Confirm done');
         assert.equal(proceed(answer)!.target.step, 'rounds', 'confirmed: the process moves on');
-        assert.equal(proceed(reply)!.label, 'Confirm done', 'a decision point (repeatable step) too');
-        assert.equal(proceed(reply)!.target.ran, true);
-        assert.equal(proceed({ ...reply, ran: true }), undefined, 'confirmed already: decide how it goes on');
+        assert.equal(proceed(reply)!.label, 'Confirm done', 'at the end of a repeatable step too');
+        assert.equal(proceed(reply)!.target.decision, true, 'confirmed: on to the decision after it');
+        assert.equal(proceed({ ...reply, decision: true })!.label, 'Decide…', 'then the user decides');
 
         const block = processContextBlock(def, answer, '');
         assert.match(block, /User action/);
@@ -542,5 +547,36 @@ phases:
         assert.ok(errors({ id: 'x', phases: [{ id: 'a', steps: [], gate: { id: 'g', userAction: true } }] })
             .some((e) => e.startsWith('phases[0].gate.userAction: a gate is')));
         assert.deepEqual(errors(phase({ userAction: true, description: 'Read it.' })), []);
+    });
+});
+
+describe('decisions', () => {
+    test('PD-20: a gate\'s onFail and the decision in the system prompt', () => {
+        const yaml = YAML.replace("      prompt: Run the draft gate checklist.\n", "      prompt: Run the draft gate checklist.\n      onFail: review\n");
+        const parsed = parseProcessYaml(yaml);
+        assert.deepEqual(parsed.errors, []);
+        const def = parsed.definition!;
+        assert.equal(def.phases[0].gate.onFail, 'review');
+        assert.match(stringifyProcessDefinition(def), /onFail: review/, 'written back');
+        const gate = selectStep(selectProcess(def), def, 'gate');
+        const decision = availableMoves(def, gate).find((m) => m.kind === 'proceed')!.target;
+        const failed = availableMoves(def, decision).find((m) => m.kind === 'gate-failed')!;
+        assert.equal(failed.label, 'Gate failed — back to Review');
+        assert.deepEqual([failed.target.step, failed.target.substep, failed.target.decision], ['review', 'read', undefined], 'back to that step, at its start');
+
+        const block = processContextBlock(def, decision, '');
+        assert.match(block, /\*\*Decision\*\* — this position has run; the user decides here how the process goes on: Gate passed — go on to Tidy up; Gate failed — back to Review\. An agent does not decide it/);
+        assert.doesNotMatch(processContextBlock(def, gate, ''), /\*\*Decision\*\*/);
+
+        const errors = (raw: unknown): string[] => validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`);
+        assert.deepEqual(errors({ id: 'x', phases: [{ id: 'a', steps: [{ id: 's' }], gate: { id: 'g', onFail: 'nope' } }] }),
+            ['phases[0].gate.onFail: the step a failed gate goes back to: one of "s", "g"']);
+        assert.deepEqual(errors({ id: 'x', phases: [{ id: 'a', steps: [{ id: 's', onFail: 's' }], gate: { id: 'g' } }] }),
+            ['phases[0].steps[0].onFail: unknown key'], 'only a gate has one');
+        assert.deepEqual(errors({ id: 'x', phases: [{ id: 'a', steps: [{ id: 's' }], gate: { id: 'g', onFail: 'g' } }] }), [], 'the gate itself is allowed');
+
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(yaml)), true, JSON.stringify(validate.errors));
     });
 });

@@ -26,7 +26,7 @@ import {
     processActionValues,
     type ProcessActionTemplates,
 } from '../utils/processActionPrompt';
-import { userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
+import { decisionAt, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
 
 const templatesChanged = new vscode.EventEmitter<void>();
 /** Fires after the templates were saved, so an open action page refreshes its preview. */
@@ -112,6 +112,9 @@ export async function confirmProcessAction(
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
     const here = store.state;
+    if (decisionAt(def, here)) {
+        return { ok: false, error: 'this is a decision: pick how the process goes on (repeat, go on, gate passed or failed) in the PROCESS view' };
+    }
     const session = actionSession(def, here, sessionOverride);
     // A user action is done by the user: confirming it queues nothing.
     const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);

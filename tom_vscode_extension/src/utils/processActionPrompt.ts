@@ -28,6 +28,7 @@ import {
     findSubstep,
     phaseSteps,
     userActionAt,
+    decisionAt,
     type ProcessDefinition,
     type ProcessSession,
     type ProcessMove,
@@ -125,9 +126,9 @@ export function runNote(def: ProcessDefinition, state: ProcessState): string {
 /** What happens after the prompt is queued, for the prompt itself. */
 function afterText(def: ProcessDefinition, state: ProcessState, move: ProcessMove): string {
     const t = move.target;
-    if (t.ran) {
-        return 'The PROCESS view stays at this position until the user decides how the process goes on '
-            + '(finish, repeat, gate passed or failed). Do not move the process state yourself.';
+    if (t.decision) {
+        return 'The PROCESS view has moved to the decision after this position: the user decides there how the process '
+            + 'goes on (repeat, go on, gate passed or failed). Do not move the process state yourself.';
     }
     return `The PROCESS view has moved on to ${positionText(def, t)}; that runs only when the user proceeds again. `
         + `This prompt belongs to ${positionText(def, state)} — work in it, and do not move the process state yourself.`;
@@ -227,5 +228,26 @@ export function userActionConfirmation(def: ProcessDefinition, state: ProcessSta
             'By confirming, I hereby confirm that I have done it; the process then moves on.',
         ].join('\n'),
         confirm: 'I confirm I have done it',
+    };
+}
+
+/** What the user is asked at a decision position: the options to choose from, each the move it makes. */
+export interface DecisionDialog {
+    message: string;
+    detail: string;
+    options: Array<{ label: string; kind: ProcessMove['kind']; level?: ProcessMove['level'] }>;
+}
+
+/**
+ * The dialog Proceed opens at a decision position — go on, or repeat a level
+ * that ends here; after a gate, passed or failed. Null at any other position.
+ */
+export function decisionDialog(def: ProcessDefinition, state: ProcessState): DecisionDialog | null {
+    const decision = decisionAt(def, state);
+    if (!decision) { return null; }
+    return {
+        message: `Decide how the process goes on after ${positionText(def, state)}`,
+        detail: 'This position has run. Choose how the process goes on — nothing is queued; the process moves to what you pick.',
+        options: decision.options.map((o) => ({ label: o.label, kind: o.kind, ...(o.level ? { level: o.level } : {}) })),
     };
 }
