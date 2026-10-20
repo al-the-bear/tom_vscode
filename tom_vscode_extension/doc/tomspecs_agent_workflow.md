@@ -74,7 +74,10 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    (`afterComment: "C-12"`) to ask about it, or after a paragraph — with options
    `(a) …`, `(b) …` and the `recommended` letter, which is written bold.
    `tomAi_specInsertComment` adds a comment after a paragraph (paragraphs are the
-   blank-line separated blocks of the value, from 0); `tomAi_specEditComment`
+   blank-line separated blocks of the value, from 0). Rather than count them,
+   name the paragraph by its text: `afterTextStart` (it begins with the text) or
+   `afterTextContains`; an anchor that matches no paragraph, or more than one, is
+   refused with the paragraphs to choose from. `tomAi_specEditComment`
    changes one; `tomAi_specAssignCommentIds` numbers the comments a reviewer
    wrote without an id.
 3. **Apply and close.** Once an answer or a comment has been worked into the

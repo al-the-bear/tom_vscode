@@ -83,8 +83,19 @@ interface ValueTarget {
     field?: string;
 }
 
-export interface SpecInsertCommentInput extends SpecEditOptions, ValueTarget {
-    afterParagraph: number;
+/**
+ * Where in a value an annotation goes: after paragraph `afterParagraph`, or
+ * after the paragraph a text anchor names — exactly one of the three.
+ */
+interface ParagraphAnchor {
+    afterParagraph?: number;
+    /** The paragraph that begins with this text (both trimmed, case-sensitive). */
+    afterTextStart?: string;
+    /** The paragraph that contains this text. */
+    afterTextContains?: string;
+}
+
+export interface SpecInsertCommentInput extends SpecEditOptions, ValueTarget, ParagraphAnchor {
     text: string;
     author?: string;
     id?: string;
@@ -101,12 +112,11 @@ export interface SpecQuestionInput {
     starred?: boolean;
 }
 
-export interface SpecInsertQuestionInput extends SpecEditOptions {
+export interface SpecInsertQuestionInput extends SpecEditOptions, ParagraphAnchor {
     question: SpecQuestionInput;
     afterComment?: string;
     path?: string;
     field?: string;
-    afterParagraph?: number;
 }
 
 export interface SpecSetAnswerInput extends SpecEditOptions {
@@ -163,6 +173,46 @@ function requireText(value: unknown, name: string): string {
 function requireParagraph(value: unknown): number {
     if (!Number.isInteger(value) || (value as number) < -1) { invalid('`afterParagraph` must be a whole number, -1 for the start of the value.'); }
     return value as number;
+}
+
+/** How long a candidate's text is quoted when an anchor is refused. */
+const CANDIDATE_EXCERPT = 80;
+
+const hasAnchor = (a: ParagraphAnchor): boolean =>
+    a.afterParagraph !== undefined || a.afterTextStart !== undefined || a.afterTextContains !== undefined;
+
+/**
+ * The paragraph index an annotation goes after: `afterParagraph` as given, or
+ * the one paragraph a text anchor names, looked up in the runtime's paragraph
+ * listing — the same paragraphs `afterParagraph` counts — without the
+ * annotation blocks, which are not the text an anchor means.
+ */
+function resolveParagraph(notes: SpecReviewAnnotations, target: ValueTarget, anchor: ParagraphAnchor): number {
+    const given = [anchor.afterParagraph, anchor.afterTextStart, anchor.afterTextContains].filter((a) => a !== undefined).length;
+    if (given !== 1) {
+        invalid('Say where it goes with exactly one of `afterParagraph` (a number), `afterTextStart` or `afterTextContains` (text of the paragraph).');
+    }
+    if (anchor.afterParagraph !== undefined) { return requireParagraph(anchor.afterParagraph); }
+    const byStart = anchor.afterTextStart !== undefined;
+    const needle = requireText(byStart ? anchor.afterTextStart : anchor.afterTextContains, byStart ? 'afterTextStart' : 'afterTextContains');
+    const paragraphs = notes.paragraphs({ path: target.path, field: target.field || null }).filter((p) => p.annotation === null);
+    const matches = paragraphs.filter((p) => (byStart ? p.text.trim().startsWith(needle.trim()) : p.text.includes(needle)));
+    const excerpt = (text: string): string => {
+        const flat = text.replace(/\s+/g, ' ').trim();
+        return flat.length > CANDIDATE_EXCERPT ? `${flat.slice(0, CANDIDATE_EXCERPT)}…` : flat;
+    };
+    const how = byStart ? 'begins with' : 'contains';
+    if (matches.length === 0) {
+        throw new SpecEditRefusal('anchorNotFound', `No paragraph of the value ${how} "${needle}" (annotation blocks are not counted).`, {
+            paragraphs: paragraphs.map((p) => ({ index: p.index, text: excerpt(p.text) })),
+        });
+    }
+    if (matches.length > 1) {
+        throw new SpecEditRefusal('anchorAmbiguous', `${matches.length} paragraphs ${how} "${needle}"; name one by more of its text, or by \`afterParagraph\`.`, {
+            candidates: matches.map((p) => ({ index: p.index, text: excerpt(p.text) })),
+        });
+    }
+    return matches[0].index;
 }
 
 /** The value an annotation goes into must exist: a content / scalar leaf, or a field of a form. */
@@ -305,7 +355,7 @@ function opInsertComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<S
     const id = notes.insertComment({
         path: input.path,
         field: input.field || null,
-        afterParagraph: requireParagraph(input.afterParagraph),
+        afterParagraph: resolveParagraph(notes, input, input),
         text: requireText(input.text, 'text'),
         author: input.author || null,
         id: input.id || null,
@@ -336,11 +386,12 @@ function opInsertQuestion(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<
         const where = comment?.path ?? '';
         return { touched: where, result: { id: draft.id, path: where, counts: countsOf(notes) } };
     }
-    if (!input.path || input.afterParagraph === undefined) {
-        invalid('Say where the question goes: `afterComment` (a comment id), or `path` with `afterParagraph`.');
+    if (!input.path || !hasAnchor(input)) {
+        invalid('Say where the question goes: `afterComment` (a comment id), or `path` with `afterParagraph`, `afterTextStart` or `afterTextContains`.');
     }
     requireValue(ctx, { path: input.path, field: input.field });
-    notes.insertQuestion({ path: input.path, field: input.field || null, afterParagraph: requireParagraph(input.afterParagraph), question: draft });
+    const afterParagraph = resolveParagraph(notes, { path: input.path, field: input.field }, input);
+    notes.insertQuestion({ path: input.path, field: input.field || null, afterParagraph, question: draft });
     return { touched: input.path, result: { id: draft.id, path: input.path, counts: countsOf(notes) } };
 }
 
@@ -484,7 +535,14 @@ const NOTATION =
     + '`{~~old~>new~~}`, `{==text==}{>>comment<<}`, `{>>comment<<}`.';
 const PARAGRAPHS =
     'Paragraphs are the blank-line separated blocks of the value (an annotation block is one; a blank line inside fenced '
-    + 'code does not end one), counted from 0 as tomAi_specGetSection shows the value; -1 is the start.';
+    + 'code does not end one), counted from 0 as tomAi_specGetSection shows the value; -1 is the start. Instead of the '
+    + 'number, name the paragraph by its text: `afterTextStart` (the paragraph that begins with it, trimmed, '
+    + 'case-sensitive) or `afterTextContains` (anywhere in it) — annotation blocks are not matched; no match is refused '
+    + '(`anchorNotFound`, with the paragraphs), more than one (`anchorAmbiguous`, with the candidates and their numbers).';
+const ANCHOR_PARAMS = {
+    afterTextStart: { type: 'string', description: 'Instead of `afterParagraph`: the paragraph that begins with this text.' },
+    afterTextContains: { type: 'string', description: 'Instead of `afterParagraph`: the paragraph that contains this text.' },
+};
 const TARGET_PARAMS = {
     path: { type: 'string', description: `The value: a content path (\`…/content\`), or a form with \`field\`. ${PATH_PARAM_HINT}` },
     field: { type: 'string', description: 'The form field whose value holds the annotation; omit for content.' },
@@ -541,25 +599,27 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
 
 export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
     { name: 'tomAi_specInsertComment', displayName: 'Spec: Insert Comment' },
-    'Insert a reviewer comment block `> ⬆️ **C-<n>** (author): text` after paragraph `afterParagraph` of a value, through '
+    'Insert a reviewer comment block `> ⬆️ **C-<n>** (author): text` after a paragraph of a value (`afterParagraph`, or '
+    + '`afterTextStart` / `afterTextContains`), through '
     + 'SpecReviewAnnotations.insertComment. The id is `id` when given, else the next free one (the highest `C-<n>` in '
     + 'the document plus one); answers it as `id`. ' + PARAGRAPHS + ' A missing paragraph is refused (`annotationRefused`).'
     + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS, ...TARGET_PARAMS,
         afterParagraph: { type: 'number', description: 'The paragraph (0-based) the comment follows; -1 for the start of the value.' },
+        ...ANCHOR_PARAMS,
         text: { type: 'string', description: 'The comment.' },
         author: { type: 'string', description: 'Who writes it; omit for none.' },
         id: { type: 'string', description: 'The id to write, e.g. `C-12`; default the next free one.' },
     },
-    ['file', 'path', 'afterParagraph', 'text'],
+    ['file', 'path', 'text'],
     specInsertCommentImpl,
 );
 
 export const SPEC_INSERT_QUESTION_TOOL = editTool<SpecInsertQuestionInput>(
     { name: 'tomAi_specInsertQuestion', displayName: 'Spec: Insert Question' },
     'Insert a question block (SOM §11.9.2): directly after a comment (`afterComment`, its id — how to ask about a '
-    + 'comment), or after paragraph `afterParagraph` of the value at `path`. The block is written by the runtime: the '
+    + 'comment), or after a paragraph of the value at `path` (`afterParagraph`, `afterTextStart` or `afterTextContains`). The block is written by the runtime: the '
     + 'header `> **❓ <id> — <topic>:** <text>`, the options one per line with the recommended one bold, an optional '
     + '`*Recommendation:*` and working assumption, and an empty `> **Answer:**`. ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
@@ -567,6 +627,7 @@ export const SPEC_INSERT_QUESTION_TOOL = editTool<SpecInsertQuestionInput>(
         question: QUESTION_SCHEMA,
         afterComment: { type: 'string', description: 'Insert directly after this comment (e.g. `C-12`).' },
         afterParagraph: { type: 'number', description: 'With `path`: the paragraph (0-based) the question follows; -1 for the start.' },
+        ...ANCHOR_PARAMS,
     },
     ['file', 'question'],
     specInsertQuestionImpl,

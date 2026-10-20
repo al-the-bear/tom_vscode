@@ -468,8 +468,8 @@ mark delimiters, and the new text was written unmarked.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specInsertComment` | A comment block after a paragraph of a value; the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph; the recommended option bold. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specInsertComment` | A comment block after a paragraph of a value — by number (`afterParagraph`) or by its text (`afterTextStart` / `afterTextContains`, refused when no or several paragraphs match); the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph (by number or by its text, as insertComment); the recommended option bold. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specEditComment` | Replace a comment's text; id and author stay. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |

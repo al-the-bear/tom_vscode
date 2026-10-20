@@ -37,6 +37,10 @@
  *   SA-17 the counts across a folder (vscimpa13): `dir` instead of `file` answers per document — file, root,
  *         counts, findings — and the totals, no lists; the search's truncation and stoppedBy are passed on;
  *         `file` and `dir` together, or neither, are refused
+ *   SA-18 a text anchor instead of a paragraph number (vscimpa14): `afterTextStart` (the paragraph that begins with
+ *         it, trimmed, case-sensitive) and `afterTextContains` (anywhere in it) on insertComment, insertQuestion and
+ *         their batch ops, matched against the runtime's paragraph listing without the annotation blocks; no match
+ *         is refused (`anchorNotFound`), more than one (`anchorAmbiguous`) with the candidates; one anchor only
  */
 
 import test, { before, describe } from 'node:test';
@@ -512,5 +516,47 @@ describe('TomSpecs annotation tools', () => {
 
         assert.equal((await run(specAnnotationsImpl, { file: a, dir })).code, 'invalidInput');
         assert.equal((await run(specAnnotationsImpl, {})).code, 'invalidInput');
+    });
+
+    test('SA-18: a text anchor instead of a paragraph number', async () => {
+        // The value's paragraphs: 0 'The order system…', 1 comment C-3, 2 'Orders are {++ always ++} kept…',
+        // 3 question BQ-01, 4 'Invoices go to finance.', 5 Ann's comment.
+        const file = await annotated();
+        const commentAfter = async (anchor: object, text: string): Promise<Json> =>
+            run(specInsertCommentImpl, { file, path: VALUE, text, ...anchor });
+        const contextOf = async (text: string): Promise<string> =>
+            (await list(file)).comments.find((c: Json) => c.text === text)?.context;
+
+        assert.equal((await commentAfter({ afterTextStart: 'Invoices go' }, 'By start.')).ok, true);
+        assert.equal(await contextOf('By start.'), 'Invoices go to finance.');
+        assert.equal((await commentAfter({ afterTextContains: 'kept' }, 'By contains.')).ok, true);
+        assert.match(await contextOf('By contains.'), /^Orders are/);
+
+        const notStart = await commentAfter({ afterTextStart: 'kept' }, 'x');
+        assert.equal(notStart.code, 'anchorNotFound', 'a start anchor does not match mid-paragraph');
+        assert.equal((await commentAfter({ afterTextStart: 'invoices go' }, 'x')).code, 'anchorNotFound', 'case-sensitive');
+        assert.equal((await commentAfter({ afterTextContains: 'What about returns?' }, 'x')).code, 'anchorNotFound',
+            'an annotation block is not a paragraph to anchor to');
+        const ambiguous = await commentAfter({ afterTextContains: 'o' }, 'x');
+        assert.equal(ambiguous.code, 'anchorAmbiguous');
+        // The two comments inserted above shifted 'Invoices…' from 4 to 5.
+        assert.deepEqual(ambiguous.candidates.map((c: Json) => c.index), [0, 2, 5]);
+        assert.match(ambiguous.candidates[0].text, /^The order system/);
+        assert.equal((await commentAfter({ afterTextStart: 'Invoices', afterParagraph: 4 }, 'x')).code, 'invalidInput', 'one anchor only');
+        assert.equal((await commentAfter({}, 'x')).code, 'invalidInput', 'an anchor is needed');
+
+        const q = await run(specInsertQuestionImpl, {
+            file, path: VALUE, afterTextStart: 'The order system',
+            question: { id: 'BQ-02', topic: 'scope', text: 'Which spreadsheets?' },
+        });
+        assert.equal(q.ok, true, JSON.stringify(q));
+        const value = (await list(file)).questions.find((x: Json) => x.id === 'BQ-02');
+        assert.equal(value.line, 2, 'right after the first paragraph');
+
+        const batch = await run(specApplyEditsImpl, {
+            file, edits: [{ op: 'insertComment', path: VALUE, afterTextContains: 'finance', text: 'In a batch.' }],
+        });
+        assert.equal(batch.ok, true, JSON.stringify(batch));
+        assert.equal(await contextOf('In a batch.'), 'Invoices go to finance.');
     });
 });
