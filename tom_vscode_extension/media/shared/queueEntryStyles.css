@@ -50,6 +50,8 @@
   .empty { text-align: center; opacity: 0.5; padding: 20px; }
   .context-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; font-size: 0.85em; }
   .context-summary { flex: 1; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .context-summary .ctx-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; }
+  .context-summary .ctx-link:hover { color: var(--vscode-textLink-activeForeground); }
   .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
   .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
   .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }

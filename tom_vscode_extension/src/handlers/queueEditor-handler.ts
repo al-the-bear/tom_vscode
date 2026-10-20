@@ -10,6 +10,7 @@
 
 import { pickAgentSdkSession } from './sessionPicker';
 import { WsPaths } from '../utils/workspacePaths';
+import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
@@ -280,6 +281,21 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           return;
         }
         case 'editItemSession':
+        case 'pickRole': {
+          // The role chat variable, from the roles under _ai/roles (the context bar's Role link).
+          const chat = ChatVariablesStore.instance;
+          const roles = listRoleNames(WsPaths.ai('roles'));
+          const picked = await vscode.window.showQuickPick(
+            [{ label: '$(circle-slash) No role', role: '' }, ...roles.map((r) => ({ label: r, role: r, description: r === chat.role ? '(current)' : '' }))],
+            { title: 'Role of the prompts', placeHolder: `Current role: ${chat.role || '(none)'}` },
+          );
+          if (picked) {
+            chat.role = picked.role;
+            sendState();
+          }
+          return;
+        }
+
         case 'pickQueueDefaultSession': {
           // The Agent SDK session of one item, or the queue's default.
           const pqm = PromptQueueManager.instance;

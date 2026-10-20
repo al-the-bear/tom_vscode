@@ -39,10 +39,6 @@
      inherit this at dispatch. Per-item / per-stage overrides still win.
      Picker markup is rendered host-side and injected here by main.js. -->
 <div class="context-bar" id="queueDefaultPickerSlot" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;"></div>
-<div class="context-bar" id="queueDefaultSessionRow">
-  <label>Default session:</label>
-  <button id="queueDefaultSessionBtn" title="The Agent SDK session Anthropic items run in unless they name their own — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span> <span id="queue-default-session-name">default</span></button>
-</div>
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>

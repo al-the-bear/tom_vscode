@@ -174,10 +174,16 @@ function showFatalError(context, err) {
 /* ---- Inject transport-picker fragments (rendered host-side, spec §4.15) ---- */
 var __qdSlot = document.getElementById('queueDefaultPickerSlot');
 if (__qdSlot && __INIT.queueDefaultPickerHtml) { __qdSlot.innerHTML = __INIT.queueDefaultPickerHtml; }
-var __qdsBtn = document.getElementById('queueDefaultSessionBtn');
-if (__qdsBtn) { __qdsBtn.addEventListener('click', function() { vscode.postMessage({ type: 'pickQueueDefaultSession' }); }); }
-var __qdsName = document.getElementById('queue-default-session-name');
-if (__qdsName) { __qdsName.textContent = queueDefaultSessionLabel; }
+// Role and Session in the context bar open VS Code pickers on the host.
+var __ctxSummary = document.getElementById('contextSummary');
+if (__ctxSummary) {
+  __ctxSummary.addEventListener('click', function(e) {
+    var link = e.target && e.target.closest ? e.target.closest('.ctx-link') : null;
+    if (!link) { return; }
+    e.preventDefault();
+    vscode.postMessage({ type: link.dataset.pick === 'role' ? 'pickRole' : 'pickQueueDefaultSession' });
+  });
+}
 var __afSlot = document.getElementById('addTransportRow');
 if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormPickerHtml; }
 
@@ -213,8 +219,6 @@ window.addEventListener('message', e => {
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
       queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
       queueDefaultSessionLabel = msg.queueDefaultSession || 'default';
-      var defaultSessionEl = document.getElementById('queue-default-session-name');
-      if (defaultSessionEl) { defaultSessionEl.textContent = queueDefaultSessionLabel; }
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
@@ -250,14 +254,36 @@ function showAddFeedback(text, cls) {
   setTimeout(() => { el.textContent = ''; el.className = 'add-feedback'; }, 3000);
 }
 
+/**
+ * The context bar: Quest, Role and the queue's default Agent SDK session, then
+ * the active projects. Role and Session are links: a click opens a VS Code
+ * picker on the host (pickRole / pickQueueDefaultSession).
+ */
 function updateContextSummary() {
   const el = document.getElementById('contextSummary');
   if (!el) return;
-  const parts = [];
-  if (currentContext.quest) parts.push('Quest: ' + currentContext.quest);
-  if (currentContext.role) parts.push('Role: ' + currentContext.role);
-  if (currentContext.activeProjects && currentContext.activeProjects.length) parts.push('Projects: ' + currentContext.activeProjects.join(', '));
-  el.textContent = parts.length > 0 ? parts.join('  |  ') : 'No context set';
+  el.textContent = '';
+  const sep = () => el.appendChild(document.createTextNode('  |  '));
+  const link = (pick, text, title) => {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'ctx-link';
+    a.dataset.pick = pick;
+    a.title = title;
+    a.textContent = text;
+    return a;
+  };
+  if (currentContext.quest) { el.appendChild(document.createTextNode('Quest: ' + currentContext.quest)); sep(); }
+  el.appendChild(document.createTextNode('Role: '));
+  el.appendChild(link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'));
+  sep();
+  el.appendChild(document.createTextNode('Session: '));
+  el.appendChild(link('session', queueDefaultSessionLabel || 'default',
+    'The Agent SDK session Anthropic items run in unless they name their own — click to pick another or create one'));
+  if (currentContext.activeProjects && currentContext.activeProjects.length) {
+    sep();
+    el.appendChild(document.createTextNode('Projects: ' + currentContext.activeProjects.join(', ')));
+  }
 }
 
 function openContextSettings() {
