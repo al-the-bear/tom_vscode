@@ -50,6 +50,7 @@ import {
     type SpecEditOptions,
 } from './spec-edit-core';
 import { SomSpecInspector } from '../services/som-spec-inspector';
+import { findSpecDocuments } from './spec-tools';
 import type { LoadedSomDocument } from '../services/som-document-store';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +60,14 @@ import type { LoadedSomDocument } from '../services/som-document-store';
 export type AnnotationKind = 'comment' | 'question' | 'mark';
 
 export interface SpecAnnotationsInput {
-    file: string;
+    /** One document: its annotations listed. Or pass `dir`. */
+    file?: string;
+    /** A folder: the counts of every SOM document under it, no lists. */
+    dir?: string;
+    /** With `dir`: at most this many documents (default 200, max 2000). */
+    maxResults?: number;
+    /** With `dir`: how long the search and the reading may take, in ms (default 10 s, max 120 s). */
+    timeBudgetMs?: number;
     /** Only the annotations at or below this path. */
     path?: string;
     kinds?: AnnotationKind[];
@@ -197,9 +205,59 @@ function questionView(a: SpecReviewAnnotation): Record<string, unknown> {
 // Reading
 // ---------------------------------------------------------------------------
 
+/** The annotation counts of one loaded document. */
+function annotationCounts(notes: SpecReviewAnnotations): { questions: number; openQuestions: number; answeredQuestions: number; comments: number; marks: number } {
+    const all = notes.list();
+    const questions = all.filter((a) => a.kind === 'question');
+    return {
+        questions: questions.length,
+        openQuestions: questions.filter((q) => q.open).length,
+        answeredQuestions: questions.filter((q) => !q.open).length,
+        comments: all.filter((a) => a.kind === 'comment').length,
+        marks: all.filter((a) => a.kind === 'mark').length,
+    };
+}
+
+/** The `dir` form: per document under the folder, its counts and its annotation findings; and the totals. */
+async function annotationsAcrossFolder(deps: SpecToolDeps, input: SpecAnnotationsInput): Promise<string> {
+    const found = await findSpecDocuments(deps, input);
+    const documents: Record<string, unknown>[] = [];
+    let stoppedBy: string | null = found.stoppedBy;
+    const totals = { documents: 0, withAnnotations: 0, questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0, findings: 0 };
+    for (const doc of found.documents) {
+        if (Date.now() > found.deadline) { stoppedBy = 'time'; break; }
+        const file = String(doc.file);
+        try {
+            const loaded = loadDocument(deps, file);
+            const notes = annotationsOf(loaded.document, loaded);
+            const counts = annotationCounts(notes);
+            const findings = notes.validate().length;
+            documents.push({ file, root: loaded.root.sectionId ?? loaded.root.type, counts, findings });
+            totals.documents++;
+            if (counts.questions + counts.comments + counts.marks > 0) { totals.withAnnotations++; }
+            for (const k of ['questions', 'openQuestions', 'answeredQuestions', 'comments', 'marks'] as const) { totals[k] += counts[k]; }
+            totals.findings += findings;
+        } catch (e) {
+            documents.push({ file, error: (e as Error).message });
+        }
+    }
+    return json({
+        ok: true,
+        searched: found.searched,
+        search: found.search,
+        documents,
+        totals,
+        ...(stoppedBy ? { truncated: true, stoppedBy } : {}),
+    });
+}
+
 export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotationsInput): Promise<string> {
     try {
-        const loaded = loadDocument(deps, input.file);
+        if ((input.file && input.dir) || (!input.file && !input.dir)) {
+            return json({ ok: false, code: 'invalidInput', error: 'Pass `file` (one document, its annotations listed) or `dir` (a folder, counts per document), not both.' });
+        }
+        if (input.dir) { return await annotationsAcrossFolder(deps, input); }
+        const loaded = loadDocument(deps, input.file as string);
         const scope = input.path || null;
         if (scope) { new SomSpecInspector(deps.service, loaded.document).resolve(scope); }
         const inScope = (p: string): boolean => !scope || p === scope || p.startsWith(`${scope}/`);
@@ -458,19 +516,25 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
         + '(questions, openQuestions, answeredQuestions, comments, marks), `marksRevision` (what tomAi_specDecideMarks '
         + 'checks mark ids against) and `findings` (annotation problems the runtime reports). `path` keeps those at or '
         + 'below it; `kinds` and `openOnly` narrow the lists; at most `limit` (default 200) of each, `truncated` when '
-        + 'more. Lines are 0-based within the value.' + NOTATION + FIRST_LOOK,
+        + 'more. Lines are 0-based within the value. With `dir` instead of `file`: every SOM document under the folder '
+        + '(found as tomAi_specListDocuments finds them) with its `counts` and its number of `findings`, and the `totals` '
+        + '(documents, withAnnotations, the counts, findings) — no lists; which documents still have open questions, '
+        + 'unapplied comments or marks, in one call. `maxResults` / `timeBudgetMs` bound it; `truncated` with `stoppedBy` '
+        + 'when they did.' + NOTATION + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
         type: 'object',
         properties: {
-            file: FILE_PARAM,
+            file: { ...FILE_PARAM, description: `${FILE_PARAM.description} Or pass \`dir\`.` },
+            dir: { type: 'string', description: 'A folder (workspace-relative or absolute): the counts of every SOM document under it, instead of one document\'s lists.' },
+            maxResults: { type: 'number', description: 'With `dir`: at most this many documents. Default 200, max 2000.' },
+            timeBudgetMs: { type: 'number', description: 'With `dir`: how long it may take, in ms. Default 10000, max 120000.' },
             path: { type: 'string', description: `Only annotations at or below this path. ${PATH_PARAM_HINT}` },
             kinds: { type: 'array', items: { type: 'string', enum: ['comment', 'question', 'mark'] }, description: 'Which lists to fill; default all three.' },
             openOnly: { type: 'boolean', description: 'Only questions without an answer.' },
             limit: { type: 'number', description: 'At most this many of each kind. Default 200.' },
         },
-        required: ['file'],
     },
     execute: async (input) => specAnnotationsImpl(liveDeps(), input),
 };

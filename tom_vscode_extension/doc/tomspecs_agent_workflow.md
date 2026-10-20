@@ -61,7 +61,11 @@ Questions, reviewer comments and inline change marks are text inside content
 values (SOM §11.9). Read and change them with these tools, never by editing the
 Markdown by hand: the runtime keeps every byte outside the annotation as it was.
 
-1. **See what is open.** `tomAi_specAnnotations` on the file (or with `path` for
+1. **See what is open.** Across several documents first, if there are several:
+   `tomAi_specAnnotations` with `dir` instead of `file` answers, for every SOM
+   document under the folder, its counts (questions, open questions, comments,
+   marks) and the totals — which documents a round still has to work through.
+   Then `tomAi_specAnnotations` on the file (or with `path` for
    a subtree): the comments with the paragraph each one follows, the questions
    with their options, recommended option and answer (`openOnly: true` for the
    unanswered ones), the inline marks `M-1`, `M-2`, … and the `marksRevision`.

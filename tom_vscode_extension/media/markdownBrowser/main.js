@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -1462,11 +1462,34 @@
             navAnchor = null;
             navCurrent = targets[index];
             navCurrent.classList.add('mdb-nav-current');
+            showNavCount();
             // An unanswered question opens ready to answer, the recommended option filled in.
             var editor = kinds.indexOf('unanswered') >= 0 && navCurrent.dataset.unanswered === '1' && navCurrent.__mdbOpenAnswer
                 ? navCurrent.__mdbOpenAnswer() : null;
             // The question (or the commented paragraph) at the top, the target — or its editor — in view.
             jumpWithinDocument(navCurrent, navContext(navCurrent), editor || navCurrent);
+        }
+        /**
+         * How many targets the ticked kinds have and which is current (`2/4`,
+         * `–/4` before the first step): after each step and change of the
+         * kinds at once, after a change of the document (a decision, a save, a
+         * render) once it has settled.
+         */
+        var navCountEl = document.getElementById('navCount');
+        function showNavCount() {
+            if (!navCountEl) { return; }
+            var selector = navSelector(navKinds());
+            if (!selector) { navCountEl.textContent = ''; return; }
+            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(selector));
+            var index = navCurrent && navCurrent.isConnected ? targets.indexOf(navCurrent) : -1;
+            navCountEl.textContent = mdbCountLabel(index, targets.length);
+        }
+        var navCountTimer = null;
+        if (typeof MutationObserver !== 'undefined') {
+            new MutationObserver(function() {
+                if (navCountTimer) { clearTimeout(navCountTimer); }
+                navCountTimer = setTimeout(function() { navCountTimer = null; showNavCount(); }, 100);
+            }).observe(contentArea, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-unanswered'] }); // docRoot is replaced on a full render
         }
         var navPrevBtn = document.getElementById('navPrevBtn');
         var navNextBtn = document.getElementById('navNextBtn');
@@ -1475,6 +1498,7 @@
         if (navKindPop) {
             navKindPop.addEventListener('change', function() {
                 updateNavKindLabel();
+                showNavCount();
                 // Other kinds go on from the current target: after it while it is
                 // still one of them, else from its place.
                 if (navCurrent && navCurrent.isConnected) {
@@ -2000,9 +2024,8 @@
             var n = search.mEl.length;
             if (searchClearBtn) { searchClearBtn.classList.toggle('visible', !!(searchInput && searchInput.value)); }
             if (searchCount) {
-                searchCount.textContent = !search.query ? ''
-                    : n === 0 ? 'No results'
-                        : (search.current >= 0 ? (search.current + 1) + ' of ' : '') + n;
+                searchCount.textContent = !search.query ? '' : mdbCountLabel(search.current, n);
+                searchCount.title = !search.query ? '' : n === 0 ? 'No results' : 'Current match / matches';
             }
             if (searchPrevBtn) { searchPrevBtn.disabled = n === 0 || openEditors > 0; }
             if (searchNextBtn) { searchNextBtn.disabled = n === 0 || openEditors > 0; }

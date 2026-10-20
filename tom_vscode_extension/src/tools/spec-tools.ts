@@ -105,7 +105,7 @@ function inSkippedDir(start: string, abs: string): boolean {
     return dirs.some((d) => d.startsWith('.') || SKIPPED_DIRS.has(d)) || dirs[0] === '..';
 }
 
-type StoppedBy = 'maxResults' | 'directories' | 'candidates' | 'time';
+export type StoppedBy = 'maxResults' | 'directories' | 'candidates' | 'time';
 
 interface Collected {
     documents: Record<string, unknown>[];
@@ -173,35 +173,59 @@ function collectWalked(deps: SpecToolDeps, start: string, deadline: number, maxR
     return { documents, stoppedBy };
 }
 
+/** The SOM documents found under a folder, in path order, and why the search stopped early when it did. */
+export interface SpecDocumentSearch {
+    /** Workspace-relative path of the folder searched (`.` for the root). */
+    searched: string;
+    search: 'findFiles' | 'walk';
+    documents: Record<string, unknown>[];
+    stoppedBy: StoppedBy | null;
+    /** When the call's time budget runs out (ms since the epoch); later work by the caller shares it. */
+    deadline: number;
+}
+
+/**
+ * Find the SOM documents under `dir` (default the workspace) within the time
+ * budget: VS Code's file search when the deps have one, else a walk. Shared by
+ * tomAi_specListDocuments and tomAi_specAnnotations' `dir` form.
+ */
+export async function findSpecDocuments(
+    deps: SpecToolDeps,
+    input: { dir?: string; maxResults?: number; timeBudgetMs?: number },
+): Promise<SpecDocumentSearch> {
+    const start = input.dir ? resolveInput(deps, input.dir) : deps.wsRoot;
+    const maxResults = Math.max(1, Math.min(input.maxResults ?? 200, 2000));
+    const budget = input.timeBudgetMs !== undefined
+        ? Math.max(1, Math.min(input.timeBudgetMs, SPEC_LIST_MAX_BUDGET_MS))
+        : (deps.listTimeBudgetMs ?? SPEC_LIST_TIME_BUDGET_MS);
+    const deadline = Date.now() + budget;
+    let search: 'findFiles' | 'walk' = 'walk';
+    let collected: Collected | null = null;
+    if (deps.findCandidates) {
+        try {
+            collected = await collectFound(deps, start, deadline, maxResults);
+            search = 'findFiles';
+        } catch {
+            collected = null; // no search provider (or it failed): walk instead
+        }
+    }
+    collected ??= collectWalked(deps, start, deadline, maxResults);
+    const { documents, stoppedBy } = collected;
+    documents.sort((a, b) => String(a.file).localeCompare(String(b.file)));
+    return { searched: toWorkspacePath(deps, start) || '.', search, documents, stoppedBy, deadline };
+}
+
 export async function specListDocumentsImpl(deps: SpecToolDeps, input: SpecListDocumentsInput): Promise<string> {
     try {
-        const start = input.dir ? resolveInput(deps, input.dir) : deps.wsRoot;
-        const maxResults = Math.max(1, Math.min(input.maxResults ?? 200, 2000));
-        const budget = input.timeBudgetMs !== undefined
-            ? Math.max(1, Math.min(input.timeBudgetMs, SPEC_LIST_MAX_BUDGET_MS))
-            : (deps.listTimeBudgetMs ?? SPEC_LIST_TIME_BUDGET_MS);
-        const deadline = Date.now() + budget;
-        let search: 'findFiles' | 'walk' = 'walk';
-        let collected: Collected | null = null;
-        if (deps.findCandidates) {
-            try {
-                collected = await collectFound(deps, start, deadline, maxResults);
-                search = 'findFiles';
-            } catch {
-                collected = null; // no search provider (or it failed): walk instead
-            }
-        }
-        collected ??= collectWalked(deps, start, deadline, maxResults);
-        const { documents, stoppedBy } = collected;
-        documents.sort((a, b) => String(a.file).localeCompare(String(b.file)));
+        const found = await findSpecDocuments(deps, input);
         return json({
             ok: true,
             modelVersion: deps.service.modelVersion,
             roots: deps.service.model.roots.map((r) => ({ sectionId: r.sectionId, type: r.type, title: r.title })),
-            searched: toWorkspacePath(deps, start) || '.',
-            search,
-            documents,
-            ...(stoppedBy ? { truncated: true, stoppedBy } : {}),
+            searched: found.searched,
+            search: found.search,
+            documents: found.documents,
+            ...(found.stoppedBy ? { truncated: true, stoppedBy: found.stoppedBy } : {}),
             note: 'editability here is the model-version rule only; tomAi_specOutline / tomAi_specGetSection report readOnlyReason after a full load, including Markdown that does not import faithfully.',
         });
     } catch (e) {

@@ -48,6 +48,9 @@
  *   MD-22 while a text area is open, the text search and the review navigation are disabled
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
+ *   MD-23 the navigation shows how many targets the ticked kinds have and which one is current (`2/4`,
+ *         `–/4` before the first step), following each step, each change of the kinds and a change of the
+ *         document (a question answered is no longer a target of Unanswered)
  */
 
 import test, { describe } from 'node:test';
@@ -708,5 +711,38 @@ describe('Markdown Browser editing', () => {
         assert.deepEqual(disabled(), ids.map(() => true), 'an editor is open');
         $(window, '.mdb-editor-btn')[1].click();
         assert.deepEqual(disabled(), ids.map(() => false), 'closed again');
+    });
+
+    test('MD-23: the navigation count', async () => {
+        const { window } = setup();
+        const doc = [
+            '# R', '',
+            'Keep {++ two ++} copies.', '',
+            '> **❓ BQ-01 — scope:** which scope?', '> - **(a)** narrow', '> **Answer:** (a)', '',
+            'Then {-- old --} text.', '',
+            '> **❓ BQ-02 — size:** which size?', '> - **(b)** big', '> **Answer:**',
+        ].join('\n');
+        send(window, content(doc));
+        const count = (): string => window.document.getElementById('navCount').textContent;
+        await new Promise((r) => setTimeout(r, 150));
+        assert.equal(count(), '–/1', 'Unanswered by default: one target, none current yet');
+        pickKinds(window, ['changes', 'questions']);
+        assert.equal(count(), '–/4');
+        nextBtn(window).click();
+        assert.equal(count(), '1/4');
+        nextBtn(window).click();
+        assert.equal(count(), '2/4');
+        window.document.getElementById('navPrevBtn').click();
+        assert.equal(count(), '1/4');
+        pickKinds(window, ['changes']);
+        assert.equal(count(), '1/2', 'the current change is one of the changes');
+        pickKinds(window, []);
+        assert.equal(count(), '', 'nothing ticked: no count');
+
+        pickKinds(window, ['unanswered']);
+        assert.equal(count(), '–/1');
+        send(window, content(doc.replace('> **Answer:**\n', '> **Answer:** (b)\n').replace(/> \*\*Answer:\*\*$/, '> **Answer:** (b)')));
+        await new Promise((r) => setTimeout(r, 150));
+        assert.equal(count(), '0/0', 'the document changed: nothing unanswered is left');
     });
 });

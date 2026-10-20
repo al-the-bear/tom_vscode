@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -254,6 +254,20 @@ function mdbQuestionAt(lines, answerLine, fromRuntime) {
     for (var t = 0; t < options.length && recommended === null; t++) { if (/\brecommended\b/i.test(options[t].text)) { recommended = options[t].letter; } }
     if (recommended === null && fromLine) { recommended = fromLine; }
     return { id: id, line: head, options: options, recommended: recommended, source: 'browser' };
+}
+
+/**
+ * The count shown beside the search and the navigation arrows: which match is
+ * current and how many there are — `147/356`; `–/356` before the first step;
+ * `0/0` when nothing matches.
+ *
+ * @param {number} index the current match, 0-based; -1 for none
+ * @param {number} total
+ * @returns {string}
+ */
+function mdbCountLabel(index, total) {
+    if (total <= 0) { return '0/0'; }
+    return (index >= 0 ? String(index + 1) : '–') + '/' + total;
 }
 
 /**

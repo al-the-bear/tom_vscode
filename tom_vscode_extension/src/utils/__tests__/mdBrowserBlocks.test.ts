@@ -33,6 +33,8 @@
  *         the runtime replace the browser's own reading for a question the host knows (`source: 'runtime'`),
  *         the header line still found in the text; a question the host does not know, or no reading at all,
  *         is read by the browser (`source: 'browser'`)
+ *   MB-22 the count shown for search and navigation (vscimpa13): `current/total`, `–/total` before the
+ *         first step, `0/0` when nothing matches
  *   MB-19 navigating from a position (after a save or a decision): next is the first target at or after
  *         it, previous the last one before it, wrapping around; targets without a position are passed over
  *   MB-20 revealing a target: its context (the question) at the top of the view, unless that would push
@@ -70,6 +72,7 @@ interface BlocksApi {
     mdbRevealDelta(contextTop: number, keepBottom: number, viewHeight: number, pad: number): number;
     mdbQuestionAt(lines: string[], answerLine: number, fromRuntime?: Record<string, { options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null }> | null): { id: string; line: number; options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null; source: string } | null;
     mdbOptionAnswer(letter: string): string;
+    mdbCountLabel(index: number, total: number): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
 }
 
@@ -380,6 +383,13 @@ describe('Markdown Browser source mapping', () => {
         const unknown = api.mdbQuestionAt(lines, 7, runtime)!;
         assert.deepEqual([unknown.id, unknown.source, unknown.recommended], ['BQ-02', 'browser', 'a'], 'a question the host does not know');
         assert.equal(api.mdbQuestionAt(['plain', '**Answer:**'], 1, runtime), null);
+    });
+
+    test('MB-22: the count label', () => {
+        assert.equal(api.mdbCountLabel(146, 356), '147/356');
+        assert.equal(api.mdbCountLabel(-1, 356), '–/356', 'before the first step');
+        assert.equal(api.mdbCountLabel(-1, 0), '0/0');
+        assert.equal(api.mdbCountLabel(0, 0), '0/0');
     });
 
     test('MB-19: navigating from a position', () => {

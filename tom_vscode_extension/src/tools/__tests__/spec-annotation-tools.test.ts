@@ -34,6 +34,9 @@
  *         documents in the order given, labelled by file name; writes nothing; on the read-only floor
  *   SA-16 tomAi_specWriteAnswers (vscannot3): writes answers.md (folders created), unchanged is not
  *         rewritten, other text is refused without `overwrite`, dryRun returns the diff and writes nothing
+ *   SA-17 the counts across a folder (vscimpa13): `dir` instead of `file` answers per document — file, root,
+ *         counts, findings — and the totals, no lists; the search's truncation and stoppedBy are passed on;
+ *         `file` and `dir` together, or neither, are refused
  */
 
 import test, { before, describe } from 'node:test';
@@ -470,5 +473,44 @@ describe('TomSpecs annotation tools', () => {
 
         assert.equal((await run(specWriteAnswersImpl, { file, output: '../outside.md' })).ok, false, 'outside the workspace');
         assert.equal((await run(specWriteAnswersImpl, { file })).code, 'invalidInput');
+    });
+
+    test('SA-17: the counts across a folder', async () => {
+        const dir = `round${++counter}`;
+        const put = (name: string, text: string): string => {
+            fs.mkdirSync(path.join(ws, dir), { recursive: true });
+            fs.writeFileSync(path.join(ws, dir, name), text);
+            return `${dir}/${name}`;
+        };
+        const a = put('a.docspecs.yaml', MERIDIAN_YAML);
+        assert.equal((await run(specSetContentImpl, { file: a, path: VALUE, text: ANNOTATED })).ok, true);
+        await run(specSetAnswerImpl, { file: a, questionId: 'BQ-01', answer: '(b)' });
+        const b = `${dir}/b.md`;
+        assert.equal((await run(specCreateDocumentImpl, { file: b, root: 'SBP' })).ok, true);
+        assert.equal((await run(specSetContentImpl, { file: b, path: VALUE, text: ANNOTATED })).ok, true);
+        put('c.docspecs.yaml', MERIDIAN_YAML);
+        put('notes.md', '# Notes\n\nNot a spec.\n');
+
+        const r = JSON.parse(await withTiming('tomAi_specAnnotations:dir', () => specAnnotationsImpl(deps, { dir } as never)));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.searched, dir);
+        assert.deepEqual(r.documents.map((d: Json) => d.file), [`${dir}/a.docspecs.yaml`, `${dir}/b.md`, `${dir}/c.docspecs.yaml`]);
+        const [da, db, dc] = r.documents;
+        assert.deepEqual(da.counts, { questions: 1, openQuestions: 0, answeredQuestions: 1, comments: 2, marks: 2 });
+        assert.deepEqual(db.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2 });
+        assert.deepEqual(dc.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0 });
+        assert.deepEqual([da.root, db.root, da.findings], ['SBP', 'SBP', 0]);
+        assert.deepEqual(r.totals, { documents: 3, withAnnotations: 2, questions: 2, openQuestions: 1, answeredQuestions: 1, comments: 4, marks: 4, findings: 0 });
+        assert.equal(r.comments, undefined, 'no lists in the folder form');
+        assert.equal(r.truncated, undefined);
+
+        const capped = await run(specAnnotationsImpl, { dir, maxResults: 1 });
+        assert.deepEqual([capped.documents.length, capped.truncated, capped.stoppedBy], [1, true, 'maxResults']);
+        const late = await run(specAnnotationsImpl, { dir, timeBudgetMs: 1 });
+        assert.equal(late.ok, true);
+        assert.equal(late.truncated, true, 'the budget is passed on');
+
+        assert.equal((await run(specAnnotationsImpl, { file: a, dir })).code, 'invalidInput');
+        assert.equal((await run(specAnnotationsImpl, {})).code, 'invalidInput');
     });
 });
