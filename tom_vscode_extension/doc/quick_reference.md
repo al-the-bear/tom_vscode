@@ -119,7 +119,7 @@
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |
-| Process Action Page | `tomAi.processAction` | The Proceed (▶) button of the PROCESS view's action bar |
+| Process Action Page | `tomAi.processAction` | The Proceed (▶) button of the PROCESS view's action bar (at a user action Proceed asks for a confirmation instead) |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar |
 
 ## Bottom Panel Sub-sections

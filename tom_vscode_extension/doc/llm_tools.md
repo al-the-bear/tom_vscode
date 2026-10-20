@@ -672,7 +672,11 @@ Proceed button queues the prompt of the current position (built from the
 Proceed template) and moves the state on, while its other buttons (Repeat,
 Gate passed, …) only move the state. A prompt queued by Proceed — and every
 prompt queued while it runs — carries its position, so its role and *Current
-process* section stay those of that position.
+process* section stay those of that position. A step or sub-step marked
+`userAction: true` is the user's (reviewing, answering questions): it has no
+prompt, Proceed asks the user to confirm it is done instead of queuing
+anything, and the *Current process* section tells the agent not to do its work
+and not to move past it.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
