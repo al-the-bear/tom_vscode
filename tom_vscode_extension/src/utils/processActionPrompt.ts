@@ -21,11 +21,13 @@
 
 import {
     currentRole,
+    effectiveSession,
     processVariableValues,
     findPhase,
     findStep,
     findSubstep,
     type ProcessDefinition,
+    type ProcessSession,
     type ProcessMove,
     type ProcessMoveKind,
     type ProcessState,
@@ -150,4 +152,26 @@ export function positionText(def: ProcessDefinition, state: ProcessState): strin
         node ? `${node.name || node.id}${node.repeatable || gate ? ` #${n}` : ''}` : '';
     const parts = [part(phase, state.phaseIteration), part(step, state.stepIteration, !!phase && step === phase.gate), part(sub, state.substepIteration)].filter(Boolean);
     return parts.join(' › ') + (state.completed ? ' (finished)' : '');
+}
+
+/** The session a move's prompt is queued in, and where that choice comes from. */
+export interface ActionSession {
+    /** The session name; `''` = the queue's default. */
+    name: string;
+    source: 'override' | 'process' | 'queue-default';
+    /** The definition's spec, when it comes from the process (to create a missing session). */
+    spec?: ProcessSession;
+}
+
+/**
+ * The session for a move: the one picked on the action page (`override`; `''`
+ * picks the queue default), else the one the process names for the target
+ * position (innermost of sub-step, step, phase), else the queue default.
+ */
+export function actionSession(def: ProcessDefinition, move: ProcessMove, override?: string): ActionSession {
+    if (override !== undefined) {
+        return override ? { name: override, source: 'override' } : { name: '', source: 'queue-default' };
+    }
+    const spec = effectiveSession(def, move.target);
+    return spec ? { name: spec.name, source: 'process', spec } : { name: '', source: 'queue-default' };
 }

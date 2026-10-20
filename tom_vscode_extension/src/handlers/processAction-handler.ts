@@ -19,8 +19,9 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { buildProcessActionPrompt, confirmProcessAction, onDidChangeProcessActionTemplates } from '../services/processActionService';
-import { PROCESS_ACTION_TITLES, positionText, startedPrompts } from '../utils/processActionPrompt';
-import type { ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
+import { PROCESS_ACTION_TITLES, actionSession, positionText, startedPrompts } from '../utils/processActionPrompt';
+import { pickAgentSdkSession } from './sessionPicker';
+import type { ProcessDefinition, ProcessLevel, ProcessMove, ProcessMoveKind } from '../utils/processDefinition';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 
 const VIEW_TYPE = 'tomAi.processAction';
@@ -28,10 +29,12 @@ const VIEW_TYPE = 'tomAi.processAction';
 let panel: vscode.WebviewPanel | undefined;
 let current: { kind: ProcessMoveKind; level?: ProcessLevel } | undefined;
 let custom = '';
+/** The session picked on the page for this move; undefined = as the process says. */
+let sessionOverride: string | undefined;
 
 /** Open the action page for a move (one page at a time: a new click replaces the move it shows). */
 export function openProcessAction(context: vscode.ExtensionContext, kind: ProcessMoveKind, level?: ProcessLevel): void {
-    if (!current || current.kind !== kind || current.level !== level) { custom = ''; }
+    if (!current || current.kind !== kind || current.level !== level) { custom = ''; sessionOverride = undefined; }
     current = { kind, level };
     if (panel) {
         panel.reveal();
@@ -53,7 +56,13 @@ export function openProcessAction(context: vscode.ExtensionContext, kind: Proces
     let sub: vscode.Disposable | undefined;
     void ProcessStateStore.ready.then((store) => { sub = store.onDidChange(() => void send()); });
     const templates = onDidChangeProcessActionTemplates(() => void send());
-    p.onDidDispose(() => { sub?.dispose(); templates.dispose(); panel = undefined; current = undefined; custom = ''; });
+    p.onDidDispose(() => { sub?.dispose(); templates.dispose(); panel = undefined; current = undefined; custom = ''; sessionOverride = undefined; });
+}
+
+/** How the page shows the session: its name, where it comes from, and the definition's base and mode. */
+function sessionView(def: ProcessDefinition, move: ProcessMove): Record<string, unknown> {
+    const s = actionSession(def, move, sessionOverride);
+    return { name: s.name, source: s.source, ...(s.spec?.basedOn ? { basedOn: s.spec.basedOn } : {}), ...(s.spec?.mode ? { mode: s.spec.mode } : {}) };
 }
 
 async function send(): Promise<void> {
@@ -78,7 +87,8 @@ async function send(): Promise<void> {
         to: positionText(def, move.target),
         startedPrompts: startedPrompts(def, store.state, move.target),
         custom,
-        preview: buildProcessActionPrompt(store, move, custom),
+        preview: buildProcessActionPrompt(store, move, custom, undefined, sessionOverride),
+        session: sessionView(def, move),
     });
 }
 
@@ -87,7 +97,7 @@ async function preview(): Promise<void> {
     const store = await ProcessStateStore.ready;
     const move = store.findMove(current.kind, current.level);
     if (!move) { return; }
-    void panel.webview.postMessage({ type: 'preview', preview: buildProcessActionPrompt(store, move, custom) });
+    void panel.webview.postMessage({ type: 'preview', preview: buildProcessActionPrompt(store, move, custom, undefined, sessionOverride) });
 }
 
 async function handle(context: vscode.ExtensionContext, msg: { type: string; custom?: string }): Promise<void> {
@@ -101,7 +111,7 @@ async function handle(context: vscode.ExtensionContext, msg: { type: string; cus
             break;
         case 'confirm': {
             if (!current) { return; }
-            const result = await confirmProcessAction(current.kind, current.level, custom);
+            const result = await confirmProcessAction(current.kind, current.level, custom, sessionOverride);
             if (!result.ok) {
                 void vscode.window.showWarningMessage(`Process: ${result.error}`);
                 await send();
@@ -116,6 +126,26 @@ async function handle(context: vscode.ExtensionContext, msg: { type: string; cus
         case 'cancel':
             panel?.dispose();
             break;
+        case 'pickSession': {
+            if (!current) { return; }
+            const store = await ProcessStateStore.ready;
+            const def = store.currentDefinition();
+            const move = store.findMove(current.kind, current.level);
+            if (!def || !move) { return; }
+            const fromProcess = actionSession(def, move);
+            const picked = await pickAgentSdkSession({
+                questId: store.activeQuest,
+                current: actionSession(def, move, sessionOverride).name || undefined,
+                title: `Session for "${move.label}"`,
+                defaultLabel: fromProcess.name ? `As the process says (${fromProcess.name})` : 'As the process says (the queue default)',
+            });
+            if (picked !== undefined) {
+                // '' = back to the process's choice; a name = that session.
+                sessionOverride = picked === '' ? undefined : picked;
+            }
+            await send();
+            break;
+        }
         case 'editTemplate':
             if (current) { openProcessTemplateEditor(context, current.kind); }
             break;

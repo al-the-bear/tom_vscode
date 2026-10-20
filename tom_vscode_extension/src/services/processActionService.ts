@@ -15,7 +15,10 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
+import { createSession, readSession } from './agentSdkSessionStore';
+import { TwoTierMemoryService } from './memory-service';
 import {
+    actionSession,
     DEFAULT_PROCESS_ACTION_TEMPLATES,
     processActionTemplate,
     processActionValues,
@@ -52,13 +55,32 @@ export function buildProcessActionPrompt(
     move: ProcessMove,
     customInstructions: string,
     templateOverride?: string,
+    sessionOverride?: string,
 ): string {
     const def = store.currentDefinition();
     if (!def) { return ''; }
     const template = templateOverride ?? processActionTemplate(move.kind, configuredProcessActionTemplates());
     if (!template.trim()) { return ''; }
     const values = processActionValues(def, store.state, move, customInstructions, store.processDescription());
+    // `${session}`: the session the prompt is queued in (picked on the page or named by the process).
+    values.session = actionSession(def, move, sessionOverride).name;
     return resolveVariables(template, { values }).trim();
+}
+
+/**
+ * Make sure the session the process names exists: created from the
+ * definition's spec when missing (its base first, plainly, when that is
+ * missing too). A session picked on the page exists already.
+ */
+function ensureProcessSession(questId: string, spec: { name: string; basedOn?: string; mode?: 'continue' | 'fork-from-base' }): string | undefined {
+    const folder = TwoTierMemoryService.instance.agentSdkSessionsFolder(questId || undefined);
+    if (readSession(folder, spec.name)) { return undefined; }
+    if (spec.basedOn && !readSession(folder, spec.basedOn)) {
+        const base = createSession(folder, spec.basedOn, {});
+        if (!base.ok) { return base.error; }
+    }
+    const made = createSession(folder, spec.name, { basedOn: spec.basedOn, mode: spec.mode });
+    return made.ok ? undefined : made.error;
 }
 
 export type ProcessActionResult =
@@ -73,16 +95,23 @@ export async function confirmProcessAction(
     kind: ProcessMoveKind,
     level: ProcessLevel | undefined,
     customInstructions: string,
+    sessionOverride?: string,
 ): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
     const move = store.findMove(kind, level);
-    if (!move) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
-    const text = buildProcessActionPrompt(store, move, customInstructions);
+    const def = store.currentDefinition();
+    if (!move || !def) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
+    const session = actionSession(def, move, sessionOverride);
+    const text = buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
+    if (text && session.spec) {
+        const error = ensureProcessSession(store.activeQuest, session.spec);
+        if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
+    }
     const moved = store.move(kind, level, 'user');
     if (!moved.ok) { return moved; }
     if (!text) { return { ok: true, queued: false, label: move.label }; }
     try {
-        await PromptQueueManager.instance.enqueue({ originalText: text });
+        await PromptQueueManager.instance.enqueue({ originalText: text, ...(session.name ? { agentSdkSession: session.name } : {}) });
     } catch (e) {
         return { ok: false, error: `the state moved, but the prompt could not be queued: ${(e as Error).message}` };
     }

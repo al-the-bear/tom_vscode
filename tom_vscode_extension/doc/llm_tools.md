@@ -638,7 +638,7 @@ same in every window and on every machine. It reaches the model as the chat
 variables `process`, `phase`, `step`, `substep`, `phase-iteration`,
 `step-iteration`, `substep-iteration`, `process-description`,
 `phase-description`, `step-description`, `substep-description`,
-`phase-prompt`, `step-prompt`, `substep-prompt`, and as the
+`phase-prompt`, `step-prompt`, `substep-prompt`, `session` (the Agent SDK session the step runs in), and as the
 `${process-context}` block every Anthropic profile's system prompt carries
 (empty without a process). `tomAi_writeChatVariable` refuses those keys:
 moving the quest goes through `tomAi_setProcessState`, which checks every name

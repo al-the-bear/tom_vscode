@@ -15,7 +15,9 @@
  *   PW-7  PROCESS view: the action bar shows the moves the host offers and posts the one clicked;
  *         the template button opens the template editor; a finished process says so; a gate has −/+
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
- *   PW-9  action page: shows the move, previews as you type (custom instructions sent with it),
+ *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
+ *         makes it an object, clearing every field removes it
+ *   PW-9  action page: shows the move and its session (Change… asks the host), previews as you type (custom instructions sent with it),
  *         confirms and cancels; an empty template moves without a prompt; a stale move says so
  *   PW-10 template editor: lists the kinds, inserts a variable at the cursor, marks unsaved kinds,
  *         resets to the default, saves all kinds at once
@@ -216,11 +218,42 @@ describe('process editor', () => {
     });
 });
 
+describe('process editor sessions', () => {
+    test('PW-11: session fields', () => {
+        const { w, posted } = setup('processEditor');
+        send(w, { type: 'list', processes: [{ id: 'flow', name: 'Flow', valid: true, errorCount: 0 }], roles: [], currentProcess: 'flow', selected: 'flow' });
+        send(w, { type: 'load', id: 'flow', definition: { ...DEF, phases: [{ ...DEF.phases[0], session: 'build-work' }, DEF.phases[1]] }, description: '', errors: [], files: { yaml: 'y', description: 'd' } });
+        const f = (path: string): Win => w.document.querySelector(`[data-path="${path}"]`);
+        assert.equal(f('phases.0.session.name').value, 'build-work', 'a string spec shows as its name');
+        for (const path of ['phases.0.steps.0', 'phases.0.steps.1.substeps.0', 'phases.0.gate', 'phases.0.postGate']) {
+            assert.ok(f(`${path}.session.name`) && f(`${path}.session.basedOn`) && f(`${path}.session.mode`), `${path} has session fields`);
+        }
+        const set = (path: string, value: string, event = 'input'): void => {
+            const el = f(path);
+            el.value = value;
+            el.dispatchEvent(new w.Event(event, { bubbles: true }));
+        };
+        set('phases.0.steps.1.session.name', 'per-review');
+        set('phases.0.steps.1.session.basedOn', 'build-work');
+        set('phases.0.steps.1.session.mode', 'fork-from-base', 'change');
+        set('phases.0.session.name', '');
+        w.document.querySelector('[data-op="save"]').click();
+        const saved = posted.filter((m) => m.type === 'save').pop() as Win;
+        assert.deepEqual(saved.definition.phases[0].steps[1].session, { name: 'per-review', basedOn: 'build-work', mode: 'fork-from-base' });
+        assert.equal('session' in saved.definition.phases[0], false, 'cleared: inherited again');
+        set('phases.0.steps.1.session.basedOn', '');
+        set('phases.0.steps.1.session.mode', '', 'change');
+        w.document.querySelector('[data-op="save"]').click();
+        assert.equal((posted.filter((m) => m.type === 'save').pop() as Win).definition.phases[0].steps[1].session, 'per-review', 'a name alone is a string');
+    });
+});
+
 describe('process action page', () => {
     const MOVE = {
         type: 'move', kind: 'repeat', level: 'step', label: 'Repeat step', title: 'Repeat phase / step / sub-step — a new iteration',
         quest: 'q1', process: 'Flow', from: 'Build #2 › Review #1 › Note', to: 'Build #2 › Review #2 › Read',
         startedPrompts: 'Review it.', custom: '', preview: '# Repeat step\n\nReview it.',
+        session: { name: 'per-review', source: 'process', basedOn: 'build-work', mode: 'fork-from-base' },
     };
 
     test('PW-9: confirming a move', async () => {
@@ -231,6 +264,12 @@ describe('process action page', () => {
         assert.deepEqual([text('label'), text('from'), text('to'), text('started')], ['Repeat step', 'Build #2 › Review #1 › Note', 'Build #2 › Review #2 › Read', 'Review it.']);
         assert.equal(text('confirm'), 'Add to queue');
         assert.match(text('preview'), /Review it\./);
+        assert.equal(text('session'), 'per-review — fresh from build-work for every prompt (from the process)');
+        w.document.getElementById('pick-session').click();
+        assert.deepEqual(posted.pop(), { type: 'pickSession', custom: '' });
+        send(w, { ...MOVE, session: { name: '', source: 'override' } });
+        assert.equal(text('session'), 'the queue default (picked here)');
+        send(w, MOVE);
         const custom = w.document.getElementById('custom');
         custom.value = 'Mind the glossary.';
         custom.dispatchEvent(new w.Event('input', { bubbles: true }));

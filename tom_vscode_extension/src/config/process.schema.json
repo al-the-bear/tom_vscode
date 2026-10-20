@@ -56,6 +56,9 @@
           "type": "string",
           "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
         },
+        "session": {
+          "$ref": "#/$defs/session"
+        },
         "role": {
           "type": "string",
           "description": "The role doing it: a folder name under _ai/roles/."
@@ -89,6 +92,9 @@
         "prompt": {
           "type": "string",
           "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
+        },
+        "session": {
+          "$ref": "#/$defs/session"
         },
         "role": {
           "type": "string",
@@ -131,6 +137,9 @@
         "prompt": {
           "type": "string",
           "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
+        },
+        "session": {
+          "$ref": "#/$defs/session"
         },
         "role": {
           "type": "string"
@@ -198,6 +207,9 @@
           "type": "string",
           "description": "What is to be done when it starts: the part of the prompt a process action (Next, Repeat, Gate passed, ...) adds for it."
         },
+        "session": {
+          "$ref": "#/$defs/session"
+        },
         "repeatable": {
           "type": "boolean"
         },
@@ -220,6 +232,52 @@
           "description": "Optional step after the gate passed."
         }
       }
+    },
+    "session": {
+      "description": "The named Agent SDK session it runs in (a <name>.session.json of the quest's history folder); inherited from its step and phase when unset. A name, or the name with the session it is based on and how (so a missing session is created from the definition).",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "basedOn": {
+              "$ref": "#/$defs/id"
+            },
+            "mode": {
+              "enum": [
+                "continue",
+                "fork-from-base"
+              ],
+              "description": "fork-from-base: every prompt starts again from the base (needs basedOn)."
+            }
+          },
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "fork-from-base"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "name",
+              "basedOn"
+            ]
+          }
+        }
+      ]
     }
   }
 }

@@ -24,6 +24,9 @@
  *   PD-14 a finished process: the completed flag is written and read back, only "back" (reopen) is
  *         offered, and any other change clears it
  *   PD-15 a gate can always be run again: its iteration counts up although it is not marked repeatable
+ *   PD-16 sessions: a phase, step or sub-step may name the Agent SDK session it runs in (a name, or
+ *         name + basedOn + mode); the innermost one applies; validation, write-back, the `session`
+ *         process variable and the context block
  *   PD-10 the JSON schema (src/config/process.schema.json) accepts what the validator accepts and
  *         rejects the shape errors it rejects
  */
@@ -53,6 +56,7 @@ import {
     stringifyProcessDefinition,
     roleAfterMove,
     availableMoves,
+    effectiveSession,
     parseProcessState,
     stringifyProcessState,
     type ProcessDefinition,
@@ -216,7 +220,7 @@ describe('process definitions', () => {
             'process-description': '# Review flow\n\nThe whole story.',
             'phase-description': 'Write the first version.',
             'step-description': '', 'substep-description': '',
-            'phase-prompt': 'Draft the document.', 'step-prompt': '', 'substep-prompt': '',
+            'phase-prompt': 'Draft the document.', 'step-prompt': '', 'substep-prompt': '', session: '',
         });
         /* eslint-enable @typescript-eslint/naming-convention */
         const block = processContextBlock(def, s, '# Review flow\n\nThe whole story.');
@@ -383,5 +387,33 @@ describe('process definitions', () => {
         const defs = new Map([['review_flow', def]]);
         const r = applyProcessChange(gate, defs, { stepIteration: 3 });
         assert.equal(r.ok && r.state.stepIteration, 3);
+    });
+    test('PD-16: sessions', () => {
+        const yaml = YAML
+            .replace("    prompt: Draft the document.\n", "    prompt: Draft the document.\n    session: draft-work\n")
+            .replace("            prompt: Comment on what you read.\n", "            prompt: Comment on what you read.\n            session:\n              name: per-comment\n              basedOn: draft-work\n              mode: fork-from-base\n");
+        const parsed = parseProcessYaml(yaml);
+        assert.deepEqual(parsed.errors, []);
+        const def = parsed.definition!;
+        const start = selectProcess(def);
+        assert.deepEqual(effectiveSession(def, start), { name: 'draft-work' }, 'the phase\'s session, as a name');
+        const comment = selectSubstep(selectStep(start, def, 'review'), def, 'comment');
+        assert.deepEqual(effectiveSession(def, comment), { name: 'per-comment', basedOn: 'draft-work', mode: 'fork-from-base' }, 'the innermost wins');
+        assert.equal(effectiveSession(def, selectPhase(start, def, 'ship')), null, 'none named');
+        assert.equal(processVariableValues(def, comment, '').session, 'per-comment');
+        assert.match(processContextBlock(def, comment, ''), /Session: `per-comment` \(re-created from `draft-work` for every prompt\)/);
+        assert.deepEqual(parseProcessYaml(stringifyProcessDefinition(def)).definition, def, 'written back');
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(yaml)), true, JSON.stringify(validate.errors));
+        assert.equal(validate({ id: 'x', phases: [{ id: 'a', session: { name: 'a', mode: 'fork-from-base' }, steps: [], gate: { id: 'g' } }] }), false,
+            'the schema too: fork-from-base needs a base');
+        const bad = (session: unknown): string[] => validateProcessDefinition({ id: 'x', phases: [{ id: 'a', session, steps: [], gate: { id: 'g' } }] })
+            .errors.map((e) => `${e.path}: ${e.message}`);
+        assert.deepEqual(bad('bad name'), ['phases[0].session: letters, digits, "_" and "-" only, starting with a letter or digit']);
+        assert.deepEqual(bad({ basedOn: 'x' }), ['phases[0].session.name: required']);
+        assert.deepEqual(bad({ name: 'a', mode: 'often' }), ['phases[0].session.mode: "continue" or "fork-from-base"']);
+        assert.deepEqual(bad({ name: 'a', mode: 'fork-from-base' }), ['phases[0].session.basedOn: a session re-created from its base for every prompt needs a base']);
+        assert.deepEqual(bad({ name: 'a', other: 1 }), ['phases[0].session.other: unknown key']);
     });
 });

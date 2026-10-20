@@ -129,8 +129,8 @@ export const READ_CHATVAR_DESCRIPTION =
     'quest folder): `process`, `phase`, `step`, `substep`, `phase-iteration`, ' +
     '`step-iteration`, `substep-iteration` and the descriptions ' +
     '`process-description`, `phase-description`, `step-description`, ' +
-    '`substep-description` and the prompts `phase-prompt`, `step-prompt`, ' +
-    '`substep-prompt` — all `""` when no process is set; change them ' +
+    '`substep-description`, the prompts `phase-prompt`, `step-prompt`, ' +
+    '`substep-prompt`, and `session` (the Agent SDK session the step runs in) — all `""` when no process is set; change them ' +
     'with `tomAi_setProcessState`. ' +
     '**Custom keys** are stored under the `custom.*` namespace; you can ' +
     'address them as `custom.myKey` or just `myKey` — both forms resolve ' +

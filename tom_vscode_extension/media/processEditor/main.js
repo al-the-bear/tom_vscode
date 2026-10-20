@@ -122,6 +122,24 @@
         return '<textarea class="prompt" data-path="' + path + '.prompt" rows="2" placeholder="Prompt — what is to be done when it starts; the PROCESS view\'s action buttons put it into the prompt they queue (${action-prompt})">' + esc(value || '') + '</textarea>';
     }
 
+    /**
+     * The Agent SDK session fields of a node: name, based on, mode. Empty name
+     * = inherit (from the step, then the phase). A string spec shows as its
+     * name; the object form is written once a base or mode is set.
+     */
+    function sessionFields(path, spec) {
+        var s = typeof spec === 'string' ? { name: spec } : (spec || {});
+        var mode = s.mode || '';
+        return '<span class="session-fields" title="The Agent SDK session the prompts of this node run in; empty = inherited">'
+            + '<span class="codicon codicon-comment-discussion"></span>'
+            + text(path + '.session.name', s.name, 'session (inherited)', 'session-name')
+            + text(path + '.session.basedOn', s.basedOn, 'based on', 'session-base')
+            + '<select data-path="' + path + '.session.mode" title="How a session based on another starts">'
+            + '<option value=""' + (mode === '' ? ' selected' : '') + '>continue</option>'
+            + '<option value="fork-from-base"' + (mode === 'fork-from-base' ? ' selected' : '') + '>fresh from base per prompt</option>'
+            + '</select></span>';
+    }
+
     /** A step card; `kind` is step, gate, post-gate or substep. */
     function stepCard(step, path, kind, index, count) {
         var title = { step: 'Step ' + (index + 1), gate: 'Quality gate', 'post-gate': 'Post-gate step', substep: 'Sub-step ' + (index + 1) }[kind];
@@ -135,7 +153,8 @@
             + (kind === 'post-gate' ? '<span class="card-ops"><button class="icon" data-op="remove-postgate" data-path="' + path + '" title="Remove the post-gate step"><span class="codicon codicon-trash"></span></button></span>' : '')
             + '</div>'
             + description(path, step.description, 2)
-            + promptField(path, step.prompt);
+            + promptField(path, step.prompt)
+            + sessionFields(path, step.session);
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -167,6 +186,7 @@
             + '<div class="card-head">' + text(path + '.id', phase.id, 'id', 'id') + text(path + '.name', phase.name, 'name', 'name') + repeatFields(path, phase, 'phase') + '</div>'
             + description(path, phase.description, 3)
             + promptField(path, phase.prompt)
+            + sessionFields(path, phase.session)
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
             + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1)
@@ -304,6 +324,20 @@
         if (!p) { return; }
         var kind = t.dataset.kind;
         var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+        var sessionAt = /^(.*)\.session\.(name|basedOn|mode)$/.exec(p);
+        if (sessionAt) {
+            // The session is an object of up to three fields; a name alone is
+            // written as a plain string, nothing set removes it (inherit).
+            var node = getAt(parsePath(sessionAt[1]));
+            if (!node) { return; }
+            var spec = typeof node.session === 'string' ? { name: node.session } : Object.assign({}, node.session || {});
+            if (value === '') { delete spec[sessionAt[2]]; } else { spec[sessionAt[2]] = value; }
+            if (!spec.name && !spec.basedOn && !spec.mode) { delete node.session; }
+            else if (spec.name && !spec.basedOn && !spec.mode) { node.session = spec.name; }
+            else { node.session = spec; }
+            changed();
+            return;
+        }
         setAt(parsePath(p), value);
         // A phase title follows its name.
         var phase = t.closest('details.phase');

@@ -27,6 +27,20 @@ export interface ProcessTodoItem {
     description?: string;
 }
 
+/**
+ * The named Agent SDK session a phase, step or sub-step runs in
+ * (src/utils/agentSdkSessions.ts): a name, or the name with the session it is
+ * based on and how — so a missing session can be created from the definition.
+ */
+export type ProcessSessionSpec = string | { name: string; basedOn?: string; mode?: 'continue' | 'fork-from-base' };
+
+/** A session spec in its object form. */
+export interface ProcessSession {
+    name: string;
+    basedOn?: string;
+    mode?: 'continue' | 'fork-from-base';
+}
+
 /** A sub-step: always an action. */
 export interface ProcessSubstep {
     id: string;
@@ -34,6 +48,8 @@ export interface ProcessSubstep {
     description?: string;
     /** What is to be done when it starts — the prompt a process action builds on. */
     prompt?: string;
+    /** The Agent SDK session it runs in; inherited from its step and phase when unset. */
+    session?: ProcessSessionSpec;
     /** The role doing it (a folder name under `_ai/roles/`). */
     role?: string;
     repeatable?: boolean;
@@ -63,6 +79,8 @@ export interface ProcessPhase {
     description?: string;
     /** What is to be done when the phase starts. */
     prompt?: string;
+    /** The Agent SDK session its steps run in unless they name their own. */
+    session?: ProcessSessionSpec;
     repeatable?: boolean;
     maxIterations?: number;
     steps: ProcessStep[];
@@ -113,8 +131,8 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const ID_MESSAGE = 'letters, digits, "_" and "-" only, starting with a letter or digit';
 
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'phases'];
-const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
-const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'role', 'repeatable', 'maxIterations'];
+const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
+const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const TODO_KEYS = ['title', 'description'];
@@ -144,6 +162,21 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
     const checkText = (obj: Raw, key: string, path: string): void => {
         if (obj[key] !== undefined && typeof obj[key] !== 'string') { err(`${path}.${key}`, 'text expected'); }
     };
+    const checkSession = (obj: Raw, path: string): void => {
+        const v = obj.session;
+        if (v === undefined) { return; }
+        const at = `${path}${path ? '.' : ''}session`;
+        if (typeof v === 'string') {
+            if (!ID_PATTERN.test(v)) { err(at, ID_MESSAGE); }
+            return;
+        }
+        if (!isObject(v)) { err(at, 'a session name or {name, basedOn, mode}'); return; }
+        unknownKeys(v, ['name', 'basedOn', 'mode'], at);
+        if (typeof v.name !== 'string' || v.name === '') { err(`${at}.name`, 'required'); } else if (!ID_PATTERN.test(v.name)) { err(`${at}.name`, ID_MESSAGE); }
+        if (v.basedOn !== undefined && (typeof v.basedOn !== 'string' || !ID_PATTERN.test(v.basedOn))) { err(`${at}.basedOn`, ID_MESSAGE); }
+        if (v.mode !== undefined && v.mode !== 'continue' && v.mode !== 'fork-from-base') { err(`${at}.mode`, '"continue" or "fork-from-base"'); }
+        if (v.mode === 'fork-from-base' && v.basedOn === undefined) { err(`${at}.basedOn`, 'a session re-created from its base for every prompt needs a base'); }
+    };
     const checkRepeat = (obj: Raw, path: string, what: string): void => {
         if (obj.repeatable !== undefined && typeof obj.repeatable !== 'boolean') { err(`${path}.repeatable`, 'true or false'); }
         if (obj.maxIterations !== undefined) {
@@ -159,6 +192,7 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
         unknownKeys(obj, allowed, path);
         const id = checkId(obj, path);
         for (const key of ['name', 'description', 'prompt', 'role']) { checkText(obj, key, path); }
+        checkSession(obj, path);
         checkRepeat(obj, path, what);
         return id;
     };
@@ -199,6 +233,7 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
             checkText(phase, 'name', path);
             checkText(phase, 'description', path);
             checkText(phase, 'prompt', path);
+            checkSession(phase, path);
             checkRepeat(phase, path, 'phase');
             const stepIds = new Set<string>();
             const noteStep = (stepId: string, stepPath: string): void => {
@@ -272,7 +307,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
     const ordered = {
         ...pick(def, ['id', 'name', 'summary']),
         phases: def.phases.map((p) => {
-            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate: step(p.gate) };
+            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate: step(p.gate) };
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -664,6 +699,7 @@ export const PROCESS_VARIABLE_KEYS = [
     'phase-iteration', 'step-iteration', 'substep-iteration',
     'process-description', 'phase-description', 'step-description', 'substep-description',
     'phase-prompt', 'step-prompt', 'substep-prompt',
+    'session',
 ] as const;
 
 export type ProcessVariableKey = typeof PROCESS_VARIABLE_KEYS[number];
@@ -677,6 +713,7 @@ export function processVariableValues(
     const out = Object.fromEntries(PROCESS_VARIABLE_KEYS.map((k) => [k, ''])) as Record<ProcessVariableKey, string>;
     if (!state.process) { return out; }
     out.process = state.process;
+    out.session = effectiveSession(def, state)?.name ?? '';
     out['process-description'] = processDescription;
     if (!state.phase) { return out; }
     out.phase = state.phase;
@@ -697,6 +734,22 @@ export function processVariableValues(
     out['substep-description'] = sub?.description ?? '';
     out['substep-prompt'] = sub?.prompt ?? '';
     return out;
+}
+
+/** A session spec in its object form. */
+export function sessionSpec(spec: ProcessSessionSpec | undefined): ProcessSession | null {
+    if (spec === undefined) { return null; }
+    if (typeof spec === 'string') { return { name: spec }; }
+    return { name: spec.name, ...(spec.basedOn ? { basedOn: spec.basedOn } : {}), ...(spec.mode ? { mode: spec.mode } : {}) };
+}
+
+/** The session the position runs in: the sub-step's, else the step's, else the phase's; null when none names one. */
+export function effectiveSession(def: ProcessDefinition | null, state: ProcessState): ProcessSession | null {
+    if (!def) { return null; }
+    const phase = findPhase(def, state.phase);
+    const step = findStep(phase, state.step);
+    const sub = findSubstep(step, state.substep);
+    return sessionSpec(sub?.session) ?? sessionSpec(step?.session) ?? sessionSpec(phase?.session);
 }
 
 function iterationText(node: { repeatable?: boolean; maxIterations?: number }, n: number): string {
@@ -736,6 +789,13 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
                 const subRole = sub.role || step.role;
                 lines.push(`Sub-step: ${head(sub, `, ${step.substeps.indexOf(sub) + 1} of ${step.substeps.length}`)}, ${iterationText(sub, state.substepIteration)}${subRole ? ` — role \`${subRole}\`` : ''}`);
             }
+        }
+        const session = effectiveSession(def, state);
+        if (session) {
+            const how = session.mode === 'fork-from-base' && session.basedOn
+                ? ` (re-created from \`${session.basedOn}\` for every prompt)`
+                : session.basedOn ? ` (based on \`${session.basedOn}\`)` : '';
+            lines.push(`Session: \`${session.name}\`${how} — prompts this step queues run in it unless they name another`);
         }
         const outline = entries.map((e) => {
             const id = e.step.id === state.step ? `**\`${e.step.id}\`**` : `\`${e.step.id}\``;

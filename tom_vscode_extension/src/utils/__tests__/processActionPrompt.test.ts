@@ -8,6 +8,8 @@
  *   PA-3 `action-prompt` holds the prompt fields of what the move starts — a new phase its phase, step
  *        and sub-step prompts, a new step its step and sub-step, a sub-step its own; nothing on finish
  *   PA-5 a position for people: names (else ids) joined by ›, iterations where a level repeats
+ *   PA-6 the session of a move: picked on the page, else the process's for the target position, else the
+ *        queue default
  *   PA-4 the default templates name only variables an action provides, and skip / back queue nothing
  */
 
@@ -18,6 +20,7 @@ import {
     PROCESS_VARIABLE_KEYS,
     availableMoves,
     parseProcessYaml,
+    selectPhase,
     selectProcess,
     selectStep,
     selectSubstep,
@@ -31,6 +34,7 @@ import {
     processActionTemplate,
     processActionValues,
     positionText,
+    actionSession,
 } from '../processActionPrompt.js';
 
 const YAML = `
@@ -144,5 +148,19 @@ describe('process action prompts', () => {
         assert.equal(positionText(d, { ...b2, stepIteration: 2 }), 'one #1 › b #2 › b2');
         assert.equal(positionText(d, selectStep(selectProcess(d), d, 'g')), 'one #1 › g #1', 'a gate counts its runs');
         assert.equal(positionText(d, { ...selectProcess(d), completed: true }), 'one #1 › a (finished)');
+    });
+    test('PA-6: the session of a move', () => {
+        const d = parseProcessYaml(YAML.replace('    prompt: Phase one.\n', '    prompt: Phase one.\n    session: one-work\n')
+            .replace('            prompt: Do B2.\n', '            prompt: Do B2.\n            session: { name: per-b2, basedOn: one-work, mode: fork-from-base }\n')).definition!;
+        const start = selectProcess(d);
+        const next = move(d, start, 'next');
+        assert.deepEqual(actionSession(d, next), { name: 'one-work', source: 'process', spec: { name: 'one-work' } });
+        const b1 = selectStep(start, d, 'b');
+        assert.deepEqual(actionSession(d, move(d, b1, 'next')),
+            { name: 'per-b2', source: 'process', spec: { name: 'per-b2', basedOn: 'one-work', mode: 'fork-from-base' } }, 'for the target position');
+        assert.deepEqual(actionSession(d, next, 'mine'), { name: 'mine', source: 'override' });
+        assert.deepEqual(actionSession(d, next, ''), { name: '', source: 'queue-default' }, 'picked: the queue default');
+        const two = selectPhase(start, d, 'two');
+        assert.deepEqual(actionSession(d, move(d, two, 'next')), { name: '', source: 'queue-default' }, 'phase two names none');
     });
 });

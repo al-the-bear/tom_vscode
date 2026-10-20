@@ -39,6 +39,12 @@
             $('process').textContent = msg.process + (msg.quest ? ' — quest ' + msg.quest : '');
             $('from').textContent = msg.from;
             $('to').textContent = msg.to;
+            var s = msg.session || {};
+            var sessionText = s.name
+                ? s.name + (s.mode === 'fork-from-base' ? ' — fresh from ' + (s.basedOn || '?') + ' for every prompt' : s.basedOn ? ' — based on ' + s.basedOn : '')
+                    + (s.source === 'override' ? ' (picked here)' : ' (from the process)')
+                : 'the queue default' + (s.source === 'override' ? ' (picked here)' : '');
+            $('session').textContent = sessionText;
             $('started').textContent = msg.startedPrompts || '';
             $('started-box').hidden = !msg.startedPrompts;
             var key = msg.kind + '|' + (msg.level || '');
@@ -74,6 +80,7 @@
     });
     $('cancel').addEventListener('click', function () { post('cancel'); });
     $('template').addEventListener('click', function () { post('editTemplate'); });
+    $('pick-session').addEventListener('click', function () { post('pickSession'); });
 
     post('ready');
 })();
