@@ -18,8 +18,8 @@
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
  *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
  *         makes it an object, clearing every field removes it
- *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description)
- *         and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
+ *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description,
+ *         in a box two lines taller than 30vh that scrolls with visible scrollbars) and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
  *         step and sub-step dropdowns
  *   PW-13 editor: a "user action" checkbox on steps without sub-steps, sub-steps and the post-gate step, not
  *         on a gate or a step with sub-steps
@@ -172,6 +172,9 @@ describe('PROCESS view — user actions', () => {
         assert.match(banner.textContent, /Answer/);
         assert.equal(banner.querySelector('strong')?.textContent, 'questions', 'the description, rendered');
         assert.match(banner.textContent, /Proceed to confirm/);
+        const desc = w.getComputedStyle(banner.querySelector('.ua-desc'));
+        assert.equal(desc.maxHeight, 'calc(30vh + 2.8em)', 'two lines more than before');
+        assert.equal(desc.overflowY, 'auto', 'scrolls when longer');
         assert.ok(w.document.querySelector('.actions').compareDocumentPosition(banner) & 4, 'below the action bar');
         const proceed = w.document.querySelector('[data-move="proceed"]');
         assert.ok(proceed.querySelector('.codicon-person'), 'Proceed shows a person');
