@@ -26,6 +26,10 @@
  *        deferSend: false creates a pending one — against the real queue manager
  *   MA-7 the queue's answer watcher failing (EMFILE when the machine runs out of watch handles) is handled:
  *        no uncaught exception, the watcher is dropped and polling carries on
+ *   MA-8 the tools that need what a window provides do their work in the sandbox: an issue tracker in a file
+ *        (issues and tests), the tool trail of the run (past-tool access), a sub-agent spawner, a Tom AI Chat
+ *        todo session, a task and a launch configuration, a notebook, and a language server's answers (symbols,
+ *        definitions, references, a code action, a rename) — each read back
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -56,6 +60,8 @@ const QUEST = 'demo';
 const TODO_FILE = `todos.${QUEST}.todo.yaml`;
 const SPEC = 'specs/meridian.docspecs.yaml';
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
+const ISSUE_REPO = 'sandbox/issues';
+const TEST_REPO = 'sandbox/tests';
 
 function put(rel: string, text: string): void {
     const abs = path.join(WS, rel);
@@ -69,7 +75,7 @@ function seedFixture(): void {
     put('README.md', '# Demo workspace\n\nThe fixture of the all-tools MCP test.\n');
     put('src/greeting.ts', 'export function greet(name: string): string {\n    return `hello ${name}`;\n}\n');
     put('notes/plain.md', '# Notes\n\nalpha beta gamma\n');
-    put('notebook.ipynb', JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+    put('notebook.ipynb', JSON.stringify({ cells: [{ cell_type: 'code', source: 'print(1)', metadata: {}, outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
     put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Quest Overview: Demo\n\n**Quest ID:** demo\n');
     put(`_ai/quests/${QUEST}/${TODO_FILE}`, [
         'todos:',
@@ -151,12 +157,17 @@ function recordWrites(): void {
     for (const n of ['rename', 'copyFile', 'cp', 'symlink']) { wrap(promises, n, true); }
 }
 
-import { installVscodeStub } from './_vscode-stub.js';
+import { installVscodeStub, StubPosition, StubRange, StubWorkspaceEdit } from './_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 // The window has the quest's workspace file open, as the extension does.
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
-import { buildToolMcpServer, NULL_MCP_TRAIL_SINK, resolveEffectiveMcpTools } from '../../handlers/mcpServer-handler.js';
+import { buildToolMcpServer, resolveEffectiveMcpTools, type McpToolTrailSink } from '../../handlers/mcpServer-handler.js';
+import { registerIssueProvider, type IssueComment, type IssueItem, type IssueProvider } from '../../handlers/issueProvider.js';
+import { ToolTrail, setActiveToolTrail } from '../../services/tool-trail.js';
+import { registerSubagentSpawner } from '../planning-tools.js';
+import { setActiveTodoManager } from '../tool-executors.js';
+import { ChatTodoSessionManager } from '../../managers/chatTodoSessionManager.js';
 import { ALL_SHARED_TOOLS } from '../tool-executors.js';
 import type { ResolvedMcpServerSettings } from '../../utils/sendToChatConfig.js';
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
@@ -253,6 +264,7 @@ function inputs(): Record<string, Input> {
         ] },
         tomAi_openFile: { filePath: 'README.md', line: 1 },
         tomAi_gotoDefinition: { filePath: 'src/greeting.ts', line: 1, character: 17 },
+        tomAi_applyCodeAction: (p: Record<string, Json>) => ({ actionId: find(p.tomAi_getCodeActionsCached, 'actionId') }),
         tomAi_findReferences: { filePath: 'src/greeting.ts', line: 1, character: 17 },
         tomAi_getCodeActions: { filePath: 'src/greeting.ts', startLine: 1, startCharacter: 1 },
         tomAi_getCodeActionsCached: { filePath: 'src/greeting.ts', startLine: 1, startCharacter: 1 },
@@ -272,7 +284,25 @@ function inputs(): Record<string, Input> {
         tomAi_notifyUser: { message: 'from the MCP test', channel: 'vscode' },
         tomAi_fetchWebpage: { url: 'https://example.invalid/' },
         tomAi_webSearch: { query: 'sandbox' },
-        tomAi_spawnSubagent: { prompt: 'sandbox', maxRounds: 1 },
+        tomAi_spawnSubagent: { prompt: 'Summarise the sandbox.', maxRounds: 1 },
+        tomAi_manageTodo: { operation: 'add', title: 'A chat todo from the MCP test' },
+        tomAi_listIssues: { repoId: ISSUE_REPO },
+        tomAi_getIssue: { repoId: ISSUE_REPO, issueNumber: 1 },
+        tomAi_listIssueComments: { repoId: ISSUE_REPO, issueNumber: 1 },
+        tomAi_createIssue: { repoId: ISSUE_REPO, title: 'Filed by the MCP test', body: 'in the sandbox' },
+        tomAi_addIssueComment: { repoId: ISSUE_REPO, issueNumber: 1, body: 'A comment from the MCP test.' },
+        tomAi_setIssueStatus: { repoId: ISSUE_REPO, issueNumber: 1, status: 'closed' },
+        tomAi_toggleIssueLabel: { repoId: ISSUE_REPO, issueNumber: 1, label: 'bug' },
+        tomAi_listTests: { repoId: TEST_REPO },
+        tomAi_getTest: { repoId: TEST_REPO, issueNumber: 1 },
+        tomAi_listTestComments: { repoId: TEST_REPO, issueNumber: 1 },
+        tomAi_createTest: { repoId: TEST_REPO, title: 'Flaky: filed by the MCP test' },
+        tomAi_addTestComment: { repoId: TEST_REPO, issueNumber: 1, body: 'Seen again.' },
+        tomAi_setTestStatus: { repoId: TEST_REPO, issueNumber: 1, status: 'closed' },
+        tomAi_toggleTestLabel: { repoId: TEST_REPO, issueNumber: 1, label: 'flaky' },
+        tomAi_listPastToolCalls: { limit: 200 },
+        tomAi_searchPastToolResults: { pattern: 'Demo workspace' },
+        tomAi_readPastToolResult: (p: Record<string, Json>) => ({ key: (p.tomAi_listPastToolCalls?.entries ?? []).find((e: Json) => e.toolName === 'tomAi_readFile')?.key }),
         tomAi_listQuestTodos: { questId: QUEST },
         tomAi_getQuestTodo: todo('demo1_aaaa-first'),
         tomAi_getCombinedTodos: { questId: QUEST },
@@ -298,10 +328,10 @@ function inputs(): Record<string, Input> {
         tomAi_readChatVariable: { key: 'mcpTest' },
         tomAi_setProcessState: { process: 'flow' },
         tomAi_getProcess: { id: 'flow' },
-        tomAi_notebookEdit: { filePath: 'notebook.ipynb', operations: [{ op: 'insert', index: 0, kind: 'markdown', source: '# cell' }] },
+        tomAi_notebookEdit: { filePath: 'notebook.ipynb', operations: [{ op: 'insert', index: 0, cells: [{ kind: 'markdown', text: '# Written by the MCP test' }] }] },
         tomAi_notebookRun: { filePath: 'notebook.ipynb', runAll: true },
-        tomAi_runTask: {},
-        tomAi_runDebugConfig: { configName: 'none', waitForExit: false },
+        tomAi_runTask: { name: 'build' },
+        tomAi_runDebugConfig: { configName: 'Launch sandbox' },
         tomAi_runVscodeCommand: { command: 'workbench.action.files.save' },
         tomAi_runVscodeCommandTyped: { command: 'workbench.action.files.save', args: [] },
         tomAi_docspecsOutline: { file: 'notes/doc.md' },
@@ -426,6 +456,100 @@ function gitStatus(dir: string): string {
  * requests, reminder templates) run their real writes.
  */
 const subscriptions: Array<{ dispose(): unknown }> = [];
+// ---------------------------------------------------------------------------
+// The sandbox workbench: what the window provides around the tools, stood in
+// at VS Code's boundary so the tools' own code runs — an issue tracker kept in
+// a file of the sandbox, the tool trail of an Anthropic session, a sub-agent
+// spawner, a Tom AI Chat todo session, a task and a launch configuration that
+// end at once, and the answers a language server gives.
+// ---------------------------------------------------------------------------
+
+/** An issue tracker in a file of the sandbox: every write lands there. */
+class SandboxIssueProvider implements IssueProvider {
+    readonly providerId = 'sandbox';
+    readonly displayName = 'Sandbox issues';
+    private readonly file = path.join(SANDBOX, 'issues.json');
+    constructor() {
+        const issue = (repo: string): IssueItem => this.item(repo, 1, 'The first one', 'seeded');
+        this.save({ issues: { [ISSUE_REPO]: [issue(ISSUE_REPO)], [TEST_REPO]: [issue(TEST_REPO)] }, comments: {} });
+    }
+    private load(): { issues: Record<string, IssueItem[]>; comments: Record<string, IssueComment[]> } { return JSON.parse(fs.readFileSync(this.file, 'utf8')); }
+    private save(data: object): void { fs.writeFileSync(this.file, JSON.stringify(data, null, 1)); }
+    private item(repo: string, n: number, title: string, body: string): IssueItem {
+        const at = new Date().toISOString();
+        return { id: `${repo}#${n}`, number: n, title, body, state: 'open', labels: [], author: { name: 'mcp', avatarUrl: '' }, createdAt: at, updatedAt: at, commentCount: 0, url: `sandbox://${repo}/${n}` };
+    }
+    private change(repo: string, n: number, fn: (i: IssueItem) => void): IssueItem {
+        const data = this.load();
+        const issue = (data.issues[repo] ?? []).find((i) => i.number === n);
+        if (!issue) { throw new Error(`no issue ${repo}#${n}`); }
+        fn(issue);
+        this.save(data);
+        return issue;
+    }
+    discoverRepos() { return [{ id: ISSUE_REPO, displayName: 'Sandbox issues' }]; }
+    async listIssues(repo: string, state: string) { return (this.load().issues[repo] ?? []).filter((i) => state === 'all' || i.state === state); }
+    async getIssue(repo: string, n: number) { return this.change(repo, n, () => undefined); }
+    async createIssue(repo: string, title: string, body: string) {
+        const data = this.load();
+        const list = (data.issues[repo] ??= []);
+        const issue = this.item(repo, list.length + 1, title, body);
+        list.push(issue);
+        this.save(data);
+        return issue;
+    }
+    async addComment(repo: string, n: number, body: string) {
+        const data = this.load();
+        const at = new Date().toISOString();
+        const comment: IssueComment = { id: `c${Date.now()}`, body, author: { name: 'mcp', avatarUrl: '' }, createdAt: at, updatedAt: at, url: '' };
+        (data.comments[`${repo}#${n}`] ??= []).push(comment);
+        const issue = data.issues[repo].find((i) => i.number === n)!;
+        issue.commentCount += 1;
+        this.save(data);
+        return comment;
+    }
+    async listComments(repo: string, n: number) { return this.load().comments[`${repo}#${n}`] ?? []; }
+    async changeStatus(repo: string, n: number, status: string) { return this.change(repo, n, (i) => { i.state = status; }); }
+    async toggleLabel(repo: string, n: number, label: string) {
+        return this.change(repo, n, (i) => { i.labels = i.labels.includes(label) ? i.labels.filter((l) => l !== label) : [...i.labels, label]; });
+    }
+}
+
+/** The tool trail of an Anthropic session, fed by the server's trail sink. */
+const toolTrail = new ToolTrail({ keepEntries: 400 });
+const lastInput = new Map<string, Record<string, unknown>>();
+const trailSink: McpToolTrailSink = {
+    writeRequest: (r) => { lastInput.set(r.name, r.input); },
+    writeAnswer: (r) => {
+        const inputSummary = JSON.stringify(lastInput.get(r.name) ?? {}).slice(0, 120);
+        toolTrail.add({ timestamp: new Date().toISOString().slice(11, 19), round: 1, toolName: r.name, inputSummary, result: r.result, durationMs: r.durationMs, error: r.error });
+    },
+};
+const spawned: string[] = [];
+
+function startWorkbench(): void {
+    registerIssueProvider(new SandboxIssueProvider());
+    setActiveToolTrail(toolTrail);
+    registerSubagentSpawner(async (o) => { spawned.push(o.prompt); return { summary: `Summary of: ${o.prompt}`, rounds: 1, toolCalls: 0, stopReason: 'end_turn' }; });
+    setActiveTodoManager(new ChatTodoSessionManager('mcp-test', path.join(SANDBOX, 'chat-todos')));
+    const stub = vscodeStub.stub as Record<string, Record<string, unknown>>;
+    stub.tasks.__tasks = [{ name: 'build', source: 'Workspace', definition: { type: 'shell' }, scope: 2 }];
+    // A language server's answers for src/greeting.ts: greet at line 0, characters 16–21.
+    const uri = (stub.Uri.file as (p: string) => unknown)(path.join(WS, 'src/greeting.ts'));
+    const greet = new StubRange(new StubPosition(0, 16), new StubPosition(0, 21));
+    const rename = new StubWorkspaceEdit();
+    rename.replace(uri as { fsPath: string }, greet, 'welcome');
+    const fix = new StubWorkspaceEdit();
+    fix.insert(uri as { fsPath: string }, new StubPosition(3, 0), '// checked by the MCP test\n');
+    installVscodeStub({ commandResults: {
+        'vscode.executeWorkspaceSymbolProvider': [{ name: 'greet', kind: 11, containerName: '', location: { uri, range: greet } }],
+        'vscode.executeDefinitionProvider': [{ uri, range: greet }],
+        'vscode.executeReferenceProvider': [{ uri, range: greet }, { uri, range: new StubRange(new StubPosition(2, 0), new StubPosition(2, 5)) }],
+        'vscode.executeCodeActionProvider': [{ title: 'Add a checked-by comment', kind: { value: 'quickfix' }, isPreferred: true, edit: fix }],
+        'vscode.executeDocumentRenameProvider': rename,
+    } });
+}
+
 function startStores(): void {
     const storage = path.join(SANDBOX, 'storage');
     fs.mkdirSync(storage, { recursive: true });
@@ -482,8 +606,9 @@ describe('every tool over MCP, in a sandbox', () => {
     before(async () => {
         recordWrites();
         startStores();
+        startWorkbench();
         const tools = resolveEffectiveMcpTools(settings, env[KEY_ENV], env);
-        const { server } = buildToolMcpServer(tools, NULL_MCP_TRAIL_SINK);
+        const { server } = buildToolMcpServer(tools, trailSink);
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await server.connect(serverTransport);
         client = new Client({ name: 'mcp-all-tools-test', version: '1.0.0' });
@@ -581,6 +706,35 @@ describe('every tool over MCP, in a sandbox', () => {
         // A spec edit is read back from the file.
         assert.match(fs.readFileSync(path.join(WS, SPEC), 'utf8'), /Written by the MCP test\./, 'tomAi_specSetContent');
         assert.match(answerOf('tomAi_specValidate'), /"ok": ?true/);
+    });
+
+    test('MA-8: the families the window provides for did their work in the sandbox', () => {
+        // Issues and tests: the sandbox tracker holds what the tools wrote.
+        const tracker = JSON.parse(fs.readFileSync(path.join(SANDBOX, 'issues.json'), 'utf8'));
+        const issue1 = tracker.issues[ISSUE_REPO].find((i: Json) => i.number === 1);
+        assert.deepEqual([issue1.state, issue1.labels, issue1.commentCount], ['closed', ['bug'], 1]);
+        assert.ok(tracker.issues[ISSUE_REPO].some((i: Json) => i.title === 'Filed by the MCP test'), 'tomAi_createIssue');
+        const test1 = tracker.issues[TEST_REPO].find((i: Json) => i.number === 1);
+        assert.deepEqual([test1.state, test1.labels, test1.commentCount], ['closed', ['flaky'], 1]);
+        assert.ok(tracker.issues[TEST_REPO].some((i: Json) => i.title === 'Flaky: filed by the MCP test'), 'tomAi_createTest');
+        // Past tool access: the trail of this very run.
+        assert.match(answerOf('tomAi_readPastToolResult'), /Demo workspace/, 'reads back tomAi_readFile\'s result');
+        assert.match(answerOf('tomAi_searchPastToolResults'), /"hitCount": ?[1-9]/);
+        // Sub-agent and chat todos.
+        assert.deepEqual(spawned, ['Summarise the sandbox.']);
+        assert.match(answerOf('tomAi_manageTodo'), /A chat todo from the MCP test/);
+        assert.match(fs.readFileSync(path.join(SANDBOX, 'chat-todos', 'mcp-test.todo.yaml'), 'utf8'), /A chat todo from the MCP test/);
+        // Tasks and debug: started, waited for, ended.
+        assert.match(answerOf('tomAi_runTask'), /"exitCode": ?0/);
+        assert.match(answerOf('tomAi_runDebugConfig'), /"sessionName": ?"Launch sandbox"/);
+        // Notebook: the inserted cell is in the file.
+        const nb = JSON.parse(fs.readFileSync(path.join(WS, 'notebook.ipynb'), 'utf8'));
+        assert.deepEqual(nb.cells.map((c: Json) => [c.cell_type, c.source]), [['markdown', '# Written by the MCP test'], ['code', 'print(1)']]);
+        // Language tools: found, then the code action and the rename changed the file.
+        assert.match(answerOf('tomAi_findSymbol'), /"kind": ?"Function"/);
+        assert.match(answerOf('tomAi_findReferences'), /"count": ?2/);
+        assert.equal(fs.readFileSync(path.join(WS, 'src/greeting.ts'), 'utf8'),
+            'export function welcome(name: string): string {\n    return `hello ${name}`;\n}\n// checked by the MCP test\n');
     });
 
     test('MA-6: tomAi_addQueueItem stages by default, and auto-send leaves a staged item alone', async () => {

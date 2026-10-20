@@ -94,7 +94,25 @@ tabGroups, createWebviewPanel — a panel whose `dispose()` fires `onDidDispose`
 `EventEmitter`, `CancellationTokenSource`, `ProgressLocation`,
 `LanguageModelTextPart` / `ToolCallPart` / `ToolResultPart`,
 `RelativePattern`, `Disposable`, `LanguageModelChatMessage.User/Assistant`,
-`Position`, `Range`, `WorkspaceEdit`, `StatusBarAlignment`, `ViewColumn`.
+`Position`, `Range`, `WorkspaceEdit`, `StatusBarAlignment`, `ViewColumn`, `SymbolKind` (with its
+reverse mapping), `TaskScope`, the notebook types (`NotebookCellKind`, `NotebookCellData`, `NotebookRange`,
+`NotebookEdit`), `tasks` and `debug`.
+
+**Notebooks are their `.ipynb` file.** `workspace.openNotebookDocument(uri)`
+reads the file (its `cellCount`); a `WorkspaceEdit.set(uri, NotebookEdit[])`
+is carried out by `workspace.applyEdit` on the file's `cells` array.
+
+**Tasks and debug sessions end at once.** A test lists its tasks in
+`tasks.__tasks` (and sets `tasks.__exitCode`); `executeTask` and
+`debug.startDebugging` are recorded (`tasks.__runs`, `debug.__starts`) and
+fire `onDidEndTaskProcess` / `onDidTerminateDebugSession` on the next tick.
+
+**Command results can be added later.** `commandResults` given to a later
+`installVscodeStub` call are merged into the first install's (VS-7) — the way a
+test plays the language server: `vscode.executeWorkspaceSymbolProvider`,
+`executeDefinitionProvider`, `executeReferenceProvider`,
+`executeCodeActionProvider` and `executeDocumentRenameProvider` answer what it
+puts there.
 
 **A QuickPick nobody sees.** `createQuickPick()` returns a widget whose
 `show()` lists it in `window.__quickPicks`; a test answers it as a person
@@ -297,6 +315,17 @@ sandbox, the extension repository's `git status` and HEAD to what they were,
 and checks what the write tools wrote. The ask tools are answered as a person
 would answer them (the ask through `AskUserRegistry`, the picker through the
 stub's QuickPick).
+
+What a window provides around the tools is stood in at VS Code's boundary, so
+the tools' own code runs (`startWorkbench`, MA-8): an issue tracker kept in a
+file of the sandbox (`registerIssueProvider` — the issue and test tools), the
+tool trail of the run fed by the server's trail sink (`setActiveToolTrail` —
+the past-tool access tools), a sub-agent spawner (`registerSubagentSpawner`), a
+Tom AI Chat todo session (`setActiveTodoManager`), a task and a launch
+configuration that end at once, the fixture notebook, and a language server's
+answers for `src/greeting.ts` (a symbol, a definition, references, a code
+action with an edit, a rename). No tool answers only "not available"; a new
+tool that does should get its stand-in here.
 
 A tool needs no entry to be covered: MA-1 and MA-2 walk `ALL_SHARED_TOOLS`,
 and a tool with no entry in `inputs()` is called with an input built from its

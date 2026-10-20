@@ -12,6 +12,7 @@
  *         becomes dirty); applyEditResult false refuses it and changes nothing
  *   VS-5  workspace.textDocuments: [] by default, set by the option and by setTextDocuments()
  *   VS-6  CancellationTokenSource: each token reports its own source's cancellation and fires its listeners once
+ *   VS-7  commandResults given on a later install are answered too (they were dropped)
  */
 
 import test, { beforeEach, describe } from 'node:test';
@@ -114,5 +115,11 @@ describe('the vscode stub: documents and edits', () => {
         assert.equal(b.token.isCancellationRequested, false, 'another source is not cancelled');
         a.dispose();
         b.dispose();
+    });
+
+    test('VS-7: commandResults from a later install', async () => {
+        installVscodeStub({ commandResults: Object.fromEntries([['vs7.command', 42]]) });
+        const vscode = handle.stub as { commands: { executeCommand(c: string): Promise<unknown> } };
+        assert.equal(await vscode.commands.executeCommand('vs7.command'), 42);
     });
 });

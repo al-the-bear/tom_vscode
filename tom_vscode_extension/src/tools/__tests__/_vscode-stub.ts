@@ -145,7 +145,10 @@ export class StubWorkspaceEdit {
     readonly ops: StubEditOp[] = [];
     /** The file operations, in order; `workspace.applyEdit` carries them out on disk, as VS Code does. */
     readonly fileOps: StubFileOp[] = [];
-    get size(): number { return this.ops.length + this.fileOps.length; }
+    /** Notebook edits (`set(uri, NotebookEdit[])`); `workspace.applyEdit` carries them out on the `.ipynb` file. */
+    readonly notebookOps: Array<{ uri: { fsPath: string }; edits: StubNotebookEdit[] }> = [];
+    get size(): number { return this.ops.length + this.fileOps.length + this.notebookOps.length; }
+    set(uri: { fsPath: string }, edits: StubNotebookEdit[]): void { this.notebookOps.push({ uri, edits }); }
     replace(uri: { fsPath: string }, range: StubRange, text: string): void { this.ops.push({ kind: 'replace', uri, range, text }); }
     insert(uri: { fsPath: string }, position: StubPosition, text: string): void { this.ops.push({ kind: 'insert', uri, position, text }); }
     delete(uri: { fsPath: string }, range: StubRange): void { this.ops.push({ kind: 'delete', uri, range }); }
@@ -170,6 +173,44 @@ export interface StubFileOp {
     uri: { fsPath: string };
     to?: { fsPath: string };
     options: { overwrite?: boolean; ignoreIfExists?: boolean; ignoreIfNotExists?: boolean };
+}
+
+/** `vscode.NotebookCellKind`. */
+export const StubNotebookCellKind = { Markup: 1, Code: 2 } as const;
+
+/** `vscode.NotebookCellData`. */
+export class StubNotebookCellData {
+    constructor(readonly kind: number, readonly value: string, readonly languageId: string) {}
+}
+
+/** `vscode.NotebookRange`: cells start (inclusive) to end (exclusive). */
+export class StubNotebookRange {
+    constructor(readonly start: number, readonly end: number) {}
+}
+
+/** One `vscode.NotebookEdit`: replace the cells in `range` by `cells` (an insert is an empty range). */
+export class StubNotebookEdit {
+    constructor(readonly range: StubNotebookRange, readonly cells: StubNotebookCellData[]) {}
+    static insertCells(index: number, cells: StubNotebookCellData[]): StubNotebookEdit { return new StubNotebookEdit(new StubNotebookRange(index, index), cells); }
+    static replaceCells(range: StubNotebookRange, cells: StubNotebookCellData[]): StubNotebookEdit { return new StubNotebookEdit(range, cells); }
+    static deleteCells(range: StubNotebookRange): StubNotebookEdit { return new StubNotebookEdit(range, []); }
+}
+
+/** A notebook is its `.ipynb` file: read it, apply the cell edits in order, write it back. */
+function applyNotebookOps(edit: StubWorkspaceEdit): void {
+    for (const { uri, edits } of edit.notebookOps) {
+        const nb = JSON.parse(fs.readFileSync(uri.fsPath, 'utf8')) as { cells: unknown[] };
+        for (const e of edits) {
+            const cells = e.cells.map((c) => ({
+                cell_type: c.kind === StubNotebookCellKind.Markup ? 'markdown' : 'code',
+                source: c.value,
+                metadata: { language: c.languageId },
+                ...(c.kind === StubNotebookCellKind.Markup ? {} : { outputs: [], execution_count: null }),
+            }));
+            nb.cells.splice(e.range.start, e.range.end - e.range.start, ...cells);
+        }
+        fs.writeFileSync(uri.fsPath, `${JSON.stringify(nb, null, 1)}\n`);
+    }
 }
 
 /** Carry out an edit's file operations on disk; false (nothing more done) where VS Code would refuse one. */
@@ -709,6 +750,12 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 return abs;
             },
             // The open document if there is one, else the file read from disk (missing → rejects, as VS Code does).
+            // A notebook document over its .ipynb file: the cell count is the file's.
+            async openNotebookDocument(uri: { fsPath: string }): Promise<Record<string, unknown>> {
+                if (!fs.existsSync(uri.fsPath)) { throw new Error(`cannot open ${uri.fsPath}: file not found`); }
+                const nb = JSON.parse(fs.readFileSync(uri.fsPath, 'utf8')) as { cells?: unknown[] };
+                return { uri, notebookType: 'jupyter-notebook', cellCount: (nb.cells ?? []).length };
+            },
             async openTextDocument(arg: unknown): Promise<FakeTextDocument> {
                 const fsPath = typeof arg === 'string' ? arg : (arg as { fsPath?: string })?.fsPath;
                 if (!fsPath) { throw new Error('openTextDocument: untitled documents are not stubbed'); }
@@ -727,6 +774,7 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 const docs = (stub.workspace as { textDocuments: FakeTextDocument[] }).textDocuments;
                 if (edit instanceof StubWorkspaceEdit) {
                     if (!applyFileOps(edit)) { return false; }
+                    applyNotebookOps(edit);
                     applyToDocuments(edit, docs);
                 }
                 edits.appliedEdits.push(edit as StubWorkspaceEdit);
@@ -807,6 +855,10 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             },
             registerWebviewViewProvider: (): { dispose: () => void } => ({ dispose: () => undefined }),
             // An editor nobody sees, over the document it was asked to show.
+            showNotebookDocument: async (doc: unknown): Promise<Record<string, unknown>> => {
+                record('window.showNotebookDocument', [doc]);
+                return { notebook: doc };
+            },
             showTextDocument: async (doc: unknown): Promise<Record<string, unknown>> => {
                 record('window.showTextDocument', [doc]);
                 const start = new StubPosition(0, 0);
@@ -818,6 +870,37 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 return task({ report: () => undefined }, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) });
             },
         },
+        // Tasks and debug sessions that end at once. A test lists its tasks in `tasks.__tasks` and sets
+        // `tasks.__exitCode`; every run and every debug start is recorded (`tasks.__runs`, `debug.__starts`).
+        tasks: (() => {
+            const ended = new EventEmitter<{ execution: unknown; exitCode: number | undefined }>();
+            const tasks: Record<string, unknown> = {
+                __tasks: [] as unknown[], __runs: [] as unknown[], __exitCode: 0 as number | undefined,
+                fetchTasks: async (): Promise<unknown[]> => tasks.__tasks as unknown[],
+                executeTask: async (task: unknown): Promise<unknown> => {
+                    const execution = { task };
+                    (tasks.__runs as unknown[]).push(task);
+                    setTimeout(() => ended.fire({ execution, exitCode: tasks.__exitCode as number | undefined }), 0);
+                    return execution;
+                },
+                onDidEndTaskProcess: ended.event,
+            };
+            return tasks;
+        })(),
+        debug: (() => {
+            const terminated = new EventEmitter<{ name: string; configuration: { name: string } }>();
+            const debug: Record<string, unknown> = {
+                __starts: [] as unknown[],
+                startDebugging: async (folder: unknown, config: unknown): Promise<boolean> => {
+                    (debug.__starts as unknown[]).push({ folder, config });
+                    const name = typeof config === 'string' ? config : (config as { name?: string })?.name ?? '';
+                    setTimeout(() => terminated.fire({ name, configuration: { name } }), 0);
+                    return true;
+                },
+                onDidTerminateDebugSession: terminated.event,
+            };
+            return debug;
+        })(),
         commands: {
             async executeCommand(cmd: string, ...args: unknown[]): Promise<unknown> {
                 record('commands.executeCommand', [cmd, ...args]);
@@ -869,6 +952,14 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
         EventEmitter,
         CancellationTokenSource,
         StatusBarAlignment: { Left: 1, Right: 2 },
+        TaskScope: { Global: 1, Workspace: 2 },
+        // vscode.SymbolKind, a numeric enum with its reverse mapping (SymbolKind[11] === 'Function').
+        SymbolKind: Object.fromEntries(['File', 'Module', 'Namespace', 'Package', 'Class', 'Method', 'Property', 'Field', 'Constructor',
+            'Enum', 'Interface', 'Function', 'Variable', 'Constant'].flatMap((name, i) => [[name, i], [i, name]])),
+        NotebookCellKind: StubNotebookCellKind,
+        NotebookCellData: StubNotebookCellData,
+        NotebookRange: StubNotebookRange,
+        NotebookEdit: StubNotebookEdit,
         ViewColumn: { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 },
         ProgressLocation: {
             SourceControl: 1,
@@ -896,6 +987,8 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
     };
 
     editStates.set(stub, { applyEditResult: options.applyEditResult ?? true, appliedEdits: [] });
+    // Where a later install's `commandResults` are merged in (applyOptions).
+    stub.__commandResults = commandResults;
 
     // Apply initial workspaceFolders + configuration shaping.
     if (options.workspaceFolders) { applyWorkspaceFolders(stub, options.workspaceFolders); }
