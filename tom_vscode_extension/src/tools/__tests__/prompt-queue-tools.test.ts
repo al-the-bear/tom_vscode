@@ -4,14 +4,14 @@
  * Strategy: an in-memory `PromptQueueAccess` fake that mirrors the
  * production semantics around id generation (`q-N` monotonic),
  * status transitions, pre-prompt/follow-up array ordering, and the
- * `sendQueuedPrompt` vs `sendNow` vs `resendLastPrompt` distinction.
+ * `sendQueuedPrompt` vs `resendLastPrompt` distinction.
  *
  * Coverage entry #18 four-row checklist:
  *
  *   a) Description clarity — verified in the impl file; the
  *      conceptual model (pre/main/follow-ups), status enum, transport
- *      routing, and the **sendQueueItem vs sendQueuedPrompt** split
- *      are all documented up front.
+ *      routing, and sendQueuedPrompt as the one way to send are all
+ *      documented up front.
  *   b) Ambiguities — covered:
  *        - id resolution (queueItemId vs requestId — both work, with
  *          queueItemId preferred)
@@ -19,8 +19,6 @@
  *          error; only staged↔pending settable manually)
  *        - resendQueueItem semantics (reuses id, replays last stage,
  *          NOT a new item)
- *        - sendQueueItem (one stage now) vs sendQueuedPrompt
- *          (manager-managed full lifecycle)
  *        - transport defaults + per-stage overrides
  *   c) Round-trip every operation against the in-memory fake.
  *   d) Timing — every tool gets a `withTiming('tomAi_*:typical', …)`
@@ -41,7 +39,6 @@ import {
     removeQueueItemImpl,
     removeQueuePrePromptImpl,
     resendQueueItemImpl,
-    sendQueueItemImpl,
     sendQueuedPromptImpl,
     setQueueItemStatusImpl,
     updateQueueFollowUpImpl,
@@ -61,6 +58,8 @@ import {
 
 interface FakeAccess extends PromptQueueAccess {
     _items: QueueItemSnapshot[];
+    /** Test helper: the item as if the queue had dispatched it and the answer came back. */
+    _dispatch(id: string): void;
     _nextSeq: number;
     _nextFollowUpSeq: number;
     _autoSendEnabled: boolean;
@@ -254,7 +253,7 @@ function makeAccess(): FakeAccess {
             i.requestId = `req-${Math.floor(Math.random() * 1e9)}`;
             return structuredClone(i);
         },
-        async sendNow(id) {
+        _dispatch(id) {
             const i = items.find((x) => x.id === id);
             if (!i) { return; }
             // Immediate dispatch: mark sending → sent, record lastDispatched
@@ -347,7 +346,7 @@ describe('addQueueItemImpl + listQueueImpl', () => {
 
     test('listQueue excludes sent items by default; includeSent surfaces them', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'a' }));
-        await sendQueueItemImpl(access, { queueItemId: added.id });
+        access._dispatch(added.id);
         const defaultList = JSON.parse(await listQueueImpl(access, {}));
         assert.equal(defaultList.totalCount, 0, 'sent items hidden by default');
         const fullList = JSON.parse(await listQueueImpl(access, { includeSent: true }));
@@ -383,7 +382,7 @@ describe('addQueueItemImpl + listQueueImpl', () => {
 });
 
 // ===========================================================================
-// sendQueuedPrompt vs sendQueueItem vs resendQueueItem (checklist b)
+// sendQueuedPrompt and resendQueueItem (checklist b)
 // ===========================================================================
 
 describe('send variants — the key distinction', () => {
@@ -397,27 +396,6 @@ describe('send variants — the key distinction', () => {
         assert.equal(r.id, 'q-1');
         assert.equal(r.status, 'sending', 'manager run-loop entry → status sending');
         assert.match(r.requestId, /^req-/, 'requestId is stamped on lifecycle entry');
-    });
-
-    test('sendQueueItem → immediate dispatch (status: sent, no run-loop chain)', async () => {
-        const added = JSON.parse(await addQueueItemImpl(access, { text: 'now please' }));
-        const raw = await withTiming('tomAi_sendQueueItem:typical', () =>
-            sendQueueItemImpl(access, { queueItemId: added.id }));
-        const r = JSON.parse(raw);
-        assert.equal(r.ok, true);
-        assert.equal(r.status, 'sent', 'immediate dispatch completes synchronously in the fake');
-        assert.equal(r.transport, 'copilot');
-    });
-
-    test('SENDQUEUEDPROMPT vs SENDQUEUEITEM both target same item — different transitions', async () => {
-        const a = JSON.parse(await addQueueItemImpl(access, { text: 'a', deferSend: false }));
-        const b = JSON.parse(await addQueueItemImpl(access, { text: 'b' }));
-        // a → sendQueuedPrompt → sending (run loop took it)
-        const rA = JSON.parse(await sendQueuedPromptImpl(access, { queueItemId: a.id }));
-        assert.equal(rA.status, 'sending');
-        // b → sendQueueItem → sent (immediate)
-        const rB = JSON.parse(await sendQueueItemImpl(access, { queueItemId: b.id }));
-        assert.equal(rB.status, 'sent');
     });
 
     test('sendQueuedPrompt no-match → error pointing at how to select', async () => {
@@ -436,7 +414,7 @@ describe('send variants — the key distinction', () => {
 
     test('resendQueueItem REUSES the same id, replays last stage', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'send and resend' }));
-        await sendQueueItemImpl(access, { queueItemId: added.id });
+        access._dispatch(added.id);
         const raw = await withTiming('tomAi_resendQueueItem:typical', () =>
             resendQueueItemImpl(access, { queueItemId: added.id }));
         const r = JSON.parse(raw);
@@ -472,7 +450,7 @@ describe('setQueueItemStatusImpl', () => {
 
     test('cannot set status on a sent item (state machine refusal)', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'x' }));
-        await sendQueueItemImpl(access, { queueItemId: added.id });
+        access._dispatch(added.id);
         const r = JSON.parse(await setQueueItemStatusImpl(access, { queueItemId: added.id, status: 'staged' }));
         assert.match(r.error, /Unable to set status/);
     });

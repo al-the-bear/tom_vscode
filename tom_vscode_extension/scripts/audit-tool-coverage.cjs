@@ -53,10 +53,7 @@ const DEFAULT_CEILING_MS = 5000;
  * the reason. An entry here that IS registered (or no longer defined) fails,
  * so the list cannot outlive what it excuses.
  */
-const KNOWN_UNREGISTERED = {
-    tomAi_sendQueueItem: 'dropped from ALL_SHARED_TOOLS in March 2026 (5a23df5) without a stated reason while '
-        + 'doc/llm_tools.md still lists it; register it or delete it — todo vsd8',
-};
+const KNOWN_UNREGISTERED = {};
 
 // ---------------------------------------------------------------------------
 // The audit

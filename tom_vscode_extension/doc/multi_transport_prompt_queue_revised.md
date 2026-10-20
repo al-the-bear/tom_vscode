@@ -418,7 +418,6 @@ Extend the input schemas of the queue add/update tools with the new fields:
 | --- | --- | --- |
 | `tomAi_addQueueItem` | [:785](../src/tools/chat-enhancement-tools.ts#L785) | stage a main prompt |
 | `tomAi_updateQueueItem` | [:1389](../src/tools/chat-enhancement-tools.ts#L1389) | patch fields of an existing item |
-| `tomAi_sendQueueItem` | [:1491](../src/tools/chat-enhancement-tools.ts#L1491) | force-send a specific item |
 | `tomAi_addQueuePrePrompt` | [:871](../src/tools/chat-enhancement-tools.ts#L871) | add a pre-prompt stage |
 | `tomAi_updateQueuePrePrompt` | [:938](../src/tools/chat-enhancement-tools.ts#L938) | patch a pre-prompt |
 | `tomAi_addQueueFollowUp` | [:1115](../src/tools/chat-enhancement-tools.ts#L1115) | add a follow-up stage |
@@ -855,7 +854,7 @@ All items below are satisfied by the shipped implementation (six verification pa
 - [x] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
 - [x] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
 - [x] Selecting Anthropic transport shows the auto-approve-all warning.
-- [x] `tomAi_addQueueItem` ([:785](../src/tools/chat-enhancement-tools.ts#L785)), `tomAi_updateQueueItem` ([:1389](../src/tools/chat-enhancement-tools.ts#L1389)), `tomAi_addQueuePrePrompt` ([:871](../src/tools/chat-enhancement-tools.ts#L871)), `tomAi_updateQueuePrePrompt` ([:938](../src/tools/chat-enhancement-tools.ts#L938)), `tomAi_addQueueFollowUp` ([:1115](../src/tools/chat-enhancement-tools.ts#L1115)), `tomAi_updateQueueFollowUp` ([:1624](../src/tools/chat-enhancement-tools.ts#L1624)), `tomAi_sendQueueItem` ([:1491](../src/tools/chat-enhancement-tools.ts#L1491)) accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
+- [x] `tomAi_addQueueItem` ([:785](../src/tools/chat-enhancement-tools.ts#L785)), `tomAi_updateQueueItem` ([:1389](../src/tools/chat-enhancement-tools.ts#L1389)), `tomAi_addQueuePrePrompt` ([:871](../src/tools/chat-enhancement-tools.ts#L871)), `tomAi_updateQueuePrePrompt` ([:938](../src/tools/chat-enhancement-tools.ts#L938)), `tomAi_addQueueFollowUp` ([:1115](../src/tools/chat-enhancement-tools.ts#L1115)), `tomAi_updateQueueFollowUp` ([:1624](../src/tools/chat-enhancement-tools.ts#L1624)) accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
 - [x] `tomAi_listQueue` ([:1275](../src/tools/chat-enhancement-tools.ts#L1275)) returns the new fields in its output.
 - [x] `tomAi_listPromptTemplates` ([:1920](../src/tools/chat-enhancement-tools.ts#L1920)), `tomAi_createPromptTemplate` ([:1959](../src/tools/chat-enhancement-tools.ts#L1959)), `tomAi_updatePromptTemplate` ([:2009](../src/tools/chat-enhancement-tools.ts#L2009)), `tomAi_deletePromptTemplate` ([:2075](../src/tools/chat-enhancement-tools.ts#L2075)) honour a `transport` field, defaulting to `copilot` when absent.
 - [x] A queue item with a stale/invalid `anthropicProfileId` or `anthropicConfigId` surfaces a clear error (shared `resolveAnthropicTargets` helper).

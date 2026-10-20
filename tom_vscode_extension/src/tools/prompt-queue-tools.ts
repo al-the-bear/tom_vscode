@@ -32,19 +32,12 @@
  *     a resolved profile + configuration. Approval mode is forced to
  *     `never` (the queue is unattended).
  *
- * ## sendQueueItem vs sendQueuedPrompt
+ * ## Sending
  *
- * Checklist b) (_copilot_guidelines/tool_testing.md) flagged the name confusion:
- *
- *   - **`tomAi_sendQueueItem`** (the simpler one): fire one specific
- *     item immediately, bypassing the manager's auto-send loop. Used
- *     when you want to dispatch right now without waiting for the
- *     queue's run loop.
- *   - **`tomAi_sendQueuedPrompt`** (the lifecycle entry point):
- *     hands an item to the manager's run loop. The manager will then
- *     wait for the answer, send the next follow-up, etc., chaining
- *     all the way through the item's stages. This is the **canonical
- *     workflow** for staged items with follow-ups.
+ * **`tomAi_sendQueuedPrompt`** is the one way an agent sends an item: it
+ * hands the item to the manager's run loop, which waits for the answer,
+ * sends the next follow-up, etc., chaining all the way through the item's
+ * stages.
  *
  * The canonical model-side workflow is:
  *
@@ -54,8 +47,7 @@
  *   3. `tomAi_sendQueuedPrompt` to start the lifecycle (manager
  *      handles all the chaining + answer waiting).
  *
- * `tomAi_sendQueueItem` is the escape hatch for "fire this one right
- * now, no follow-up chaining"; `tomAi_resendQueueItem` is the recovery
+ * `tomAi_resendQueueItem` is the recovery
  * tool for rate-limited/interrupted dispatches (re-runs the LAST
  * dispatched stage without touching repetition counters).
  */
@@ -225,7 +217,6 @@ export interface PromptQueueAccess {
     removeFollowUpPrompt(id: string, followUpId: string): boolean;
 
     sendQueuedPrompt(selector: { id?: string; requestId?: string }): Promise<QueueItemSnapshot | null>;
-    sendNow(id: string): Promise<void>;
     resendLastPrompt(id: string): Promise<void>;
 }
 
@@ -510,9 +501,7 @@ export const SEND_QUEUED_PROMPT_DESCRIPTION =
     '**canonical lifecycle entry point**. The manager will then: send pre-' +
     'prompts → wait → send main → wait → send follow-up #1 → wait → … → ' +
     'mark sent. All follow-ups are auto-wrapped with the Answer Wrapper. ' +
-    'Pass `queueItemId` (preferred) or `requestId` (when id is unknown). ' +
-    'Distinct from `tomAi_sendQueueItem` which fires one stage immediately ' +
-    'without entering the run loop — pick this tool for the full chain.';
+    'Pass `queueItemId` (preferred) or `requestId` (when id is unknown).';
 
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
     name: 'tomAi_sendQueuedPrompt',
@@ -526,55 +515,6 @@ export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput
             queueItemId: { type: 'string' },
             requestId: { type: 'string' },
         },
-    },
-    execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
-};
-
-// ===========================================================================
-// tomAi_sendQueueItem — single-stage immediate dispatch
-// ===========================================================================
-
-export interface SendQueueItemInput { queueItemId: string }
-
-export async function sendQueueItemImpl(access: PromptQueueAccess, input: SendQueueItemInput): Promise<string> {
-    try {
-        if (!input.queueItemId) { return err('`queueItemId` is required.'); }
-        await access.sendNow(input.queueItemId);
-        const item = access.getById(input.queueItemId);
-        if (!item) { return err(`Queue item "${input.queueItemId}" disappeared mid-send.`); }
-        return ok({
-            id: input.queueItemId,
-            status: item.status,
-            transport: item.transport || 'copilot',
-            anthropicProfileId: item.anthropicProfileId || null,
-            anthropicConfigId: item.anthropicConfigId || null,
-            answerText: item.answerText || null,
-        });
-    } catch (e) {
-        return err((e as Error).message);
-    }
-}
-
-export const SEND_QUEUE_ITEM_DESCRIPTION =
-    'Send ONE staged/pending queue item immediately — bypasses the manager\'s ' +
-    'run loop. **Distinct from `tomAi_sendQueuedPrompt`**: that one hands the ' +
-    'item to the manager which then chains through follow-ups; this one fires ' +
-    'the current stage right now without chaining. Use for "fire-and-forget" ' +
-    'or when you want to dispatch immediately without waiting for the queue\'s ' +
-    'auto-send loop. Response includes the resolved transport + anthropic ' +
-    'target so the caller can see which leaf was triggered without a follow-' +
-    'up tool call.';
-
-export const SEND_QUEUE_ITEM_TOOL: SharedToolDefinition<SendQueueItemInput> = {
-    name: 'tomAi_sendQueueItem',
-    displayName: 'Queue Send Now',
-    description: SEND_QUEUE_ITEM_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        required: ['queueItemId'],
-        properties: { queueItemId: { type: 'string' } },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
 };
@@ -1258,7 +1198,6 @@ export const PROMPT_QUEUE_TOOLS: SharedToolDefinition<any>[] = [
     ADD_QUEUE_ITEM_TOOL,
     LIST_QUEUE_TOOL,
     SEND_QUEUED_PROMPT_TOOL,
-    SEND_QUEUE_ITEM_TOOL,
     RESEND_QUEUE_ITEM_TOOL,
     SET_QUEUE_ITEM_STATUS_TOOL,
     UPDATE_QUEUE_ITEM_TOOL,

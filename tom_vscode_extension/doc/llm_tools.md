@@ -325,7 +325,6 @@ These tools drive the **Copilot Chat user-facing panel** via a bridge. They are 
 | `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_removeQueuePrePrompt` | Remove a pre-prompt by index. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_sendQueuedPrompt` | Send one staged prompt. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_sendQueueItem` | Send a specific item immediately. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_listQueue` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder / `session` (`''` = the queue default). |
 | `tomAi_listSessions` | The quest's named sessions: mode, base, whether they have a conversation, how the next prompt in each starts. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |

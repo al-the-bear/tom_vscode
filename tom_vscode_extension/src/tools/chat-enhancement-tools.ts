@@ -539,7 +539,6 @@ import {
     ADD_QUEUE_ITEM_TOOL as ADD_QUEUE_ITEM_DEF,
     LIST_QUEUE_TOOL as LIST_QUEUE_DEF,
     SEND_QUEUED_PROMPT_TOOL as SEND_QUEUED_PROMPT_DEF,
-    SEND_QUEUE_ITEM_TOOL as SEND_QUEUE_ITEM_DEF,
     RESEND_QUEUE_ITEM_TOOL as RESEND_QUEUE_ITEM_DEF,
     SET_QUEUE_ITEM_STATUS_TOOL as SET_QUEUE_ITEM_STATUS_DEF,
     UPDATE_QUEUE_ITEM_TOOL as UPDATE_QUEUE_ITEM_DEF,
@@ -553,7 +552,6 @@ import {
     AddQueueItemInput,
     ListQueueInput,
     SendQueuedPromptInput,
-    SendQueueItemInput,
     ResendQueueItemInput,
     SetQueueItemStatusInput,
     UpdateQueueItemInput,
@@ -570,7 +568,6 @@ import {
     addQueueItemImpl,
     listQueueImpl,
     sendQueuedPromptImpl,
-    sendQueueItemImpl,
     resendQueueItemImpl,
     setQueueItemStatusImpl,
     updateQueueItemImpl,
@@ -705,7 +702,6 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const item = await (await getQueueManager()).sendQueuedPrompt(selector);
         return item ? projectItem(item) : null;
     },
-    async sendNow(id) { await (await getQueueManager()).sendNow(id); },
     async resendLastPrompt(id) { await (await getQueueManager()).resendLastPrompt(id); },
 };
 
@@ -722,10 +718,6 @@ export const QUEUE_LIST_TOOL: SharedToolDefinition<ListQueueInput> = {
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
     ...SEND_QUEUED_PROMPT_DEF,
     execute: (input) => sendQueuedPromptImpl(livePromptQueueAccess, input),
-};
-export const QUEUE_SEND_NOW_TOOL: SharedToolDefinition<SendQueueItemInput> = {
-    ...SEND_QUEUE_ITEM_DEF,
-    execute: (input) => sendQueueItemImpl(livePromptQueueAccess, input),
 };
 export const QUEUE_RESEND_TOOL: SharedToolDefinition<ResendQueueItemInput> = {
     ...RESEND_QUEUE_ITEM_DEF,
