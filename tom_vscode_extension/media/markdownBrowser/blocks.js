@@ -567,6 +567,7 @@ function mdbCriticMark(src) {
         }
         var text = m[1].trim();
         if (!text) { return null; }
+        /** @type {{raw: string, kind: string, text: string, comment?: string}} */
         var out = { raw: m[0], kind: kind, text: text };
         if (kind === 'highlight' && m[2] !== undefined && m[2].trim()) { out.comment = m[2].trim(); }
         return out;
