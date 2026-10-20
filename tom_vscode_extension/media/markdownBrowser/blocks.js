@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -664,4 +664,56 @@ function mdbCriticMark(src) {
         return out;
     }
     return null;
+}
+
+// ---- Navigation ----
+
+/**
+ * The target to go to from a position in the document rather than from a
+ * target: after a save or a decision, the element navigated to last was
+ * replaced. A position is `{line, ord}` — a source line and, among the marks
+ * of a block, the mark's index. Next is the first target at or after the
+ * position, previous the last one before it; both wrap around. A null key
+ * (a target with no source position) is passed over. -1 when there is none.
+ *
+ * @param {Array<{line: number, ord: number} | null>} keys the targets' positions, in document order
+ * @param {{line: number, ord: number}} anchor
+ * @param {number} delta 1 for next, -1 for previous
+ * @returns {number}
+ */
+function mdbNavPick(keys, anchor, delta) {
+    /** @param {{line: number, ord: number}} k */
+    function before(k) { return k.line < anchor.line || (k.line === anchor.line && k.ord < anchor.ord); }
+    var first = -1;
+    var last = -1;
+    var pick = -1;
+    for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (!k) { continue; }
+        if (first < 0) { first = i; }
+        last = i;
+        if (delta > 0 && pick < 0 && !before(k)) { pick = i; }
+        if (delta < 0 && before(k)) { pick = i; }
+    }
+    if (pick >= 0) { return pick; }
+    return delta > 0 ? first : last;
+}
+
+/**
+ * How far to scroll to reveal a target with its context: the context's top
+ * (the question an answer belongs to) `pad` below the top of the view, unless
+ * that pushes `keepBottom` (the answer button, or its open editor) below the
+ * view; then that bottom sits `pad` above the bottom instead. Positions are
+ * relative to the top of the view.
+ *
+ * @param {number} contextTop
+ * @param {number} keepBottom
+ * @param {number} viewHeight
+ * @param {number} pad
+ * @returns {number} the scroll delta
+ */
+function mdbRevealDelta(contextTop, keepBottom, viewHeight, pad) {
+    var delta = contextTop - pad;
+    var keep = keepBottom - (viewHeight - pad);
+    return keep > delta ? keep : delta;
 }

@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -102,6 +102,7 @@
         var openEditors = 0;
         var pendingContent = null;      // a same-file refresh held back while an editor is open
         var restoreScrollTop = null;    // where to stay after our own save re-renders
+        var afterNextRender = null;     // Save and next, when its save needs a full render first
         var nextEditId = 1;
         var pendingSaves = {};          // editId -> editor element awaiting the backend's answer
 
@@ -731,15 +732,19 @@
             var region = lines.slice(regionStart, regionEnd).join('\n');
             var built = buildPieces(region, regionStart);
             if (built.pieces.some(function(p) { return p.hasHtml || (p.block && (p.block.type === 'heading' || p.block.type === 'group')); })) { return false; }
-            var nodes = piecesToNodes(built.pieces);
-            var ctx = { foldSeen: {}, headings: [], linkables: [] };
-            processNodes(nodes, ctx);
-            linkify(ctx.linkables);
             // Swap the old wrappers (and anything between them) for the new nodes.
             var oldFirst = shownWrappers[from];
             var oldLast = shownWrappers[last];
             // A region across two sections is rendered again in full.
             if (oldFirst.parentNode !== oldLast.parentNode) { return false; }
+            var nodes = piecesToNodes(built.pieces);
+            // The new blocks are decorated from the new text: an answer just
+            // written must read as answered.
+            shownText = lines.join(eol);
+            shownLinesCache = null;
+            var ctx = { foldSeen: {}, headings: [], linkables: [] };
+            processNodes(nodes, ctx);
+            linkify(ctx.linkables);
             var anchor = oldLast.nextSibling;
             var parent = oldFirst.parentNode;
             for (var n = oldFirst; n && n !== anchor;) {
@@ -764,8 +769,6 @@
             }
             Array.prototype.splice.apply(shownBlocks, [from, last - from + 1].concat(nodes.blocks));
             Array.prototype.splice.apply(shownWrappers, [from, last - from + 1].concat(nodes.wrappers));
-            shownText = lines.join(eol);
-            shownLinesCache = null;
             search.texts = null;
             if (search.query) { runSearch(false); }
             return true;
@@ -919,8 +922,10 @@
 
         // ---- In-place editing ----
         // An editor: a 5-line textarea (resizable) with Save / Discard. The
-        // button that opened it is hidden while it is open.
-        function openEditor(trigger, placeAfter, initial, buildEdit) {
+        // button that opened it is hidden while it is open. With `next` (an
+        // answer) a third button saves and goes on: `next(saved)` runs once the
+        // save landed, or at once when there was nothing to save.
+        function openEditor(trigger, placeAfter, initial, buildEdit, next) {
             var box = document.createElement('div');
             box.className = 'mdb-editor';
             var area = document.createElement('textarea');
@@ -940,6 +945,14 @@
             status.className = 'mdb-editor-status';
             bar.appendChild(save);
             bar.appendChild(discard);
+            if (next) {
+                var saveNext = document.createElement('button');
+                saveNext.className = 'mdb-editor-btn';
+                saveNext.title = 'Save, then go to the next unanswered question';
+                saveNext.innerHTML = '<span class="codicon codicon-arrow-down"></span> Save and next';
+                saveNext.addEventListener('click', function(e) { e.stopPropagation(); submit(next); });
+                bar.appendChild(saveNext);
+            }
             bar.appendChild(status);
             box.appendChild(area);
             box.appendChild(bar);
@@ -963,10 +976,14 @@
                 }
             }
             discard.addEventListener('click', function(e) { e.stopPropagation(); close(); });
-            save.addEventListener('click', function(e) {
-                e.stopPropagation();
+            save.addEventListener('click', function(e) { e.stopPropagation(); submit(null); });
+            function submit(after) {
                 var edit = buildEdit(area.value);
-                if (!edit) { close(); return; }
+                if (!edit) {
+                    close();
+                    if (after) { after(false); }
+                    return;
+                }
                 // The edit asks to be confirmed first: say why, and wait for the next Save.
                 if (edit.hold) {
                     status.textContent = edit.hold;
@@ -980,14 +997,15 @@
                     return;
                 }
                 var id = nextEditId++;
-                pendingSaves[id] = { close: close, status: status, edit: edit };
+                pendingSaves[id] = { close: close, status: status, edit: edit, after: after };
                 status.textContent = 'Saving…';
                 restoreScrollTop = contentArea.scrollTop;
                 vscode.postMessage({
                     type: 'applyEdit', editId: id, filePath: currentFilePath,
                     startLine: fileEdit.startLine, endLine: fileEdit.endLine, expected: fileEdit.expected, replacement: fileEdit.replacement,
                 });
-            });
+            }
+            return box;
         }
 
         function iconButton(cls, icon, title) {
@@ -1163,6 +1181,8 @@
             strong.insertAdjacentElement('afterend', btn);
             var startLines = shownLines();
             if (!mdbAnswerAt(startLines, block.startLine + offset, column).text) { btn.dataset.unanswered = '1'; }
+            /** The marker's line now: the block's lines move with edits above it. */
+            btn.__mdbLine = function() { return block.startLine + offset; };
             /** The answer's lines and its question, read when used: an edit elsewhere may have moved them. */
             function where() {
                 var lines = shownLines();
@@ -1183,9 +1203,13 @@
                 // exactly the answer's lines (as the answer import reads them).
                 var w = where();
                 var initial = w.current.text || (w.question && w.question.recommended ? mdbOptionAnswer(w.question.recommended) : '');
-                openEditor(btn, btn, initial, function(value) {
+                return openEditor(btn, btn, initial, function(value) {
                     if (value.trim() === w.current.text.trim()) { return null; }
                     return editFor(w, value);
+                }, function(saved) {
+                    // Nothing was saved: go on from behind this question all the same.
+                    if (!saved) { setNavAnchor({ line: w.line + 1, ord: 0 }); }
+                    navigate(1, 'unanswered');
                 });
             };
             btn.addEventListener('click', function(e) {
@@ -1265,6 +1289,8 @@
             var all = wrapper.querySelectorAll('.mdb-rm');
             for (var i = 0; i < all.length && all[i] !== span; i++) { if (all[i].dataset.raw === raw) { occurrence++; } }
             var decision = btn.classList.contains('mdb-rm-accept') ? 'accept' : btn.classList.contains('mdb-rm-reject') ? 'reject' : 'remove';
+            // The mark goes away: the next one takes its place.
+            setNavAnchor(navKey(span));
             restoreScrollTop = contentArea.scrollTop;
             vscode.postMessage({
                 type: 'reviewMark', filePath: currentFilePath,
@@ -1304,13 +1330,51 @@
         };
         var navModeSelect = document.getElementById('navModeSelect');
         var navCurrent = null;
-        function navigate(delta) {
-            var mode = navModeSelect ? navModeSelect.value : 'changes';
+        // Where navigation goes on from after a save or a decision replaced
+        // the element navigated to last: `{line, ord}` (mdbNavPick), or null.
+        var navAnchor = null;
+        function setNavAnchor(key) {
+            if (!key) { return; }
+            if (navCurrent) { navCurrent.classList.remove('mdb-nav-current'); }
+            navCurrent = null;
+            navAnchor = key;
+        }
+        /** A target's position: its source line and, for a mark, its index among the block's marks. */
+        function navKey(el) {
+            if (el.__mdbLine) { return { line: el.__mdbLine(), ord: 0 }; }
+            var wrapper = el.closest('.mdb-block');
+            var block = wrapper && wrapper.__mdbBlock;
+            if (!block) { return null; }
+            var ord = 0;
+            if (el.classList.contains('mdb-rm')) { ord = Array.prototype.indexOf.call(wrapper.querySelectorAll('.mdb-rm'), el); }
+            return { line: block.startLine, ord: ord };
+        }
+        /** What is shown above a target when going there: its question, the paragraph a comment is on. */
+        function navContext(el) {
+            if (el.__mdbLine) {
+                var q = mdbQuestionAt(shownLines(), el.__mdbLine());
+                if (q) {
+                    for (var i = 0; i < shownBlocks.length; i++) {
+                        if (shownBlocks[i].startLine <= q.line && q.line < shownBlocks[i].endLine && shownWrappers[i]) { return shownWrappers[i]; }
+                    }
+                }
+            }
+            if (el.classList.contains('mdb-comment-block')) {
+                var before = el.previousElementSibling;
+                return before && before.classList.contains('mdb-block') ? before : el;
+            }
+            return el.closest('.mdb-block') || el;
+        }
+        function navigate(delta, forceMode) {
+            var mode = forceMode || (navModeSelect ? navModeSelect.value : 'changes');
             var targets = Array.prototype.slice.call(docRoot.querySelectorAll(NAV_TARGETS[mode] || NAV_TARGETS.changes));
             if (targets.length === 0) { return; }
-            var index = navCurrent ? targets.indexOf(navCurrent) : -1;
+            var index = navCurrent && navCurrent.isConnected ? targets.indexOf(navCurrent) : -1;
             if (index >= 0) {
                 index = (index + delta + targets.length) % targets.length;
+            } else if (navAnchor) {
+                index = mdbNavPick(targets.map(navKey), navAnchor, delta);
+                if (index < 0) { index = 0; }
             } else if (delta > 0) {
                 // From the reading position: the first one at or below the top of the view.
                 index = targets.findIndex(function(t) { return offsetInView(t) >= 0; });
@@ -1321,11 +1385,13 @@
                 if (index < 0) { index = targets.length - 1; }
             }
             if (navCurrent) { navCurrent.classList.remove('mdb-nav-current'); }
+            navAnchor = null;
             navCurrent = targets[index];
             navCurrent.classList.add('mdb-nav-current');
-            jumpWithinDocument(navCurrent);
             // An unanswered question opens ready to answer, the recommended option filled in.
-            if (mode === 'unanswered' && navCurrent.__mdbOpenAnswer) { navCurrent.__mdbOpenAnswer(); }
+            var editor = mode === 'unanswered' && navCurrent.__mdbOpenAnswer ? navCurrent.__mdbOpenAnswer() : null;
+            // The question (or the commented paragraph) at the top, the target — or its editor — in view.
+            jumpWithinDocument(navCurrent, navContext(navCurrent), editor || navCurrent);
         }
         var navPrevBtn = document.getElementById('navPrevBtn');
         var navNextBtn = document.getElementById('navNextBtn');
@@ -1333,8 +1399,13 @@
         if (navNextBtn) { navNextBtn.addEventListener('click', function() { navigate(1); }); }
         if (navModeSelect) {
             navModeSelect.addEventListener('change', function() {
-                if (navCurrent) { navCurrent.classList.remove('mdb-nav-current'); }
-                navCurrent = null;
+                // Another kind of target: go on from where the last one was.
+                if (navCurrent && navCurrent.isConnected) {
+                    setNavAnchor(navKey(navCurrent));
+                } else if (navCurrent) {
+                    navCurrent.classList.remove('mdb-nav-current');
+                    navCurrent = null;
+                }
             });
         }
 
@@ -1583,12 +1654,22 @@
             setTimeout(function() { el.style.backgroundColor = ''; }, 1500);
         }
 
-        /** Go to `target`, remembering where the reader was. */
-        function jumpWithinDocument(target) {
+        /**
+         * Go to `target`, remembering where the reader was. With `context`, that
+         * is put at the top instead (the question of an answer), as long as
+         * `keep` (the target, or its open editor) stays in view.
+         */
+        function jumpWithinDocument(target, context, keep) {
             docBack.push(capturePosition());
             docForward = [];
             revealElement(target);
-            contentArea.scrollTop += offsetInView(target) - 8;
+            if (keep) {
+                var view = contentArea.clientHeight || contentArea.getBoundingClientRect().height;
+                var keepBottom = keep.getBoundingClientRect().bottom - contentArea.getBoundingClientRect().top;
+                contentArea.scrollTop += mdbRevealDelta(offsetInView(context || target), keepBottom, view, 8);
+            } else {
+                contentArea.scrollTop += offsetInView(target) - 8;
+            }
             flash(target);
             updateDocNav();
         }
@@ -1990,6 +2071,11 @@
                     finishFolding(sameFile);
                     applyIndent();
                     afterRender(sameFile, anchor, position);
+                    if (afterNextRender) {
+                        var then = afterNextRender;
+                        afterNextRender = null;
+                        then(true);
+                    }
                 });
             }
         }
@@ -2041,9 +2127,16 @@
                 if (saved) {
                     if (msg.ok) {
                         saved.close();
+                        // Navigation goes on from behind what was just saved.
+                        setNavAnchor({ line: saved.edit.startLine + saved.edit.replacement.split('\n').length, ord: 0 });
                         // Patch the region the edit touched; the file's own
                         // refresh that follows is then the same text and skipped.
-                        if (patchAfterSave(saved.edit)) { restoreScrollTop = null; }
+                        var patched = patchAfterSave(saved.edit);
+                        if (patched) { restoreScrollTop = null; }
+                        // Save and next: on the patched document now, else once the full render is in.
+                        if (saved.after) {
+                            if (patched) { saved.after(true); } else { afterNextRender = saved.after; }
+                        }
                         // The edit moved lines: wait for the host's reading of the new text.
                         somComments = null;
                         applySomComments();

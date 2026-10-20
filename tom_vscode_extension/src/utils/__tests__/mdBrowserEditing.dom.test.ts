@@ -29,6 +29,13 @@
  *         the recommended option; the answer button prefills it too, and its options popup answers with one click
  *   MD-15 CR/LF on: blocks whose lines are file lines keep their edit, comment and answer buttons and post
  *         file line numbers (the host's line map); a block holding converted line breaks gets none
+ *   MD-16 navigating after a save or a decision goes on from there: a saved answer is no longer
+ *         unanswered and next goes to the question after it (also with every question as targets);
+ *         after a mark is decided, next goes to the mark that followed it; another mode goes on from
+ *         where the last target was
+ *   MD-17 an answer editor's third button, Save and next, saves and opens the next unanswered question
+ *         (without saving when nothing changed)
+ *   MD-18 going to a question shows the question at the top of the view, its answer editor below it
  *   MD-12c a SOM document: the host's next comment number is used when higher; blocks in a form's
  *         fields offer no comment (comments go into the preamble); stale ranges (another text) are ignored
  */
@@ -465,5 +472,110 @@ describe('Markdown Browser editing', () => {
         assert.ok(notes.every((n: Win) => n.querySelector('.codicon-comment')));
         assert.equal($(window, 'code')[0].textContent, '{++ not a mark ++}', 'code keeps its text');
         assert.equal($(window, '.mdb-answer-btn').length, 1, 'a mark in an answer does not hide its marker');
+    });
+
+    const QUESTIONS = [
+        '# Q',                                     // 0
+        '',                                        // 1
+        '> **❓ BQ-01 — scope:** which scope?',    // 2
+        '> - (a) narrow',                          // 3
+        '> - **(b)** wide',                        // 4
+        '> **Answer:**',                           // 5
+        '',                                        // 6
+        '> **❓ BQ-02 — size:** which size?',      // 7
+        '> - **(a)** small',                       // 8
+        '> **Answer:**',                           // 9
+        '',                                        // 10
+        '> **❓ BQ-03 — colour:** which colour?',  // 11
+        '> - **(c)** red',                         // 12
+        '> **Answer:**',                           // 13
+    ].join('\n');
+    const pickMode = (window: Win, value: string): void => {
+        const mode = window.document.getElementById('navModeSelect');
+        mode.value = value;
+        mode.dispatchEvent(new window.Event('change'));
+    };
+    const nextBtn = (window: Win): Win => window.document.getElementById('navNextBtn');
+    const current = (window: Win): Win => window.document.querySelector('.mdb-nav-current');
+    const answerIndex = (window: Win, el: Win): number => $(window, '.mdb-answer-btn').indexOf(el);
+
+    test('MD-16: navigation goes on after a save or a decision', () => {
+        const { window, posted } = setup();
+        send(window, content(QUESTIONS));
+        pickMode(window, 'unanswered');
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 0);
+        $(window, '.mdb-editor-btn')[0].click();
+        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+        assert.equal($(window, '.mdb-answer-btn')[0].dataset.unanswered, undefined, 'the saved answer is answered');
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 1, 'the next question, not the same one again');
+        $(window, '.mdb-editor-btn')[1].click();
+
+        pickMode(window, 'questions');
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 1, 'another mode goes on from where the last target was');
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 2);
+        current(window).click();
+        $(window, '.mdb-editor-btn')[0].click();
+        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 0, 'after the last question: around to the first');
+
+        // A decided mark: next goes to the one that took its place.
+        const marks = 'Keep {++ one ++} and {++ two ++} and {++ three ++}.';
+        send(window, content(marks));
+        window.document.getElementById('editModeBtn').click();
+        pickMode(window, 'changes');
+        nextBtn(window).click();
+        nextBtn(window).click();
+        current(window).querySelector('.mdb-rm-accept').click();
+        send(window, content('Keep {++ one ++} and two and {++ three ++}.'));
+        nextBtn(window).click();
+        assert.equal(current(window).dataset.raw, '{++ three ++}');
+    });
+
+    test('MD-17: Save and next', () => {
+        const { window, posted } = setup();
+        send(window, content(QUESTIONS));
+        $(window, '.mdb-answer-btn')[0].click();
+        const buttons = $(window, '.mdb-editor-btn');
+        assert.deepEqual(buttons.map((b: Win) => b.textContent.trim()), ['Save', 'Discard', 'Save and next']);
+        buttons[2].click();
+        const edit = lastEdit(posted);
+        assert.equal(edit.replacement, '> **Answer:** (b)');
+        send(window, { type: 'editResult', ok: true, editId: edit.editId });
+        assert.equal(answerIndex(window, current(window)), 1, 'the next unanswered question');
+        assert.equal($(window, '.mdb-editor textarea')[0].value, '(a)', 'opened with its recommended option');
+
+        // Nothing changed: no save, straight on.
+        const before = posted.length;
+        $(window, '.mdb-answer-btn')[1].style.display = '';
+        $(window, '.mdb-editor-btn')[1].click();
+        send(window, content(QUESTIONS.replace('> **Answer:**\n\n> **❓ BQ-03', '> **Answer:** (a)\n\n> **❓ BQ-03')));
+        $(window, '.mdb-answer-btn')[1].click();
+        $(window, '.mdb-editor-btn')[2].click();
+        assert.equal(posted.filter((m) => m.type === 'applyEdit').length, posted.slice(0, before).filter((m) => m.type === 'applyEdit').length);
+        assert.equal(answerIndex(window, current(window)), 2, 'went on without saving');
+        assert.equal($(window, '.mdb-editor').length, 1, 'only the next one is open');
+    });
+
+    test('MD-18: going to a question shows the question', () => {
+        const { window } = setup();
+        send(window, content(QUESTIONS));
+        const area = window.document.getElementById('contentArea');
+        const rect = (top: number, height: number): () => Record<string, number> => () => ({ top, bottom: top + height, left: 0, right: 0, width: 0, height });
+        area.getBoundingClientRect = rect(0, 400);
+        Object.defineProperty(area, 'clientHeight', { value: 400 });
+        pickMode(window, 'questions');
+        nextBtn(window).click();
+        const question = $(window, '.mdb-answer-btn')[1].closest('.mdb-block');
+        question.getBoundingClientRect = rect(500, 60);
+        $(window, '.mdb-answer-btn')[1].getBoundingClientRect = rect(540, 20);
+        area.scrollTop = 1000;
+        nextBtn(window).click();
+        assert.equal(answerIndex(window, current(window)), 1);
+        assert.equal(area.scrollTop, 1492, 'the question at the top (8px pad), not its answer button');
     });
 });

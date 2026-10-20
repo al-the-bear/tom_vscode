@@ -29,6 +29,10 @@
  *         continuation lines, and the recommended one: the bold option, else the one whose text says
  *         "recommended", else the letter of a `*Recommendation:*` line; in a block of several questions,
  *         each answer finds its own; the answer an option writes
+ *   MB-19 navigating from a position (after a save or a decision): next is the first target at or after
+ *         it, previous the last one before it, wrapping around; targets without a position are passed over
+ *   MB-20 revealing a target: its context (the question) at the top of the view, unless that would push
+ *         the part that must stay visible (the answer editor) out at the bottom
  */
 
 import test, { describe } from 'node:test';
@@ -58,6 +62,8 @@ interface BlocksApi {
     mdbNextCommentId(text: string, runtimeNext?: number): string;
     mdbInRanges(ranges: Array<[number, number]>, line: number): boolean;
     mdbWriteComment(text: string, nextId: string, author?: string): string;
+    mdbNavPick(keys: Array<{ line: number; ord: number } | null>, anchor: { line: number; ord: number }, delta: number): number;
+    mdbRevealDelta(contextTop: number, keepBottom: number, viewHeight: number, pad: number): number;
     mdbQuestionAt(lines: string[], answerLine: number): { id: string; line: number; options: Array<{ letter: string; text: string; bold: boolean }>; recommended: string | null } | null;
     mdbOptionAnswer(letter: string): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
@@ -346,5 +352,21 @@ describe('Markdown Browser source mapping', () => {
         assert.deepEqual([q10.id, q10.options.length, q10.recommended], ['BQ-10', 0, null]);
         assert.equal(api.mdbQuestionAt(['plain', '**Answer:**'], 1), null, 'no question above');
         assert.equal(api.mdbOptionAnswer('c'), '(c)');
+    });
+
+    test('MB-19: navigating from a position', () => {
+        const keys = [{ line: 3, ord: 0 }, { line: 8, ord: 0 }, { line: 8, ord: 1 }, null, { line: 20, ord: 0 }];
+        assert.equal(api.mdbNavPick(keys, { line: 8, ord: 1 }, 1), 2, 'at the position: the mark that took the decided one\'s place');
+        assert.equal(api.mdbNavPick(keys, { line: 9, ord: 0 }, 1), 4, 'after the saved answer: the next one');
+        assert.equal(api.mdbNavPick(keys, { line: 21, ord: 0 }, 1), 0, 'wraps to the first');
+        assert.equal(api.mdbNavPick(keys, { line: 8, ord: 1 }, -1), 1, 'previous: the last one before');
+        assert.equal(api.mdbNavPick(keys, { line: 3, ord: 0 }, -1), 4, 'wraps to the last');
+        assert.equal(api.mdbNavPick([], { line: 0, ord: 0 }, 1), -1);
+    });
+
+    test('MB-20: revealing a target with its context', () => {
+        assert.equal(api.mdbRevealDelta(500, 700, 400, 8), 492, 'the question at the top, the editor below it in view');
+        assert.equal(api.mdbRevealDelta(500, 1100, 400, 8), 708, 'a long question: the editor at the bottom of the view');
+        assert.equal(api.mdbRevealDelta(-300, 50, 400, 8), -308, 'upwards too');
     });
 });
