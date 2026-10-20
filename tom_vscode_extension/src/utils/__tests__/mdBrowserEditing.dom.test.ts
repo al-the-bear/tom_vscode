@@ -37,7 +37,7 @@
  *         (without saving when nothing changed)
  *   MD-18 going to a question shows the question at the top of the view, its answer editor below it
  *   MD-19 the navigation steps through several kinds at once: the kinds are ticked in a popup opened from
- *         the action bar (its label names them: one, "Changes + 2", "All", "Nothing"); the targets of every
+ *         the action bar (Unanswered by default; its label names them: one, "Changes + 2", "All", "Nothing"); the targets of every
  *         ticked kind in document order; an unanswered question opens its answer only while Unanswered is
  *         ticked; with nothing ticked the arrows do nothing
  *   MD-20 Reload always renders the file again: also when its text is unchanged, and with an editor open
@@ -608,7 +608,7 @@ describe('Markdown Browser editing', () => {
         send(window, content(doc));
         const btn = window.document.getElementById('navKindBtn');
         const pop = window.document.getElementById('navKindPop');
-        assert.equal(btn.textContent.trim(), 'Changes', 'changes by default');
+        assert.equal(btn.textContent.trim(), 'Unanswered', 'unanswered questions by default: the usual review');
         assert.ok(pop.hidden, 'the popup is closed');
         btn.click();
         assert.equal(pop.hidden, false, 'the button opens it');
