@@ -32,6 +32,7 @@ import {
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
+import { describeQueueSendTarget } from '../utils/queueSendTarget';
 import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
@@ -3017,8 +3018,10 @@ export class PromptQueueManager {
         // un-dispatched repetition. Fresh items (never sent or
         // explicitly reset to staged) get the full reset.
         const hasProgress = this._itemHasInFlightProgress(item);
+        // The main stage's target, resolved as dispatchStage resolves it — the log names where it goes.
+        const target = describeQueueSendTarget(this.resolveStageTransport(item));
         if (hasProgress) {
-            logQueue(`Resuming prompt ${item.id} from prior progress (mp.idx=${item.repeatIndex ?? 0}, fu.idx=${item.followUpIndex ?? 0}) — text=${promptPreview(item.originalText)}`);
+            logQueue(`Resuming prompt ${item.id} ${target} from prior progress (mp.idx=${item.repeatIndex ?? 0}, fu.idx=${item.followUpIndex ?? 0}) — text=${promptPreview(item.originalText)}`);
             // Clear only the transient error markers so the
             // resumed dispatch isn't shadowed by them. `lastDispatched`
             // and counters survive so the user can still Resend the
@@ -3026,7 +3029,7 @@ export class PromptQueueManager {
             item.error = undefined;
             item.warning = undefined;
         } else {
-            logQueue(`Sending prompt ${item.id} to Copilot — text=${promptPreview(item.originalText)}`);
+            logQueue(`Sending prompt ${item.id} ${target} — text=${promptPreview(item.originalText)}`);
             // Fresh start: reset run state before first dispatch.
             if (item.prePrompts && item.prePrompts.length > 0) {
                 for (let idx = 0; idx < item.prePrompts.length; idx++) {

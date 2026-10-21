@@ -476,7 +476,7 @@ The extension provides dedicated output channels for observability:
 
 | Channel | Source | Purpose |
 | --- | --- | --- |
-| Tom Prompt Queue | `promptQueueManager.ts` | Queue state changes, send events, answer detection, watchdog health checks |
+| Tom Prompt Queue | `promptQueueManager.ts` | Queue state changes, send events (each naming where the prompt goes: `via copilot`, or `via anthropic (profile …, session …)`), answer detection, watchdog health checks |
 | Tom Timed Requests | `timerEngine.ts` | Tick heartbeats, fire decisions, schedule evaluation, entry lifecycle |
 | Tom Debug | `debugLogger.ts` | General debug logging across all categories |
 | Tom Tests | `tests.ts` | Test execution output |
