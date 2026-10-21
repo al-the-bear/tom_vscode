@@ -97,7 +97,13 @@ final all        = await TomTodoApi.listAllTodos();
 // quest / workspace / session create / update / delete / move operations
 ```
 
-Models: `TodoItem`, enums `TodoStatus`, `TodoPriority`.
+Models: the shared todo model of `tom_todo_model`, re-exported here — `TomTodo`,
+`TomTodoStatus`, `TomTodoPriority`, `TomTodoScope`, `TomTodoReference`,
+`TomTodoDecision`. Reads answer `TodoEntry` (the `TomTodo` with its
+`sourceFile`, its `level` and any `unknownFields`) and lists `TodoListResult`
+(`entries`, `todos`, and `invalid` for todos the model cannot read). Writes take
+a `TomTodo`; `TodoWire` maps it to the extension's quest/workspace shape or,
+for a session todo, to `{title, details, status: pending|done, ...}`.
 
 ---
 

@@ -372,12 +372,12 @@ Future<bool> runTodosExample(VSCodeAdapter adapter) async {
   final all = await TomTodoApi.listAllTodos();
   print('${all.todos.length} todos across all scopes.');
 
-  final counts = <TodoStatus, int>{};
+  final counts = <TomTodoStatus, int>{};
   for (final todo in all.todos) {
     counts.update(todo.status, (n) => n + 1, ifAbsent: () => 1);
   }
   final breakdown = counts.entries
-      .map((e) => '${e.key.value}=${e.value}')
+      .map((e) => '${e.key.wire}=${e.value}')
       .join(', ');
   print('By status: ${breakdown.isEmpty ? '<no todos>' : breakdown}');
 
@@ -387,8 +387,10 @@ Future<bool> runTodosExample(VSCodeAdapter adapter) async {
 }
 ```
 
-`TodoStatus` is an enum with a `.value` string (`not-started`, `in-progress`,
-`completed`), which is what the breakdown prints. The full API also offers
+Each todo is the shared model's `TomTodo` (package `tom_todo_model`, re-exported
+by the scripting API). `TomTodoStatus` is an enum with a `.wire` string
+(`not-started`, `in-progress`, `blocked`, `decision-needed`, `completed`,
+`cancelled`), which is what the breakdown prints. The full API also offers
 create / update / delete / move per scope — the same client, used the same way.
 
 ### `queue.dart` — the multi-transport prompt queue

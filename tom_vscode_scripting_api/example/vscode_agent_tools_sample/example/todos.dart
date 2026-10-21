@@ -21,14 +21,19 @@ Future<bool> runTodosExample(VSCodeAdapter adapter) async {
   final all = await TomTodoApi.listAllTodos();
   print('${all.todos.length} todos across all scopes.');
 
-  final counts = <TodoStatus, int>{};
+  final counts = <TomTodoStatus, int>{};
   for (final todo in all.todos) {
     counts.update(todo.status, (n) => n + 1, ifAbsent: () => 1);
   }
   final breakdown = counts.entries
-      .map((e) => '${e.key.value}=${e.value}')
+      .map((e) => '${e.key.wire}=${e.value}')
       .join(', ');
   print('By status: ${breakdown.isEmpty ? '<no todos>' : breakdown}');
+
+  // A todo the shared model cannot read is reported beside the list.
+  for (final bad in all.invalid) {
+    print('Unreadable todo ${bad.id}: ${bad.error}');
+  }
 
   // Listing succeeds even when the workspace has zero todos; the call
   // returning without throwing is the success condition.

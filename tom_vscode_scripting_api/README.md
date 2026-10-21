@@ -28,8 +28,9 @@ It exposes **three families of API** behind one connection:
    prompt queue, timed requests, documents, workspace metadata, tools,
    send-to-chat) as static-method classes.
 
-The package is **standalone** (zero runtime dependencies) and
-**bridge-agnostic**: every API talks to an abstract `VSCodeAdapter`, so the same
+The package has **one runtime dependency**, the shared todo model
+[`tom_todo_model`](https://pub.dev/packages/tom_todo_model), which the todo API
+speaks, and is **bridge-agnostic**: every API talks to an abstract `VSCodeAdapter`, so the same
 surface is testable against fakes.
 
 ---
@@ -81,7 +82,7 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 | --- | --- |
 | `AiPromptApi` | Run a prompt through the configured local LLM; manage profiles and models. |
 | `AiConversationApi` | Drive the multi-turn bot-conversation engine. |
-| `TomTodoApi` | CRUD over quest / workspace / session todos. |
+| `TomTodoApi` | CRUD over quest / workspace / session todos, as the shared `TomTodo` of `tom_todo_model`. |
 | `TomQueueApi` | Full control of the multi-transport prompt queue. |
 | `TomTimedApi` | Create and manage scheduled prompts; control the timer engine. |
 | `TomDocumentApi` | Generic document store + typed Tom-folder accessors. |
@@ -228,7 +229,7 @@ await TomWorkspaceApi.setActiveQuest('vscode_extension');
 final todos = await TomTodoApi.listQuestTodos('vscode_extension');
 
 final reply = await TomChatApi.sendToChat(
-  'I have ${todos.length} open todos. Suggest which to tackle first.',
+  'I have ${todos.todos.length} open todos. Suggest which to tackle first.',
 );
 print(reply.text);
 ```
@@ -335,10 +336,10 @@ The full user guides live in [`doc/`](doc/):
 
 | | |
 | --- | --- |
-| Version | 1.3.0 |
+| Version | 2.0.0 |
 | Dart SDK | `^3.10.4` |
-| Runtime dependencies | none (standalone) |
-| Tests | 114 passing across 11 suites (`dart test`) |
+| Runtime dependencies | `tom_todo_model` |
+| Tests | 122 across 12 suites (`dart test`) |
 | License | BSD-3-Clause |
 
 ---

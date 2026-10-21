@@ -1,3 +1,32 @@
+## 2.0.0
+
+**Breaking.** The todo API speaks the workspace's shared todo model.
+
+- `TomTodoApi` reads and writes `TomTodo` from
+  [`tom_todo_model`](https://pub.dev/packages/tom_todo_model) — the model
+  Worktracker and Webwork use for every `*.todo.yaml` — instead of its own
+  `TodoItem`. The package re-exports `TomTodo`, `TomTodoStatus`,
+  `TomTodoPriority`, `TomTodoScope`, `TomTodoReference` and `TomTodoDecision`.
+  `TodoItem`, `TodoStatus`, `TodoPriority`, `TodoScope` and `TodoReference` are
+  gone. A todo now carries every field of the workspace schema (`due`,
+  `estimate`, `decisions`, `blocked_until`, `author`, `archived`, `deleted`,
+  the six orchestration fields) and the `decision-needed` status; `TodoItem`
+  had dropped them, and an unknown status had silently become `not-started`.
+- Reads answer `TodoEntry`: the `TomTodo` with its `sourceFile`, its `level`
+  (`quest` / `workspace` / `session`) and the `unknownFields` the model has no
+  field for. `getQuestTodo`, `getWorkspaceTodo` and `getSessionTodo` answer
+  `null` for a todo that does not exist (they used to fail on the null).
+- `TodoListResult` has `entries`, `todos` and `invalid`: a todo the model
+  cannot read (an unknown status, say) is reported with the reason instead of
+  failing the whole list.
+- `TodoWire` maps the extension's answers onto the model: fields the
+  extension's reader keeps under `_extra` join the todo, a timestamp in a date
+  field gives its date, a todo without a title takes its id, and a session
+  todo's `details`, `pending` / `done` and `createdAt` / `updatedAt` become
+  `description`, `not-started` / `completed` and `created` / `updated`. Writing
+  a session todo sends `details` and `pending` / `done`.
+- First runtime dependency: `tom_todo_model ^1.0.1`.
+
 ## 1.3.0
 
 - `findBridgePortsForWorkspace` (plural) returns **every** bridge port whose

@@ -1,254 +1,229 @@
 /// Tom TODO API for scripting access to workspace todos.
 ///
-/// Provides CRUD operations for todos at different levels:
+/// Todos are the shared model of `tom_todo_model` ([TomTodo]); [TodoWire]
+/// maps the extension's answers onto it. Provides CRUD operations for todos
+/// at different levels:
 /// - Quest todos (persistent or session-scoped)
 /// - Workspace todos
 /// - Session todos (window-specific)
 // ignore_for_file: avoid_classes_with_only_static_members
 library;
 
+import 'package:tom_todo_model/tom_todo_model.dart';
+
 import 'vscode_adapter.dart';
+
+export 'package:tom_todo_model/tom_todo_model.dart'
+    show
+        TomTodo,
+        TomTodoDecision,
+        TomTodoPriority,
+        TomTodoReference,
+        TomTodoScope,
+        TomTodoStatus;
 
 // ============================================================================
 // Types
 // ============================================================================
 
-/// Reference within a todo item.
-class TodoReference {
-  final String? type;
-  final String? path;
-  final String? url;
-  final String? description;
-  final String? lines;
+/// Where a todo lives, as `todo.listAllVce` tags it (`_scope`).
+enum TodoLevel {
+  quest,
+  workspace,
+  session;
 
-  TodoReference({this.type, this.path, this.url, this.description, this.lines});
-
-  factory TodoReference.fromJson(Map<String, dynamic> json) {
-    return TodoReference(
-      type: json['type'] as String?,
-      path: json['path'] as String?,
-      url: json['url'] as String?,
-      description: json['description'] as String?,
-      lines: json['lines'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    if (type != null) 'type': type,
-    if (path != null) 'path': path,
-    if (url != null) 'url': url,
-    if (description != null) 'description': description,
-    if (lines != null) 'lines': lines,
-  };
-}
-
-/// Scope within a todo item.
-class TodoScope {
-  final String? project;
-  final List<String>? projects;
-  final String? module;
-  final String? area;
-  final List<String>? files;
-
-  TodoScope({this.project, this.projects, this.module, this.area, this.files});
-
-  factory TodoScope.fromJson(Map<String, dynamic> json) {
-    return TodoScope(
-      project: json['project'] as String?,
-      projects: (json['projects'] as List?)?.map((e) => e as String).toList(),
-      module: json['module'] as String?,
-      area: json['area'] as String?,
-      files: (json['files'] as List?)?.map((e) => e as String).toList(),
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    if (project != null) 'project': project,
-    if (projects != null) 'projects': projects,
-    if (module != null) 'module': module,
-    if (area != null) 'area': area,
-    if (files != null) 'files': files,
-  };
-}
-
-/// Status of a todo item.
-enum TodoStatus {
-  notStarted('not-started'),
-  inProgress('in-progress'),
-  blocked('blocked'),
-  completed('completed'),
-  cancelled('cancelled');
-
-  final String value;
-  const TodoStatus(this.value);
-
-  static TodoStatus fromString(String value) {
-    return TodoStatus.values.firstWhere(
-      (s) => s.value == value,
-      orElse: () => TodoStatus.notStarted,
-    );
+  static TodoLevel? fromWire(Object? value) {
+    for (final level in values) {
+      if (level.name == value) return level;
+    }
+    return null;
   }
 }
 
-/// Priority of a todo item.
-enum TodoPriority {
-  low('low'),
-  medium('medium'),
-  high('high'),
-  critical('critical');
+/// A todo as the extension answered it: the shared [TomTodo] plus what the
+/// bridge says about it and what the model has no field for.
+class TodoEntry {
+  /// The todo.
+  final TomTodo todo;
 
-  final String value;
-  const TodoPriority(this.value);
-
-  static TodoPriority? fromString(String? value) {
-    if (value == null) return null;
-    return TodoPriority.values.firstWhere(
-      (p) => p.value == value,
-      orElse: () => TodoPriority.medium,
-    );
-  }
-}
-
-/// A single TODO item.
-class TodoItem {
-  final String id;
-  final String? title;
-  final String description;
-  final TodoStatus status;
-  final TodoPriority? priority;
-  final List<String>? tags;
-  final TodoScope? scope;
-  final List<TodoReference>? references;
-  final List<String>? dependencies;
-  final List<String>? blockedBy;
-  final String? notes;
-  final String? created;
-  final String? updated;
-  final String? completedDate;
-  final String? completedBy;
+  /// The file it was read from (`_sourceFile`): a file name, or
+  /// `<quest>/<file>` / a workspace-relative path in aggregated lists.
   final String? sourceFile;
 
-  TodoItem({
-    required this.id,
-    this.title,
-    required this.description,
-    required this.status,
-    this.priority,
-    this.tags,
-    this.scope,
-    this.references,
-    this.dependencies,
-    this.blockedBy,
-    this.notes,
-    this.created,
-    this.updated,
-    this.completedDate,
-    this.completedBy,
+  /// The level `todo.listAllVce` tagged it with; for a session todo also
+  /// recognised by its shape.
+  final TodoLevel? level;
+
+  /// Fields the todo carried that the model has none for (a hand-written
+  /// key, a value that is not one the field can hold), kept so nothing the
+  /// file holds is silently lost to the reader.
+  final Map<String, Object?> unknownFields;
+
+  TodoEntry({
+    required this.todo,
     this.sourceFile,
-  });
+    this.level,
+    Map<String, Object?> unknownFields = const {},
+  }) : unknownFields = Map.unmodifiable(unknownFields);
+}
 
-  factory TodoItem.fromJson(Map<String, dynamic> json) {
-    return TodoItem(
-      id: json['id'] as String,
-      title: json['title'] as String?,
-      description: json['description'] as String? ?? '',
-      status: TodoStatus.fromString(json['status'] as String? ?? 'not-started'),
-      priority: TodoPriority.fromString(json['priority'] as String?),
-      tags: (json['tags'] as List?)?.map((e) => e as String).toList(),
-      scope: json['scope'] != null
-          ? TodoScope.fromJson(json['scope'] as Map<String, dynamic>)
-          : null,
-      references: (json['references'] as List?)
-          ?.map((e) => TodoReference.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      dependencies: (json['dependencies'] as List?)
-          ?.map((e) => e as String)
-          .toList(),
-      blockedBy: (json['blocked_by'] as List?)
-          ?.map((e) => e as String)
-          .toList(),
-      notes: json['notes'] as String?,
-      created: json['created'] as String?,
-      updated: json['updated'] as String?,
-      completedDate: json['completed_date'] as String?,
-      completedBy: json['completed_by'] as String?,
-      sourceFile: json['_sourceFile'] as String?,
-    );
-  }
+/// A todo in a list answer that could not be read as a [TomTodo].
+class InvalidTodo {
+  /// Its id, when it had one.
+  final String? id;
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    if (title != null) 'title': title,
-    'description': description,
-    'status': status.value,
-    if (priority != null) 'priority': priority!.value,
-    if (tags != null) 'tags': tags,
-    if (scope != null) 'scope': scope!.toJson(),
-    if (references != null)
-      'references': references!.map((r) => r.toJson()).toList(),
-    if (dependencies != null) 'dependencies': dependencies,
-    if (blockedBy != null) 'blocked_by': blockedBy,
-    if (notes != null) 'notes': notes,
-    if (created != null) 'created': created,
-    if (updated != null) 'updated': updated,
-    if (completedDate != null) 'completed_date': completedDate,
-    if (completedBy != null) 'completed_by': completedBy,
+  /// Why it could not be read.
+  final String error;
+
+  /// The todo as the extension sent it.
+  final Map<String, dynamic> json;
+
+  InvalidTodo({required this.id, required this.error, required this.json});
+}
+
+/// Maps the extension bridge's todo JSON onto the shared todo model and back.
+///
+/// The extension answers in two shapes. Quest and workspace todos carry their
+/// YAML fields, plus `_sourceFile` and `_extra` (the keys its reader does not
+/// enumerate — some of them schema fields such as `due` or `blocked_until`).
+/// Session todos are `{id, title, details, priority, tags, status:
+/// pending|done, createdAt, updatedAt, source}`. [TomTodo.fromMap] accepts the
+/// schema's fields only, so this is where the two meet.
+abstract final class TodoWire {
+  static final RegExp _date = RegExp(r'^(\d{4}-\d{2}-\d{2})(T.*)?$');
+
+  static const Set<String> _dateFields = {
+    'due',
+    'created',
+    'updated',
+    'completed_date',
+    'archived',
+    'deleted',
   };
 
-  TodoItem copyWith({
-    String? id,
-    String? title,
-    String? description,
-    TodoStatus? status,
-    TodoPriority? priority,
-    List<String>? tags,
-    TodoScope? scope,
-    List<TodoReference>? references,
-    List<String>? dependencies,
-    List<String>? blockedBy,
-    String? notes,
-    String? created,
-    String? updated,
-    String? completedDate,
-    String? completedBy,
-    String? sourceFile,
-  }) {
-    return TodoItem(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      description: description ?? this.description,
-      status: status ?? this.status,
-      priority: priority ?? this.priority,
-      tags: tags ?? this.tags,
-      scope: scope ?? this.scope,
-      references: references ?? this.references,
-      dependencies: dependencies ?? this.dependencies,
-      blockedBy: blockedBy ?? this.blockedBy,
-      notes: notes ?? this.notes,
-      created: created ?? this.created,
-      updated: updated ?? this.updated,
-      completedDate: completedDate ?? this.completedDate,
-      completedBy: completedBy ?? this.completedBy,
-      sourceFile: sourceFile ?? this.sourceFile,
+  static const Set<String> _sessionKeys = {'details', 'createdAt', 'updatedAt'};
+
+  /// Reads one todo. Throws [FormatException] when the model cannot hold it
+  /// (an unknown status or priority, a malformed reference or condition).
+  static TodoEntry fromBridge(Map<String, dynamic> json) {
+    final level = TodoLevel.fromWire(json['_scope']);
+    final status = json['status'];
+    final isSession =
+        level == TodoLevel.session ||
+        json.keys.any(_sessionKeys.contains) ||
+        status == 'pending' ||
+        status == 'done';
+
+    final fields = <String, Object?>{};
+    final unknown = <String, Object?>{};
+    void take(String key, Object? value) {
+      if (value == null) return;
+      if (!TomTodo.fields.contains(key)) {
+        unknown[key] = value;
+      } else if (_dateFields.contains(key)) {
+        final match = value is String ? _date.firstMatch(value) : null;
+        if (match == null) {
+          unknown[key] = value;
+        } else {
+          fields[key] = match.group(1);
+        }
+      } else {
+        fields[key] = value;
+      }
+    }
+
+    for (final MapEntry(:key, :value) in json.entries) {
+      switch (key) {
+        case '_sourceFile' || '_scope' || '_extra':
+          break;
+        case 'details' when isSession:
+          take('description', value);
+        case 'createdAt' when isSession:
+          take('created', value);
+        case 'updatedAt' when isSession:
+          take('updated', value);
+        case 'status' when isSession:
+          take('status', value == 'done' ? 'completed' : 'not-started');
+        default:
+          take(key, value);
+      }
+    }
+    final extra = json['_extra'];
+    if (extra is Map) {
+      for (final MapEntry(:key, :value) in extra.entries) {
+        take('$key', value);
+      }
+    }
+    // The schema makes `title` optional, the model does not.
+    fields['title'] ??= fields['id'];
+
+    return TodoEntry(
+      todo: TomTodo.fromMap(fields),
+      sourceFile: json['_sourceFile'] as String?,
+      level: level ?? (isSession ? TodoLevel.session : null),
+      unknownFields: unknown,
     );
   }
+
+  /// A quest or workspace todo as the extension writes it: its schema map.
+  static Map<String, Object?> toBridge(TomTodo todo) => todo.toMap();
+
+  /// A session todo as the extension writes it: the description becomes its
+  /// details, a completed todo is `done` and any other `pending`.
+  static Map<String, Object?> toSessionBridge(TomTodo todo) => {
+    'id': todo.id,
+    'title': todo.title,
+    if (todo.description != null) 'details': todo.description,
+    'status': todo.status == TomTodoStatus.completed ? 'done' : 'pending',
+    if (todo.priority != null) 'priority': todo.priority!.wire,
+    'tags': List.of(todo.tags),
+  };
+
+  /// One todo answer, or null when the extension found none (it answers
+  /// `null`, which reaches the adapter as an empty map).
+  static TodoEntry? fromBridgeOrNull(Map<String, dynamic> json) =>
+      json['id'] == null ? null : fromBridge(json);
 }
 
 /// Result of listing todos.
 class TodoListResult {
-  final List<TodoItem> todos;
+  /// Every todo that could be read, in the order the extension sent them.
+  final List<TodoEntry> entries;
+
+  /// The todos it could not read, with the reason.
+  final List<InvalidTodo> invalid;
+
   final String? questId;
   final String? file;
 
-  TodoListResult({required this.todos, this.questId, this.file});
+  TodoListResult({
+    required this.entries,
+    this.invalid = const [],
+    this.questId,
+    this.file,
+  });
+
+  /// The todos themselves.
+  List<TomTodo> get todos => [for (final e in entries) e.todo];
 
   factory TodoListResult.fromJson(Map<String, dynamic> json) {
+    final entries = <TodoEntry>[];
+    final invalid = <InvalidTodo>[];
+    for (final raw in (json['todos'] as List?) ?? const []) {
+      final item = Map<String, dynamic>.from(raw as Map);
+      try {
+        entries.add(TodoWire.fromBridge(item));
+      } on FormatException catch (e) {
+        // One hand-edited todo the model cannot hold must not hide the rest
+        // of the file; it is reported, not dropped.
+        invalid.add(
+          InvalidTodo(id: item['id'] as String?, error: e.message, json: item),
+        );
+      }
+    }
     return TodoListResult(
-      todos:
-          (json['todos'] as List?)
-              ?.map((e) => TodoItem.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
+      entries: entries,
+      invalid: invalid,
       questId: json['questId'] as String?,
       file: json['file'] as String?,
     );
@@ -317,7 +292,7 @@ abstract class TomTodoApi {
   }
 
   /// Get a specific todo item by ID from a quest.
-  static Future<TodoItem?> getQuestTodo(
+  static Future<TodoEntry?> getQuestTodo(
     String questId,
     String todoId, {
     String? file,
@@ -327,35 +302,35 @@ abstract class TomTodoApi {
       'todoId': todoId,
       'file': ?file,
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridgeOrNull(result);
   }
 
   /// Create a new todo in a quest file.
-  static Future<TodoItem> createQuestTodo(
+  static Future<TodoEntry> createQuestTodo(
     String questId,
-    TodoItem todo, {
+    TomTodo todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest('todo.createQuestVce', {
       'questId': questId,
-      'todo': todo.toJson(),
+      'todo': TodoWire.toBridge(todo),
       'file': ?file,
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Update an existing todo in a quest.
-  static Future<TodoItem> updateQuestTodo(
+  static Future<TodoEntry> updateQuestTodo(
     String questId,
-    TodoItem todo, {
+    TomTodo todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest('todo.updateQuestVce', {
       'questId': questId,
-      'todo': todo.toJson(),
+      'todo': TodoWire.toBridge(todo),
       'file': ?file,
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Delete a todo from a quest.
@@ -394,7 +369,7 @@ abstract class TomTodoApi {
   }
 
   /// Get a specific todo item by ID from workspace-level.
-  static Future<TodoItem?> getWorkspaceTodo(
+  static Future<TodoEntry?> getWorkspaceTodo(
     String todoId, {
     String? file,
   }) async {
@@ -402,31 +377,31 @@ abstract class TomTodoApi {
       'todoId': todoId,
       'file': ?file,
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridgeOrNull(result);
   }
 
   /// Create a new todo in workspace-level file.
-  static Future<TodoItem> createWorkspaceTodo(
-    TodoItem todo, {
+  static Future<TodoEntry> createWorkspaceTodo(
+    TomTodo todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest(
       'todo.createWorkspaceVce',
-      {'todo': todo.toJson(), 'file': ?file},
+      {'todo': TodoWire.toBridge(todo), 'file': ?file},
     );
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Update an existing todo in workspace-level.
-  static Future<TodoItem> updateWorkspaceTodo(
-    TodoItem todo, {
+  static Future<TodoEntry> updateWorkspaceTodo(
+    TomTodo todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest(
       'todo.updateWorkspaceVce',
-      {'todo': todo.toJson(), 'file': ?file},
+      {'todo': TodoWire.toBridge(todo), 'file': ?file},
     );
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Delete a todo from workspace-level.
@@ -449,27 +424,27 @@ abstract class TomTodoApi {
   }
 
   /// Get a specific session todo by ID.
-  static Future<TodoItem?> getSessionTodo(String todoId) async {
+  static Future<TodoEntry?> getSessionTodo(String todoId) async {
     final result = await _requireAdapter.sendRequest('todo.getSessionVce', {
       'todoId': todoId,
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridgeOrNull(result);
   }
 
   /// Create a new session todo.
-  static Future<TodoItem> createSessionTodo(TodoItem todo) async {
+  static Future<TodoEntry> createSessionTodo(TomTodo todo) async {
     final result = await _requireAdapter.sendRequest('todo.createSessionVce', {
-      'todo': todo.toJson(),
+      'todo': TodoWire.toSessionBridge(todo),
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Update an existing session todo.
-  static Future<TodoItem> updateSessionTodo(TodoItem todo) async {
+  static Future<TodoEntry> updateSessionTodo(TomTodo todo) async {
     final result = await _requireAdapter.sendRequest('todo.updateSessionVce', {
-      'todo': todo.toJson(),
+      'todo': TodoWire.toSessionBridge(todo),
     });
-    return TodoItem.fromJson(result);
+    return TodoWire.fromBridge(result);
   }
 
   /// Delete a session todo.
