@@ -9,9 +9,11 @@ environment:
 # Add regular dependencies here.
 dependencies:
   path: ^1.9.0
-  tom_vscode_scripting_api: ">=1.1.1"
+  tom_vscode_scripting_api: ^2.0.0
+  # The generated scripting-API bridges import the todo model directly.
+  tom_todo_model: ^1.0.1
   tom_d4rt: ">=1.111.0"
-  tom_d4rt_dcli: ">=1.1.6"
+  tom_d4rt_dcli: ">=1.8.0"
 
 dev_dependencies:
   # A DEV dependency, so it changes nothing this package ships. It is here so

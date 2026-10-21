@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
-// Sources: 34 files
-// Generated: 2026-10-13T10:51:19.587939 by tom_d4rt_generator 1.52.0
+// Sources: 35 files
+// Generated: 2026-10-21T14:38:52.932292 by tom_d4rt_generator 1.51.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -13,6 +13,7 @@ import 'package:tom_d4rt/src/bridge/registration.dart' as $tom_d4rt_2;
 import 'package:tom_d4rt/src/d4rt_base.dart' as $tom_d4rt_3;
 import 'package:tom_d4rt/src/interpreter_visitor.dart' as $tom_d4rt_4;
 import 'package:tom_d4rt/src/runtime_interfaces.dart' as $tom_d4rt_5;
+import 'package:tom_todo_model/src/todo.dart' as $tom_todo_model_1;
 import 'package:tom_vscode_bridge/bridge_server.dart' as $tom_vscode_bridge_1;
 import 'package:tom_vscode_bridge/script_api.dart' as $tom_vscode_bridge_2;
 import 'package:tom_vscode_scripting_api/script_globals.dart'
@@ -212,9 +213,13 @@ class AllBridge {
       _createConversationActionResultBridge(),
       _createConversationLogBridge(),
       _createAiConversationApiBridge(),
-      _createTodoReferenceBridge(),
-      _createTodoScopeBridge(),
-      _createTodoItemBridge(),
+      _createTomTodoBridge(),
+      _createTomTodoDecisionBridge(),
+      _createTomTodoScopeBridge(),
+      _createTomTodoReferenceBridge(),
+      _createTodoEntryBridge(),
+      _createInvalidTodoBridge(),
+      _createTodoWireBridge(),
       _createTodoListResultBridge(),
       _createTodoFileListResultBridge(),
       _createTomTodoApiBridge(),
@@ -386,9 +391,13 @@ class AllBridge {
       'ConversationActionResult': _createConversationActionResultBridge,
       'ConversationLog': _createConversationLogBridge,
       'AiConversationApi': _createAiConversationApiBridge,
-      'TodoReference': _createTodoReferenceBridge,
-      'TodoScope': _createTodoScopeBridge,
-      'TodoItem': _createTodoItemBridge,
+      'TomTodo': _createTomTodoBridge,
+      'TomTodoDecision': _createTomTodoDecisionBridge,
+      'TomTodoScope': _createTomTodoScopeBridge,
+      'TomTodoReference': _createTomTodoReferenceBridge,
+      'TodoEntry': _createTodoEntryBridge,
+      'InvalidTodo': _createInvalidTodoBridge,
+      'TodoWire': _createTodoWireBridge,
       'TodoListResult': _createTodoListResultBridge,
       'TodoFileListResult': _createTodoFileListResultBridge,
       'TomTodoApi': _createTomTodoApiBridge,
@@ -574,9 +583,13 @@ class AllBridge {
           $tom_vscode_scripting_api_9.ConversationActionResult,
       'ConversationLog': $tom_vscode_scripting_api_9.ConversationLog,
       'AiConversationApi': $tom_vscode_scripting_api_9.AiConversationApi,
-      'TodoReference': $tom_vscode_scripting_api_17.TodoReference,
-      'TodoScope': $tom_vscode_scripting_api_17.TodoScope,
-      'TodoItem': $tom_vscode_scripting_api_17.TodoItem,
+      'TomTodo': $tom_todo_model_1.TomTodo,
+      'TomTodoDecision': $tom_todo_model_1.TomTodoDecision,
+      'TomTodoScope': $tom_todo_model_1.TomTodoScope,
+      'TomTodoReference': $tom_todo_model_1.TomTodoReference,
+      'TodoEntry': $tom_vscode_scripting_api_17.TodoEntry,
+      'InvalidTodo': $tom_vscode_scripting_api_17.InvalidTodo,
+      'TodoWire': $tom_vscode_scripting_api_17.TodoWire,
       'TodoListResult': $tom_vscode_scripting_api_17.TodoListResult,
       'TodoFileListResult': $tom_vscode_scripting_api_17.TodoFileListResult,
       'TomTodoApi': $tom_vscode_scripting_api_17.TomTodoApi,
@@ -847,9 +860,13 @@ class AllBridge {
           'package:tom_vscode_scripting_api/src/ai_conversation_api.dart',
       'AiConversationApi':
           'package:tom_vscode_scripting_api/src/ai_conversation_api.dart',
-      'TodoReference': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
-      'TodoScope': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
-      'TodoItem': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
+      'TomTodo': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoDecision': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoScope': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoReference': 'package:tom_todo_model/src/todo.dart',
+      'TodoEntry': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
+      'InvalidTodo': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
+      'TodoWire': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'TodoListResult':
           'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'TodoFileListResult':
@@ -1212,34 +1229,47 @@ class AllBridge {
           },
         },
       ),
-      BridgedEnumDefinition<$tom_vscode_scripting_api_17.TodoStatus>(
-        name: 'TodoStatus',
-        values: $tom_vscode_scripting_api_17.TodoStatus.values,
+      BridgedEnumDefinition<$tom_todo_model_1.TomTodoStatus>(
+        name: 'TomTodoStatus',
+        values: $tom_todo_model_1.TomTodoStatus.values,
         getters: {
-          'value': (visitor, target) =>
-              (target as $tom_vscode_scripting_api_17.TodoStatus).value,
+          'wire': (visitor, target) =>
+              (target as $tom_todo_model_1.TomTodoStatus).wire,
         },
         staticMethods: {
-          'fromString': (visitor, positional, named, typeArgs) {
+          'fromWire': (visitor, positional, named, typeArgs) {
             return Function.apply(
-              $tom_vscode_scripting_api_17.TodoStatus.fromString,
+              $tom_todo_model_1.TomTodoStatus.fromWire,
               positional,
               named.map((k, v) => MapEntry(Symbol(k), v)),
             );
           },
         },
       ),
-      BridgedEnumDefinition<$tom_vscode_scripting_api_17.TodoPriority>(
-        name: 'TodoPriority',
-        values: $tom_vscode_scripting_api_17.TodoPriority.values,
+      BridgedEnumDefinition<$tom_todo_model_1.TomTodoPriority>(
+        name: 'TomTodoPriority',
+        values: $tom_todo_model_1.TomTodoPriority.values,
         getters: {
-          'value': (visitor, target) =>
-              (target as $tom_vscode_scripting_api_17.TodoPriority).value,
+          'wire': (visitor, target) =>
+              (target as $tom_todo_model_1.TomTodoPriority).wire,
         },
         staticMethods: {
-          'fromString': (visitor, positional, named, typeArgs) {
+          'fromWire': (visitor, positional, named, typeArgs) {
             return Function.apply(
-              $tom_vscode_scripting_api_17.TodoPriority.fromString,
+              $tom_todo_model_1.TomTodoPriority.fromWire,
+              positional,
+              named.map((k, v) => MapEntry(Symbol(k), v)),
+            );
+          },
+        },
+      ),
+      BridgedEnumDefinition<$tom_vscode_scripting_api_17.TodoLevel>(
+        name: 'TodoLevel',
+        values: $tom_vscode_scripting_api_17.TodoLevel.values,
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply(
+              $tom_vscode_scripting_api_17.TodoLevel.fromWire,
               positional,
               named.map((k, v) => MapEntry(Symbol(k), v)),
             );
@@ -1375,8 +1405,9 @@ class AllBridge {
           'package:tom_vscode_scripting_api/src/ai_conversation_api.dart',
       'HistoryMode':
           'package:tom_vscode_scripting_api/src/ai_conversation_api.dart',
-      'TodoStatus': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
-      'TodoPriority': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
+      'TomTodoStatus': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoPriority': 'package:tom_todo_model/src/todo.dart',
+      'TodoLevel': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'QueuedPromptStatus':
           'package:tom_vscode_scripting_api/src/tom_queue_api.dart',
       'QueuedPromptType':
@@ -1427,6 +1458,55 @@ class AllBridge {
         target:
             'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart',
         show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/decisions_journal.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo_file.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo_file_name.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo_ids.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo_relocation.dart',
+        show: null,
+        hide: null,
+      ),
+      (
+        source: 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
+        target: 'package:tom_todo_model/tom_todo_model.dart',
+        show: {
+          'TomTodo',
+          'TomTodoDecision',
+          'TomTodoPriority',
+          'TomTodoReference',
+          'TomTodoScope',
+          'TomTodoStatus',
+        },
         hide: null,
       ),
       (
@@ -2256,6 +2336,431 @@ class AllBridge {
                   })
                   as Future<String?> Function(String, int);
           return $tom_vscode_scripting_api_11.findBridgePortForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            maxPort: maxPort,
+            probe: probe,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        throw StateError(
+          'Unreachable: all named parameter combinations should be covered',
+        );
+      },
+      'findBridgePortsForWorkspace': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'findBridgePortsForWorkspace');
+        final name = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'name',
+          'findBridgePortsForWorkspace',
+        );
+        final host = D4.getNamedArgWithDefault<String>(
+          named,
+          'host',
+          '127.0.0.1',
+        );
+        if (!named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            maxPort: maxPort,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            maxPort: maxPort,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            probe: probe,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            probe: probe,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            maxPort: maxPort,
+            probe: probe,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            !named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            maxPort: maxPort,
+            probe: probe,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            maxPort: maxPort,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            !named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            maxPort: maxPort,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            probe: probe,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            !named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            minPort: minPort,
+            probe: probe,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (!named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
+            name,
+            host: host,
+            maxPort: maxPort,
+            probe: probe,
+            fetchIdentity: fetchIdentity,
+          );
+        }
+        if (named.containsKey('minPort') &&
+            named.containsKey('maxPort') &&
+            named.containsKey('probe') &&
+            named.containsKey('fetchIdentity')) {
+          final minPort = D4.getRequiredNamedArg<int>(
+            named,
+            'minPort',
+            'findBridgePortsForWorkspace',
+          );
+          final maxPort = D4.getRequiredNamedArg<int>(
+            named,
+            'maxPort',
+            'findBridgePortsForWorkspace',
+          );
+          final probeRaw = named['probe'];
+          final probe =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, probeRaw, [p0, p1]),
+                    ).then((v) => v as bool);
+                  })
+                  as Future<bool> Function(String, int);
+          final fetchIdentityRaw = named['fetchIdentity'];
+          final fetchIdentity =
+              ((String p0, int p1) {
+                    return Future.value(
+                      D4.callInterpreterCallback(visitor!, fetchIdentityRaw, [
+                        p0,
+                        p1,
+                      ]),
+                    ).then((v) => v as String?);
+                  })
+                  as Future<String?> Function(String, int);
+          return $tom_vscode_scripting_api_11.findBridgePortsForWorkspace(
             name,
             host: host,
             minPort: minPort,
@@ -3952,6 +4457,8 @@ class AllBridge {
     return {
       'findBridgePortForWorkspace':
           'package:tom_vscode_scripting_api/src/bridge_discovery.dart',
+      'findBridgePortsForWorkspace':
+          'package:tom_vscode_scripting_api/src/bridge_discovery.dart',
       'scanBridgePorts':
           'package:tom_vscode_scripting_api/src/bridge_discovery.dart',
       'connectToWorkspace':
@@ -3970,6 +4477,8 @@ class AllBridge {
     return {
       'findBridgePortForWorkspace':
           'Future<int> findBridgePortForWorkspace(String name, {String host = \'127.0.0.1\', int minPort = defaultVSCodeBridgePort, int maxPort = maxVSCodeBridgePort, BridgePortProbe probe = _defaultProbe, BridgeIdentityFetcher fetchIdentity = fetchBridgeWorkspaceName})',
+      'findBridgePortsForWorkspace':
+          'Future<List<int>> findBridgePortsForWorkspace(String name, {String host = \'127.0.0.1\', int minPort = defaultVSCodeBridgePort, int maxPort = maxVSCodeBridgePort, BridgePortProbe probe = _defaultProbe, BridgeIdentityFetcher fetchIdentity = fetchBridgeWorkspaceName})',
       'scanBridgePorts':
           'Future<Map<int, String>> scanBridgePorts({String host = \'127.0.0.1\', int minPort = defaultVSCodeBridgePort, int maxPort = maxVSCodeBridgePort, BridgePortProbe probe = _defaultProbe, BridgeIdentityFetcher fetchIdentity = fetchBridgeWorkspaceName})',
       'connectToWorkspace':
@@ -3990,6 +4499,7 @@ class AllBridge {
   static List<String> sourceLibraries() {
     return [
       'package:tom_d4rt/src/bridge/bridged_types.dart',
+      'package:tom_todo_model/src/todo.dart',
       'package:tom_vscode_bridge/bridge_server.dart',
       'package:tom_vscode_bridge/script_api.dart',
       'package:tom_vscode_scripting_api/script_globals.dart',
@@ -4036,6 +4546,7 @@ class AllBridge {
       "import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';",
     );
     imports.writeln("import 'package:tom_d4rt/tom_d4rt.dart';");
+    imports.writeln("import 'package:tom_todo_model/tom_todo_model.dart';");
     imports.writeln(
       "import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';",
     );
@@ -4051,6 +4562,7 @@ class AllBridge {
   static List<String> subPackageBarrels() {
     return [
       'package:tom_d4rt/tom_d4rt.dart',
+      'package:tom_todo_model/tom_todo_model.dart',
       'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart',
     ];
   }
@@ -4066,8 +4578,9 @@ class AllBridge {
     'EffortLevel',
     'ConversationMode',
     'HistoryMode',
-    'TodoStatus',
-    'TodoPriority',
+    'TomTodoStatus',
+    'TomTodoPriority',
+    'TodoLevel',
     'QueuedPromptStatus',
     'QueuedPromptType',
     'TimedRequestStatus',
@@ -19014,14 +19527,937 @@ BridgedClass _createAiConversationApiBridge() {
 }
 
 // =============================================================================
-// TodoReference Bridge
+// TomTodo Bridge
 // =============================================================================
 
-BridgedClass _createTodoReferenceBridge() {
+BridgedClass _createTomTodoBridge() {
   return BridgedClass(
-    nativeType: $tom_vscode_scripting_api_17.TodoReference,
-    name: 'TodoReference',
-    isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoReference,
+    nativeType: $tom_todo_model_1.TomTodo,
+    name: 'TomTodo',
+    isAssignable: (v) => v is $tom_todo_model_1.TomTodo,
+    constructors: {
+      '': (visitor, positional, named) {
+        final id = D4.getRequiredNamedArg<String>(named, 'id', 'TomTodo');
+        final title = D4.getRequiredNamedArg<String>(named, 'title', 'TomTodo');
+        final description = D4.getOptionalNamedArg<String?>(
+          named,
+          'description',
+        );
+        final status = D4
+            .getNamedArgWithDefault<$tom_todo_model_1.TomTodoStatus>(
+              named,
+              'status',
+              $tom_todo_model_1.TomTodoStatus.notStarted,
+            );
+        final priority = D4
+            .getOptionalNamedArg<$tom_todo_model_1.TomTodoPriority?>(
+              named,
+              'priority',
+            );
+        final due = D4.getOptionalNamedArg<DateTime?>(named, 'due');
+        final estimate = D4.getOptionalNamedArg<String?>(named, 'estimate');
+        final tags = named.containsKey('tags') && named['tags'] != null
+            ? D4.coerceList<String>(named['tags'], 'tags')
+            : const <String>[];
+        final scope = D4.getOptionalNamedArg<$tom_todo_model_1.TomTodoScope?>(
+          named,
+          'scope',
+        );
+        final decisions =
+            named.containsKey('decisions') && named['decisions'] != null
+            ? D4.coerceList<$tom_todo_model_1.TomTodoDecision>(
+                named['decisions'],
+                'decisions',
+              )
+            : const <$tom_todo_model_1.TomTodoDecision>[];
+        final references =
+            named.containsKey('references') && named['references'] != null
+            ? D4.coerceList<$tom_todo_model_1.TomTodoReference>(
+                named['references'],
+                'references',
+              )
+            : const <$tom_todo_model_1.TomTodoReference>[];
+        final dependencies =
+            named.containsKey('dependencies') && named['dependencies'] != null
+            ? D4.coerceList<String>(named['dependencies'], 'dependencies')
+            : const <String>[];
+        final blockedBy =
+            named.containsKey('blockedBy') && named['blockedBy'] != null
+            ? D4.coerceList<String>(named['blockedBy'], 'blockedBy')
+            : const <String>[];
+        final blockedUntil =
+            named.containsKey('blockedUntil') && named['blockedUntil'] != null
+            ? D4.coerceList<String>(named['blockedUntil'], 'blockedUntil')
+            : const <String>[];
+        final notes = D4.getOptionalNamedArg<String?>(named, 'notes');
+        final created = D4.getOptionalNamedArg<DateTime?>(named, 'created');
+        final updated = D4.getOptionalNamedArg<DateTime?>(named, 'updated');
+        final completedDate = D4.getOptionalNamedArg<DateTime?>(
+          named,
+          'completedDate',
+        );
+        final author = D4.getOptionalNamedArg<String?>(named, 'author');
+        final completedBy = D4.getOptionalNamedArg<String?>(
+          named,
+          'completedBy',
+        );
+        final archived = D4.getOptionalNamedArg<DateTime?>(named, 'archived');
+        final deleted = D4.getOptionalNamedArg<DateTime?>(named, 'deleted');
+        final executionRole = D4.getOptionalNamedArg<String?>(
+          named,
+          'executionRole',
+        );
+        final qaRole = D4.getOptionalNamedArg<String?>(named, 'qaRole');
+        final orchestrationRole = D4.getOptionalNamedArg<String?>(
+          named,
+          'orchestrationRole',
+        );
+        final bundleId = D4.getOptionalNamedArg<String?>(named, 'bundleId');
+        final derivedFrom = D4.getOptionalNamedArg<String?>(
+          named,
+          'derivedFrom',
+        );
+        final feedbackSource = D4.getOptionalNamedArg<String?>(
+          named,
+          'feedbackSource',
+        );
+        return $tom_todo_model_1.TomTodo(
+          id: id,
+          title: title,
+          description: description,
+          status: status,
+          priority: priority,
+          due: due,
+          estimate: estimate,
+          tags: tags,
+          scope: scope,
+          decisions: decisions,
+          references: references,
+          dependencies: dependencies,
+          blockedBy: blockedBy,
+          blockedUntil: blockedUntil,
+          notes: notes,
+          created: created,
+          updated: updated,
+          completedDate: completedDate,
+          author: author,
+          completedBy: completedBy,
+          archived: archived,
+          deleted: deleted,
+          executionRole: executionRole,
+          qaRole: qaRole,
+          orchestrationRole: orchestrationRole,
+          bundleId: bundleId,
+          derivedFrom: derivedFrom,
+          feedbackSource: feedbackSource,
+        );
+      },
+    },
+    getters: {
+      'id': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').id,
+      'title': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').title,
+      'description': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .description,
+      'status': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .status,
+      'priority': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .priority,
+      'estimate': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .estimate,
+      'tags': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').tags,
+      'scope': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').scope,
+      'decisions': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .decisions,
+      'references': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .references,
+      'dependencies': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .dependencies,
+      'blockedBy': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .blockedBy,
+      'blockedUntil': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .blockedUntil,
+      'notes': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').notes,
+      'author': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .author,
+      'completedBy': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .completedBy,
+      'executionRole': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .executionRole,
+      'qaRole': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .qaRole,
+      'orchestrationRole': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .orchestrationRole,
+      'bundleId': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .bundleId,
+      'derivedFrom': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .derivedFrom,
+      'feedbackSource': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .feedbackSource,
+      'due': (visitor, target) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due,
+      'created': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .created,
+      'updated': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .updated,
+      'completedDate': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .completedDate,
+      'archived': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .archived,
+      'deleted': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .deleted,
+      'isDone': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .isDone,
+      'hasOpenDecision': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .hasOpenDecision,
+      'hasBlocker': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .hasBlocker,
+      'hashCode': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .hashCode,
+    },
+    setters: {
+      'title': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .title = D4.extractBridgedArg<String>(
+            value,
+            'title',
+          ),
+      'description': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .description = D4.extractBridgedArgOrNull<String>(
+            value,
+            'description',
+          ),
+      'status': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .status = D4.extractBridgedArg<$tom_todo_model_1.TomTodoStatus>(
+            value,
+            'status',
+          ),
+      'priority': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .priority = D4
+              .extractBridgedArgOrNull<$tom_todo_model_1.TomTodoPriority>(
+                value,
+                'priority',
+              ),
+      'estimate': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .estimate = D4.extractBridgedArgOrNull<String>(
+            value,
+            'estimate',
+          ),
+      'tags': (visitor, target, value) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').tags =
+              D4.coerceList<String>(value, 'tags'),
+      'scope': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .scope = D4
+              .extractBridgedArgOrNull<$tom_todo_model_1.TomTodoScope>(
+                value,
+                'scope',
+              ),
+      'decisions': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .decisions = D4.coerceList<$tom_todo_model_1.TomTodoDecision>(
+            value,
+            'decisions',
+          ),
+      'references': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .references = D4.coerceList<$tom_todo_model_1.TomTodoReference>(
+            value,
+            'references',
+          ),
+      'dependencies': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .dependencies = D4.coerceList<String>(
+            value,
+            'dependencies',
+          ),
+      'blockedBy': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .blockedBy = D4.coerceList<String>(
+            value,
+            'blockedBy',
+          ),
+      'blockedUntil': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .blockedUntil = D4.coerceList<String>(
+            value,
+            'blockedUntil',
+          ),
+      'notes': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .notes = D4.extractBridgedArgOrNull<String>(
+            value,
+            'notes',
+          ),
+      'author': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .author = D4.extractBridgedArgOrNull<String>(
+            value,
+            'author',
+          ),
+      'completedBy': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .completedBy = D4.extractBridgedArgOrNull<String>(
+            value,
+            'completedBy',
+          ),
+      'executionRole': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .executionRole = D4.extractBridgedArgOrNull<String>(
+            value,
+            'executionRole',
+          ),
+      'qaRole': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .qaRole = D4.extractBridgedArgOrNull<String>(
+            value,
+            'qaRole',
+          ),
+      'orchestrationRole': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .orchestrationRole = D4.extractBridgedArgOrNull<String>(
+            value,
+            'orchestrationRole',
+          ),
+      'bundleId': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .bundleId = D4.extractBridgedArgOrNull<String>(
+            value,
+            'bundleId',
+          ),
+      'derivedFrom': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .derivedFrom = D4.extractBridgedArgOrNull<String>(
+            value,
+            'derivedFrom',
+          ),
+      'feedbackSource': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .feedbackSource = D4.extractBridgedArgOrNull<String>(
+            value,
+            'feedbackSource',
+          ),
+      'due': (visitor, target, value) =>
+          D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due =
+              D4.extractBridgedArgOrNull<DateTime>(value, 'due'),
+      'created': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .created = D4.extractBridgedArgOrNull<DateTime>(
+            value,
+            'created',
+          ),
+      'updated': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .updated = D4.extractBridgedArgOrNull<DateTime>(
+            value,
+            'updated',
+          ),
+      'completedDate': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .completedDate = D4.extractBridgedArgOrNull<DateTime>(
+            value,
+            'completedDate',
+          ),
+      'archived': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .archived = D4.extractBridgedArgOrNull<DateTime>(
+            value,
+            'archived',
+          ),
+      'deleted': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .deleted = D4.extractBridgedArgOrNull<DateTime>(
+            value,
+            'deleted',
+          ),
+    },
+    methods: {
+      'recordCreation': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        final on = D4.getRequiredNamedArg<DateTime>(
+          named,
+          'on',
+          'recordCreation',
+        );
+        final author = D4.getOptionalNamedArg<String?>(named, 'author');
+        t.recordCreation(on: on, author: author);
+        return null;
+      },
+      'changeStatus': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        D4.requireMinArgs(positional, 1, 'changeStatus');
+        final next = D4.getRequiredArg<$tom_todo_model_1.TomTodoStatus>(
+          positional,
+          0,
+          'next',
+          'changeStatus',
+        );
+        final on = D4.getRequiredNamedArg<DateTime>(
+          named,
+          'on',
+          'changeStatus',
+        );
+        final by = D4.getOptionalNamedArg<String?>(named, 'by');
+        t.changeStatus(next, on: on, by: by);
+        return null;
+      },
+      'copy': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        return t.copy();
+      },
+      'toMap': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        return t.toMap();
+      },
+      'toString': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        return t.toString();
+      },
+      '==': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodo>(
+          target,
+          'TomTodo',
+        );
+        // GEN-103: Dart spec — non-null == null is always false.
+        if (positional.isEmpty || positional[0] == null) return false;
+        final other = D4.getRequiredArg<Object>(
+          positional,
+          0,
+          'other',
+          'operator==',
+        );
+        return t == other;
+      },
+    },
+    staticGetters: {'fields': (visitor) => $tom_todo_model_1.TomTodo.fields},
+    staticMethods: {
+      'encodeDate': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'encodeDate');
+        final date = D4.getRequiredArg<DateTime>(
+          positional,
+          0,
+          'date',
+          'encodeDate',
+        );
+        return $tom_todo_model_1.TomTodo.encodeDate(date);
+      },
+      'decodeDate': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'decodeDate');
+        final value = D4.getRequiredArg<Object>(
+          positional,
+          0,
+          'value',
+          'decodeDate',
+        );
+        final field = D4.getNamedArgWithDefault<String>(named, 'field', 'due');
+        return $tom_todo_model_1.TomTodo.decodeDate(value, field: field);
+      },
+      'checkBlockedUntil': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'checkBlockedUntil');
+        final condition = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'condition',
+          'checkBlockedUntil',
+        );
+        return $tom_todo_model_1.TomTodo.checkBlockedUntil(condition);
+      },
+      'fromMap': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromMap');
+        final map = D4.getRequiredArg<Map>(positional, 0, 'map', 'fromMap');
+        return $tom_todo_model_1.TomTodo.fromMap(map);
+      },
+    },
+    constructorSignatures: {
+      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource})',
+    },
+    methodSignatures: {
+      'recordCreation':
+          'void recordCreation({required DateTime on, String? author})',
+      'changeStatus':
+          'void changeStatus(TomTodoStatus next, {required DateTime on, String? by})',
+      'copy': 'TomTodo copy()',
+      'toMap': 'Map<String, Object?> toMap()',
+      'toString': 'String toString()',
+    },
+    getterSignatures: {
+      'id': 'String get id',
+      'title': 'String get title',
+      'description': 'String? get description',
+      'status': 'TomTodoStatus get status',
+      'priority': 'TomTodoPriority? get priority',
+      'estimate': 'String? get estimate',
+      'tags': 'List<String> get tags',
+      'scope': 'TomTodoScope? get scope',
+      'decisions': 'List<TomTodoDecision> get decisions',
+      'references': 'List<TomTodoReference> get references',
+      'dependencies': 'List<String> get dependencies',
+      'blockedBy': 'List<String> get blockedBy',
+      'blockedUntil': 'List<String> get blockedUntil',
+      'notes': 'String? get notes',
+      'author': 'String? get author',
+      'completedBy': 'String? get completedBy',
+      'executionRole': 'String? get executionRole',
+      'qaRole': 'String? get qaRole',
+      'orchestrationRole': 'String? get orchestrationRole',
+      'bundleId': 'String? get bundleId',
+      'derivedFrom': 'String? get derivedFrom',
+      'feedbackSource': 'String? get feedbackSource',
+      'due': 'DateTime? get due',
+      'created': 'DateTime? get created',
+      'updated': 'DateTime? get updated',
+      'completedDate': 'DateTime? get completedDate',
+      'archived': 'DateTime? get archived',
+      'deleted': 'DateTime? get deleted',
+      'isDone': 'bool get isDone',
+      'hasOpenDecision': 'bool get hasOpenDecision',
+      'hasBlocker': 'bool get hasBlocker',
+      'hashCode': 'int get hashCode',
+    },
+    setterSignatures: {
+      'title': 'set title(dynamic value)',
+      'description': 'set description(dynamic value)',
+      'status': 'set status(dynamic value)',
+      'priority': 'set priority(dynamic value)',
+      'estimate': 'set estimate(dynamic value)',
+      'tags': 'set tags(dynamic value)',
+      'scope': 'set scope(dynamic value)',
+      'decisions': 'set decisions(dynamic value)',
+      'references': 'set references(dynamic value)',
+      'dependencies': 'set dependencies(dynamic value)',
+      'blockedBy': 'set blockedBy(dynamic value)',
+      'blockedUntil': 'set blockedUntil(dynamic value)',
+      'notes': 'set notes(dynamic value)',
+      'author': 'set author(dynamic value)',
+      'completedBy': 'set completedBy(dynamic value)',
+      'executionRole': 'set executionRole(dynamic value)',
+      'qaRole': 'set qaRole(dynamic value)',
+      'orchestrationRole': 'set orchestrationRole(dynamic value)',
+      'bundleId': 'set bundleId(dynamic value)',
+      'derivedFrom': 'set derivedFrom(dynamic value)',
+      'feedbackSource': 'set feedbackSource(dynamic value)',
+      'due': 'set due(DateTime? value)',
+      'created': 'set created(DateTime? value)',
+      'updated': 'set updated(DateTime? value)',
+      'completedDate': 'set completedDate(DateTime? value)',
+      'archived': 'set archived(DateTime? value)',
+      'deleted': 'set deleted(DateTime? value)',
+    },
+    staticMethodSignatures: {
+      'encodeDate': 'String encodeDate(DateTime date)',
+      'decodeDate':
+          'DateTime decodeDate(Object value, {String field = \'due\'})',
+      'checkBlockedUntil': 'void checkBlockedUntil(String condition)',
+      'fromMap': 'TomTodo fromMap(Map map)',
+    },
+    staticGetterSignatures: {'fields': 'Set<String> get fields'},
+  );
+}
+
+// =============================================================================
+// TomTodoDecision Bridge
+// =============================================================================
+
+BridgedClass _createTomTodoDecisionBridge() {
+  return BridgedClass(
+    nativeType: $tom_todo_model_1.TomTodoDecision,
+    name: 'TomTodoDecision',
+    isAssignable: (v) => v is $tom_todo_model_1.TomTodoDecision,
+    constructors: {
+      '': (visitor, positional, named) {
+        final summary = D4.getRequiredNamedArg<String>(
+          named,
+          'summary',
+          'TomTodoDecision',
+        );
+        final decisionNeeded = D4.getRequiredNamedArg<String>(
+          named,
+          'decisionNeeded',
+          'TomTodoDecision',
+        );
+        final decision = D4.getOptionalNamedArg<String?>(named, 'decision');
+        return $tom_todo_model_1.TomTodoDecision(
+          summary: summary,
+          decisionNeeded: decisionNeeded,
+          decision: decision,
+        );
+      },
+    },
+    getters: {
+      'summary': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+            target,
+            'TomTodoDecision',
+          )
+          .summary,
+      'decisionNeeded': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+            target,
+            'TomTodoDecision',
+          )
+          .decisionNeeded,
+      'decision': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+            target,
+            'TomTodoDecision',
+          )
+          .decision,
+      'isOpen': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+            target,
+            'TomTodoDecision',
+          )
+          .isOpen,
+    },
+    setters: {
+      'summary': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+                target,
+                'TomTodoDecision',
+              )
+              .summary = D4.extractBridgedArg<String>(
+            value,
+            'summary',
+          ),
+      'decisionNeeded': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+                target,
+                'TomTodoDecision',
+              )
+              .decisionNeeded = D4.extractBridgedArg<String>(
+            value,
+            'decisionNeeded',
+          ),
+      'decision': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoDecision>(
+                target,
+                'TomTodoDecision',
+              )
+              .decision = D4.extractBridgedArgOrNull<String>(
+            value,
+            'decision',
+          ),
+    },
+    methods: {
+      'copy': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoDecision>(
+          target,
+          'TomTodoDecision',
+        );
+        return t.copy();
+      },
+      'toMap': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoDecision>(
+          target,
+          'TomTodoDecision',
+        );
+        return t.toMap();
+      },
+    },
+    staticMethods: {
+      'fromMap': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromMap');
+        final map = D4.getRequiredArg<Map>(positional, 0, 'map', 'fromMap');
+        return $tom_todo_model_1.TomTodoDecision.fromMap(map);
+      },
+    },
+    constructorSignatures: {
+      '': 'TomTodoDecision({required String summary, required String decisionNeeded, String? decision})',
+    },
+    methodSignatures: {
+      'copy': 'TomTodoDecision copy()',
+      'toMap': 'Map<String, Object?> toMap()',
+    },
+    getterSignatures: {
+      'summary': 'String get summary',
+      'decisionNeeded': 'String get decisionNeeded',
+      'decision': 'String? get decision',
+      'isOpen': 'bool get isOpen',
+    },
+    setterSignatures: {
+      'summary': 'set summary(dynamic value)',
+      'decisionNeeded': 'set decisionNeeded(dynamic value)',
+      'decision': 'set decision(dynamic value)',
+    },
+    staticMethodSignatures: {'fromMap': 'TomTodoDecision fromMap(Map map)'},
+  );
+}
+
+// =============================================================================
+// TomTodoScope Bridge
+// =============================================================================
+
+BridgedClass _createTomTodoScopeBridge() {
+  return BridgedClass(
+    nativeType: $tom_todo_model_1.TomTodoScope,
+    name: 'TomTodoScope',
+    isAssignable: (v) => v is $tom_todo_model_1.TomTodoScope,
+    constructors: {
+      '': (visitor, positional, named) {
+        final project = D4.getOptionalNamedArg<String?>(named, 'project');
+        final projects =
+            named.containsKey('projects') && named['projects'] != null
+            ? D4.coerceList<String>(named['projects'], 'projects')
+            : const <String>[];
+        final module = D4.getOptionalNamedArg<String?>(named, 'module');
+        final area = D4.getOptionalNamedArg<String?>(named, 'area');
+        final files = named.containsKey('files') && named['files'] != null
+            ? D4.coerceList<String>(named['files'], 'files')
+            : const <String>[];
+        final path = D4.getOptionalNamedArg<String?>(named, 'path');
+        return $tom_todo_model_1.TomTodoScope(
+          project: project,
+          projects: projects,
+          module: module,
+          area: area,
+          files: files,
+          path: path,
+        );
+      },
+    },
+    getters: {
+      'project': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .project,
+      'projects': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .projects,
+      'module': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .module,
+      'area': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .area,
+      'files': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .files,
+      'path': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .path,
+      'isEmpty': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoScope>(
+            target,
+            'TomTodoScope',
+          )
+          .isEmpty,
+    },
+    setters: {
+      'project': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .project = D4.extractBridgedArgOrNull<String>(
+            value,
+            'project',
+          ),
+      'projects': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .projects = D4.coerceList<String>(
+            value,
+            'projects',
+          ),
+      'module': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .module = D4.extractBridgedArgOrNull<String>(
+            value,
+            'module',
+          ),
+      'area': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .area = D4.extractBridgedArgOrNull<String>(
+            value,
+            'area',
+          ),
+      'files': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .files = D4.coerceList<String>(
+            value,
+            'files',
+          ),
+      'path': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodoScope>(
+                target,
+                'TomTodoScope',
+              )
+              .path = D4.extractBridgedArgOrNull<String>(
+            value,
+            'path',
+          ),
+    },
+    methods: {
+      'copy': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoScope>(
+          target,
+          'TomTodoScope',
+        );
+        return t.copy();
+      },
+      'toMap': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoScope>(
+          target,
+          'TomTodoScope',
+        );
+        return t.toMap();
+      },
+    },
+    staticMethods: {
+      'fromMap': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromMap');
+        final map = D4.getRequiredArg<Map>(positional, 0, 'map', 'fromMap');
+        return $tom_todo_model_1.TomTodoScope.fromMap(map);
+      },
+    },
+    constructorSignatures: {
+      '': 'TomTodoScope({String? project, List<String> projects = const [], String? module, String? area, List<String> files = const [], String? path})',
+    },
+    methodSignatures: {
+      'copy': 'TomTodoScope copy()',
+      'toMap': 'Map<String, Object?> toMap()',
+    },
+    getterSignatures: {
+      'project': 'String? get project',
+      'projects': 'List<String> get projects',
+      'module': 'String? get module',
+      'area': 'String? get area',
+      'files': 'List<String> get files',
+      'path': 'String? get path',
+      'isEmpty': 'bool get isEmpty',
+    },
+    setterSignatures: {
+      'project': 'set project(dynamic value)',
+      'projects': 'set projects(dynamic value)',
+      'module': 'set module(dynamic value)',
+      'area': 'set area(dynamic value)',
+      'files': 'set files(dynamic value)',
+      'path': 'set path(dynamic value)',
+    },
+    staticMethodSignatures: {'fromMap': 'TomTodoScope fromMap(Map map)'},
+  );
+}
+
+// =============================================================================
+// TomTodoReference Bridge
+// =============================================================================
+
+BridgedClass _createTomTodoReferenceBridge() {
+  return BridgedClass(
+    nativeType: $tom_todo_model_1.TomTodoReference,
+    name: 'TomTodoReference',
+    isAssignable: (v) => v is $tom_todo_model_1.TomTodoReference,
     constructors: {
       '': (visitor, positional, named) {
         final type = D4.getOptionalNamedArg<String?>(named, 'type');
@@ -19032,7 +20468,7 @@ BridgedClass _createTodoReferenceBridge() {
           'description',
         );
         final lines = D4.getOptionalNamedArg<String?>(named, 'lines');
-        return $tom_vscode_scripting_api_17.TodoReference(
+        return $tom_todo_model_1.TomTodoReference(
           type: type,
           path: path,
           url: url,
@@ -19040,461 +20476,287 @@ BridgedClass _createTodoReferenceBridge() {
           lines: lines,
         );
       },
-      'fromJson': (visitor, positional, named) {
-        D4.requireMinArgs(positional, 1, 'TodoReference');
-        if (positional.isEmpty) {
-          throw ArgumentError(
-            'TodoReference: Missing required argument "json" at position 0',
-          );
-        }
-        final json = D4.coerceMap<String, dynamic>(positional[0], 'json');
-        return $tom_vscode_scripting_api_17.TodoReference.fromJson(json);
-      },
     },
     getters: {
       'type': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
             target,
-            'TodoReference',
+            'TomTodoReference',
           )
           .type,
       'path': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
             target,
-            'TodoReference',
+            'TomTodoReference',
           )
           .path,
       'url': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
             target,
-            'TodoReference',
+            'TomTodoReference',
           )
           .url,
       'description': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
             target,
-            'TodoReference',
+            'TomTodoReference',
           )
           .description,
       'lines': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
             target,
-            'TodoReference',
+            'TomTodoReference',
           )
           .lines,
+      'hashCode': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodoReference>(
+            target,
+            'TomTodoReference',
+          )
+          .hashCode,
     },
     methods: {
-      'toJson': (visitor, target, positional, named, typeArgs) {
-        final t = D4.validateTarget<$tom_vscode_scripting_api_17.TodoReference>(
+      'toMap': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoReference>(
           target,
-          'TodoReference',
+          'TomTodoReference',
         );
-        return t.toJson();
+        return t.toMap();
+      },
+      '==': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_1.TomTodoReference>(
+          target,
+          'TomTodoReference',
+        );
+        // GEN-103: Dart spec — non-null == null is always false.
+        if (positional.isEmpty || positional[0] == null) return false;
+        final other = D4.getRequiredArg<Object>(
+          positional,
+          0,
+          'other',
+          'operator==',
+        );
+        return t == other;
+      },
+    },
+    staticMethods: {
+      'fromMap': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromMap');
+        final map = D4.getRequiredArg<Map>(positional, 0, 'map', 'fromMap');
+        return $tom_todo_model_1.TomTodoReference.fromMap(map);
       },
     },
     constructorSignatures: {
-      '': 'TodoReference({String? type, String? path, String? url, String? description, String? lines})',
-      'fromJson': 'factory TodoReference.fromJson(Map<String, dynamic> json)',
+      '': 'const TomTodoReference({String? type, String? path, String? url, String? description, String? lines})',
     },
-    methodSignatures: {'toJson': 'Map<String, dynamic> toJson()'},
+    methodSignatures: {'toMap': 'Map<String, Object?> toMap()'},
     getterSignatures: {
       'type': 'String? get type',
       'path': 'String? get path',
       'url': 'String? get url',
       'description': 'String? get description',
       'lines': 'String? get lines',
+      'hashCode': 'int get hashCode',
     },
+    staticMethodSignatures: {'fromMap': 'TomTodoReference fromMap(Map map)'},
   );
 }
 
 // =============================================================================
-// TodoScope Bridge
+// TodoEntry Bridge
 // =============================================================================
 
-BridgedClass _createTodoScopeBridge() {
+BridgedClass _createTodoEntryBridge() {
   return BridgedClass(
-    nativeType: $tom_vscode_scripting_api_17.TodoScope,
-    name: 'TodoScope',
-    isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoScope,
+    nativeType: $tom_vscode_scripting_api_17.TodoEntry,
+    name: 'TodoEntry',
+    isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoEntry,
     constructors: {
       '': (visitor, positional, named) {
-        final project = D4.getOptionalNamedArg<String?>(named, 'project');
-        final projects = D4.coerceListOrNull<String>(
-          named['projects'],
-          'projects',
+        final todo = D4.getRequiredNamedArg<$tom_todo_model_1.TomTodo>(
+          named,
+          'todo',
+          'TodoEntry',
         );
-        final module = D4.getOptionalNamedArg<String?>(named, 'module');
-        final area = D4.getOptionalNamedArg<String?>(named, 'area');
-        final files = D4.coerceListOrNull<String>(named['files'], 'files');
-        return $tom_vscode_scripting_api_17.TodoScope(
-          project: project,
-          projects: projects,
-          module: module,
-          area: area,
-          files: files,
+        final sourceFile = D4.getOptionalNamedArg<String?>(named, 'sourceFile');
+        final level = D4
+            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoLevel?>(
+              named,
+              'level',
+            );
+        final unknownFields =
+            named.containsKey('unknownFields') && named['unknownFields'] != null
+            ? D4.coerceMap<String, Object?>(
+                named['unknownFields'],
+                'unknownFields',
+              )
+            : const <String, Object?>{};
+        return $tom_vscode_scripting_api_17.TodoEntry(
+          todo: todo,
+          sourceFile: sourceFile,
+          level: level,
+          unknownFields: unknownFields,
         );
-      },
-      'fromJson': (visitor, positional, named) {
-        D4.requireMinArgs(positional, 1, 'TodoScope');
-        if (positional.isEmpty) {
-          throw ArgumentError(
-            'TodoScope: Missing required argument "json" at position 0',
-          );
-        }
-        final json = D4.coerceMap<String, dynamic>(positional[0], 'json');
-        return $tom_vscode_scripting_api_17.TodoScope.fromJson(json);
       },
     },
     getters: {
-      'project': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
+      'todo': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoEntry>(
             target,
-            'TodoScope',
+            'TodoEntry',
           )
-          .project,
-      'projects': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
+          .todo,
+      'sourceFile': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoEntry>(
             target,
-            'TodoScope',
+            'TodoEntry',
           )
-          .projects,
-      'module': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
+          .sourceFile,
+      'level': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoEntry>(
             target,
-            'TodoScope',
+            'TodoEntry',
           )
-          .module,
-      'area': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
+          .level,
+      'unknownFields': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoEntry>(
             target,
-            'TodoScope',
+            'TodoEntry',
           )
-          .area,
-      'files': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
-            target,
-            'TodoScope',
-          )
-          .files,
-    },
-    methods: {
-      'toJson': (visitor, target, positional, named, typeArgs) {
-        final t = D4.validateTarget<$tom_vscode_scripting_api_17.TodoScope>(
-          target,
-          'TodoScope',
-        );
-        return t.toJson();
-      },
+          .unknownFields,
     },
     constructorSignatures: {
-      '': 'TodoScope({String? project, List<String>? projects, String? module, String? area, List<String>? files})',
-      'fromJson': 'factory TodoScope.fromJson(Map<String, dynamic> json)',
+      '': 'TodoEntry({required TomTodo todo, String? sourceFile, TodoLevel? level, Map<String, Object?> unknownFields = const {}})',
     },
-    methodSignatures: {'toJson': 'Map<String, dynamic> toJson()'},
     getterSignatures: {
-      'project': 'String? get project',
-      'projects': 'List<String>? get projects',
-      'module': 'String? get module',
-      'area': 'String? get area',
-      'files': 'List<String>? get files',
+      'todo': 'TomTodo get todo',
+      'sourceFile': 'String? get sourceFile',
+      'level': 'TodoLevel? get level',
+      'unknownFields': 'Map<String, Object?> get unknownFields',
     },
   );
 }
 
 // =============================================================================
-// TodoItem Bridge
+// InvalidTodo Bridge
 // =============================================================================
 
-BridgedClass _createTodoItemBridge() {
+BridgedClass _createInvalidTodoBridge() {
   return BridgedClass(
-    nativeType: $tom_vscode_scripting_api_17.TodoItem,
-    name: 'TodoItem',
-    isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoItem,
+    nativeType: $tom_vscode_scripting_api_17.InvalidTodo,
+    name: 'InvalidTodo',
+    isAssignable: (v) => v is $tom_vscode_scripting_api_17.InvalidTodo,
     constructors: {
       '': (visitor, positional, named) {
-        final id = D4.getRequiredNamedArg<String>(named, 'id', 'TodoItem');
-        final title = D4.getOptionalNamedArg<String?>(named, 'title');
-        final description = D4.getRequiredNamedArg<String>(
+        final id = D4.getRequiredNamedArg<String?>(named, 'id', 'InvalidTodo');
+        final error = D4.getRequiredNamedArg<String>(
           named,
-          'description',
-          'TodoItem',
+          'error',
+          'InvalidTodo',
         );
-        final status = D4
-            .getRequiredNamedArg<$tom_vscode_scripting_api_17.TodoStatus>(
-              named,
-              'status',
-              'TodoItem',
-            );
-        final priority = D4
-            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoPriority?>(
-              named,
-              'priority',
-            );
-        final tags = D4.coerceListOrNull<String>(named['tags'], 'tags');
-        final scope = D4
-            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoScope?>(
-              named,
-              'scope',
-            );
-        final references = D4
-            .coerceListOrNull<$tom_vscode_scripting_api_17.TodoReference>(
-              named['references'],
-              'references',
-            );
-        final dependencies = D4.coerceListOrNull<String>(
-          named['dependencies'],
-          'dependencies',
-        );
-        final blockedBy = D4.coerceListOrNull<String>(
-          named['blockedBy'],
-          'blockedBy',
-        );
-        final notes = D4.getOptionalNamedArg<String?>(named, 'notes');
-        final created = D4.getOptionalNamedArg<String?>(named, 'created');
-        final updated = D4.getOptionalNamedArg<String?>(named, 'updated');
-        final completedDate = D4.getOptionalNamedArg<String?>(
-          named,
-          'completedDate',
-        );
-        final completedBy = D4.getOptionalNamedArg<String?>(
-          named,
-          'completedBy',
-        );
-        final sourceFile = D4.getOptionalNamedArg<String?>(named, 'sourceFile');
-        return $tom_vscode_scripting_api_17.TodoItem(
-          id: id,
-          title: title,
-          description: description,
-          status: status,
-          priority: priority,
-          tags: tags,
-          scope: scope,
-          references: references,
-          dependencies: dependencies,
-          blockedBy: blockedBy,
-          notes: notes,
-          created: created,
-          updated: updated,
-          completedDate: completedDate,
-          completedBy: completedBy,
-          sourceFile: sourceFile,
-        );
-      },
-      'fromJson': (visitor, positional, named) {
-        D4.requireMinArgs(positional, 1, 'TodoItem');
-        if (positional.isEmpty) {
+        if (!named.containsKey('json') || named['json'] == null) {
           throw ArgumentError(
-            'TodoItem: Missing required argument "json" at position 0',
+            'InvalidTodo: Missing required named argument "json"',
           );
         }
-        final json = D4.coerceMap<String, dynamic>(positional[0], 'json');
-        return $tom_vscode_scripting_api_17.TodoItem.fromJson(json);
+        final json = D4.coerceMap<String, dynamic>(named['json'], 'json');
+        return $tom_vscode_scripting_api_17.InvalidTodo(
+          id: id,
+          error: error,
+          json: json,
+        );
       },
     },
     getters: {
       'id': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
+          .validateTarget<$tom_vscode_scripting_api_17.InvalidTodo>(
             target,
-            'TodoItem',
+            'InvalidTodo',
           )
           .id,
-      'title': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
+      'error': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.InvalidTodo>(
             target,
-            'TodoItem',
+            'InvalidTodo',
           )
-          .title,
-      'description': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
+          .error,
+      'json': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.InvalidTodo>(
             target,
-            'TodoItem',
+            'InvalidTodo',
           )
-          .description,
-      'status': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .status,
-      'priority': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .priority,
-      'tags': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .tags,
-      'scope': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .scope,
-      'references': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .references,
-      'dependencies': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .dependencies,
-      'blockedBy': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .blockedBy,
-      'notes': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .notes,
-      'created': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .created,
-      'updated': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .updated,
-      'completedDate': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .completedDate,
-      'completedBy': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .completedBy,
-      'sourceFile': (visitor, target) => D4
-          .validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-            target,
-            'TodoItem',
-          )
-          .sourceFile,
-    },
-    methods: {
-      'toJson': (visitor, target, positional, named, typeArgs) {
-        final t = D4.validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-          target,
-          'TodoItem',
-        );
-        return t.toJson();
-      },
-      'copyWith': (visitor, target, positional, named, typeArgs) {
-        final t = D4.validateTarget<$tom_vscode_scripting_api_17.TodoItem>(
-          target,
-          'TodoItem',
-        );
-        final id = D4.getOptionalNamedArg<String?>(named, 'id');
-        final title = D4.getOptionalNamedArg<String?>(named, 'title');
-        final description = D4.getOptionalNamedArg<String?>(
-          named,
-          'description',
-        );
-        final status = D4
-            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoStatus?>(
-              named,
-              'status',
-            );
-        final priority = D4
-            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoPriority?>(
-              named,
-              'priority',
-            );
-        final tags = D4.coerceListOrNull<String>(named['tags'], 'tags');
-        final scope = D4
-            .getOptionalNamedArg<$tom_vscode_scripting_api_17.TodoScope?>(
-              named,
-              'scope',
-            );
-        final references = D4
-            .coerceListOrNull<$tom_vscode_scripting_api_17.TodoReference>(
-              named['references'],
-              'references',
-            );
-        final dependencies = D4.coerceListOrNull<String>(
-          named['dependencies'],
-          'dependencies',
-        );
-        final blockedBy = D4.coerceListOrNull<String>(
-          named['blockedBy'],
-          'blockedBy',
-        );
-        final notes = D4.getOptionalNamedArg<String?>(named, 'notes');
-        final created = D4.getOptionalNamedArg<String?>(named, 'created');
-        final updated = D4.getOptionalNamedArg<String?>(named, 'updated');
-        final completedDate = D4.getOptionalNamedArg<String?>(
-          named,
-          'completedDate',
-        );
-        final completedBy = D4.getOptionalNamedArg<String?>(
-          named,
-          'completedBy',
-        );
-        final sourceFile = D4.getOptionalNamedArg<String?>(named, 'sourceFile');
-        return t.copyWith(
-          id: id,
-          title: title,
-          description: description,
-          status: status,
-          priority: priority,
-          tags: tags,
-          scope: scope,
-          references: references,
-          dependencies: dependencies,
-          blockedBy: blockedBy,
-          notes: notes,
-          created: created,
-          updated: updated,
-          completedDate: completedDate,
-          completedBy: completedBy,
-          sourceFile: sourceFile,
-        );
-      },
+          .json,
     },
     constructorSignatures: {
-      '': 'TodoItem({required String id, String? title, required String description, required TodoStatus status, TodoPriority? priority, List<String>? tags, TodoScope? scope, List<TodoReference>? references, List<String>? dependencies, List<String>? blockedBy, String? notes, String? created, String? updated, String? completedDate, String? completedBy, String? sourceFile})',
-      'fromJson': 'factory TodoItem.fromJson(Map<String, dynamic> json)',
-    },
-    methodSignatures: {
-      'toJson': 'Map<String, dynamic> toJson()',
-      'copyWith':
-          'TodoItem copyWith({String? id, String? title, String? description, TodoStatus? status, TodoPriority? priority, List<String>? tags, TodoScope? scope, List<TodoReference>? references, List<String>? dependencies, List<String>? blockedBy, String? notes, String? created, String? updated, String? completedDate, String? completedBy, String? sourceFile})',
+      '': 'InvalidTodo({required String? id, required String error, required Map<String, dynamic> json})',
     },
     getterSignatures: {
-      'id': 'String get id',
-      'title': 'String? get title',
-      'description': 'String get description',
-      'status': 'TodoStatus get status',
-      'priority': 'TodoPriority? get priority',
-      'tags': 'List<String>? get tags',
-      'scope': 'TodoScope? get scope',
-      'references': 'List<TodoReference>? get references',
-      'dependencies': 'List<String>? get dependencies',
-      'blockedBy': 'List<String>? get blockedBy',
-      'notes': 'String? get notes',
-      'created': 'String? get created',
-      'updated': 'String? get updated',
-      'completedDate': 'String? get completedDate',
-      'completedBy': 'String? get completedBy',
-      'sourceFile': 'String? get sourceFile',
+      'id': 'String? get id',
+      'error': 'String get error',
+      'json': 'Map<String, dynamic> get json',
+    },
+  );
+}
+
+// =============================================================================
+// TodoWire Bridge
+// =============================================================================
+
+BridgedClass _createTodoWireBridge() {
+  return BridgedClass(
+    nativeType: $tom_vscode_scripting_api_17.TodoWire,
+    name: 'TodoWire',
+    isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoWire,
+    isAbstract: true,
+    constructors: {},
+    staticMethods: {
+      'fromBridge': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromBridge');
+        if (positional.isEmpty) {
+          throw ArgumentError(
+            'fromBridge: Missing required argument "json" at position 0',
+          );
+        }
+        final json = D4.coerceMap<String, dynamic>(positional[0], 'json');
+        return $tom_vscode_scripting_api_17.TodoWire.fromBridge(json);
+      },
+      'toBridge': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'toBridge');
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
+          positional,
+          0,
+          'todo',
+          'toBridge',
+        );
+        return $tom_vscode_scripting_api_17.TodoWire.toBridge(todo);
+      },
+      'toSessionBridge': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'toSessionBridge');
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
+          positional,
+          0,
+          'todo',
+          'toSessionBridge',
+        );
+        return $tom_vscode_scripting_api_17.TodoWire.toSessionBridge(todo);
+      },
+      'fromBridgeOrNull': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromBridgeOrNull');
+        if (positional.isEmpty) {
+          throw ArgumentError(
+            'fromBridgeOrNull: Missing required argument "json" at position 0',
+          );
+        }
+        final json = D4.coerceMap<String, dynamic>(positional[0], 'json');
+        return $tom_vscode_scripting_api_17.TodoWire.fromBridgeOrNull(json);
+      },
+    },
+    staticMethodSignatures: {
+      'fromBridge': 'TodoEntry fromBridge(Map<String, dynamic> json)',
+      'toBridge': 'Map<String, Object?> toBridge(TomTodo todo)',
+      'toSessionBridge': 'Map<String, Object?> toSessionBridge(TomTodo todo)',
+      'fromBridgeOrNull':
+          'TodoEntry? fromBridgeOrNull(Map<String, dynamic> json)',
     },
   );
 }
@@ -19510,19 +20772,26 @@ BridgedClass _createTodoListResultBridge() {
     isAssignable: (v) => v is $tom_vscode_scripting_api_17.TodoListResult,
     constructors: {
       '': (visitor, positional, named) {
-        if (!named.containsKey('todos') || named['todos'] == null) {
+        if (!named.containsKey('entries') || named['entries'] == null) {
           throw ArgumentError(
-            'TodoListResult: Missing required named argument "todos"',
+            'TodoListResult: Missing required named argument "entries"',
           );
         }
-        final todos = D4.coerceList<$tom_vscode_scripting_api_17.TodoItem>(
-          named['todos'],
-          'todos',
+        final entries = D4.coerceList<$tom_vscode_scripting_api_17.TodoEntry>(
+          named['entries'],
+          'entries',
         );
+        final invalid = named.containsKey('invalid') && named['invalid'] != null
+            ? D4.coerceList<$tom_vscode_scripting_api_17.InvalidTodo>(
+                named['invalid'],
+                'invalid',
+              )
+            : const <$tom_vscode_scripting_api_17.InvalidTodo>[];
         final questId = D4.getOptionalNamedArg<String?>(named, 'questId');
         final file = D4.getOptionalNamedArg<String?>(named, 'file');
         return $tom_vscode_scripting_api_17.TodoListResult(
-          todos: todos,
+          entries: entries,
+          invalid: invalid,
           questId: questId,
           file: file,
         );
@@ -19539,12 +20808,18 @@ BridgedClass _createTodoListResultBridge() {
       },
     },
     getters: {
-      'todos': (visitor, target) => D4
+      'entries': (visitor, target) => D4
           .validateTarget<$tom_vscode_scripting_api_17.TodoListResult>(
             target,
             'TodoListResult',
           )
-          .todos,
+          .entries,
+      'invalid': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoListResult>(
+            target,
+            'TodoListResult',
+          )
+          .invalid,
       'questId': (visitor, target) => D4
           .validateTarget<$tom_vscode_scripting_api_17.TodoListResult>(
             target,
@@ -19557,15 +20832,23 @@ BridgedClass _createTodoListResultBridge() {
             'TodoListResult',
           )
           .file,
+      'todos': (visitor, target) => D4
+          .validateTarget<$tom_vscode_scripting_api_17.TodoListResult>(
+            target,
+            'TodoListResult',
+          )
+          .todos,
     },
     constructorSignatures: {
-      '': 'TodoListResult({required List<TodoItem> todos, String? questId, String? file})',
+      '': 'TodoListResult({required List<TodoEntry> entries, List<InvalidTodo> invalid = const [], String? questId, String? file})',
       'fromJson': 'factory TodoListResult.fromJson(Map<String, dynamic> json)',
     },
     getterSignatures: {
-      'todos': 'List<TodoItem> get todos',
+      'entries': 'List<TodoEntry> get entries',
+      'invalid': 'List<InvalidTodo> get invalid',
       'questId': 'String? get questId',
       'file': 'String? get file',
+      'todos': 'List<TomTodo> get todos',
     },
   );
 }
@@ -19708,7 +20991,7 @@ BridgedClass _createTomTodoApiBridge() {
           'questId',
           'createQuestTodo',
         );
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           1,
           'todo',
@@ -19729,7 +21012,7 @@ BridgedClass _createTomTodoApiBridge() {
           'questId',
           'updateQuestTodo',
         );
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           1,
           'todo',
@@ -19788,7 +21071,7 @@ BridgedClass _createTomTodoApiBridge() {
       },
       'createWorkspaceTodo': (visitor, positional, named, typeArgs) {
         D4.requireMinArgs(positional, 1, 'createWorkspaceTodo');
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           0,
           'todo',
@@ -19802,7 +21085,7 @@ BridgedClass _createTomTodoApiBridge() {
       },
       'updateWorkspaceTodo': (visitor, positional, named, typeArgs) {
         D4.requireMinArgs(positional, 1, 'updateWorkspaceTodo');
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           0,
           'todo',
@@ -19843,7 +21126,7 @@ BridgedClass _createTomTodoApiBridge() {
       },
       'createSessionTodo': (visitor, positional, named, typeArgs) {
         D4.requireMinArgs(positional, 1, 'createSessionTodo');
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           0,
           'todo',
@@ -19853,7 +21136,7 @@ BridgedClass _createTomTodoApiBridge() {
       },
       'updateSessionTodo': (visitor, positional, named, typeArgs) {
         D4.requireMinArgs(positional, 1, 'updateSessionTodo');
-        final todo = D4.getRequiredArg<$tom_vscode_scripting_api_17.TodoItem>(
+        final todo = D4.getRequiredArg<$tom_todo_model_1.TomTodo>(
           positional,
           0,
           'todo',
@@ -19905,11 +21188,11 @@ BridgedClass _createTomTodoApiBridge() {
       'listQuestTodos':
           'Future<TodoListResult> listQuestTodos(String questId, {String? file})',
       'getQuestTodo':
-          'Future<TodoItem?> getQuestTodo(String questId, String todoId, {String? file})',
+          'Future<TodoEntry?> getQuestTodo(String questId, String todoId, {String? file})',
       'createQuestTodo':
-          'Future<TodoItem> createQuestTodo(String questId, TodoItem todo, {String? file})',
+          'Future<TodoEntry> createQuestTodo(String questId, TomTodo todo, {String? file})',
       'updateQuestTodo':
-          'Future<TodoItem> updateQuestTodo(String questId, TodoItem todo, {String? file})',
+          'Future<TodoEntry> updateQuestTodo(String questId, TomTodo todo, {String? file})',
       'deleteQuestTodo':
           'Future<bool> deleteQuestTodo(String questId, String todoId, {String? file})',
       'listWorkspaceTodoFiles':
@@ -19917,17 +21200,17 @@ BridgedClass _createTomTodoApiBridge() {
       'listWorkspaceTodos':
           'Future<TodoListResult> listWorkspaceTodos({String? file})',
       'getWorkspaceTodo':
-          'Future<TodoItem?> getWorkspaceTodo(String todoId, {String? file})',
+          'Future<TodoEntry?> getWorkspaceTodo(String todoId, {String? file})',
       'createWorkspaceTodo':
-          'Future<TodoItem> createWorkspaceTodo(TodoItem todo, {String? file})',
+          'Future<TodoEntry> createWorkspaceTodo(TomTodo todo, {String? file})',
       'updateWorkspaceTodo':
-          'Future<TodoItem> updateWorkspaceTodo(TodoItem todo, {String? file})',
+          'Future<TodoEntry> updateWorkspaceTodo(TomTodo todo, {String? file})',
       'deleteWorkspaceTodo':
           'Future<bool> deleteWorkspaceTodo(String todoId, {String? file})',
       'listSessionTodos': 'Future<TodoListResult> listSessionTodos()',
-      'getSessionTodo': 'Future<TodoItem?> getSessionTodo(String todoId)',
-      'createSessionTodo': 'Future<TodoItem> createSessionTodo(TodoItem todo)',
-      'updateSessionTodo': 'Future<TodoItem> updateSessionTodo(TodoItem todo)',
+      'getSessionTodo': 'Future<TodoEntry?> getSessionTodo(String todoId)',
+      'createSessionTodo': 'Future<TodoEntry> createSessionTodo(TomTodo todo)',
+      'updateSessionTodo': 'Future<TodoEntry> updateSessionTodo(TomTodo todo)',
       'deleteSessionTodo': 'Future<bool> deleteSessionTodo(String todoId)',
       'listAllTodos':
           'Future<TodoListResult> listAllTodos({bool includeQuest = true, bool includeWorkspace = true, bool includeSession = true, String? questId})',
