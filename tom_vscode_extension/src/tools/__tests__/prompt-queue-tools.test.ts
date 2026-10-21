@@ -44,6 +44,8 @@ import {
     updateQueueFollowUpImpl,
     updateQueueItemImpl,
     updateQueuePrePromptImpl,
+    QUEUE_ITEM_SNAPSHOT_FIELDS,
+    projectQueueItem,
     type EnqueueInput,
     type FollowUpItem,
     type FollowUpSpec,
@@ -739,5 +741,34 @@ describe('missing API key warning', () => {
 
     test('QK-3: the descriptions say so', () => {
         assert.match(ADD_QUEUE_ITEM_TOOL.description, /carries `warning` when a stage of the item runs on an Anthropic profile/);
+    });
+});
+
+// ===========================================================================
+// The live projection carries every snapshot field (vbs2)
+// ===========================================================================
+
+describe('projectQueueItem', () => {
+    test('QP-1: every field of the snapshot is copied from the queue item — session included', () => {
+        const item: Record<string, unknown> = { internalOnly: 'not a snapshot field' };
+        QUEUE_ITEM_SNAPSHOT_FIELDS.forEach((field, i) => { item[field] = `value-${i}`; });
+        const snap = projectQueueItem(item) as unknown as Record<string, unknown>;
+        for (const [i, field] of QUEUE_ITEM_SNAPSHOT_FIELDS.entries()) {
+            assert.equal(snap[field], `value-${i}`, field);
+        }
+        assert.equal(snap.session, `value-${QUEUE_ITEM_SNAPSHOT_FIELDS.indexOf('session')}`);
+        assert.equal('internalOnly' in snap, false, 'only snapshot fields');
+    });
+
+    test('QP-2: originalText is never undefined', () => {
+        assert.equal(projectQueueItem({ id: 'q', status: 'staged' }).originalText, '');
+    });
+
+    test('QP-3: listQueue answers the session of a projected item', async () => {
+        const access = makeAccess();
+        const real = { id: 'q-9', status: 'staged', originalText: 'x', createdAt: 1, session: 'vsd4-prep', followUps: [] };
+        access.items = () => [projectQueueItem(real)];
+        const listed = JSON.parse(await listQueueImpl(access, {}));
+        assert.equal(listed.items[0].session, 'vsd4-prep');
     });
 });

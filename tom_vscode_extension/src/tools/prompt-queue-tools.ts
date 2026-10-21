@@ -124,7 +124,36 @@ export interface QueueItemSnapshot {
     session?: string;
     answerText?: string;
     lastDispatched?: string;
-    warning?: string;
+    /** Why the last send did not complete (rate limit, quota, overload, …), as the queue records it. */
+    warning?: { kind: string; message: string; at?: string };
+}
+
+/**
+ * Every field of {@link QueueItemSnapshot}, in one list. The live access
+ * (chat-enhancement-tools.ts) copies a queue item through
+ * {@link projectQueueItem}; a field missing here once made tomAi_listQueue
+ * answer `session: null` for items that had one. The check below fails the
+ * build when a field is added to the interface but not to this list.
+ */
+export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
+    'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
+    'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
+    'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
+    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'answerText',
+    'lastDispatched', 'warning',
+] as const satisfies readonly (keyof QueueItemSnapshot)[];
+
+type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
+/** Compile-time: `never` unless every field of QueueItemSnapshot is in QUEUE_ITEM_SNAPSHOT_FIELDS. */
+export const SNAPSHOT_FIELDS_COMPLETE: [UnprojectedSnapshotField] extends [never] ? true : UnprojectedSnapshotField = true;
+
+/** A queue item as the queue tools see it: every snapshot field copied, `originalText` never undefined. */
+export function projectQueueItem(item: object): QueueItemSnapshot {
+    const source = item as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const field of QUEUE_ITEM_SNAPSHOT_FIELDS) { out[field] = source[field]; }
+    out.originalText = source.originalText || '';
+    return out as unknown as QueueItemSnapshot;
 }
 
 // ===========================================================================

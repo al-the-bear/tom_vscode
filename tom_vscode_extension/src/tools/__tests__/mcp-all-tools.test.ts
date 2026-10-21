@@ -33,6 +33,8 @@
  *   MA-9 an item queued on a direct-API profile whose key variable is unset is queued with a `warning` naming
  *        the stages it affects; on the Agent SDK profile, or with the key set, there is none — the real manager;
  *        the queue editor's profile picker marks that profile '(no API key)'
+ *   MA-10 an item queued with a session is listed by tomAi_listQueue with that session — the live projection
+ *        of the real manager's item, which once left the field out
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -811,6 +813,20 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(picker, /<option value="direct-p">direct-p \(no API key\)<\/option>/);
         assert.match(picker, /<option value="sdk-p">sdk-p<\/option>/);
         assert.match(picker, /<option value="" selected>\(default profile\)<\/option>/, 'the default is the Agent SDK profile');
+    });
+
+    test('MA-10: tomAi_listQueue shows the session an item was queued with', async () => {
+        const call = async (name: string, args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name, arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        const added = await call('tomAi_addQueueItem', { text: 'in a session', transport: 'anthropic', anthropicProfileId: 'sdk-p', session: 'per-todo' });
+        assert.equal(added.ok, true);
+        assert.equal(PromptQueueManager.instance.getById(added.id)?.session, 'per-todo', 'the queue has it');
+        const listed = await call('tomAi_listQueue', {});
+        const item = listed.items.find((i: Json) => i.id === added.id);
+        assert.equal(item.session, 'per-todo', 'and the list shows it');
+        PromptQueueManager.instance.remove(added.id);
     });
 
     test('MA-7: the queue\'s answer watcher failing is not an uncaught exception', () => {

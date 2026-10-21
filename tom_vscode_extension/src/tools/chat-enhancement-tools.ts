@@ -578,6 +578,7 @@ import {
     addQueueFollowUpImpl,
     updateQueueFollowUpImpl,
     removeQueueFollowUpImpl,
+    projectQueueItem,
 } from './prompt-queue-tools';
 
 // Lazy-import the manager so we don't pay the module-load cost when
@@ -588,24 +589,8 @@ async function getQueueManager() {
     return PromptQueueManager.instance;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function projectItem(i: any): QueueItemSnapshot {
-    return {
-        id: i.id, status: i.status, type: i.type,
-        originalText: i.originalText || '',
-        template: i.template, answerWrapper: i.answerWrapper,
-        requestId: i.requestId, expectedRequestId: i.expectedRequestId,
-        createdAt: i.createdAt, sentAt: i.sentAt,
-        reminderEnabled: i.reminderEnabled, reminderTemplateId: i.reminderTemplateId,
-        reminderTimeoutMinutes: i.reminderTimeoutMinutes, reminderRepeat: i.reminderRepeat,
-        repeatCount: i.repeatCount, repeatPrefix: i.repeatPrefix, repeatSuffix: i.repeatSuffix,
-        templateRepeatCount: i.templateRepeatCount, answerWaitMinutes: i.answerWaitMinutes,
-        followUpIndex: i.followUpIndex, followUps: i.followUps as FollowUpItem[] | undefined,
-        prePrompts: i.prePrompts, transport: i.transport,
-        anthropicProfileId: i.anthropicProfileId, anthropicConfigId: i.anthropicConfigId,
-        answerText: i.answerText, lastDispatched: i.lastDispatched, warning: i.warning,
-    };
-}
+/** The queue item as the tools see it — every snapshot field (projectQueueItem holds the list). */
+const projectItem = (item: object): QueueItemSnapshot => projectQueueItem(item);
 
 const livePromptQueueAccess: PromptQueueAccess = {
     items(): QueueItemSnapshot[] {
