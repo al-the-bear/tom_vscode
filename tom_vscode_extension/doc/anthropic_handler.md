@@ -12,6 +12,14 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 The variable name is configurable via `anthropic.apiKeyEnvVar` in `tom_vscode_extension.json` (default `ANTHROPIC_API_KEY`). The 🔑 dot in the ANTHROPIC panel toolbar is green when the variable is populated, red otherwise.
 
+The variable is read from the extension host's environment, which VS Code takes from the environment it was **launched** with. "Developer: Reload Window" restarts the extension host from the same main process and does not refresh it: after setting the variable (on macOS e.g. `launchctl setenv`, or in the shell VS Code is started from), quit VS Code and start it again. Until then:
+
+- the profile pickers (the ANTHROPIC panel's and the queue's) label every profile on a `direct` configuration `(no API key)`;
+- the queue tools answer a `warning` when an item is queued on such a profile, and the queue editor shows a **No API key** chip on it;
+- a send that fails for it ("Anthropic client not available") is not retried: the queue item goes to `error` at once, saying what to do, and the user is told once (`multi_transport_prompt_queue_revised.md` §4.17a).
+
+Profiles on the `agentSdk` transport need no key (they use the Claude Code login).
+
 ## 2. Create a configuration
 
 A configuration bundles a model id, token limits, history mode, tool set, and approval mode. Open the **Status Page → LLM Configurations** section, or edit `tom_vscode_extension.json` directly:
