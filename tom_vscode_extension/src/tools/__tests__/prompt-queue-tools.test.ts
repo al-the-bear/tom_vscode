@@ -697,3 +697,47 @@ describe('canonical workflow', () => {
         assert.equal(sentR.followUpCount, 2);
     });
 });
+
+// ===========================================================================
+// A missing API key is said when the item is queued (vscimpa21)
+// ===========================================================================
+
+describe('missing API key warning', () => {
+    const LINE = 'the main prompt: Anthropic profile "direct-p" (configuration "direct-c") uses the direct API, and its key variable TEST_KEY is not set';
+
+    test('QK-1: every tool that queues, changes or sends an item answers the warning, and the item is kept', async () => {
+        const access = makeAccess();
+        access.missingApiKeyWarnings = () => [LINE, 'follow-up 1: another cause'];
+        const added = JSON.parse(await addQueueItemImpl(access, { text: 'p', transport: 'anthropic', anthropicProfileId: 'direct-p' }));
+        assert.equal(added.ok, true, 'queued all the same');
+        assert.equal(added.warning, `${LINE}\nfollow-up 1: another cause`);
+        const id = added.id;
+        const answers = [
+            await addQueuePrePromptImpl(access, { queueItemId: id, text: 'pre' }),
+            await updateQueuePrePromptImpl(access, { queueItemId: id, index: 0, text: 'pre, changed' }),
+            await addQueueFollowUpImpl(access, { queueItemId: id, text: 'follow' }),
+            await updateQueueItemImpl(access, { queueItemId: id, text: 'p, changed' }),
+        ].map((t) => JSON.parse(t));
+        const followUpId = answers[2].followUpId;
+        answers.push(JSON.parse(await updateQueueFollowUpImpl(access, { queueItemId: id, followUpId, text: 'follow, changed' })));
+        answers.push(JSON.parse(await sendQueuedPromptImpl(access, { queueItemId: id })));
+        for (const a of answers) {
+            assert.equal(a.ok, true);
+            assert.match(a.warning, /TEST_KEY is not set/);
+        }
+    });
+
+    test('QK-2: no warning when nothing is missing, or the queue cannot tell', async () => {
+        const access = makeAccess();
+        access.missingApiKeyWarnings = () => [];
+        const clean = JSON.parse(await addQueueItemImpl(access, { text: 'p' }));
+        assert.equal('warning' in clean, false);
+        delete access.missingApiKeyWarnings;
+        const unknown = JSON.parse(await addQueueItemImpl(access, { text: 'q' }));
+        assert.equal('warning' in unknown, false);
+    });
+
+    test('QK-3: the descriptions say so', () => {
+        assert.match(ADD_QUEUE_ITEM_TOOL.description, /carries `warning` when a stage of the item runs on an Anthropic profile/);
+    });
+});

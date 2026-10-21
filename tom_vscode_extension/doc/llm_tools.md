@@ -348,6 +348,8 @@ These tools drive the **Copilot Chat user-facing panel** via a bridge. They are 
 | `tomAi_updateReminderTemplate` | Patch a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_deleteReminderTemplate` | Delete a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 
+**Missing API key.** The tools that queue, change or send an item answer a `warning` when a stage of it runs on an Anthropic profile whose configuration uses the direct API and whose key variable (`anthropic.apiKeyEnvVar`) is not in this VS Code's environment — one line per cause, naming the stages. The item is queued all the same. See `multi_transport_prompt_queue_revised.md` §4.17a.
+
 **Remaining gaps** (manager features still with no tool): engine-wide `TimerScheduleSlot` (awake/asleep windows with weekday / first-weekday / last-weekday / day-of-month patterns) and reminder-system config (`ReminderSystem.config.enabled`, `defaultTimeoutMinutes`). Add if a workflow needs LLM-driven control of those.
 
 ### 4.21 AI Conversation result document

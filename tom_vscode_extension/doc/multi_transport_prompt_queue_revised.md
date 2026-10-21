@@ -561,6 +561,19 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
 
 Both call sites used to duplicate the fallback chain, and both missed the Local-LLM-backed profile case until the helper was extracted. Consolidating here also enforces consistent error messages (see §5 failure modes). The helper returns a discriminated union `{ profile, configuration } | { error: string }` so callers can surface a clear message without catching thrown errors across the module boundary.
 
+Its first two steps — which profile (by id, else the default, else the first) and which configuration (an explicit, non-blank id, else the profile's) — live in `src/utils/anthropicApiKeyCheck.ts` (`pickAnthropicProfile`, `effectiveConfigurationId`), because the missing-key check below has to pick the same target.
+
+#### 4.17a A missing API key is said before anything is sent
+
+The direct transport reads its key only from `process.env[anthropic.apiKeyEnvVar]` (default `ANTHROPIC_API_KEY`) of the extension host. When that variable is unset every send fails ("Anthropic client not available"), and a queued item is then retried for hours. `missingDirectApiKey(section, {profileId, configId}, env)` answers the question up front: the target resolves to an Anthropic configuration whose `transport` is `direct` (or absent) and the variable is unset. Agent SDK, VS Code LM and Local-LLM-backed targets never need it.
+
+- `PromptQueueManager.missingApiKeyWarnings(itemId)` runs it for every stage of an item (main prompt, each pre-prompt, each follow-up, each resolved like `dispatchStage` resolves it) and answers one line per cause naming the stages it affects.
+- The queue tools that queue, change or send an item (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueuedPrompt`) answer those lines as `warning`. The item is kept: the caller decides.
+- The queue editor shows each line as a **No API key** chip on the item, with the yellow `warned` border.
+- The profile pickers — the Anthropic subpanel's and the transport picker's (§4.15) — label such a profile `(no API key)` (`profileKeyStates`).
+
+The message names the fix: the key has to be in the environment VS Code was **launched** with; "Developer: Reload Window" restarts the extension host from the same main process and does not refresh it, so VS Code must be quit and started again.
+
 ### 4.18 Pause / resume and error handling
 
 The queue is a long-running, possibly multi-repetition drain, so it needs

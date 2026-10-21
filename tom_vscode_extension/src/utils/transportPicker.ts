@@ -26,6 +26,7 @@
 
 import { loadSendToChatConfig } from '../handlers/handler_shared';
 import { readMediaText } from './webviewLoader';
+import { missingDirectApiKey, NO_API_KEY_LABEL, profileKeyStates } from './anthropicApiKeyCheck';
 
 export type TransportPickerContext =
     | 'queue-default'
@@ -85,13 +86,15 @@ function transportOptionsFor(context: TransportPickerContext, selected: string |
 
 function profileOptions(selectedId: string | undefined): string {
     const config = loadSendToChatConfig();
-    const profiles = config?.anthropic?.profiles ?? [];
+    // A profile on the direct API whose key variable is not in this VS Code's
+    // environment is marked: every send through it would fail.
+    const states = profileKeyStates(config?.anthropic, process.env);
+    const defaultKeyless = !!missingDirectApiKey(config?.anthropic, {}, process.env);
     const entries: Array<{ value: string; label: string }> = [
-        { value: '', label: '(default profile)' },
+        { value: '', label: `(default profile)${defaultKeyless ? NO_API_KEY_LABEL : ''}` },
     ];
-    for (const p of profiles) {
-        if (!p || !p.id) { continue; }
-        const label = p.name ? `${p.name} (${p.id})` : p.id;
+    for (const p of states) {
+        const label = (p.name !== p.id ? `${p.name} (${p.id})` : p.id) + (p.noApiKey ? NO_API_KEY_LABEL : '');
         entries.push({ value: p.id, label });
     }
     return entries

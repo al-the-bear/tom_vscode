@@ -48,6 +48,7 @@ import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { NO_API_KEY_LABEL, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -855,11 +856,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _sendProfiles(): void {
         this._sendChatSession();
         const config = loadSendToChatConfig();
-        const anthropicProfileEntries: Array<{ id: string; name: string; isDefault: boolean; configurationId: string }> = Array.isArray(config?.anthropic?.profiles)
-            ? (config!.anthropic!.profiles! as Array<{ id: string; name?: string; isDefault?: boolean; configurationId?: string }>)
-                .filter((p) => p && typeof p.id === 'string' && p.id.length > 0)
-                .map((p) => ({ id: p.id, name: (p.name || p.id), isDefault: p.isDefault === true, configurationId: p.configurationId || '' }))
-            : [];
+        // A profile on the direct API whose key variable is not in this VS Code's
+        // environment is marked in its label: every send through it would fail.
+        const anthropicProfileEntries = profileKeyStates(config?.anthropic, process.env)
+            .map((p) => ({ ...p, name: p.name + (p.noApiKey ? NO_API_KEY_LABEL : '') }));
         const anthropicProfiles = anthropicProfileEntries.map((p) => p.id);
         const anthropicConfigurations = Array.isArray(config?.anthropic?.configurations)
             ? config!.anthropic!.configurations!

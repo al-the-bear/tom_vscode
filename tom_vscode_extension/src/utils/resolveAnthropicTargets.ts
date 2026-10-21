@@ -16,6 +16,7 @@
  */
 
 import { loadSendToChatConfig } from '../handlers/handler_shared';
+import { effectiveConfigurationId, pickAnthropicProfile } from './anthropicApiKeyCheck';
 import type {
     AnthropicConfiguration,
     AnthropicProfile,
@@ -51,21 +52,15 @@ export function resolveAnthropicTargets(
 ): AnthropicResolutionResult | AnthropicResolutionError {
     const cfg = loadSendToChatConfig();
     const profiles = (cfg?.anthropic?.profiles ?? []) as AnthropicProfile[];
-    const profile = profiles.find((p) => p?.id === req.profileId)
-        ?? profiles.find((p) => p?.isDefault === true)
-        ?? profiles[0];
+    const profile = pickAnthropicProfile(profiles, req.profileId);
     if (!profile) {
         return { error: `No Anthropic profile available (requested id="${req.profileId ?? ''}").` };
     }
 
     // The chat panel passes `config: ''` rather than omitting the field
-    // (see chatPanel-handler.ts webview send action). `??` only falls back
-    // on null/undefined, so a stricter check is needed to honour the
-    // profile's configurationId in that case.
-    const explicitConfigId = (typeof req.configId === 'string' && req.configId.trim().length > 0)
-        ? req.configId
-        : undefined;
-    const configId = explicitConfigId ?? profile.configurationId;
+    // (see chatPanel-handler.ts webview send action), so a blank id falls
+    // back to the profile's configurationId too.
+    const configId = effectiveConfigurationId(profile, req.configId);
     const explicitConfigRequested = Boolean(configId);
     let configuration = (cfg?.anthropic?.configurations ?? [])
         .find((c) => c?.id === configId) as AnthropicConfiguration | undefined;

@@ -218,6 +218,8 @@ export interface PromptQueueAccess {
 
     sendQueuedPrompt(selector: { id?: string; requestId?: string }): Promise<QueueItemSnapshot | null>;
     resendLastPrompt(id: string): Promise<void>;
+    /** Stages of the item that would fail for a missing API key, one line per cause (vscimpa21). */
+    missingApiKeyWarnings?(id: string): string[];
 }
 
 // ===========================================================================
@@ -230,6 +232,24 @@ function ok<T extends object>(extra: T): string {
 
 function err(message: string, extra: Record<string, unknown> = {}): string {
     return JSON.stringify({ ok: false, error: message, ...extra });
+}
+
+/**
+ * `{ warning }` when stages of the item would fail for a missing API key (a
+ * direct-API profile whose key variable is not in this VS Code's
+ * environment), else `{}` — spread into the answer of every tool that
+ * queues, changes or sends an item. The item is queued all the same: the
+ * caller decides.
+ */
+/** The sentence the queue tools' descriptions carry about {@link apiKeyWarning}. */
+const API_KEY_WARNING_DOC = ' The answer carries `warning` when a stage of the item runs on an Anthropic profile '
+    + 'whose configuration uses the direct API and whose key variable is not in this VS Code\'s environment: every '
+    + 'send of that stage would fail. The item is kept; pick another profile (an Agent SDK one) or have the key set '
+    + 'and VS Code restarted.';
+
+function apiKeyWarning(access: PromptQueueAccess, itemId: string | undefined): { warning?: string } {
+    const lines = itemId ? access.missingApiKeyWarnings?.(itemId) ?? [] : [];
+    return lines.length > 0 ? { warning: lines.join('\n') } : {};
 }
 
 /** What a queue item's `session` is. */
@@ -366,6 +386,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             queueLength: access.items().length,
             prePromptCount: item.prePrompts?.length ?? 0,
             followUpCount: item.followUps?.length ?? 0,
+            ...apiKeyWarning(access, item.id),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -384,7 +405,7 @@ export const ADD_QUEUE_ITEM_DESCRIPTION =
     'unattended Anthropic dispatch (requires `anthropicProfileId`; falls back ' +
     'to the default profile when omitted). The canonical add → addFollowUp → ' +
     'sendQueuedPrompt workflow is documented in detail on the Prompt Queue ' +
-    'spec — this tool is step 1.';
+    'spec — this tool is step 1.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     name: 'tomAi_addQueueItem',
@@ -490,6 +511,7 @@ export async function sendQueuedPromptImpl(access: PromptQueueAccess, input: Sen
             status: sent.status,
             requestId: sent.requestId || null,
             followUpCount: sent.followUps?.length ?? 0,
+            ...apiKeyWarning(access, sent.id),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -501,7 +523,7 @@ export const SEND_QUEUED_PROMPT_DESCRIPTION =
     '**canonical lifecycle entry point**. The manager will then: send pre-' +
     'prompts → wait → send main → wait → send follow-up #1 → wait → … → ' +
     'mark sent. All follow-ups are auto-wrapped with the Answer Wrapper. ' +
-    'Pass `queueItemId` (preferred) or `requestId` (when id is unknown).';
+    'Pass `queueItemId` (preferred) or `requestId` (when id is unknown).' + API_KEY_WARNING_DOC;
 
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
     name: 'tomAi_sendQueuedPrompt',
@@ -702,6 +724,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             templateRepeatCount: updated?.templateRepeatCount ?? null,
             answerWaitMinutes: updated?.answerWaitMinutes ?? null,
             transport: updated?.transport ?? 'copilot',
+            ...apiKeyWarning(access, input.queueItemId),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -813,6 +836,7 @@ export async function addQueuePrePromptImpl(access: PromptQueueAccess, input: Ad
         return ok({
             queueItemId: input.queueItemId,
             prePromptCount: updated?.prePrompts?.length ?? 0,
+            ...apiKeyWarning(access, input.queueItemId),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -826,7 +850,7 @@ export const ADD_QUEUE_PRE_PROMPT_DESCRIPTION =
     'fires. Use `tomAi_updateQueuePrePrompt` to add `repeatCount`/' +
     '`answerWaitMinutes`/reminder settings after creation. Transport defaults ' +
     'to the item\'s transport; override per pre-prompt with the `transport` ' +
-    'field.';
+    'field.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<AddQueuePrePromptInput> = {
     name: 'tomAi_addQueuePrePrompt',
@@ -888,7 +912,7 @@ export async function updateQueuePrePromptImpl(access: PromptQueueAccess, input:
             anthropicConfigId: input.anthropicConfigId,
         });
         if (!ok2) { return err('Could not update pre-prompt (item/index not found or item not editable).'); }
-        return ok({ queueItemId: input.queueItemId, index: input.index });
+        return ok({ queueItemId: input.queueItemId, index: input.index, ...apiKeyWarning(access, input.queueItemId) });
     } catch (e) {
         return err((e as Error).message);
     }
@@ -1024,6 +1048,7 @@ export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: Add
             queueItemId: item.id,
             followUpId: follow.id,
             followUpCount: updated?.followUps?.length ?? 0,
+            ...apiKeyWarning(access, item.id),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -1038,7 +1063,7 @@ export const ADD_QUEUE_FOLLOW_UP_DESCRIPTION =
     'are accepted here (they\'re applied to the new follow-up via an internal ' +
     'update call, since the manager\'s create form doesn\'t take them). Pass ' +
     '`queueItemId` (preferred) or `requestId` to target the item. Transport ' +
-    'override available per follow-up.';
+    'override available per follow-up.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<AddQueueFollowUpInput> = {
     name: 'tomAi_addQueueFollowUp',
@@ -1107,7 +1132,7 @@ export async function updateQueueFollowUpImpl(access: PromptQueueAccess, input: 
             anthropicConfigId: input.anthropicConfigId,
         });
         if (!ok2) { return err('Queue item or follow-up not found.'); }
-        return ok({ queueItemId: input.queueItemId, followUpId: input.followUpId });
+        return ok({ queueItemId: input.queueItemId, followUpId: input.followUpId, ...apiKeyWarning(access, input.queueItemId) });
     } catch (e) {
         return err((e as Error).message);
     }

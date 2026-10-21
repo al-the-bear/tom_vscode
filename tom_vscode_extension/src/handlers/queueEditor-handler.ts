@@ -998,10 +998,17 @@ function buildState(): Record<string, unknown> {
     let queueDefaultMessageTemplateId = '';
     let queueDefaultSession = '';
     let queueStartAt: string | undefined;
+    // Per item not yet sent: the stages a missing API key would make fail.
+    const apiKeyWarnings = new Map<string, string[]>();
 
     try {
         const qm = PromptQueueManager.instance;
         items = qm.items;
+        for (const item of items) {
+            if (item.status === 'sent') { continue; }
+            const lines = qm.missingApiKeyWarnings(item.id);
+            if (lines.length > 0) { apiKeyWarnings.set(item.id, lines); }
+        }
         autoSend = qm.autoSendEnabled;
         autoStart = qm.autoStartEnabled;
         autoPause = qm.autoPauseEnabled;
@@ -1067,7 +1074,8 @@ function buildState(): Record<string, unknown> {
 
     return {
         type: 'state',
-        items: [...items],  // spread to plain array for serialisation
+        // A plain array for serialisation; an item a missing API key would make fail carries the reason.
+        items: items.map((item) => apiKeyWarnings.has(item.id) ? { ...item, apiKeyWarnings: apiKeyWarnings.get(item.id) } : item),
         autoSend,
         autoStart,
         autoPause,

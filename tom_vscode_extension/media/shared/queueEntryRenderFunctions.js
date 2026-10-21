@@ -33,7 +33,7 @@ function renderEntry(item, idx) {
   if (item.type === 'reminder') cls.push('reminder');
   // Yellow left border for items carrying an interruption warning
   // (rate limit / quota / overloaded / cancelled / interrupted).
-  if (item.warning && item.warning.kind) cls.push('warned');
+  if ((item.warning && item.warning.kind) || (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0)) cls.push('warned');
   var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
   var isPending = safeStatus === 'pending';
@@ -437,6 +437,15 @@ function renderEntry(item, idx) {
         + '<span><strong>' + escapeHtml(warningKindLabel(item.warning.kind)) + ':</strong> '
         + escapeHtml(item.warning.message || '')
         + '</span></div>'
+      : '') +
+    // A stage on a direct-API profile whose key is not in this VS Code's environment: every send would fail.
+    (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0
+      ? item.apiKeyWarnings.map(function(line) {
+          return '<div class="warning-chip api-key-warning">'
+            + '<span class="codicon codicon-key"></span>'
+            + '<span><strong>No API key:</strong> ' + escapeHtml(line) + '</span>'
+            + '</div>';
+        }).join('')
       : '') +
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +

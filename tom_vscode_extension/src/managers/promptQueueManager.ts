@@ -56,6 +56,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
 import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
+import { missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 
 // ============================================================================
@@ -2249,6 +2250,35 @@ export class PromptQueueManager {
 
     getById(id: string): QueuedPrompt | undefined {
         return this._items.find(i => i.id === id);
+    }
+
+    /**
+     * Why stages of an item would fail before they are sent: each stage that
+     * resolves to an Anthropic profile on the direct API whose key variable is
+     * not in this VS Code's environment. One line per distinct cause, naming
+     * the stages it affects; [] when every stage can be sent (or the item is
+     * unknown). Asked by the queue tools and the queue editor, so a missing
+     * key is said when the item is queued, not after hours of retries.
+     */
+    missingApiKeyWarnings(id: string, env: Record<string, string | undefined> = process.env): string[] {
+        const item = this.getById(id);
+        if (!item) { return []; }
+        const section = loadSendToChatConfig()?.anthropic;
+        const stages: Array<{ label: string; stage?: QueuedPrePrompt | QueuedFollowUpPrompt }> = [
+            { label: 'the main prompt' },
+            ...(item.prePrompts ?? []).map((stage, i) => ({ label: `pre-prompt ${i + 1}`, stage })),
+            ...(item.followUps ?? []).map((stage, i) => ({ label: `follow-up ${i + 1}`, stage })),
+        ];
+        const byMessage = new Map<string, string[]>();
+        for (const { label, stage } of stages) {
+            const resolved = this.resolveStageTransport(item, stage);
+            if (resolved.transport !== 'anthropic') { continue; }
+            const missing = missingDirectApiKey(section, { profileId: resolved.anthropicProfileId, configId: resolved.anthropicConfigId }, env);
+            if (!missing) { continue; }
+            const message = missingApiKeyMessage(missing);
+            byMessage.set(message, [...(byMessage.get(message) ?? []), label]);
+        }
+        return [...byMessage].map(([message, labels]) => `${labels.join(', ')}: ${message}`);
     }
 
     getByRequestId(requestId: string): QueuedPrompt | undefined {

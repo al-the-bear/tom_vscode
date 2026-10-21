@@ -212,3 +212,28 @@ describe('Prompt Queue editor — interrupted (held for continuation) status', (
         assert.equal(idle.window.document.getElementById('interruptForContinuationBtn').disabled, true);
     });
 });
+
+describe('Prompt Queue editor — missing API key (vscimpa21)', () => {
+    test('an item a missing key would make fail shows each reason and is marked', (t) => {
+        const item = {
+            ...STAGED,
+            id: 'keyless-1',
+            apiKeyWarnings: [
+                'the main prompt: Anthropic profile "direct-p" (configuration "direct-c") uses the direct API, and its key variable TEST_KEY is not set <now>',
+                'follow-up 1: another cause',
+            ],
+        };
+        const { window, probe } = setupQueueEditor(t, [item, STAGED]);
+        probe.normalizeState();
+        probe.render();
+
+        const rows = [...window.document.querySelectorAll('#queueList .queue-item')] as any[];
+        const keyless = rows.find((r) => r.querySelector('.api-key-warning'));
+        assert.ok(keyless, 'the item carries the chip');
+        assert.ok(keyless.classList.contains('warned'), 'and the warned border');
+        const chips = [...keyless.querySelectorAll('.api-key-warning')].map((c: any) => c.textContent);
+        assert.equal(chips.length, 2);
+        assert.match(chips[0], /^No API key: the main prompt: .*TEST_KEY is not set <now>$/, 'the text is escaped, not markup');
+        assert.equal(rows.filter((r) => r.querySelector('.api-key-warning')).length, 1, 'the other item has none');
+    });
+});

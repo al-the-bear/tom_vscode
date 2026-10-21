@@ -30,6 +30,9 @@
  *        (issues and tests), the tool trail of the run (past-tool access), a sub-agent spawner, a Tom AI Chat
  *        todo session, a task and a launch configuration, a notebook, and a language server's answers (symbols,
  *        definitions, references, a code action, a rename), the window's output channels — each read back
+ *   MA-9 an item queued on a direct-API profile whose key variable is unset is queued with a `warning` naming
+ *        the stages it affects; on the Agent SDK profile, or with the key set, there is none — the real manager;
+ *        the queue editor's profile picker marks that profile '(no API key)'
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -62,6 +65,7 @@ const SPEC = 'specs/meridian.docspecs.yaml';
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const ISSUE_REPO = 'sandbox/issues';
 const TEST_REPO = 'sandbox/tests';
+const NO_SUCH_KEY = 'MCP_ALL_TOOLS_NO_SUCH_KEY';
 
 function put(rel: string, text: string): void {
     const abs = path.join(WS, rel);
@@ -95,7 +99,13 @@ function seedFixture(): void {
     put('_copilot_guidelines/pattern_prompts/continue.md', 'Continue the work.\n');
     put('pkg/_copilot_guidelines/index.md', '# Package guidelines\n');
     put('notes/doc.md', '<!-- docspec: none -->\n# <!--[notes]--> Notes\n\nalpha beta\n\n## <!--[more]--> More\n\ngamma\n');
-    put('.tom/tom_vscode_extension.json', '{}\n');
+    // One Anthropic profile on the direct API, one (the default) on the Agent SDK; the direct key variable is
+    // one no machine sets, so the queue's missing-key check has something to find (MA-9).
+    put('.tom/tom_vscode_extension.json', JSON.stringify({ anthropic: {
+        apiKeyEnvVar: NO_SUCH_KEY,
+        profiles: [{ id: 'direct-p', configurationId: 'direct-c' }, { id: 'sdk-p', configurationId: 'sdk-c', isDefault: true }],
+        configurations: [{ id: 'direct-c', model: 'claude-sonnet-4-6', transport: 'direct' }, { id: 'sdk-c', model: 'claude-sonnet-4-6', transport: 'agentSdk' }],
+    } }, null, 2) + '\n');
     put(`${QUEST}.code-workspace`, '{ "folders": [{ "path": "." }] }\n');
     put('_ai/processes/flow/flow.process.yaml', [
         'id: flow', 'name: Flow', 'phases:', '  - id: build', '    steps:', '      - id: code', '      - id: review',
@@ -181,6 +191,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { AskUserRegistry } from '../../services/askUserRegistry.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { setExtensionLogUri } from '../../utils/outputChannelLogs.js';
+import { renderTransportPicker } from '../../utils/transportPicker.js';
 
 const KEY_ENV = 'TOM_MCP_ALL_TOOLS_KEY';
 const env = { [KEY_ENV]: 'all-tools-secret' };
@@ -770,6 +781,36 @@ describe('every tool over MCP, in a sandbox', () => {
         const pending = await add({ text: 'sent when its turn comes', deferSend: false });
         assert.equal(pending.status, 'pending', 'deferSend: false still creates a pending item');
         manager.remove(pending.id);
+    });
+
+    test('MA-9: a stage on a direct-API profile without its key is said when it is queued', async () => {
+        const call = async (name: string, args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name, arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        assert.equal(process.env[NO_SUCH_KEY], undefined, 'the key variable is unset on this machine');
+        const manager = PromptQueueManager.instance;
+        const direct = await call('tomAi_addQueueItem', { text: 'on the direct API', transport: 'anthropic', anthropicProfileId: 'direct-p' });
+        assert.equal(direct.ok, true, 'queued all the same');
+        assert.match(direct.warning, new RegExp(`^the main prompt: Anthropic profile "direct-p" \\(configuration "direct-c"\\).*${NO_SUCH_KEY} is not set`));
+        const follow = await call('tomAi_addQueueFollowUp', { queueItemId: direct.id, text: 'and then', transport: 'anthropic', anthropicProfileId: 'direct-p' });
+        assert.match(follow.warning, /^the main prompt, follow-up 1: /, 'one line per cause, naming every stage it affects');
+        const sdk = await call('tomAi_addQueueItem', { text: 'on the Agent SDK', transport: 'anthropic', anthropicProfileId: 'sdk-p' });
+        assert.equal(sdk.warning, undefined);
+        const byDefault = await call('tomAi_addQueueItem', { text: 'the default profile', transport: 'anthropic' });
+        assert.equal(byDefault.warning, undefined, 'the default profile is the Agent SDK one');
+        const copilot = await call('tomAi_addQueueItem', { text: 'to Copilot' });
+        assert.equal(copilot.warning, undefined);
+        // A stage that overrides the item's profile is judged by its own.
+        const pre = await call('tomAi_addQueuePrePrompt', { queueItemId: sdk.id, text: 'first', transport: 'anthropic', anthropicProfileId: 'direct-p' });
+        assert.match(pre.warning, /^pre-prompt 1: /);
+        assert.deepEqual(manager.missingApiKeyWarnings(direct.id, { [NO_SUCH_KEY]: 'sk-set' }), [], 'with the key set there is nothing to say');
+        for (const item of [direct, sdk, byDefault, copilot]) { manager.remove(item.id); }
+        // The queue editor's profile picker marks the profile that cannot send.
+        const picker = renderTransportPicker({ idPrefix: 'qd', context: 'queue-default', value: { transport: 'anthropic' }, showTargets: true, onChangeEvent: 'x' });
+        assert.match(picker, /<option value="direct-p">direct-p \(no API key\)<\/option>/);
+        assert.match(picker, /<option value="sdk-p">sdk-p<\/option>/);
+        assert.match(picker, /<option value="" selected>\(default profile\)<\/option>/, 'the default is the Agent SDK profile');
     });
 
     test('MA-7: the queue\'s answer watcher failing is not an uncaught exception', () => {

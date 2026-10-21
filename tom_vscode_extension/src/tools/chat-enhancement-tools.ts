@@ -703,6 +703,10 @@ const livePromptQueueAccess: PromptQueueAccess = {
         return item ? projectItem(item) : null;
     },
     async resendLastPrompt(id) { await (await getQueueManager()).resendLastPrompt(id); },
+    missingApiKeyWarnings(id) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.missingApiKeyWarnings(id);
+    },
 };
 
 // Clone-and-override the 14 imported defs to wire the live executor.
