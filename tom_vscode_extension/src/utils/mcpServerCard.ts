@@ -17,6 +17,7 @@
  */
 
 import type { McpServerConfig, ResolvedMcpServerSettings } from './sendToChatConfig';
+import { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
 import { categorizeTools } from './toolCategories';
 
 /**
@@ -44,6 +45,8 @@ export interface McpServerCardModel extends ResolvedMcpServerSettings {
     boundHost?: string;
     /** Live bound port while running (runtime state), else undefined. */
     boundPort?: number;
+    /** How many tools the configured set serves, with the API key and without it. */
+    effectiveToolCounts?: { authenticated: number; unauthenticated: number };
 }
 
 /** Combine resolved settings with runtime state into the card view-model. */
@@ -73,6 +76,7 @@ export interface McpServerSavePayload {
     basePort?: unknown;
     apiKeyEnv?: unknown;
     allowWriteWithoutAuth?: unknown;
+    toolsMode?: unknown;
     toolsEnabled?: unknown;
     enabledTools?: unknown;
 }
@@ -82,7 +86,9 @@ export interface McpServerSavePayload {
  * `McpServerConfig`. Blank `host`/`apiKeyEnv` and invalid `basePort` are dropped
  * (left `undefined`) so {@link getMcpServerSettings} supplies the documented
  * defaults on read — the resolver remains the single source of defaults.
- * `toolsEnabled` is "all tools" unless the payload says explicitly `false`.
+ * The mode is stored as `toolsMode`; `toolsEnabled` follows it (`all` ⇒ true)
+ * so an older extension build reading the same file still behaves as picked —
+ * without a mode it is "all tools" unless the payload says explicitly `false`.
  */
 export function buildMcpServerConfigFromMessage(payload: McpServerSavePayload): McpServerConfig {
     const host = typeof payload.host === 'string' ? payload.host.trim() : '';
@@ -91,13 +97,15 @@ export function buildMcpServerConfigFromMessage(payload: McpServerSavePayload): 
     const enabledTools = Array.isArray(payload.enabledTools)
         ? payload.enabledTools.filter((t): t is string => typeof t === 'string')
         : [];
+    const toolsMode = asMcpToolsMode(payload.toolsMode);
     return {
         enabled: payload.enabled === true,
         host: host || undefined,
         basePort: Number.isFinite(basePort) && basePort > 0 ? Math.floor(basePort) : undefined,
         apiKeyEnv: apiKeyEnv || undefined,
         allowWriteWithoutAuth: payload.allowWriteWithoutAuth === true,
-        toolsEnabled: payload.toolsEnabled !== false,
+        ...(toolsMode ? { toolsMode } : {}),
+        toolsEnabled: toolsMode ? toolsMode === 'all' : payload.toolsEnabled !== false,
         enabledTools,
     };
 }
@@ -112,25 +120,21 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
-/**
- * The three persisted tool-selection modes the "All Tools" dropdown offers.
- * `all` ⇒ expose every tool; `readonly` ⇒ exactly the read-only floor;
- * `custom` ⇒ the hand-picked `enabledTools` subset. The on-disk shape stays a
- * boolean `toolsEnabled` + `enabledTools` list (see
- * {@link buildMcpServerConfigFromMessage}); `readonly` is the subset that
- * happens to equal the read-only set, so no schema migration is needed.
- */
-export type McpToolsMode = 'all' | 'readonly' | 'custom';
+export type { McpToolsMode };
 
 /**
- * Derive which dropdown option to pre-select. `all` when `toolsEnabled`;
- * otherwise `readonly` when the saved subset is exactly the read-only set
- * (so a one-click "Read-only" preset round-trips), else `custom`.
+ * The tool-selection mode in force: the stored `toolsMode` when there is one
+ * — `readonly` then means the read-only floor as it is now, whatever list was
+ * saved beside it. A config without one (saved before the key existed) is
+ * read as before: `all` when `toolsEnabled`, `readonly` when the saved list is
+ * exactly today's read-only set, else `custom`. Used by the card and by the
+ * server's tool resolution alike.
  */
 export function deriveToolsMode(
-    model: Pick<McpServerCardModel, 'toolsEnabled' | 'enabledTools'>,
+    model: Pick<ResolvedMcpServerSettings, 'toolsMode' | 'toolsEnabled' | 'enabledTools'>,
     readOnlyToolNames?: ReadonlySet<string>,
 ): McpToolsMode {
+    if (model.toolsMode) { return model.toolsMode; }
     if (model.toolsEnabled) { return 'all'; }
     if (readOnlyToolNames && readOnlyToolNames.size > 0) {
         const enabled = new Set(model.enabledTools);
@@ -140,6 +144,33 @@ export function deriveToolsMode(
         }
     }
     return 'custom';
+}
+
+/**
+ * The line under the mode dropdown: what the saved settings serve (with the
+ * API key, and without it), and — for a custom list made only of read-only
+ * tools that is missing some of today's — that it is a copy of the floor from
+ * an earlier release, so "Read-only tools" would follow the floor instead.
+ */
+export function renderToolsNote(
+    model: Pick<McpServerCardModel, 'apiKeyEnv' | 'allowWriteWithoutAuth' | 'enabledTools' | 'effectiveToolCounts'>,
+    mode: McpToolsMode,
+    readOnlyToolNames?: ReadonlySet<string>,
+): string {
+    const lines: string[] = [];
+    const counts = model.effectiveToolCounts;
+    if (counts) {
+        lines.push(model.apiKeyEnv
+            ? `Serves ${counts.authenticated} tools to a client with the API key, ${counts.unauthenticated} without it.`
+            : `No API key is configured: every client is served ${counts.unauthenticated} tools${model.allowWriteWithoutAuth ? '' : ' (the read-only part of the selection)'}.`);
+    }
+    if (mode === 'custom' && readOnlyToolNames && model.enabledTools.length > 0) {
+        const missing = [...readOnlyToolNames].filter((t) => !model.enabledTools.includes(t)).length;
+        if (missing > 0 && model.enabledTools.every((t) => readOnlyToolNames.has(t))) {
+            lines.push(`This list holds only read-only tools, and ${missing} read-only tools are not in it — tools added since it was saved. Pick "Read-only tools" to serve the read-only set as it is at each start.`);
+        }
+    }
+    return lines.map((l) => `<div class="sp-hint" data-mcp-tools-note style="font-size:11px;opacity:0.8;margin:2px 0 4px">${escapeHtml(l)}</div>`).join('');
 }
 
 /**
@@ -261,10 +292,11 @@ export function renderMcpServerCard(
                     <label title="Expose every tool, only the read-only floor, or a hand-picked subset.">All Tools:</label>
                     <select data-mcp-field="toolsEnabled">
                         <option value="all"${modeSelected('all')}>Enabled (all tools)</option>
-                        <option value="readonly"${modeSelected('readonly')}>Read-only tools</option>
+                        <option value="readonly"${modeSelected('readonly')}>Read-only tools (follows the read-only set)</option>
                         <option value="custom"${modeSelected('custom')}>Custom (use subset below)</option>
                     </select>
                 </div>
+                ${renderToolsNote(model, toolsMode, readOnlyToolNames)}
                 <div class="sp-tools-section">
                     <label style="font-weight:bold;margin-bottom:4px;display:block">Enabled Tools:</label>
                     <div class="sp-tool-bulk">

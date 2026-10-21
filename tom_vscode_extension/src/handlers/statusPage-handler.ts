@@ -48,7 +48,7 @@ import {
 } from '../managers/extensionConfigStore';
 import { McpServerCardModel, buildMcpServerCardModel, renderMcpServerCard, buildMcpServerConfigFromMessage } from '../utils/mcpServerCard';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
-import { getMcpServerStatus, reconcileMcpServerConfig } from './mcpServer-handler';
+import { getMcpServerStatus, mcpEffectiveToolCounts, reconcileMcpServerConfig } from './mcpServer-handler';
 
 /**
  * Names of the read-only tool floor, passed to the MCP card so its "Read-only"
@@ -2051,7 +2051,10 @@ export async function gatherStatusData(): Promise<StatusData> {
         // Settings are per-quest (extension_config.{quest}.yaml); autostart is
         // machine-scoped (per-quest, per-host config file). Neither is in the
         // shared send-to-chat config.
-        mcpServer: buildMcpServerCardModel(readEffectiveMcpServerSettings(), getMcpServerStatus(), getMcpServerAutostart()),
+        mcpServer: (() => {
+            const settings = readEffectiveMcpServerSettings();
+            return { ...buildMcpServerCardModel(settings, getMcpServerStatus(), getMcpServerAutostart()), effectiveToolCounts: mcpEffectiveToolCounts(settings) };
+        })(),
         questRefresh: (() => {
             const store = QuestRefreshStore.instance;
             const buildPanel = (panel: QuestRefreshPanel) => {

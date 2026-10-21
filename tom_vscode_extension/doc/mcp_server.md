@@ -33,6 +33,7 @@ mcpServer:
   basePort: 19920
   apiKeyEnv: TOM_MCP_KEY
   allowWriteWithoutAuth: false
+  toolsMode: all
   toolsEnabled: true
   enabledTools: []
 
@@ -54,38 +55,54 @@ All fields are optional; `getMcpServerSettings` applies the defaults below.
 | `basePort` | number | `19920` | First port to try. The server probes **upward** to the first free port (clear of the CLI bridge's `19900`). |
 | `apiKeyEnv` | string | `""` | **Name** of the env var holding the expected inbound bearer token — never the secret itself. Empty ⇒ no auth configured. |
 | `allowWriteWithoutAuth` | boolean | `false` | When `true`, unauthenticated clients also get the write tools. **Read the security note in §5 first.** |
-| `toolsEnabled` | boolean | `true` | `true` ⇒ expose all registry tools; `false` ⇒ expose only `enabledTools`. |
-| `enabledTools` | string[] | `[]` | The independent allow-list (its own picker, not a chat profile). Honoured only when `toolsEnabled === false`. |
+| `toolsMode` | `all` \| `readonly` \| `custom` | derived | Which tools are offered: every tool; the read-only tools of the registry **as it is at each start**; or `enabledTools`. Absent (a config saved before the key existed): derived from `toolsEnabled` / `enabledTools`, see §2.1. |
+| `toolsEnabled` | boolean | `true` | Without `toolsMode`: `true` ⇒ expose all registry tools; `false` ⇒ expose only `enabledTools`. With it: written to match (`all` ⇒ `true`) for older extension builds. |
+| `enabledTools` | string[] | `[]` | The independent allow-list (its own picker, not a chat profile). Honoured in `custom` mode. With `readonly` it holds the read-only set as it was when saved — read only by older builds. |
 
 The actually-bound port is **runtime state** — when `basePort` is busy the server binds `basePort + 1`, `+2`, …, so it is surfaced in the UI and the log, never written back into the config.
 
 ### 2.1 Tool-picker UI (status page card)
 
-The on-disk shape stays `toolsEnabled` (boolean) + `enabledTools` (list), but the
-status-page **"All Tools" dropdown is tri-state** for usability, mirroring the
-Anthropic profile editor:
+The status-page **"All Tools" dropdown** offers the three modes and saves the
+one picked as `toolsMode`:
 
-| Dropdown option | Persisted as |
-| --- | --- |
-| **Enabled (all tools)** | `toolsEnabled: true` |
-| **Read-only tools** | `toolsEnabled: false`, `enabledTools` = the read-only floor (`READ_ONLY_TOOLS`) |
-| **Custom (use subset)** | `toolsEnabled: false`, `enabledTools` = the hand-picked subset |
+| Dropdown option | Persisted as | Served |
+| --- | --- | --- |
+| **Enabled (all tools)** | `toolsMode: all`, `toolsEnabled: true` | every registry tool |
+| **Read-only tools (follows the read-only set)** | `toolsMode: readonly`, `toolsEnabled: false`, `enabledTools` = the read-only set at save time | every `readOnly` tool of the registry **at each start** |
+| **Custom (use subset)** | `toolsMode: custom`, `toolsEnabled: false`, `enabledTools` = the hand-picked subset | `enabledTools` |
 
-"Read-only" is therefore the subset that *equals* the read-only set — no schema
-migration. On re-render `deriveToolsMode()` reports `readonly` when the saved
-subset exactly matches that set, so the choice round-trips. Below the dropdown,
-the per-tool checkboxes are **grouped by category** (`categorizeTools`, shared
-with the profile editor) with per-group `all`/`none` buttons and global
-`Select All` / `Select None` / `Read-Only` bulk buttons. The client gather reads
-the dropdown mode: `all` → `toolsEnabled: true`; `readonly` → collect the
-`data-readonly` tools (robust even if the preset never ran); `custom` → collect
-the checked boxes.
+The read-only mode is stored as a mode because a stored *list* goes stale:
+every read-only tool a later release adds (all the spec readers, for one) was
+never served to a server whose "Read-only" choice had been saved as the list it
+was at the time — and the card then showed the mode as "Custom". The list
+beside `toolsMode: readonly` is written only so an older extension build (one
+that does not read `toolsMode`, e.g. on another machine of the fleet sharing the
+quest file) serves what it served before.
+
+`deriveToolsMode()` is the one rule for the mode in force, used by the card and
+by the server's tool resolution (`mcpConfiguredTools`): a stored `toolsMode`
+wins; without one, `toolsEnabled: true` ⇒ `all`, a list equal to today's
+read-only set ⇒ `readonly`, anything else ⇒ `custom`. A config without the key
+is not rewritten. When it is `custom` and its list holds **only** read-only
+tools but misses some of today's, the card says so — usually a "Read-only"
+choice saved by an earlier release — and picking "Read-only tools" makes it
+follow the set.
+
+Below the dropdown the card states what the saved settings serve: *Serves N
+tools to a client with the API key, M without it* (`mcpEffectiveToolCounts`),
+or, with no `apiKeyEnv`, the one count every client gets. The per-tool
+checkboxes are **grouped by category** (`categorizeTools`, shared with the
+profile editor) with per-group `all`/`none` buttons and global `Select All` /
+`Select None` / `Read-Only` bulk buttons. The client gather posts the mode as
+`toolsMode` and the list: `readonly` → the `data-readonly` tools (robust even if
+the preset never ran); `custom` → the checked boxes.
 
 ## 3. Architecture
 
 `src/handlers/mcpServer-handler.ts` is deliberately `vscode`-free (so it is unit-testable under the `out/utils/__tests__/*.test.js` glob); only `extension.ts` composes the real `vscode` objects. It is built from four cooperating pieces:
 
-1. **Effective-set resolution** — `resolveEffectiveMcpTools(settings, bearer, env)` resolves the configured allow-list with the **same** primitive the chat profiles use (`resolveProfileTools` over `toolsEnabled`/`enabledTools`), then narrows it by the auth + read-only floor (§4). `resolveMcpRequestTools` wraps it to additionally emit one audit line per decision.
+1. **Effective-set resolution** — `resolveEffectiveMcpTools(settings, bearer, env)` takes the configured selection from `mcpConfiguredTools` (the mode of §2.1; `custom` through the **same** primitive the chat profiles use, `resolveProfileTools`), then narrows it by the auth + read-only floor (§4). `resolveMcpRequestTools` wraps it to additionally emit one audit line per decision.
 2. **Port probing** — `bindFirstFreePort(basePort, maxAttempts, attempt, log)` walks upward from `basePort` (up to `MCP_PORT_PROBE_ATTEMPTS` = 100) until a bind succeeds, retrying only on `EADDRINUSE` and aborting on any other error (e.g. `EACCES`). The socket binder is injected, so the search logic is tested without real sockets.
 3. **Stateless per-request server** — `startMcpHttpServer` binds one HTTP listener; `handleMcpRequest` extracts the bearer, resolves *that request's* effective tool set, builds a **fresh** `McpServer` + `StreamableHTTPServerTransport` (`sessionIdGenerator: undefined`), serves the request, then closes both. Auth therefore gates every call, not just the first.
 4. **Lifecycle controller** — `McpServerController` owns the single running server for the window. Start is idempotent (a start while already running, or while a bind is in flight, reuses the existing server — never a second listener); `stop`/`restart`/`dispose` guarantee the port is released; every transition fires `onChange` so the Status-Page card can show the live bound port.

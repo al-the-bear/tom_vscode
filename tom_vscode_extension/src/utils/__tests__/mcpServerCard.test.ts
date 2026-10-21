@@ -20,6 +20,8 @@ import {
     buildMcpServerCardModel,
     renderMcpServerCard,
     deriveToolsMode,
+    renderToolsNote,
+    buildMcpServerConfigFromMessage,
     type McpServerCardModel,
 } from '../mcpServerCard.js';
 
@@ -240,5 +242,49 @@ describe('renderMcpServerCard — escaping', () => {
         const html = renderMcpServerCard(evil, []);
         assert.doesNotMatch(html, /<script>x/);
         assert.match(html, /&quot;/);
+    });
+});
+
+describe('the read-only mode is stored as a mode (vbs1)', () => {
+    const readOnly = new Set(['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_specAnnotations']);
+    const oldList = ['tomAi_readFile', 'tomAi_listDirectory'];
+
+    test('MR-1: a stored mode wins; without one the mode is derived as before', () => {
+        assert.equal(deriveToolsMode({ toolsMode: 'readonly', toolsEnabled: false, enabledTools: oldList }, readOnly), 'readonly',
+            'a list older than today\'s read-only set is still Read-only');
+        assert.equal(deriveToolsMode({ toolsMode: 'custom', toolsEnabled: true, enabledTools: [] }, readOnly), 'custom');
+        assert.equal(deriveToolsMode({ toolsEnabled: false, enabledTools: oldList }, readOnly), 'custom', 'no mode: as before');
+        assert.equal(deriveToolsMode({ toolsEnabled: false, enabledTools: [...readOnly] }, readOnly), 'readonly');
+    });
+
+    test('MR-2: saving writes the mode, and toolsEnabled to match it for older builds', () => {
+        const ro = buildMcpServerConfigFromMessage({ toolsMode: 'readonly', toolsEnabled: false, enabledTools: oldList });
+        assert.deepEqual([ro.toolsMode, ro.toolsEnabled, ro.enabledTools], ['readonly', false, oldList]);
+        assert.equal(buildMcpServerConfigFromMessage({ toolsMode: 'all', toolsEnabled: false }).toolsEnabled, true);
+        assert.equal(buildMcpServerConfigFromMessage({ toolsMode: 'custom', toolsEnabled: true }).toolsEnabled, false);
+        const legacy = buildMcpServerConfigFromMessage({ toolsEnabled: false, enabledTools: oldList });
+        assert.equal('toolsMode' in legacy, false, 'a payload without a mode stores none');
+        assert.equal(legacy.toolsEnabled, false);
+    });
+
+    test('MR-3: the card selects Read-only for such a config and says what it serves', () => {
+        const model = { ...buildMcpServerCardModel({ ...baseSettings, toolsMode: 'readonly' as const, toolsEnabled: false, enabledTools: oldList }, { running: false }, false),
+            effectiveToolCounts: { authenticated: 3, unauthenticated: 3 } };
+        const html = renderMcpServerCard(model, [...readOnly, 'tomAi_applyEdit'], readOnly);
+        assert.match(html, /<option value="readonly" selected>/);
+        assert.match(html, /Serves 3 tools to a client with the API key, 3 without it\./);
+        assert.doesNotMatch(html, /not in it/, 'no stale-list hint in Read-only mode');
+    });
+
+    test('MR-4: the note', () => {
+        const counts = { authenticated: 10, unauthenticated: 4 };
+        assert.match(renderToolsNote({ apiKeyEnv: '', allowWriteWithoutAuth: false, enabledTools: [], effectiveToolCounts: counts }, 'all'),
+            /No API key is configured: every client is served 4 tools \(the read-only part of the selection\)\./);
+        const stale = renderToolsNote({ apiKeyEnv: 'K', allowWriteWithoutAuth: false, enabledTools: oldList }, 'custom', readOnly);
+        assert.match(stale, /1 read-only tools are not in it/);
+        assert.match(stale, /Pick &quot;Read-only tools&quot;/);
+        assert.equal(renderToolsNote({ apiKeyEnv: 'K', allowWriteWithoutAuth: false, enabledTools: [...oldList, 'tomAi_applyEdit'] }, 'custom', readOnly), '',
+            'a list with a write tool was hand-picked: no hint');
+        assert.equal(renderToolsNote({ apiKeyEnv: 'K', allowWriteWithoutAuth: false, enabledTools: [...readOnly] }, 'custom', readOnly), '');
     });
 });

@@ -16,6 +16,7 @@ import * as os from 'os';
 import { WsPaths } from './workspacePaths';
 import { TomAiConfiguration } from './tomAiConfiguration';
 import { logConfigAccess } from './toolLog';
+import { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
 
 // ============================================================================
 // Configuration Interface
@@ -558,11 +559,25 @@ export interface McpServerConfig {
      * Default `false` ⇒ unauthenticated access is read-only.
      */
     allowWriteWithoutAuth?: boolean;
-    /** `true` ⇒ expose all tools; `false` ⇒ use {@link enabledTools}. Default `true`. */
+    /**
+     * Which tools the server offers. `all`: every tool; `readonly`: the
+     * read-only floor as it is at each start, so a read-only tool added later
+     * is served without picking again; `custom`: {@link enabledTools}.
+     * Absent (configs saved before the key existed): derived from
+     * `toolsEnabled` / `enabledTools` as before.
+     */
+    toolsMode?: McpToolsMode;
+    /** `true` ⇒ expose all tools; `false` ⇒ use {@link enabledTools}. Default `true`. Kept beside `toolsMode` for older extension builds. */
     toolsEnabled?: boolean;
-    /** Independent allow-list (own picker, NOT the chat profile). Honored when `toolsEnabled === false`. */
+    /**
+     * Independent allow-list (own picker, NOT the chat profile). Honored when
+     * the mode is `custom`. With `readonly` it holds the floor as it was when
+     * saved — only for older extension builds, which do not read `toolsMode`.
+     */
     enabledTools?: string[];
 }
+
+export { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
 
 /** Default MCP bind address — VPN-reachable per plan decision (b). */
 export const MCP_SERVER_DEFAULT_HOST = '0.0.0.0';
@@ -577,6 +592,8 @@ export interface ResolvedMcpServerSettings {
     basePort: number;
     apiKeyEnv: string;
     allowWriteWithoutAuth: boolean;
+    /** The stored mode; undefined when the config has none (then derived from toolsEnabled / enabledTools). */
+    toolsMode?: McpToolsMode;
     toolsEnabled: boolean;
     enabledTools: string[];
 }
@@ -606,6 +623,7 @@ export function getMcpServerSettings(
         basePort: typeof basePort === 'number' && basePort > 0 ? basePort : MCP_SERVER_DEFAULT_BASE_PORT,
         apiKeyEnv: (mcp?.apiKeyEnv ?? '').trim(),
         allowWriteWithoutAuth: mcp?.allowWriteWithoutAuth === true,
+        ...(asMcpToolsMode(mcp?.toolsMode) ? { toolsMode: asMcpToolsMode(mcp?.toolsMode) } : {}),
         toolsEnabled: mcp?.toolsEnabled !== false,
         enabledTools: Array.isArray(mcp?.enabledTools) ? mcp.enabledTools : [],
     };

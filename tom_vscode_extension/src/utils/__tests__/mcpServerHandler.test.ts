@@ -51,6 +51,8 @@ import {
     resolveEffectiveTools,
     resolveEffectiveMcpTools,
     resolveMcpRequestTools,
+    mcpConfiguredTools,
+    mcpEffectiveToolCounts,
     extractBearerToken,
     bindFirstFreePort,
     startMcpHttpServer,
@@ -779,5 +781,46 @@ describe('MCP wire round-trip — tools/list + tools/call through a fake transpo
             await client.close();
             await server.close();
         }
+    });
+});
+
+describe('the read-only mode follows the read-only set (vbs1)', () => {
+    const readOnly = ALL_SHARED_TOOLS.filter((t) => t.readOnly).map((t) => t.name).sort();
+    // A list saved by an earlier release: two read-only tools, everything added since missing.
+    const oldList = readOnly.slice(0, 2);
+    const KEY = 'TOM_MCP_KEY';
+    const base = (over: Partial<ResolvedMcpServerSettings>): ResolvedMcpServerSettings => ({
+        enabled: true, host: '0.0.0.0', basePort: 19920, apiKeyEnv: KEY, allowWriteWithoutAuth: false,
+        toolsEnabled: false, enabledTools: oldList, ...over,
+    });
+    const names = (tools: SharedToolDefinition[]): string[] => tools.map((t) => t.name).sort();
+
+    test('RM-1: toolsMode readonly serves every read-only tool of the registry, whatever list was saved beside it', () => {
+        const settings = base({ toolsMode: 'readonly' });
+        assert.deepEqual(names(mcpConfiguredTools(settings)), readOnly);
+        assert.deepEqual(names(resolveEffectiveMcpTools(settings, 'k', { [KEY]: 'k' })), readOnly, 'with the key');
+        assert.deepEqual(names(resolveEffectiveMcpTools(settings, undefined, { [KEY]: 'k' })), readOnly, 'without it');
+        assert.ok(readOnly.includes('tomAi_specAnnotations') && readOnly.includes('tomAi_specExtractAnswers'),
+            'the spec readers the frozen list missed are among them');
+    });
+
+    test('RM-2: without a stored mode the saved list is served as before', () => {
+        assert.deepEqual(names(mcpConfiguredTools(base({}))), oldList, 'custom: the list');
+        assert.deepEqual(names(mcpConfiguredTools(base({ enabledTools: readOnly }))), readOnly, 'a list equal to today\'s set');
+        assert.equal(mcpConfiguredTools(base({ toolsEnabled: true })).length, ALL_SHARED_TOOLS.length, 'toolsEnabled: all');
+    });
+
+    test('RM-3: a stored mode wins over toolsEnabled / enabledTools', () => {
+        assert.equal(mcpConfiguredTools(base({ toolsMode: 'all' })).length, ALL_SHARED_TOOLS.length);
+        assert.deepEqual(names(mcpConfiguredTools(base({ toolsMode: 'custom', toolsEnabled: true }))), oldList);
+    });
+
+    test('RM-4: the counts the card shows', () => {
+        assert.deepEqual(mcpEffectiveToolCounts(base({ toolsMode: 'readonly' })),
+            { authenticated: readOnly.length, unauthenticated: readOnly.length });
+        assert.deepEqual(mcpEffectiveToolCounts(base({ toolsMode: 'all' })),
+            { authenticated: ALL_SHARED_TOOLS.length, unauthenticated: readOnly.length });
+        assert.deepEqual(mcpEffectiveToolCounts(base({ toolsMode: 'all', allowWriteWithoutAuth: true })),
+            { authenticated: ALL_SHARED_TOOLS.length, unauthenticated: ALL_SHARED_TOOLS.length });
     });
 });

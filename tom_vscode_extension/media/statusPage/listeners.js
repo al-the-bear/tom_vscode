@@ -176,10 +176,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                 };
                 var mcpValue = function(name) { var el = mcpField(name); return el ? el.value : ''; };
                 var mcpChecked = function(name) { var el = mcpField(name); return !!(el && el.checked); };
-                // Tri-state mode: 'all' | 'readonly' | 'custom'. 'all' exposes
-                // every tool; 'readonly' is the read-only floor (collected from
-                // the data-readonly flags so it is robust even if the preset
-                // change-handler never ran); 'custom' is the checked subset.
+                // Tri-state mode: 'all' | 'readonly' | 'custom', saved as
+                // toolsMode. 'all' exposes every tool; 'readonly' serves the
+                // read-only floor as it is at each start (the list collected
+                // from the data-readonly flags is saved beside it only for
+                // older extension builds); 'custom' is the checked subset.
                 var mcpMode = mcpValue('toolsEnabled') || 'all';
                 var mcpEnabledTools = [];
                 if (mcpCard) {
@@ -196,6 +197,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.basePort = mcpValue('basePort');
                 msgData.apiKeyEnv = mcpValue('apiKeyEnv');
                 msgData.allowWriteWithoutAuth = mcpChecked('allowWriteWithoutAuth');
+                msgData.toolsMode = mcpMode;
                 msgData.toolsEnabled = mcpMode === 'all';
                 msgData.enabledTools = mcpEnabledTools;
             } else if (action === 'updateQuestRefresh') {

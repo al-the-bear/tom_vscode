@@ -38,7 +38,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { resolveProfileTools } from '../tools/tool-executors';
 import type { ResolvedMcpServerSettings } from '../utils/sendToChatConfig';
-import type { McpServerRuntimeStatus } from '../utils/mcpServerCard';
+import { deriveToolsMode, type McpServerRuntimeStatus } from '../utils/mcpServerCard';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { wrapToolWithTrail, type McpToolCallback } from '../utils/toolTrailWrapper';
 import { TrailService } from '../services/trailService';
@@ -171,19 +171,41 @@ export function resolveEffectiveTools(
 }
 
 /**
- * Resolve the effective tool set for an MCP request: the configured allow-list
- * (`resolveProfileTools` over the MCP picker settings) narrowed by the auth +
- * read-only floor. `env` is injectable for tests; it defaults to `process.env`.
+ * The tools the MCP settings select, before the auth floor: every tool
+ * (`all`), the read-only tools of the registry as it is NOW (`readonly`, so a
+ * read-only tool added in a later release is served without picking again),
+ * or the saved list (`custom`). The mode is {@link deriveToolsMode}'s, the one
+ * the Status Page card shows.
+ */
+export function mcpConfiguredTools(settings: ResolvedMcpServerSettings): SharedToolDefinition[] {
+    const all = resolveProfileTools({ toolsEnabled: true });
+    const readOnly = all.filter((t) => t.readOnly);
+    const mode = deriveToolsMode(settings, new Set(readOnly.map((t) => t.name)));
+    if (mode === 'all') { return all; }
+    if (mode === 'readonly') { return readOnly; }
+    return resolveProfileTools({ toolsEnabled: false, enabledTools: settings.enabledTools });
+}
+
+/** How many tools the settings serve to a client with the API key, and to one without it (the Status Page card). */
+export function mcpEffectiveToolCounts(settings: ResolvedMcpServerSettings): { authenticated: number; unauthenticated: number } {
+    const configured = mcpConfiguredTools(settings);
+    return {
+        authenticated: configured.length,
+        unauthenticated: resolveEffectiveTools(configured, { authenticated: false, allowWriteWithoutAuth: settings.allowWriteWithoutAuth }).length,
+    };
+}
+
+/**
+ * Resolve the effective tool set for an MCP request: the configured selection
+ * ({@link mcpConfiguredTools}) narrowed by the auth + read-only floor. `env`
+ * is injectable for tests; it defaults to `process.env`.
  */
 export function resolveEffectiveMcpTools(
     settings: ResolvedMcpServerSettings,
     bearer: string | undefined,
     env: NodeJS.ProcessEnv = process.env,
 ): SharedToolDefinition[] {
-    const configured = resolveProfileTools({
-        toolsEnabled: settings.toolsEnabled,
-        enabledTools: settings.enabledTools,
-    });
+    const configured = mcpConfiguredTools(settings);
     const expectedToken = settings.apiKeyEnv ? (env[settings.apiKeyEnv] ?? '') : '';
     const authenticated = isMcpAuthenticated(expectedToken, bearer);
     return resolveEffectiveTools(configured, {

@@ -116,3 +116,13 @@ describe('getMcpServerSettings — sane fallbacks for bad values', () => {
         assert.deepEqual(getMcpServerSettings(cfgWith({ enabledTools: 'oops' })).enabledTools, []);
     });
 });
+
+describe('getMcpServerSettings — toolsMode (vbs1)', () => {
+    test('a stored mode is read; an unknown one or none leaves it unset', () => {
+        assert.equal(getMcpServerSettings(cfgWith({ toolsMode: 'readonly', toolsEnabled: false })).toolsMode, 'readonly');
+        assert.equal(getMcpServerSettings(cfgWith({ toolsMode: 'all' })).toolsMode, 'all');
+        assert.equal(getMcpServerSettings(cfgWith({ toolsMode: 'custom' })).toolsMode, 'custom');
+        assert.equal('toolsMode' in getMcpServerSettings(cfgWith({ toolsMode: 'everything' })), false);
+        assert.equal('toolsMode' in getMcpServerSettings(cfgWith({ toolsEnabled: false })), false, 'an older config: derived later');
+    });
+});

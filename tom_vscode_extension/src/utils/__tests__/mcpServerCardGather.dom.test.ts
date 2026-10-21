@@ -70,6 +70,7 @@ interface GatherMessage {
     basePort?: unknown;
     apiKeyEnv?: unknown;
     allowWriteWithoutAuth?: unknown;
+    toolsMode?: unknown;
     toolsEnabled?: unknown;
     enabledTools?: unknown;
 }
@@ -176,6 +177,7 @@ describe('saveMcpServer gather — executed against a jsdom DOM (todo #10)', () 
         clickSave(window);
 
         const msg = captured[0];
+        assert.equal(msg.toolsMode, 'readonly', 'the mode itself is saved (vbs1): it follows the read-only set');
         assert.equal(msg.toolsEnabled, false);
         assert.deepEqual(Array.from(msg.enabledTools as unknown[]), ['tomAi_readFile']);
     });
