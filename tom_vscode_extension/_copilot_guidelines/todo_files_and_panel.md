@@ -80,7 +80,7 @@ In-place status + move buttons (no move to a terminal file):
 
 | Button | Icon | Action | Enabled when |
 | --- | --- | --- | --- |
-| Mark selected todo completed | check | set `status: completed` + stamp `completed_date` | selection or stack |
+| Mark selected todo completed | check | set `status: completed` + stamp `completed_date` (today, local date) | selection or stack |
 | Mark selected todo cancelled | circle-slash | set `status: cancelled` | selection or stack |
 | Mark selected todo not-started | issue-reopened | set `status: not-started`, clear `completed_*` | selection or stack |
 | Move selected to other todo file | file-symlink-file | quick pick of the quest's other `*.todo.yaml` files, including the `-archived`/`-deleted` siblings (+ *New file…*) → move todo(s) | selection or stack, concrete quest mode only |

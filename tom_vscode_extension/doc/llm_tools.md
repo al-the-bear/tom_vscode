@@ -180,6 +180,22 @@ present in the target replaces it in place rather than adding a second copy,
 and the result reports those ids under `replaced`. See
 `_copilot_guidelines/todo_files_and_panel.md`.
 
+**Dates are dates.** The todo schema declares `due`, `created`, `updated`,
+`completed_date`, `archived` and `deleted` as `format: date`, and the shared
+todo model (Worktracker, the Webwork todo-file editor) refuses anything else.
+The writers (`src/utils/todoDates.ts`) write a timestamp a caller passes as the
+date it names in its own offset (`2026-10-20T12:37:25+0200` → `2026-10-20`),
+refuse a value that is not a date with nothing written, stamp `created` /
+`updated` / completion / archive dates with the **local** date, and rewrite a
+timestamped `created` already on a todo as its date when the todo is updated.
+
+**Orchestration fields.** `tomAi_createQuestTodo` and `tomAi_updateQuestTodo`
+take the schema's Worktracker fields `execution_role`, `qa_role`,
+`orchestration_role`, `bundle_id`, `derived_from` and `feedback_source`
+(optional strings): they are written, read back by every reader, verified after
+the write like the other fields, and kept by an update that does not name them;
+`''` removes one.
+
 ### 4.11a Id generation
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |

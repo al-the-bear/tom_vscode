@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 'yaml';
 import { WsPaths } from '../utils/workspacePaths';
+import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { forceBlockStyle } from '../utils/todoArchive';
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
@@ -94,6 +95,18 @@ export interface QuestTodoItem {
     updated?: string;
     completed_date?: string;
     completed_by?: string;
+    /** Worktracker orchestration: the role that carries the todo out. */
+    execution_role?: string;
+    /** Worktracker orchestration: the role that checks the result. */
+    qa_role?: string;
+    /** Worktracker orchestration: the role that orchestrates the bundle. */
+    orchestration_role?: string;
+    /** Worktracker orchestration: the execution bundle the todo is grouped into. */
+    bundle_id?: string;
+    /** Worktracker orchestration: the todo this one was derived from. */
+    derived_from?: string;
+    /** Worktracker orchestration: the feedback that raised this todo. */
+    feedback_source?: string;
     /** Runtime: which file this item was loaded from (not persisted). */
     _sourceFile?: string;
 }
@@ -324,6 +337,7 @@ const VERIFIED_TODO_FIELDS = new Set<string>([
     'completed_date', 'completed_by',
     'tags', 'dependencies', 'blocked_by', 'references',
     'decisions', 'scope',
+    ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
 /** Whether [value] is what the writers store as an absent key. */
@@ -438,6 +452,10 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (completedDate) { item.completed_date = completedDate; }
     const completedBy = getStr('completed_by');
     if (completedBy) { item.completed_by = completedBy; }
+    for (const field of TODO_ORCHESTRATION_FIELDS) {
+        const value = getStr(field);
+        if (value) { item[field] = value; }
+    }
 
     // scope
     const scopeNode = node.get('scope', true);
@@ -549,7 +567,7 @@ export function ensureTodoFile(
             }
         }
     }
-    parts.push(`created: "${new Date().toISOString().slice(0, 10)}"`);
+    parts.push(`created: "${todayLocalDate()}"`);
     parts.push('todos: []');
     const doc = parseDocument(parts.join('\n') + '\n');
     saveDocumentWithSchema(filePath, doc);
@@ -586,7 +604,7 @@ export function createTodoInFile(
     (todosNode as YAMLSeq).add(newNode);
     // Ensure the todos sequence itself is block-style
     forceBlockStyle(todosNode);
-    doc.set('updated', new Date().toISOString().slice(0, 10));
+    doc.set('updated', todayLocalDate());
     saveDocument(filePath, doc);
     assertTodoPersisted(filePath, todo.id, 'present', 'createTodoInFile');
     assertTodoFieldsPersisted(filePath, todo.id, plain, 'createTodoInFile');
@@ -608,6 +626,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
     'dependencies', 'blocked_by', 'references', 'completed_date',
     'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
+    ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
 /**
@@ -653,8 +672,11 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
             typeof ref === 'string' ? { path: ref } : ref,
         );
     }
-    if (todo.completed_date) { plain.completed_date = todo.completed_date; }
+    if (todo.completed_date) { plain.completed_date = toTodoDate('completed_date', todo.completed_date); }
     if (todo.completed_by) { plain.completed_by = todo.completed_by; }
+    for (const field of TODO_ORCHESTRATION_FIELDS) {
+        if (todo[field]) { plain[field] = todo[field]; }
+    }
     if (todo.scope) {
         const scopeObj: Record<string, unknown> = {};
         if (todo.scope.project) { scopeObj.project = todo.scope.project; }
@@ -666,14 +688,86 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     }
     const decisions = normaliseTodoDecisions(todo.decisions);
     if (decisions) { plain.decisions = decisions; }
-    plain.created = todo.created || new Date().toISOString().slice(0, 10);
+    plain.created = todo.created ? toTodoDate('created', todo.created) : todayLocalDate();
     const extra = (todo as { _extra?: Record<string, unknown> })._extra;
     if (extra) {
+        // Carried from disk (a move): a date field written as a timestamp is
+        // written back as a date; one that is no date at all is carried as it
+        // was rather than failing the move — it is not this caller's value.
+        let carried: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(extra)) {
-            if (!BUILT_TODO_KEYS.has(key)) { plain[key] = value; }
+            if (!BUILT_TODO_KEYS.has(key)) { carried[key] = value; }
         }
+        try { carried = withTodoDates(carried); } catch { /* keep as written */ }
+        Object.assign(plain, carried);
     }
     return plain;
+}
+
+/**
+ * Apply an update to a todo's YAML map, returning what was written (for the
+ * read-back). The ONE routine both update paths use (`updateTodo`,
+ * `updateTodoInFile`): they were copies and had drifted — `updateTodo`
+ * cleared a field with `set(key, undefined)`, which the yaml package writes as
+ * `key: null`, while the other used `setOrDelete`. Every value is checked
+ * before anything is written, so a refused update changes nothing.
+ *
+ * @throws when `completed_date` is not a date (a timestamp is written as the
+ *   date it names).
+ */
+function applyTodoUpdates(
+    doc: Document,
+    item: YAMLMap,
+    updates: Partial<Omit<QuestTodoItem, 'id' | '_sourceFile'>>,
+): Record<string, unknown> {
+    const completedDate = toTodoDate('completed_date', updates.completed_date);
+    const applied: Record<string, unknown> = {};
+    if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); applied.title = updates.title; }
+    if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
+    if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
+    if (updates.priority !== undefined) { setOrDelete(item, 'priority', updates.priority); applied.priority = updates.priority; }
+    if (updates.notes !== undefined) { setOrDelete(item, 'notes', updates.notes); applied.notes = updates.notes; }
+    if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
+    if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
+    if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
+    if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
+    if (completedDate !== undefined) { setOrDelete(item, 'completed_date', completedDate); applied.completed_date = completedDate; }
+    if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }
+    for (const field of TODO_ORCHESTRATION_FIELDS as readonly TodoOrchestrationField[]) {
+        if (updates[field] !== undefined) { setOrDelete(item, field, updates[field]); applied[field] = updates[field]; }
+    }
+    if (updates.scope !== undefined) {
+        if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
+            const scopeObj: Record<string, unknown> = {};
+            if (updates.scope.project) { scopeObj.project = updates.scope.project; }
+            if (updates.scope.projects?.length) { scopeObj.projects = updates.scope.projects; }
+            if (updates.scope.module) { scopeObj.module = updates.scope.module; }
+            if (updates.scope.area) { scopeObj.area = updates.scope.area; }
+            if (updates.scope.files?.length) { scopeObj.files = updates.scope.files; }
+            item.set('scope', doc.createNode(scopeObj));
+            applied.scope = scopeObj;
+        } else {
+            item.delete('scope');
+            applied.scope = undefined;
+        }
+    }
+    if (updates.references !== undefined) {
+        applied.references = updates.references;
+        if (updates.references?.length) {
+            item.set('references', doc.createNode(updates.references));
+        } else {
+            item.delete('references');
+        }
+    }
+    // A date already on the item that an earlier writer stored as a timestamp
+    // is written as a date while the item is being rewritten anyway.
+    for (const field of ['created', 'archived', 'deleted', 'due'] as const) {
+        const current = item.get(field);
+        if (typeof current === 'string') {
+            try { const date = toTodoDate(field, current); if (date !== current) { item.set(field, date); } } catch { /* leave a non-date alone */ }
+        }
+    }
+    return applied;
 }
 
 /**
@@ -713,44 +807,10 @@ export function updateTodoInFile(
         // the writer touched. SCD202 covers this function for the same reason
         // it covers `updateTodo`: a lost update leaves the todo present with
         // its old content, which no presence check can see.
-        const applied: Record<string, unknown> = {};
-        if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); applied.title = updates.title; }
-        if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
-        if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
-        if (updates.priority !== undefined) { setOrDelete(item, 'priority', updates.priority); applied.priority = updates.priority; }
-        if (updates.notes !== undefined) { setOrDelete(item, 'notes', updates.notes); applied.notes = updates.notes; }
-        if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
-        if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
-        if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
-        if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
-        if (updates.completed_date !== undefined) { setOrDelete(item, 'completed_date', updates.completed_date); applied.completed_date = updates.completed_date; }
-        if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }
-        if (updates.scope !== undefined) {
-            if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
-                const scopeObj: Record<string, unknown> = {};
-                if (updates.scope.project) scopeObj.project = updates.scope.project;
-                if (updates.scope.projects?.length) scopeObj.projects = updates.scope.projects;
-                if (updates.scope.module) scopeObj.module = updates.scope.module;
-                if (updates.scope.area) scopeObj.area = updates.scope.area;
-                if (updates.scope.files?.length) scopeObj.files = updates.scope.files;
-                item.set('scope', doc.createNode(scopeObj));
-                applied.scope = scopeObj;
-            } else {
-                item.delete('scope');
-                applied.scope = undefined;
-            }
-        }
-        if (updates.references !== undefined) {
-            applied.references = updates.references;
-            if (updates.references?.length) {
-                item.set('references', doc.createNode(updates.references));
-            } else {
-                item.delete('references');
-            }
-        }
+        const applied = applyTodoUpdates(doc, item as YAMLMap, updates);
 
-        item.set('updated', new Date().toISOString().slice(0, 10));
-        doc.set('updated', new Date().toISOString().slice(0, 10));
+        item.set('updated', todayLocalDate());
+        doc.set('updated', todayLocalDate());
         saveDocument(filePath, doc);
         assertTodoPersisted(filePath, todoId, 'present', 'updateTodoInFile');
         assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodoInFile');
@@ -904,7 +964,7 @@ export function createTodo(
     } else {
         // Create minimal file
         isNewFile = true;
-        doc = parseDocument(`quest: "${questId}"\ncreated: "${new Date().toISOString().slice(0, 10)}"\ntodos: []\n`);
+        doc = parseDocument(`quest: "${questId}"\ncreated: "${todayLocalDate()}"\ntodos: []\n`);
     }
 
     let todosNode = doc.get('todos', true);
@@ -920,7 +980,7 @@ export function createTodo(
     (todosNode as YAMLSeq).add(newNode);
     forceBlockStyle(todosNode);
     // Update file-level `updated` date
-    doc.set('updated', new Date().toISOString().slice(0, 10));
+    doc.set('updated', todayLocalDate());
     if (isNewFile) {
         saveDocumentWithSchema(filePath, doc);
     } else {
@@ -952,48 +1012,13 @@ export function updateTodo(
         for (const item of todosNode.items) {
             if (!isMap(item)) { continue; }
             if (String(item.get('id')) === todoId) {
-                // Apply updates
                 // What was actually asked for, collected as it is applied, so
                 // the read-back compares against the same set the writer
                 // touched rather than against every field the caller's object
                 // happens to carry.
-                const applied: Record<string, unknown> = {};
-                if (updates.title !== undefined) { item.set('title', updates.title || undefined); applied.title = updates.title; }
-                if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
-                if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
-                if (updates.priority !== undefined) { item.set('priority', updates.priority || undefined); applied.priority = updates.priority; }
-                if (updates.notes !== undefined) { item.set('notes', updates.notes || undefined); applied.notes = updates.notes; }
-                if (updates.tags !== undefined) { item.set('tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
-                if (updates.dependencies !== undefined) { item.set('dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
-                if (updates.blocked_by !== undefined) { item.set('blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
-                if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
-                if (updates.completed_date !== undefined) { item.set('completed_date', updates.completed_date || undefined); applied.completed_date = updates.completed_date; }
-                if (updates.completed_by !== undefined) { item.set('completed_by', updates.completed_by || undefined); applied.completed_by = updates.completed_by; }
-                if (updates.scope !== undefined) {
-                    if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
-                        const scopeObj: Record<string, unknown> = {};
-                        if (updates.scope.project) scopeObj.project = updates.scope.project;
-                        if (updates.scope.projects?.length) scopeObj.projects = updates.scope.projects;
-                        if (updates.scope.module) scopeObj.module = updates.scope.module;
-                        if (updates.scope.area) scopeObj.area = updates.scope.area;
-                        if (updates.scope.files?.length) scopeObj.files = updates.scope.files;
-                        item.set('scope', doc.createNode(scopeObj));
-                        applied.scope = scopeObj;
-                    } else {
-                        item.delete('scope');
-                        applied.scope = undefined;
-                    }
-                }
-                if (updates.references !== undefined) {
-                    applied.references = updates.references;
-                    if (updates.references?.length) {
-                        item.set('references', doc.createNode(updates.references));
-                    } else {
-                        item.delete('references');
-                    }
-                }
-                item.set('updated', new Date().toISOString().slice(0, 10));
-                doc.set('updated', new Date().toISOString().slice(0, 10));
+                const applied = applyTodoUpdates(doc, item, updates);
+                item.set('updated', todayLocalDate());
+                doc.set('updated', todayLocalDate());
                 saveDocument(filePath, doc);
                 // SCD202. The presence check the other mutators use says
                 // nothing here: a lost update leaves the todo present with its
@@ -1029,7 +1054,7 @@ export function deleteTodo(
         );
         if (idx < 0) return false;
         todosNode.items.splice(idx, 1);
-        doc.set('updated', new Date().toISOString().slice(0, 10));
+        doc.set('updated', todayLocalDate());
         saveDocument(filePath, doc);
         assertTodoPersisted(filePath, todoId, 'absent', 'deleteTodo');
         return true;
@@ -1113,7 +1138,7 @@ export function moveTodo(
 
         // Remove from source
         todosNode.items.splice(idx, 1);
-        doc.set('updated', new Date().toISOString().slice(0, 10));
+        doc.set('updated', todayLocalDate());
         saveDocument(filePath, doc);
         // SCD202. The target half verifies itself — `createTodo` below checks
         // both presence and fields. The SOURCE half had nothing, and a lost
@@ -1227,7 +1252,7 @@ export function moveTodoToDestination(
 
     // 2. The source.
     todosNode.items.splice(idx, 1);
-    doc.set('updated', new Date().toISOString().slice(0, 10));
+    doc.set('updated', todayLocalDate());
     saveDocument(sourcePath, doc);
     assertTodoPersisted(sourcePath, todoId, 'absent', 'moveTodoToDestination');
 

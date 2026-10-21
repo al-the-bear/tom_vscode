@@ -50,6 +50,7 @@ import {
     formatDecisionJournalEntry,
 } from './decisionsJournalFormat';
 import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
+import { todayLocalDate } from './todoDates';
 
 // ============================================================================
 // Result types
@@ -110,7 +111,7 @@ export function forceBlockStyle(node: unknown): void {
 }
 
 function isoDate(): string {
-    return new Date().toISOString().slice(0, 10);
+    return todayLocalDate();
 }
 
 /**

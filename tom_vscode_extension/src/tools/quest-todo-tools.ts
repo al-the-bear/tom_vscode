@@ -50,6 +50,7 @@
  *     doesn't fear it'll lose them by calling update.
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
 import { SharedToolDefinition } from './shared-tool-registry';
 // Type-only imports — erased at compile time, so this module stays free of the
 // `vscode` runtime import that `questTodoManager` carries.
@@ -87,6 +88,13 @@ export interface QuestTodoFull {
     updated?: string;
     completed_date?: string;
     completed_by?: string;
+    /** Worktracker orchestration fields (optional strings, see ORCHESTRATION_SCHEMA). */
+    execution_role?: string;
+    qa_role?: string;
+    orchestration_role?: string;
+    bundle_id?: string;
+    derived_from?: string;
+    feedback_source?: string;
     /** Runtime: which file the item was loaded from. */
     sourceFile?: string;
 }
@@ -142,6 +150,33 @@ const DECISIONS_SCHEMA = {
 } as const;
 
 const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'completed', 'cancelled'] as const;
+
+/** A schema date field: a date, or a timestamp written as the date it names. */
+const DATE_SCHEMA = {
+    type: 'string',
+    description: 'A date, YYYY-MM-DD. A timestamp is accepted and written as the date it names (2026-10-20T12:37:25+0200 → 2026-10-20); anything else is refused.',
+} as const;
+
+/**
+ * The Worktracker orchestration fields the todo schema carries (optional
+ * strings). Shared by create and update so neither can drop one.
+ */
+const ORCHESTRATION_SCHEMA = {
+    execution_role: { type: 'string', description: 'The role that carries the todo out when execution is agent-driven (Worktracker).' },
+    qa_role: { type: 'string', description: "The role that checks the todo's result (Worktracker)." },
+    orchestration_role: { type: 'string', description: 'The role that orchestrates the execution bundle the todo belongs to (Worktracker).' },
+    bundle_id: { type: 'string', description: 'The execution bundle the todo is grouped into (Worktracker).' },
+    derived_from: { type: 'string', description: 'The todo this one was derived from (Worktracker).' },
+    feedback_source: { type: 'string', description: 'The feedback that raised this todo (Worktracker).' },
+} as const;
+
+/** The sentence both write tools' descriptions carry about dates and the orchestration fields. */
+const DATES_AND_ORCHESTRATION_DOC =
+    ' **Dates are dates:** `completed_date` (and every other date field of the schema) is written as YYYY-MM-DD; ' +
+    'a timestamp is accepted and written as the date it names, anything else is refused with nothing written. ' +
+    '`created` / `updated` are stamped by the writer (local date). The Worktracker orchestration fields ' +
+    '`execution_role`, `qa_role`, `orchestration_role`, `bundle_id`, `derived_from`, `feedback_source` ' +
+    '(optional strings) are written, read back and kept by updates that do not name them.';
 
 // ===========================================================================
 // listQuestTodos
@@ -282,6 +317,15 @@ export interface CreateQuestTodoInput {
         references?: QuestTodoFull['references'];
         blocked_by?: string[];
         decisions?: TodoDecision[];
+        /** A date (YYYY-MM-DD); a timestamp is written as the date it names. */
+        completed_date?: string;
+        completed_by?: string;
+        execution_role?: string;
+        qa_role?: string;
+        orchestration_role?: string;
+        bundle_id?: string;
+        derived_from?: string;
+        feedback_source?: string;
     };
 }
 
@@ -501,7 +545,7 @@ export const CREATE_QUEST_TODO_DESCRIPTION =
     'readable back, so a write lost to another writer of the same file — or a ' +
     'field this code path does not persist — comes back as `ok: false` naming ' +
     'what differs, instead of a success response for data that is on no disk ' +
-    'anywhere. You do not need to grep the YAML afterwards to check it landed.';
+    'anywhere. You do not need to grep the YAML afterwards to check it landed.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
@@ -530,6 +574,9 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     blocked_by: { type: 'array', items: { type: 'string' } },
                     decisions: DECISIONS_SCHEMA,
                     references: { type: 'array', items: REFERENCE_SCHEMA },
+                    completed_date: DATE_SCHEMA,
+                    completed_by: { type: 'string' },
+                    ...ORCHESTRATION_SCHEMA,
                 },
             },
         },
@@ -558,6 +605,12 @@ export interface UpdateQuestTodoInput {
         decisions?: TodoDecision[];
         /** Replaces the list; each entry an object (see `validateTodoReferences`). */
         references?: QuestTodoFull['references'];
+        execution_role?: string;
+        qa_role?: string;
+        orchestration_role?: string;
+        bundle_id?: string;
+        derived_from?: string;
+        feedback_source?: string;
     };
 }
 
@@ -656,7 +709,7 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     'write the user\'s answers into `decisions[].decision` and move the status back to ' +
     '`not-started` in the same call. Missing id surfaces structured ' +
     '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
-    '`tomAi_moveQuestTodo` or delete+create.';
+    '`tomAi_moveQuestTodo` or delete+create.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> = {
     name: 'tomAi_updateQuestTodo',
@@ -680,11 +733,12 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     tags: { type: 'array', items: { type: 'string' } },
                     notes: { type: 'string' },
                     decisions: DECISIONS_SCHEMA,
-                    completed_date: { type: 'string' },
+                    completed_date: DATE_SCHEMA,
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
                     references: { type: 'array', items: REFERENCE_SCHEMA },
+                    ...ORCHESTRATION_SCHEMA,
                 },
             },
         },

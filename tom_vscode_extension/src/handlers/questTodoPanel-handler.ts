@@ -188,6 +188,7 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
  *  stays in-handler because it prepends the one config-dependent line. */
 import { getQuestTodoCss, getQuestTodoHtmlFragment } from './questTodo/questTodoAssets';
 import { readMediaText } from '../utils/webviewLoader';
+import { todayLocalDate } from '../utils/todoDates';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
 
@@ -686,7 +687,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             const count = validEntries.length;
-            const stamp = new Date().toISOString().slice(0, 10);
+            const stamp = todayLocalDate();
             const completedBy = isComplete ? String(msg.completedBy || '') : '';
             // Confirmation: complete always confirms (the timestamp prompt, asked
             // once); cancel confirms only for a stack batch.
