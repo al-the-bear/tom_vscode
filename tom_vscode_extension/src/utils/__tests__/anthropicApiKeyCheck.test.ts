@@ -11,6 +11,7 @@
  *   AK-4 the message names the profile, the configuration and the variable, and says that a window reload
  *        is not enough
  *   AK-5 the profile pickers' list: every profile with an id, in order, marked when it lacks its key
+ *   AK-6 the queue recognises the transport's no-key failure and records why, that it is not retried, and the fix
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- environments are keyed by variable names */
@@ -24,6 +25,9 @@ import {
     missingDirectApiKey,
     pickAnthropicProfile,
     profileKeyStates,
+    ANTHROPIC_CLIENT_UNAVAILABLE,
+    isMissingApiKeyFailure,
+    missingApiKeyFailureText,
     type AnthropicKeySection,
 } from '../anthropicApiKeyCheck.js';
 
@@ -98,5 +102,16 @@ describe('anthropicApiKeyCheck', () => {
         ]);
         assert.ok(profileKeyStates(SECTION, { TEST_VSCODE_KEY: 'sk' }).every((p) => !p.noApiKey), 'with the key nothing is marked');
         assert.deepEqual(profileKeyStates(undefined, {}), []);
+    });
+
+    test('AK-6: the no-key failure, as the queue records it', () => {
+        assert.equal(isMissingApiKeyFailure(`Error: ${ANTHROPIC_CLIENT_UNAVAILABLE}`), true, 'as String(err) gives it');
+        assert.equal(isMissingApiKeyFailure('Error: 529 overloaded'), false);
+        assert.equal(isMissingApiKeyFailure(undefined), false);
+        const withCauses = missingApiKeyFailureText(['the main prompt: profile "direct-p" lacks TEST_VSCODE_KEY'], 'TEST_VSCODE_KEY');
+        assert.match(withCauses, /^Not sent: no API key\. the main prompt: profile "direct-p" lacks TEST_VSCODE_KEY\n/);
+        assert.match(withCauses, /Not retried/);
+        assert.match(withCauses, /quit and restart VS Code \(a window reload keeps the old environment\), then resend the item/);
+        assert.match(missingApiKeyFailureText([], 'TEST_VSCODE_KEY'), /The direct API key variable TEST_VSCODE_KEY is not set/);
     });
 });

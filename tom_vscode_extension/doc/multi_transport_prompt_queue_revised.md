@@ -565,12 +565,13 @@ Its first two steps — which profile (by id, else the default, else the first) 
 
 #### 4.17a A missing API key is said before anything is sent
 
-The direct transport reads its key only from `process.env[anthropic.apiKeyEnvVar]` (default `ANTHROPIC_API_KEY`) of the extension host. When that variable is unset every send fails ("Anthropic client not available"), and a queued item is then retried for hours. `missingDirectApiKey(section, {profileId, configId}, env)` answers the question up front: the target resolves to an Anthropic configuration whose `transport` is `direct` (or absent) and the variable is unset. Agent SDK, VS Code LM and Local-LLM-backed targets never need it.
+The direct transport reads its key only from `process.env[anthropic.apiKeyEnvVar]` (default `ANTHROPIC_API_KEY`) of the extension host. When that variable is unset every send fails ("Anthropic client not available", `ANTHROPIC_CLIENT_UNAVAILABLE`). `missingDirectApiKey(section, {profileId, configId}, env)` answers the question up front: the target resolves to an Anthropic configuration whose `transport` is `direct` (or absent) and the variable is unset. Agent SDK, VS Code LM and Local-LLM-backed targets never need it.
 
 - `PromptQueueManager.missingApiKeyWarnings(itemId)` runs it for every stage of an item (main prompt, each pre-prompt, each follow-up, each resolved like `dispatchStage` resolves it) and answers one line per cause naming the stages it affects.
 - The queue tools that queue, change or send an item (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueuedPrompt`) answer those lines as `warning`. The item is kept: the caller decides.
 - The queue editor shows each line as a **No API key** chip on the item, with the yellow `warned` border.
 - The profile pickers — the Anthropic subpanel's and the transport picker's (§4.15) — label such a profile `(no API key)` (`profileKeyStates`).
+- A send that fails for it anyway is **not retried** (see *Backoff retry* in §4.18): `_markItemError` recognises the failure (`isMissingApiKeyFailure`) and sends the item to `error` at once, its `error` naming the stages and the fix (`missingApiKeyFailureText`); the user is told (`notifyUserLive`: Telegram when configured, else a VS Code message), the same text at most once in ten minutes. Auto-send stays on, so items on other profiles keep running.
 
 The message names the fix: the key has to be in the environment VS Code was **launched** with; "Developer: Reload Window" restarts the extension host from the same main process and does not refresh it, so VS Code must be quit and started again.
 
@@ -725,7 +726,8 @@ logic is pure and unit-tested in
 (no `vscode` imports).
 
 - **`'retry'` status with a backoff cascade.** A genuine send failure no longer
-  stops after a few immediate attempts. `_markItemError` parks the item in the
+  stops after a few immediate attempts. (A failure no retry can fix — the direct
+  transport finding no API key — goes to `error` at once instead, §4.17a.) `_markItemError` parks the item in the
   new `'retry'` status and schedules re-sends at `RETRY_BACKOFF_MS` = 30 s, then
   +15/30/45/60/60/60 min (7 attempts, ≈ 4 h 30 m). Retry items keep their queue
   position; `statusSortRank` clusters `decision-needed`/`error`/`retry`/`waiting` at the top so a

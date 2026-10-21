@@ -109,3 +109,25 @@ export function profileKeyStates(
             noApiKey: !!missingDirectApiKey(section, { profileId: p.id }, env),
         }));
 }
+
+/** What the direct transport throws when it has no key — the queue recognises it by this text. */
+export const ANTHROPIC_CLIENT_UNAVAILABLE = 'Anthropic client not available — set the configured API key env var';
+
+/** The failure text (an error's message, or a stage's error) is the direct transport finding no key. */
+export function isMissingApiKeyFailure(text: string | undefined): boolean {
+    return !!text && text.includes(ANTHROPIC_CLIENT_UNAVAILABLE);
+}
+
+/**
+ * What a queue item records when a send failed for a missing key: the causes
+ * the queue found for its stages (one line each, from missingApiKeyMessage),
+ * else the variable alone, and that the item is to be resent once the key is
+ * there. A configuration error: retrying it cannot succeed.
+ */
+export function missingApiKeyFailureText(causes: readonly string[], envVar: string): string {
+    const why = causes.length > 0
+        ? causes.join('\n')
+        : `The direct API key variable ${envVar} is not set in this VS Code's environment.`;
+    return `Not sent: no API key. ${why}\nNot retried — it cannot succeed until the key is there. Set ${envVar} where VS Code is launched, `
+        + 'quit and restart VS Code (a window reload keeps the old environment), then resend the item — or move it to an Agent SDK profile.';
+}

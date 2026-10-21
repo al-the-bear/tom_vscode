@@ -35,6 +35,8 @@
  *        the queue editor's profile picker marks that profile '(no API key)'
  *   MA-10 an item queued with a session is listed by tomAi_listQueue with that session — the live projection
  *        of the real manager's item, which once left the field out
+ *   MA-11 a send that fails because the direct transport has no key goes to `error` at once — not `retry` —
+ *        with the cause and the fix, auto-send stays on, the user is told once; any other failure still retries
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -194,6 +196,7 @@ import { AskUserRegistry } from '../../services/askUserRegistry.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { setExtensionLogUri } from '../../utils/outputChannelLogs.js';
 import { renderTransportPicker } from '../../utils/transportPicker.js';
+import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../../utils/anthropicApiKeyCheck.js';
 
 const KEY_ENV = 'TOM_MCP_ALL_TOOLS_KEY';
 const env = { [KEY_ENV]: 'all-tools-secret' };
@@ -827,6 +830,47 @@ describe('every tool over MCP, in a sandbox', () => {
         const item = listed.items.find((i: Json) => i.id === added.id);
         assert.equal(item.session, 'per-todo', 'and the list shows it');
         PromptQueueManager.instance.remove(added.id);
+    });
+
+    test('MA-11: no API key is not retried', async () => {
+        const call = async (name: string, args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name, arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        const manager = PromptQueueManager.instance;
+        // The error path every dispatch failure goes through (private: driven here with the transport's real error).
+        const markError = (item: unknown, err: unknown): void =>
+            (manager as unknown as { _markItemError(item: unknown, err: unknown, scope: string): void })._markItemError(item, err, 'MA-11');
+        const noKey = new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
+        const notices = (): number => vscodeStub.spies.byMethod('window.showErrorMessage')
+            .filter((c) => String(c.args[0]).includes('no API key')).length;
+        manager.autoSendEnabled = true;
+        try {
+            const a = await call('tomAi_addQueueItem', { text: 'needs the key', transport: 'anthropic', anthropicProfileId: 'direct-p' });
+            const b = await call('tomAi_addQueueItem', { text: 'needs it too', transport: 'anthropic', anthropicProfileId: 'direct-p' });
+            const before = notices();
+            for (const id of [a.id, b.id]) {
+                const item = manager.getById(id)!;
+                item.status = 'sending';
+                markError(item, noKey);
+                assert.equal(item.status, 'error', 'straight to error');
+                assert.equal(item.retryAttempt, undefined, 'no retry scheduled');
+                assert.match(item.error ?? '', /^Not sent: no API key\. the main prompt: Anthropic profile "direct-p"/);
+                assert.match(item.error ?? '', new RegExp(`${NO_SUCH_KEY} is not set[\\s\\S]*then resend the item`));
+            }
+            assert.equal(manager.autoSendEnabled, true, 'the other items keep running');
+            await new Promise((r) => setTimeout(r, 20));
+            assert.equal(notices() - before, 1, 'told once, not once per item');
+            // Any other failure still goes through the retry schedule.
+            const c = await call('tomAi_addQueueItem', { text: 'overloaded', transport: 'anthropic', anthropicProfileId: 'sdk-p' });
+            const other = manager.getById(c.id)!;
+            other.status = 'sending';
+            markError(other, new Error('529 overloaded'));
+            assert.equal(other.status, 'retry');
+            for (const id of [a.id, b.id, c.id]) { manager.remove(id); }
+        } finally {
+            manager.autoSendEnabled = false;
+        }
     });
 
     test('MA-7: the queue\'s answer watcher failing is not an uncaught exception', () => {

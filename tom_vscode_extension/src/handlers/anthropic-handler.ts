@@ -10,6 +10,7 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
@@ -1662,7 +1663,7 @@ export class AnthropicHandler {
     }): Promise<string> {
         const client = this.getClient();
         if (!client) {
-            throw new Error('Anthropic client not available — set the configured API key env var');
+            throw new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
         }
         const response = await client.messages.create({
             model: params.model,
@@ -2241,7 +2242,7 @@ export class AnthropicHandler {
 
         const client = this.getClient();
         if (!client) {
-            throw new Error('Anthropic client not available — set the configured API key env var');
+            throw new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
         }
 
         const anthropicTools = toAnthropicTools(tools);

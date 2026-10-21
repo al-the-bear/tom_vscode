@@ -56,7 +56,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
 import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
-import { missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
+import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 
 // ============================================================================
@@ -355,6 +355,8 @@ const ANSWER_POLL_INTERVAL_MS = 30_000;
  * the queue waits 5 minutes past it.
  */
 const RESET_RETRY_BUFFER_MS = 5 * 60_000;
+/** A missing-API-key notice with the same text is sent at most this often (a run of items on one keyless profile). */
+const MISSING_KEY_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
  * Resolve a template name to its template string.
@@ -3326,6 +3328,13 @@ export class PromptQueueManager {
             return;
         }
 
+        // No API key for the direct transport: a configuration error, which no
+        // retry can fix — straight to `error`, with why and what to do.
+        if (isMissingApiKeyFailure(searchText)) {
+            this._failForMissingApiKey(item, scope);
+            return;
+        }
+
         // Generic (non-rate-limit) failure: instead of hard-failing straight to
         // `error`, park the item in `retry` on a fixed backoff schedule
         // (30s, +15m, +30m, +45m, +60m, +60m, +60m — 7 attempts). The item
@@ -3365,6 +3374,37 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /** When each missing-key notice was last sent (by its text), so a run of items on one keyless profile notifies once. */
+    private readonly _missingKeyNoticeAt = new Map<string, number>();
+
+    /**
+     * A send failed because the direct transport has no API key. Retrying
+     * cannot help (the key comes from the environment VS Code was launched
+     * with), so the item goes to `error` at once with the causes and the fix,
+     * and the user is told (Telegram when configured, else a VS Code message;
+     * the same text at most once in ten minutes). Auto-send stays on: items on
+     * other profiles keep running — an item on the same keyless profile fails
+     * the same way, at once.
+     */
+    private _failForMissingApiKey(item: QueuedPrompt, scope: string): void {
+        const envVar = directApiKeyEnvVar(loadSendToChatConfig()?.anthropic);
+        const text = missingApiKeyFailureText(this.missingApiKeyWarnings(item.id), envVar);
+        clearRetryBookkeeping(item);
+        applyErrorTransition(item, text);
+        logQueue(`Item ${item.id} failed (${scope}): no API key (${envVar}) — not retried`);
+        this.persist();
+        this._onDidChange.fire();
+        const now = Date.now();
+        const last = this._missingKeyNoticeAt.get(text);
+        if (last !== undefined && now - last < MISSING_KEY_NOTICE_INTERVAL_MS) { return; }
+        this._missingKeyNoticeAt.set(text, now);
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { notifyUserLive } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
+            void notifyUserLive({ title: 'Queue item not sent: no API key', message: text, urgency: 'error' }).catch(() => undefined);
+        } catch { /* the notice is best-effort; the item carries the reason */ }
     }
 
     /**
