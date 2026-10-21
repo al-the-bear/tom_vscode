@@ -38,6 +38,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     'Diagnostics': [
         'tomAi_getErrors',
         'tomAi_getProblems',
+        'tomAi_readOutputChannel',
     ],
     'CodeSpecs': [
         'tomAi_specCodeSpecsAreas',

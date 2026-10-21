@@ -29,7 +29,7 @@
  *   MA-8 the tools that need what a window provides do their work in the sandbox: an issue tracker in a file
  *        (issues and tests), the tool trail of the run (past-tool access), a sub-agent spawner, a Tom AI Chat
  *        todo session, a task and a launch configuration, a notebook, and a language server's answers (symbols,
- *        definitions, references, a code action, a rename) — each read back
+ *        definitions, references, a code action, a rename), the window's output channels — each read back
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -180,6 +180,7 @@ import { TrailService } from '../../services/trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { AskUserRegistry } from '../../services/askUserRegistry.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
+import { setExtensionLogUri } from '../../utils/outputChannelLogs.js';
 
 const KEY_ENV = 'TOM_MCP_ALL_TOOLS_KEY';
 const env = { [KEY_ENV]: 'all-tools-secret' };
@@ -328,6 +329,7 @@ function inputs(): Record<string, Input> {
         tomAi_readChatVariable: { key: 'mcpTest' },
         tomAi_setProcessState: { process: 'flow' },
         tomAi_getProcess: { id: 'flow' },
+        tomAi_readOutputChannel: { channel: 'Tom Prompt Queue', grep: 'sandbox' },
         tomAi_notebookEdit: { filePath: 'notebook.ipynb', operations: [{ op: 'insert', index: 0, cells: [{ kind: 'markdown', text: '# Written by the MCP test' }] }] },
         tomAi_notebookRun: { filePath: 'notebook.ipynb', runAll: true },
         tomAi_runTask: { name: 'build' },
@@ -532,6 +534,11 @@ function startWorkbench(): void {
     setActiveToolTrail(toolTrail);
     registerSubagentSpawner(async (o) => { spawned.push(o.prompt); return { summary: `Summary of: ${o.prompt}`, rounds: 1, toolCalls: 0, stopReason: 'end_turn' }; });
     setActiveTodoManager(new ChatTodoSessionManager('mcp-test', path.join(SANDBOX, 'chat-todos')));
+    // The window's output channels as VS Code writes them: exthost/output_logging_<start>/<n>-<channel>.log.
+    const outputRun = path.join(SANDBOX, 'exthost', 'output_logging_20261021T000000');
+    fs.mkdirSync(outputRun, { recursive: true });
+    fs.writeFileSync(path.join(outputRun, '12-Tom Prompt Queue.log'), 'queue started\nsent a prompt in the sandbox\n');
+    setExtensionLogUri(path.join(SANDBOX, 'exthost', 'tom-ai-extension'));
     const stub = vscodeStub.stub as Record<string, Record<string, unknown>>;
     stub.tasks.__tasks = [{ name: 'build', source: 'Workspace', definition: { type: 'shell' }, scope: 2 }];
     // A language server's answers for src/greeting.ts: greet at line 0, characters 16–21.
@@ -720,6 +727,8 @@ describe('every tool over MCP, in a sandbox', () => {
         // Past tool access: the trail of this very run.
         assert.match(answerOf('tomAi_readPastToolResult'), /Demo workspace/, 'reads back tomAi_readFile\'s result');
         assert.match(answerOf('tomAi_searchPastToolResults'), /"hitCount": ?[1-9]/);
+        // The window's output channels, read from the files VS Code writes.
+        assert.match(answerOf('tomAi_readOutputChannel'), /"text": ?"2: sent a prompt in the sandbox"/);
         // Sub-agent and chat todos.
         assert.deepEqual(spawned, ['Summarise the sandbox.']);
         assert.match(answerOf('tomAi_manageTodo'), /A chat todo from the MCP test/);

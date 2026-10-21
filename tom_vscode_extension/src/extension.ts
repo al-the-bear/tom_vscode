@@ -7,6 +7,7 @@
  */
 
 import * as vscode from 'vscode';
+import { setExtensionLogUri } from './utils/outputChannelLogs';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -372,6 +373,9 @@ export async function activate(context: vscode.ExtensionContext) {
         timings.push({ step: label, ms: elapsed });
     };
     let stepStart: number;
+
+    // Where VS Code writes this window's output channels (tomAi_readOutputChannel).
+    setExtensionLogUri(context.logUri?.fsPath);
 
     stepStart = performance.now();
     initializeDebugLogger(context);

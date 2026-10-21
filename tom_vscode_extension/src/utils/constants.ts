@@ -86,6 +86,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_getOpenEditors',
     // Diagnostics
     'tomAi_getProblems',
+    'tomAi_readOutputChannel',
     // Language service
     'tomAi_findSymbol',
     'tomAi_gotoDefinition',

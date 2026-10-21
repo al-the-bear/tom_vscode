@@ -101,8 +101,9 @@ Each table lists every tool in the family with a per-transport default.
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_getErrors` | Snapshot the Problems panel (legacy, flat). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_getProblems` | Structured Problems panel with filters. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readOutputChannel` | Read this window's output channels (the queue's sends, retries and errors; Anthropic turns; the compaction log's `history scope:` lines; every other extension's channels) from the files VS Code writes. Without `channel`: the channels and the extension-host runs. With it: the last `maxLines` lines, filtered by `grep` (text or `regex`), with `context`; `run: 1` reads the run before the last window reload. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-> `tomAi_getOutputChannel` and `tomAi_getTerminalOutput` have been removed — VS Code has no API to read third-party output channels or terminal scrollback. For captured command output use `tomAi_runCommand` (one-shot) or `tomAi_runCommandStream` + `tomAi_readCommandOutput`.
+> VS Code has no API to read an output channel, but it writes every channel of an extension host to disk as it goes — `<logs>/<launch>/window<N>/exthost/output_logging_<YYYYMMDDTHHMMSS>/<n>-<channel name>.log`, one `output_logging_*` folder per extension-host run (a window reload starts a new one). `tomAi_readOutputChannel` finds its own window's `exthost` folder from `context.logUri` (`src/utils/outputChannelLogs.ts`), so no path is platform-specific. Channels do not share a timestamp format, so it filters by text, not by time. Terminal scrollback stays out of reach: for captured command output use `tomAi_runCommand` (one-shot) or `tomAi_runCommandStream` + `tomAi_readCommandOutput`.
 
 ### 4.7 Language server (symbols, refactor, rename)
 
@@ -790,6 +791,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `planning-tools.ts` | Plan-mode signals + sub-agent delegation |
 | `notebook-tools.ts` | Jupyter `notebookEdit`, `notebookRun` |
 | `id-prefix-tools.ts` | Date-based prefix for collision-free hand-authored ids |
+| `output-channel-tools.ts` | `readOutputChannel`: this window's output channels, read from disk |
 | `quest-process-tools.ts` | Processes: list and read definitions, read and move the quest's process state |
 | `issue-tools.ts` | Issues subpanel (read + write) |
 | `test-tools.ts` | Tests subpanel / testkit (read + write) |
@@ -820,7 +822,7 @@ that works under `toolsEnabled: true` and is invisible everywhere else.
 
 ### Deliberately unselectable tools
 
-None: all 177 registered tools are selectable, and
+None: all 189 registered tools are selectable, and
 `DELIBERATELY_UNSELECTABLE_TOOLS` (`src/utils/constants.ts`) is empty. The
 mechanism stays, so a tool can be held behind `toolsEnabled: true` on purpose —
 with its reason beside the entry, and only a write tool: a `readOnly` tool in

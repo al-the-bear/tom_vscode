@@ -1525,6 +1525,7 @@ import { CONVERSATION_RESULT_TOOLS } from './conversation-result-tools';
 import { PAST_TOOL_ACCESS_TOOLS } from './past-tool-access-tools';
 import { PROMPT_HISTORY_TOOLS } from './prompt-history-tools';
 import { ID_PREFIX_TOOLS } from './id-prefix-tools';
+import { OUTPUT_CHANNEL_TOOLS } from './output-channel-tools';
 import { QUEST_PROCESS_TOOLS } from './quest-process-tools';
 import { SPEC_TOOLS } from './spec-tools';
 import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
@@ -1609,6 +1610,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CONVERSATION_RESULT_TOOLS, // AI Conversation outcome document — read/write result file
     ...PAST_TOOL_ACCESS_TOOLS,    // listPastToolCalls, searchPastToolResults, readPastToolResult
     ...PROMPT_HISTORY_TOOLS,      // listPromptPairs, getPromptPair — read past prompt+answer pairs from summary trail
+    ...OUTPUT_CHANNEL_TOOLS,      // readOutputChannel — this window's output channels, read from the files VS Code writes
     ...ID_PREFIX_TOOLS,           // generateIdPrefix — date-based letters-only code for collision-free hand-authored ids
     ...QUEST_PROCESS_TOOLS,       // listProcesses, getProcess, getProcessState (read-only), setProcessState — the quest's process
     ...SPEC_TOOLS,                // TomSpecs (SOM): specListDocuments, specOutline, specGetSection, specReflect
