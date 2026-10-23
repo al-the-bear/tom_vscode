@@ -1947,7 +1947,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendAnthropicModels(): Promise<void> {
+        const started = Date.now();
         const result = await AnthropicHandler.instance.fetchModels();
+        const elapsedMs = Date.now() - started;
+        // The webview only shows the error in the status line, which the
+        // next status update overwrites — log it so an empty Model
+        // dropdown can be diagnosed afterwards.
+        if (result.error) {
+            debugLog(`[Anthropic] models.list failed in ${elapsedMs}ms: ${result.error}`, 'ERROR', 'chatPanel');
+        } else {
+            debugLog(`[Anthropic] models.list returned ${result.models.length} model(s) in ${elapsedMs}ms`, 'INFO', 'chatPanel');
+        }
         this._view?.webview.postMessage({
             type: 'anthropicModels',
             models: result.models,
