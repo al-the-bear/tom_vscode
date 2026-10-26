@@ -794,6 +794,18 @@ logic is pure and unit-tested in
   prompt to dispatch (the blank trim-and-reset case stays instant) and cleared in
   the `finally`, so a failed refresh never leaves the banner stuck on.
 
+### 4.19 Sessions, iterations and the session's profile
+
+An item runs in a named session (`session`; unset: the queue default, else the queue's own `default`). The session's lifetimes and files are described in `anthropic_sdk_integration.md` §18.12; the queue's part is:
+
+- **Name or spec.** `session` is a name or a spec `{name, basedOn?, mode?, profile?}` (`parseSessionSpec`, `src/utils/sessionSpecs.ts`). `mode` is `continue`, `per-prompt` or `per-iteration` (`fork-from-base` is read as `per-prompt`); neither lifetime needs a base. A malformed spec is refused by `enqueue` / `updateItemSession`, and by `tomAi_addQueueItem` / `tomAi_updateQueueItem` with code `invalidSession`. The item keeps the name in `session` and the rest in `sessionCreate`.
+- **Created at dispatch.** `dispatchStage` calls `ensureItemSession` before an Anthropic send: a session that does not exist is created from the spec (its missing base first, plainly; the spec's profile, else the item's `anthropicProfileId`), a bare name as a fresh `continue` session. `chat` and `default` are never created here.
+- **Iteration keys.** Every stage dispatch carries `iterationKey` (`src/utils/queueIterations.ts`): `ensureRunId` gives the item a run id on its first dispatch, `iterationSeq` counts the main prompts sent, the main prompt runs in iteration `iterationSeq + 1` and counts it, a pre-prompt runs in the iteration it precedes, a follow-up in the one it follows. A failed main send rolls `iterationSeq` back with the repetition (`prevIterationSeq` in `inFlightRepetition`), so the re-send runs in the same iteration; `lastDispatched.iterationKey` makes a resend run in it too. `resetItemRunState` (Send Now on a sent item) clears the run id, so a new run starts new conversations. The Quest Refresh prompt is sent without a key.
+- **Profile precedence.** `resolveStageTransport`: the stage's profile, else the item's, else the session's (`profileId` of its file, else the spec's `profile`), else the queue default.
+- **Transport check.** `sessionRefusal` refuses an item, when it is queued or its session changes, whose stages would run with a profile that keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a profile with our own history, or the reverse), or whose spec names an unknown profile.
+
+Persisted keys (entry YAML): `session` is a string, or the map `{name, basedOn, mode, profile}` when the item carries a spec; `execution.run-id`, `execution.iteration-seq` and `execution.last-dispatched.iteration-key`. The older key `agent-sdk-session` is still read.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.

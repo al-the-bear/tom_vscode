@@ -14,8 +14,14 @@
  *   same files;
  * - `continue` with a base: the session's folder is seeded once from its
  *   base's history (on its first prompt), and continues on its own;
- * - `fork-from-base`: every prompt starts from the base's history (through
- *   bases that are themselves forks) and nothing is written back.
+ * - `per-prompt`: every prompt starts from the base's history (through bases
+ *   that keep no lasting history of their own), or with no history without a
+ *   base, and nothing is written back;
+ * - `per-iteration`: the session's folder holds the current queue iteration's
+ *   history. When a send names another iteration (its iteration key) the
+ *   folder is emptied and seeded from the base again; the key is kept in the
+ *   folder's `iteration.json`. A send without an iteration key (the chat
+ *   panel) is its own iteration: it runs as `per-prompt`.
  *
  * The session files and their rules are those of the Agent SDK path
  * (src/utils/agentSdkSessions.ts, src/services/agentSdkSessionStore.ts).
@@ -30,6 +36,7 @@ import { readSession } from './agentSdkSessionStore';
 import { COMPACTED_HISTORY_FILENAME } from './compacted-history';
 import { RAW_TURNS_FILENAME } from './raw-turns-store';
 import type { SessionRecord } from '../utils/agentSdkSessions';
+import { conversationKindOf, transportMismatch, type SessionProfile } from '../utils/sessionSpecs';
 
 /** The sessions that share the quest's history: the chat panel's and the prompt queue's. */
 export const SHARED_HISTORY_SESSIONS: readonly string[] = ['chat', 'default'];
@@ -45,35 +52,44 @@ export interface DirectHistoryPlan {
     own: string;
     /** The session whose history is read (and, when `persist`, written). */
     readFrom: string;
-    /** Whether the send writes its exchange back (false for fork-from-base). */
+    /** Whether the send writes its exchange back (false for per-prompt). */
     persist: boolean;
-    /** Seed `own`'s history from this session's once, while `own` has none. */
+    /** Seed `own`'s history from this session's once, while `own` has none (or, per iteration, when the iteration changes). */
     seedFrom?: string;
+    /** Start with no history at all (per-prompt without a base, or a base chain that has none). */
+    fresh?: true;
+    /** Per-iteration: the iteration the folder holds; another one empties and re-seeds it. */
+    iterationKey?: string;
 }
 
 /**
  * The session whose history a fork of `name` starts from: `name` itself, or —
- * for a fork-from-base session, which never has one of its own — its base's,
- * recursively.
+ * for a per-prompt / per-iteration session, which keeps no lasting history of
+ * its own — its base's, recursively. Undefined when the chain ends without a
+ * history (a per-prompt session without a base).
  */
-function historyOwnerOf(name: string, read: (n: string) => SessionRecord | undefined, seen: Set<string>): string {
+function historyOwnerOf(name: string, read: (n: string) => SessionRecord | undefined, seen: Set<string>): string | undefined {
     if (seen.has(name)) { throw new Error(`Session "${name}" is part of a cycle of base sessions (${[...seen, name].join(' → ')}).`); }
     seen.add(name);
     const r = read(name);
-    if (r?.mode !== 'fork-from-base') { return name; }
-    if (!r.basedOn) { throw new Error(`Session "${name}" is re-created from its base for every prompt but names no base.`); }
-    return historyOwnerOf(r.basedOn, read, seen);
+    if (!r || r.mode === 'continue') { return name; }
+    return r.basedOn ? historyOwnerOf(r.basedOn, read, seen) : undefined;
 }
 
-/** The plan for a send in session `name`. Throws for a cycle or a fork-from-base session without a base. */
-export function planDirectHistory(name: string, read: (n: string) => SessionRecord | undefined): DirectHistoryPlan {
+/** The plan for a send in session `name`; `iterationKey` names the queue iteration. Throws for a cycle of bases. */
+export function planDirectHistory(name: string, read: (n: string) => SessionRecord | undefined, iterationKey?: string): DirectHistoryPlan {
     const r = read(name);
-    if (r?.mode === 'fork-from-base') {
-        if (!r.basedOn) { throw new Error(`Session "${name}" is re-created from its base for every prompt but names no base.`); }
-        return { own: name, readFrom: historyOwnerOf(r.basedOn, read, new Set([name])), persist: false };
+    const baseOwner = r?.basedOn ? historyOwnerOf(r.basedOn, read, new Set([name])) : undefined;
+    if (r && (r.mode === 'per-prompt' || (r.mode === 'per-iteration' && !iterationKey))) {
+        return baseOwner
+            ? { own: name, readFrom: baseOwner, persist: false }
+            : { own: name, readFrom: name, persist: false, fresh: true };
     }
-    if (r?.basedOn) {
-        return { own: name, readFrom: name, persist: true, seedFrom: historyOwnerOf(r.basedOn, read, new Set([name])) };
+    if (r?.mode === 'per-iteration') {
+        return { own: name, readFrom: name, persist: true, ...(baseOwner ? { seedFrom: baseOwner } : {}), iterationKey };
+    }
+    if (baseOwner) {
+        return { own: name, readFrom: name, persist: true, seedFrom: baseOwner };
     }
     return { own: name, readFrom: name, persist: true };
 }
@@ -91,6 +107,23 @@ export function hasSessionHistory(folder: string): boolean {
     });
 }
 
+/** The file a per-iteration session's folder names its iteration in. */
+export const ITERATION_MARKER_FILE = 'iteration.json';
+
+function readIterationMarker(folder: string): string | undefined {
+    try {
+        const raw = JSON.parse(fs.readFileSync(path.join(folder, ITERATION_MARKER_FILE), 'utf8')) as { key?: unknown };
+        return typeof raw.key === 'string' ? raw.key : undefined;
+    } catch { return undefined; }
+}
+
+/** Remove the history files of `folder` (a per-iteration session's, when its iteration changes). */
+function clearHistory(folder: string): void {
+    for (const f of HISTORY_FILES) {
+        try { fs.rmSync(path.join(folder, f), { force: true }); } catch { /* best-effort */ }
+    }
+}
+
 /** Copy the history files of `from` into `to` (those that exist). */
 function copyHistory(from: string, to: string): void {
     fs.mkdirSync(to, { recursive: true });
@@ -102,13 +135,15 @@ function copyHistory(from: string, to: string): void {
 
 /** What the handler loads and saves for a send. */
 export interface HistoryScope {
-    /** Changes whenever another history is to be loaded: quest, folder, persisting. */
+    /** Changes whenever another history is to be loaded: quest, folder, persisting, iteration. */
     key: string;
     questId: string;
     session: string;
     /** The folder the history is read from (and written to when `persist`). */
     folder: string;
     persist: boolean;
+    /** The send starts with no history: nothing is loaded from `folder`. */
+    fresh?: true;
     /** The quest's own history (the chat panel's and the queue's). */
     shared: boolean;
     /** What happened that the log should say (a seed from a base, a base without history). */
@@ -118,13 +153,28 @@ export interface HistoryScope {
 /**
  * The history a send in session `name` of quest `questId` uses; `root` is the
  * quest's history folder, where the session files are too. Seeds a based
- * session from its base on its first use.
+ * session from its base on its first use; starts a per-iteration session's
+ * folder over when `iterationKey` names another iteration.
  */
-export function resolveHistoryScope(questId: string, root: string, name: string): HistoryScope {
-    const plan = planDirectHistory(name, (n) => readSession(root, n));
+export function resolveHistoryScope(questId: string, root: string, name: string, iterationKey?: string): HistoryScope {
+    const plan = planDirectHistory(name, (n) => readSession(root, n), iterationKey);
     const folder = sessionHistoryFolder(root, plan.readFrom);
     let note: string | undefined;
-    if (plan.seedFrom) {
+    if (plan.iterationKey !== undefined && readIterationMarker(folder) !== plan.iterationKey) {
+        clearHistory(folder);
+        fs.mkdirSync(folder, { recursive: true });
+        fs.writeFileSync(path.join(folder, ITERATION_MARKER_FILE), JSON.stringify({ key: plan.iterationKey }, null, 2) + '\n');
+        note = `session "${plan.own}" starts iteration ${plan.iterationKey}`;
+        if (plan.seedFrom) {
+            const base = sessionHistoryFolder(root, plan.seedFrom);
+            if (hasSessionHistory(base)) {
+                copyHistory(base, folder);
+                note += ` from "${plan.seedFrom}"'s history`;
+            } else {
+                note += ` fresh (the base session "${plan.seedFrom}" has no history yet)`;
+            }
+        }
+    } else if (plan.seedFrom && plan.iterationKey === undefined) {
         const own = sessionHistoryFolder(root, plan.own);
         const base = sessionHistoryFolder(root, plan.seedFrom);
         if (!hasSessionHistory(own)) {
@@ -136,16 +186,32 @@ export function resolveHistoryScope(questId: string, root: string, name: string)
             }
         }
     }
-    if (!plan.persist && !hasSessionHistory(folder)) {
+    if (plan.fresh) {
+        note = `session "${plan.own}" starts every prompt fresh`;
+    } else if (!plan.persist && !hasSessionHistory(folder)) {
         note = `the base session "${plan.readFrom}" has no history yet: this prompt starts fresh`;
     }
     return {
-        key: `${questId}\u0000${folder}\u0000${plan.persist ? 'rw' : 'ro'}`,
+        key: `${questId}\u0000${folder}\u0000${plan.persist ? 'rw' : 'ro'}\u0000${plan.fresh ? 'fresh' : ''}\u0000${plan.iterationKey ?? ''}`,
         questId,
         session: name,
         folder,
         persist: plan.persist,
+        ...(plan.fresh ? { fresh: true as const } : {}),
         shared: SHARED_HISTORY_SESSIONS.includes(plan.readFrom),
         ...(note ? { note } : {}),
     };
+}
+
+/**
+ * Why `profile` cannot run in session `name` of the history folder `root`:
+ * the session's conversation is kept where that profile does not keep one
+ * (an Agent SDK session continued by a profile with our own history, or the
+ * reverse). The quest's shared sessions (`chat`, `default`) hold both and are
+ * never refused; a session without a conversation yet takes any profile.
+ */
+export function sessionTransportMismatch(root: string, name: string, profile: SessionProfile | undefined): string | undefined {
+    if (SHARED_HISTORY_SESSIONS.includes(name)) { return undefined; }
+    const kind = conversationKindOf(readSession(root, name), hasSessionHistory(sessionHistoryFolder(root, name)));
+    return transportMismatch(name, kind, profile);
 }

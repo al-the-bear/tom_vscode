@@ -34,6 +34,9 @@ export interface RunStateItem {
     repeatIndex?: number;
     resolvedRepeatCount?: number;
     repeatTodoId?: string;
+    /** The run and its iteration count (src/utils/queueIterations.ts): a fresh start is a new run. */
+    runId?: string;
+    iterationSeq?: number;
     requestId?: string;
     expectedRequestId?: string;
     followUpIndex?: number;
@@ -64,6 +67,8 @@ export function resetItemRunState(item: RunStateItem): void {
     item.repeatIndex = 0;
     item.resolvedRepeatCount = undefined;
     item.repeatTodoId = undefined;
+    item.runId = undefined;
+    item.iterationSeq = 0;
     item.requestId = undefined;
     item.expectedRequestId = undefined;
     item.followUpIndex = 0;

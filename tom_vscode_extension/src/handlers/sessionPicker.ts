@@ -2,8 +2,8 @@
  * The VS Code picker for named Agent SDK sessions, shared by the Anthropic chat
  * panel, the prompt queue (queue default and per item) and the process action
  * page: pick an existing session of the quest, create a new one, or create one
- * based on an existing session — either continuing on its own after its first
- * prompt, or re-created from the base for every prompt. The sessions are the
+ * based on an existing session, with a lifetime (continue, per prompt, per
+ * queue iteration) and optionally the Anthropic profile it runs with. The sessions are the
  * `<name>.session.json` files in the quest's history folder
  * (src/services/agentSdkSessionStore.ts); the rules are in
  * src/utils/agentSdkSessions.ts.
@@ -14,6 +14,8 @@ import * as vscode from 'vscode';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { createSession, listSessions } from '../services/agentSdkSessionStore';
 import { describeSession, isValidSessionName, type SessionMode } from '../utils/agentSdkSessions';
+import { lookupProfile, type ProfileSection } from '../utils/sessionSpecs';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 
 type SessionItem = vscode.QuickPickItem & { action: 'pick' | 'new' | 'based' | 'clear'; name?: string };
 
@@ -62,7 +64,6 @@ export async function pickAgentSdkSession(opts: {
     if (chosen.action === 'pick') { return chosen.name; }
 
     let basedOn: string | undefined;
-    let mode: SessionMode = 'continue';
     if (chosen.action === 'based') {
         const base = await vscode.window.showQuickPick(
             sessions.map((s) => ({ label: s.name, description: describeSession(s) })),
@@ -70,13 +71,23 @@ export async function pickAgentSdkSession(opts: {
         );
         if (!base) { return undefined; }
         basedOn = base.label;
-        const how = await vscode.window.showQuickPick([
-            { label: 'Continue on its own', description: 'its first prompt starts from the base; later prompts continue the new session', mode: 'continue' as const },
-            { label: 'Re-create from the base for every prompt', description: 'every prompt starts from the base again; prompts never change the context of the ones after them', mode: 'fork-from-base' as const },
-        ], { title: `New session based on "${basedOn}"` });
-        if (!how) { return undefined; }
-        mode = how.mode;
     }
+    const from = basedOn ? 'from the base' : 'fresh';
+    const how = await vscode.window.showQuickPick([
+        { label: 'Continue', description: basedOn ? 'its first prompt starts from the base; later prompts continue the new session' : 'one conversation; every prompt continues it', mode: 'continue' as SessionMode },
+        { label: 'New for every prompt', description: `every prompt starts ${from}; prompts never change the context of the ones after them`, mode: 'per-prompt' as SessionMode },
+        { label: 'New for every queue iteration', description: `each repeat round or prefix todo starts ${from}; its pre-prompts and follow-ups continue it`, mode: 'per-iteration' as SessionMode },
+    ], { title: basedOn ? `New session based on "${basedOn}"` : 'New session', placeHolder: 'Its lifetime' });
+    if (!how) { return undefined; }
+    const mode = how.mode;
+    const section = loadSendToChatConfig()?.anthropic as (ProfileSection & { profiles?: Array<{ id?: string; name?: string } | null> }) | undefined;
+    const profiles = (section?.profiles ?? []).filter((p): p is { id: string; name?: string } => !!p && typeof p.id === 'string' && p.id.length > 0);
+    const profilePick = await vscode.window.showQuickPick([
+        { label: basedOn ? 'The base session\'s profile' : 'No profile', description: 'prompts run with the queue item\'s profile, else the queue default', id: '' },
+        ...profiles.map((p) => ({ label: p.name || p.id, description: `${p.id}${lookupProfile(section, p.id)?.model ? ` · ${lookupProfile(section, p.id)?.model}` : ''}`, id: p.id })),
+    ], { title: 'The Anthropic profile the session runs with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true });
+    if (!profilePick) { return undefined; }
+    const profile = profilePick.id ? lookupProfile(section, profilePick.id) : undefined;
     const name = await vscode.window.showInputBox({
         title: basedOn ? `New session based on "${basedOn}"` : 'New session',
         prompt: 'Session name: letters, digits, "_" and "-"',
@@ -86,7 +97,7 @@ export async function pickAgentSdkSession(opts: {
         },
     });
     if (!name) { return undefined; }
-    const created = createSession(folder, name, { basedOn, mode });
+    const created = createSession(folder, name, { basedOn, mode, ...(profile ? { profile: { id: profile.id, model: profile.model } } : {}) });
     if (!created.ok) {
         void vscode.window.showErrorMessage(created.error);
         return undefined;

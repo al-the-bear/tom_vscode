@@ -315,7 +315,8 @@ describe('process editor sessions', () => {
         const f = (path: string): Win => w.document.querySelector(`[data-path="${path}"]`);
         assert.equal(f('phases.0.session.name').value, 'build-work', 'a string spec shows as its name');
         for (const path of ['phases.0.steps.0', 'phases.0.steps.1.substeps.0', 'phases.0.gate', 'phases.0.postGate']) {
-            assert.ok(f(`${path}.session.name`) && f(`${path}.session.basedOn`) && f(`${path}.session.mode`), `${path} has session fields`);
+            assert.ok(f(`${path}.session.name`) && f(`${path}.session.basedOn`) && f(`${path}.session.mode`) && f(`${path}.session.profile`),
+                `${path} has session fields`);
         }
         const set = (path: string, value: string, event = 'input'): void => {
             const el = f(path);
@@ -324,14 +325,18 @@ describe('process editor sessions', () => {
         };
         set('phases.0.steps.1.session.name', 'per-review');
         set('phases.0.steps.1.session.basedOn', 'build-work');
-        set('phases.0.steps.1.session.mode', 'fork-from-base', 'change');
+        assert.deepEqual([...f('phases.0.steps.1.session.mode').options].map((o: Win) => o.value), ['', 'per-prompt', 'per-iteration'],
+            'the lifetimes; the old fork-from-base shows as per-prompt');
+        set('phases.0.steps.1.session.mode', 'per-iteration', 'change');
+        set('phases.0.steps.1.session.profile', 'opus-5-5-direct');
         set('phases.0.session.name', '');
         w.document.querySelector('[data-op="save"]').click();
         const saved = posted.filter((m) => m.type === 'save').pop() as Win;
-        assert.deepEqual(saved.definition.phases[0].steps[1].session, { name: 'per-review', basedOn: 'build-work', mode: 'fork-from-base' });
+        assert.deepEqual(saved.definition.phases[0].steps[1].session, { name: 'per-review', basedOn: 'build-work', mode: 'per-iteration', profile: 'opus-5-5-direct' });
         assert.equal('session' in saved.definition.phases[0], false, 'cleared: inherited again');
         set('phases.0.steps.1.session.basedOn', '');
         set('phases.0.steps.1.session.mode', '', 'change');
+        set('phases.0.steps.1.session.profile', '');
         w.document.querySelector('[data-op="save"]').click();
         assert.equal((posted.filter((m) => m.type === 'save').pop() as Win).definition.phases[0].steps[1].session, 'per-review', 'a name alone is a string');
     });
@@ -354,7 +359,7 @@ describe('process action page', () => {
         assert.deepEqual([...w.document.querySelectorAll('table.move th')].map((th: Win) => th.textContent), ['Process', 'Runs', 'Then', 'Session']);
         assert.equal(text('confirm'), 'Add to queue');
         assert.match(text('preview'), /Review it\./);
-        assert.equal(text('session'), 'per-review — fresh from build-work for every prompt (from the process)');
+        assert.equal(text('session'), 'per-review — from build-work for every prompt (from the process)', 'fork-from-base reads as per-prompt');
         w.document.getElementById('pick-session').click();
         assert.deepEqual(posted.pop(), { type: 'pickSession', custom: '' });
         send(w, { ...MOVE, session: { name: '', source: 'override' } });

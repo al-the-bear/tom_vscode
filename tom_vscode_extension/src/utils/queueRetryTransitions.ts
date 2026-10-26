@@ -282,12 +282,15 @@ export interface InFlightRepetition {
     todoId?: string;
     /** TODO ITERATION only: `item.repeatTodoId` before the dispatch set it. */
     prevRepeatTodoId?: string;
+    /** For `main`: `item.iterationSeq` before the dispatch counted it (src/utils/queueIterations.ts). */
+    prevIterationSeq?: number;
 }
 
 /** Item shape mutated by `rollbackInFlightRepetition`. Subset of `QueuedPrompt`. */
 export interface RollbackTargetItem {
     repeatIndex?: number;
     repeatTodoId?: string;
+    iterationSeq?: number;
     followUpIndex?: number;
     prePrompts?: { repeatIndex?: number }[];
     followUps?: { repeatIndex?: number }[];
@@ -314,6 +317,10 @@ export function rollbackInFlightRepetition(item: RollbackTargetItem): boolean {
             // snapshots carry no todo and must not touch the field.
             if (snap.todoId !== undefined) {
                 item.repeatTodoId = snap.prevRepeatTodoId;
+            }
+            // The re-send runs in the same iteration, so it keeps its key.
+            if (snap.prevIterationSeq !== undefined) {
+                item.iterationSeq = snap.prevIterationSeq;
             }
             break;
         case 'prePrompt': {

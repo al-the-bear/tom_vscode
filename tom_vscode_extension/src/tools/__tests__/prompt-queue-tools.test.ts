@@ -119,7 +119,9 @@ function makeAccess(): FakeAccess {
                 transport: input.transport ?? 'copilot',
                 anthropicProfileId: input.anthropicProfileId,
                 anthropicConfigId: input.anthropicConfigId,
-                session: input.session,
+                ...(typeof input.session === 'string' || input.session === undefined
+                    ? { session: input.session || undefined }
+                    : (({ name, ...rest }) => ({ session: name, sessionCreate: rest }))(input.session)),
                 prePrompts: (input.prePrompts ?? []).map((p) => ({ ...p })),
                 followUps: (input.followUps ?? []).map((f) => ({
                     ...f,
@@ -181,7 +183,14 @@ function makeAccess(): FakeAccess {
         updateItemSession(id, session) {
             const i = items.find((x) => x.id === id);
             if (!i || (i.status !== 'staged' && i.status !== 'pending')) { return false; }
-            i.session = session || undefined;
+            if (typeof session === 'string') {
+                i.session = session || undefined;
+                i.sessionCreate = undefined;
+            } else {
+                const { name, ...rest } = session;
+                i.session = name;
+                i.sessionCreate = rest;
+            }
             return true;
         },
 
@@ -337,6 +346,22 @@ describe('addQueueItemImpl + listQueueImpl', () => {
         const upd = JSON.parse(await updateQueueItemImpl(access, { queueItemId: added.id, session: '' }));
         assert.equal(upd.ok, true);
         assert.equal(access._items[0].session, undefined, 'back to the queue default');
+
+        const spec = JSON.parse(await addQueueItemImpl(access, {
+            text: 'walk', transport: 'anthropic', session: { name: 'walk', basedOn: 'prep', mode: 'per-iteration', profile: 'opus' },
+        }));
+        assert.equal(spec.ok, true, JSON.stringify(spec));
+        const listed = JSON.parse(await listQueueImpl(access, {})).items.find((x: { id: string }) => x.id === spec.id);
+        assert.deepEqual([listed.session, listed.sessionSpec], ['walk', { name: 'walk', basedOn: 'prep', mode: 'per-iteration', profile: 'opus' }],
+            'a spec is kept, to create the session at dispatch');
+        for (const bad of [{ name: 'x', mode: 'sometimes' }, { name: 'x', extra: 1 }, { basedOn: 'prep' }, 'not a name!', { name: 'x', basedOn: 'x' }]) {
+            const r = JSON.parse(await addQueueItemImpl(access, { text: 't', session: bad as never }));
+            assert.deepEqual([r.ok, r.code], [false, 'invalidSession'], JSON.stringify(bad));
+        }
+        const badUpdate = JSON.parse(await updateQueueItemImpl(access, { queueItemId: spec.id, session: { name: 'y', mode: 'never' } }));
+        assert.deepEqual([badUpdate.ok, badUpdate.code], [false, 'invalidSession']);
+        const okUpdate = JSON.parse(await updateQueueItemImpl(access, { queueItemId: spec.id, session: { name: 'y', mode: 'per-prompt' } }));
+        assert.equal(okUpdate.ok, true);
     });
 
     test('add with deferSend: false → pending; pendingCount reflects it', async () => {

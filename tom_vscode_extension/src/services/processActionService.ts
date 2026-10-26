@@ -16,7 +16,9 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
-import { createSession, readSession } from './agentSdkSessionStore';
+import { ensureSession } from './agentSdkSessionStore';
+import { lookupProfile, type ProfileSection } from '../utils/sessionSpecs';
+import { normalizeSessionMode } from '../utils/agentSdkSessions';
 import { TwoTierMemoryService } from './memory-service';
 import {
     actionSession,
@@ -76,14 +78,14 @@ export function buildProcessActionPrompt(
  * definition's spec when missing (its base first, plainly, when that is
  * missing too). A session picked on the page exists already.
  */
-function ensureProcessSession(questId: string, spec: { name: string; basedOn?: string; mode?: 'continue' | 'fork-from-base' }): string | undefined {
+function ensureProcessSession(questId: string, spec: { name: string; basedOn?: string; mode?: string; profile?: string }): string | undefined {
     const folder = TwoTierMemoryService.instance.agentSdkSessionsFolder(questId || undefined);
-    if (readSession(folder, spec.name)) { return undefined; }
-    if (spec.basedOn && !readSession(folder, spec.basedOn)) {
-        const base = createSession(folder, spec.basedOn, {});
-        if (!base.ok) { return base.error; }
-    }
-    const made = createSession(folder, spec.name, { basedOn: spec.basedOn, mode: spec.mode });
+    const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+    const made = ensureSession(
+        folder,
+        { name: spec.name, basedOn: spec.basedOn, mode: normalizeSessionMode(spec.mode), profile: spec.profile },
+        (id) => lookupProfile(section, id),
+    );
     return made.ok ? undefined : made.error;
 }
 

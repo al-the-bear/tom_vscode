@@ -74,6 +74,9 @@ export interface QueueExecutionState {
     'sent-at'?: string | null;
     error?: string | null;
     'follow-up-index'?: number;
+    /** This run of the item and the main prompts it sent (src/utils/queueIterations.ts). */
+    'run-id'?: string;
+    'iteration-seq'?: number;
     /**
      * Snapshot of the last prompt that was actually dispatched by the queue
      * runner (pre-prompt / main / follow-up). Written right before every
@@ -91,6 +94,8 @@ export interface QueueExecutionState {
         transport: 'copilot' | 'anthropic';
         'anthropic-profile-id'?: string;
         'anthropic-config-id'?: string;
+        /** The queue iteration the prompt ran in, so a resend runs in it again. */
+        'iteration-key'?: string;
         'dispatched-at': string;
     };
     /**
@@ -167,8 +172,11 @@ export interface QueuePromptYaml {
     transport?: 'copilot' | 'anthropic';
     'anthropic-profile-id'?: string;
     'anthropic-config-id'?: string;
-    /** The named session the item runs in (Agent SDK conversation, or the direct transport's history). */
-    session?: string;
+    /**
+     * The named session the item runs in (Agent SDK conversation, or the direct transport's history):
+     * a name, or the spec `{name, basedOn, mode, profile}` it is created from when missing.
+     */
+    session?: string | { name: string; basedOn?: string; mode?: string; profile?: string };
     /** The older name of `session`; read, never written. */
     'agent-sdk-session'?: string;
     /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */

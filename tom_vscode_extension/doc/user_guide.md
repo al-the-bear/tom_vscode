@@ -212,17 +212,21 @@ Switches + actions on the action bar: profile picker, model picker (filters to p
 A conversation lives in a **session**: a `<name>.session.json` file in the quest's `history/` folder (machine-local, gitignored). On the Agent SDK transport with SDK-managed history it holds the SDK conversation the session continues; on the direct API transport the session has a history of its own (below). The panel uses its own session `chat`, the prompt queue `default` — and any number of named sessions can be created and chosen:
 
 - **The session button** (speech-bubble icon with the session's name, right of the profile) opens VS Code's picker: the quest's sessions with what each one does, **New session…**, and **New session based on…**. The choice is kept per quest; *The panel's own session (chat)* goes back to the default.
-- **New session based on…** asks for the base and how the new session uses it:
-  - **Continue on its own** — its first prompt starts from the base's conversation (an SDK fork); later prompts continue the new session, and the base is never changed.
-  - **Re-create from the base for every prompt** — every prompt starts again from the base's current conversation and nothing is saved, so the base can hold preparatory context (read the spec, the guidelines, …) while the prompts in this session never change the context of the ones after them.
-- **Clear Session** forgets the selected session's conversation; a session you created keeps its definition (base and mode) and starts again from it.
+- **New session…** and **New session based on…** (which first asks for the base) ask for the session's lifetime:
+  - **Continue** — one conversation. With a base, its first prompt starts from the base's conversation (an SDK fork); later prompts continue the new session, and the base is never changed.
+  - **New for every prompt** — every prompt starts again, from the base's current conversation or fresh without a base, and nothing is saved, so the base can hold preparatory context (read the spec, the guidelines, …) while the prompts in this session never change the context of the ones after them.
+  - **New for every queue iteration** — each round of a queued item's repeat count, or each todo of a `<prefix>*` walk, starts again from the base (or fresh); that iteration's pre-prompts, main prompt and follow-ups continue it.
+- Then for the **profile** the session runs with: its prompts use it unless the queued item names its own profile; without one they use the queue default. The session list shows each session's model.
+- **Clear Session** forgets the selected session's conversation; a session you created keeps its definition (base, lifetime and profile) and starts again from it.
+- A queued item can name a session that does not exist yet, as a name or with its base, lifetime and profile: it is created before the item's first prompt is sent. An item whose profile keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a direct-API profile, or the reverse) is refused when it is queued.
 
 On the **direct API transport** the extension sends the history itself — the compacted history, the last raw turns and the rounds not yet compacted — so a session's history is files of its own:
 
 - `chat` (the panel) and `default` (the queue) share the quest's history in `history/`, as before;
 - any other session keeps its own in `history/sessions/<name>/` (the same files), so a queued prompt or a process step that names a session reads and writes only that history;
-- **Continue on its own** with a base: the session's history is copied from the base's once, on its first prompt, and continues on its own; the base is never changed;
-- **Re-create from the base for every prompt**: every prompt reads the base's current history and nothing is saved or compacted.
+- **Continue** with a base: the session's history is copied from the base's once, on its first prompt, and continues on its own; the base is never changed;
+- **New for every prompt**: every prompt reads the base's current history, or none without a base, and nothing is saved or compacted;
+- **New for every queue iteration**: the session's folder holds the current iteration's history and is started again from the base's (or empty) when the next iteration begins.
 
 The live trail and the prompt/answer trail stay one per quest (a log of every exchange); **Recreate history from trail** rebuilds the quest's own history.
 

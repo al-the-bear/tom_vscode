@@ -60,6 +60,11 @@ import { extractResponseValuesFromText } from '../utils/responseValues';
 import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
 import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
+import { ensureSession, readSession } from '../services/agentSdkSessionStore';
+import { sessionTransportMismatch } from '../services/directSessionHistory';
+import { lookupProfile, parseSessionSpec, specExtras, type ProfileSection, type SessionSpec } from '../utils/sessionSpecs';
+import { pickAnthropicProfile } from '../utils/anthropicApiKeyCheck';
+import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
 
 // ============================================================================
 // Types
@@ -126,6 +131,8 @@ export interface LastDispatchedInfo {
     transport: QueuedTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
+    /** The queue iteration it belonged to (src/utils/queueIterations.ts), so a resend runs in it again. */
+    iterationKey?: string;
     /** ISO timestamp of the last dispatch. Updated on each resend. */
     dispatchedAt: string;
 }
@@ -251,6 +258,15 @@ export interface QueuedPrompt {
      * the queue's own `default` session.
      */
     session?: string;
+    /**
+     * How to create `session` when it is missing at dispatch (the item's
+     * session was given as a spec `{name, basedOn, mode, profile}`); absent
+     * for a bare name, which creates a fresh `continue` session.
+     */
+    sessionCreate?: Omit<SessionSpec, 'name'>;
+    /** This run of the item and the main prompts it sent (src/utils/queueIterations.ts). */
+    runId?: string;
+    iterationSeq?: number;
     /**
      * The process position this item's prompt belongs to (a Proceed prompt,
      * or what a running Proceed prompt queued): while it is sent, the role and
@@ -1886,8 +1902,8 @@ export class PromptQueueManager {
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
-        /** The named Agent SDK session the item runs in. */
-        session?: string;
+        /** The named session the item runs in: a name, or a spec `{name, basedOn?, mode?, profile?}`. */
+        session?: string | Record<string, unknown>;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
     }): Promise<QueuedPrompt> {
@@ -1895,6 +1911,7 @@ export class PromptQueueManager {
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
             assertValidRepeatCount(value);
         }
+        const sessionSpec = this.parseItemSession(opts.session);
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         // Spec §4.16 — pass the transport so template lookup hits the
         // correct store. The initial expanded text is what the queue
@@ -1981,11 +1998,15 @@ export class PromptQueueManager {
             transport: opts.transport,
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
-            ...(opts.session?.trim() ? { session: opts.session.trim() } : {}),
+            ...(sessionSpec ? { session: sessionSpec.name } : {}),
+            ...(sessionSpec && specExtras(sessionSpec) ? { sessionCreate: specExtras(sessionSpec) } : {}),
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
         };
+
+        const sessionRefusal = this.sessionRefusal(item);
+        if (sessionRefusal) { throw new Error(sessionRefusal); }
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
 
@@ -3177,10 +3198,15 @@ export class PromptQueueManager {
         // text — same contract as the dispatch loop.
         const container = resolveAnswerContainer(item);
 
+        // The item's session and process position, and the iteration the
+        // replayed prompt ran in, so the resend continues the same conversation.
         const resolved = {
+            ...this.resolveStageTransport(item),
             transport: last.transport,
             anthropicProfileId: last.anthropicProfileId,
             anthropicConfigId: last.anthropicConfigId,
+            iterationKey: last.iterationKey,
+            item,
         };
 
         const epoch = this._dispatchEpoch;
@@ -3669,15 +3695,17 @@ export class PromptQueueManager {
     private resolveStageTransport(
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
-    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun } {
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {
         const session = item.session ?? this._defaultAgentSdkSession;
         const processRun = item.processRun;
+        // The profile: the stage's, else the item's, else the session's, else the queue default.
+        const sessionProfile = this.sessionProfileOf(session, session === item.session ? item.sessionCreate : undefined);
         if (stage?.transport) {
             return {
                 session,
                 processRun,
                 transport: stage.transport,
-                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? this._defaultAnthropicProfileId,
+                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? sessionProfile ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? this._defaultAnthropicConfigId,
             };
         }
@@ -3686,7 +3714,7 @@ export class PromptQueueManager {
                 session,
                 processRun,
                 transport: item.transport,
-                anthropicProfileId: item.anthropicProfileId ?? this._defaultAnthropicProfileId,
+                anthropicProfileId: item.anthropicProfileId ?? sessionProfile ?? this._defaultAnthropicProfileId,
                 anthropicConfigId: item.anthropicConfigId ?? this._defaultAnthropicConfigId,
             };
         }
@@ -3694,7 +3722,7 @@ export class PromptQueueManager {
             session,
             processRun,
             transport: this._defaultTransport,
-            anthropicProfileId: this._defaultAnthropicProfileId,
+            anthropicProfileId: sessionProfile ?? this._defaultAnthropicProfileId,
             anthropicConfigId: this._defaultAnthropicConfigId,
         };
     }
@@ -3754,7 +3782,9 @@ export class PromptQueueManager {
             toolApprovalMode: 'never',
         };
 
-        logQueue(`dispatchStage: anthropic profile=${profile.id} config=${configuration.id}`);
+        logQueue(`dispatchStage: anthropic profile=${profile.id} config=${configuration.id}${resolved.session ? ` session=${resolved.session}` : ''}${resolved.iterationKey ? ` iteration=${resolved.iterationKey}` : ''}`);
+        // A missing named session is created from the item's spec before the first send.
+        if (resolved.item) { this.ensureItemSession(resolved.item, resolved.session); }
         // CTS scope: created here so the Stop button (`stopActiveItem`)
         // can cancel the in-flight round loop. Disposed in `finally` so
         // a stale token never lingers across dispatches.
@@ -3772,6 +3802,8 @@ export class PromptQueueManager {
                 source: 'queue',
                 // The item's named session, else the queue default, else `default`.
                 ...(resolved.session ? { sessionKey: resolved.session } : {}),
+                // The queue iteration (a per-iteration session keeps one conversation per key).
+                ...(resolved.iterationKey ? { iterationKey: resolved.iterationKey } : {}),
             }));
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -3840,7 +3872,7 @@ export class PromptQueueManager {
                 // The refresh prompt is its own sequential dispatch: skip the
                 // refresh hook (no count / no recursion) and don't propagate its
                 // maintenance answer's responseValues.
-                (refreshText) => this.dispatchStage(refreshText, resolved, undefined, true, false).then(() => undefined),
+                (refreshText) => this.dispatchStage(refreshText, { ...resolved, iterationKey: undefined }, undefined, true, false).then(() => undefined),
                 quest,
             ),
             incrementCount: () => { QuestRefreshStore.instance.incrementCount('anthropic', quest); },
@@ -3944,6 +3976,8 @@ export class PromptQueueManager {
         // not roll back the *previous* repetition. The snapshot is re-set the
         // instant this attempt bumps a stage counter.
         item.inFlightRepetition = undefined;
+        // The run the iteration keys belong to (src/utils/queueIterations.ts).
+        ensureRunId(item, () => randomUUID().slice(0, 8));
 
         // Stage 1: Pre-prompts with individual repeat support.
         // Each stage uses a stable numeric repeat target for normal loop control.
@@ -3960,7 +3994,8 @@ export class PromptQueueManager {
             logQueue(`PP dispatch: repeatCount=${String(pp.repeatCount)}, resolved=${ppRepeatCount}, cachedResolved=${pp.resolvedRepeatCount}, sentCount=${ppSentCount}`);
             if (ppSentCount < ppRepeatCount) {
                 if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
-                const resolved = this.resolveStageTransport(item, pp);
+                // A pre-prompt runs in the iteration it precedes.
+                const resolved = { ...this.resolveStageTransport(item, pp), iterationKey: iterationKeyFor(item, 'prePrompt'), item };
                 // Anthropic pre-prompts skip the answer-wrapper expansion;
                 // it's a Copilot-only construct (spec §4.7). Pass the
                 // resolved transport so the template lookup hits the
@@ -4003,6 +4038,7 @@ export class PromptQueueManager {
                     transport: resolved.transport,
                     anthropicProfileId: resolved.anthropicProfileId,
                     anthropicConfigId: resolved.anthropicConfigId,
+                    iterationKey: resolved.iterationKey,
                     dispatchedAt: new Date().toISOString(),
                 };
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
@@ -4087,7 +4123,8 @@ export class PromptQueueManager {
             logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' has no dispatchable todo — main prompt skipped`);
         }
         if (hasMainToSend) {
-            const resolved = this.resolveStageTransport(item);
+            // The main prompt starts the next iteration.
+            const resolved = { ...this.resolveStageTransport(item), iterationKey: iterationKeyFor(item, 'main'), item };
             // Anthropic path skips the answerWrapper (Copilot-only).
             const effectiveWrap = resolved.transport === 'copilot' ? item.answerWrapper : false;
             item.expandedText = await this._buildExpandedText(
@@ -4125,11 +4162,14 @@ export class PromptQueueManager {
             item.repeatTodoId = iterationTodo?.id ?? item.repeatTodoId;
             // Record the advance so a failed send can roll back to re-send this
             // same main-prompt repetition instead of skipping to the next.
+            const prevIterationSeq = item.iterationSeq ?? 0;
+            item.iterationSeq = prevIterationSeq + 1;
             item.inFlightRepetition = {
                 stage: 'main',
                 prevRepeatIndex: mainSentCount,
                 todoId: iterationTodo?.id,
                 prevRepeatTodoId,
+                prevIterationSeq,
             };
             item.sentAt = new Date().toISOString();
             item.awaitingAnswer = true; // in flight — a prompt is being processed
@@ -4148,6 +4188,7 @@ export class PromptQueueManager {
                 transport: resolved.transport,
                 anthropicProfileId: resolved.anthropicProfileId,
                 anthropicConfigId: resolved.anthropicConfigId,
+                iterationKey: resolved.iterationKey,
                 dispatchedAt: new Date().toISOString(),
             };
             // Main stage: counts toward the Quest Refresh interval (and may
@@ -4183,7 +4224,8 @@ export class PromptQueueManager {
             logQueue(`FU dispatch: repeatCount=${String(nextFollowUp.repeatCount)}, resolved=${fuRepeatCount}, cachedResolved=${nextFollowUp.resolvedRepeatCount}, sentCount=${fuSentCount}`);
             if (fuSentCount < fuRepeatCount) {
                 if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
-                const resolved = this.resolveStageTransport(item, nextFollowUp);
+                // A follow-up runs in the iteration it follows (the last).
+                const resolved = { ...this.resolveStageTransport(item, nextFollowUp), iterationKey: iterationKeyFor(item, 'followUp'), item };
                 const followUpExpanded = await this._buildExpandedText(
                     nextFollowUp.originalText,
                     nextFollowUp.template,
@@ -4231,6 +4273,7 @@ export class PromptQueueManager {
                     transport: resolved.transport,
                     anthropicProfileId: resolved.anthropicProfileId,
                     anthropicConfigId: resolved.anthropicConfigId,
+                    iterationKey: resolved.iterationKey,
                     dispatchedAt: new Date().toISOString(),
                 };
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
@@ -4437,14 +4480,89 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
-    /** Set an item's Agent SDK session (staged or pending items); '' = inherit the queue default. */
-    updateItemSession(id: string, name: string | undefined): boolean {
+    /**
+     * Set an item's session (staged or pending items): a name or a spec
+     * `{name, basedOn?, mode?, profile?}`; '' = inherit the queue default.
+     * Throws for a malformed spec or a session the item's profile cannot
+     * continue; false when the item cannot change.
+     */
+    updateItemSession(id: string, session: string | Record<string, unknown> | undefined): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
-        item.session = name?.trim() || undefined;
+        const spec = this.parseItemSession(session);
+        const next = { ...item, session: spec?.name, sessionCreate: spec ? specExtras(spec) : undefined };
+        const refusal = this.sessionRefusal(next);
+        if (refusal) { throw new Error(refusal); }
+        item.session = next.session;
+        item.sessionCreate = next.sessionCreate;
         this.persist();
         this._onDidChange.fire();
         return true;
+    }
+
+    /** An item's session as given (name or spec), checked; undefined for none. Throws for a malformed one. */
+    private parseItemSession(raw: string | Record<string, unknown> | undefined): SessionSpec | undefined {
+        if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) { return undefined; }
+        const parsed = parseSessionSpec(raw);
+        if (!parsed.ok) { throw new Error(parsed.error); }
+        return parsed.spec;
+    }
+
+    /** The folder of the active quest's session files. */
+    private sessionsFolder(): string {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');
+        return TwoTierMemoryService.instance.agentSdkSessionsFolder(WsPaths.getWorkspaceQuestId() || undefined);
+    }
+
+    /** The profile session `name` runs with: its file's, else the spec it will be created from. */
+    private sessionProfileOf(name: string | undefined, create?: Omit<SessionSpec, 'name'>): string | undefined {
+        if (!name) { return undefined; }
+        try {
+            return readSession(this.sessionsFolder(), name)?.profileId ?? create?.profile;
+        } catch {
+            return create?.profile;
+        }
+    }
+
+    /**
+     * Why the item cannot run in its session, checked when it is queued or its
+     * session changes: the spec names a profile that does not exist, or a stage
+     * would run with a profile that keeps its conversation elsewhere than the
+     * session's existing one (an Agent SDK session continued by a profile with
+     * our own history, or the reverse). Undefined when it can.
+     */
+    private sessionRefusal(item: QueuedPrompt): string | undefined {
+        const section = loadSendToChatConfig()?.anthropic as (ProfileSection & { profiles?: Array<{ id?: string; isDefault?: boolean } | null> }) | undefined;
+        if (item.sessionCreate?.profile && !lookupProfile(section, item.sessionCreate.profile)) {
+            return `Session "${item.session}": there is no Anthropic profile "${item.sessionCreate.profile}".`;
+        }
+        const stages: Array<QueuedPrePrompt | QueuedFollowUpPrompt | undefined> = [undefined, ...(item.prePrompts ?? []), ...(item.followUps ?? [])];
+        for (const stage of stages) {
+            const resolved = this.resolveStageTransport(item, stage);
+            if (resolved.transport !== 'anthropic' || !resolved.session) { continue; }
+            const profileId = pickAnthropicProfile(section?.profiles ?? [], resolved.anthropicProfileId)?.id;
+            const mismatch = sessionTransportMismatch(this.sessionsFolder(), resolved.session, lookupProfile(section, profileId));
+            if (mismatch) { return mismatch; }
+        }
+        return undefined;
+    }
+
+    /**
+     * Create the item's session when it is missing, before its first send:
+     * from its spec (a missing base is created plainly; the profile is the
+     * spec's, else the item's own), or — a bare name — a fresh `continue`
+     * session. The shared sessions (`chat`, `default`) are never created here.
+     */
+    private ensureItemSession(item: QueuedPrompt, sessionName: string | undefined): void {
+        if (!sessionName || sessionName === 'default' || sessionName === 'chat') { return; }
+        const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+        const spec: SessionSpec = sessionName === item.session ? { name: sessionName, ...(item.sessionCreate ?? {}) } : { name: sessionName };
+        const result = ensureSession(this.sessionsFolder(), spec, (id) => lookupProfile(section, id), item.anthropicProfileId);
+        if (!result.ok) { throw new Error(result.error); }
+        if (result.created.length > 0) {
+            logQueue(`Item ${item.id}: created session(s) ${result.created.join(', ')} before the first send`);
+        }
     }
     setDefaultTransport(
         transport: QueuedTransport,
@@ -4702,7 +4820,10 @@ export class PromptQueueManager {
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
                 // `agent-sdk-session` is the key's older name (it now chooses the
                 // direct transport's history too); read either, write `session`.
-                session: main.session || main['agent-sdk-session'] || undefined,
+                // A spec is written as a map ({name, basedOn, mode, profile}).
+                ...readItemSession(main.session ?? main['agent-sdk-session']),
+                runId: typeof main.execution?.['run-id'] === 'string' ? main.execution['run-id'] : undefined,
+                iterationSeq: typeof main.execution?.['iteration-seq'] === 'number' ? main.execution['iteration-seq'] : undefined,
                 processRun: parseProcessRun(main['process-run']),
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
@@ -4719,6 +4840,7 @@ export class PromptQueueManager {
                     transport: ld.transport,
                     anthropicProfileId: ld['anthropic-profile-id'] || undefined,
                     anthropicConfigId: ld['anthropic-config-id'] || undefined,
+                    iterationKey: typeof ld['iteration-key'] === 'string' ? ld['iteration-key'] : undefined,
                     dispatchedAt: ld['dispatched-at'] || new Date().toISOString(),
                 };
             }
@@ -4838,7 +4960,7 @@ export class PromptQueueManager {
             ...(item.transport ? { transport: item.transport } : {}),
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
-            ...(item.session ? { session: item.session } : {}),
+            ...(item.session ? { session: item.sessionCreate ? { name: item.session, ...item.sessionCreate } : item.session } : {}),
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
@@ -4880,6 +5002,8 @@ export class PromptQueueManager {
                 'sent-at': item.sentAt || null,
                 error: item.error || null,
                 'follow-up-index': item.followUpIndex || 0,
+                ...(item.runId ? { 'run-id': item.runId } : {}),
+                ...(item.iterationSeq ? { 'iteration-seq': item.iterationSeq } : {}),
                 ...(item.waitingUntil ? { 'waiting-until': item.waitingUntil } : {}),
                 ...(item.waitingResetLabel ? { 'waiting-reset-label': item.waitingResetLabel } : {}),
                 ...(item.retryAttempt ? { 'retry-attempt': item.retryAttempt } : {}),
@@ -4893,6 +5017,7 @@ export class PromptQueueManager {
                         transport: item.lastDispatched.transport,
                         ...(item.lastDispatched.anthropicProfileId ? { 'anthropic-profile-id': item.lastDispatched.anthropicProfileId } : {}),
                         ...(item.lastDispatched.anthropicConfigId ? { 'anthropic-config-id': item.lastDispatched.anthropicConfigId } : {}),
+                        ...(item.lastDispatched.iterationKey ? { 'iteration-key': item.lastDispatched.iterationKey } : {}),
                         'dispatched-at': item.lastDispatched.dispatchedAt,
                     },
                 } : {}),
@@ -5151,4 +5276,21 @@ function readInterruptionFromError(err: unknown): { kind: QueueWarningKind; mess
         }
     }
     return null;
+}
+
+/**
+ * A queue entry's `session` as read from its YAML: a name, or a spec map
+ * `{name, basedOn, mode, profile}` (written for an item queued with a spec).
+ * An unreadable spec keeps its name, if any, so the item still runs there.
+ */
+function readItemSession(raw: unknown): { session?: string; sessionCreate?: Omit<SessionSpec, 'name'> } {
+    if (raw === undefined || raw === null || raw === '') { return {}; }
+    const parsed = parseSessionSpec(raw);
+    if (parsed.ok) {
+        const extras = specExtras(parsed.spec);
+        return { session: parsed.spec.name, ...(extras ? { sessionCreate: extras } : {}) };
+    }
+    if (typeof raw === 'string') { return { session: raw }; }
+    const name = (raw as { name?: unknown }).name;
+    return typeof name === 'string' && name ? { session: name } : {};
 }

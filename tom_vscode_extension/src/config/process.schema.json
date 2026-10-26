@@ -250,7 +250,7 @@
       }
     },
     "session": {
-      "description": "The named Agent SDK session it runs in (a <name>.session.json of the quest's history folder); inherited from its step and phase when unset. A name, or the name with the session it is based on and how (so a missing session is created from the definition).",
+      "description": "The named session it runs in (a <name>.session.json of the quest's history folder); inherited from its step and phase when unset. A name, or the name with the session it is based on, its lifetime and its profile (so a missing session is created from the definition).",
       "oneOf": [
         {
           "$ref": "#/$defs/sessionName"
@@ -271,26 +271,17 @@
             "mode": {
               "enum": [
                 "continue",
+                "per-prompt",
+                "per-iteration",
                 "fork-from-base"
               ],
-              "description": "fork-from-base: every prompt starts again from the base (needs basedOn)."
-            }
-          },
-          "if": {
-            "properties": {
-              "mode": {
-                "const": "fork-from-base"
-              }
+              "description": "The session's lifetime: continue (default), per-prompt (every prompt starts again, from the base or fresh), per-iteration (one conversation per queue iteration). fork-from-base is the old name of per-prompt."
             },
-            "required": [
-              "mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "name",
-              "basedOn"
-            ]
+            "profile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The Anthropic profile a missing session is created with (its prompts run with it unless the queue item names its own)."
+            }
           }
         }
       ]

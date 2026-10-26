@@ -134,10 +134,13 @@
             + '<span class="codicon codicon-comment-discussion"></span>'
             + text(path + '.session.name', s.name, 'session (inherited)', 'session-name')
             + text(path + '.session.basedOn', s.basedOn, 'based on', 'session-base')
-            + '<select data-path="' + path + '.session.mode" title="How a session based on another starts">'
-            + '<option value=""' + (mode === '' ? ' selected' : '') + '>continue</option>'
-            + '<option value="fork-from-base"' + (mode === 'fork-from-base' ? ' selected' : '') + '>fresh from base per prompt</option>'
-            + '</select></span>';
+            + '<select data-path="' + path + '.session.mode" title="The session\'s lifetime: fresh, or from its base when it has one">'
+            + '<option value=""' + (mode === '' || mode === 'continue' ? ' selected' : '') + '>continue</option>'
+            + '<option value="per-prompt"' + (mode === 'per-prompt' || mode === 'fork-from-base' ? ' selected' : '') + '>new per prompt</option>'
+            + '<option value="per-iteration"' + (mode === 'per-iteration' ? ' selected' : '') + '>new per queue iteration</option>'
+            + '</select>'
+            + text(path + '.session.profile', s.profile, 'profile', 'session-profile')
+            + '</span>';
     }
 
     /** The gate's failure target: one of the phase's steps, or the gate run again (unset). */
@@ -340,7 +343,7 @@
         if (!p) { return; }
         var kind = t.dataset.kind;
         var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value)) : t.value;
-        var sessionAt = /^(.*)\.session\.(name|basedOn|mode)$/.exec(p);
+        var sessionAt = /^(.*)\.session\.(name|basedOn|mode|profile)$/.exec(p);
         if (sessionAt) {
             // The session is an object of up to three fields; a name alone is
             // written as a plain string, nothing set removes it (inherit).
@@ -348,8 +351,8 @@
             if (!node) { return; }
             var spec = typeof node.session === 'string' ? { name: node.session } : Object.assign({}, node.session || {});
             if (value === '') { delete spec[sessionAt[2]]; } else { spec[sessionAt[2]] = value; }
-            if (!spec.name && !spec.basedOn && !spec.mode) { delete node.session; }
-            else if (spec.name && !spec.basedOn && !spec.mode) { node.session = spec.name; }
+            if (!spec.name && !spec.basedOn && !spec.mode && !spec.profile) { delete node.session; }
+            else if (spec.name && !spec.basedOn && !spec.mode && !spec.profile) { node.session = spec.name; }
             else { node.session = spec; }
             changed();
             return;

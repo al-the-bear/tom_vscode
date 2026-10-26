@@ -1953,3 +1953,34 @@ In a headless extension host there is no TTY, so the SDK auto-allows the call an
 **Limitation.** `canUseTool` is not fired under `permissionMode === 'bypassPermissions'` (forced by `toolApprovalMode: 'never'`), so interactive questions require `toolApprovalMode: 'default'`/`'auto'` to take effect.
 
 Touched files: `services/agent-sdk-questions.ts` (new) + test, `handlers/agent-sdk-transport.ts`, `handlers/anthropic-handler.ts`, `handlers/globalTemplateEditor-handler.ts`, `tools/user-interaction-tools.ts` (export `liveUserPrompter`), `utils/sendToChatConfig.ts`, `config/tom_vscode_extension.schema.json`.
+
+### 18.12 Named sessions: lifetimes, profile and model
+
+A conversation runs in a **named session**: `_ai/quests/<quest>/history/<name>.session.json` (machine-local, gitignored). The chat panel uses `chat`, the prompt queue `default`; any other name is a session someone created — in the session picker, with `tomAi_createSession`, from a queue item's session spec or from a process definition. The rules are pure functions in `src/utils/agentSdkSessions.ts`; the files are read and written by `src/services/agentSdkSessionStore.ts`.
+
+A session file holds:
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | The lifetime (below). The old value `fork-from-base` is read as `per-prompt`. |
+| `basedOn` | The session it starts from, if any. |
+| `profileId` | The Anthropic profile its prompts run with unless the queue item names its own. A session created from a base without a profile takes the base's. |
+| `model` | The profile's configured model, written at creation; the first send updates it from what the SDK reports. |
+| `sessionId` | The Agent SDK conversation it continues (`continue` sessions). |
+| `iteration` | `{key, sessionId}`: the conversation of the current queue iteration (`per-iteration` sessions on the Agent SDK). |
+
+**Lifetimes**, each with or without a base:
+
+| Mode | Without a base | With a base |
+| --- | --- | --- |
+| `continue` (default) | One conversation; every prompt continues it. | The first prompt forks the base's conversation; later prompts continue the new session. The base is never changed. |
+| `per-prompt` | Every prompt starts fresh; nothing is saved. | Every prompt forks the base's current conversation; nothing is saved, so the base can hold preparatory context while the prompts never change each other's. |
+| `per-iteration` | One conversation per queue iteration, started fresh. | One conversation per queue iteration, forked from the base when the iteration starts. |
+
+A **queue iteration** is one round of an item's repeat count or one todo of a `<prefix>*` walk. The queue sends every prompt with an iteration key `<item id>/<run id>/<n>` (`src/utils/queueIterations.ts`): the main prompt starts iteration `n + 1`, a pre-prompt runs in the iteration it precedes, a follow-up in the one it follows, and a resend runs in the iteration of the prompt it replays. A run id changes when the item is started again from the beginning, so a second run never continues the first run's conversations. A prompt with no key (the chat panel, the Quest Refresh prompt) is its own iteration: a `per-iteration` session behaves as `per-prompt` there.
+
+**Both transports.** On the Agent SDK transport with history mode `sdk-managed`, `planSessionStart` decides what a prompt resumes (its own id, a fork of the base's, the current iteration's) and whether the id the SDK reports is saved — as the session's own or as the iteration's. On every other configuration (the direct API, and the Agent SDK with our own history) `src/services/directSessionHistory.ts` decides which history files a send reads and writes: `chat` and `default` share `history/`; any other session has `history/sessions/<name>/`. A `continue` session based on another is seeded once from the base's history; a `per-prompt` session reads its base's history (through bases that keep none of their own) or nothing, and saves nothing; a `per-iteration` session keeps its own folder for the current iteration — `iteration.json` names it — and empties it and seeds it from the base again when the key changes.
+
+**Profile and model.** Which profile a prompt runs with: the queue stage's or item's own, else the session's `profileId`, else the queue default. A conversation lives in one place — an Agent SDK session (`sdk-managed`) or our own history files — so a profile of the other kind cannot continue it: the queue refuses such an item when it is queued or its session changes (`sessionTransportMismatch`; `chat` and `default` hold both and are never refused, and a session without a conversation yet takes any profile). An unknown profile id is refused wherever a session is created with one. `describeSession`, `tomAi_listSessions` and `tomAi_createSession` show the profile and model.
+
+**Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?}`. When the item is dispatched on the Anthropic transport and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.

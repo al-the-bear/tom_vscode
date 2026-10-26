@@ -42,13 +42,18 @@ export interface ProcessTodoItem {
  * Names may hold `${phase-iteration}`, `${step-iteration}` and
  * `${substep-iteration}`, filled in for the position (effectiveSession).
  */
-export type ProcessSessionSpec = string | { name: string; basedOn?: string; mode?: 'continue' | 'fork-from-base' };
+export type ProcessSessionSpec = string | { name: string; basedOn?: string; mode?: ProcessSessionMode; profile?: string };
+
+/** A session lifetime as a definition writes it; `fork-from-base` is the old name of `per-prompt`. */
+export type ProcessSessionMode = 'continue' | 'per-prompt' | 'per-iteration' | 'fork-from-base';
 
 /** A session spec in its object form. */
 export interface ProcessSession {
     name: string;
     basedOn?: string;
-    mode?: 'continue' | 'fork-from-base';
+    mode?: ProcessSessionMode;
+    /** The Anthropic profile a missing session is created with. */
+    profile?: string;
 }
 
 /** A sub-step: always an action. */
@@ -207,12 +212,14 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
             if (!isSessionName(v)) { err(at, SESSION_MESSAGE); }
             return;
         }
-        if (!isObject(v)) { err(at, 'a session name or {name, basedOn, mode}'); return; }
-        unknownKeys(v, ['name', 'basedOn', 'mode'], at);
+        if (!isObject(v)) { err(at, 'a session name or {name, basedOn, mode, profile}'); return; }
+        unknownKeys(v, ['name', 'basedOn', 'mode', 'profile'], at);
         if (typeof v.name !== 'string' || v.name === '') { err(`${at}.name`, 'required'); } else if (!isSessionName(v.name)) { err(`${at}.name`, SESSION_MESSAGE); }
         if (v.basedOn !== undefined && (typeof v.basedOn !== 'string' || !isSessionName(v.basedOn))) { err(`${at}.basedOn`, SESSION_MESSAGE); }
-        if (v.mode !== undefined && v.mode !== 'continue' && v.mode !== 'fork-from-base') { err(`${at}.mode`, '"continue" or "fork-from-base"'); }
-        if (v.mode === 'fork-from-base' && v.basedOn === undefined) { err(`${at}.basedOn`, 'a session re-created from its base for every prompt needs a base'); }
+        if (v.mode !== undefined && !['continue', 'per-prompt', 'per-iteration', 'fork-from-base'].includes(v.mode as string)) {
+            err(`${at}.mode`, '"continue", "per-prompt" or "per-iteration"');
+        }
+        if (v.profile !== undefined && (typeof v.profile !== 'string' || v.profile === '')) { err(`${at}.profile`, 'an Anthropic profile id'); }
     };
     const checkRepeat = (obj: Raw, path: string, what: string): void => {
         if (obj.repeatable !== undefined && typeof obj.repeatable !== 'boolean') { err(`${path}.repeatable`, 'true or false'); }
@@ -966,7 +973,12 @@ export function processVariableValues(
 export function sessionSpec(spec: ProcessSessionSpec | undefined): ProcessSession | null {
     if (spec === undefined) { return null; }
     if (typeof spec === 'string') { return { name: spec }; }
-    return { name: spec.name, ...(spec.basedOn ? { basedOn: spec.basedOn } : {}), ...(spec.mode ? { mode: spec.mode } : {}) };
+    return {
+        name: spec.name,
+        ...(spec.basedOn ? { basedOn: spec.basedOn } : {}),
+        ...(spec.mode ? { mode: spec.mode } : {}),
+        ...(spec.profile ? { profile: spec.profile } : {}),
+    };
 }
 
 /**
@@ -1026,9 +1038,11 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
         }
         const session = effectiveSession(def, state);
         if (session) {
-            const how = session.mode === 'fork-from-base' && session.basedOn
-                ? ` (re-created from \`${session.basedOn}\` for every prompt)`
-                : session.basedOn ? ` (based on \`${session.basedOn}\`)` : '';
+            const from = session.basedOn ? `from \`${session.basedOn}\`` : 'fresh';
+            const how = session.mode === 'per-prompt' || session.mode === 'fork-from-base'
+                ? ` (${from} for every prompt)`
+                : session.mode === 'per-iteration' ? ` (${from} for every queue iteration)`
+                    : session.basedOn ? ` (based on \`${session.basedOn}\`)` : '';
             lines.push(`Session: \`${session.name}\`${how} — prompts this step queues run in it unless they name another`);
         }
         const outline = entries.map((e) => {

@@ -54,6 +54,7 @@
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
+import { parseSessionSpec } from '../utils/sessionSpecs';
 
 // ===========================================================================
 // Shared shapes
@@ -122,6 +123,8 @@ export interface QueueItemSnapshot {
     anthropicConfigId?: string;
     /** The named Agent SDK session the item runs in (unset: the queue default). */
     session?: string;
+    /** How the session is created when missing at dispatch (the item's session was given as a spec). */
+    sessionCreate?: { basedOn?: string; mode?: string; profile?: string };
     answerText?: string;
     lastDispatched?: string;
     /** Why the last send did not complete (rate limit, quota, overload, …), as the queue records it. */
@@ -139,8 +142,8 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
-    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'answerText',
-    'lastDispatched', 'warning',
+    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
+    'answerText', 'lastDispatched', 'warning',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -184,10 +187,14 @@ export interface EnqueueInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
-    session?: string;
+    /** A session name or a spec `{name, basedOn?, mode?, profile?}`. */
+    session?: QueueSessionInput;
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
 }
+
+/** A queue item's session as a tool takes it: a name, or how to create it when missing. */
+export type QueueSessionInput = string | { name: string; basedOn?: string; mode?: string; profile?: string };
 
 // ===========================================================================
 // Narrow PromptQueueAccess dep
@@ -227,8 +234,11 @@ export interface PromptQueueAccess {
         anthropicProfileId?: string;
         anthropicConfigId?: string;
     }): void;
-    /** Set an item's Agent SDK session ('' = the queue default); false when the item cannot change. */
-    updateItemSession?(id: string, session: string): boolean;
+    /**
+     * Set an item's session — a name or a spec ('' = the queue default); false when the item cannot
+     * change. Throws when the item's profile cannot continue the session's conversation.
+     */
+    updateItemSession?(id: string, session: QueueSessionInput): boolean;
 
     addPrePrompt(id: string, text: string, template: string | undefined, opts?: {
         transport?: QueueTransport;
@@ -283,9 +293,41 @@ function apiKeyWarning(access: PromptQueueAccess, itemId: string | undefined): {
 
 /** What a queue item's `session` is. */
 const SESSION_DOC = 'The named session the item runs in: a `<name>.session.json` of the quest\'s history folder '
-    + '(tomAi_listSessions; create one with tomAi_createSession, e.g. a session re-created from a prepared base for every '
-    + 'prompt). Unset: the queue default, else the queue\'s own `default`. On the Agent SDK transport it is the SDK '
-    + 'conversation; on the direct API transport the session\'s own history (`chat` and `default` share the quest\'s).';
+    + '(tomAi_listSessions). A name, or a spec `{name, basedOn?, mode?, profile?}`: a session that does not exist when '
+    + 'the item is dispatched is created before its first send — from the spec (fresh, or based on `basedOn`, a missing '
+    + 'base being created plainly; `mode` continue / per-prompt / per-iteration; `profile` the Anthropic profile, else '
+    + 'the item\'s own anthropicProfileId), or for a bare name as a fresh `continue` session. Unset: the queue default, '
+    + 'else the queue\'s own `default`. On the Agent SDK transport it is the SDK conversation; on the direct API '
+    + 'transport the session\'s own history (`chat` and `default` share the quest\'s). A prompt runs with the stage\'s '
+    + 'or item\'s profile, else the session\'s, else the queue default. Refused when queued (code invalidSession): a '
+    + 'malformed spec, an unknown profile, or a profile that keeps its conversation elsewhere than the session\'s '
+    + 'existing one (an Agent SDK session continued with our own history, or the reverse).';
+
+/** The JSON schema of a queue item's `session`. */
+const SESSION_SCHEMA = {
+    description: SESSION_DOC,
+    anyOf: [
+        { type: 'string' },
+        {
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                basedOn: { type: 'string' },
+                mode: { type: 'string', enum: ['continue', 'per-prompt', 'per-iteration', 'fork-from-base'] },
+                profile: { type: 'string', description: 'Anthropic profile id the session is created with.' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+        },
+    ],
+};
+
+/** The refusal of a malformed session (name or spec), or null. */
+function sessionRefusal(session: unknown): string | null {
+    if (session === undefined || session === '') { return null; }
+    const parsed = parseSessionSpec(session);
+    return parsed.ok ? null : err(parsed.error, { code: 'invalidSession' });
+}
 
 /** How a repeat count is written, for every tool that takes one. */
 const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
@@ -325,6 +367,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
         session: i.session || null,
+        ...(i.sessionCreate ? { sessionSpec: { name: i.session, ...i.sessionCreate } } : {}),
         answerText: i.answerText || null,
     };
 }
@@ -362,8 +405,8 @@ export interface AddQueueItemInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
-    /** The named Agent SDK session the item runs in ('' = the queue default). */
-    session?: string;
+    /** The session the item runs in: a name or a spec ('' = the queue default). */
+    session?: QueueSessionInput;
 }
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
@@ -374,6 +417,8 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         const refused = repeatCountRefusal(input.repeatCount, input.templateRepeatCount,
             ...(input.prePrompts ?? []).map((p) => p.repeatCount), ...(input.followUps ?? []).map((f) => f.repeatCount));
         if (refused) { return refused; }
+        const badSession = sessionRefusal(input.session);
+        if (badSession) { return badSession; }
         const item = await access.enqueue({
             originalText: input.text,
             template: input.template,
@@ -465,7 +510,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
-            session: { type: 'string', description: SESSION_DOC },
+            session: SESSION_SCHEMA,
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -688,8 +733,8 @@ export interface UpdateQueueItemInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
-    /** The named Agent SDK session the item runs in ('' = the queue default). */
-    session?: string;
+    /** The session the item runs in: a name or a spec ('' = the queue default). */
+    session?: QueueSessionInput;
 }
 
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
@@ -697,6 +742,8 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         if (!input.queueItemId) { return err('`queueItemId` is required.'); }
         const refused = repeatCountRefusal(input.repeatCount, input.templateRepeatCount);
         if (refused) { return refused; }
+        const badSession = sessionRefusal(input.session);
+        if (badSession) { return badSession; }
         if (!access.getById(input.queueItemId)) {
             return err(`Queue item "${input.queueItemId}" not found.`);
         }
@@ -795,7 +842,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
-            session: { type: 'string', description: SESSION_DOC },
+            session: SESSION_SCHEMA,
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

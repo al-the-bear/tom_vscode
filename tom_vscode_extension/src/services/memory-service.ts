@@ -748,11 +748,12 @@ export class TwoTierMemoryService {
      * looks like a fresh session and forks a new Claude Code session
      * per prompt).
      */
-    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = 'default'): void {
+    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = 'default', iterationKey?: string): void {
         try {
             // Through the session store: written atomically (tmp + rename) and
-            // merged, so a session's `basedOn` / `mode` survive every save.
-            saveSessionId(this.historyFolder(questId), sessionKey, sessionId, model);
+            // merged, so a session's `basedOn` / `mode` survive every save. With
+            // an iteration key the id is that queue iteration's conversation.
+            saveSessionId(this.historyFolder(questId), sessionKey, sessionId, model, iterationKey);
         } catch {
             // best-effort
         }

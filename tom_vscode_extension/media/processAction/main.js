@@ -41,7 +41,10 @@
             $('to').textContent = msg.to;
             var s = msg.session || {};
             var sessionText = s.name
-                ? s.name + (s.mode === 'fork-from-base' ? ' — fresh from ' + (s.basedOn || '?') + ' for every prompt' : s.basedOn ? ' — based on ' + s.basedOn : '')
+                ? s.name + (s.mode === 'fork-from-base' || s.mode === 'per-prompt' ? ' — ' + (s.basedOn ? 'from ' + s.basedOn : 'fresh') + ' for every prompt'
+                    : s.mode === 'per-iteration' ? ' — ' + (s.basedOn ? 'from ' + s.basedOn : 'fresh') + ' for every queue iteration'
+                        : s.basedOn ? ' — based on ' + s.basedOn : '')
+                    + (s.profile ? ' · ' + s.profile : '')
                     + (s.source === 'override' ? ' (picked here)' : ' (from the process)')
                 : 'the queue default' + (s.source === 'override' ? ' (picked here)' : '');
             $('session').textContent = sessionText;

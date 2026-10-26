@@ -322,6 +322,13 @@ export interface AnthropicSendOptions {
      */
     sessionKey?: string;
     /**
+     * The queue iteration this send belongs to (`<item id>/<run>/<n>`): a
+     * per-iteration session keeps one conversation per key and starts a new
+     * one when the key changes. Unset (the chat panel): every send is its own
+     * iteration. See src/utils/agentSdkSessions.ts.
+     */
+    iterationKey?: string;
+    /**
      * Quest Refresh exemption. When `true`, this send does not count toward the
      * Quest Refresh interval and never triggers an auto-refresh. Set on the
      * refresh prompt itself (so it can't recurse) and on any internal /
@@ -540,7 +547,7 @@ export class AnthropicHandler {
      * The history the in-memory state above belongs to: the quest's own
      * (the chat panel's and the queue's sessions) or a named session's
      * (`history/sessions/<name>/`), and whether this send writes it back
-     * (not for a fork-from-base session). Chosen per send from the session
+     * (not for a per-prompt session). Chosen per send from the session
      * name (`options.sessionKey`); null until the first send. See
      * src/services/directSessionHistory.ts.
      */
@@ -553,7 +560,7 @@ export class AnthropicHandler {
         return scope && scope.questId === quest ? scope.folder : TwoTierMemoryService.instance.historyFolder(quest);
     }
 
-    /** Whether this send writes its history back: false in a fork-from-base session. */
+    /** Whether this send writes its history back: false in a per-prompt session. */
     private get persistsHistory(): boolean {
         return this.historyScope?.persist ?? true;
     }
@@ -569,21 +576,21 @@ export class AnthropicHandler {
 
     /**
      * Choose the history of this send from its session. Another quest,
-     * another session, or a fork-from-base session (which starts from its
+     * another session, or a per-prompt session (which starts from its
      * base again every prompt) loads that history; the previous history's
      * background compaction is awaited first, so it cannot write into the
      * new one.
      */
-    private async selectHistoryScope(quest: string, sessionKey: string | undefined): Promise<void> {
+    private async selectHistoryScope(quest: string, sessionKey: string | undefined, iterationKey?: string): Promise<void> {
         const name = sessionKey || DEFAULT_AGENT_SDK_SESSION_KEY;
-        const scope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), name);
+        const scope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), name, iterationKey);
         if (scope.note) { logHistoryInfo(`history scope: ${scope.note}`); }
         const current = this.historyScope;
         if (current && current.key === scope.key && scope.persist) { this.historyScope = scope; return; }
         if (current) { await this.awaitInFlightBackgroundWork(); }
         this.resetHistoryState();
         this.historyScope = scope;
-        logHistoryInfo(`history scope: quest=${quest} session=${name} folder=${scope.folder}${scope.persist ? '' : ' (fork: not saved)'}`);
+        logHistoryInfo(`history scope: quest=${quest} session=${name} folder=${scope.folder}${scope.fresh ? ' (fresh)' : ''}${scope.persist ? '' : ' (not saved)'}${iterationKey ? ` iteration=${iterationKey}` : ''}`);
     }
 
     /**
@@ -744,7 +751,7 @@ export class AnthropicHandler {
     ): void {
         try {
             if (!this.persistsHistory) {
-                // A fork-from-base session: this prompt's exchange is not saved,
+                // A per-prompt session: this prompt's exchange is not saved,
                 // and the next prompt starts from the base's history again.
                 this.compactionRounds = [...this.compactionRounds, round];
                 this.rawTurns = this.computeDedupedUnion();
@@ -851,6 +858,10 @@ export class AnthropicHandler {
             return;
         }
         this.historySeeded = true;
+        if (this.historyScope?.fresh) {
+            logHistoryInfo(`history seed: session "${this.historyScope.session}" starts every prompt fresh — nothing loaded (quest=${questId})`);
+            return;
+        }
         try {
             const historyFolder = this.scopeFolder(questId);
             // A named session's history is its own folder only: no legacy file,
@@ -1840,7 +1851,7 @@ export class AnthropicHandler {
         // The history of this send's session (the quest's own for the panel and
         // the queue). Isolated sub-agent sends never change it.
         if (!options.isolated) {
-            await this.selectHistoryScope(quest, options.sessionKey);
+            await this.selectHistoryScope(quest, options.sessionKey, options.iterationKey);
         }
         this.seedHistoryFromSnapshot(quest);
         // Under the new dual-file model the rolling tail's cap lives in
@@ -2040,9 +2051,9 @@ export class AnthropicHandler {
             const sessionKey = options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY;
             // A named session decides what this prompt resumes: its own
             // conversation, a fork of its base (a session based on another),
-            // or — fork-from-base — a fork of the base that is never saved.
+            // or — per-prompt — a fork of the base that is never saved; per-iteration: the iteration's own conversation.
             const sessionStart = useSdkManagedContinuity
-                ? planSessionStartIn(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), sessionKey)
+                ? planSessionStartIn(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), sessionKey, options.iterationKey)
                 : { fork: false, persist: false };
             const resumeSessionId = sessionStart.resume;
             if (sessionStart.note) { debugLog(`[AgentSDK] session "${sessionKey}": ${sessionStart.note}`, 'WARN', 'anthropic'); }
@@ -2066,6 +2077,7 @@ export class AnthropicHandler {
                         quest,
                         configuration.model,
                         sessionKey,
+                        sessionStart.iterationKey,
                     );
                     if (sid !== resumeSessionId) {
                         debugLog(
@@ -2195,6 +2207,7 @@ export class AnthropicHandler {
                     quest,
                     configuration.model,
                     sessionKey,
+                    sessionStart.iterationKey,
                 );
             }
 
@@ -3131,7 +3144,7 @@ export class AnthropicHandler {
         configuration?: AnthropicConfiguration,
     ): void {
         if (isolated) { return; }
-        // A fork-from-base session saves nothing, so there is nothing to compact.
+        // A per-prompt session saves nothing, so there is nothing to compact.
         if (!this.persistsHistory) { return; }
         // Two-tier kill-switch:
         //   1. Per-configuration override wins when set. `'on'` forces
