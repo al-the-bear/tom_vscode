@@ -38,6 +38,7 @@ import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
+import { canSendNow, pausesBeforeNextDispatch, resetItemRunState } from '../utils/queueSendNow';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
@@ -503,6 +504,8 @@ export class PromptQueueManager {
 
     private _items: QueuedPrompt[] = [];
     private _autoSendEnabled = true;
+    /** Items run again with Send Now whose current run must not queue their next template iteration again. */
+    private readonly _repeatRuns = new Set<string>();
     // Last 'queue' window-status active state written, to skip redundant
     // writes in _refreshQueueWindowStatus(). undefined = never written yet.
     private _lastQueueActiveWritten?: boolean;
@@ -2485,10 +2488,22 @@ export class PromptQueueManager {
         return true;
     }
 
-    /** Send a specific item immediately (skip queue order). */
+    /**
+     * Send a specific item immediately (skip queue order). A `sent` item is
+     * started again from its first prompt: the whole item runs once more —
+     * every repetition or `prefix*` todo and every follow-up. With auto-send
+     * off it holds after its first prompt like any other item.
+     */
     async sendNow(id: string): Promise<void> {
         const item = this._items.find(i => i.id === id);
-        if (!item || !(item.status === 'pending' || item.status === 'staged')) { return; }
+        if (!item || !canSendNow(item.status)) { return; }
+        if (item.status === 'sent') {
+            logQueue(`Send Now on sent item ${id}: starting it again from its first prompt`);
+            resetItemRunState(item);
+            // Its template iteration already queued the next one when it
+            // first finished; a repeat run must not queue it twice.
+            this._repeatRuns.add(id);
+        }
         await this.sendItem(item);
     }
 
@@ -3031,31 +3046,7 @@ export class PromptQueueManager {
         } else {
             logQueue(`Sending prompt ${item.id} ${target} — text=${promptPreview(item.originalText)}`);
             // Fresh start: reset run state before first dispatch.
-            if (item.prePrompts && item.prePrompts.length > 0) {
-                for (let idx = 0; idx < item.prePrompts.length; idx++) {
-                    const pp = item.prePrompts[idx];
-                    pp.status = 'pending';
-                    pp.repeatIndex = 0;
-                    pp.resolvedRepeatCount = undefined;
-                }
-            }
-            if (item.followUps && item.followUps.length > 0) {
-                for (let idx = 0; idx < item.followUps.length; idx++) {
-                    const fu = item.followUps[idx];
-                    fu.repeatIndex = 0;
-                    fu.resolvedRepeatCount = undefined;
-                }
-            }
-            item.repeatIndex = 0;
-            item.resolvedRepeatCount = undefined;
-            item.requestId = undefined;
-            item.expectedRequestId = undefined;
-            item.followUpIndex = 0;
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
-            item.error = undefined;
-            item.warning = undefined;
-            item.lastDispatched = undefined;
+            resetItemRunState(item);
         }
         item.status = 'sending';
         this.persist();
@@ -3871,6 +3862,23 @@ export class PromptQueueManager {
     }
 
     /**
+     * The pause gate, checked just before a further prompt of `item` would go
+     * out: with auto-send off, an item that has already sent a prompt holds
+     * here in `sending` (SENDING (PAUSED)), and turning auto-send on resumes
+     * it. The first prompt always goes out, which is how Send Now runs an item
+     * while the queue is paused.
+     */
+    private _pauseBeforeNextDispatch(item: QueuedPrompt): boolean {
+        if (!pausesBeforeNextDispatch(this._autoSendEnabled, item)) { return false; }
+        // Between prompts and paused: none is in flight, so the item is idle
+        // (its header goes amber).
+        item.awaitingAnswer = false;
+        item.inFlightRepetition = undefined;
+        logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
+        return true;
+    }
+
+    /**
      * If `sending` is one iteration of a template-repeat sequence and
      * more iterations remain, enqueue the next one as a fresh pending
      * item with `templateRepeatIndex` advanced by one. Returns `true`
@@ -3894,6 +3902,10 @@ export class PromptQueueManager {
         sending: QueuedPrompt,
         reason: string,
     ): Promise<boolean> {
+        if (this._repeatRuns.delete(sending.id)) {
+            logQueue(`Template repeat check (${reason}): item ${sending.id} was run again with Send Now — its next template iteration was queued by its first run`);
+            return false;
+        }
         const resolvedTemplateRepeatCount = resolveRepeatCount(sending.templateRepeatCount);
         logQueue(`Template repeat check (${reason}): templateRepeatCount=${String(sending.templateRepeatCount)}, resolved=${resolvedTemplateRepeatCount}, templateRepeatIndex=${sending.templateRepeatIndex}, repeatCount=${String(sending.repeatCount)}`);
         const params = buildNextTemplateIterationParams(sending, resolvedTemplateRepeatCount);
@@ -3921,20 +3933,10 @@ export class PromptQueueManager {
         // (its answer arrived, or the user advanced past it), so a todo claim
         // it made is settled: the todo keeps whatever status it now has.
         if (item.todoClaim) { item.todoClaim = undefined; }
-        // Pause gate. Refuse to dispatch the *next* repetition of an
-        // already-in-flight item while auto-send is off. The first
-        // dispatch (when no counter has been bumped yet) always
-        // proceeds — that's how the user explicitly Sends a single
-        // item via sendNow without having to flip auto-send on.
-        if (!this._autoSendEnabled && this._itemHasInFlightProgress(item)) {
-            // Between iterations and paused: no prompt is in flight, so the
-            // item is idle (its header goes amber). The current iteration has
-            // already completed — that's what let us reach the pause gate.
-            item.awaitingAnswer = false;
-            item.inFlightRepetition = undefined;
-            logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
-            return 'paused';
-        }
+        // The pause gate (auto-send off) is checked in each stage just before
+        // a further prompt would go out (`_pauseBeforeNextDispatch`), not
+        // here: an item with nothing left falls through to 'done' and becomes
+        // `sent` whether auto-send is on or off.
 
         // Entering a fresh dispatch attempt: any snapshot from the previous
         // (now-succeeded) dispatch is moot. Clear it so that a failure during
@@ -3957,6 +3959,7 @@ export class PromptQueueManager {
             }
             logQueue(`PP dispatch: repeatCount=${String(pp.repeatCount)}, resolved=${ppRepeatCount}, cachedResolved=${pp.resolvedRepeatCount}, sentCount=${ppSentCount}`);
             if (ppSentCount < ppRepeatCount) {
+                if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
                 const resolved = this.resolveStageTransport(item, pp);
                 // Anthropic pre-prompts skip the answer-wrapper expansion;
                 // it's a Copilot-only construct (spec §4.7). Pass the
@@ -4066,6 +4069,9 @@ export class PromptQueueManager {
             this._onDidChange.fire();
             return 'paused';
         }
+        // Something of the main stage is left to send: hold here when paused,
+        // before a todo is claimed for it.
+        if (plan.mode !== 'exhausted' && this._pauseBeforeNextDispatch(item)) { return 'paused'; }
         // The todo that this dispatch will work on, already marked in-progress.
         // Marking happens BEFORE the send: an in-progress todo no longer
         // qualifies, and that is what makes the walk terminate. A write that
@@ -4176,6 +4182,7 @@ export class PromptQueueManager {
             }
             logQueue(`FU dispatch: repeatCount=${String(nextFollowUp.repeatCount)}, resolved=${fuRepeatCount}, cachedResolved=${nextFollowUp.resolvedRepeatCount}, sentCount=${fuSentCount}`);
             if (fuSentCount < fuRepeatCount) {
+                if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
                 const resolved = this.resolveStageTransport(item, nextFollowUp);
                 const followUpExpanded = await this._buildExpandedText(
                     nextFollowUp.originalText,

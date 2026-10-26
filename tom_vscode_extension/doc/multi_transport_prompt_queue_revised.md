@@ -589,18 +589,26 @@ item or silently skipping a rep.
 
 Turning auto-send off does **not** abort the rep that is already in flight.
 `dispatchNextStageForSendingItem` returns a three-valued
-`DispatchOutcome = 'dispatched' | 'done' | 'paused'`. At the top of the loop,
-when `_autoSendEnabled === false` **and** the item already has dispatch
-progress (`itemHasInFlightProgress(item)` — see below), the call returns
-`'paused'` instead of starting the next repetition. The in-flight rep finishes
-naturally; the item **stays in `'sending'`** with its counters intact. All five
-callers (`sendItem`, `onAnswerFileChanged`, the answer-wait timer,
-`advanceSendingItemWithoutAnswer`, `resendLastPrompt`) propagate the new outcome
+`DispatchOutcome = 'dispatched' | 'done' | 'paused'`. In each stage, just
+before a further prompt would go out (a pre-prompt, a main-prompt repetition or
+`prefix*` todo, a follow-up), the pause gate `_pauseBeforeNextDispatch` checks
+whether `_autoSendEnabled === false` **and** the item already has dispatch
+progress (`itemHasInFlightProgress(item)` — see below, rule in
+`src/utils/queueSendNow.ts`); if so the call returns `'paused'` instead of
+sending it. The in-flight rep finishes naturally; the item **stays in
+`'sending'`** with its counters intact. An item with nothing left to send never
+reaches the gate: it returns `'done'` and becomes `'sent'`, auto-send on or off.
+All five callers (`sendItem`, `onAnswerFileChanged`, the answer-wait timer,
+`advanceSendingItemWithoutAnswer`, `resendLastPrompt`) propagate the outcome
 instead of treating "not dispatched" as "mark sent".
 
 > The very first dispatch of an item is allowed even with auto-send off, so an
-> explicit `sendNow` / "Send" action is never blocked. The pause gate only
-> refuses to start the *next* rep of an item that's already underway.
+> explicit `sendNow` / "Send" action is never blocked: the item sends its first
+> prompt and, if it has more, holds before the second. **Send Now also works on
+> a `sent` item**: `resetItemRunState` puts it back to its first prompt and the
+> whole item runs once more (every repetition or `prefix*` todo, every
+> follow-up); a repeat run does not queue the item's next template iteration a
+> second time.
 
 The queue editor reflects this: `queueEntryComponent.ts` renders the status
 label as **`SENDING (PAUSED)`** when `status === 'sending'` and the page-level

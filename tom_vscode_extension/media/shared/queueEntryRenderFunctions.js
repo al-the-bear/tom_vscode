@@ -292,6 +292,8 @@ function renderEntry(item, idx) {
           (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
+          // A sent item can be sent again: the whole item runs once more from its first prompt.
+          (isSent ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now again (runs the whole item once more from its first prompt)"></span>' : '') +
           (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\'' + safeId + '\')" title="Continue"></span>' : '') +
           // Error items get a "Set to Pending" button instead of a
           // resend control. The error transition flipped auto-send
