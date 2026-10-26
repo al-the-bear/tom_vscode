@@ -1178,8 +1178,19 @@ window.addEventListener('message', function(e) {
         updateAnthropicApiKeyDot();
         updateClaudeCliDot();
     } else if (msg.type === 'anthropicSession') {
+        // The session as the queue's context bar shows it: name, base, lifetime, model.
         var sessionLabel = document.getElementById('anthropic-session-name');
-        if (sessionLabel) { sessionLabel.textContent = msg.name || 'chat'; }
+        if (sessionLabel) { sessionLabel.textContent = msg.label || msg.name || 'chat'; }
+        var sessionBtn = sessionLabel ? sessionLabel.closest('.session-btn') : null;
+        if (sessionBtn && msg.tooltip) { sessionBtn.title = msg.tooltip + ' — click to pick another or create one'; }
+        // A session just picked that names a profile: preselect it (the panel's choice still wins).
+        if (msg.profileId) {
+            var sessionProfileSel = document.getElementById('anthropic-profile');
+            if (sessionProfileSel && Array.prototype.some.call(sessionProfileSel.options, function(o) { return o.value === msg.profileId; })) {
+                sessionProfileSel.value = msg.profileId;
+                sessionProfileSel.dispatchEvent(new Event('change'));
+            }
+        }
     } else if (msg.type === 'anthropicClaudeCliStatus') {
         claudeCliOk = !!msg.ok;
         claudeCliVisible = msg.visible !== false;

@@ -123,6 +123,15 @@ See [prompt_queue_timed_templates.md](prompt_queue_timed_templates.md) for queue
 
 For non-`sdk-managed` modes, `rawTurns` + `compactedSummary` are injected into each outgoing message array. This means **pre-prompt answers are automatically visible to the main prompt** — no queue-level context chaining is needed.
 
+## The panel's session
+
+The panel sends in a named session (`<name>.session.json` in the quest's `history/`): the one picked for the quest with the session button, else its own `chat`.
+
+- **The button** reads like the queue's context-bar session link: the session's name, `based on <base>` when it has one, the lifetime when not `continue` (`(per prompt)`, `(per iteration)`) and the model when it has a profile, e.g. `walk based on prep (per iteration) · claude-opus-5-5`. `_sendChatSession` builds it with `sessionLabel` (`src/utils/sessionPickerPlan.ts`).
+- **The picker** (`pickAgentSdkSession`, `src/handlers/sessionPicker.ts`, shared with the queue's context bar, queue items and the process action page) lists the sessions with base, lifetime and model. **New session…** and **New session based on…** ask for the lifetime (one conversation, new for every prompt, new for every queue iteration — worded for with and without a base) and then for the profile: *No profile*, *As the base (<profile>)* for a based session whose base has one, or a profile as the panel lists it (`(no API key)` marks included), stored with its model. The `.session.json` is written at once, so the session shows everywhere; its conversation starts on first use. The choices are planned by the pure `lifetimeChoices` / `profileChoices` / `newSessionOptions`.
+- **Profile.** Picking a session with a profile preselects that profile in the panel's profile select; the panel's selection is what a send uses (item → session → queue default: the panel's profile is the item's own). A send whose profile keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a profile with our own history, or the reverse) is refused with the reason (`sessionTransportMismatch`).
+- **Save to Queue** queues the prompt in the panel's session — the picked one, else `chat` — so the queued prompt continues the panel's conversation as Send would.
+
 ## Tool approval
 
 The profile's `toolApprovalMode` controls whether tool calls are routed through the in-panel approval bar (`'always'`) or auto-approved silently (`'never'`). Queue runs always use `'never'` regardless of the profile setting.

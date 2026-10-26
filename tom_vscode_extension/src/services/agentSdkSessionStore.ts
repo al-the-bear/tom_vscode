@@ -67,8 +67,11 @@ export interface CreateSessionOptions {
     basedOn?: string;
     /** A lifetime; the legacy `fork-from-base` reads as `per-prompt`. Default `continue`. */
     mode?: SessionMode | 'fork-from-base';
-    /** The Anthropic profile the session runs with, and that profile's configured model. */
-    profile?: { id: string; model?: string };
+    /**
+     * The Anthropic profile the session runs with, and that profile's configured
+     * model. Unset: the base's, if any; `null`: none, even when the base has one.
+     */
+    profile?: { id: string; model?: string } | null;
 }
 
 /**
@@ -90,8 +93,9 @@ export function createSession(folder: string, name: string, opts: CreateSessionO
     if (opts.basedOn && !base) {
         return { ok: false, error: `There is no session "${opts.basedOn}" to base "${name}" on.` };
     }
-    const profileId = opts.profile?.id ?? base?.profileId;
-    const model = opts.profile ? opts.profile.model : base?.model;
+    const inherit = opts.profile === undefined;
+    const profileId = opts.profile ? opts.profile.id : inherit ? base?.profileId : undefined;
+    const model = opts.profile ? opts.profile.model : inherit ? base?.model : undefined;
     const now = new Date().toISOString();
     const session: SessionRecord = {
         name,

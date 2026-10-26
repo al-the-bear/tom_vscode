@@ -388,7 +388,7 @@ In the `addToQueue` handler (`addCopilotToQueue()` at [:4086](../src/handlers/ch
 | `data-id` | `transport` set | Payload (read from that panel's dropdowns) |
 | --- | --- | --- |
 | `copilot` | `'copilot'` | `template`, `answerWrapper`, `repeatCount`, `answerWaitMinutes` (current) |
-| `anthropic` | `'anthropic'` | `anthropicProfileId`, `anthropicConfigId`, `template` |
+| `anthropic` | `'anthropic'` | `anthropicProfileId`, `anthropicConfigId`, `template`, and `session`: the panel's session (the picked one, else its own `chat`), so the queued prompt continues the panel's conversation |
 
 The backend's queue-add router (`case 'addToQueue'` at [:503](../src/handlers/chatPanel-handler.ts#L503)) forwards all new fields into `PromptQueueManager.enqueue()` ([:1402](../src/managers/promptQueueManager.ts#L1402)) unchanged. A queue item staged from the Anthropic panel **must** pin its transport — it should never inherit the queue's default.
 

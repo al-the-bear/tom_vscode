@@ -13,8 +13,10 @@ import * as vscode from 'vscode';
 
 import { TwoTierMemoryService } from '../services/memory-service';
 import { createSession, listSessions } from '../services/agentSdkSessionStore';
-import { describeSession, isValidSessionName, type SessionMode } from '../utils/agentSdkSessions';
-import { lookupProfile, type ProfileSection } from '../utils/sessionSpecs';
+import { describeSession, isValidSessionName } from '../utils/agentSdkSessions';
+import type { ProfileSection } from '../utils/sessionSpecs';
+import { lifetimeChoices, newSessionOptions, profileChoices } from '../utils/sessionPickerPlan';
+import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 
 type SessionItem = vscode.QuickPickItem & { action: 'pick' | 'new' | 'based' | 'clear'; name?: string };
@@ -72,22 +74,16 @@ export async function pickAgentSdkSession(opts: {
         if (!base) { return undefined; }
         basedOn = base.label;
     }
-    const from = basedOn ? 'from the base' : 'fresh';
-    const how = await vscode.window.showQuickPick([
-        { label: 'Continue', description: basedOn ? 'its first prompt starts from the base; later prompts continue the new session' : 'one conversation; every prompt continues it', mode: 'continue' as SessionMode },
-        { label: 'New for every prompt', description: `every prompt starts ${from}; prompts never change the context of the ones after them`, mode: 'per-prompt' as SessionMode },
-        { label: 'New for every queue iteration', description: `each repeat round or prefix todo starts ${from}; its pre-prompts and follow-ups continue it`, mode: 'per-iteration' as SessionMode },
-    ], { title: basedOn ? `New session based on "${basedOn}"` : 'New session', placeHolder: 'Its lifetime' });
+    const how = await vscode.window.showQuickPick(lifetimeChoices(basedOn),
+        { title: basedOn ? `New session based on "${basedOn}"` : 'New session', placeHolder: 'Its lifetime' });
     if (!how) { return undefined; }
-    const mode = how.mode;
-    const section = loadSendToChatConfig()?.anthropic as (ProfileSection & { profiles?: Array<{ id?: string; name?: string } | null> }) | undefined;
-    const profiles = (section?.profiles ?? []).filter((p): p is { id: string; name?: string } => !!p && typeof p.id === 'string' && p.id.length > 0);
-    const profilePick = await vscode.window.showQuickPick([
-        { label: basedOn ? 'The base session\'s profile' : 'No profile', description: 'prompts run with the queue item\'s profile, else the queue default', id: '' },
-        ...profiles.map((p) => ({ label: p.name || p.id, description: `${p.id}${lookupProfile(section, p.id)?.model ? ` · ${lookupProfile(section, p.id)?.model}` : ''}`, id: p.id })),
-    ], { title: 'The Anthropic profile the session runs with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true });
+    const section = loadSendToChatConfig()?.anthropic;
+    const profilePick = await vscode.window.showQuickPick(
+        profileChoices(profileKeyStates(section, process.env), section as ProfileSection | undefined,
+            basedOn ? sessions.find((x) => x.name === basedOn) : undefined),
+        { title: 'The Anthropic profile the session runs with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true },
+    );
     if (!profilePick) { return undefined; }
-    const profile = profilePick.id ? lookupProfile(section, profilePick.id) : undefined;
     const name = await vscode.window.showInputBox({
         title: basedOn ? `New session based on "${basedOn}"` : 'New session',
         prompt: 'Session name: letters, digits, "_" and "-"',
@@ -97,7 +93,8 @@ export async function pickAgentSdkSession(opts: {
         },
     });
     if (!name) { return undefined; }
-    const created = createSession(folder, name, { basedOn, mode, ...(profile ? { profile: { id: profile.id, model: profile.model } } : {}) });
+    // The file is written now, so the session shows everywhere at once; its conversation starts on first use.
+    const created = createSession(folder, name, newSessionOptions(basedOn, how.mode, profilePick.choice, section as ProfileSection | undefined));
     if (!created.ok) {
         void vscode.window.showErrorMessage(created.error);
         return undefined;

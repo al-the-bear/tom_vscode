@@ -41,7 +41,12 @@ import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
-import { chatSessionFor, pickAgentSdkSession, setChatSessionFor } from './sessionPicker';
+import { chatSessionFor, pickAgentSdkSession, sessionsFolder, setChatSessionFor } from './sessionPicker';
+import { readSession } from '../services/agentSdkSessionStore';
+import { sessionTransportMismatch } from '../services/directSessionHistory';
+import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
+import type { SessionRecord } from '../utils/agentSdkSessions';
+import { sessionLabel } from '../utils/sessionPickerPlan';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
@@ -476,7 +481,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         if (picked !== undefined) {
                             await setChatSessionFor(this._context.workspaceState, quest, picked);
                         }
-                        this._sendChatSession();
+                        // A picked session with a profile preselects it in the panel's profile select;
+                        // the panel's choice still wins on send (item -> session -> default).
+                        this._sendChatSession(picked !== undefined);
                         break;
                     }
                     case 'openAnthropicMemory':
@@ -849,8 +856,31 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY);
     }
 
-    private _sendChatSession(): void {
-        void this._view?.webview.postMessage({ type: 'anthropicSession', name: this._chatSessionKey() });
+    /** The panel's session file, if it has one. */
+    private _chatSessionRecord(): SessionRecord | undefined {
+        try {
+            return readSession(sessionsFolder(WsPaths.getWorkspaceQuestId()), this._chatSessionKey());
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Tell the webview which session the panel sends in, as its button reads
+     * (name, base, lifetime, model). `preselectProfile`: the session was just
+     * picked, so its profile (if any) becomes the panel's selected profile.
+     */
+    private _sendChatSession(preselectProfile = false): void {
+        const name = this._chatSessionKey();
+        const record = this._chatSessionRecord();
+        const { label, tooltip } = sessionLabel(name, record);
+        void this._view?.webview.postMessage({
+            type: 'anthropicSession',
+            name,
+            label,
+            tooltip,
+            ...(preselectProfile && record?.profileId ? { profileId: record.profileId } : {}),
+        });
     }
 
     private _sendProfiles(): void {
@@ -1882,6 +1912,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cfg = resolved.configuration;
         }
 
+        // A profile that keeps its conversation elsewhere than the session's
+        // existing one (an Agent SDK session vs. our own history) cannot continue it.
+        const mismatch = sessionTransportMismatch(sessionsFolder(WsPaths.getWorkspaceQuestId()), this._chatSessionKey(), {
+            id: profile.id,
+            ...(cfg.model ? { model: cfg.model } : {}),
+            continuity: resolveEffectiveHistoryMode(cfg.historyMode, cfg.transport ?? 'direct') === 'sdk-managed' ? 'sdk' : 'history',
+        });
+        if (mismatch) {
+            this._view?.webview.postMessage({ type: 'anthropicError', message: mismatch });
+            endAnthropicSend();
+            return;
+        }
+
         // Tool resolution — profile is the single source of truth.
         // Filtering lives in resolveProfileTools() so the chat panel and the
         // scripting-API bridge (tools.getJsonVce) stay in lockstep.
@@ -2709,6 +2752,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     transport: transport === 'anthropic' ? 'anthropic' : undefined,
                     anthropicProfileId: transportOpts?.anthropicProfileId,
                     anthropicConfigId: transportOpts?.anthropicConfigId,
+                    // The panel's session — the picked one, else its own `chat` — so the
+                    // queued prompt continues the panel's conversation as Send would.
+                    ...(transport === 'anthropic' ? { session: this._chatSessionKey() } : {}),
                 });
                 const count = queue.items.length;
                 vscode.window.showInformationMessage(`Added to prompt queue (${count} items, ${transport})`);
