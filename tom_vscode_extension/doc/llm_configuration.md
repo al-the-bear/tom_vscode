@@ -404,6 +404,30 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 
 ---
 
+### Per-quest override (`extension_config.<quest>.yaml`, section `compaction`)
+
+The `compaction` section above applies to every quest that reads this config
+file. A quest can override part of it in its own machine-independent
+`_ai/quests/<quest>/extension_config.<quest>.yaml`, so compaction runs for that
+quest only, or with another model:
+
+```yaml
+compaction:
+  disabled: false               # on for this quest, whatever the workspace says
+  llmProvider: anthropic
+  llmConfigId: haiku-5-5-direct # an anthropic.configurations[] id
+```
+
+The keys taken are `disabled`, `llmProvider` (`anthropic` / `localLlm`),
+`llmConfigId`, `compactionTemplateId`, `memoryExtractionTemplateId`,
+`runMemoryExtractionOnCompaction`, `archiveHistoryEveryTurn` and the counts
+(`runEveryNRounds`, `rawTurnsKept`, `maxHistoryTokens`, `historyMaxChars`,
+`memoryMaxChars`, `compactionMaxRounds`, `toolTrailMaxResultChars`,
+`toolTrailKeepRounds`, `fullTrailMaxTurns`, `rebuildFromLastNPrompts`); a
+value of the wrong type is ignored (`src/utils/compactionQuestOverride.ts`).
+The Anthropic handler applies it for the window's quest; the Status Page and
+the Local LLM handler show and use the workspace setting.
+
 ## 8. Example walk-through — `Gemma4:26b-bomber` with the new defaults
 
 Config (relevant excerpt):

@@ -357,6 +357,8 @@ export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import { abortSignalFor, createMessageStreamed } from '../services/anthropicMessageCall';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
+import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
+import { readQuestSection } from '../managers/extensionConfigStore';
 export { temperatureField };
 
 /**
@@ -1015,7 +1017,21 @@ export class AnthropicHandler {
      * so the same defaults apply everywhere (sendMessage, background
      * compaction, background memory extraction).
      */
-    private getCompactionConfig(): {
+    /**
+     * The compaction settings for this window's quest: the workspace's
+     * (`compaction` in the extension config), with the quest's own
+     * `compaction` section of `extension_config.<quest>.yaml` applied over it
+     * (src/utils/compactionQuestOverride.ts) — so one quest can switch
+     * compaction on, or use another model, while the others keep the
+     * workspace setting.
+     */
+    private getCompactionConfig(): ReturnType<AnthropicHandler['getWorkspaceCompactionConfig']> {
+        // A missing or unreadable quest file reads as no section (safeReadYaml).
+        const quest = readQuestSection(SECTION_COMPACTION, TwoTierMemoryService.instance.currentQuest() || undefined);
+        return applyQuestCompactionOverride(this.getWorkspaceCompactionConfig(), quest);
+    }
+
+    private getWorkspaceCompactionConfig(): {
         disabled: boolean;
         llmProvider: 'localLlm' | 'anthropic';
         llmConfigId: string;
