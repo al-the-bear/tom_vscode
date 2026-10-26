@@ -49,6 +49,14 @@ The model dropdown in the panel is populated live from `anthropic.models.list()`
 
 Every configuration runs over one of two backends, picked per-configuration via the `transport` field (`anthropic_sdk_integration.md` §18):
 
+The direct transport sends every Messages API request **streamed**
+(`client.messages.stream(...).finalMessage()`, `src/services/anthropicMessageCall.ts`)
+and waits for the final message, so a configuration may ask for the current
+models' full 64k-128k `maxTokens`: the SDK refuses a non-streaming request whose
+`max_tokens` could run longer than ten minutes ("Streaming is required for
+operations that may take longer than 10 minutes"). Cancelling a send aborts the
+stream in flight.
+
 | Field | `transport: "direct"` (default) | `transport: "agentSdk"` |
 | --- | --- | --- |
 | Auth source | `ANTHROPIC_API_KEY` env var | Inherited from the host Claude Code install |

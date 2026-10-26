@@ -355,6 +355,7 @@ export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 // `temperatureField` is re-exported here because external callers (tests,
 // trail utilities) import it from this module by name.
 import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
+import { abortSignalFor, createMessageStreamed } from '../services/anthropicMessageCall';
 export { temperatureField };
 
 /**
@@ -1665,7 +1666,7 @@ export class AnthropicHandler {
         if (!client) {
             throw new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
         }
-        const response = await client.messages.create({
+        const response = await createMessageStreamed(client, {
             model: params.model,
             max_tokens: params.maxTokens ?? 2048,
             ...temperatureField(params.temperature),
@@ -2310,7 +2311,7 @@ export class AnthropicHandler {
             writeLastRequest({
                 timestamp: new Date().toISOString(),
                 subsystem: 'anthropic',
-                endpoint: 'client.messages.create (direct SDK)',
+                endpoint: 'client.messages.stream (direct SDK)',
                 configId: configuration.id,
                 model: configuration.model,
                 profile: profile.id,
@@ -2327,6 +2328,8 @@ export class AnthropicHandler {
             }, quest);
         } catch { /* best-effort */ }
 
+        // One signal for the whole send: cancelling aborts the stream in flight.
+        const abortSignal = abortSignalFor(options.cancellationToken);
         try {
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
@@ -2343,7 +2346,9 @@ export class AnthropicHandler {
                     messages,
                 };
                 const response = await withRetryBudget({
-                    call: () => client.messages.create(createParams),
+                    // Streamed: the SDK refuses a non-streaming request whose
+                    // max_tokens could take longer than ten minutes.
+                    call: () => createMessageStreamed(client, createParams, abortSignal),
                     totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     backendLabel: 'Anthropic API busy',
                     cancellationToken: options.cancellationToken,
