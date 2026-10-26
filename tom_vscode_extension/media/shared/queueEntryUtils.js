@@ -51,6 +51,26 @@ function reminderTimeoutOptions(selectedMinutes) {
 // sorted to the bottom of the list instead of the top.
 var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted'];
 
+/**
+ * How a session reads next to its name in the prompt queue: `info` is
+ * `{basedOn?, mode?}` (from the host's `sessionInfo`, or an item's spec of a
+ * session not created yet). `based` is the text after the name (" based on X",
+ * plus " (per prompt)" / " (per iteration)" for a lifetime other than
+ * continue), `marked` whether the name gets a `*` (it has a base), `tooltip`
+ * one sentence for the title.
+ */
+function describeQueueSession(name, info, notCreated) {
+  var i = info || {};
+  var mode = i.mode === 'fork-from-base' ? 'per-prompt' : (i.mode || 'continue');
+  var lifetime = mode === 'per-prompt' ? 'per prompt' : mode === 'per-iteration' ? 'per iteration' : '';
+  var based = (i.basedOn ? ' based on ' + i.basedOn : '') + (lifetime ? ' (' + lifetime + ')' : '');
+  var tooltip = 'Session ' + name
+    + (i.basedOn ? ', based on ' + i.basedOn : '')
+    + (lifetime === 'per prompt' ? ', started again for every prompt' : lifetime === 'per iteration' ? ', started again for every queue iteration' : '')
+    + (notCreated ? ' — created when the item is sent' : '');
+  return { based: based, marked: !!i.basedOn, tooltip: tooltip };
+}
+
 function normalizeQueueStatus(status) {
   return QUEUE_STATUSES.indexOf(status) >= 0 ? status : 'staged';
 }

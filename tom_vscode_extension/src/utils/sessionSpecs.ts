@@ -81,6 +81,13 @@ export function specExtras(spec: SessionSpec): Omit<SessionSpec, 'name'> | undef
     return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+/** Base and lifetime per session name: what the prompt queue editor shows next to a session. */
+export function sessionInfoOf(records: ReadonlyArray<SessionRecord>): Record<string, { basedOn?: string; mode: SessionMode }> {
+    const out: Record<string, { basedOn?: string; mode: SessionMode }> = {};
+    for (const r of records) { out[r.name] = { ...(r.basedOn ? { basedOn: r.basedOn } : {}), mode: r.mode }; }
+    return out;
+}
+
 /** Where a conversation lives: an Agent SDK session, or our own history files. */
 export type ConversationKind = 'sdk' | 'history';
 

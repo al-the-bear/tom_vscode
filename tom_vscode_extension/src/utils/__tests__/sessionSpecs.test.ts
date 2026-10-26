@@ -8,6 +8,7 @@
  *        an Agent SDK session (history mode sdk-managed, stated or the Agent SDK default) or our own
  *        history (every other)
  *   SP-3 the profile a prompt runs with: item -> session -> queue default
+ *   SP-5 sessionInfoOf: base and lifetime per session name, what the queue editor shows
  *   SP-4 a conversation can only be continued by a profile of its kind: an SDK session id is the SDK's,
  *        a session's own history files are ours; a session without one takes any profile
  *   QI-1 iteration keys: the main prompt starts iteration n+1, a pre-prompt runs in the iteration it
@@ -21,6 +22,7 @@ import assert from 'node:assert/strict';
 import {
     conversationKindOf,
     effectiveProfileId,
+    sessionInfoOf,
     lookupProfile,
     parseSessionSpec,
     specExtras,
@@ -110,6 +112,15 @@ describe('session specs', () => {
         assert.equal(transportMismatch('walk', 'history', direct), undefined);
         assert.equal(transportMismatch('walk', undefined, sdk), undefined, 'no conversation yet: any profile');
         assert.equal(transportMismatch('walk', 'sdk', undefined), undefined, 'no profile known: not refused here');
+    });
+});
+
+describe('session info for the queue editor', () => {
+    test('SP-5: base and lifetime per name', () => {
+        assert.deepEqual(sessionInfoOf([
+            { name: 'prep', mode: 'continue', sessionId: 'S', profileId: 'p' },
+            { name: 'walk', mode: 'per-iteration', basedOn: 'prep' },
+        ]), { prep: { mode: 'continue' }, walk: { basedOn: 'prep', mode: 'per-iteration' } });
     });
 });
 

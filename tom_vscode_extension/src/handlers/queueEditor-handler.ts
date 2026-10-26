@@ -8,7 +8,9 @@
  * Opened via `tomAi.editor.promptQueue` command.
  */
 
-import { pickAgentSdkSession } from './sessionPicker';
+import { pickAgentSdkSession, sessionsFolder } from './sessionPicker';
+import { listSessions } from '../services/agentSdkSessionStore';
+import { sessionInfoOf } from '../utils/sessionSpecs';
 import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
@@ -280,7 +282,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           sendState();
           return;
         }
-        case 'editItemSession':
         case 'pickRole': {
           // The role chat variable, from the roles under _ai/roles (the context bar's Role link).
           const chat = ChatVariablesStore.instance;
@@ -296,8 +297,9 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           return;
         }
 
-        case 'pickQueueDefaultSession': {
-          // The Agent SDK session of one item, or the queue's default.
+        case 'pickQueueDefaultSession':
+        case 'editItemSession': {
+          // The session of one item (its chip), or the queue's default (the context bar).
           const pqm = PromptQueueManager.instance;
           const quest = WsPaths.getWorkspaceQuestId();
           if (msg.type === 'pickQueueDefaultSession') {
@@ -314,8 +316,15 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               questId: quest, current: item.session, title: 'Session of this queue item',
               defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
             });
-            if (picked !== undefined && !pqm.updateItemSession(id, picked)) {
-              void vscode.window.showWarningMessage('Only a staged or pending item can change its session.');
+            if (picked !== undefined) {
+              try {
+                if (!pqm.updateItemSession(id, picked)) {
+                  void vscode.window.showWarningMessage('Only a staged or pending item can change its session.');
+                }
+              } catch (e) {
+                // A session the item's profile cannot continue (see sessionRefusal).
+                void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e));
+              }
             }
           }
           sendState();
@@ -997,6 +1006,8 @@ function buildState(): Record<string, unknown> {
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
     let queueDefaultSession = '';
+    // Base and lifetime of every session of the quest, for the context bar and the item chips.
+    let sessionInfo: Record<string, { basedOn?: string; mode: string }> = {};
     let queueStartAt: string | undefined;
     // Per item not yet sent: the stages a missing API key would make fail.
     const apiKeyWarnings = new Map<string, string[]>();
@@ -1019,6 +1030,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
         queueDefaultSession = qm.defaultAgentSdkSession || '';
+        sessionInfo = sessionInfoOf(listSessions(sessionsFolder(WsPaths.getWorkspaceQuestId())));
         queueStartAt = qm.queueStartAt;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
@@ -1103,6 +1115,7 @@ function buildState(): Record<string, unknown> {
         queueDefaultAnthropicProfileId,
         queueDefaultMessageTemplateId,
         queueDefaultSession,
+        sessionInfo,
         // Deferred queue start: ISO instant (or undefined) the header
         // "Start in N minutes" dropdown reflects.
         queueStartAt,

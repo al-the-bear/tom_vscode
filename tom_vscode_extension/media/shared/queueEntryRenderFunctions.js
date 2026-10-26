@@ -38,6 +38,12 @@ function renderEntry(item, idx) {
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
   var isPending = safeStatus === 'pending';
   var isStaged = safeStatus === 'staged';
+  // The item's effective session (its own, else the queue default), with its base and lifetime:
+  // from the session file, or — for a session not created yet — from the item's spec.
+  var chipSessionName = item.session || (typeof queueDefaultSessionLabel !== 'undefined' ? queueDefaultSessionLabel : 'default');
+  var knownSessions = typeof sessionInfo !== 'undefined' && sessionInfo ? sessionInfo : {};
+  var chipSpecPending = !!(item.session && item.sessionCreate && !knownSessions[item.session]);
+  var chipSession = describeQueueSession(chipSessionName, chipSpecPending ? item.sessionCreate : knownSessions[chipSessionName], chipSpecPending);
   var isSending = safeStatus === 'sending';
   var isSent = safeStatus === 'sent';
   var isError = safeStatus === 'error';
@@ -367,9 +373,9 @@ function renderEntry(item, idx) {
           ((item.transport || (typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot')) === 'anthropic'
             ? '<span class="queue-session-chip" style="' + ((isStaged || isPending) ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
               + ((isStaged || isPending) ? ' onclick="editItemSession(\'' + safeId + '\')"' : '')
-              + ' title="Session' + (item.session ? '' : ' (queue default)') + ((isStaged || isPending) ? ' — click to change' : '') + '">'
+              + ' title="' + escapeHtml(chipSession.tooltip) + (item.session ? '' : ' (queue default)') + ((isStaged || isPending) ? ' — click to change' : '') + '">'
               + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
-              + escapeHtml(item.session || (typeof queueDefaultSessionLabel !== 'undefined' ? queueDefaultSessionLabel : 'default')) + '</span></span>'
+              + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
             : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\'' + safeId + '\')" title="Open YAML file"></span>' +
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="Delete"></span>' +

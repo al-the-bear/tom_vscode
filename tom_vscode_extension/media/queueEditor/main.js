@@ -119,6 +119,8 @@ let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates ||
 let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
 // The queue's default Agent SDK session, as shown on items without their own.
 let queueDefaultSessionLabel = __INITIAL__.queueDefaultSession || 'default';
+// Base and lifetime per session name ({basedOn?, mode}), from the host.
+let sessionInfo = __INITIAL__.sessionInfo || {};
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
 let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
@@ -219,6 +221,7 @@ window.addEventListener('message', e => {
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
       queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
       queueDefaultSessionLabel = msg.queueDefaultSession || 'default';
+      sessionInfo = msg.sessionInfo || {};
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
@@ -278,8 +281,10 @@ function updateContextSummary() {
   el.appendChild(link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'));
   sep();
   el.appendChild(document.createTextNode('Session: '));
-  el.appendChild(link('session', queueDefaultSessionLabel || 'default',
-    'The Agent SDK session Anthropic items run in unless they name their own — click to pick another or create one'));
+  const sessionName = queueDefaultSessionLabel || 'default';
+  const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
+  el.appendChild(link('session', sessionName + session.based,
+    session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'));
   if (currentContext.activeProjects && currentContext.activeProjects.length) {
     sep();
     el.appendChild(document.createTextNode('Projects: ' + currentContext.activeProjects.join(', ')));
