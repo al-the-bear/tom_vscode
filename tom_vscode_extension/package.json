@@ -380,6 +380,12 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.sessions.add",
+        "title": "@T: New Session",
+        "category": "@Tom",
+        "icon": "$(add)"
+      },
+      {
         "command": "tomAi.showSidebarNotes",
         "title": "@T: Show Sidebar Notes",
         "category": "@Tom"
@@ -493,6 +499,12 @@
           "id": "tomAi.questTodos",
           "name": "QUEST TODOS",
           "icon": "$(checklist)"
+        },
+        {
+          "type": "webview",
+          "id": "tomAi.sessions",
+          "name": "SESSIONS",
+          "icon": "$(comment-discussion)"
         },
         {
           "type": "webview",
@@ -758,6 +770,13 @@
           "command": "tomAi.openInMdBrowser",
           "when": "resourceLangId == markdown",
           "group": "tomAi@11"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "tomAi.sessions.add",
+          "when": "view == tomAi.sessions",
+          "group": "navigation"
         }
       ]
     },

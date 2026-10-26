@@ -11,6 +11,7 @@ Two Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) fo
 | PROCESS | `tomAi.process` | The active quest's process and position (process, phase, step, sub-step, iterations, role); a webview over `ProcessStateStore` — see `doc/user_guide.md` § Processes. |
 | QUEST NOTES | `tomAi.questNotes` | Notes scoped to the active quest. |
 | QUEST TODOS | `tomAi.questTodos` | Todos from the active quest's YAML todo files. |
+| SESSIONS | `tomAi.sessions` | The quest's named sessions: every `<name>.session.json` of its `history/` plus the implicit `default` (queue) and `chat` (ANTHROPIC panel), with base, lifetime, profile / model, conversation and last use. Title-bar **+** (`tomAi.sessions.add`) runs the session picker's new-session path; per row **Reset** (forget the conversation, keep the definition) and **Delete** (confirmed; refused while another session is based on it). Both touch only the `.session.json`. `sessionsView-handler.ts`, rows in `sessionsViewRows.ts`, assets `media/sessionsView/`; refreshed by the store's `onSessionsChanged` and an `fs.watch` on the folder. |
 | SESSION TODOS | `tomAi.sessionTodos` | Window-scoped session todos (not persisted across reload). |
 
 **@TOM WS** — the workspace:

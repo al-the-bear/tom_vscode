@@ -6,7 +6,8 @@
  *         per-iteration; fork-from-base reads as per-prompt); refuses a bad name, an existing session,
  *         a missing base, an unknown lifetime; per-prompt and per-iteration need no base
  *   SS-3  saving an id keeps the file's other fields (basedOn, mode, createdAt)
- *   SS-5  clearing a session forgets its conversation; a session with a base keeps its definition
+ *   SS-5  clearing (resetting) a session forgets its conversation and keeps the file and its definition —
+ *         also a plain session that is only a stored id
  *   SS-4  the start of a prompt is planned from the files (a session based on another forks its base)
  *   SS-6  a session's profile and its model: stored at creation, taken from the base when the new
  *         session names none, kept by a reset
@@ -14,6 +15,8 @@
  *   SS-8  ensureSession: a missing session is created from a bare name (fresh, continue) or a spec (its
  *         missing base first, plainly; the spec's profile, else the fallback profile, else the base's);
  *         an existing one is left alone; an unknown spec profile is refused and nothing is created
+ *   SS-10 deleting a session: refused while another is based on it (naming them), a leaf's file goes, the
+ *         direct-API history folder stays; every write and removal notifies the listeners
  *   SS-9  the transport check on files: an SDK conversation refuses a profile with our own history and
  *         the reverse; the shared sessions and sessions without a conversation take any profile
  */
@@ -27,11 +30,14 @@ import * as path from 'path';
 import {
     clearSessionId,
     createSession,
+    deleteSession,
     ensureSession,
     listSessions,
+    onSessionsChanged,
     planSessionStartIn,
     readSession,
     saveSessionId,
+    sessionsBasedOn,
 } from '../agentSdkSessionStore.js';
 import { sessionTransportMismatch } from '../directSessionHistory.js';
 import type { SessionProfile } from '../../utils/sessionSpecs.js';
@@ -95,7 +101,8 @@ describe('session files', () => {
         const dir = folder();
         saveSessionId(dir, 'chat', 'S-chat');
         clearSessionId(dir, 'chat');
-        assert.equal(readSession(dir, 'chat'), undefined, 'a plain session is gone');
+        assert.deepEqual([readSession(dir, 'chat')?.name, readSession(dir, 'chat')?.sessionId], ['chat', undefined],
+            'a plain session stays listed, without its conversation');
         createSession(dir, 'prep', {});
         createSession(dir, 'child', { basedOn: 'prep' });
         saveSessionId(dir, 'child', 'S-child');
@@ -180,5 +187,32 @@ describe('session files', () => {
         saveSessionId(dir, 'default', 'S-q');
         fs.writeFileSync(path.join(dir, 'rawTurns.json'), '{"rounds":[["q"]]}');
         assert.equal(sessionTransportMismatch(dir, 'default', direct), undefined, 'the shared sessions hold both');
+    });
+
+    test('SS-10: delete', () => {
+        const dir = folder();
+        const seen: string[] = [];
+        const off = onSessionsChanged((f) => seen.push(f));
+        createSession(dir, 'prep', {});
+        createSession(dir, 'walk', { basedOn: 'prep', mode: 'per-iteration' });
+        createSession(dir, 'todo', { basedOn: 'prep', mode: 'per-prompt' });
+        assert.deepEqual(sessionsBasedOn(dir, 'prep'), ['todo', 'walk']);
+        const refused = deleteSession(dir, 'prep');
+        assert.equal(refused.ok, false);
+        assert.match((refused as { error: string }).error, /base of "todo", "walk"/);
+        assert.ok(readSession(dir, 'prep'), 'nothing deleted');
+        fs.mkdirSync(path.join(dir, 'sessions', 'walk'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'sessions', 'walk', 'rawTurns.json'), '{}');
+        assert.deepEqual(deleteSession(dir, 'walk'), { ok: true, deleted: true });
+        assert.equal(readSession(dir, 'walk'), undefined);
+        assert.ok(fs.existsSync(path.join(dir, 'sessions', 'walk', 'rawTurns.json')), 'the history folder stays');
+        assert.deepEqual(deleteSession(dir, 'walk'), { ok: true, deleted: false }, 'no file: nothing to do');
+        assert.ok(seen.length >= 4 && seen.every((f) => f === dir), 'creates and the delete notified');
+        off();
+        createSession(dir, 'quiet', {});
+        assert.equal(seen.filter((f) => f === dir).length, seen.length);
+        const before = seen.length;
+        createSession(dir, 'quiet2', {});
+        assert.equal(seen.length, before, 'unsubscribed');
     });
 });

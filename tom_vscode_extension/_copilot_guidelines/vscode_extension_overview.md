@@ -83,6 +83,7 @@ Workspace operations surface. Sections: Guidelines, Documentation, Logs, Setting
 - PROCESS
 - QUEST NOTES
 - QUEST TODOS
+- SESSIONS (the quest's named sessions; add, reset, delete)
 - SESSION TODOS
 
 `@TOM WS` (the workspace):

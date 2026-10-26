@@ -25,6 +25,7 @@ const MINIMAL_VIEW_IDS = [
     'tomAi.process',
     'tomAi.questNotes',
     'tomAi.questTodos',
+    'tomAi.sessions',
     'tomAi.sessionTodos',
     'tomAi.todoLog',
     'tomAi.workspaceNotes',

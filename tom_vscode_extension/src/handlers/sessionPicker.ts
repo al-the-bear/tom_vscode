@@ -13,7 +13,7 @@ import * as vscode from 'vscode';
 
 import { TwoTierMemoryService } from '../services/memory-service';
 import { createSession, listSessions } from '../services/agentSdkSessionStore';
-import { describeSession, isValidSessionName } from '../utils/agentSdkSessions';
+import { describeSession, isValidSessionName, type SessionRecord } from '../utils/agentSdkSessions';
 import type { ProfileSection } from '../utils/sessionSpecs';
 import { lifetimeChoices, newSessionOptions, profileChoices } from '../utils/sessionPickerPlan';
 import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
@@ -64,9 +64,33 @@ export async function pickAgentSdkSession(opts: {
     if (!chosen) { return undefined; }
     if (chosen.action === 'clear') { return ''; }
     if (chosen.action === 'pick') { return chosen.name; }
+    return createSessionInteractively(folder, sessions, chosen.action === 'based');
+}
 
+/**
+ * The new-session path of the picker on its own (the SESSIONS view's add
+ * icon): fresh or based on another session (asked when there are sessions to
+ * base on), then lifetime, profile and name. Returns the new session's name,
+ * or undefined when dismissed.
+ */
+export async function newSessionViaPicker(questId: string): Promise<string | undefined> {
+    const folder = sessionsFolder(questId);
+    const sessions = listSessions(folder);
+    let based = false;
+    if (sessions.length > 0) {
+        const kind = await vscode.window.showQuickPick([
+            { label: '$(add) New session', description: 'starts with an empty conversation', based: false },
+            { label: '$(git-branch) New session based on…', description: 'starts from another session\'s conversation', based: true },
+        ], { title: `New session in quest ${questId || '(none)'}` });
+        if (!kind) { return undefined; }
+        based = kind.based;
+    }
+    return createSessionInteractively(folder, sessions, based);
+}
+
+async function createSessionInteractively(folder: string, sessions: SessionRecord[], based: boolean): Promise<string | undefined> {
     let basedOn: string | undefined;
-    if (chosen.action === 'based') {
+    if (based) {
         const base = await vscode.window.showQuickPick(
             sessions.map((s) => ({ label: s.name, description: describeSession(s) })),
             { title: 'Base the new session on', placeHolder: 'The session whose conversation the new one starts from' },

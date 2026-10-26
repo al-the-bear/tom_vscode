@@ -58,6 +58,26 @@ function write(folder: string, record: SessionRecord): void {
     const tmp = `${file}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
     fs.renameSync(tmp, file);
+    notifySessionsChanged(folder);
+}
+
+type SessionsListener = (folder: string) => void;
+const sessionsListeners = new Set<SessionsListener>();
+
+/**
+ * Be told whenever a session file of any folder is written or removed through
+ * this store (the SESSIONS view refreshes on it; its file watcher catches the
+ * writes of other windows). Returns the unsubscribe function.
+ */
+export function onSessionsChanged(listener: SessionsListener): () => void {
+    sessionsListeners.add(listener);
+    return () => { sessionsListeners.delete(listener); };
+}
+
+function notifySessionsChanged(folder: string): void {
+    for (const l of [...sessionsListeners]) {
+        try { l(folder); } catch { /* a listener's failure is its own */ }
+    }
 }
 
 export type CreateSessionResult = { ok: true; session: SessionRecord } | { ok: false; error: string };
@@ -140,23 +160,49 @@ export function saveSessionId(folder: string, name: string, sessionId: string, m
 }
 
 /**
- * Forget the conversation of `name` (the panel's "clear session"). A file that
- * is only a stored id (the panel's and the queue's own buckets) is removed; a
- * session someone created — by name, with a base, a lifetime or a profile —
- * keeps its definition (and its profile and configured model) and starts again
- * from it.
+ * Forget the conversation of `name` (the panel's "clear session", the
+ * SESSIONS view's Reset): the stored session id, the current iteration's and
+ * the model the last send reported go; the name, base, lifetime, profile and
+ * the profile's configured model stay, so the next prompt starts a new
+ * conversation — a based session re-forked from the same base. The file is
+ * kept, so the session stays listed; nothing is written when there is no file.
+ * Only the `.session.json` is touched: a direct-API history folder stays.
  */
 export function clearSessionId(folder: string, name: string): void {
     const existing = readSession(folder, name);
-    const file = fileOf(folder, name);
-    if (!existing || (!existing.basedOn && existing.mode === 'continue' && !existing.createdAt && !existing.profileId)) {
-        if (fs.existsSync(file)) { fs.unlinkSync(file); }
-        return;
-    }
+    if (!existing) { return; }
     const { sessionId: _dropped, iteration: _iteration, ...rest } = existing;
     // The model the last send reported goes with the conversation; a profile's configured model stays.
     const kept = rest.profileId ? rest : (({ model: _model, ...noModel }) => noModel)(rest);
     write(folder, { ...kept, updatedAt: new Date().toISOString() });
+}
+
+/** The sessions that are based on `name`. */
+export function sessionsBasedOn(folder: string, name: string): string[] {
+    return listSessions(folder).filter((s) => s.basedOn === name).map((s) => s.name);
+}
+
+export type DeleteSessionResult = { ok: true; deleted: boolean } | { ok: false; error: string; dependents: string[] };
+
+/**
+ * Remove the `.session.json` of `name`. Refused while another session is
+ * based on it (naming them). Only the file goes: a direct-API history folder
+ * (`sessions/<name>/`) stays. `deleted: false` when there was no file.
+ */
+export function deleteSession(folder: string, name: string): DeleteSessionResult {
+    const dependents = sessionsBasedOn(folder, name);
+    if (dependents.length > 0) {
+        return {
+            ok: false,
+            dependents,
+            error: `The session "${name}" is the base of ${dependents.map((d) => `"${d}"`).join(', ')}; delete or re-create those first.`,
+        };
+    }
+    const file = fileOf(folder, name);
+    if (!fs.existsSync(file)) { return { ok: true, deleted: false }; }
+    fs.unlinkSync(file);
+    notifySessionsChanged(folder);
+    return { ok: true, deleted: true };
 }
 
 /** How the next prompt in session `name` starts, from the folder's files. */

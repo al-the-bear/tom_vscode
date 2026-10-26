@@ -117,6 +117,7 @@ import { initializeToolDescriptions } from './tools/guideline-tools';
 import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { ProcessStateStore } from './managers/processStateStore';
 import { registerProcessView } from './handlers/processPanel-handler';
+import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
 import { AnthropicHandler } from './handlers/anthropic-handler';
@@ -482,6 +483,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register the PROCESS view and the process editor
     stepStart = performance.now();
     registerProcessView(context);
+    registerSessionsView(context);
     registerProcessEditor(context);
     registerProcessTemplateEditor(context);
     timeStep('processViews', stepStart);

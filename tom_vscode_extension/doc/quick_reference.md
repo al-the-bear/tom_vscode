@@ -42,6 +42,7 @@
 - PROCESS (the active quest's process: phase, step, sub-step, iterations)
 - QUEST NOTES
 - QUEST TODOS
+- SESSIONS (the quest's named sessions: + new, per row Reset and Delete)
 - SESSION TODOS
 
 **@TOM WS** (the workspace; `tomAi.tomWsSidebar.focus`):

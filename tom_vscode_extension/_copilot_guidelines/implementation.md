@@ -64,7 +64,7 @@ Any change to the config shape must update both `sendToChatConfig.ts` and the JS
 - Tests
 - Quest TODO
 
-`@TOM` sidebar (the quest): PROCESS, QUEST NOTES, QUEST TODOS, SESSION TODOS.
+`@TOM` sidebar (the quest): PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS.
 
 `@TOM WS` sidebar (the workspace): VS CODE NOTES, WORKSPACE NOTES, WORKSPACE TODOS, TODO LOG (session-scoped), WINDOW STATUS.
 

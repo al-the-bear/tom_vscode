@@ -1,7 +1,7 @@
 /**
  * The activity-bar containers (package.json contributes.viewsContainers / views).
  *
- *   SB-1 two containers: @TOM (the quest: PROCESS, QUEST NOTES, QUEST TODOS, SESSION TODOS) and @TOM WS
+ *   SB-1 two containers: @TOM (the quest: PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS) and @TOM WS
  *        (the workspace: VS CODE NOTES, WORKSPACE NOTES, WORKSPACE TODOS, TODO LOG, WINDOW STATUS), in
  *        that order, each with its icon on disk
  *   SB-2 the moved views keep their ids, and nothing opens a moved view through the @TOM container
@@ -32,7 +32,8 @@ describe('activity-bar containers', () => {
         for (const c of containers) { assert.ok(existsSync(join(ROOT, c.icon)), `${c.icon} exists`); }
         const views = (id: string): string[][] => (pkg.contributes.views[id] as Array<{ id: string; name: string }>).map((v) => [v.id, v.name]);
         assert.deepEqual(views('tomAi-sidebar'), [
-            ['tomAi.process', 'PROCESS'], ['tomAi.questNotes', 'QUEST NOTES'], ['tomAi.questTodos', 'QUEST TODOS'], ['tomAi.sessionTodos', 'SESSION TODOS'],
+            ['tomAi.process', 'PROCESS'], ['tomAi.questNotes', 'QUEST NOTES'], ['tomAi.questTodos', 'QUEST TODOS'], ['tomAi.sessions', 'SESSIONS'],
+            ['tomAi.sessionTodos', 'SESSION TODOS'],
         ]);
         assert.deepEqual(views('tomAi-ws-sidebar'), [
             ['tomAi.vscodeNotes', 'VS CODE NOTES'], ['tomAi.workspaceNotes', 'WORKSPACE NOTES'], ['tomAi.workspaceTodos', 'WORKSPACE TODOS'],

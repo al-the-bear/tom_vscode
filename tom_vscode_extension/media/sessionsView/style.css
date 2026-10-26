@@ -1,0 +1,28 @@
+/* SESSIONS sidebar view — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 2px 6px 6px;
+}
+.muted { color: var(--vscode-descriptionForeground); }
+.session { display: flex; align-items: flex-start; gap: 4px; padding: 3px 2px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.session:hover { background: var(--vscode-list-hoverBackground); }
+.session .body { flex: 1 1 auto; min-width: 0; }
+.session .name { font-weight: 600; }
+.session .tag { font-size: 0.85em; color: var(--vscode-descriptionForeground); margin-left: 4px; }
+.session .meta { font-size: 0.88em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.session .actions { flex: 0 0 auto; display: flex; gap: 2px; visibility: hidden; }
+.session:hover .actions { visibility: visible; }
+.icon {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 1px 2px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+}
+.icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+.icon:disabled { opacity: 0.35; cursor: default; }
