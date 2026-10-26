@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention -- Messages API wire fields (tool_use_id) */
 /**
  * The tool loop's retention step (src/services/toolTrailRetention.ts) and extended thinking.
  *
