@@ -15,7 +15,7 @@ import { TwoTierMemoryService } from '../services/memory-service';
 import { createSession, listSessions } from '../services/agentSdkSessionStore';
 import { describeSession, isValidSessionName, type SessionRecord } from '../utils/agentSdkSessions';
 import type { ProfileSection } from '../utils/sessionSpecs';
-import { lifetimeChoices, newSessionOptions, profileChoices } from '../utils/sessionPickerPlan';
+import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, type DefinitionSessionSpec } from '../utils/sessionPickerPlan';
 import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 
@@ -86,6 +86,65 @@ export async function newSessionViaPicker(questId: string): Promise<string | und
         based = kind.based;
     }
     return createSessionInteractively(folder, sessions, based);
+}
+
+/**
+ * The picker for a process definition's session (the process editor): an
+ * existing session by name, or a new one described by its base, lifetime,
+ * profile and name — returned as the spec the definition stores, WITHOUT
+ * creating the file (Proceed creates a missing session from the spec).
+ * `''`: inherited (cleared); undefined: dismissed.
+ */
+export async function pickDefinitionSession(opts: { questId: string; current?: string; title?: string }): Promise<DefinitionSessionSpec | '' | undefined> {
+    const sessions = listSessions(sessionsFolder(opts.questId));
+    const items: SessionItem[] = [{ label: '$(circle-slash) Inherited', action: 'clear', description: 'the enclosing level\'s session, else the queue default' }];
+    for (const s of sessions) {
+        items.push({
+            label: `${s.name === opts.current ? '$(check) ' : '$(comment-discussion) '}${s.name}`,
+            description: describeSession(s),
+            action: 'pick',
+            name: s.name,
+        });
+    }
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator, action: 'pick' });
+    items.push({ label: '$(add) New session…', action: 'new', description: 'created when its first prompt is queued' });
+    items.push({ label: '$(git-branch) New session based on…', action: 'based', description: 'starts from another session\'s conversation' });
+    const chosen = await vscode.window.showQuickPick(items, {
+        title: opts.title ?? 'Session of this process node',
+        placeHolder: 'An existing session, a new one (created on Proceed), or inherited',
+        matchOnDescription: true,
+    });
+    if (!chosen) { return undefined; }
+    if (chosen.action === 'clear') { return ''; }
+    if (chosen.action === 'pick') { return chosen.name; }
+    let basedOn: string | undefined;
+    if (chosen.action === 'based') {
+        const base = await vscode.window.showInputBox({
+            title: 'Base the new session on',
+            prompt: 'The base session\'s name (an existing one, or one the process creates; ${step-iteration} etc. allowed)',
+            value: sessions[0]?.name ?? '',
+        });
+        if (!base) { return undefined; }
+        basedOn = base.trim();
+    }
+    const how = await vscode.window.showQuickPick(lifetimeChoices(basedOn),
+        { title: basedOn ? `New session based on "${basedOn}"` : 'New session', placeHolder: 'Its lifetime' });
+    if (!how) { return undefined; }
+    const section = loadSendToChatConfig()?.anthropic;
+    const profilePick = await vscode.window.showQuickPick(
+        profileChoices(profileKeyStates(section, process.env), section as ProfileSection | undefined,
+            basedOn ? sessions.find((x) => x.name === basedOn) : undefined),
+        { title: 'The Anthropic profile the session is created with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true },
+    );
+    if (!profilePick) { return undefined; }
+    const name = await vscode.window.showInputBox({
+        title: basedOn ? `New session based on "${basedOn}"` : 'New session',
+        prompt: 'Session name: letters, digits, "_" and "-"; ${phase-iteration}, ${step-iteration} and ${substep-iteration} are filled in',
+        validateInput: (v) => (/^([A-Za-z0-9]|\$\{(phase|step|substep)-iteration\})([A-Za-z0-9_-]|\$\{(phase|step|substep)-iteration\})*$/.test(v)
+            ? undefined : 'Letters, digits, "_" and "-" only, starting with a letter or digit (iteration placeholders allowed).'),
+    });
+    if (!name) { return undefined; }
+    return definitionSpecFromChoices(name, basedOn, how.mode, profilePick.choice);
 }
 
 async function createSessionInteractively(folder: string, sessions: SessionRecord[], based: boolean): Promise<string | undefined> {

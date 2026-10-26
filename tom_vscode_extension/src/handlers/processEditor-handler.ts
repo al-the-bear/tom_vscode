@@ -17,7 +17,22 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
-import { validateProcessDefinition, type ProcessDefinition } from '../utils/processDefinition';
+import { validateProcessDefinition, type ProcessDefinition, type ProcessValidation } from '../utils/processDefinition';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { pickDefinitionSession } from './sessionPicker';
+
+/** Validate against this window's config too: a session's profile must be a profile here. */
+function validateInWindow(def: unknown): ProcessValidation {
+    const profiles = loadSendToChatConfig()?.anthropic?.profiles ?? [];
+    const profileIds = profiles.map((p) => p?.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+    return validateProcessDefinition(def, { profileIds });
+}
+
+/** Refuse to save a definition naming an unknown profile; the reason as a save error. */
+function windowRefusal(def: ProcessDefinition): string | undefined {
+    const errors = validateInWindow(JSON.parse(JSON.stringify(def))).errors;
+    return errors.length ? errors.map((e) => `${e.path}: ${e.message}`).join('\n') : undefined;
+}
 
 const VIEW_TYPE = 'tomAi.processEditor';
 
@@ -101,6 +116,9 @@ interface EditorMessage {
     dirty?: boolean;
     definition?: ProcessDefinition;
     description?: string;
+    /** pickSession: the node's path in the definition ('' = the process) and its current session name. */
+    path?: string;
+    current?: string;
 }
 
 async function handle(msg: EditorMessage): Promise<void> {
@@ -117,7 +135,8 @@ async function handle(msg: EditorMessage): Promise<void> {
                     `"${selectedId}" has unsaved changes.`, { modal: true }, 'Save', 'Discard');
                 if (!choice) { void panel?.webview.postMessage({ type: 'selectCancelled', id: selectedId }); break; }
                 if (choice === 'Save' && msg.definition) {
-                    const saved = s.save(msg.definition, msg.description ?? '');
+                    const refusal = windowRefusal(msg.definition);
+                    const saved = refusal ? { ok: false as const, error: refusal } : s.save(msg.definition, msg.description ?? '');
                     if (!saved.ok) {
                         void vscode.window.showErrorMessage(`Not saved: ${saved.error}`);
                         void panel?.webview.postMessage({ type: 'selectCancelled', id: selectedId });
@@ -130,13 +149,22 @@ async function handle(msg: EditorMessage): Promise<void> {
             break;
         }
         case 'validate':
-            void panel?.webview.postMessage({ type: 'validation', errors: validateProcessDefinition(msg.definition).errors });
+            void panel?.webview.postMessage({ type: 'validation', errors: validateInWindow(msg.definition).errors });
             break;
         case 'save': {
             if (!msg.definition) { break; }
-            const result = s.save(msg.definition, msg.description ?? '');
+            const refusal = windowRefusal(msg.definition);
+            const result = refusal ? { ok: false as const, error: refusal } : s.save(msg.definition, msg.description ?? '');
             void panel?.webview.postMessage({ type: 'saved', ok: result.ok, error: result.ok ? undefined : result.error });
             if (result.ok && msg.definition.id) { await sendProcess(msg.definition.id); }
+            break;
+        }
+        case 'pickSession': {
+            // The session picker edits the definition only: Proceed creates a missing session.
+            const picked = await pickDefinitionSession({ questId: WsPaths.getWorkspaceQuestId(), current: msg.current });
+            if (picked !== undefined) {
+                void panel?.webview.postMessage({ type: 'sessionPicked', path: msg.path ?? '', spec: picked === '' ? null : picked });
+            }
             break;
         }
         case 'revert':

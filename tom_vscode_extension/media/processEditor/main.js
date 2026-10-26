@@ -122,24 +122,29 @@
         return '<textarea class="prompt" data-path="' + path + '.prompt" rows="2" placeholder="Prompt — what is to be done when it starts; the PROCESS view\'s action buttons put it into the prompt they queue (${action-prompt})">' + esc(value || '') + '</textarea>';
     }
 
+    /** How a session spec reads: `name based on X, per prompt, profile`; `inherited` when unset. */
+    function sessionText(spec) {
+        if (!spec) { return 'inherited'; }
+        var s = typeof spec === 'string' ? { name: spec } : spec;
+        var mode = s.mode === 'fork-from-base' ? 'per-prompt' : s.mode;
+        return (s.name || '?')
+            + (s.basedOn ? ' based on ' + s.basedOn : '')
+            + (mode === 'per-prompt' ? ', per prompt' : mode === 'per-iteration' ? ', per iteration' : '')
+            + (s.profile ? ', ' + s.profile : '');
+    }
+
     /**
-     * The Agent SDK session fields of a node: name, based on, mode. Empty name
-     * = inherit (from the step, then the phase). A string spec shows as its
-     * name; the object form is written once a base or mode is set.
+     * The session of a node (the process, a phase, step, gate, post-gate step
+     * or sub-step): a label like the queue's that opens the session picker on
+     * the host (it edits the definition only — Proceed creates the session),
+     * and a button that clears it (inherited from the enclosing level).
      */
     function sessionFields(path, spec) {
-        var s = typeof spec === 'string' ? { name: spec } : (spec || {});
-        var mode = s.mode || '';
-        return '<span class="session-fields" title="The Agent SDK session the prompts of this node run in; empty = inherited">'
+        return '<span class="session-fields" title="The session the prompts of this node run in; inherited from the enclosing level when unset">'
             + '<span class="codicon codicon-comment-discussion"></span>'
-            + text(path + '.session.name', s.name, 'session (inherited)', 'session-name')
-            + text(path + '.session.basedOn', s.basedOn, 'based on', 'session-base')
-            + '<select data-path="' + path + '.session.mode" title="The session\'s lifetime: fresh, or from its base when it has one">'
-            + '<option value=""' + (mode === '' || mode === 'continue' ? ' selected' : '') + '>continue</option>'
-            + '<option value="per-prompt"' + (mode === 'per-prompt' || mode === 'fork-from-base' ? ' selected' : '') + '>new per prompt</option>'
-            + '<option value="per-iteration"' + (mode === 'per-iteration' ? ' selected' : '') + '>new per queue iteration</option>'
-            + '</select>'
-            + text(path + '.session.profile', s.profile, 'profile', 'session-profile')
+            + '<button class="session-link' + (spec ? '' : ' inherited') + '" data-op="pick-session" data-path="' + path + '" title="Pick a session or describe a new one">'
+            + esc(sessionText(spec)) + '</button>'
+            + (spec ? '<button class="icon" data-op="clear-session" data-path="' + path + '" title="Clear: inherit the enclosing level\'s session"><span class="codicon codicon-close"></span></button>' : '')
             + '</span>';
     }
 
@@ -262,6 +267,7 @@
             + errorsHtml()
             + '<div class="card-head top">' + '<label>Name ' + text('name', def.name, 'display name', 'name') + '</label>'
             + '<label class="grow">Summary ' + text('summary', def.summary, 'one line', 'summary') + '</label></div>'
+            + '<div class="card-head top process-session"><label>Session of every prompt</label>' + sessionFields('', def.session) + '</div>'
             + '<div class="section-title">Description <span class="muted">(' + esc(doc.files ? doc.files.description.split(/[\\/]/).pop() : '') + ', Markdown)</span></div>'
             + '<textarea id="process-description" rows="8" placeholder="What this process is for and how it is worked through.">' + esc(doc.description) + '</textarea>'
             + '<div class="section-title">Phases <span class="muted">— each ends with a quality gate; an optional post-gate step holds the todos done before the next phase</span></div>'
@@ -291,6 +297,9 @@
                 break;
             case 'add-postgate':
                 node.postGate = { id: freshId('post-gate', phaseNodes(node)), name: 'After the gate', todos: [{ title: '' }] };
+                break;
+            case 'clear-session':
+                delete node.session;
                 break;
             case 'remove-postgate':
                 delete getAt(path.slice(0, -1)).postGate;
@@ -343,20 +352,6 @@
         if (!p) { return; }
         var kind = t.dataset.kind;
         var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value)) : t.value;
-        var sessionAt = /^(.*)\.session\.(name|basedOn|mode|profile)$/.exec(p);
-        if (sessionAt) {
-            // The session is an object of up to three fields; a name alone is
-            // written as a plain string, nothing set removes it (inherit).
-            var node = getAt(parsePath(sessionAt[1]));
-            if (!node) { return; }
-            var spec = typeof node.session === 'string' ? { name: node.session } : Object.assign({}, node.session || {});
-            if (value === '') { delete spec[sessionAt[2]]; } else { spec[sessionAt[2]] = value; }
-            if (!spec.name && !spec.basedOn && !spec.mode && !spec.profile) { delete node.session; }
-            else if (spec.name && !spec.basedOn && !spec.mode && !spec.profile) { node.session = spec.name; }
-            else { node.session = spec; }
-            changed();
-            return;
-        }
         setAt(parsePath(p), value);
         // A phase title follows its name.
         var phase = t.closest('details.phase');
@@ -385,6 +380,12 @@
         if (name === 'save') { save(); return; }
         if (name === 'revert') { post({ type: 'revert' }); return; }
         if (name === 'open-yaml') { post({ type: 'openYaml', id: doc && doc.id }); return; }
+        if (name === 'pick-session') {
+            var picking = getAt(btn.dataset.path ? parsePath(btn.dataset.path) : []);
+            var cur = picking && picking.session;
+            post({ type: 'pickSession', path: btn.dataset.path || '', current: typeof cur === 'string' ? cur : (cur && cur.name) || '' });
+            return;
+        }
         op(name, btn.dataset.path || '');
     });
     listEl.addEventListener('click', function (e) {
@@ -420,6 +421,16 @@
             case 'selectCancelled':
                 renderList();
                 break;
+            case 'sessionPicked': {
+                // The host's session picker answered: a name, a spec, or null (inherited).
+                if (!doc || !doc.def) { break; }
+                var target = getAt(msg.path ? parsePath(msg.path) : []);
+                if (!target) { break; }
+                if (msg.spec) { target.session = msg.spec; } else { delete target.session; }
+                changed();
+                renderMain();
+                break;
+            }
             case 'validation':
                 if (doc) { doc.errors = msg.errors || []; updateErrors(); }
                 break;

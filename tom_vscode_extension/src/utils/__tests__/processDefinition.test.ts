@@ -38,6 +38,12 @@
  *         its base, its lifetime — continue / per-prompt / per-iteration, fork-from-base read as per-prompt,
  *         none needing a base — and its profile); the innermost one applies; validation, write-back, the `session`
  *         process variable and the context block
+ *   PD-22 the process itself may name a session (`session` at the top, the same spec with lifetime and
+ *         profile): validated, written back, accepted by the schema; it applies where no phase, step or
+ *         sub-step names one (sub-step > step > phase > process), reaches the `session` variable, the
+ *         context block and the action's session; a `profile` the window does not have is refused when
+ *         the process is checked against the window's profiles; Proceed creates a missing process-level
+ *         per-prompt session with its profile (the profile's model stored)
  *   PD-17 a session name may hold the iteration of its phase, step or sub-step (`${step-iteration}` …):
  *         resolved for the position, so every iteration gets its own session; other placeholders refused
  *   PD-19 user actions: a step or sub-step flagged `userAction` is done by the user — accepted, written back,
@@ -81,6 +87,13 @@ import {
     type ProcessDefinition,
     type ProcessState,
 } from '../processDefinition.js';
+
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { actionSession } from '../processActionPrompt.js';
+import { ensureSession, readSession } from '../../services/agentSdkSessionStore.js';
+import { lookupProfile, type ProfileSection } from '../sessionSpecs.js';
 
 const YAML = `
 id: review_flow
@@ -670,5 +683,57 @@ phases:
         assert.equal(normalizeState({ ...s, stepIterations: { phase: 'q', phaseIteration: 1, steps: { b: 3 } } }, def).stepIterations, undefined,
             'a record of another phase is dropped');
         assert.equal(parseProcessState(stringifyProcessState(selectProcess(def), 'now')).stepIterations, undefined, 'none written when there is none');
+    });
+});
+
+describe('process-level session', () => {
+    test('PD-22: one session for every prompt of the process', () => {
+        const withProcessSession = YAML.replace('summary: Write, review, ship.\n',
+            'summary: Write, review, ship.\nsession:\n  name: tomspecs\n  mode: per-prompt\n  profile: opus-agent\n');
+        const parsed = parseProcessYaml(withProcessSession);
+        assert.deepEqual(parsed.errors, []);
+        const def = parsed.definition!;
+        assert.deepEqual(parseProcessYaml(stringifyProcessDefinition(def)).definition, def, 'written back');
+        assert.match(stringifyProcessDefinition(def), /^id: review_flow\nname: Review flow\nsummary: Write, review, ship\.\nsession:\n/, 'after the summary');
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(withProcessSession)), true, JSON.stringify(validate.errors));
+        assert.equal(validate({ ...parse(withProcessSession), session: { name: 'x', mode: 'often' } }), false);
+
+        // The process level applies where nothing inner names a session.
+        const start = selectProcess(def);
+        assert.deepEqual(effectiveSession(def, start), { name: 'tomspecs', mode: 'per-prompt', profile: 'opus-agent' });
+        assert.equal(processVariableValues(def, start, '').session, 'tomspecs');
+        assert.match(processContextBlock(def, start, ''), /Session: `tomspecs` \(fresh for every prompt\)/);
+        assert.deepEqual(actionSession(def, start), { name: 'tomspecs', source: 'process', spec: { name: 'tomspecs', mode: 'per-prompt', profile: 'opus-agent' } });
+        // Precedence: sub-step > step > phase > process.
+        const layered = parseProcessYaml(withProcessSession
+            .replace('    prompt: Draft the document.\n', '    prompt: Draft the document.\n    session: phase-s\n')).definition!;
+        assert.equal(effectiveSession(layered, selectProcess(layered))?.name, 'phase-s', 'the phase wins over the process');
+        assert.equal(effectiveSession(layered, selectPhase(selectProcess(layered), layered, 'ship'))?.name, 'tomspecs', 'another phase falls back to the process');
+
+        // Checked against the window's profiles.
+        assert.deepEqual(validateProcessDefinition(parse(withProcessSession), { profileIds: ['opus-agent'] }).errors, []);
+        assert.deepEqual(validateProcessDefinition(parse(withProcessSession), { profileIds: ['haiku'] }).errors.map((e) => `${e.path}: ${e.message}`),
+            ['session.profile: no Anthropic profile "opus-agent" in this window\'s configuration']);
+        assert.deepEqual(validateProcessDefinition(parse(withProcessSession)).errors, [], 'without the window\'s profiles: the shape only');
+        assert.deepEqual(validateProcessDefinition({ ...parse(withProcessSession), session: { name: 'x', extra: 1 } }).errors.map((e) => e.path), ['session.extra']);
+
+        // Proceed: the action's spec creates the missing session with its profile.
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'process-session-'));
+        const section: ProfileSection = { profiles: [{ id: 'opus-agent', configurationId: 'c' }], configurations: [{ id: 'c', model: 'claude-opus-5-5', transport: 'agentSdk' }] };
+        const spec = actionSession(def, start).spec!;
+        const made = ensureSession(dir, { name: spec.name, basedOn: spec.basedOn, mode: 'per-prompt', profile: spec.profile }, (id) => lookupProfile(section, id));
+        assert.deepEqual(made, { ok: true, created: ['tomspecs'] });
+        const record = readSession(dir, 'tomspecs')!;
+        assert.deepEqual([record.mode, record.profileId, record.model], ['per-prompt', 'opus-agent', 'claude-opus-5-5']);
+        const service = readFileSync(join(__dirname, '..', '..', '..', 'src', 'services', 'processActionService.ts'), 'utf-8');
+        assert.match(service, /ensureSession\([\s\S]*?profile: spec\.profile \}/, 'Proceed passes the spec\'s profile');
+        assert.match(service, /const error = ensureProcessSession\(store\.activeQuest, session\.spec\);/);
+        const editor = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'processEditor-handler.ts'), 'utf-8');
+        assert.match(editor, /validateProcessDefinition\(def, \{ profileIds \}\)/, 'the editor checks against the window\'s profiles');
+        assert.match(editor, /errors: validateInWindow\(msg\.definition\)\.errors/);
+        assert.equal((editor.match(/const refusal = windowRefusal\(msg\.definition\);/g) ?? []).length, 2, 'both saves refuse an unknown profile');
+        assert.match(editor, /case 'pickSession':[\s\S]*?pickDefinitionSession\(/, 'the editor\'s picker edits the definition only');
     });
 });

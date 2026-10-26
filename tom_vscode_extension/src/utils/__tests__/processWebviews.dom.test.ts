@@ -19,8 +19,10 @@
  *   PW-14 editor: the gate card chooses where a failed gate goes — run it again (no onFail) or back to
  *         one of the phase's steps
  *   PW-8  editor: every phase, step and sub-step has a prompt field, edited into the model
- *   PW-11 editor: session fields on every node; a name alone is written as a string, a base or mode
- *         makes it an object, clearing every field removes it
+ *   PW-11 editor: a session label on every node and on the process itself (`inherited` when unset, else
+ *         `name based on X, per prompt, profile`); clicking it asks the host's session picker for that node,
+ *         whose answer (a name, a spec, or null) is written into the definition at that node; the clear
+ *         button removes it (inherited again); each level's write-back
  *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description,
  *         in a box two lines taller than 30vh that scrolls with visible scrollbars) and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
  *         step and sub-step dropdowns
@@ -312,33 +314,48 @@ describe('process editor sessions', () => {
         const { w, posted } = setup('processEditor');
         send(w, { type: 'list', processes: [{ id: 'flow', name: 'Flow', valid: true, errorCount: 0 }], roles: [], currentProcess: 'flow', selected: 'flow' });
         send(w, { type: 'load', id: 'flow', definition: { ...DEF, phases: [{ ...DEF.phases[0], session: 'build-work' }, DEF.phases[1]] }, description: '', errors: [], files: { yaml: 'y', description: 'd' } });
-        const f = (path: string): Win => w.document.querySelector(`[data-path="${path}"]`);
-        assert.equal(f('phases.0.session.name').value, 'build-work', 'a string spec shows as its name');
-        for (const path of ['phases.0.steps.0', 'phases.0.steps.1.substeps.0', 'phases.0.gate', 'phases.0.postGate']) {
-            assert.ok(f(`${path}.session.name`) && f(`${path}.session.basedOn`) && f(`${path}.session.mode`) && f(`${path}.session.profile`),
-                `${path} has session fields`);
+        const link = (path: string): Win => w.document.querySelector(`button.session-link[data-path="${path}"]`);
+        const clear = (path: string): Win => w.document.querySelector(`button[data-op="clear-session"][data-path="${path}"]`);
+        assert.equal(link('phases.0').textContent, 'build-work', 'a string spec reads as its name');
+        assert.equal(link('').textContent, 'inherited', 'the process level, unset');
+        for (const path of ['', 'phases.0', 'phases.0.steps.0', 'phases.0.steps.1.substeps.0', 'phases.0.gate', 'phases.0.postGate']) {
+            assert.ok(link(path), `${path || 'the process'} has a session label`);
         }
-        const set = (path: string, value: string, event = 'input'): void => {
-            const el = f(path);
-            el.value = value;
-            el.dispatchEvent(new w.Event(event, { bubbles: true }));
+        assert.equal(w.document.querySelector('input[data-path$=".session.name"]'), null, 'no free-text session fields any more');
+        const lastSave = (): Win => {
+            w.document.querySelector('[data-op="save"]').click();
+            return posted.filter((m) => m.type === 'save').pop() as Win;
         };
-        set('phases.0.steps.1.session.name', 'per-review');
-        set('phases.0.steps.1.session.basedOn', 'build-work');
-        assert.deepEqual([...f('phases.0.steps.1.session.mode').options].map((o: Win) => o.value), ['', 'per-prompt', 'per-iteration'],
-            'the lifetimes; the old fork-from-base shows as per-prompt');
-        set('phases.0.steps.1.session.mode', 'per-iteration', 'change');
-        set('phases.0.steps.1.session.profile', 'opus-5-5-direct');
-        set('phases.0.session.name', '');
-        w.document.querySelector('[data-op="save"]').click();
-        const saved = posted.filter((m) => m.type === 'save').pop() as Win;
-        assert.deepEqual(saved.definition.phases[0].steps[1].session, { name: 'per-review', basedOn: 'build-work', mode: 'per-iteration', profile: 'opus-5-5-direct' });
-        assert.equal('session' in saved.definition.phases[0], false, 'cleared: inherited again');
-        set('phases.0.steps.1.session.basedOn', '');
-        set('phases.0.steps.1.session.mode', '', 'change');
-        set('phases.0.steps.1.session.profile', '');
-        w.document.querySelector('[data-op="save"]').click();
-        assert.equal((posted.filter((m) => m.type === 'save').pop() as Win).definition.phases[0].steps[1].session, 'per-review', 'a name alone is a string');
+        // Each level: click → the host is asked with the node's path → its answer lands there.
+        const answers: Array<[string, unknown, string]> = [
+            ['', { name: 'tomspecs', mode: 'per-prompt', profile: 'opus-5-5-agent-sdk-mm' }, 'tomspecs, per prompt, opus-5-5-agent-sdk-mm'],
+            ['phases.0.steps.1', { name: 'per-review', basedOn: 'build-work', mode: 'per-iteration' }, 'per-review based on build-work, per iteration'],
+            ['phases.0.steps.1.substeps.0', 'sub-work', 'sub-work'],
+            ['phases.0.gate', 'gate-work', 'gate-work'],
+            ['phases.0.postGate', 'tidy-work', 'tidy-work'],
+        ];
+        for (const [path, spec, label] of answers) {
+            link(path).click();
+            assert.deepEqual(posted.filter((m) => m.type === 'pickSession').pop(), { type: 'pickSession', path, current: '' });
+            send(w, { type: 'sessionPicked', path, spec });
+            assert.equal(link(path).textContent, label, path);
+        }
+        link('phases.0').click();
+        assert.deepEqual(posted.filter((m) => m.type === 'pickSession').pop(), { type: 'pickSession', path: 'phases.0', current: 'build-work' });
+        let saved = lastSave();
+        assert.deepEqual(saved.definition.session, { name: 'tomspecs', mode: 'per-prompt', profile: 'opus-5-5-agent-sdk-mm' });
+        assert.deepEqual(saved.definition.phases[0].steps[1].session, { name: 'per-review', basedOn: 'build-work', mode: 'per-iteration' });
+        assert.equal(saved.definition.phases[0].steps[1].substeps[0].session, 'sub-work');
+        assert.equal(saved.definition.phases[0].gate.session, 'gate-work');
+        assert.equal(saved.definition.phases[0].postGate.session, 'tidy-work');
+        send(w, { type: 'sessionPicked', path: 'phases.0', spec: null });
+        assert.equal(link('phases.0').textContent, 'inherited', 'null from the picker: inherited');
+        clear('').click();
+        assert.equal(link('').textContent, 'inherited');
+        assert.equal(clear('phases.0'), null, 'no clear button when inherited');
+        saved = lastSave();
+        assert.equal('session' in saved.definition, false, 'cleared at the process level');
+        assert.equal('session' in saved.definition.phases[0], false, 'cleared at the phase');
     });
 });
 

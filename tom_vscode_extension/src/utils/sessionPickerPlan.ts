@@ -137,3 +137,28 @@ export function sessionLabel(name: string, record: SessionRecord | undefined): {
         + (record?.profileId ? `, profile ${record.profileId}${record.model ? ` (${record.model})` : ''}` : '');
     return { label, tooltip };
 }
+
+/** A session as a process definition writes it: a name, or `{name, basedOn, mode, profile}`. */
+export type DefinitionSessionSpec = string | { name: string; basedOn?: string; mode?: SessionMode; profile?: string };
+
+/**
+ * The spec a process definition stores for the choices made in the picker
+ * (the process editor edits the definition only; Proceed creates the file).
+ * The smallest form: a bare name when nothing else is set; `continue` and
+ * "as the base" / "no profile" are left out (a session created from the spec
+ * then takes its base's profile, if any).
+ */
+export function definitionSpecFromChoices(
+    name: string,
+    basedOn: string | undefined,
+    mode: SessionMode,
+    choice: ProfileChoice,
+): DefinitionSessionSpec {
+    const spec = {
+        name,
+        ...(basedOn ? { basedOn } : {}),
+        ...(mode !== 'continue' ? { mode } : {}),
+        ...(choice.kind === 'profile' ? { profile: choice.id } : {}),
+    };
+    return Object.keys(spec).length === 1 ? name : spec;
+}

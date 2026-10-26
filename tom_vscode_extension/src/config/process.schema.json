@@ -22,6 +22,10 @@
       "type": "string",
       "description": "One line; the full description is the process's .md file."
     },
+    "session": {
+      "$ref": "#/$defs/session",
+      "description": "The session every prompt of the process runs in unless a phase, step or sub-step names its own (the innermost applies). E.g. {name: tomspecs, mode: per-prompt, profile: opus-5-5-agent-sdk-mm}: every Proceed prompt starts fresh, without iteration placeholders in session names."
+    },
     "phases": {
       "type": "array",
       "minItems": 1,

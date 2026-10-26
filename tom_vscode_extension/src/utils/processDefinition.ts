@@ -124,6 +124,8 @@ export interface ProcessDefinition {
     name?: string;
     /** One line; the full description is the process's `.md` file. */
     summary?: string;
+    /** The session every prompt of the process runs in, unless a phase, step or sub-step names its own. */
+    session?: ProcessSessionSpec;
     phases: ProcessPhase[];
 }
 
@@ -171,7 +173,7 @@ function isSessionName(v: string): boolean {
     return ID_PATTERN.test(v.replace(SESSION_PLACEHOLDER, '1'));
 }
 
-const DEFINITION_KEYS = ['id', 'name', 'summary', 'phases'];
+const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'phases'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
@@ -185,8 +187,18 @@ function isObject(x: unknown): x is Raw {
     return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
 
-/** Check `raw` (a parsed `.process.yaml`) and return it typed when it holds no error. */
-export function validateProcessDefinition(raw: unknown): ProcessValidation {
+/** What a definition is checked against beyond its own shape. */
+export interface ProcessValidationContext {
+    /** The window's Anthropic profile ids: a session's `profile` must be one of them. Unset: not checked. */
+    profileIds?: readonly string[];
+}
+
+/**
+ * Check `raw` (a parsed `.process.yaml`) and return it typed when it holds no
+ * error. With `context.profileIds` (the process checked against the window's
+ * config) a session naming an unknown profile is an error too.
+ */
+export function validateProcessDefinition(raw: unknown, context: ProcessValidationContext = {}): ProcessValidation {
     const errors: ProcessProblem[] = [];
     const err = (path: string, message: string): void => { errors.push({ path, message }); };
 
@@ -219,7 +231,11 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
         if (v.mode !== undefined && !['continue', 'per-prompt', 'per-iteration', 'fork-from-base'].includes(v.mode as string)) {
             err(`${at}.mode`, '"continue", "per-prompt" or "per-iteration"');
         }
-        if (v.profile !== undefined && (typeof v.profile !== 'string' || v.profile === '')) { err(`${at}.profile`, 'an Anthropic profile id'); }
+        if (v.profile !== undefined && (typeof v.profile !== 'string' || v.profile === '')) {
+            err(`${at}.profile`, 'an Anthropic profile id');
+        } else if (typeof v.profile === 'string' && context.profileIds && !context.profileIds.includes(v.profile)) {
+            err(`${at}.profile`, `no Anthropic profile "${v.profile}" in this window's configuration`);
+        }
     };
     const checkRepeat = (obj: Raw, path: string, what: string): void => {
         if (obj.repeatable !== undefined && typeof obj.repeatable !== 'boolean') { err(`${path}.repeatable`, 'true or false'); }
@@ -265,12 +281,13 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
     };
 
     if (!isObject(raw)) {
-        return { errors: [{ path: '', message: 'a process definition is a mapping (id, name, summary, phases)' }] };
+        return { errors: [{ path: '', message: 'a process definition is a mapping (id, name, summary, session, phases)' }] };
     }
     unknownKeys(raw, DEFINITION_KEYS, '');
     if (typeof raw.id !== 'string' || raw.id === '') { err('id', 'required'); } else if (!ID_PATTERN.test(raw.id)) { err('id', ID_MESSAGE); }
     checkText(raw, 'name', '');
     checkText(raw, 'summary', '');
+    checkSession(raw, '');
     if (!Array.isArray(raw.phases)) {
         err('phases', 'a list of phases expected');
     } else {
@@ -339,14 +356,14 @@ export function validateProcessDefinition(raw: unknown): ProcessValidation {
 }
 
 /** Parse and validate the text of a `.process.yaml`. */
-export function parseProcessYaml(text: string): ProcessValidation {
+export function parseProcessYaml(text: string, context: ProcessValidationContext = {}): ProcessValidation {
     let raw: unknown;
     try {
         raw = parse(text);
     } catch (e) {
         return { errors: [{ path: '(yaml)', message: (e as Error).message.split('\n')[0] }] };
     }
-    return validateProcessDefinition(raw);
+    return validateProcessDefinition(raw, context);
 }
 
 /** The text of a `.process.yaml` for `def`, keys in their documented order. */
@@ -367,7 +384,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         return out;
     };
     const ordered = {
-        ...pick(def, ['id', 'name', 'summary']),
+        ...pick(def, ['id', 'name', 'summary', 'session']),
         phases: def.phases.map((p) => {
             const gate = step(p.gate);
             if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
@@ -983,7 +1000,7 @@ export function sessionSpec(spec: ProcessSessionSpec | undefined): ProcessSessio
 
 /**
  * The session the position runs in: the sub-step's, else the step's, else the
- * phase's; null when none names one. The iteration placeholders of its names
+ * phase's, else the process's; null when none names one. The iteration placeholders of its names
  * are filled in from `state`.
  */
 export function effectiveSession(def: ProcessDefinition | null, state: ProcessState): ProcessSession | null {
@@ -991,7 +1008,8 @@ export function effectiveSession(def: ProcessDefinition | null, state: ProcessSt
     const phase = findPhase(def, state.phase);
     const step = findStep(phase, state.step);
     const sub = findSubstep(step, state.substep);
-    const spec = sessionSpec(sub?.session) ?? sessionSpec(step?.session) ?? sessionSpec(phase?.session);
+    // The innermost wins: sub-step, step, phase, then the process.
+    const spec = sessionSpec(sub?.session) ?? sessionSpec(step?.session) ?? sessionSpec(phase?.session) ?? sessionSpec(def.session);
     if (!spec) { return null; }
     const iteration: Record<string, number> = { phase: state.phaseIteration, step: state.stepIteration, substep: state.substepIteration };
     const fill = (name: string): string => name.replace(SESSION_PLACEHOLDER, (_m, level: string) => String(iteration[level] || 1));

@@ -10,6 +10,8 @@
  *   PP-5 the panel: its button shows the label, a picked session's profile is preselected, Save to
  *        Queue carries the panel's session, Send refuses a profile that cannot continue the session
  *   PP-6 the picker uses these plans
+ *   PP-7 the process editor's picker returns the spec a definition stores, in its smallest form, and
+ *        creates no file
  */
 
 import test, { describe } from 'node:test';
@@ -18,7 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { lifetimeChoices, newSessionOptions, profileChoices, sessionLabel } from '../sessionPickerPlan.js';
+import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, sessionLabel } from '../sessionPickerPlan.js';
 import type { ProfileSection } from '../sessionSpecs.js';
 import { createSession, readSession } from '../../services/agentSdkSessionStore.js';
 
@@ -98,5 +100,17 @@ describe('session picker plans', () => {
         assert.match(picker, /showQuickPick\(lifetimeChoices\(basedOn\)/);
         assert.match(picker, /profileChoices\(profileKeyStates\(section, process\.env\)/);
         assert.match(picker, /createSession\(folder, name, newSessionOptions\(basedOn, how\.mode, profilePick\.choice/);
+    });
+
+    test('PP-7: the spec for a process definition', () => {
+        assert.equal(definitionSpecFromChoices('work', undefined, 'continue', { kind: 'none' }), 'work', 'a bare name');
+        assert.deepEqual(definitionSpecFromChoices('tomspecs', undefined, 'per-prompt', { kind: 'profile', id: 'opus' }),
+            { name: 'tomspecs', mode: 'per-prompt', profile: 'opus' });
+        assert.deepEqual(definitionSpecFromChoices('todo-r${step-iteration}', 'prep', 'per-iteration', { kind: 'base' }),
+            { name: 'todo-r${step-iteration}', basedOn: 'prep', mode: 'per-iteration' }, '"as the base": no profile written');
+        const picker = source('src', 'handlers', 'sessionPicker.ts');
+        const body = picker.slice(picker.indexOf('export async function pickDefinitionSession('), picker.indexOf('async function createSessionInteractively('));
+        assert.doesNotMatch(body, /createSession\(|ensureSession\(/, 'the editor\'s picker creates no file');
+        assert.match(body, /return definitionSpecFromChoices\(name, basedOn, how\.mode, profilePick\.choice\);/);
     });
 });
