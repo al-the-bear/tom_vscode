@@ -29,5 +29,5 @@ Accordion layout with five chat subpanels (see [tom_ai_chat.md](tom_ai_chat.md))
 ## Notes
 
 - Guidelines and Documentation sections live in `@WS` ([wsPanel](tom_status_page.md) — `tomAi.wsPanel`).
-- Session / Workspace todos live in the `@TOM` sidebar tree views, not in `@CHAT`.
+- Session todos live in the `@TOM` sidebar, workspace todos in `@TOM WS`, not in `@CHAT`.
 - Layout primitives: accordion (one-section-focus with pin), tab rotation (collapsed sections as vertical tabs). See [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).

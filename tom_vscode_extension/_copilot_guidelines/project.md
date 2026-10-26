@@ -15,7 +15,7 @@
 
 - **Activation:** [src/extension.ts](../src/extension.ts)
 - **Commands:** `package.json` `contributes.commands` + registration in `src/handlers/*`
-- **Panels:** `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`) plus `@TOM` sidebar views
+- **Panels:** `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`) plus the `@TOM` and `@TOM WS` sidebar views
 - **Core AI handler:** [anthropic-handler.ts](../src/handlers/anthropic-handler.ts) + [agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts)
 
 ## Development workflow
@@ -49,7 +49,7 @@ Maintainer (`_copilot_guidelines/`):
 
 ## Current naming conventions
 
-- Bottom panel titles: `@CHAT`, `@WS`. Sidebar: `@TOM`.
+- Bottom panel titles: `@CHAT`, `@WS`. Sidebars: `@TOM` (the quest), `@TOM WS` (the workspace).
 - Command namespace: `tomAi.*`.
 - Chat variables: `${tomAi.quest}`, `${tomAi.role}`, `${tomAi.activeProjects}`, `${tomAi.todo}`, `${tomAi.workspaceName}`.
 - Custom editor view types: `tomAi.todoEditor`, `tomAi.markdownBrowser`, `tomAi.trailViewer`.

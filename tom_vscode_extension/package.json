@@ -53,6 +53,11 @@
           "id": "tomAi-sidebar",
           "title": "@TOM",
           "icon": "resources/tom-sidebar.svg"
+        },
+        {
+          "id": "tomAi-ws-sidebar",
+          "title": "@TOM WS",
+          "icon": "resources/tom-ws-sidebar.svg"
         }
       ],
       "panel": [
@@ -370,6 +375,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.tomWsSidebar.focus",
+        "title": "@T: Focus @TOM WS Sidebar",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.showSidebarNotes",
         "title": "@T: Show Sidebar Notes",
         "category": "@Tom"
@@ -467,12 +477,6 @@
       "tomAi-sidebar": [
         {
           "type": "webview",
-          "id": "tomAi.vscodeNotes",
-          "name": "VS CODE NOTES",
-          "icon": "$(note)"
-        },
-        {
-          "type": "webview",
           "id": "tomAi.process",
           "name": "PROCESS",
           "icon": "$(type-hierarchy)"
@@ -495,6 +499,14 @@
           "id": "tomAi.sessionTodos",
           "name": "SESSION TODOS",
           "icon": "$(clock)"
+        }
+      ],
+      "tomAi-ws-sidebar": [
+        {
+          "type": "webview",
+          "id": "tomAi.vscodeNotes",
+          "name": "VS CODE NOTES",
+          "icon": "$(note)"
         },
         {
           "type": "webview",

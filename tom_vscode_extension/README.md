@@ -184,8 +184,9 @@ The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts five subpanels:
 | Local LLM | Locally hosted models (`localLlm-handler`). |
 
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
-**@TOM** sidebar with tree views for notes, todos, the todo log, and window
-status.
+**@TOM** sidebar for the quest (process, quest notes, quest and session todos)
+and the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
+workspace todos, the todo log, window status).
 
 ### Highlights
 

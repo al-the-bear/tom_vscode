@@ -32,4 +32,4 @@ User-facing documentation for the `tom_vscode_extension` plugin. Implementation 
 
 - Bottom panel **@CHAT** hosts the chat webview (`tomAi.chatPanel`) with five subpanels: Anthropic, Tom AI Chat, AI Conversation, Copilot, Local LLM.
 - Bottom panel **@WS** hosts the workspace webview (`tomAi.wsPanel`).
-- Sidebar **@TOM** hosts tree views for notes, todos, the todo log, and window status.
+- Sidebar **@TOM** hosts the quest's views (process, quest notes, quest and session todos); sidebar **@TOM WS** the workspace's (VS Code and workspace notes, workspace todos, the todo log, window status).

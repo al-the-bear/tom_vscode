@@ -8,7 +8,7 @@ Activated on VS Code startup. Contributes:
 
 - Command suite under `tomAi.*`.
 - Bottom-panel webviews: `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`).
-- `@TOM` sidebar tree views (notes, todos, log, window status).
+- `@TOM` sidebar (the quest: process, quest notes, quest and session todos) and `@TOM WS` sidebar (the workspace: VS Code and workspace notes, workspace todos, todo log, window status).
 - Custom editors: `questTodo.editor`, trail viewer, Markdown Browser, and several specialised editors (trail, templates, context, queue, timed requests, raw/summary trails, etc.).
 - AI toolchain: five chat subsystems (Anthropic direct SDK, Agent SDK, Copilot, Local LLM, AI Conversation) plus a shared MCP/tool registry.
 - Bridge/CLI/process-monitor integrations (optional; fail-soft).
@@ -76,16 +76,22 @@ Workspace operations surface. Sections: Guidelines, Documentation, Logs, Setting
 
 **Current Prompt** is the one sub-tab backed by several files, so it declares `variants` and the toolbar shows a dropdown while it is active. The six options are `{chat, queue} × {literal, user, system}` — two prompts can be in flight at once, and the three parts are what the user typed, the user message actually sent, and the system prompt. `AnthropicHandler.sendMessage()` calls `writeCurrentPrompt()` (`services/current-prompt-dump.ts`) next to the `writeRawPrompt` trail write, which is above every transport dispatch and the only point where all three texts are in scope; `literal` is `options.userText` rather than the keyword-stripped `effectiveUserText`, since the gap between the two is what the tab exists to show. All three files are rewritten on every send — an empty system prompt is written as an empty file rather than skipped, so nothing survives from the previous prompt. They live under `_ai/trail/anthropic/<quest>/` because the quest folder is tracked in the fleet-shared `_ai` repo and a per-send rewrite there would conflict on every prompt. Because a tab is no longer one file, the handler's change-detection cache is keyed by `questLogViewKey(tab, variant)` and every reply echoes the variant so a reply in flight when the dropdown changed is discarded.
 
-## 4. `@TOM` sidebar tree views
+## 4. `@TOM` and `@TOM WS` sidebar views
 
-- VS CODE NOTES
+`@TOM` (the quest):
+
+- PROCESS
 - QUEST NOTES
 - QUEST TODOS
 - SESSION TODOS
-- TODO LOG (session-scoped execution log)
-- WINDOW STATUS
+
+`@TOM WS` (the workspace):
+
+- VS CODE NOTES
 - WORKSPACE NOTES
 - WORKSPACE TODOS
+- TODO LOG (session-scoped execution log)
+- WINDOW STATUS
 
 See [explorer_notes.md](explorer_notes.md).
 

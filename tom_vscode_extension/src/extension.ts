@@ -1175,6 +1175,13 @@ function registerCommands(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.view.extension.tomAi-sidebar');
         }
     );
+    // Focus @TOM WS: the workspace views (notes, workspace todos, todo log, window status)
+    const focusTomWsSidebarCmd = vscode.commands.registerCommand(
+        'tomAi.tomWsSidebar.focus',
+        async () => {
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-ws-sidebar');
+        }
+    );
 
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
@@ -1297,6 +1304,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         toggleTrailCmd,
         showStatusPageCmd,
         focusTomSidebarCmd,
+        focusTomWsSidebarCmd,
         openInMdViewerCmd,
         openExtensionSettingsCmd,
         migrateCompactionFormatCmd

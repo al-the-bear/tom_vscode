@@ -35,16 +35,21 @@
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute menu |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites menu |
 
-## Explorer Views
+## Sidebar Views
 
-- VS CODE NOTES
+**@TOM** (the quest; `tomAi.tomSidebar.focus`):
+
 - PROCESS (the active quest's process: phase, step, sub-step, iterations)
 - QUEST NOTES
 - QUEST TODOS
 - SESSION TODOS
-- TODO LOG
+
+**@TOM WS** (the workspace; `tomAi.tomWsSidebar.focus`):
+
+- VS CODE NOTES
 - WORKSPACE NOTES
 - WORKSPACE TODOS
+- TODO LOG
 - WINDOW STATUS
 
 ## Quest TODO Panel — prefix groups
@@ -278,7 +283,7 @@ Open: `Ctrl+Shift+7` or `@T: Open Timed Requests`
 
 ## Window Status Panel
 
-Explorer sidebar view showing all open @Tom windows with per-subsystem status:
+View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem status:
 
 - **Orange**: Prompt sent, awaiting answer
 - **Green**: Answer received

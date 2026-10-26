@@ -1,20 +1,27 @@
-# @TOM Sidebar — Notes, Todos, Log, Window Status
+# @TOM and @TOM WS Sidebars — Notes, Todos, Log, Window Status
 
-Contributed in the **@TOM** sidebar (Activity Bar view container). Tree views that provide persistent workspace context.
+Two Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) for the active quest and **@TOM WS** (`tomAi-ws-sidebar`) for the workspace. `tomAi.tomSidebar.focus` and `tomAi.tomWsSidebar.focus` open them; each view also has VS Code's own `<view id>.focus`, which works whichever container holds it. `src/utils/__tests__/sidebarContainers.test.ts` (SB-1..3) pins both containers and their view lists.
 
 ## Contributed views
 
+**@TOM** — the quest:
+
 | View | View ID | Contents |
 | --- | --- | --- |
-| VS CODE NOTES | `tomAi.vscodeNotes` | VS Code-scoped notes (user-wide). |
 | PROCESS | `tomAi.process` | The active quest's process and position (process, phase, step, sub-step, iterations, role); a webview over `ProcessStateStore` — see `doc/user_guide.md` § Processes. |
 | QUEST NOTES | `tomAi.questNotes` | Notes scoped to the active quest. |
 | QUEST TODOS | `tomAi.questTodos` | Todos from the active quest's YAML todo files. |
 | SESSION TODOS | `tomAi.sessionTodos` | Window-scoped session todos (not persisted across reload). |
+
+**@TOM WS** — the workspace:
+
+| View | View ID | Contents |
+| --- | --- | --- |
+| VS CODE NOTES | `tomAi.vscodeNotes` | VS Code-scoped notes (user-wide). |
 | WORKSPACE NOTES | `tomAi.workspaceNotes` | Workspace-root notes. |
 | WORKSPACE TODOS | `tomAi.workspaceTodos` | Workspace-root todos. |
-| TODO LOG | `tomAi.todoLog` | Session-scoped execution log of completed todos. |
-| WINDOW STATUS | `tomAi.windowStatus` | Multi-window status overview with per-subsystem indicators. |
+| TODO LOG | `tomAi.todoLogTom` | Session-scoped execution log of completed todos. |
+| WINDOW STATUS | `tomAi.windowStatusTom` | Multi-window status overview with per-subsystem indicators. |
 
 ## Purpose
 
