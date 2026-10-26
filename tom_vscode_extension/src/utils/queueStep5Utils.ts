@@ -52,3 +52,25 @@ export function buildHostPrefixedPanelFileName(hostname: string, workspaceName: 
     const ws = sanitizeFilePart(workspaceName || 'default');
     return `${host}_${ws}.${type}.yaml`;
 }
+
+/**
+ * The entry file of a queue item, found from `id`: either the file-name stem
+ * itself, or the item's id (its file's `meta.id`, a UUID whose first eight
+ * characters are the file name's unique token). `readMetaId` reads a file's
+ * `meta.id`; files carrying the token are read first, then the rest (a file
+ * written before tokens existed). Returns the file name, or undefined.
+ */
+export function findEntryFileForId(
+    fileNames: readonly string[],
+    id: string,
+    entrySuffix: string,
+    readMetaId: (fileName: string) => string | undefined,
+): string | undefined {
+    const entries = fileNames.filter((f) => f.endsWith(entrySuffix));
+    const byStem = entries.find((f) => f.slice(0, -entrySuffix.length) === id);
+    if (byStem) { return byStem; }
+    const token = `-${id.slice(0, 8)}_`;
+    const withToken = entries.filter((f) => f.includes(token));
+    const rest = entries.filter((f) => !f.includes(token));
+    return [...withToken, ...rest].find((f) => readMetaId(f) === id);
+}

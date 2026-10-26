@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
-import { buildQueueEntryFileName, sanitizeHostnameForFile } from '../utils/queueStep5Utils.js';
+import { buildQueueEntryFileName, findEntryFileForId, sanitizeHostnameForFile } from '../utils/queueStep5Utils.js';
 import { getWorkspaceName } from '../utils/panelYamlStore.js';
 
 // ============================================================================
@@ -607,21 +607,15 @@ export function deleteEntry(entryId: string): boolean {
 export function findEntryById(entryId: string): QueueEntryFile | undefined {
     const folder = getQueueFolder();
     if (!folder || !fs.existsSync(folder)) return undefined;
-
-    // Direct file
-    const directPath = path.join(folder, entryId + ENTRY_SUFFIX);
-    if (fs.existsSync(directPath)) {
-        return readEntry(directPath);
-    }
-
-    // Scan
-    const files = fs.readdirSync(folder).filter(f => f.endsWith(ENTRY_SUFFIX));
-    for (const f of files) {
-        if (entryIdFromFileName(f) === entryId) {
-            return readEntry(path.join(folder, f));
-        }
-    }
-    return undefined;
+    // `entryId` is a file-name stem or, from the queue editor, the item's id
+    // (its file's meta.id): findEntryFileForId accepts both.
+    const fileName = findEntryFileForId(
+        fs.readdirSync(folder),
+        entryId,
+        ENTRY_SUFFIX,
+        (f) => readEntry(path.join(folder, f))?.doc?.meta?.id,
+    );
+    return fileName ? readEntry(path.join(folder, fileName)) : undefined;
 }
 
 /**
