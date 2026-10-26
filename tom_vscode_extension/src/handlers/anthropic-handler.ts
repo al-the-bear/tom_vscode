@@ -364,6 +364,7 @@ export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import { abortSignalFor, createMessageStreamed } from '../services/anthropicMessageCall';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
+import { applyToolTrailRetention, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
 import { readQuestSection } from '../managers/extensionConfigStore';
 export { temperatureField };
@@ -1137,74 +1138,23 @@ export class AnthropicHandler {
     }
 
     /**
-     * Walk back through `messages[]` and replace any tool_result block
-     * older than `keepRounds` rounds with a short stub that names the
-     * replay key. The pairing of tool_use / tool_result blocks is
-     * preserved (Anthropic's API rejects unpaired blocks); only the
-     * `content` of tool_result is shortened.
-     *
-     * Each `user` message in `messages[]` that contains tool_result blocks
-     * corresponds to one round; we count those from the end and start
-     * stubbing once the per-round counter exceeds `keepRounds`.
+     * The retention step after each round of the tool loop
+     * (src/services/toolTrailRetention.ts): older rounds' tool results are
+     * cut or stubbed — unless extended thinking is on, when only the round
+     * just added is cut and every earlier message stays as it was sent, so
+     * the thinking blocks' signatures still match the conversation.
      */
     private applyToolTrailRetentionPolicy(
         messages: AnthropicMessageParam[],
         caps: { toolTrailKeepRounds: number; toolTrailMaxResultChars: number },
+        thinkingEnabled: boolean,
     ): void {
-        const tt = this.toolTrail;
-        tt.inlineMaxChars = Math.max(100, caps.toolTrailMaxResultChars);
-        tt.keepRounds = Math.max(0, caps.toolTrailKeepRounds);
-
-        // Walk newest-first, counting tool_result-bearing user turns.
-        let roundsSeen = 0;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            if (msg.role !== 'user' || !Array.isArray(msg.content)) {
-                continue;
-            }
-            const blocks = msg.content as unknown as Array<Record<string, unknown>>;
-            const hasToolResult = blocks.some((b) => b.type === 'tool_result');
-            if (!hasToolResult) {
-                continue;
-            }
-            roundsSeen += 1;
-            if (roundsSeen <= tt.keepRounds) {
-                // Inside the inline window — truncate the body but keep
-                // it readable. The `truncateInline` marker tells the model
-                // where to fetch the rest.
-                for (const block of blocks) {
-                    if (block.type !== 'tool_result') { continue; }
-                    const id = String(block.tool_use_id ?? '');
-                    const content = block.content;
-                    const text = typeof content === 'string' ? content : this.flattenContentToString(content);
-                    const entry = this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id));
-                    if (!entry) { continue; }
-                    block.content = tt.truncateInline(entry.key, entry.toolName, entry.inputSummary, text);
-                }
-            } else {
-                // Beyond the inline window — replace with a stub. The
-                // tool_result block stays (so tool_use stays paired), the
-                // content shrinks to a one-line pointer.
-                for (const block of blocks) {
-                    if (block.type !== 'tool_result') { continue; }
-                    const id = String(block.tool_use_id ?? '');
-                    const entry = this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id));
-                    block.content = entry
-                        ? tt.renderStub(entry)
-                        : `[Past tool call (id=${id}) — full body persisted at _ai/trail/anthropic/<quest>/tool_results/. Use tomAi_listPastToolCalls to enumerate.]`;
-                }
-            }
-        }
-    }
-
-    private flattenContentToString(content: unknown): string {
-        if (typeof content === 'string') { return content; }
-        if (Array.isArray(content)) {
-            return content
-                .map((p) => (typeof p === 'string' ? p : typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''))
-                .join('');
-        }
-        return '';
+        applyToolTrailRetention(
+            messages as unknown as RetentionMessage[],
+            this.toolTrail,
+            (id) => this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id)),
+            { keepRounds: caps.toolTrailKeepRounds, inlineMaxChars: caps.toolTrailMaxResultChars, freezeEarlierRounds: thinkingEnabled },
+        );
     }
 
     /** Map an Anthropic `tool_use_id` to a ToolTrail entry. The handler
@@ -2469,8 +2419,10 @@ export class AnthropicHandler {
                 // outgoing prompt — full bodies live on disk under
                 // `_ai/trail/anthropic/<quest>/tool_results/<key>.json`
                 // and are recoverable via tomAi_readPastToolResult.
+                // With extended thinking on, earlier rounds are never rewritten:
+                // the thinking blocks of later turns are signed over them.
                 const caps = this.resolveEffectiveCaps(configuration);
-                this.applyToolTrailRetentionPolicy(messages, caps);
+                this.applyToolTrailRetentionPolicy(messages, caps, thinkingBlock !== undefined);
             }
         } catch (err) {
             // Guarantee the raw answer file exists even when the API

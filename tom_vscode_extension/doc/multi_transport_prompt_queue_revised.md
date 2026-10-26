@@ -734,8 +734,13 @@ logic is pure and unit-tested in
 (no `vscode` imports).
 
 - **`'retry'` status with a backoff cascade.** A genuine send failure no longer
-  stops after a few immediate attempts. (A failure no retry can fix — the direct
-  transport finding no API key — goes to `error` at once instead, §4.17a.) `_markItemError` parks the item in the
+  stops after a few immediate attempts. (A failure no retry can fix goes to `error`
+  at once instead: the direct transport finding no API key, §4.17a, and a request
+  the API refused as malformed — a 400 `invalid_request_error`, which every retry
+  would send again unchanged; `isUnretryableRequestError`. Two 400s stay
+  retryable because the retry changes what is sent: the stale
+  `previous_message_id` below and a prompt that is too long, which compaction
+  can shrink. Such an item fails like an exhausted schedule: auto-send goes off.) `_markItemError` parks the item in the
   new `'retry'` status and schedules re-sends at `RETRY_BACKOFF_MS` = 30 s, then
   +15/30/45/60/60/60 min (7 attempts, ≈ 4 h 30 m). Retry items keep their queue
   position; `statusSortRank` clusters `decision-needed`/`error`/`retry`/`waiting` at the top so a

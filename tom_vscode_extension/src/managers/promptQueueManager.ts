@@ -39,7 +39,7 @@ import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { canSendNow, pausesBeforeNextDispatch, resetItemRunState } from '../utils/queueSendNow';
-import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
+import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, isUnretryableRequestError, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
@@ -3352,6 +3352,24 @@ export class PromptQueueManager {
         // retry can fix — straight to `error`, with why and what to do.
         if (isMissingApiKeyFailure(searchText)) {
             this._failForMissingApiKey(item, scope);
+            return;
+        }
+
+        // A request the API refused as malformed (400 invalid_request_error):
+        // every retry would send the same messages and be refused the same way.
+        // Fails like an exhausted retry schedule: error, auto-send off.
+        if (isUnretryableRequestError(searchText)) {
+            clearRetryBookkeeping(item);
+            const refused = applyErrorTransition(item, err, { interruption: interruption ?? null });
+            logQueueError(scope, err);
+            logQueue(`Item ${item.id} failed (${scope}): the API refused the request (400 invalid_request_error) — not retried`);
+            if (refused.shouldDisableAutoSend && this._autoSendEnabled) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                logQueue(`Auto-send disabled by error on item ${item.id} (${scope})`);
+            }
+            this.persist();
+            this._onDidChange.fire();
             return;
         }
 

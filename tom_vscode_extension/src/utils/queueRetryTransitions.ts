@@ -217,6 +217,22 @@ export function isPreviousMessageIdError(text: string | undefined): boolean {
     return /previous_message_id/i.test(text);
 }
 
+/**
+ * True for a request the API refused as malformed (HTTP 400
+ * `invalid_request_error`) that sending again cannot fix: the same messages go
+ * out and are refused the same way, so the queue fails the item at once
+ * instead of spending its seven-attempt retry schedule. Two 400s stay
+ * retryable because the retry changes what is sent: the Agent SDK's stale
+ * `previous_message_id` (the session file is cleared first) and a prompt that
+ * is too long (history compaction can shrink it before the next attempt).
+ */
+export function isUnretryableRequestError(text: string | undefined): boolean {
+    if (!text || !/invalid_request_error/.test(text)) { return false; }
+    if (isPreviousMessageIdError(text)) { return false; }
+    if (/prompt is too long/i.test(text)) { return false; }
+    return true;
+}
+
 // ============================================================================
 // In-flight repetition rollback
 // ============================================================================

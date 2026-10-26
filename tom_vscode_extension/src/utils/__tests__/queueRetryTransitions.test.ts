@@ -1,5 +1,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
     RETRY_BACKOFF_MS,
@@ -11,6 +13,7 @@ import {
     clearRetryBookkeeping,
     applyStopRetrying,
     isPreviousMessageIdError,
+    isUnretryableRequestError,
     rollbackInFlightRepetition,
     type RetryTransitionItem,
     type RollbackTargetItem,
@@ -322,3 +325,23 @@ describe('rollbackInFlightRepetition', () => {
 function pick(d: ReturnType<typeof computeRetryDecision>): { delayMs: number; attempt: number } | null {
     return d.kind === 'retry' ? { delayMs: d.delayMs, attempt: d.attempt } : null;
 }
+
+describe('isUnretryableRequestError', () => {
+    test('a 400 invalid_request_error is not retried; the two 400s a retry can fix are', () => {
+        const signature = 'Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.11.content.13: Invalid `signature` in `thinking` block. The block is bound to a different conversation."}}';
+        assert.equal(isUnretryableRequestError(signature), true);
+        assert.equal(isUnretryableRequestError('Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"previous_message_id not found"}}'), false,
+            'the stale Agent SDK session: cleared, then retried');
+        assert.equal(isUnretryableRequestError('Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1012345 tokens > 1000000 maximum"}}'), false,
+            'compaction can shrink it before the retry');
+        assert.equal(isUnretryableRequestError('Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'), false);
+        assert.equal(isUnretryableRequestError(undefined), false);
+    });
+
+    test('the queue fails such an item at once', () => {
+        const queue = readFileSync(join(__dirname, '..', '..', '..', 'src', 'managers', 'promptQueueManager.ts'), 'utf-8');
+        const unretryable = queue.indexOf('if (isUnretryableRequestError(searchText))');
+        assert.ok(unretryable > 0 && unretryable < queue.indexOf('const decision = computeRetryDecision(item.retryAttempt);'),
+            'checked before a retry is scheduled');
+    });
+});
