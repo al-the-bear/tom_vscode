@@ -1425,7 +1425,7 @@ Delivers: Anthropic subsystem in trail, tool registry ready, basic send loop, to
     2. Expand `anthropicUserMessage` template via `variableResolver` with `userMessage: userText`
     3. Prepend `toolTrail.toSummaryString()` prefix to the expanded user message (omit if empty)
     4. Log prompt: `trailService.writeRawPrompt('anthropic', quest, ...)`
-    5. Call `this.client.messages.create({ system, tools: toAnthropicTools(tools, pred), messages })`
+    5. Call `createMessageStreamed(client, { system, tools: toAnthropicTools(tools, pred), messages })` (`src/services/anthropicMessageCall.ts`: `messages.stream(...).finalMessage()` — streamed, because the SDK refuses a non-streaming request whose `max_tokens` could run past ten minutes)
     6. Tool-call loop: on `stop_reason === 'tool_use'`, for each `tool_use` block — check `requiresApproval`, send `anthropicToolApproval` to panel and await response if needed, call `executeToolCall()`, add `ToolTrailEntry`, log via `trailService.writeRawToolRequest/Result`; build `tool_result` user message; repeat
     7. Log response: `trailService.writeRawAnswer('anthropic', quest, ...)`
     8. `toolTrail.evictOldRounds()`

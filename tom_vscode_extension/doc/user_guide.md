@@ -271,7 +271,7 @@ The prompt queue manages sequenced prompt dispatch to Copilot with answer detect
 
 ### Queue Storage
 
-Queue entries are stored as individual YAML files (one file per entry) in the queue folder with the naming pattern `q_<8-digit-hex-id>.yaml`. Queue settings are stored separately in `queue-settings.yaml`. This file-per-entry approach enables cross-window sync via file watchers.
+Queue entries are stored as individual YAML files (one file per entry) in the queue folder (`_ai/queue/`, setting `tomAi.queueFolder`), named `<host>_<workspace>_<yymmdd>_<hhmmss>-<token>_<quest>.<type>.entry.queue.yaml`; `<token>` is the first eight characters of the item's id, which the file holds as `meta.id`. The item's **Open YAML file** button opens it. Queue settings are stored separately in `queue-settings.yaml`. This file-per-entry approach enables cross-window sync via file watchers.
 
 Files are prefixed with the hostname to prevent cross-workspace collisions when multiple machines share a workspace folder.
 
@@ -279,7 +279,7 @@ Files are prefixed with the hostname to prevent cross-workspace collisions when 
 
 Each queued prompt tracks:
 
-- **Status**: `staged` → `pending` → `sending` → `sent` (or `error`)
+- **Status**: `staged` → `pending` → `sending` → `sent` (or `error`). **Send Now** (the play icon) sends a staged or pending item at once and also works on a `sent` item: the whole item runs again from its first prompt (every repetition or `prefix*` todo, every follow-up). With auto-send off an item sends its first prompt and then holds as `SENDING (PAUSED)` until auto-send is turned on; an item with nothing left becomes `sent`.
 - **Type**: `normal`, `timed`, or `reminder`
 - **Template**: Prompt template name (or "(None)")
 - **Answer wrapper**: Whether to wrap with answer file template

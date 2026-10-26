@@ -125,8 +125,8 @@ All write operations are **append-or-rewrite** against the current file. Calls a
 
 ### 5.1 Direct Anthropic transport — `anthropic-handler.ts`
 
-- In `sendMessage`, after computing `profile` + `configuration` but before the first `client.messages.create`: call `liveTrail.beginPrompt(...)`.
-- Inside the tool loop, after each `client.messages.create` returns:
+- In `sendMessage`, after computing `profile` + `configuration` but before the first Messages API call (`createMessageStreamed`): call `liveTrail.beginPrompt(...)`.
+- Inside the tool loop, after each Messages API call (`createMessageStreamed`) returns:
   - For each `thinking` block in `response.content`: `liveTrail.appendThinking(text)`.
   - For each `text` block: `liveTrail.appendAssistantText(text)`.
   - For each `tool_use` block (before `this.runTool()` runs): `liveTrail.beginToolCall(name, input, replayKeyFromToolTrail)`.
