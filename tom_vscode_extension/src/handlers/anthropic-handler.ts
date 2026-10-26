@@ -356,6 +356,7 @@ export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 // trail utilities) import it from this module by name.
 import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import { abortSignalFor, createMessageStreamed } from '../services/anthropicMessageCall';
+import { boundPayloadHistory } from '../services/historyPayloadBound';
 export { temperatureField };
 
 /**
@@ -774,6 +775,11 @@ export class AnthropicHandler {
      * isn't independently mutated.
      */
     private computeDedupedUnion(): ConversationMessage[] {
+        return roundsToRawTurns(this.computeDedupedUnionRounds());
+    }
+
+    /** The deduped union as rounds, oldest first (see computeDedupedUnion). */
+    private computeDedupedUnionRounds(): ConversationMessage[][] {
         const seen = new Set<string>();
         const keyOf = (round: ConversationMessage[]): string =>
             round.map((m) => `${m.role}|${m.content}`).join('\n');
@@ -790,7 +796,29 @@ export class AnthropicHandler {
             seen.add(key);
             out.push(round);
         }
-        return roundsToRawTurns(out);
+        return out;
+    }
+
+    /** Whether background compaction is off for `configuration` (its override, else the global switch). */
+    private isCompactionDisabledFor(configuration: AnthropicConfiguration): boolean {
+        const override = configuration.compactionOverride;
+        if (override === 'off') { return true; }
+        return override !== 'on' && this.getCompactionConfig().disabled;
+    }
+
+    /**
+     * The history a request carries: bounded so it cannot outgrow the
+     * context window (historyPayloadBound.ts) — the rolling tail only while
+     * compaction is off (nothing clears the accumulator then), and in every
+     * case the newest rounds that fit the configuration's maxHistoryTokens.
+     */
+    private payloadRawTurns(configuration: AnthropicConfiguration): ConversationMessage[] {
+        return boundPayloadHistory({
+            union: this.computeDedupedUnionRounds(),
+            rollingTail: this.rawTurnsRolling,
+            compactionDisabled: this.isCompactionDisabledFor(configuration),
+            maxHistoryTokens: this.resolveEffectiveCaps(configuration).maxHistoryTokens,
+        });
     }
 
     /**
@@ -1878,7 +1906,7 @@ export class AnthropicHandler {
             { ...options, userText: effectiveUserText },
             {
                 ...(shouldExposeOurHistory
-                    ? { compactedSummary: this.compactedSummaryText, rawTurns: this.rawTurns }
+                    ? { compactedSummary: this.compactedSummaryText, rawTurns: this.payloadRawTurns(configuration) }
                     : {}),
                 toolHistory: toolHistoryText,
             },
@@ -1949,7 +1977,7 @@ export class AnthropicHandler {
         const payloadEffectiveTools = (transport === 'agentSdk' && profile.useBuiltInTools)
             ? tools.filter((t) => !DUPLICATES_OF_CLAUDE_CODE_BUILTINS.has(t.name))
             : tools;
-        const payloadHistory = options.isolated ? [] : this.rawTurns;
+        const payloadHistory = options.isolated ? [] : this.payloadRawTurns(configuration);
         TrailService.instance.writeRawPayload(
             ANTHROPIC_SUBSYSTEM,
             buildPayloadDump({
@@ -2181,7 +2209,10 @@ export class AnthropicHandler {
             // extraction so the compacted summary and memory files stay
             // up to date regardless of transport.
             if (!options.isolated) {
-                const userMsg: ConversationMessage = { role: 'user', content: userContent };
+                // The user's prompt, not the wrapped message: a wrapper may inject the
+                // earlier rounds (${rawTurns}), and storing that would put every round
+                // into the next one.
+                const userMsg: ConversationMessage = { role: 'user', content: effectiveUserText };
                 const assistantMsg: ConversationMessage = { role: 'assistant', content: result.text };
                 const questId = TwoTierMemoryService.instance.currentQuest();
                 const caps = this.resolveEffectiveCaps(configuration);
@@ -2259,7 +2290,7 @@ export class AnthropicHandler {
         // question). Empty `compactedSummary` = no synthetic pair.
         const rollingHistory: AnthropicMessageParam[] = options.isolated
             ? []
-            : this.rawTurns.map((m) => ({
+            : this.payloadRawTurns(configuration).map((m) => ({
                 role: m.role === 'system' ? 'user' : m.role as 'user' | 'assistant',
                 content: m.content,
             }));
@@ -2490,7 +2521,7 @@ export class AnthropicHandler {
         // we don't retain enough state to reconstruct those).
         const chatMessages: vscode.LanguageModelChatMessage[] = [];
         if (!options.isolated) {
-            for (const turn of this.rawTurns) {
+            for (const turn of this.payloadRawTurns(configuration)) {
                 if (turn.role === 'assistant') {
                     chatMessages.push(vscode.LanguageModelChatMessage.Assistant(turn.content));
                 } else {
@@ -2751,9 +2782,10 @@ export class AnthropicHandler {
             const compactedSummary = this.compactedSummaryText;
             const includeRaw = historyMode === 'full' || historyMode === 'all' || historyMode === 'trim_and_summary' || historyMode === 'last';
             const includeSummary = (historyMode === 'summary' || historyMode === 'trim_and_summary' || historyMode === 'full' || historyMode === 'all') && Boolean(compactedSummary);
+            const boundedTurns = this.payloadRawTurns(configuration);
             const rawSlice = historyMode === 'last'
-                ? this.rawTurns.slice(-2)
-                : this.rawTurns;
+                ? boundedTurns.slice(-2)
+                : boundedTurns;
             if (includeRaw) {
                 for (const turn of rawSlice) {
                     messages.push({
@@ -3038,7 +3070,8 @@ export class AnthropicHandler {
         // turn. Isolated sub-agent runs skip this so the parent
         // conversation is unaffected by their intermediate reasoning.
         if (!isolated) {
-            const userMsg: ConversationMessage = { role: 'user', content: userContent };
+            // The user's prompt, not the wrapped message (see the Agent SDK path).
+            const userMsg: ConversationMessage = { role: 'user', content: rawUserText ?? userContent };
             const assistantMsg: ConversationMessage = { role: 'assistant', content: text };
             const questId = TwoTierMemoryService.instance.currentQuest();
             const caps = this.resolveEffectiveCaps(configuration);

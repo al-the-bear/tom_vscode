@@ -133,12 +133,24 @@ most recent verbatim user/assistant pairs. Every turn:
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `rawTurnsKept` | `4` | Number of user/assistant turn *pairs* kept verbatim. Total raw messages = `rawTurnsKept * 2`. |
-| `maxHistoryTokens` | `8000` | Token target for the compactor's output (`${maxHistoryTokens}` placeholder). Also used as the safety token cap in batch summary mode. |
+| `maxHistoryTokens` | `8000` | Token target for the compactor's output (`${maxHistoryTokens}` placeholder). Also used as the safety token cap in batch summary mode, and as the cap on the raw history every request carries: the newest whole rounds that fit (four characters a token) go out, older ones are left out (`src/services/historyPayloadBound.ts`). |
 | `historyMaxChars` | `24000` | Hard cap on the `${existingSummary}` / `${compactedSummary}` injected into the compactor's *own* prompt. Tail-bounded (newest portion kept). |
 | `memoryMaxChars` | `8000` | Hard cap on `${existingMemory}` injected into the memory-extraction prompt. Head-bounded (newest entries kept — memory files are prepended newest-first). |
 | `compactionTemplateId` | active id from `compaction.templates[]` | Which template renders the prompt sent to the compactor LLM. |
 | `compactionMaxRounds` | `1` | Tool-call rounds allowed during one compaction pass (Local LLM only — Anthropic compaction is single-shot). |
 | `fullTrailMaxTurns` | `200` | Safety cap on `historyMode: full`. |
+
+**The history a request carries is bounded.** Between two compactions a request
+carries the rounds the compactor has not folded yet plus the rolling tail. With
+compaction switched off (`compaction.disabled`, or a configuration's
+`compactionOverride: "off"`) nothing folds the accumulator, so the request then
+carries the rolling tail only (`rawTurnsKept` rounds); and in every case only
+the newest rounds that fit `maxHistoryTokens`. A stored round holds the user's
+prompt, not the wrapped message: a `userPromptWrapper` that injects
+`${rawTurns}` (needed by the Agent SDK T&S profiles, whose transport takes no
+message history) would otherwise copy every earlier round into the next one.
+Direct profiles do not need `${rawTurns}` or `${compactedSummary}` in their
+wrapper: the direct transport sends both as messages.
 
 Per-configuration overrides live directly on the configuration entry:
 
