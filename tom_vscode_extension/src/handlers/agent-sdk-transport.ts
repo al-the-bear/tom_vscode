@@ -523,6 +523,7 @@ function buildMcpServer(
                     },
                 },
                 () => ({ source: 'anthropic', requestId: ctx.requestId }),
+                'agentSdk',
             ),
         ),
     );

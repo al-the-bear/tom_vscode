@@ -129,6 +129,7 @@ export function makeMcpToolCallback(def: SharedToolDefinition, sink: McpToolTrai
                 sink.writeAnswer({ name, result, durationMs, error }),
         },
         () => ({ source: 'mcp', requestId: `mcp-${Date.now()}` }),
+        'mcp',
     );
 }
 

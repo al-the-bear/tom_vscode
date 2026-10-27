@@ -196,6 +196,17 @@ idempotent — second call is a no-op.
 
 ---
 
+## Timing in a running window — the Tom Tool Log
+
+`withTiming` measures tools in the test sandbox. In a running window every
+agent tool call writes one line to the *Tom Tool Log* channel
+(`src/utils/toolCallLog.ts`, wired in `runTool` of the Anthropic handler and
+in `wrapToolWithTrail` for the Agent SDK and the standalone MCP server):
+`<ISO time> [tool-call] <transport> <tool> <ms> ms <chars> chars ok|error: …`.
+Read it with `tomAi_readOutputChannel {channel: 'Tom Tool Log', grep: '<tool>'}`
+to see how long a tool really takes for a live session, instead of bisecting its
+time budget. Tests: `toolCallLog.test.ts` (TL-1..4).
+
 ## Timing report format
 
 Written to `_ai/quests/vscode_extension/tool_timings.md` (workspace root,

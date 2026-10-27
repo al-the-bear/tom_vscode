@@ -10,6 +10,7 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
@@ -3283,6 +3284,8 @@ export class AnthropicHandler {
             result = `Error: ${error}`;
         }
         const durationMs = Date.now() - start;
+        // One line in the Tom Tool Log per call, on every transport this loop serves.
+        logToolCall({ at: new Date(), transport: configuration.transport ?? 'direct', tool: block.name, durationMs, resultChars: result.length, error });
 
         TrailService.instance.writeRawToolAnswer(
             this.trailSubsystem(),

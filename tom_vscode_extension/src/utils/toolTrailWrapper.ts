@@ -32,6 +32,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { runWithToolContext, type ToolExecutionContext } from '../services/tool-execution-context';
+import { logToolCall } from './toolCallLog';
 
 /** The callback shape an MCP server's `registerTool` / `tool` invokes per call. */
 export type McpToolCallback = (args: Record<string, unknown> | undefined) => Promise<CallToolResult>;
@@ -66,6 +67,8 @@ export function wrapToolWithTrail(
     def: SharedToolDefinition,
     sink: ToolTrailSink,
     resolveContext: () => ToolExecutionContext,
+    /** The transport named in the Tom Tool Log line: `agentSdk` or `mcp`. */
+    transport: string,
 ): McpToolCallback {
     return async (args) => {
         const input = (args ?? {}) as Record<string, unknown>;
@@ -83,6 +86,7 @@ export function wrapToolWithTrail(
         }
         const durationMs = Date.now() - start;
 
+        logToolCall({ at: new Date(), transport, tool: def.name, durationMs, resultChars: result.length, error });
         sink.writeAnswer({ name: def.name, input, result, durationMs, error });
 
         return {

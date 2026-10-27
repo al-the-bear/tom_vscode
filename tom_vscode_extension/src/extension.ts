@@ -6,6 +6,8 @@
  * handler files in the handlers/ directory.
  */
 
+import { setToolCallLogSink } from './utils/toolCallLog';
+import { getToolLogChannel } from './utils/toolLog';
 import * as vscode from 'vscode';
 import { setExtensionLogUri } from './utils/outputChannelLogs';
 import * as path from 'path';
@@ -385,6 +387,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     stepStart = performance.now();
     initializeDebugLogger(context);
+    // Every agent tool call writes one line (time, transport, tool, duration, size, ok/error) to Tom Tool Log.
+    setToolCallLogSink((line) => getToolLogChannel().appendLine(line));
     installConsoleDebugRouting();
     debugLog('Debug logger initialized', 'INFO', 'extension.activate');
     timeStep('debugLogger + consoleRouting', stepStart);

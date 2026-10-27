@@ -55,7 +55,7 @@ describe('wrapToolWithTrail (todo #8)', () => {
         const sink = spySink();
         const def = fakeTool('tomAi_echo', async (input) => `echoed:${input.x}`);
 
-        const result = await wrapToolWithTrail(def, sink, mcpContext)({ x: 'hi' });
+        const result = await wrapToolWithTrail(def, sink, mcpContext, 'mcp')({ x: 'hi' });
 
         assert.equal(sink.requests.length, 1);
         assert.equal(sink.requests[0].name, 'tomAi_echo');
@@ -76,7 +76,7 @@ describe('wrapToolWithTrail (todo #8)', () => {
         const sink = spySink();
         const def = fakeTool('tomAi_boom', async () => { throw new Error('kaboom'); });
 
-        const result = await wrapToolWithTrail(def, sink, mcpContext)({});
+        const result = await wrapToolWithTrail(def, sink, mcpContext, 'mcp')({});
 
         // The request is still written before the failure.
         assert.equal(sink.requests.length, 1);
@@ -95,7 +95,7 @@ describe('wrapToolWithTrail (todo #8)', () => {
             return 'ok';
         });
 
-        await wrapToolWithTrail(def, sink, () => ({ source: 'anthropic', requestId: 'r-9' }))({});
+        await wrapToolWithTrail(def, sink, () => ({ source: 'anthropic', requestId: 'r-9' }), 'agentSdk')({});
 
         assert.equal(seen?.source, 'anthropic');
         assert.equal(seen?.requestId, 'r-9');
@@ -111,7 +111,7 @@ describe('wrapToolWithTrail (todo #8)', () => {
             seen.push(getCurrentToolContext()?.requestId ?? '');
             return 'ok';
         });
-        const cb = wrapToolWithTrail(def, sink, () => ({ source: 'mcp', requestId: `mcp-${++counter}` }));
+        const cb = wrapToolWithTrail(def, sink, () => ({ source: 'mcp', requestId: `mcp-${++counter}` }), 'mcp');
 
         await cb({});
         await cb({});
@@ -123,7 +123,7 @@ describe('wrapToolWithTrail (todo #8)', () => {
         const sink = spySink();
         const def = fakeTool('tomAi_noargs', async () => 'done');
 
-        const result = await wrapToolWithTrail(def, sink, mcpContext)(undefined);
+        const result = await wrapToolWithTrail(def, sink, mcpContext, 'mcp')(undefined);
 
         assert.deepEqual(sink.requests[0].input, {});
         assert.deepEqual(sink.answers[0].input, {});
