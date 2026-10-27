@@ -105,7 +105,8 @@ export const READ_OUTPUT_CHANNEL_DESCRIPTION =
     'Tom AI Compaction and Memory Extraction: `history scope:` lines; Tom Extension Debug Log; Tom Tool Log; …) ' +
     'and every other extension\'s. **Without `channel`**: the channels of the run with their size and last write, ' +
     'and the runs there are. **With `channel`** (its name, any case; else the one name containing it; or its file ' +
-    'name such as `12-Tom Prompt Queue.log` when two channels share a name): its lines as `<line>: <text>`, the last ' +
+    'name such as `12-Tom Prompt Queue.log` when two channels share a name; a `:` in a name may be given or left out, ' +
+    'as VS Code leaves it out of the file: `Tom AI: MCP Server` and `Tom AI MCP Server` find the same channel): its lines as `<line>: <text>`, the last ' +
     '`maxLines` (default 200, max 2000) of them; `grep` keeps lines containing the text (any case) or, with ' +
     '`regex: true`, matching the JavaScript regular expression (case-insensitive); `context` adds up to 20 lines ' +
     'around each match, `--` separating groups. `run` picks the extension-host run: 0 (default) is this one, 1 the ' +

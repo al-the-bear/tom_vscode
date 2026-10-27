@@ -13,6 +13,9 @@
  *   OC-7 the log location comes from context.logUri (`…/exthost/<extension id>`)
  *   OC-8 a file over 32 MB is read from its end
  *   OC-9 the tool is read-only, selectable and filed under Diagnostics
+ *   OC-10 a channel whose name holds a colon (`Tom AI: MCP Server`, which VS Code writes to
+ *        `24-Tom AI MCP Server.log`) is found by its real name, by the file's name and by its file name, and
+ *        listed under its real name; the list of the extension's own colon names covers every one it creates
  */
 
 import test, { after, describe } from 'node:test';
@@ -23,7 +26,7 @@ import * as path from 'path';
 
 import { withTiming } from './_timing.js';
 import { READ_OUTPUT_CHANNEL_TOOL, readOutputChannelImpl } from '../output-channel-tools.js';
-import { MAX_CHANNEL_BYTES, getExthostFolder, setExtensionLogUri } from '../../utils/outputChannelLogs.js';
+import { MAX_CHANNEL_BYTES, OWN_CHANNEL_NAMES, channelNameKey, getExthostFolder, setExtensionLogUri } from '../../utils/outputChannelLogs.js';
 import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
 import { categorizeTools } from '../../utils/toolCategories.js';
 
@@ -54,6 +57,7 @@ put(RUN, '18-Tom AI Compaction and Memory Extraction.log', [
 put(RUN, '19-Tom AI Anthropic Chat.log', ['[00:23:21] TURN START']);
 put(RUN, '20-Tom AI Anthropic Chat Responses.log', ['[00:23:22] answer']);
 put(RUN, '2-Tom AI Chat Log.log', []);
+put(RUN, '24-Tom AI MCP Server.log', ['2026-10-27T11:13:33.315Z started on http://0.0.0.0:19920']);
 put(OLD_RUN, '12-Tom Prompt Queue.log', ['2026-10-19T21:31:20.000Z queue started (the run before the reload)']);
 fs.mkdirSync(path.join(EXTHOST, 'Anthropic.claude-code'), { recursive: true });
 
@@ -70,7 +74,7 @@ describe('tomAi_readOutputChannel', () => {
             [[0, RUN, '2026-10-20 18:39:56'], [1, OLD_RUN, '2026-10-19 21:31:19']]);
         assert.deepEqual(r.channels.map((c: any) => c.name), [
             'Tom AI Chat Log', 'Tom Prompt Queue', 'Tom AI Compaction and Memory Extraction',
-            'Tom AI Anthropic Chat', 'Tom AI Anthropic Chat Responses',
+            'Tom AI Anthropic Chat', 'Tom AI Anthropic Chat Responses', 'Tom AI: MCP Server',
         ], 'creation order, by the number in the file name');
         const queue = r.channels.find((c: any) => c.name === 'Tom Prompt Queue');
         assert.equal(queue.file, '12-Tom Prompt Queue.log');
@@ -163,5 +167,35 @@ describe('tomAi_readOutputChannel', () => {
         assert.equal(READ_OUTPUT_CHANNEL_TOOL.readOnly, true);
         assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes('tomAi_readOutputChannel'));
         assert.equal(categorizeTools(['tomAi_readOutputChannel'])[0].category, 'Diagnostics');
+    });
+
+    test('OC-10: a channel name with a colon', () => {
+        for (const q of ['Tom AI: MCP Server', 'tom ai: mcp server', 'Tom AI MCP Server', '24-Tom AI MCP Server.log', 'AI: MCP']) {
+            const r = call({ channel: q });
+            assert.equal(r.channel, 'Tom AI: MCP Server', q);
+            assert.equal(r.totalLines, 1, q);
+        }
+        const listed = call({}).channels.map((c: { name: string }) => c.name);
+        assert.ok(listed.includes('Tom AI: MCP Server'), 'listed under its real name');
+        assert.ok(!listed.includes('Tom AI MCP Server'));
+        assert.equal(channelNameKey('Tom AI: MCP Server'), channelNameKey('Tom AI MCP Server'));
+
+        // Every channel the extension creates with a colon in its name is in OWN_CHANNEL_NAMES.
+        const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
+        const created = new Set<string>();
+        const walk = (dir: string): void => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const fp = path.join(dir, e.name);
+                if (e.isDirectory()) { if (e.name !== '__tests__') { walk(fp); } continue; }
+                if (!e.name.endsWith('.ts')) { continue; }
+                const text = fs.readFileSync(fp, 'utf-8');
+                for (const m of text.matchAll(/createOutputChannel\(\s*'([^']+)'/g)) { created.add(m[1]); }
+                for (const m of text.matchAll(/export const \w*CHANNEL_NAME = '([^']+)'/g)) { created.add(m[1]); }
+            }
+        };
+        walk(srcRoot);
+        const withColon = [...created].filter((n) => n.includes(':')).sort();
+        assert.ok(withColon.includes('Tom AI: MCP Server'));
+        assert.deepEqual(withColon, [...OWN_CHANNEL_NAMES].sort());
     });
 });

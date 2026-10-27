@@ -23,6 +23,30 @@ const RUN_FOLDER = /^output_logging_(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$
 /** `12-Tom Prompt Queue.log` → number 12, name `Tom Prompt Queue`. */
 const CHANNEL_FILE = /^(\d+)-(.+)\.log$/;
 
+/**
+ * Characters VS Code leaves out of a channel's file name (a file name cannot
+ * hold them): `Tom AI: MCP Server` is written to `24-Tom AI MCP Server.log`.
+ */
+const NOT_IN_FILE_NAMES = /[\\/:*?"<>|]/g;
+
+/**
+ * This extension's channels whose names lose characters in their file name,
+ * so they are listed under the name they were created with. Kept complete by
+ * a test (OC-10) that reads every `createOutputChannel` of the sources.
+ */
+export const OWN_CHANNEL_NAMES: readonly string[] = ['Tom AI: Compaction Migration', 'Tom AI: MCP Server'];
+
+/** A name as it compares: without the characters a file name cannot hold, spaces collapsed, any case. */
+export function channelNameKey(name: string): string {
+    return name.replace(NOT_IN_FILE_NAMES, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** The name a channel was created with, when it is one of {@link OWN_CHANNEL_NAMES}; else the file's. */
+function realChannelName(fileName: string): string {
+    const key = channelNameKey(fileName);
+    return OWN_CHANNEL_NAMES.find((n) => channelNameKey(n) === key) ?? fileName;
+}
+
 /** Most bytes read from one channel file; a longer file is read from its end. */
 export const MAX_CHANNEL_BYTES = 32 * 1024 * 1024;
 
@@ -90,7 +114,7 @@ export function listOutputChannels(runFolder: string): OutputChannelFile[] {
         .sort((a, b) => Number(a.m[1]) - Number(b.m[1]))
         .map(({ file, m }) => {
             const stat = fs.statSync(path.join(runFolder, file));
-            return { name: m[2], file, bytes: stat.size, modified: stat.mtime.toISOString() };
+            return { name: realChannelName(m[2]), file, bytes: stat.size, modified: stat.mtime.toISOString() };
         });
 }
 
@@ -100,15 +124,17 @@ export type ChannelMatch =
 
 /**
  * Find one channel by `query`: its file name, its exact name (any case), or
- * failing those the one name that contains it. Two channels can share a name,
- * so an exact name held twice is ambiguous too — the file name settles it.
+ * failing those the one name that contains it. Names compare by
+ * {@link channelNameKey}, so `Tom AI: MCP Server` and `Tom AI MCP Server` find
+ * the same channel. Two channels can share a name, so an exact name held twice
+ * is ambiguous too — the file name settles it.
  */
 export function matchOutputChannel(channels: OutputChannelFile[], query: string): ChannelMatch {
-    const q = query.trim().toLowerCase();
-    const byFile = channels.filter((c) => c.file.toLowerCase() === q);
+    const byFile = channels.filter((c) => c.file.toLowerCase() === query.trim().toLowerCase());
     if (byFile.length === 1) { return { ok: true, channel: byFile[0] }; }
-    const exact = channels.filter((c) => c.name.toLowerCase() === q);
-    const hits = exact.length > 0 ? exact : channels.filter((c) => c.name.toLowerCase().includes(q));
+    const q = channelNameKey(query);
+    const exact = channels.filter((c) => channelNameKey(c.name) === q);
+    const hits = exact.length > 0 ? exact : channels.filter((c) => channelNameKey(c.name).includes(q));
     if (hits.length === 1) { return { ok: true, channel: hits[0] }; }
     if (hits.length === 0) {
         return { ok: false, error: `No output channel matches "${query}".`, candidates: channels.map((c) => c.name) };
