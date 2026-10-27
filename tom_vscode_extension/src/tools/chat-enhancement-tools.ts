@@ -812,6 +812,42 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
 };
 
 // ============================================================================
+// tomAi_getQuestWindowStatus — the windows on this machine (quest-window-status-tools.ts)
+// ============================================================================
+
+import { GET_QUEST_WINDOW_STATUS_TOOL as GET_QUEST_WINDOW_STATUS_DEF, getQuestWindowStatusImpl, type GetQuestWindowStatusInput, type QuestWindowStatusAccess } from './quest-window-status-tools';
+
+const liveQuestWindowStatusAccess: QuestWindowStatusAccess = {
+    questExists: (quest) => liveQuestSendAccess.questExists(quest),
+    snapshot: () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { loadAllWindowStates } = require('../handlers/windowStatusPanel-handler') as typeof import('../handlers/windowStatusPanel-handler');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { profileKeyStates } = require('../utils/anthropicApiKeyCheck') as typeof import('../utils/anthropicApiKeyCheck');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getWindowId } = require('../services/copilotAnswerService') as typeof import('../services/copilotAnswerService');
+        const section = loadSendToChatConfig()?.anthropic;
+        return {
+            states: loadAllWindowStates() as unknown as import('../utils/questWindowStatus').WindowStateInput[],
+            sessionsOf: (quest) => liveQuestSendAccess.listSessions(quest),
+            config: section as import('../utils/questWindowStatus').ProfileConfig | undefined,
+            noApiKey: new Set(profileKeyStates(section as import('../utils/anthropicApiKeyCheck').AnthropicKeySection | undefined, process.env)
+                .filter((p) => p.noApiKey).map((p) => p.id)),
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            thisHost: require('os').hostname() as string,
+            thisMachine: vscode.env.machineId.substring(0, 8),
+            thisWindowId: getWindowId(),
+            nowMs: Date.now(),
+        };
+    },
+};
+
+export const GET_QUEST_WINDOW_STATUS_TOOL: SharedToolDefinition<GetQuestWindowStatusInput> = {
+    ...GET_QUEST_WINDOW_STATUS_DEF,
+    execute: (input) => getQuestWindowStatusImpl(liveQuestWindowStatusAccess, input),
+};
+
+// ============================================================================
 // Timed-request Tools (5) — relocated to `timed-request-tools.ts` (vscode-free
 // impls + narrow `TimerEngineAccess` dep) by the entry #19 coverage refactor.
 // Bridge wires the live `TimerEngine.instance` to the interface.
@@ -1291,6 +1327,7 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     QUEUE_UPDATE_FOLLOW_UP_TOOL,
     QUEUE_REMOVE_FOLLOW_UP_TOOL,
     SEND_ITEM_TO_QUEST_TOOL,
+    GET_QUEST_WINDOW_STATUS_TOOL,
     TIMED_LIST_TOOL,
     TIMED_UPDATE_ENTRY_TOOL,
     TIMED_REMOVE_ENTRY_TOOL,

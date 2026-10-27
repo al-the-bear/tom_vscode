@@ -97,6 +97,7 @@ const TOM_AI_CHAT_ALLOWED_TOOLS = new Set<string>([
     'tomAi_sendQueuedPrompt',
     'tomAi_addTimedRequest',
     'tomAi_listQueue',
+    'tomAi_getQuestWindowStatus',
     'tomAi_updateQueueItem',
     'tomAi_setQueueItemStatus',
     'tomAi_removeQueueItem',

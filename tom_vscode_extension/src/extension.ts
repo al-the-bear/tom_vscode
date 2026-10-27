@@ -101,6 +101,7 @@ import {
 } from './handlers/mcpServer-handler';
 import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
+import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { debounce } from './utils/debounce';
@@ -570,12 +571,13 @@ export async function activate(context: vscode.ExtensionContext) {
                     pid: process.pid,
                     cliServer: { running: !!cli.running, ...(cli.port ? { port: cli.port } : {}) },
                     mcpServer: getMcpServerStatus(),
-                });
+                }, collectWindowActivity(context));
             } finally {
                 beating = false;
             }
         };
         void beat();
+        setWindowActivityBeat(() => { void beat(); });
         const heartbeatTimer = setInterval(() => { void beat(); }, HEARTBEAT_INTERVAL_MS);
         context.subscriptions.push({ dispose: () => clearInterval(heartbeatTimer) });
     }
@@ -769,6 +771,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();
     PromptQueueManager.init(context);
+    // The window state file follows the role, the process position and the queue as they change.
+    watchWindowActivity(context);
     TimerEngine.init(context);
     ReminderSystem.init(context);
     ReminderSystem.instance.bindToQueue();

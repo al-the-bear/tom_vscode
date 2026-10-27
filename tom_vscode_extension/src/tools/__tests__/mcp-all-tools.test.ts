@@ -253,6 +253,7 @@ function inputs(): Record<string, Input> {
         tomAi_removeQueueFollowUp: (p: Record<string, Json>) => ({ queueItemId: queued(p), followUpId: followUp(p) }),
         tomAi_removeQueueItem: (p: Record<string, Json>) => ({ queueItemId: queued(p) }),
         tomAi_sendQueuedPrompt: { queueItemId: 'no-such-item' },
+        tomAi_getQuestWindowStatus: { quest: 'other', includeGone: true },
         tomAi_sendItemToQuest: { quest: 'other', text: 'sent by the MCP test', doneNotificationPrompt: 'tell ${senderQuest}: ${itemOutcome}' },
         tomAi_resendQueueItem: { queueItemId: 'no-such-item' },
         tomAi_addTimedRequest: { text: 'a timed prompt from the MCP test', intervalMinutes: 60 },
@@ -722,6 +723,7 @@ describe('every tool over MCP, in a sandbox', () => {
 
     test('MA-4: the right answers', () => {
         assert.match(answerOf('tomAi_readFile'), /# Demo workspace/);
+        assert.match(answerOf('tomAi_getQuestWindowStatus'), /"quest": "other"[\s\S]*"name": "default"/, 'the quest asked for, with its implicit sessions');
         assert.match(answerOf('tomAi_findTextInFiles'), /notes\/plain\.md:3:alpha/);
         assert.match(answerOf('tomAi_gitRead'), /fixture/);
         assert.match(answerOf('tomAi_runCommand'), /sandbox/);

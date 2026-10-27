@@ -23,6 +23,7 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { isWindowAlive, serverSummary, withHeartbeat, type WindowHeartbeat } from '../utils/windowHeartbeat';
+import type { WindowActivity } from '../utils/questWindowStatus';
 
 // ============================================================================
 // Constants
@@ -58,8 +59,11 @@ export interface SubsystemStatus {
     lastAnswerAt: string;
 }
 
-/** Full window state persisted to disk (with the heartbeat: src/utils/windowHeartbeat.ts) */
-export interface WindowStateFile extends WindowHeartbeat {
+/**
+ * Full window state persisted to disk (with the heartbeat: src/utils/windowHeartbeat.ts,
+ * and what the window says about itself: src/utils/questWindowStatus.ts WindowActivity)
+ */
+export interface WindowStateFile extends WindowHeartbeat, WindowActivity {
     /** Unique window identifier: sessionId(8)_machineId(8) */
     windowId: string;
     /** Workspace name or folder label */
@@ -547,13 +551,15 @@ export function writeWindowHeartbeat(
     workspace: string,
     activeQuest: string,
     beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer'>,
+    activity?: WindowActivity,
 ): void {
     try {
         const filePath = stateFilePath(windowId);
         if (!filePath) { return; }
         const existing = fs.existsSync(filePath) ? readWindowStateFile(filePath) : undefined;
         const base: WindowStateFile = existing ?? { windowId, workspace, activeQuest, status: [], aiConversationActive: false };
-        const state = withHeartbeat({ ...base, workspace, activeQuest }, beat, new Date());
+        // What the window says about itself (tomAi_getQuestWindowStatus) replaces what it said before.
+        const state = withHeartbeat({ ...base, ...(activity ?? {}), workspace, activeQuest }, beat, new Date());
         const tempPath = filePath + '.tmp';
         fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
         fs.renameSync(tempPath, filePath);

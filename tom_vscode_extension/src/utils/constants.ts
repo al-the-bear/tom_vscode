@@ -245,6 +245,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specWriteAnswers',
     // Queue + timed requests — observation and sessions
     'tomAi_listQueue',
+    // The windows on this machine, each quest's sessions and the profiles (before tomAi_sendItemToQuest).
+    'tomAi_getQuestWindowStatus',
     'tomAi_listSessions',
     'tomAi_createSession',
     'tomAi_listTimedRequests',

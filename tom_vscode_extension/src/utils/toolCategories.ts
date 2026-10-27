@@ -177,6 +177,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     ],
     'Queue & Timers (read)': [
         'tomAi_listQueue',
+        'tomAi_getQuestWindowStatus',
         'tomAi_listSessions',
         'tomAi_createSession',
         'tomAi_listTimedRequests',
