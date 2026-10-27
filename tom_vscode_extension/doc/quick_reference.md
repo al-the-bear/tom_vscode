@@ -171,10 +171,10 @@ the file in a normal text editor.
 
 | Sub-tab | File | View | Opens at |
 | --- | --- | --- | --- |
-| MD Trail | `live-trail.md` | Rendered markdown | Bottom (appended to) |
-| Trail | `live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
-| Prompts | `history/{quest}.anthropic.prompts.md` | Source | Top |
-| Answers | `history/{quest}.anthropic.answers.md` | Source | Top |
+| MD Trail | `history/sessions/default/live-trail.md` | Rendered markdown | Bottom (appended to) |
+| Trail | `history/sessions/default/live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
+| Prompts | `history/sessions/default/{quest}.anthropic.prompts.md` | Source | Top |
+| Answers | `history/sessions/default/{quest}.anthropic.answers.md` | Source | Top |
 | Progress | `progress.{quest}.md` | Source | Top |
 | Overview | `overview.{quest}.md` | Source | Top |
 | Notes | `quest-notes.{quest}.md` | Source | Top |
@@ -185,7 +185,9 @@ the file in a normal text editor.
 | Decisions | `decisions.{quest}.md` | Source | Bottom (appended to) |
 | Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
 
-Not every quest has every file; a missing one is reported in the viewer.
+Not every quest has every file; a missing one is reported in the viewer. The
+live trail and the trail pair are per session; these tabs show the prompt
+queue's session, `default`.
 
 **Current Prompt** is the one sub-tab that shows several files, picked from a
 toolbar dropdown that appears only while it is selected. The six options are the
@@ -294,9 +296,11 @@ View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem sta
 
 | Surface | Path | Written by | Notes |
 | --- | --- | --- | --- |
-| Raw trail | `_ai/trail/<subsystem>/<quest>/` | `TrailService` | `*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_toolrequest_*.json`, `*_toolanswer_*.json` |
-| Live trail | `_ai/quests/<quest>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
-| Session history | `_ai/quests/<quest>/history/history.json` + `history.md` | `trim_and_summary` compaction | Direct transport only |
-| Sessions | `_ai/quests/<quest>/history/<name>.session.json` (`chat` panel, `default` queue, named sessions) | Anthropic handler, session pickers, `tomAi_createSession` | Gitignored. Holds the Agent SDK session id (SDK-managed mode) and, for a named session, `basedOn`, `mode` (`continue` / `per-prompt` / `per-iteration`; `fork-from-base` = `per-prompt`), `profileId` and `model`, and a per-iteration session's current `iteration` |
-| Session histories (direct API) | `_ai/quests/<quest>/history/sessions/<name>/` (`compacted_history.md`, `rawTurns.json`, `compaction_rounds.json`, `history.json` / `.md`) | Anthropic handler (direct transport) | A named session's own history; `chat` and `default` use `history/` itself. A `per-prompt` session writes none; a `per-iteration` session's folder holds the current iteration (`iteration.json`). Gitignored |
-| Tool trail | in-memory (`tool-trail.ts`) | `AnthropicHandler` | Ring buffer 40 entries; replay keys `t1`, `t2`, … queryable via `tomAi_*PastToolCall*` tools |
+| Session storage (Anthropic) | `_ai/quests/<quest>/history/sessions/<session>/` — one per session, `chat` (the ANTHROPIC panel) and `default` (the queue) included | Anthropic handler, `TrailService`, `LiveTrailWriter` | `compacted_history.md`, `history.json` / `history.md` (snapshot) and `live-trail.md` are tracked; `rawTurns.json`, `compaction_rounds.json`, `iteration.json`, the pair `<quest>.anthropic.prompts.md` / `.answers.md` and `trail/` are ignored. `trail/` holds the raw per-call files (`*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_tool_request_*.json`, `*_tool_answer_*.json`), `compaction/` and `memory/`, `tool_results/t<n>.json` (keys continue past what is stored) and `current_prompt.*.md` |
+| Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` (Local LLM: `_ai/trail/localllm/<quest>-<config>/`) | `TrailService` | Copilot, Local LLM, LM API, MCP; the quest-level `_ai/trail/anthropic/<quest>/current_prompt.*.md` and `last_request.json` stay there for the Logs tab |
+| Live trail | `history/sessions/<session>/live-trail.md` (Anthropic); `_ai/quests/<quest>/live-trail-localLLM.md` (Local LLM) | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
+| Quest memory | `_ai/memory/<quest>/<session>/` per session; `_ai/memory/shared/` one set | memory service, memory tools, background extraction | `${memory}` injects the running session's quest memory plus shared; a Local LLM memory bucket (`facts-<suffix>.md`) reads the `default` session's |
+| Sessions | `_ai/quests/<quest>/history/<name>.session.json` (`chat` panel, `default` queue, named sessions) | Anthropic handler, session pickers, `tomAi_createSession` | `chat.session.json` and `default.session.json` are gitignored, a named session's file is tracked. Holds the Agent SDK session id (SDK-managed mode) and, for a named session, `basedOn`, `mode` (`continue` / `per-prompt` / `per-iteration`; `fork-from-base` = `per-prompt`), `profileId` and `model`, and a per-iteration session's current `iteration` |
+| Moving to per-session storage | `history/sessions/.storage-version` (ignored) | memory service, on a quest's first use | The per-quest layout's files (history, the Anthropic pair, `live-trail.md`, the raw Anthropic trail, quest memory) become the `default` session's, once per quest and machine; a file whose target exists stays (named in the *Tom AI Compaction and Memory Extraction* output channel) |
+| History of a session | its storage root | Anthropic handler | A based `continue` session is seeded from its base once; a `per-prompt` session reads its base and writes nothing; a `per-iteration` session's folder holds the current iteration (`iteration.json`). A temporary session's storage is deleted with it |
+| Tool trail | in-memory (`tool-trail.ts`), one per session | `AnthropicHandler` | Ring buffer 40 entries; replay keys `t<n>` continue past the session's stored results; queryable via `tomAi_*PastToolCall*` tools (the running session's first) |

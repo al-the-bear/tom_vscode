@@ -22,6 +22,7 @@ import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
 import { sanitizeQuestSegment } from '../utils/questPaths';
+import { sessionLiveTrailFile } from './sessionStorage';
 
 const HEADER_COMMENT = '<!-- tom-ai live-trail -->';
 /** Per-kind marker used by `endPromptWithInterruption` — all yellow family. */
@@ -316,8 +317,12 @@ export class LiveTrailWriter {
      *                   `'live-trail-localLLM.md'` so the two transports
      *                   write parallel trails in the same folder without
      *                   stomping on each other.
+     * @param session    An Anthropic session: its own live trail,
+     *                   `history/sessions/<session>/live-trail.md`
+     *                   (src/services/sessionStorage.ts); `fileName` is then
+     *                   not used.
      */
-    constructor(questId: string, fileName: string = 'live-trail.md') {
+    constructor(questId: string, fileName: string = 'live-trail.md', session?: string) {
         this.questId = questId || 'default';
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
@@ -327,7 +332,9 @@ export class LiveTrailWriter {
         // user-supplied value via a future API would otherwise let a
         // malicious filename escape the quest folder.
         const safeName = fileName.replace(/[^A-Za-z0-9_.-]/g, '_') || 'live-trail.md';
-        this.filePath = path.join(questsRoot, safeQuest, safeName);
+        this.filePath = session
+            ? sessionLiveTrailFile(path.join(questsRoot, safeQuest, 'history'), session)
+            : path.join(questsRoot, safeQuest, safeName);
     }
 
     /** Absolute path the writer is targeting — useful for the chat panel's Open button. */

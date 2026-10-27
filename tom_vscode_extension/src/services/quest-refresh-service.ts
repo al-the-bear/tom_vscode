@@ -15,6 +15,8 @@
  * Design: quest_refresh_implementation_plan.md §4, §6.
  */
 
+import { TwoTierMemoryService } from './memory-service';
+import { sessionsWithStorage } from './sessionStorage';
 import * as vscode from 'vscode';
 import {
     LiveTrailWriter,
@@ -131,7 +133,16 @@ export class QuestRefreshService {
     /** Force-trim the panel's live-trail to the base block count. */
     private truncateTrail(panel: QuestRefreshPanel, quest: string): void {
         try {
-            new LiveTrailWriter(quest, trailFileName(panel)).truncateToBase();
+            // Anthropic: every session keeps its own live trail, and the
+            // refresh runs in the session of the send that triggered it, so
+            // each session's is trimmed.
+            if (panel === 'localLlm') {
+                new LiveTrailWriter(quest, trailFileName(panel)).truncateToBase();
+            } else {
+                for (const session of sessionsWithStorage(TwoTierMemoryService.instance.historyFolder(quest))) {
+                    new LiveTrailWriter(quest, undefined, session).truncateToBase();
+                }
+            }
         } catch {
             // Trail truncation is best-effort; never break the cycle on it.
         }

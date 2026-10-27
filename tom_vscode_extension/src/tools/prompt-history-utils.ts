@@ -11,6 +11,7 @@
  * temp on-disk fixture.
  */
 
+import { sessionSummaryFile, sessionsWithStorage } from '../services/sessionStorage';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -218,6 +219,10 @@ function previewSlice(body: string, max: number): string {
  *   - `localllm-<configName>`
  *   - `lm-api-<modelName>`
  *
+ * Anthropic pairs are per session (src/services/sessionStorage.ts):
+ * `history/sessions/<session>/${quest}.anthropic.{prompts,answers}.md`, listed
+ * as subsystem `anthropic:<session>`; the filter `anthropic` matches them all.
+ *
  * `findSubsystemFiles` looks for every matching pair belonging to a quest.
  * Filters by subsystem prefix if provided (so callers can ask for just
  * `anthropic` or just `localllm-*`).
@@ -257,6 +262,13 @@ export function findSubsystemFiles(
             if (subsystem) { answersBySubsystem.set(subsystem, path.join(trailFolder, name)); }
         }
     }
+    // Every session's own pair.
+    for (const session of sessionsWithStorage(trailFolder)) {
+        for (const [kind, map] of [['prompts', promptsBySubsystem], ['answers', answersBySubsystem]] as const) {
+            const file = sessionSummaryFile(trailFolder, session, questId, 'anthropic', kind);
+            if (fs.existsSync(file)) { map.set(`anthropic:${session}`, file); }
+        }
+    }
     const subsystems = new Set<string>([...promptsBySubsystem.keys(), ...answersBySubsystem.keys()]);
     const out: SubsystemFiles[] = [];
     for (const subsystem of [...subsystems].sort()) {
@@ -281,6 +293,8 @@ export function matchesSubsystemFilter(subsystem: string, filter: string): boole
     if (filter === subsystem) { return true; }
     if (filter.endsWith('*') && subsystem.startsWith(filter.slice(0, -1))) { return true; }
     if (subsystem.startsWith(`${filter}-`)) { return true; }
+    // `anthropic` matches every session's pair (`anthropic:<session>`).
+    if (subsystem.startsWith(`${filter}:`)) { return true; }
     return false;
 }
 

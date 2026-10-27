@@ -23,6 +23,7 @@
  * line boundary by {@link trimToLineStart} / {@link trimToLineEnd}.
  */
 
+import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSIONS_FOLDER } from '../services/sessionStorage';
 import { sanitizeQuestSegment } from './questPaths.js';
 
 /** Identifier of one Logs sub-tab. */
@@ -271,6 +272,9 @@ export const DEFAULT_QUEST_LOG_TAB_ID: QuestLogTabId = 'mdTrail';
  */
 export const MAX_QUEST_LOG_BYTES = 256 * 1024;
 
+/** The session folder (relative to the quest's `history/`) the per-session tabs read. */
+const LOGS_SESSION_FOLDER = `${SESSIONS_FOLDER}/${MIGRATION_TARGET_SESSION}`;
+
 /** Type guard for values arriving from the webview / persisted state. */
 export function isQuestLogTabId(value: unknown): value is QuestLogTabId {
     return typeof value === 'string' && QUEST_LOG_TABS.some(t => t.id === value);
@@ -293,13 +297,16 @@ export function questLogLocation(
 ): QuestLogLocation {
     const quest = sanitizeQuestSegment(questId);
     switch (tab) {
+        // The live trail and the trail pair are per session
+        // (src/services/sessionStorage.ts): these tabs show the queue's
+        // session, `default`.
         case 'mdTrail':
         case 'trail':
-            return { area: 'quest', fileName: 'live-trail.md' };
+            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${SESSION_LIVE_TRAIL_FILE}` };
         case 'prompts':
-            return { area: 'questHistory', fileName: `${quest}.anthropic.prompts.md` };
+            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${quest}.anthropic.prompts.md` };
         case 'answers':
-            return { area: 'questHistory', fileName: `${quest}.anthropic.answers.md` };
+            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${quest}.anthropic.answers.md` };
         case 'progress':
             return { area: 'quest', fileName: `progress.${quest}.md` };
         case 'overview':

@@ -5,6 +5,13 @@ import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
+import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
+
+/** The quest's `history/` folder, where every session's storage root is. */
+export function questHistoryRoot(quest: string): string {
+    const questsRoot = WsPaths.ai('quests') ?? path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', WsPaths.aiFolder, 'quests');
+    return path.join(questsRoot, quest || 'default', 'history');
+}
 
 export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
@@ -16,8 +23,12 @@ export type TrailSubsystem =
      *   - (absent)      → _ai/trail/anthropic/{quest}/
      *   - 'compaction'  → _ai/trail/anthropic/{quest}/compaction/
      *   - 'memory'      → _ai/trail/anthropic/{quest}/memory/
+     * With a `session` every file goes to that session's storage
+     * (src/services/sessionStorage.ts): the raw trail to
+     * `_ai/quests/{quest}/history/sessions/{session}/trail[/{category}]/`,
+     * the summary pair to `…/sessions/{session}/{quest}.anthropic.{prompts,answers}.md`.
      */
-    | { type: 'anthropic'; category?: 'compaction' | 'memory' }
+    | { type: 'anthropic'; category?: 'compaction' | 'memory'; session?: string }
     /** MCP server subsystem — trails tool calls routed through the in-process MCP server. */
     | { type: 'mcp' };
 
@@ -208,8 +219,11 @@ export class TrailService {
     }
 
     getSubsystemPath(subsystem: TrailSubsystem, questId?: string): string {
-        const base = this.resolveRawBasePath(subsystem);
         const quest = questId || WsPaths.getWorkspaceQuestId();
+        if (subsystem.type === 'anthropic' && subsystem.session) {
+            return sessionTrailFolder(questHistoryRoot(quest), subsystem.session, subsystem.category);
+        }
+        const base = this.resolveRawBasePath(subsystem);
         return resolveTrailPath(base, {
             subsystem: this.getSubsystemName(subsystem),
             quest,
@@ -326,6 +340,10 @@ export class TrailService {
     }
 
     private resolveSummaryFile(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
+        if (subsystem.type === 'anthropic' && subsystem.session) {
+            const quest = questId || WsPaths.getWorkspaceQuestId() || 'default';
+            return sessionSummaryFile(questHistoryRoot(quest), subsystem.session, quest, 'anthropic', kind);
+        }
         const cfg = this.getSummaryConfig();
         const pattern = kind === 'prompts' ? cfg.promptsFilePattern : cfg.answersFilePattern;
         if (!pattern) {

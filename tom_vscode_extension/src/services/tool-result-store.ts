@@ -26,6 +26,8 @@ import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { sessionToolResultsFolder } from './sessionStorage';
+import { questHistoryRoot } from './trailService';
 
 export type ToolResultSubsystem = 'localLlm' | 'anthropic';
 
@@ -50,9 +52,17 @@ function getRawBase(subsystem: ToolResultSubsystem): string {
     return paths.localLlm ?? '${ai}/trail/localllm/${quest}';
 }
 
-function resolveStoreDir(subsystem: ToolResultSubsystem, questId?: string): string {
-    const base = getRawBase(subsystem);
+/**
+ * The folder of the results. An Anthropic session's results are in its own
+ * storage (`history/sessions/<session>/trail/tool_results/`), so two sessions
+ * never share keys; without a session, the subsystem's raw trail folder.
+ */
+function resolveStoreDir(subsystem: ToolResultSubsystem, questId?: string, session?: string): string {
     const quest = questId || WsPaths.getWorkspaceQuestId();
+    if (subsystem === 'anthropic' && session) {
+        return sessionToolResultsFolder(questHistoryRoot(quest), session);
+    }
+    const base = getRawBase(subsystem);
     const expanded = resolveTrailPath(base, { subsystem, quest });
     return path.join(expanded, 'tool_results');
 }
@@ -64,16 +74,22 @@ function isValidKey(key: string): boolean {
     return /^[A-Za-z0-9_-]{1,32}$/.test(key);
 }
 
+/** The folder `writeToolResult` writes to (to seed a ToolTrail's key counter past what is there). */
+export function toolResultFolder(subsystem: ToolResultSubsystem, questId?: string, session?: string): string {
+    return resolveStoreDir(subsystem, questId, session);
+}
+
 export function writeToolResult(
     subsystem: ToolResultSubsystem,
     entry: StoredToolResult,
     questId?: string,
+    session?: string,
 ): void {
     if (!isValidKey(entry.key)) {
         return;
     }
     try {
-        const dir = resolveStoreDir(subsystem, questId);
+        const dir = resolveStoreDir(subsystem, questId, session);
         FsUtils.ensureDir(dir);
         const filePath = path.join(dir, `${entry.key}.json`);
         FsUtils.safeWriteJson(filePath, entry);
@@ -87,12 +103,13 @@ export function readToolResult(
     subsystem: ToolResultSubsystem,
     key: string,
     questId?: string,
+    session?: string,
 ): StoredToolResult | undefined {
     if (!isValidKey(key)) {
         return undefined;
     }
     try {
-        const filePath = path.join(resolveStoreDir(subsystem, questId), `${key}.json`);
+        const filePath = path.join(resolveStoreDir(subsystem, questId, session), `${key}.json`);
         if (!fs.existsSync(filePath)) {
             return undefined;
         }
@@ -107,13 +124,19 @@ export function readToolResult(
     }
 }
 
-/** Resolution helper for `tomAi_readPastToolResult`: tries every subsystem
- *  so a key issued by the Local LLM is still readable when the user has
- *  since switched to Anthropic, and vice-versa. */
+/** Resolution helper for `tomAi_readPastToolResult`: the Anthropic session's
+ *  own results first (`session`, the session the call runs in), then every
+ *  subsystem's folder without a session, so a key issued by the Local LLM is
+ *  still readable when the user has since switched to Anthropic, and vice-versa. */
 export function readToolResultAnySubsystem(
     key: string,
     questId?: string,
+    session?: string,
 ): { entry: StoredToolResult; subsystem: ToolResultSubsystem } | undefined {
+    if (session) {
+        const own = readToolResult('anthropic', key, questId, session);
+        if (own) { return { entry: own, subsystem: 'anthropic' }; }
+    }
     for (const subsystem of ['anthropic', 'localLlm'] as ToolResultSubsystem[]) {
         const entry = readToolResult(subsystem, key, questId);
         if (entry) {

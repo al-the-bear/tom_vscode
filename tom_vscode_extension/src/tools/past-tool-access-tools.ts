@@ -452,7 +452,8 @@ const liveAccess: ToolHistoryAccess = {
         return trail?.keepEntries;
     },
     readFromDisk(key) {
-        const fromDisk = readToolResultAnySubsystem(key);
+        // The active trail is the session the call runs in: its own results first.
+        const fromDisk = readToolResultAnySubsystem(key, undefined, getActiveToolTrail()?.session);
         if (!fromDisk) { return undefined; }
         return {
             key: fromDisk.entry.key,

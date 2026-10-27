@@ -46,7 +46,7 @@ describe('queue done-notification wiring', () => {
         assert.match(finished, /_deleteTemporarySession\(item\.session\)/);
         const deletion = body(queue, 'private _deleteTemporarySession(');
         assert.match(deletion, /deleteSession\(folder, name\)/, 'the session file');
-        assert.match(deletion, /fs\.rmSync\(sessionHistoryFolder\(folder, name\)/, 'and its history folder');
+        assert.match(deletion, /removeSessionStorage\(folder, /, 'and its whole storage: history, trails, memory (vbs12)');
     });
 
     test('DW-2: errors', () => {

@@ -208,6 +208,7 @@ import type {
     AnthropicToolApprovalRequest,
 } from './anthropic-handler';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
+import type { TrailSubsystem } from '../services/trailService';
 import {
     isUnknownSessionError,
     planAgentSdkRetry,
@@ -285,6 +286,8 @@ export interface AgentSdkTransportContext {
     questId: string;
     /** VS Code session id. */
     windowId: string;
+    /** The trail subsystem of the session the query runs in (its files go to that session's storage). */
+    trailSubsystem?: TrailSubsystem;
     /** Unique id for this request in the raw trail. */
     requestId: string;
 }
@@ -495,7 +498,7 @@ function buildMcpServer(
                 {
                     writeRequest: (name, input) => {
                         TrailService.instance.writeRawToolRequest(
-                            ANTHROPIC_SUBSYSTEM,
+                            ctx.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
                             { id: `${ctx.requestId}-${name}-${Date.now()}`, name, input },
                             ctx.windowId,
                             ctx.questId,
@@ -503,7 +506,7 @@ function buildMcpServer(
                     },
                     writeAnswer: ({ name, input, result, durationMs, error }) => {
                         TrailService.instance.writeRawToolAnswer(
-                            ANTHROPIC_SUBSYSTEM,
+                            ctx.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
                             { name, result, durationMs, error },
                             ctx.windowId,
                             ctx.questId,
@@ -1083,7 +1086,7 @@ async function runAgentSdkAttempt(
                                 startedAt: Date.now(),
                             });
                             TrailService.instance.writeRawToolRequest(
-                                ANTHROPIC_SUBSYSTEM,
+                                context.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
                                 { id: b.id, name: b.name, input },
                                 context.windowId,
                                 context.questId,
@@ -1137,7 +1140,7 @@ async function runAgentSdkAttempt(
                             const errorMsg = isError ? (text || 'tool reported error') : undefined;
 
                             TrailService.instance.writeRawToolAnswer(
-                                ANTHROPIC_SUBSYSTEM,
+                                context.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
                                 { id: toolUseId, name: pending.name, result: text, durationMs, error: errorMsg },
                                 context.windowId,
                                 context.questId,
@@ -1216,7 +1219,7 @@ async function runAgentSdkAttempt(
             : `(no text produced — stream errored before any assistant text)\n${errMsg}`;
         try {
             TrailService.instance.writeRawAnswer(
-                ANTHROPIC_SUBSYSTEM,
+                context.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
                 body,
                 context.windowId,
                 context.requestId,
@@ -1238,7 +1241,7 @@ async function runAgentSdkAttempt(
     // can reference it.
     const finalBody = lastText || `(no text produced — stop_reason: ${stopReason ?? 'unknown'})`;
     TrailService.instance.writeRawAnswer(
-        ANTHROPIC_SUBSYSTEM,
+        context.trailSubsystem ?? ANTHROPIC_SUBSYSTEM,
         finalBody,
         context.windowId,
         context.requestId,

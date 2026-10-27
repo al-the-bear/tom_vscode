@@ -16,6 +16,11 @@
  * prompt. Seeing the first two side by side is the point — that gap is where
  * placeholder and template bugs hide.
  *
+ * A send in a named session also writes the three files into that session's
+ * own trail folder (`history/sessions/<session>/trail/`), so every session
+ * keeps the last prompt it sent; the quest-level set above is the one the
+ * Logs tab reads.
+ *
  * Chat and queue get separate sets because both can be in flight at once: a
  * queue item runs while the user sends a chat message, and one overwriting the
  * other would make the tab lie about whichever it clobbered.
@@ -40,6 +45,8 @@ import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { resolveTrailPath } from './trailPathResolver';
+import { sessionTrailFolder } from './sessionStorage';
+import { questHistoryRoot } from './trailService';
 import {
     currentPromptFiles,
     pendingCurrentPromptFiles,
@@ -71,6 +78,8 @@ export interface CurrentPromptCapture extends CurrentPromptTexts {
     source: QuestLogPromptSource;
     /** Quest to file it under; defaults to the workspace's active quest. */
     questId?: string;
+    /** The session the prompt runs in: a copy goes to its trail folder. */
+    session?: string;
 }
 
 /**
@@ -81,6 +90,7 @@ export interface CurrentPromptClaim {
     source: QuestLogPromptSource;
     literal: string;
     questId?: string;
+    session?: string;
 }
 
 /**
@@ -98,7 +108,7 @@ export interface CurrentPromptClaim {
  * {@link writeCurrentPrompt} replaces all three the moment they exist.
  */
 export function beginCurrentPrompt(claim: CurrentPromptClaim): void {
-    writeFiles(pendingCurrentPromptFiles(claim.source, claim.literal), claim.questId);
+    writeFiles(pendingCurrentPromptFiles(claim.source, claim.literal), claim.questId, claim.session);
 }
 
 /**
@@ -110,14 +120,17 @@ export function beginCurrentPrompt(claim: CurrentPromptClaim): void {
  * than showing nothing.
  */
 export function writeCurrentPrompt(capture: CurrentPromptCapture): void {
-    writeFiles(currentPromptFiles(capture.source, capture), capture.questId);
+    writeFiles(currentPromptFiles(capture.source, capture), capture.questId, capture.session);
 }
 
-function writeFiles(files: CurrentPromptFile[], questId?: string): void {
+function writeFiles(files: CurrentPromptFile[], questId?: string, session?: string): void {
     try {
-        const dir = currentPromptDir(questId);
-        for (const file of files) {
-            FsUtils.safeWriteText(path.join(dir, file.fileName), file.text);
+        const dirs = [currentPromptDir(questId)];
+        if (session) { dirs.push(sessionTrailFolder(questHistoryRoot(questId || WsPaths.getWorkspaceQuestId()), session)); }
+        for (const dir of dirs) {
+            for (const file of files) {
+                FsUtils.safeWriteText(path.join(dir, file.fileName), file.text);
+            }
         }
     } catch {
         // Best-effort diagnostics — never break the send path over a log file.

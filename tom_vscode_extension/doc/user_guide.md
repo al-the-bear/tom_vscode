@@ -27,9 +27,9 @@ The Logs section of @WS shows the active quest's log-style markdown files from
 `_ai/quests/{quest}/`, plus the prompt that is running right now. It is
 read-only; use the toolbar to edit.
 
-- **Sub-tabs**: **MD Trail** (`live-trail.md`, rendered), **Trail** (the same
-  file as highlighted source), **Prompts** / **Answers**
-  (`history/{quest}.anthropic.prompts.md` / `.answers.md`), **Progress**, **Overview**,
+- **Sub-tabs**: **MD Trail** (the queue session's `live-trail.md`, rendered), **Trail** (the same
+  file as highlighted source), **Prompts** / **Answers** (the queue session's
+  `{quest}.anthropic.prompts.md` / `.answers.md`, all in `history/sessions/default/`), **Progress**, **Overview**,
   **Notes** (`quest-notes.{quest}.md`), **Refresh**
   (`quest_refresh.{quest}.md`), **DocUpdate**
   (`quest_documentation_update.{quest}.md`), **Deferred**
@@ -226,8 +226,7 @@ A conversation lives in a **session**: a `<name>.session.json` file in the quest
 
 On the **direct API transport** the extension sends the history itself — the compacted history, the last raw turns and the rounds not yet compacted — so a session's history is files of its own:
 
-- `chat` (the panel) and `default` (the queue) share the quest's history in `history/`, as before;
-- any other session keeps its own in `history/sessions/<name>/` (the same files), so a queued prompt or a process step that names a session reads and writes only that history;
+- every session keeps its own in `history/sessions/<name>/`, `chat` (the panel) and `default` (the queue) included, so the panel and the queue no longer share a history, and a queued prompt or a process step that names a session reads and writes only that history;
 - **Continue** with a base: the session's history is copied from the base's once, on its first prompt, and continues on its own; the base is never changed;
 - **New for every prompt**: every prompt reads the base's current history, or none without a base, and nothing is saved or compacted;
 - **New for every queue iteration**: the session's folder holds the current iteration's history and is started again from the base's (or empty) when the next iteration begins.
@@ -533,11 +532,15 @@ Queue and timed request channels include ISO timestamps on every log line and ca
 
 ## 9) Trails and history
 
-The Anthropic + Tom AI Chat subsystems write three kinds of trail:
+Every Anthropic session — `chat` (the panel), `default` (the queue) and every named one — keeps all it writes in its own folder, `_ai/quests/<quest>/history/sessions/<session>/`:
 
-- **Raw trail** — `_ai/trail/anthropic/<quest>/` (and per-subsystem siblings). Every turn produces `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus `<ts>_toolrequest_*.json` / `<ts>_toolanswer_*.json` for each tool call. Inspect via the Raw Trail Viewer editor.
-- **Live trail** — `_ai/quests/<quest>/live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the **Open Live Trail** button (MD Browser in live mode follow-tails the file).
-- **Session history** — `_ai/quests/<quest>/history/history.json` (+ `history.md` rendering). Rolling compacted context used by `trim_and_summary` on the direct transport. SDK-managed mode uses `default.session.json` instead.
+- **History** — `compacted_history.md`, `history.json` (+ `history.md` rendering), `rawTurns.json`, `compaction_rounds.json`. Rolling compacted context used by `trim_and_summary`; read back from the same folder. SDK-managed mode keeps the conversation in the Agent SDK, its id in `<session>.session.json`.
+- **Trail pair** — `<quest>.anthropic.prompts.md` / `.answers.md`, the session's prompts and answers; **Recreate history** and **Recreate memory** rebuild from this session's own pair.
+- **Live trail** — `live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the **Open Live Trail** button (the panel's session's; MD Browser in live mode follow-tails the file).
+- **Raw trail** — `trail/`. Every turn produces `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus tool request / answer files; `compaction/` and `memory/` hold the background passes, `tool_results/t<n>.json` the session's tool results (keys continue past what is stored, so nothing is overwritten). Inspect via the Raw Trail Viewer editor.
+- **Quest memory** — `_ai/memory/<quest>/<session>/`; `${memory}` and the memory tools use the running session's, plus `_ai/memory/shared/`.
+
+Git tracks a session's `compacted_history.md`, snapshot and `live-trail.md`; the rest is machine-local. On a quest's first use a window moves its files from the older per-quest layout (`history/`, the quest folder's `live-trail.md`, `_ai/trail/anthropic/<quest>/`, `_ai/memory/<quest>/`) into the `default` session, once per machine.
 
 Clear the session (reset history + tool trail + SDK session id) via the subpanel's Clear button or `@T: Clear Anthropic Session`.
 

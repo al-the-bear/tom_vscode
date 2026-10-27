@@ -61,13 +61,27 @@ export class ToolTrail {
      *  `compaction.toolTrailMaxResultChars` (or per-config override). */
     inlineMaxChars: number;
 
+    /** The session whose calls this trail holds (one trail per session). */
+    readonly session?: string;
+    /**
+     * The first free key number where this trail's results are stored, asked
+     * at construction and after `clear()`: keys continue past the stored
+     * results instead of restarting at t1 and overwriting them.
+     */
+    private readonly firstFreeKeyIndex?: () => number;
+
     constructor(options?: {
         keepEntries?: number;
         previewChars?: number;
         maxResultChars?: number;
         keepRounds?: number;
         inlineMaxChars?: number;
+        session?: string;
+        firstFreeKeyIndex?: () => number;
     }) {
+        this.session = options?.session;
+        this.firstFreeKeyIndex = options?.firstFreeKeyIndex;
+        this.nextKeyIndex = this.freeKeyIndex();
         this.keepEntries = options?.keepEntries ?? DEFAULT_KEEP_ENTRIES;
         this.previewChars = options?.previewChars ?? DEFAULT_PREVIEW_CHARS;
         this.maxResultChars = options?.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
@@ -249,7 +263,15 @@ export class ToolTrail {
 
     clear(): void {
         this.entries = [];
-        this.nextKeyIndex = 1;
+        this.nextKeyIndex = this.freeKeyIndex();
+    }
+
+    private freeKeyIndex(): number {
+        try {
+            return Math.max(1, this.firstFreeKeyIndex?.() ?? 1);
+        } catch {
+            return 1;
+        }
     }
 
     private preview(s: string): string {

@@ -119,6 +119,8 @@ export interface CompactionOptions {
     memoryPath?: string;
     /** Quest id for quest-scoped memory writes. */
     questId?: string;
+    /** The Anthropic session the pass runs for: its raw trail goes to that session's storage. */
+    session?: string;
     /** Whether to emit verbose progress lines (currently a no-op hook). */
     trailEnabled?: boolean;
     onProgress?: (msg: string) => void;
@@ -397,7 +399,7 @@ async function runAnthropicCompaction(
         throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
     }
 
-    const subsystem = { ...ANTHROPIC_SUBSYSTEM, category: trailCategory };
+    const subsystem = { ...ANTHROPIC_SUBSYSTEM, category: trailCategory, ...(options.session ? { session: options.session } : {}) };
     const windowId = vscode.env.sessionId;
     const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const questId = options.questId;
@@ -848,6 +850,8 @@ export async function runIncrementalCompaction(params: {
     maxHistoryTokens?: number;
     historyMaxChars?: number;
     questId?: string;
+    /** The Anthropic session the pass runs for (its trail category files go there). */
+    session?: string;
     /**
      * Progress callback. Receives retry-countdown strings (e.g.
      * "compaction: HTTP 503 — retry 3/9 in 30s…") and any other
@@ -884,6 +888,7 @@ export async function runIncrementalCompaction(params: {
         maxHistoryTokens: budget,
         historyMaxChars: historyCap,
         questId: params.questId,
+        ...(params.session ? { session: params.session } : {}),
         source: 'every-turn',
         onProgress: params.onProgress,
     };
@@ -908,6 +913,8 @@ export async function runIncrementalMemoryExtraction(params: {
     historyMaxChars?: number;
     memoryMaxChars?: number;
     questId?: string;
+    /** The Anthropic session the pass runs for: its quest memory and its trail. */
+    session?: string;
     /** Progress callback (retry countdowns etc.) — see runIncrementalCompaction. */
     onProgress?: (msg: string) => void;
 }): Promise<void> {
@@ -938,6 +945,7 @@ export async function runIncrementalMemoryExtraction(params: {
         llmConfigId: params.llmConfigId,
         memoryTemplateId: params.memoryTemplateId,
         questId: params.questId,
+        ...(params.session ? { session: params.session } : {}),
         source: 'every-turn',
         onProgress: params.onProgress,
     };
@@ -1025,12 +1033,14 @@ export async function runIncrementalMemoryExtraction(params: {
 export function loadLastNTrailExchanges(
     questId: string,
     n: number,
+    session?: string,
 ): Array<{ user: string; assistant: string }> {
     const limit = Math.max(1, n);
     try {
-        // Resolve the trail summary file paths via TrailService.
-        const prompts = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' as const }, questId);
-        const answers = TrailService.instance.getSummaryFilePath('answers', { type: 'anthropic' as const }, questId);
+        // Resolve the trail summary file paths via TrailService: the session's own pair.
+        const subsystem = { type: 'anthropic' as const, ...(session ? { session } : {}) };
+        const prompts = TrailService.instance.getSummaryFilePath('prompts', subsystem, questId);
+        const answers = TrailService.instance.getSummaryFilePath('answers', subsystem, questId);
         if (!prompts || !answers) { return []; }
         const fsMod = require('fs') as typeof import('fs');
         const readEntries = (file: string): Map<string, string> => {

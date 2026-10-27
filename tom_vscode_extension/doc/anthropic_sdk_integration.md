@@ -320,7 +320,7 @@ The model and memory tools can write to both tiers. The `tomAi_memory_save` tool
 At session start, the handler builds the system prompt by injecting:
 
 1. **Shared memory** — all files in `_ai/memory/shared/`, always
-2. **Quest memory** — all files in `_ai/memory/{quest}/` (except `history/`), when a quest is active
+2. **Quest memory** — all files of the running session's quest memory, `_ai/memory/{quest}/{session}/` (§18.13), when a quest is active
 3. **Compacted history** — the most recent `{timestamp}.history.json` as the initial messages array
 
 Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens). If the combined memory exceeds this, shared memory is prioritised, then quest memory files are included newest-first until the budget is used.
@@ -1956,7 +1956,7 @@ Touched files: `services/agent-sdk-questions.ts` (new) + test, `handlers/agent-s
 
 ### 18.12 Named sessions: lifetimes, profile and model
 
-A conversation runs in a **named session**: `_ai/quests/<quest>/history/<name>.session.json` (machine-local, gitignored). The chat panel uses `chat`, the prompt queue `default`; any other name is a session someone created — in the session picker, with `tomAi_createSession`, from a queue item's session spec or from a process definition. The rules are pure functions in `src/utils/agentSdkSessions.ts`; the files are read and written by `src/services/agentSdkSessionStore.ts`.
+A conversation runs in a **named session**: `_ai/quests/<quest>/history/<name>.session.json` (`chat` and `default` gitignored, a named session's file tracked). The chat panel uses `chat`, the prompt queue `default`; any other name is a session someone created — in the session picker, with `tomAi_createSession`, from a queue item's session spec or from a process definition. The rules are pure functions in `src/utils/agentSdkSessions.ts`; the files are read and written by `src/services/agentSdkSessionStore.ts`.
 
 A session file holds:
 
@@ -1979,8 +1979,31 @@ A session file holds:
 
 A **queue iteration** is one round of an item's repeat count or one todo of a `<prefix>*` walk. The queue sends every prompt with an iteration key `<item id>/<run id>/<n>` (`src/utils/queueIterations.ts`): the main prompt starts iteration `n + 1`, a pre-prompt runs in the iteration it precedes, a follow-up in the one it follows, and a resend runs in the iteration of the prompt it replays. A run id changes when the item is started again from the beginning, so a second run never continues the first run's conversations. A prompt with no key (the chat panel, the Quest Refresh prompt) is its own iteration: a `per-iteration` session behaves as `per-prompt` there.
 
-**Both transports.** On the Agent SDK transport with history mode `sdk-managed`, `planSessionStart` decides what a prompt resumes (its own id, a fork of the base's, the current iteration's) and whether the id the SDK reports is saved — as the session's own or as the iteration's. On every other configuration (the direct API, and the Agent SDK with our own history) `src/services/directSessionHistory.ts` decides which history files a send reads and writes: `chat` and `default` share `history/`; any other session has `history/sessions/<name>/`. A `continue` session based on another is seeded once from the base's history; a `per-prompt` session reads its base's history (through bases that keep none of their own) or nothing, and saves nothing; a `per-iteration` session keeps its own folder for the current iteration — `iteration.json` names it — and empties it and seeds it from the base again when the key changes.
+**Both transports.** On the Agent SDK transport with history mode `sdk-managed`, `planSessionStart` decides what a prompt resumes (its own id, a fork of the base's, the current iteration's) and whether the id the SDK reports is saved — as the session's own or as the iteration's. On every other configuration (the direct API, and the Agent SDK with our own history) `src/services/directSessionHistory.ts` decides which history files a send reads and writes: every session has `history/sessions/<name>/`, `chat` and `default` included (§18.13). A `continue` session based on another is seeded once from the base's history; a `per-prompt` session reads its base's history (through bases that keep none of their own) or nothing, and saves nothing; a `per-iteration` session keeps its own folder for the current iteration — `iteration.json` names it — and empties it and seeds it from the base again when the key changes.
 
 **Profile and model.** Which profile a prompt runs with: the queue stage's or item's own, else the session's `profileId`, else the queue default. A conversation lives in one place — an Agent SDK session (`sdk-managed`) or our own history files — so a profile of the other kind cannot continue it: the queue refuses such an item when it is queued or its session changes (`sessionTransportMismatch`; `chat` and `default` hold both and are never refused, and a session without a conversation yet takes any profile). An unknown profile id is refused wherever a session is created with one. `describeSession`, `tomAi_listSessions` and `tomAi_createSession` show the profile and model.
 
 **Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?}`. When the item is dispatched on the Anthropic transport and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.
+
+### 18.13 Per-session storage
+
+Every Anthropic session — `chat` (the ANTHROPIC panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder, its storage root (`src/services/sessionStorage.ts`):
+
+| File | What | Git |
+| --- | --- | --- |
+| `history/sessions/<session>/compacted_history.md` | the compacted history blocks | tracked |
+| `history/sessions/<session>/history.json`, `history.md` | the snapshot, read back from the same folder | tracked |
+| `history/sessions/<session>/live-trail.md` | the live trail | tracked |
+| `history/sessions/<session>/rawTurns.json`, `compaction_rounds.json`, `iteration.json` | the rolling tail, the accumulator, a per-iteration session's iteration | ignored |
+| `history/sessions/<session>/<quest>.anthropic.prompts.md`, `.answers.md` | the summary trail pair; rebuild and recreate read it | ignored |
+| `history/sessions/<session>/trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json`, `current_prompt.*.md` | ignored |
+| `_ai/memory/<quest>/<session>/` | the session's quest memory | tracked |
+
+(`history/` is `_ai/quests/<quest>/history/`.) `_ai/memory/shared/` stays one set of files for every session. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`.
+
+- **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories, and memory extraction's target). Per send, `activateSession` sets the memory service's active session — `${memory}` and the memory tools use that session's quest memory — and the session's own tool trail.
+- **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.
+- **Based sessions.** A based session reads its base's history (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never clears its base's accumulator after a compaction.
+- **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and quest memory removed with it (`removeSessionStorage`).
+- **Local LLM.** It has no sessions: its live trail stays `live-trail-localLLM.md` in the quest folder, its raw trail `_ai/trail/localllm/<quest>-<config>/`, and a memory bucket (`facts-<suffix>.md`) reads the `default` session's quest memory.
+- **Moving to it.** On a quest's first use in a window (`TwoTierMemoryService.ensureSessionStorage`) the files of the per-quest layout — the history files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `current_prompt.*` and `last_request.json`, which the Logs tab reads there) and `_ai/memory/<quest>/*.md` — become the `default` session's. A machine-local marker, `history/sessions/.storage-version`, makes it run once per quest and machine; a file whose target already exists stays where it is, named in the *Tom AI Compaction and Memory Extraction* output channel.

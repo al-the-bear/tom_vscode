@@ -20,7 +20,8 @@ import {
     summarizeToolInput,
     toAnthropicTools,
 } from '../tools/shared-tool-registry';
-import { TrailService } from '../services/trailService';
+import { TrailService, type TrailSubsystem } from '../services/trailService';
+import { nextFreeToolResultIndex } from '../services/sessionStorage';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
@@ -470,7 +471,9 @@ type AnthropicToolResultBlockParam = Anthropic.ToolResultBlockParam;
 export class AnthropicHandler {
     private static _instance: AnthropicHandler | undefined;
     private client: Anthropic | undefined;
-    private readonly toolTrail: ToolTrail;
+    /** The tool trail of the session the current send runs in (one per session: {@link toolTrailFor}). */
+    private toolTrail: ToolTrail;
+    private readonly toolTrails = new Map<string, ToolTrail>();
     private roundCounter = 0;
     private sessionApprovals = new Set<string>();
     private readonly pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; toolName: string }>();
@@ -566,6 +569,43 @@ export class AnthropicHandler {
         return this.historyScope?.persist ?? true;
     }
 
+    /**
+     * The tool trail of session `name`, created on first use. Its results are
+     * persisted under the session's own storage
+     * (`history/sessions/<name>/trail/tool_results/`), and its keys continue
+     * past the results already stored there, so neither another session nor a
+     * new trail (a reload, a clear) overwrites one.
+     */
+    private toolTrailFor(name: string): ToolTrail {
+        const existing = this.toolTrails.get(name);
+        if (existing) { return existing; }
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const store = require('../services/tool-result-store') as typeof import('../services/tool-result-store');
+        const trail = new ToolTrail({
+            session: name,
+            firstFreeKeyIndex: () => nextFreeToolResultIndex(store.toolResultFolder('anthropic', WsPaths.getWorkspaceQuestId(), name)),
+        });
+        trail.setPersistHook((entry) => {
+            try {
+                store.writeToolResult('anthropic', entry, WsPaths.getWorkspaceQuestId(), name);
+            } catch {
+                // best-effort — disk persistence is not on the critical path
+            }
+        });
+        this.toolTrails.set(name, trail);
+        return trail;
+    }
+
+    /** The session the current send runs in (`default` before the first send). */
+    private currentSessionName(): string {
+        return this.historyScope?.session ?? DEFAULT_AGENT_SDK_SESSION_KEY;
+    }
+
+    /** The Anthropic trail subsystem of the current session: its files go to the session's storage. */
+    private trailSubsystem(category?: 'compaction' | 'memory'): TrailSubsystem {
+        return { ...ANTHROPIC_SUBSYSTEM, session: this.currentSessionName(), ...(category ? { category } : {}) };
+    }
+
     /** Forget the in-memory history so the next seed loads another scope's. */
     private resetHistoryState(): void {
         this.compactedHistoryBlocks = [];
@@ -587,11 +627,19 @@ export class AnthropicHandler {
         const scope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), name, iterationKey);
         if (scope.note) { logHistoryInfo(`history scope: ${scope.note}`); }
         const current = this.historyScope;
-        if (current && current.key === scope.key && scope.persist) { this.historyScope = scope; return; }
+        if (current && current.key === scope.key && scope.persist) { this.historyScope = scope; this.activateSession(name); return; }
         if (current) { await this.awaitInFlightBackgroundWork(); }
         this.resetHistoryState();
         this.historyScope = scope;
+        this.activateSession(name);
         logHistoryInfo(`history scope: quest=${quest} session=${name} folder=${scope.folder}${scope.fresh ? ' (fresh)' : ''}${scope.persist ? '' : ' (not saved)'}${iterationKey ? ` iteration=${iterationKey}` : ''}`);
+    }
+
+    /** Make `name` the session of everything per session: its quest memory and its tool trail. */
+    private activateSession(name: string): void {
+        TwoTierMemoryService.instance.setActiveSession(name);
+        this.toolTrail = this.toolTrailFor(name);
+        setActiveToolTrail(this.toolTrail);
     }
 
     /**
@@ -661,25 +709,12 @@ export class AnthropicHandler {
     }
 
     private constructor() {
-        this.toolTrail = new ToolTrail();
-        // Register this handler's ToolTrail as the session-wide active
-        // one so the `tomAi_listPastToolCalls` / `searchPastToolResults`
-        // / `readPastToolResult` tools can reach it without a circular
-        // import on the handler module.
+        this.toolTrail = this.toolTrailFor(DEFAULT_AGENT_SDK_SESSION_KEY);
+        // Register the current session's ToolTrail as the active one so the
+        // `tomAi_listPastToolCalls` / `searchPastToolResults` /
+        // `readPastToolResult` tools can reach it without a circular import on
+        // the handler module (selectHistoryScope switches it per send).
         setActiveToolTrail(this.toolTrail);
-        // Persist every tool result to disk under the per-quest store so
-        // older entries — replaced inline with a stub once the round drops
-        // out of `toolTrailKeepRounds` — remain readable via
-        // `tomAi_readPastToolResult`. Import lazily to avoid cycles.
-        this.toolTrail.setPersistHook((entry) => {
-            try {
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const { writeToolResult } = require('../services/tool-result-store');
-                writeToolResult('anthropic', entry, WsPaths.getWorkspaceQuestId());
-            } catch {
-                // best-effort — disk persistence is not on the critical path
-            }
-        });
         // Eager init per spec §17 Step 1.8; falls back to lazy creation in
         // `getClient()` if the env var was unset at activation time.
         try {
@@ -709,7 +744,8 @@ export class AnthropicHandler {
             this.rawTurns = [];
             this.historySeeded = true; // an explicit clear should not reload a prior snapshot
         }
-        this.toolTrail.clear();
+        // That session's tool trail (each session has its own).
+        this.toolTrailFor(sessionKey).clear();
         this.sessionApprovals.clear();
         this.roundCounter = 0;
         this.compactionInFlight = null;
@@ -864,10 +900,10 @@ export class AnthropicHandler {
             return;
         }
         try {
+            // Every session's history is its own folder: its blocks, its
+            // snapshot, its rolling tail and accumulator, and its own trail
+            // to rebuild from.
             const historyFolder = this.scopeFolder(questId);
-            // A named session's history is its own folder only: no legacy file,
-            // no rebuild from the quest's trail (that is the quest's history).
-            const shared = this.historyScope?.shared ?? true;
 
             // (1) Try the new block-format file first.
             const blocks = loadBlocksFromDisk(historyFolder);
@@ -875,11 +911,11 @@ export class AnthropicHandler {
             if (blocks.length > 0) {
                 this.compactedHistoryBlocks = dedupAndSort(blocks);
                 seededFromDisk = true;
-            } else if (shared) {
-                // (2) Fall back to history.json with one-shot in-memory
-                //     migration. The legacy file stays on disk; the
-                //     formal migration command rewrites it.
-                const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshot<unknown>(questId);
+            } else {
+                // (2) Fall back to the session's history.json with one-shot
+                //     in-memory migration. The legacy file stays on disk;
+                //     the formal migration command rewrites it.
+                const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshotIn<unknown>(historyFolder);
                 if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
                     const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown; savedAt?: unknown };
                     if (typeof obj.compactedSummary === 'string' && obj.compactedSummary.trim().length > 0) {
@@ -921,7 +957,9 @@ export class AnthropicHandler {
                 return;
             }
 
-            if (!shared) {
+            if (!this.persistsHistory) {
+                // A per-prompt session reads its base's history and writes none:
+                // nothing to rebuild into.
                 logHistoryInfo(`history seed: session "${this.historyScope?.session}" has no history yet — starts fresh (quest=${questId})`);
                 return;
             }
@@ -1253,6 +1291,7 @@ export class AnthropicHandler {
                     maxHistoryTokens: caps.maxHistoryTokens,
                     historyMaxChars: caps.historyMaxChars,
                     questId,
+                    session: this.currentSessionName(),
                     // Surface retry countdowns ("compaction: HTTP 503
                     // — retry 3/9 in 30s…") to the Anthropic panel's
                     // status line via the existing emitter.
@@ -1267,7 +1306,12 @@ export class AnthropicHandler {
                 // is untouched so the very next outgoing prompt still
                 // has fresh complete-fidelity context.
                 this.compactionRounds = [];
-                saveCompactionRoundsIn([], this.scopeFolder(questId));
+                // Only a session that writes its history clears the file: a
+                // per-prompt session reads its BASE's folder, whose
+                // accumulator is not this session's to clear.
+                if (this.persistsHistory) {
+                    saveCompactionRoundsIn([], this.scopeFolder(questId));
+                }
                 this.rawTurns = this.computeDedupedUnion();
                 this.persistSessionHistory(questId);
             } catch {
@@ -1306,6 +1350,7 @@ export class AnthropicHandler {
                     historyMaxChars: caps.historyMaxChars,
                     memoryMaxChars: caps.memoryMaxChars,
                     questId,
+                    session: this.currentSessionName(),
                     // Same retry-status surface as compaction (above).
                     onProgress: (msg) => this._onStatusUpdate.fire(msg),
                 });
@@ -1339,10 +1384,12 @@ export class AnthropicHandler {
      * `historySeeded` latch first so the rebuild fires even when a
      * snapshot is already in memory.
      */
-    async recreateHistoryFromTrail(questId?: string): Promise<void> {
+    async recreateHistoryFromTrail(questId?: string, sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): Promise<void> {
         const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
-        // The trail is the quest's: the rebuild is of the quest's own history.
-        this.historyScope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), DEFAULT_AGENT_SDK_SESSION_KEY);
+        // The rebuild is of that session's history, from that session's own trail.
+        await this.awaitInFlightBackgroundWork();
+        this.historyScope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), sessionKey);
+        this.activateSession(sessionKey);
         // Drop the in-memory latch so the next sendMessage doesn't
         // skip rebuild ("already seeded"). Also drop the in-memory
         // state itself so a partial rebuild can't end up in a hybrid
@@ -1373,9 +1420,12 @@ export class AnthropicHandler {
      * idempotent (new facts get appended; duplicates are suppressed
      * by the model).
      */
-    async recreateMemoryFromTrail(questId?: string): Promise<void> {
+    async recreateMemoryFromTrail(questId?: string, sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): Promise<void> {
         const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
         const cfg = this.getCompactionConfig();
+        // The session's memory, from the session's own trail.
+        await this.awaitInFlightBackgroundWork();
+        this.activateSession(sessionKey);
         if (!cfg.llmConfigId) {
             this._onStatusUpdate.fire('Memory rebuild skipped — no compaction LLM configured');
             return;
@@ -1383,7 +1433,7 @@ export class AnthropicHandler {
         try {
             const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
             const { loadLastNTrailExchanges, runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
-            const exchanges = loadLastNTrailExchanges(quest, limit);
+            const exchanges = loadLastNTrailExchanges(quest, limit, sessionKey);
             if (exchanges.length === 0) {
                 this._onStatusUpdate.fire('Memory rebuild: no trail entries to fold');
                 return;
@@ -1418,6 +1468,7 @@ export class AnthropicHandler {
                         historyMaxChars: cfg.historyMaxChars,
                         memoryMaxChars: cfg.memoryMaxChars,
                         questId: quest,
+                        session: sessionKey,
                         onProgress: (msg) => this._onStatusUpdate.fire(msg),
                     });
                 } catch {
@@ -1447,7 +1498,7 @@ export class AnthropicHandler {
             const cfg = this.getCompactionConfig();
             const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
             const { loadLastNTrailExchanges } = await import('../services/history-compaction.js');
-            const exchanges = loadLastNTrailExchanges(questId, limit);
+            const exchanges = loadLastNTrailExchanges(questId, limit, this.currentSessionName());
             if (exchanges.length === 0) {
                 logHistoryInfo(`history rebuild: no trail exchanges found (quest=${questId}, limit=${limit})${opts.force ? ' [forced]' : ''}`);
                 return;
@@ -1520,6 +1571,7 @@ export class AnthropicHandler {
                             maxHistoryTokens: cfg.maxHistoryTokens,
                             historyMaxChars: cfg.historyMaxChars,
                             questId,
+                            session: this.currentSessionName(),
                             onProgress: (msg) => this._onStatusUpdate.fire(msg),
                         });
                         if (typeof llmOutput === 'string' && llmOutput.trim().length > 0) {
@@ -1791,6 +1843,7 @@ export class AnthropicHandler {
             source: options.source ?? 'chat',
             literal: options.userText,
             questId: quest,
+            session: options.isolated ? undefined : (options.sessionKey || DEFAULT_AGENT_SDK_SESSION_KEY),
         });
 
         const windowId = vscode.env.sessionId;
@@ -1819,7 +1872,7 @@ export class AnthropicHandler {
         // this call (never a field on the singleton) so nested calls —
         // sub-agents, concurrent chat-panel vs queue dispatch — can't
         // stomp it and make the parent turn's writes no-ops.
-        const liveTrail: LiveTrailWriter | null = options.isolated ? null : new LiveTrailWriter(quest);
+        const liveTrail: LiveTrailWriter | null = options.isolated ? null : new LiveTrailWriter(quest, undefined, this.currentSessionName());
         // While a refresh interval is active, retain every prompt since the
         // last refresh (base + interval) so the refresh prompt can read the
         // full recent history. `0` ⇒ default last-5-blocks behaviour.
@@ -1908,7 +1961,7 @@ export class AnthropicHandler {
         });
 
         TrailService.instance.writeRawPrompt(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userContent}`,
             windowId,
             requestId,
@@ -1929,6 +1982,7 @@ export class AnthropicHandler {
             user: userContent,
             system: systemPrompt,
             questId: quest,
+            session: options.isolated ? undefined : this.currentSessionName(),
         });
 
         // Write the summary-prompt entry here — before any API call —
@@ -1936,7 +1990,7 @@ export class AnthropicHandler {
         // interrupted via the Stop button or errors out mid-stream.
         // The summary-answer counterpart is written at each exit point
         // (finalize / agentSdk success / catch blocks).
-        TrailService.instance.writeSummaryPrompt(ANTHROPIC_SUBSYSTEM, effectiveUserText, quest);
+        TrailService.instance.writeSummaryPrompt(this.trailSubsystem(), effectiveUserText, quest);
 
         // Full-payload log: the `.userprompt.md` only has system + user;
         // this captures tools, rolling history, caching/thinking flags, and
@@ -1956,7 +2010,7 @@ export class AnthropicHandler {
             : tools;
         const payloadHistory = options.isolated ? [] : this.payloadRawTurns(configuration);
         TrailService.instance.writeRawPayload(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             buildPayloadDump({
                 requestId,
                 transport,
@@ -2133,13 +2187,14 @@ export class AnthropicHandler {
                         questId: quest,
                         windowId,
                         requestId,
+                        trailSubsystem: this.trailSubsystem(),
                     },
                 });
             } catch (err) {
                 const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
                 const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
                 TrailService.instance.writeSummaryAnswer(
-                    ANTHROPIC_SUBSYSTEM,
+                    this.trailSubsystem(),
                     wasInterrupted ? '(interrupted)' : `(error: ${err instanceof Error ? err.message : String(err)})`,
                     { requestId, model: configuration.model },
                     quest,
@@ -2171,7 +2226,7 @@ export class AnthropicHandler {
             // returns early (skips finalize()), so it must do this itself (Bug 1).
             const sdkResponseValues = extractTodoResponseValues(result.text);
             TrailService.instance.writeSummaryAnswer(
-                ANTHROPIC_SUBSYSTEM,
+                this.trailSubsystem(),
                 result.text,
                 {
                     requestId,
@@ -2435,12 +2490,12 @@ export class AnthropicHandler {
             const body = lastText
                 ? `${lastText}\n\n---\n(request error after partial output)\n${errMsg}`
                 : `(no text produced — request errored before any assistant text)\n${errMsg}`;
-            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            TrailService.instance.writeRawAnswer(this.trailSubsystem(), body, windowId, requestId, quest);
             const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -2689,12 +2744,12 @@ export class AnthropicHandler {
             const body = lastText
                 ? `${lastText}\n\n---\n(VS Code LM request errored after partial output)\n${errMsg}`
                 : `(VS Code LM request failed before completing)\n${errMsg}`;
-            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            TrailService.instance.writeRawAnswer(this.trailSubsystem(), body, windowId, requestId, quest);
             const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -2956,12 +3011,12 @@ export class AnthropicHandler {
             const body = lastText
                 ? `${lastText}\n\n---\n(Local LLM request errored after partial output)\n${errMsg}`
                 : `(Local LLM request failed before completing)\n${errMsg}`;
-            TrailService.instance.writeRawAnswer(ANTHROPIC_SUBSYSTEM, body, windowId, requestId, quest);
+            TrailService.instance.writeRawAnswer(this.trailSubsystem(), body, windowId, requestId, quest);
             const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(ANTHROPIC_SUBSYSTEM, summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -3012,7 +3067,7 @@ export class AnthropicHandler {
             ? text
             : `(no text produced — stop_reason: ${stopReason ?? 'unknown'}, turns: ${turnsUsed})`;
         TrailService.instance.writeRawAnswer(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             trailBody,
             windowId,
             requestId,
@@ -3037,7 +3092,7 @@ export class AnthropicHandler {
         // — the same way the Copilot answer path does (Bug 1).
         const responseValues = extractTodoResponseValues(text);
         TrailService.instance.writeSummaryAnswer(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             text,
             {
                 requestId,
@@ -3204,7 +3259,7 @@ export class AnthropicHandler {
         }
 
         TrailService.instance.writeRawToolRequest(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             { id: block.id, name: block.name, input },
             windowId,
             quest,
@@ -3238,7 +3293,7 @@ export class AnthropicHandler {
         const durationMs = Date.now() - start;
 
         TrailService.instance.writeRawToolAnswer(
-            ANTHROPIC_SUBSYSTEM,
+            this.trailSubsystem(),
             { id: block.id, name: block.name, result, durationMs, error },
             windowId,
             quest,

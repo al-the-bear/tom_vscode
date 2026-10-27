@@ -21,6 +21,10 @@ import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { WsPaths } from '../utils/workspacePaths';
 import { toolLog } from '../utils/toolLog';
+import { logInfo as logStorageInfo } from './compaction-log';
+import { MIGRATION_TARGET_SESSION, migrateQuestToSessionStorage, sessionMemoryFolder } from './sessionStorage';
+import { resolveTrailPath } from './trailPathResolver';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import {
     stampRawTurns,
@@ -192,13 +196,75 @@ export class TwoTierMemoryService {
         return WsPaths.ai('memory') ?? path.join(wsRoot, WsPaths.aiFolder, 'memory');
     }
 
-    /** Absolute path to the folder for the given scope. */
-    scopeFolder(scope: MemoryScope, questId?: string): string {
+    /**
+     * The session whose quest memory the `quest` scope means: the session the
+     * running prompt belongs to, set by the Anthropic handler when it selects
+     * a send's history (and by `withSession`). Every session keeps its own
+     * quest memory, `_ai/memory/<quest>/<session>/`; shared memory is one set.
+     */
+    private _activeSession: string = MIGRATION_TARGET_SESSION;
+
+    get activeSession(): string { return this._activeSession; }
+
+    /** Make `name` the session the `quest` memory scope means (the handler, per send). */
+    setActiveSession(name: string | undefined): void {
+        this._activeSession = name || MIGRATION_TARGET_SESSION;
+    }
+
+    /** Absolute path to the folder for the given scope; `session` defaults to the active one. */
+    scopeFolder(scope: MemoryScope, questId?: string, session?: string): string {
         if (scope === 'shared') {
             return path.join(this.memoryRoot(), 'shared');
         }
-        const quest = questId || this.currentQuest();
-        return path.join(this.memoryRoot(), quest || 'default');
+        const quest = questId || this.currentQuest() || 'default';
+        this.ensureSessionStorage(quest);
+        return sessionMemoryFolder(this.memoryRoot(), quest, session || this._activeSession);
+    }
+
+    /** The quests whose files were checked for the per-quest layout in this window. */
+    private readonly _storageChecked = new Set<string>();
+
+    /**
+     * Move the quest's files from the per-quest layout (one history, trail
+     * pair, live trail, raw trail and quest memory for chat and queue
+     * together) into the `default` session's storage, once per quest
+     * (src/services/sessionStorage.ts). Idempotent: a marker in
+     * `history/sessions/` says it is done; a file whose target exists stays.
+     */
+    ensureSessionStorage(questId?: string): void {
+        const quest = questId || this.currentQuest() || 'default';
+        if (this._storageChecked.has(quest)) { return; }
+        this._storageChecked.add(quest);
+        try {
+            const historyRoot = this.historyRootOf(quest);
+            const report = migrateQuestToSessionStorage({
+                quest,
+                questFolder: path.dirname(historyRoot),
+                historyRoot,
+                memoryRoot: this.memoryRoot(),
+                rawTrailFolder: this.legacyRawTrailFolder(quest),
+            });
+            if (report.migrated && (report.moved.length > 0 || report.kept.length > 0)) {
+                logStorageInfo(
+                    `session storage: quest "${quest}" moved to per-session storage — ${report.moved.length} file(s) now belong to `
+                    + `session "${MIGRATION_TARGET_SESSION}"${report.kept.length > 0 ? `; ${report.kept.length} left in place (the target existed): ${report.kept.join(', ')}` : ''}`,
+                );
+            }
+        } catch (e) {
+            logStorageInfo(`session storage: migration of quest "${quest}" failed: ${(e as Error).message}`);
+        }
+    }
+
+    /**
+     * The quest's raw Anthropic trail in the per-quest layout. Only the raw
+     * per-call files move; the current-prompt files and the last-request dump
+     * stay there (the Logs tab reads them).
+     */
+    private legacyRawTrailFolder(quest: string): string {
+        const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
+        const raw = (trail.raw ?? trail) as Record<string, unknown>;
+        const paths = (raw.paths ?? {}) as Record<string, string>;
+        return resolveTrailPath(paths.anthropic ?? '${ai}/trail/anthropic/${quest}', { subsystem: 'anthropic', quest });
     }
 
     /** Absolute path to a file within a scope. */
@@ -424,6 +490,18 @@ export class TwoTierMemoryService {
      * legacy "inject every file in scope" behaviour.
      */
     injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string): MemoryInjection {
+        // A suffix bucket is a Local LLM profile's, and the Local LLM has no
+        // sessions: its quest memory is the `default` session's (where the
+        // per-quest files went). Synchronous, so restoring is safe.
+        if (suffix && this._activeSession !== MIGRATION_TARGET_SESSION) {
+            const active = this._activeSession;
+            this._activeSession = MIGRATION_TARGET_SESSION;
+            try {
+                return this.injectForSystemPrompt(maxTokens, questId, suffix);
+            } finally {
+                this._activeSession = active;
+            }
+        }
         const budget = Math.max(0, maxTokens);
         const charBudget = budget * CHARS_PER_TOKEN;
         const pieces: string[] = [];
@@ -481,6 +559,12 @@ export class TwoTierMemoryService {
      */
     historyFolder(questId?: string): string {
         const quest = questId || this.currentQuest() || 'default';
+        this.ensureSessionStorage(quest);
+        return this.historyRootOf(quest);
+    }
+
+    /** The quest's `history/` folder (no migration check). */
+    private historyRootOf(quest: string): string {
         const root = WsPaths.ai('quests')
             ?? path.join(
                 vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
@@ -592,8 +676,12 @@ export class TwoTierMemoryService {
      * payload, or `undefined` when no snapshot can be read.
      */
     loadLatestHistorySnapshot<T = unknown>(questId?: string, suffix?: string): T | undefined {
+        return this.loadLatestHistorySnapshotIn<T>(this.historyFolder(questId), suffix);
+    }
+
+    /** {@link loadLatestHistorySnapshot} from `folder` (a session's storage root). */
+    loadLatestHistorySnapshotIn<T = unknown>(folder: string, suffix?: string): T | undefined {
         try {
-            const folder = this.historyFolder(questId);
             if (!fs.existsSync(folder)) {
                 return undefined;
             }

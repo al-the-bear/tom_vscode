@@ -294,7 +294,7 @@ Parallel to §4.14 but scoped to the **Tests** subpanel (test reports, flaky-tes
 
 ### 4.17 Memory (`_ai/memory/`)
 
-Two-tier: `shared/` (cross-quest) and `{quest}/` (per-quest).
+Two-tier: `shared/` (cross-quest, one set of files) and the quest scope, which is per session: `{quest}/{session}/`, the session the running prompt belongs to (`default` the queue's, `chat` the ANTHROPIC panel's, or a named session). The tools, `${memory}` and background memory extraction all use the running session's quest memory; a Local LLM memory bucket (`facts-<suffix>.md`) reads the `default` session's.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
@@ -394,6 +394,8 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 | `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
 | `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
 | `tomAi_readPastToolResult` | Return the full body of a past tool call by its replay key (e.g. `t14`). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+
+Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
 Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the whole file content it saw earlier, no tool re-run.
 

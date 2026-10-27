@@ -138,8 +138,6 @@ describe('isQuestLogTabId', () => {
 
 describe('questLogLocation', () => {
     const cases: [QuestLogTabId, string][] = [
-        ['mdTrail', 'live-trail.md'],
-        ['trail', 'live-trail.md'],
         ['progress', 'progress.vscode_extension.md'],
         ['overview', 'overview.vscode_extension.md'],
         ['notes', 'quest-notes.vscode_extension.md'],
@@ -159,9 +157,12 @@ describe('questLogLocation', () => {
         });
     }
 
+    // The live trail and the trail pair are per session; the tabs show the queue's (`default`).
     const historyCases: [QuestLogTabId, string][] = [
-        ['prompts', 'vscode_extension.anthropic.prompts.md'],
-        ['answers', 'vscode_extension.anthropic.answers.md'],
+        ['mdTrail', 'sessions/default/live-trail.md'],
+        ['trail', 'sessions/default/live-trail.md'],
+        ['prompts', 'sessions/default/vscode_extension.anthropic.prompts.md'],
+        ['answers', 'sessions/default/vscode_extension.anthropic.answers.md'],
     ];
 
     for (const [id, expected] of historyCases) {

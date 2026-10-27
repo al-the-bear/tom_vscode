@@ -7,11 +7,9 @@
  * the compacted blocks, the rolling tail of raw turns and the compaction
  * accumulator — so a named session needs a history of its own:
  *
- * - `chat` (the panel) and `default` (the prompt queue) keep sharing the
- *   quest's history in `history/` — the history the direct transport always
- *   had;
- * - any other session has its own folder, `history/sessions/<name>/`, with the
- *   same files;
+ * - every session — `chat` (the panel) and `default` (the prompt queue)
+ *   included — has its own folder, `history/sessions/<name>/`, its storage
+ *   root (src/services/sessionStorage.ts);
  * - `continue` with a base: the session's folder is seeded once from its
  *   base's history (on its first prompt), and continues on its own;
  * - `per-prompt`: every prompt starts from the base's history (through bases
@@ -35,11 +33,17 @@ import * as path from 'path';
 import { readSession } from './agentSdkSessionStore';
 import { COMPACTED_HISTORY_FILENAME } from './compacted-history';
 import { RAW_TURNS_FILENAME } from './raw-turns-store';
+import { sessionRoot } from './sessionStorage';
 import type { SessionRecord } from '../utils/agentSdkSessions';
 import { conversationKindOf, transportMismatch, type SessionProfile } from '../utils/sessionSpecs';
 
-/** The sessions that share the quest's history: the chat panel's and the prompt queue's. */
-export const SHARED_HISTORY_SESSIONS: readonly string[] = ['chat', 'default'];
+/**
+ * The sessions every quest has: the chat panel's and the prompt queue's. Each
+ * has its own history like any other session, but their files may hold both
+ * kinds of conversation (an Agent SDK session id and our own history) from
+ * before sessions existed, so the transport check does not apply to them.
+ */
+export const BUILT_IN_SESSIONS: readonly string[] = ['chat', 'default'];
 
 /** The compaction accumulator's file (compaction-rounds.ts; named here to keep this module vscode-free). */
 const COMPACTION_ROUNDS_FILE = 'compaction_rounds.json';
@@ -94,9 +98,9 @@ export function planDirectHistory(name: string, read: (n: string) => SessionReco
     return { own: name, readFrom: name, persist: true };
 }
 
-/** The history folder of session `name` in the quest's history folder `root`. */
+/** The history folder of session `name` in the quest's history folder `root`: its storage root. */
 export function sessionHistoryFolder(root: string, name: string): string {
-    return SHARED_HISTORY_SESSIONS.includes(name) ? root : path.join(root, 'sessions', name);
+    return sessionRoot(root, name);
 }
 
 /** Whether `folder` holds a history (any of its files, non-empty). */
@@ -144,8 +148,6 @@ export interface HistoryScope {
     persist: boolean;
     /** The send starts with no history: nothing is loaded from `folder`. */
     fresh?: true;
-    /** The quest's own history (the chat panel's and the queue's). */
-    shared: boolean;
     /** What happened that the log should say (a seed from a base, a base without history). */
     note?: string;
 }
@@ -198,7 +200,6 @@ export function resolveHistoryScope(questId: string, root: string, name: string,
         folder,
         persist: plan.persist,
         ...(plan.fresh ? { fresh: true as const } : {}),
-        shared: SHARED_HISTORY_SESSIONS.includes(plan.readFrom),
         ...(note ? { note } : {}),
     };
 }
@@ -207,11 +208,11 @@ export function resolveHistoryScope(questId: string, root: string, name: string,
  * Why `profile` cannot run in session `name` of the history folder `root`:
  * the session's conversation is kept where that profile does not keep one
  * (an Agent SDK session continued by a profile with our own history, or the
- * reverse). The quest's shared sessions (`chat`, `default`) hold both and are
+ * reverse). The built-in sessions (`chat`, `default`) may hold both and are
  * never refused; a session without a conversation yet takes any profile.
  */
 export function sessionTransportMismatch(root: string, name: string, profile: SessionProfile | undefined): string | undefined {
-    if (SHARED_HISTORY_SESSIONS.includes(name)) { return undefined; }
+    if (BUILT_IN_SESSIONS.includes(name)) { return undefined; }
     const kind = conversationKindOf(readSession(root, name), hasSessionHistory(sessionHistoryFolder(root, name)));
     return transportMismatch(name, kind, profile);
 }

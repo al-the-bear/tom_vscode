@@ -3,13 +3,13 @@
  * send reads and writes, chosen by the same session name the Agent SDK path
  * uses (src/services/directSessionHistory.ts).
  *
- *   DH-1 the plan: the panel's `chat` and the queue's `default` share the quest's history; any other
- *        session has its own; `continue` with a base copies the base's history once; `per-prompt`
+ *   DH-1 the plan: every session has its own history, the panel's `chat` and the queue's `default`
+ *        included (they are only exempt from the transport check); `continue` with a base copies the base's history once; `per-prompt`
  *        reads its base's history (through bases that keep none of their own) and writes nothing, or
  *        starts fresh without a base; `per-iteration` keeps its own folder per iteration key and runs
  *        as per-prompt without one; a cycle is refused
- *   DH-2 the folders: the shared history is the quest's history folder, a session's its own
- *        `sessions/<name>/` beside it
+ *   DH-2 the folders: every session's is its own `sessions/<name>/` in the quest's history folder —
+ *        `chat` and `default` included, so the panel and the queue never share one
  *   DH-3 the scope: a session reads and writes only its own folder; a fork reads its base's folder
  *        and is marked not to persist; a based session is seeded from its base once — later
  *        changes to the base do not reach it, and the base is never changed
@@ -33,7 +33,7 @@ import * as path from 'path';
 
 import type { SessionRecord } from '../../utils/agentSdkSessions.js';
 import {
-    SHARED_HISTORY_SESSIONS,
+    BUILT_IN_SESSIONS,
     hasSessionHistory,
     planDirectHistory,
     resolveHistoryScope,
@@ -44,7 +44,7 @@ const records = (list: SessionRecord[]): ((n: string) => SessionRecord | undefin
 
 describe('direct-transport session history', () => {
     test('DH-1: the plan', () => {
-        assert.deepEqual([...SHARED_HISTORY_SESSIONS], ['chat', 'default']);
+        assert.deepEqual([...BUILT_IN_SESSIONS], ['chat', 'default']);
         const read = records([
             { name: 'prep', mode: 'continue' },
             { name: 'work', mode: 'continue', basedOn: 'prep' },
@@ -73,8 +73,9 @@ describe('direct-transport session history', () => {
 
     test('DH-2: the folders', () => {
         const root = path.join('q', 'history');
-        assert.equal(sessionHistoryFolder(root, 'default'), root);
-        assert.equal(sessionHistoryFolder(root, 'chat'), root);
+        assert.equal(sessionHistoryFolder(root, 'default'), path.join(root, 'sessions', 'default'));
+        assert.equal(sessionHistoryFolder(root, 'chat'), path.join(root, 'sessions', 'chat'));
+        assert.notEqual(sessionHistoryFolder(root, 'chat'), sessionHistoryFolder(root, 'default'), 'the panel and the queue are split');
         assert.equal(sessionHistoryFolder(root, 'p2s3r1'), path.join(root, 'sessions', 'p2s3r1'));
     });
 
@@ -91,13 +92,17 @@ describe('direct-transport session history', () => {
         const prepFolder = path.join(root, 'sessions', 'prep');
         write(prepFolder, 'compacted_history.md', 'prep blocks');
         write(prepFolder, 'rawTurns.json', '{"rounds":[["prep"]]}');
-        write(root, 'rawTurns.json', '{"rounds":[["shared"]]}');
+        const defaultFolder = path.join(root, 'sessions', 'default');
+        write(defaultFolder, 'rawTurns.json', '{"rounds":[["queue"]]}');
 
-        const shared = resolveHistoryScope('q1', root, 'default');
-        assert.deepEqual([shared.folder, shared.persist, shared.shared], [root, true, true]);
+        const queue = resolveHistoryScope('q1', root, 'default');
+        assert.deepEqual([queue.folder, queue.persist], [defaultFolder, true]);
+        const chat = resolveHistoryScope('q1', root, 'chat');
+        assert.deepEqual([chat.folder, chat.persist], [path.join(root, 'sessions', 'chat'), true]);
+        assert.equal(hasSessionHistory(chat.folder), false, 'the panel does not see the queue\'s history');
 
         const prep = resolveHistoryScope('q1', root, 'prep');
-        assert.deepEqual([prep.folder, prep.persist, prep.shared], [prepFolder, true, false]);
+        assert.deepEqual([prep.folder, prep.persist], [prepFolder, true]);
 
         const todo = resolveHistoryScope('q1', root, 'todo');
         assert.deepEqual([todo.folder, todo.persist], [prepFolder, false], 'a fork reads its base and writes nothing');
@@ -116,7 +121,7 @@ describe('direct-transport session history', () => {
         assert.equal(fs.readFileSync(path.join(workFolder, 'compacted_history.md'), 'utf8'), 'prep blocks', 'seeded once: later base changes do not reach it');
         assert.equal(fs.readFileSync(path.join(workFolder, 'rawTurns.json'), 'utf8'), '{"rounds":[["work"]]}', 'its own history is kept');
         assert.equal(fs.readFileSync(path.join(prepFolder, 'compacted_history.md'), 'utf8'), 'prep moved on', 'the base is never written');
-        assert.equal(fs.readFileSync(path.join(root, 'rawTurns.json'), 'utf8'), '{"rounds":[["shared"]]}', 'the shared history is untouched');
+        assert.equal(fs.readFileSync(path.join(defaultFolder, 'rawTurns.json'), 'utf8'), '{"rounds":[["queue"]]}', 'the queue\'s history is untouched');
     });
 
     test('DH-4: the scope key', () => {
@@ -124,7 +129,7 @@ describe('direct-transport session history', () => {
         fs.writeFileSync(path.join(root, 'todo.session.json'), JSON.stringify({ mode: 'per-prompt', basedOn: 'prep' }));
         fs.writeFileSync(path.join(root, 'prep.session.json'), JSON.stringify({ mode: 'continue' }));
         const key = (quest: string, name: string): string => resolveHistoryScope(quest, root, name).key;
-        assert.equal(key('q1', 'default'), key('q1', 'chat'), 'the panel and the queue share the quest history');
+        assert.notEqual(key('q1', 'default'), key('q1', 'chat'), 'the panel and the queue have separate histories');
         assert.notEqual(key('q1', 'default'), key('q2', 'default'), 'another quest: another history');
         assert.notEqual(key('q1', 'prep'), key('q1', 'default'));
         assert.notEqual(key('q1', 'todo'), key('q1', 'prep'), 'the same folder, but a fork does not persist: reloaded from its base each time');

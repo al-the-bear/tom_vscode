@@ -63,7 +63,8 @@ import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
 import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 import { createSession, deleteSession, ensureSession, readSession } from '../services/agentSdkSessionStore';
-import { sessionHistoryFolder, sessionTransportMismatch } from '../services/directSessionHistory';
+import { sessionTransportMismatch } from '../services/directSessionHistory';
+import { removeSessionStorage } from '../services/sessionStorage';
 import {
     applyPlanToItem,
     deletesTemporarySession,
@@ -4153,14 +4154,20 @@ export class PromptQueueManager {
         }
     }
 
-    /** Delete a temporary session: its file and its direct-API history folder. */
+    /**
+     * Delete a temporary session: its file and its whole storage — history,
+     * trails, live trail, tool results and quest memory
+     * (src/services/sessionStorage.ts).
+     */
     private _deleteTemporarySession(name: string): void {
         if (name === 'default' || name === 'chat') { return; }
         try {
             const folder = this.sessionsFolder();
             const result = deleteSession(folder, name);
             if (!result.ok) { logQueue(`Temporary session ${name} kept: ${result.error}`); return; }
-            fs.rmSync(sessionHistoryFolder(folder, name), { recursive: true, force: true });
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');
+            removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), WsPaths.getWorkspaceQuestId() || 'default', name);
             logQueue(`Temporary session ${name} deleted`);
         } catch (err) {
             logQueueError(`delete temporary session ${name}`, err);

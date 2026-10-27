@@ -13,6 +13,7 @@
  * - Tom AI Chat
  */
 
+import { sessionLiveTrailFile, sessionRoot, sessionTrailFolder } from '../services/sessionStorage';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -653,6 +654,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // originating section as a subsystem hint so the dropdown lands
                     // on the right subsystem.
                     case 'openTrailRawFiles':
+                        // Anthropic: the panel's session keeps its raw trail in its
+                        // own storage (history/sessions/<session>/trail/).
+                        if (message.section === 'anthropic') {
+                            const quest = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
+                            const folder = sessionTrailFolder(TwoTierMemoryService.instance.historyFolder(quest || undefined), this._chatSessionKey());
+                            if (fs.existsSync(folder)) {
+                                await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(folder), 'anthropic');
+                                break;
+                            }
+                        }
                         await vscode.commands.executeCommand(
                             'tomAi.editor.rawTrailViewer',
                             undefined,
@@ -716,7 +727,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // status-update stream surfaces per-chunk progress
                         // on the Anthropic panel's status line.
                         const { AnthropicHandler } = await import('./anthropic-handler.js');
-                        void AnthropicHandler.instance.recreateHistoryFromTrail();
+                        void AnthropicHandler.instance.recreateHistoryFromTrail(undefined, this._chatSessionKey());
                         vscode.window.showInformationMessage('Recreating history.json from the trail files in chunks…');
                         break;
                     }
@@ -728,7 +739,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // rebuild against the current memory file is
                         // idempotent.
                         const { AnthropicHandler } = await import('./anthropic-handler.js');
-                        void AnthropicHandler.instance.recreateMemoryFromTrail();
+                        void AnthropicHandler.instance.recreateMemoryFromTrail(undefined, this._chatSessionKey());
                         vscode.window.showInformationMessage('Recreating quest memory from the trail files in chunks…');
                         break;
                     }
@@ -2063,7 +2074,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _openAnthropicSummaryTrail(): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId();
-        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic' }, questId);
+        // The panel's session's own trail pair (src/services/sessionStorage.ts).
+        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic', session: this._chatSessionKey() }, questId);
         if (!summaryPath || !fs.existsSync(summaryPath)) {
             vscode.window.showInformationMessage('No Anthropic summary trail exists yet. Send a prompt first.');
             return;
@@ -2115,7 +2127,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      */
     private async _openSessionHistoryMarkdown(): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
-        const folder = TwoTierMemoryService.instance.historyFolder(questId || undefined);
+        // The panel's session's history (every session keeps its own).
+        const folder = sessionRoot(TwoTierMemoryService.instance.historyFolder(questId || undefined), this._chatSessionKey());
         const target = path.join(folder, 'history.md');
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
@@ -2169,9 +2182,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
-        const fileName = section === 'localLlm' ? 'live-trail-localLLM.md' : 'live-trail.md';
         const transportLabel = section === 'localLlm' ? 'Local LLM' : 'Anthropic';
-        const target = path.join(questsRoot, safeQuest, fileName);
+        // Anthropic: the panel's session's own live trail; Local LLM keeps one per quest.
+        const target = section === 'localLlm'
+            ? path.join(questsRoot, safeQuest, 'live-trail-localLLM.md')
+            : sessionLiveTrailFile(path.join(questsRoot, safeQuest, 'history'), this._chatSessionKey());
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
                 `No ${transportLabel} live trail yet for quest "${questId || 'default'}". The file is created on the first ${transportLabel} send (${target}).`,
