@@ -111,3 +111,10 @@ textarea {
     color: var(--vscode-descriptionForeground);
     font-style: italic;
 }
+
+/* The session whose quest memory the Quest tab shows. */
+.session-btn {
+    margin-left: auto;
+    align-self: center;
+    font-size: 12px;
+}

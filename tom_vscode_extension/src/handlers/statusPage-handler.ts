@@ -12,6 +12,10 @@
  */
 
 import * as vscode from 'vscode';
+import { pickSessions } from './sessionSelectionPicker';
+import { TwoTierMemoryService } from '../services/memory-service';
+import { sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
+import { load as loadRawTurns } from '../services/raw-turns-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getBridgeClient, getConfigPath, getExtensionPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
@@ -954,10 +958,29 @@ async function runCompactionDryRun(settings: {
         { placeHolder: 'History mode for the dry run', ignoreFocusOut: true },
     );
     if (!mode) { return; }
+    // Whose history: every session keeps its own (history/sessions/<name>/).
+    const quest = WsPaths.getWorkspaceQuestId() ?? '';
+    const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
+    const sessions = await pickSessions(quest, {
+        title: 'Compaction dry run: whose rolling history',
+        current: 'default',
+        extra: sessionsWithStorage(historyRoot),
+    });
+    if (!sessions) { return; }
+    for (const session of sessions) {
+        await runCompactionDryRunFor(session, mode, settings, (loadRawTurns(sessionRoot(historyRoot, session))?.rounds ?? []).flat());
+    }
+}
 
-    // Use the live rolling history when non-empty; otherwise fabricate a
+/** One dry run over `session`'s rolling history (`liveHistory`; a synthetic one when it is empty). */
+async function runCompactionDryRunFor(
+    session: string,
+    mode: { value: string },
+    settings: Parameters<typeof runCompactionDryRun>[0],
+    liveHistory: ConversationMessage[],
+): Promise<void> {
+    // Use the session's rolling history when non-empty; otherwise fabricate a
     // compact synthetic history so the LLM has something to compact.
-    const liveHistory = AnthropicHandler.instance.getHistory();
     const syntheticHistory: ConversationMessage[] = [
         { role: 'user', content: 'Walk me through how the compaction subsystem decides when to run.' },
         { role: 'assistant', content: 'Compaction runs fire-and-forget after every exchange today (anthropic-handler.ts sendMessage). It has no awareness of the model context window; maxHistoryTokens is a static profile value.' },
@@ -985,7 +1008,7 @@ async function runCompactionDryRun(settings: {
     logRunBanner('DRY RUN', [
         `mode=${mode.value}`,
         `provider=${llmProvider}  config=${llmConfigId}`,
-        `history=${history.length} messages (${liveHistory.length > 0 ? 'from live session' : 'synthetic'})`,
+        `session=${session}  history=${history.length} messages (${liveHistory.length > 0 ? 'its rolling history' : 'synthetic'})`,
         `maxHistoryTokens=${maxHistoryTokens}  historyMaxChars=${historyMaxChars}  memoryMaxChars=${memoryMaxChars}  maxRounds=${compactionMaxRounds}`,
         `quest=${questId || '(none)'}`,
     ]);
@@ -1006,7 +1029,7 @@ async function runCompactionDryRun(settings: {
             onProgress: (m) => logRunBanner('progress', [m]),
         });
         vscode.window.showInformationMessage(
-            `Compaction dry run complete — see "Tom AI Compaction and Memory Extraction" output channel and _ai/trail/anthropic/<quest>/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory files were appended to if extraction produced output.' : ''}`,
+            `Compaction dry run for "${session}" complete — see the "Tom AI Compaction and Memory Extraction" output channel and history/sessions/${session}/trail/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory files were appended to if extraction produced output.' : ''}`,
         );
     } catch (e) {
         logCompactionError('dry run failed', e);
@@ -1240,9 +1263,22 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'openChatVariablesEditor':
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             break;
-        case 'openTrailViewer':
-            await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
+        case 'openTrailViewer': {
+            // The Anthropic raw trail is per session (history/sessions/<name>/trail/): open the chosen ones.
+            const quest = WsPaths.getWorkspaceQuestId() ?? '';
+            const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
+            const names = await pickSessions(quest, { title: 'Open the raw trail', current: 'default', extra: sessionsWithStorage(historyRoot) });
+            if (!names) { break; }
+            const folders = names.map((n) => sessionTrailFolder(historyRoot, n)).filter((f) => fs.existsSync(f));
+            if (folders.length === 0) {
+                vscode.window.showInformationMessage(`No raw trail yet for ${names.join(', ')}.`);
+                break;
+            }
+            for (const folder of folders) {
+                await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(folder), 'anthropic');
+            }
             break;
+        }
         case 'openTimedRequestsEditor':
             await vscode.commands.executeCommand('tomAi.editor.timedRequests');
             break;

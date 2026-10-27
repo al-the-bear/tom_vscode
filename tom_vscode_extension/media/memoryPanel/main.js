@@ -26,6 +26,9 @@
     const btnSave = document.getElementById('btn-save');
     const btnDelete = document.getElementById('btn-delete');
     const btnOpen = document.getElementById('btn-open');
+    const btnSession = document.getElementById('btn-session');
+    // Quest memory is per session (_ai/memory/<quest>/<session>/): the host picks whose.
+    btnSession.addEventListener('click', () => { vscode.postMessage({ type: 'pickSession' }); });
 
     document.querySelectorAll('.tab').forEach((el) => {
         el.addEventListener('click', () => switchScope(el.getAttribute('data-scope')));
@@ -113,6 +116,8 @@
         if (msg.type === 'snapshot') {
             snapshot = msg;
             questTab.textContent = msg.quest ? 'Quest: ' + msg.quest : 'Quest';
+            btnSession.textContent = 'Session: ' + (msg.session || 'default');
+            btnSession.style.display = msg.quest ? '' : 'none';
             renderList();
         } else if (msg.type === 'fileContent') {
             if (msg.scope === currentScope && msg.file === currentFile) {

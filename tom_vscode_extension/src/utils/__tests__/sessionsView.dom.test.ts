@@ -4,7 +4,8 @@
  *   SV-1 the rows: `default` (the queue's) and `chat` (the panel's) first, marked, even without a file; then
  *        every session file by name; base, lifetime, profile, model, conversation, last use, dependents
  *   SV-2 the view renders each row with its description line; Reset is offered for a session file with a
- *        conversation, Delete for a file nothing is based on (its tooltip names the dependents otherwise);
+ *        conversation and for `default` / `chat` (their history), Delete for a file nothing is based on (its
+ *        tooltip names the dependents otherwise);
  *        a click posts the row's name
  *   SV-4 a temporary session (`tmp-<yymmdd-hhmmss>-<token>`, of an item another quest sent) is listed last and
  *        tagged temporary; a lasting session whose name merely starts with `tmp` is not
@@ -91,7 +92,8 @@ describe('SESSIONS view', () => {
         const btn = (name: string, op: string): Win => row(name).querySelector(`button[data-op="${op}"]`);
         assert.equal(btn('prep', 'reset').disabled, false, 'a conversation to forget');
         assert.equal(btn('walk', 'reset').disabled, true, 'nothing to reset');
-        assert.equal(btn('chat', 'reset').disabled, true, 'no file');
+        assert.equal(btn('chat', 'reset').disabled, false, 'no file, but chat has a history of its own to reset (per-session storage)');
+        assert.equal(btn('chat', 'delete').disabled, true, 'the panel\'s session is not deleted');
         assert.equal(btn('prep', 'delete').disabled, true, 'walk is based on it');
         assert.match(btn('prep', 'delete').title, /Cannot delete: walk is based on it/);
         assert.equal(btn('walk', 'delete').disabled, false);

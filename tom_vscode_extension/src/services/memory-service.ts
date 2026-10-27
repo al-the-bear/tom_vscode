@@ -211,6 +211,17 @@ export class TwoTierMemoryService {
         this._activeSession = name || MIGRATION_TARGET_SESSION;
     }
 
+    /**
+     * Run `fn` with `name` as the session the `quest` scope means, then restore
+     * the active session. `fn` must be synchronous (every file operation of
+     * this service is): a send running meanwhile cannot see the swap.
+     */
+    withSession<T>(name: string, fn: () => T): T {
+        const active = this._activeSession;
+        this._activeSession = name || MIGRATION_TARGET_SESSION;
+        try { return fn(); } finally { this._activeSession = active; }
+    }
+
     /** Absolute path to the folder for the given scope; `session` defaults to the active one. */
     scopeFolder(scope: MemoryScope, questId?: string, session?: string): string {
         if (scope === 'shared') {

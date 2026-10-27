@@ -51,6 +51,7 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import { resolveSessionsArg, SESSIONS_PARAM_SCHEMA } from '../utils/sessionSelection';
 
 // ===========================================================================
 // Cross-cut: entry shape (mirrors ToolTrailEntry + StoredToolResult)
@@ -82,6 +83,34 @@ export interface ToolHistoryAccess {
     ringBufferCapacity(): number | undefined;
     /** Read from the disk store (any subsystem). Returns undefined when missing. */
     readFromDisk(key: string): PastToolEntry | undefined;
+    /** The quest's sessions, for the `sessions` parameter. */
+    knownSessions?(): string[];
+    /** The session this call runs in (whose ring buffer listRingBuffer is). */
+    callerSession?(): string | undefined;
+    /** Every result a session stored on disk, oldest → newest. */
+    listStoredResults?(session: string): PastToolEntry[];
+}
+
+/** A past call, with the session it was made in when read across sessions. */
+type SessionEntry = PastToolEntry & { session?: string };
+
+/**
+ * The entries a call works on. Without `sessions`: the caller's in-memory
+ * ring buffer (undefined when none is active). With `sessions` (a name, a
+ * list or "all"): every stored result of each chosen session, read from
+ * disk, tagged with its session.
+ */
+function entriesFor(access: ToolHistoryAccess, sessions: unknown): { entries?: SessionEntry[]; chosen?: string[]; refusal?: string } {
+    if (sessions === undefined || sessions === null || sessions === '' || !access.knownSessions || !access.listStoredResults) {
+        return { entries: access.listRingBuffer() };
+    }
+    const resolved = resolveSessionsArg(sessions, access.knownSessions(), access.callerSession?.() ?? 'default');
+    if (!resolved.ok) { return { refusal: err(resolved.error, { code: resolved.code, sessions: resolved.sessions }) }; }
+    const entries: SessionEntry[] = [];
+    for (const session of resolved.sessions) {
+        for (const e of access.listStoredResults(session)) { entries.push({ ...e, session }); }
+    }
+    return { entries, chosen: resolved.sessions };
 }
 
 // ===========================================================================
@@ -109,9 +138,10 @@ export function normalisePastToolKey(raw: string): string {
     return trimmed;
 }
 
-function entrySummary(e: PastToolEntry): Record<string, unknown> {
+function entrySummary(e: SessionEntry): Record<string, unknown> {
     const size = (e.result ?? '').length;
     return {
+        ...(e.session ? { session: e.session } : {}),
         key: e.key,
         timestamp: e.timestamp,
         round: e.round,
@@ -134,11 +164,15 @@ export interface ListPastToolCallsInput {
     sinceRound?: number;
     /** Maximum rows to return (default 20, capped at 200). */
     limit?: number;
+    /** Other sessions (read from disk): a name, a list, or "all". */
+    sessions?: string | string[];
 }
 
 export async function listPastToolCallsImpl(access: ToolHistoryAccess, input: ListPastToolCallsInput): Promise<string> {
     try {
-        const all = access.listRingBuffer();
+        const picked = entriesFor(access, input.sessions);
+        if (picked.refusal) { return picked.refusal; }
+        const all = picked.entries;
         if (all === undefined) {
             return err('No ToolTrail active.', {
                 hint: 'Past-tool-access tools require an Anthropic session. Run a tool call first to populate the trail.',
@@ -168,9 +202,12 @@ export async function listPastToolCallsImpl(access: ToolHistoryAccess, input: Li
             totalMatches: matches.length,
             truncated: matches.length > limited.length,
             bufferSize: all.length,
-            capacity: access.ringBufferCapacity() ?? null,
+            capacity: picked.chosen ? null : access.ringBufferCapacity() ?? null,
+            ...(picked.chosen ? { sessions: picked.chosen } : {}),
             entries: limited.map(entrySummary),
-            note: 'Pass a `key` to tomAi_readPastToolResult to fetch the full body.',
+            note: picked.chosen
+                ? 'Pass a `key` and its `session` to tomAi_readPastToolResult (as `sessions`) to fetch the full body.'
+                : 'Pass a `key` to tomAi_readPastToolResult to fetch the full body.',
         });
     } catch (e) {
         return err(`listPastToolCalls failed: ${(e as Error).message}`);
@@ -188,7 +225,9 @@ export const LIST_PAST_TOOL_CALLS_DESCRIPTION =
     'for the full body. Filters: `toolName` (exact match), `sinceRound` ' +
     '(**inclusive** lower bound on the prompt-round number), `limit` ' +
     '(default 20, capped 200). On a fresh session with no ToolTrail ' +
-    'active, returns `{ok: false, hint: …}`.';
+    'active, returns `{ok: false, hint: …}`. ' + '**`sessions`** (a name, a list, or `"all"`): instead of this session\'s ring buffer, every result the chosen ' +
+    'sessions stored on disk (evicted ones included), each with its `session`; an unknown session is refused (code ' +
+    '`unknownSession`) naming the sessions there are.';
 
 export const LIST_PAST_TOOL_CALLS_TOOL: SharedToolDefinition<ListPastToolCallsInput> = {
     name: 'tomAi_listPastToolCalls',
@@ -203,6 +242,7 @@ export const LIST_PAST_TOOL_CALLS_TOOL: SharedToolDefinition<ListPastToolCallsIn
             toolName: { type: 'string', description: 'Filter to calls of this tool name (exact match).' },
             sinceRound: { type: 'number', description: 'Inclusive lower bound on the prompt-round number.' },
             limit: { type: 'number', description: 'Maximum rows to return (default 20, capped at 200).' },
+            sessions: SESSIONS_PARAM_SCHEMA,
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -223,9 +263,12 @@ export interface SearchPastToolResultsInput {
     limit?: number;
     /** Characters of surrounding context per match (default 120, max 1000). */
     contextChars?: number;
+    /** Other sessions (read from disk): a name, a list, or "all". */
+    sessions?: string | string[];
 }
 
 interface SearchHit {
+    session?: string;
     key: string;
     toolName: string;
     round: number;
@@ -243,7 +286,9 @@ function compileRegex(pattern: string, caseSensitive: boolean): { rx: RegExp } |
 
 export async function searchPastToolResultsImpl(access: ToolHistoryAccess, input: SearchPastToolResultsInput): Promise<string> {
     try {
-        const all = access.listRingBuffer();
+        const picked = entriesFor(access, input.sessions);
+        if (picked.refusal) { return picked.refusal; }
+        const all = picked.entries;
         if (all === undefined) {
             return err('No ToolTrail active.', {
                 hint: 'Past-tool-access tools require an Anthropic session.',
@@ -273,6 +318,7 @@ export async function searchPastToolResultsImpl(access: ToolHistoryAccess, input
                 const prefix = start > 0 ? '…' : '';
                 const suffix = end < body.length ? '…' : '';
                 hits.push({
+                    ...(e.session ? { session: e.session } : {}),
                     key: e.key,
                     toolName: e.toolName,
                     round: e.round,
@@ -288,6 +334,7 @@ export async function searchPastToolResultsImpl(access: ToolHistoryAccess, input
         return ok({
             pattern: input.pattern,
             caseSensitive: input.caseSensitive === true,
+            ...(picked.chosen ? { sessions: picked.chosen } : {}),
             entriesScanned: entries.length,
             hitCount: hits.length,
             hits,
@@ -309,7 +356,9 @@ export const SEARCH_PAST_TOOL_RESULTS_DESCRIPTION =
     'Filters: `toolName` (exact match), `limit` (default 20, capped 200). ' +
     'Response: `{ok, pattern, caseSensitive, entriesScanned, hitCount, ' +
     'hits: [{key, toolName, round, matchIndex, snippet}]}`. Pass any ' +
-    '`key` to `tomAi_readPastToolResult` for the full body.';
+    '`key` to `tomAi_readPastToolResult` for the full body. ' + '**`sessions`** (a name, a list, or `"all"`): instead of this session\'s ring buffer, every result the chosen ' +
+    'sessions stored on disk (evicted ones included), each with its `session`; an unknown session is refused (code ' +
+    '`unknownSession`) naming the sessions there are.';
 
 export const SEARCH_PAST_TOOL_RESULTS_TOOL: SharedToolDefinition<SearchPastToolResultsInput> = {
     name: 'tomAi_searchPastToolResults',
@@ -327,6 +376,7 @@ export const SEARCH_PAST_TOOL_RESULTS_TOOL: SharedToolDefinition<SearchPastToolR
             caseSensitive: { type: 'boolean', description: 'Case-sensitive match (default false).' },
             limit: { type: 'number', description: 'Maximum snippets returned (default 20, capped at 200).' },
             contextChars: { type: 'number', description: 'Characters of surrounding context per match (default 120, capped 1000).' },
+            sessions: SESSIONS_PARAM_SCHEMA,
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -339,6 +389,8 @@ export const SEARCH_PAST_TOOL_RESULTS_TOOL: SharedToolDefinition<SearchPastToolR
 export interface ReadPastToolResultInput {
     /** The replay key (e.g. `t14`). Bare numerics (`"14"`) are normalised to `t14`. */
     key: string;
+    /** Look in these sessions' stored results instead: a name, a list, or "all". */
+    sessions?: string | string[];
 }
 
 export async function readPastToolResultImpl(access: ToolHistoryAccess, input: ReadPastToolResultInput): Promise<string> {
@@ -346,6 +398,25 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
         const rawKey = (input.key ?? '').trim();
         if (!rawKey) { return err('`key` is required.'); }
         const normalised = normalisePastToolKey(rawKey);
+
+        // Another session's (or several sessions') stored results: keys are per session.
+        if (input.sessions !== undefined && input.sessions !== '') {
+            const picked = entriesFor(access, input.sessions);
+            if (picked.refusal) { return picked.refusal; }
+            const found = (picked.entries ?? []).filter((e) => e.key === normalised);
+            if (found.length === 0) {
+                return err(`No past tool result with key "${normalised}" in ${(picked.chosen ?? []).join(', ') || 'the sessions given'}.`, {
+                    rawKey, normalisedKey: normalised, hint: 'tomAi_listPastToolCalls with the same `sessions` lists the keys there.',
+                });
+            }
+            const e = found[0];
+            return ok({
+                session: e.session, key: e.key, rawKey, source: 'disk', round: e.round, timestamp: e.timestamp,
+                durationMs: e.durationMs, toolName: e.toolName, inputSummary: e.inputSummary,
+                resultSize: (e.result ?? '').length, errorMessage: e.error ?? null, result: e.result ?? '',
+                ...(found.length > 1 ? { alsoIn: found.slice(1).map((x) => x.session) } : {}),
+            });
+        }
 
         // 1. Prefer the active in-memory ring buffer (most recent + fastest).
         let entry: PastToolEntry | undefined;
@@ -402,7 +473,9 @@ export const READ_PAST_TOOL_RESULT_DESCRIPTION =
     'survives ring eviction + window reload). Response reports `source: ' +
     '"memory" | "disk"` so the caller knows which layer answered. Stub ' +
     'blocks in the conversation like `[Past tool call tX — …]` remain ' +
-    'resolvable here even after eviction.';
+    'resolvable here even after eviction. **`sessions`** (a name, a list, or `"all"`): read the key from those ' +
+    'sessions\' stored results instead (keys are per session); the answer names the `session` it came from, and ' +
+    '`alsoIn` the other chosen sessions holding the same key.';
 
 export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResultInput> = {
     name: 'tomAi_readPastToolResult',
@@ -416,6 +489,7 @@ export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResult
         required: ['key'],
         properties: {
             key: { type: 'string', description: 'Replay key from a tool history block (e.g. `t14`). Bare numerics like `"14"` are normalised to `t14`.' },
+            sessions: SESSIONS_PARAM_SCHEMA,
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -426,7 +500,7 @@ export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResult
 // ===========================================================================
 
 import { getActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
-import { readToolResultAnySubsystem } from '../services/tool-result-store';
+import { listStoredToolResults, readToolResultAnySubsystem } from '../services/tool-result-store';
 
 function toPastToolEntry(e: ToolTrailEntry): PastToolEntry {
     return {
@@ -450,6 +524,22 @@ const liveAccess: ToolHistoryAccess = {
     ringBufferCapacity() {
         const trail = getActiveToolTrail();
         return trail?.keepEntries;
+    },
+    knownSessions() {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { knownSessions } = require('./session-param') as typeof import('./session-param');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');
+        return knownSessions(TwoTierMemoryService.instance.historyFolder(TwoTierMemoryService.instance.currentQuest()));
+    },
+    callerSession() {
+        return getActiveToolTrail()?.session;
+    },
+    listStoredResults(session) {
+        return listStoredToolResults(undefined, session).map((r) => ({
+            key: r.key, timestamp: r.timestamp, round: r.round, toolName: r.toolName,
+            inputSummary: r.inputSummary, result: r.result, durationMs: r.durationMs, error: r.error,
+        }));
     },
     readFromDisk(key) {
         // The active trail is the session the call runs in: its own results first.

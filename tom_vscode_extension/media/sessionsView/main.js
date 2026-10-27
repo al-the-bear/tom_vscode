@@ -46,15 +46,16 @@
         root.innerHTML = state.rows.map(function (r) {
             var deleteTitle = r.dependents.length
                 ? 'Cannot delete: ' + r.dependents.join(', ') + (r.dependents.length === 1 ? ' is' : ' are') + ' based on it'
-                : 'Delete the session file (its history folder stays)';
+                : r.usedBy ? 'The ' + r.name + ' session is ' + r.usedBy + '\'s: Reset clears its history'
+                : 'Delete the session with its whole storage: history, trails, tool results and quest memory';
             return '<div class="session" data-name="' + esc(r.name) + '">'
                 + '<div class="body"><span class="name">' + esc(r.name) + '</span>'
                 + (r.usedBy ? '<span class="tag">' + esc(r.usedBy) + '</span>' : '')
                 + (r.temporary ? '<span class="tag" title="Created for an item another quest sent; deleted once the item and its notification are done">temporary</span>' : '')
                 + '<div class="meta">' + esc(meta(r)) + '</div></div>'
                 + '<div class="actions">'
-                + '<button class="icon" data-op="reset" title="Reset: forget the conversation, keep base, lifetime and profile"'
-                + (r.hasFile && r.hasConversation ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
+                + '<button class="icon" data-op="reset" title="Reset: forget the conversation (its history and SDK session); keep base, lifetime, profile, trails and memory"'
+                + ((r.hasFile && r.hasConversation) || r.usedBy ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
                 + '<button class="icon" data-op="delete" title="' + esc(deleteTitle) + '"'
                 + (r.hasFile && !r.dependents.length ? '' : ' disabled') + '><span class="codicon codicon-trash"></span></button>'
                 + '</div></div>';

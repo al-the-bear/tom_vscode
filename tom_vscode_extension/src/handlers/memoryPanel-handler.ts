@@ -7,7 +7,8 @@
  * button invokes when the webview posts `{ type: 'openAnthropicMemory' }`.
  *
  * Layout (two-pane):
- *   ├── Scope tabs          [Shared memory] [Quest: {quest}]
+ *   ├── Scope tabs          [Shared memory] [Quest: {quest}]   [Session: {name}]
+ *                           (quest memory is per session; the button picks whose)
  *   ├── File list (left)    one entry per file in the selected scope
  *   ├── Content view (right) editable markdown textarea
  *   └── Toolbar             [+ New file] [Save] [Delete] [Open in editor]
@@ -18,9 +19,23 @@ import * as vscode from 'vscode';
 import { TwoTierMemoryService, MemoryScope } from '../services/memory-service';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { sessionsWithStorage } from '../services/sessionStorage';
+import { pickSessions } from './sessionSelectionPicker';
 
 let _panel: vscode.WebviewPanel | undefined;
 let _context: vscode.ExtensionContext | undefined;
+/**
+ * The session whose quest memory the Quest tab shows and edits
+ * (`_ai/memory/<quest>/<session>/`); chosen with the Session button, at first
+ * the session the last send ran in. Shared memory is one set.
+ */
+let _session: string | undefined;
+
+/** Run a memory operation in the panel's session. */
+function inPanelSession<T>(fn: () => T): T {
+    const svc = TwoTierMemoryService.instance;
+    return svc.withSession(_session ?? svc.activeSession, fn);
+}
 
 interface WebviewMessage {
     type: string;
@@ -119,6 +134,23 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
             case 'newFile':
                 await _newFile(msg.scope as MemoryScope);
                 return;
+            case 'pickSession': {
+                const svc = TwoTierMemoryService.instance;
+                const quest = svc.currentQuest();
+                const names = await pickSessions(quest, {
+                    title: 'Quest memory of which session',
+                    current: _session ?? svc.activeSession,
+                    extra: sessionsWithStorage(svc.historyFolder(quest || undefined)),
+                });
+                if (names && names.length > 0) {
+                    _session = names[0];
+                    if (names.length > 1) {
+                        void vscode.window.showInformationMessage(`The memory panel edits one session at a time: showing "${names[0]}".`);
+                    }
+                    _sendSnapshot();
+                }
+                break;
+            }
             case 'openInEditor':
                 _openInEditor(msg.scope as MemoryScope, String(msg.file ?? ''));
                 return;
@@ -136,11 +168,12 @@ function _sendSnapshot(): void {
     const quest = svc.currentQuest();
     const shared = svc.listWithMeta('shared').sort((a, b) => a.file.localeCompare(b.file));
     const questFiles = quest
-        ? svc.listWithMeta('quest').sort((a, b) => a.file.localeCompare(b.file))
+        ? inPanelSession(() => svc.listWithMeta('quest')).sort((a, b) => a.file.localeCompare(b.file))
         : [];
     _panel?.webview.postMessage({
         type: 'snapshot',
         quest,
+        session: _session ?? svc.activeSession,
         shared: shared.map((e) => ({ file: e.file, bytes: e.bytes })),
         questFiles: questFiles.map((e) => ({ file: e.file, bytes: e.bytes })),
     });
@@ -148,13 +181,13 @@ function _sendSnapshot(): void {
 
 function _sendFile(scope: MemoryScope, file: string): void {
     if (!file) return;
-    const content = TwoTierMemoryService.instance.read(scope, file);
+    const content = inPanelSession(() => TwoTierMemoryService.instance.read(scope, file));
     _panel?.webview.postMessage({ type: 'fileContent', scope, file, content });
 }
 
 function _saveFile(scope: MemoryScope, file: string, content: string): void {
     if (!file) return;
-    TwoTierMemoryService.instance.write(scope, file, content);
+    inPanelSession(() => TwoTierMemoryService.instance.write(scope, file, content));
     vscode.window.setStatusBarMessage(`Memory: saved ${scope}/${file}`, 2000);
     _sendSnapshot();
     _sendFile(scope, file);
@@ -162,7 +195,7 @@ function _saveFile(scope: MemoryScope, file: string, content: string): void {
 
 function _deleteFile(scope: MemoryScope, file: string): void {
     if (!file) return;
-    TwoTierMemoryService.instance.delete(scope, file);
+    inPanelSession(() => TwoTierMemoryService.instance.delete(scope, file));
     vscode.window.setStatusBarMessage(`Memory: deleted ${scope}/${file}`, 2000);
     _sendSnapshot();
 }
@@ -176,18 +209,18 @@ async function _newFile(scope: MemoryScope): Promise<void> {
     if (!name) return;
     const file = name.trim().endsWith('.md') ? name.trim() : `${name.trim()}.md`;
     const svc = TwoTierMemoryService.instance;
-    if (svc.read(scope, file)) {
+    if (inPanelSession(() => svc.read(scope, file))) {
         vscode.window.showWarningMessage(`Memory file already exists: ${scope}/${file}`);
         return;
     }
-    svc.write(scope, file, '');
+    inPanelSession(() => svc.write(scope, file, ''));
     _sendSnapshot();
     _sendFile(scope, file);
 }
 
 function _openInEditor(scope: MemoryScope, file: string): void {
     if (!file) return;
-    const abs = TwoTierMemoryService.instance.filePath(scope, file);
+    const abs = inPanelSession(() => TwoTierMemoryService.instance.filePath(scope, file));
     void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(abs));
 }
 

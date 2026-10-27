@@ -778,6 +778,17 @@ const liveMemoryStore: MemoryStore = {
         TwoTierMemoryService.instance.replaceSection(scope, file, heading, content);
     },
     delete(scope: ToolMemoryScope, file: string): void { TwoTierMemoryService.instance.delete(scope, file); },
+    knownSessions(): string[] {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { knownSessions } = require('./session-param') as typeof import('./session-param');
+        return knownSessions(TwoTierMemoryService.instance.historyFolder(TwoTierMemoryService.instance.currentQuest()));
+    },
+    callerSession(): string | undefined {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { callerSession } = require('./session-param') as typeof import('./session-param');
+        return callerSession();
+    },
+    inSession<T>(session: string, fn: () => T): T { return TwoTierMemoryService.instance.withSession(session, fn); },
 };
 
 export const MEMORY_SAVE_TOOL: SharedToolDefinition<MemorySaveInput> = {

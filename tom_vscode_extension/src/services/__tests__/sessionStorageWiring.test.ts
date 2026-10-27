@@ -9,7 +9,7 @@
  *        tool trail (one per session, keys past the stored results, results in the session's folder); the live trail
  *        and the current-prompt copy go to the session; compaction and memory extraction run for the session
  *   SW-3 snapshots are read back per session (from the scope's folder), and every session may rebuild from its own
- *        trail; recreate history / memory take the session (the panel passes its own)
+ *        trail; recreate history / memory take the session (the panel passes each one chosen)
  *   SW-4 a based per-prompt session never clears its base's accumulator: the compaction clears the file only when the
  *        session writes its history (before the fix it cleared the scope folder — the base's — unconditionally)
  *   SW-5 quest memory is per session (`_ai/memory/<quest>/<session>/`), shared stays one; the migration runs on first
@@ -73,8 +73,9 @@ describe('per-session storage wiring', () => {
         assert.match(body(handler, 'async recreateHistoryFromTrail('), /resolveHistoryScope\(quest, TwoTierMemoryService\.instance\.historyFolder\(quest\), sessionKey\)/);
         assert.match(body(handler, 'async recreateMemoryFromTrail('), /loadLastNTrailExchanges\(quest, limit, sessionKey\)/);
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
-        assert.match(panel, /recreateHistoryFromTrail\(undefined, this\._chatSessionKey\(\)\)/);
-        assert.match(panel, /recreateMemoryFromTrail\(undefined, this\._chatSessionKey\(\)\)/);
+        // The panel passes each session chosen in the session selection (sessionSelectionWiring SW-1).
+        assert.match(panel, /recreateHistoryFromTrail\(undefined, name\)/);
+        assert.match(panel, /recreateMemoryFromTrail\(undefined, name\)/);
         const compaction = source('src', 'services', 'history-compaction.ts');
         assert.match(body(compaction, 'export function loadLastNTrailExchanges('), /\.\.\.\(session \? \{ session \} : \{\}\)/);
     });

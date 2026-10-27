@@ -31,7 +31,7 @@ import { questHistoryRoot } from './trailService';
 
 export type ToolResultSubsystem = 'localLlm' | 'anthropic';
 
-interface StoredToolResult {
+export interface StoredToolResult {
     key: string;
     timestamp: string;
     round: number;
@@ -144,4 +144,23 @@ export function readToolResultAnySubsystem(
         }
     }
     return undefined;
+}
+
+/**
+ * Every result Anthropic session `session` stored, oldest first (by key
+ * number). The disk store keeps them all, so this reaches calls the session's
+ * in-memory ring has evicted, and the calls of sessions other than the
+ * caller's (tomAi_listPastToolCalls / tomAi_searchPastToolResults with
+ * `sessions`).
+ */
+export function listStoredToolResults(questId: string | undefined, session: string): StoredToolResult[] {
+    const folder = resolveStoreDir('anthropic', questId, session);
+    let names: string[];
+    try { names = fs.readdirSync(folder); } catch { return []; }
+    return names
+        .map((n) => /^t(\d+)\.json$/.exec(n))
+        .filter((m): m is RegExpExecArray => !!m)
+        .sort((a, b) => Number(a[1]) - Number(b[1]))
+        .map((m) => readToolResult('anthropic', `t${m[1]}`, questId, session))
+        .filter((r): r is StoredToolResult => !!r);
 }

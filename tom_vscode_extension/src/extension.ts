@@ -1275,11 +1275,19 @@ function registerCommands(context: vscode.ExtensionContext) {
         'tomAi.migrate.compactionFormat',
         async () => {
             const { migrateCompactionFormat } = await import('./services/compaction-migration.js');
+            // Which sessions' histories and memory (named as the active quest's; applied in every quest).
+            const { pickSessionsOrAll } = await import('./handlers/sessionSelectionPicker.js');
+            const picked = await pickSessionsOrAll(WsPaths.getWorkspaceQuestId() || '', {
+                title: 'Compaction-format migration: which sessions (in every quest)',
+                current: 'default',
+            });
+            if (!picked) { return; }
             const out = vscode.window.createOutputChannel('Tom AI: Compaction Migration');
             out.show(true);
-            out.appendLine('Tom AI: starting compaction-format migration…');
+            out.appendLine(`Tom AI: starting compaction-format migration for ${picked.all ? 'every session' : picked.sessions.join(', ')}…`);
             const report = migrateCompactionFormat({
                 onProgress: (msg: string) => out.appendLine(msg),
+                sessions: picked.all ? 'all' : picked.sessions,
             });
             const summary =
                 `Tom AI migration complete — ` +

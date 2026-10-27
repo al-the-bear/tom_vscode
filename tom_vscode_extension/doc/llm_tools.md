@@ -397,6 +397,11 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
+**`sessions`.** The tools that read or write per-session storage take an optional `sessions` — a session name, a list of names, or `"all"`; an unknown session is refused (code `unknownSession`) with the sessions there are. Without it they work on the session the call runs in:
+- `tomAi_listPromptPairs` / `tomAi_getPromptPair`: those sessions' Anthropic pairs (other subsystems are always included); a call that runs in no session (Copilot, Local LLM, an MCP client) reads every session; the answer names the `sessions` read.
+- `tomAi_listPastToolCalls` / `tomAi_searchPastToolResults` / `tomAi_readPastToolResult`: without `sessions` the caller's in-memory ring buffer as before; with them every result the chosen sessions stored on disk (evicted ones included), each entry and hit tagged with its `session` (keys are per session; a read names the session it came from, `alsoIn` the others holding the key).
+- `tomAi_saveMemory` / `tomAi_updateMemory` / `tomAi_forgetMemory` / `tomAi_readMemory` / `tomAi_listMemory`: quest memory is per session (`_ai/memory/<quest>/<session>/`); a write goes to each chosen session, a read or list shows each under a `## session <name>` heading; the shared scope ignores `sessions`.
+
 Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the whole file content it saw earlier, no tool re-run.
 
 ### 4.23 TomSpecs (SOM) documents

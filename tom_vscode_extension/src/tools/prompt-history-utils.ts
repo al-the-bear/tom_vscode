@@ -12,6 +12,7 @@
  */
 
 import { sessionSummaryFile, sessionsWithStorage } from '../services/sessionStorage';
+import { subsystemInSessions } from '../utils/sessionSelection';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -321,6 +322,8 @@ export function listPromptPairs(
     questId: string,
     options: {
         subsystem?: string;
+        /** Only these sessions' Anthropic pairs (other subsystems are kept). */
+        sessions?: readonly string[];
         limit?: number;
         offset?: number;
         previewChars?: number;
@@ -329,7 +332,7 @@ export function listPromptPairs(
     const limit = Math.max(1, Math.min(options.limit ?? 50, 500));
     const offset = Math.max(0, options.offset ?? 0);
     const previewChars = Math.max(0, options.previewChars ?? 120);
-    const files = findSubsystemFiles(questFolder, questId, options.subsystem);
+    const files = findSubsystemFiles(questFolder, questId, options.subsystem).filter((f) => subsystemInSessions(f.subsystem, options.sessions));
     // Build pairs per subsystem so the index/sequence per file is meaningful.
     const all: PromptPair[] = [];
     for (const f of files) {
@@ -378,12 +381,14 @@ export function getPromptPairs(
     questId: string,
     options: {
         subsystem?: string;
+        /** Only these sessions' Anthropic pairs (other subsystems are kept). */
+        sessions?: readonly string[];
         requestIds?: string[];
         index?: number;
         count?: number;
     } = {},
 ): GetResult {
-    const files = findSubsystemFiles(questFolder, questId, options.subsystem);
+    const files = findSubsystemFiles(questFolder, questId, options.subsystem).filter((f) => subsystemInSessions(f.subsystem, options.sessions));
     // Parse everything up front so we can resolve both id-based and
     // index-based lookups from the same canonical ordering.
     const perSubsystem: Array<{ subsystem: string; prompts: TrailEntry[]; answers: TrailEntry[]; summary: PromptPair[] }> = [];

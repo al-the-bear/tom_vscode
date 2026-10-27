@@ -131,3 +131,35 @@ describe('migrateCompactionFormat — end-to-end', () => {
         }
     });
 });
+
+describe('migrateCompactionFormat — per-session storage', () => {
+    test('migrates the chosen sessions\' histories and quest memory, and only those', async () => {
+        const { wsRoot, questHistoryFolder } = setupFixture();
+        try {
+            const legacy = (summary: string): string => JSON.stringify({ messages: { compactedSummary: summary, rawTurns: [] }, savedAt: '2026-05-30T12:00:00.000Z' });
+            for (const session of ['walk', 'chat']) {
+                const folder = path.join(questHistoryFolder, 'sessions', session);
+                fs.mkdirSync(folder, { recursive: true });
+                fs.writeFileSync(path.join(folder, 'history.json'), legacy(`summary of ${session}`), 'utf-8');
+                const memory = path.join(wsRoot, '_ai', 'memory', 'demo_quest', session);
+                fs.mkdirSync(memory, { recursive: true });
+                fs.writeFileSync(path.join(memory, 'facts.md'), '## Old\n\n- a fact\n', 'utf-8');
+            }
+            installVscodeStub({ workspaceFolders: [wsRoot] });
+            const { migrateCompactionFormat } = await import('../compaction-migration.js');
+
+            const report = migrateCompactionFormat({ sessions: ['walk'] });
+            assert.deepEqual([report.sessionHistoriesScanned, report.sessionHistoriesMigrated], [1, 1]);
+            assert.equal(fs.existsSync(path.join(questHistoryFolder, 'sessions', 'walk', 'compacted_history.md')), true);
+            assert.equal(fs.existsSync(path.join(questHistoryFolder, 'sessions', 'chat', 'history.json')), true, 'chat was not chosen');
+            assert.match(report.progressLines.join('\n'), /memory: demo_quest\/walk\/facts\.md — migrated/);
+            assert.doesNotMatch(report.progressLines.join('\n'), /demo_quest\/chat\/facts\.md/);
+
+            const all = migrateCompactionFormat({ sessions: 'all' });
+            assert.deepEqual([all.sessionHistoriesScanned, all.sessionHistoriesMigrated], [2, 1], 'walk already current, chat migrated');
+            assert.equal(fs.existsSync(path.join(questHistoryFolder, 'sessions', 'chat', 'compacted_history.md')), true);
+        } finally {
+            fs.rmSync(wsRoot, { recursive: true, force: true });
+        }
+    });
+});

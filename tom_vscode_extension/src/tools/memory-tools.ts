@@ -41,6 +41,7 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import { resolveSessionsArg, SESSIONS_PARAM_SCHEMA } from '../utils/sessionSelection';
 
 // ===========================================================================
 // Narrow dep
@@ -55,7 +56,67 @@ export interface MemoryStore {
     append(scope: MemoryScope, file: string, content: string): void;
     replaceSection(scope: MemoryScope, file: string, heading: string, content: string): void;
     delete(scope: MemoryScope, file: string): void;
+    /** The quest's sessions (for `sessions`). */
+    knownSessions?(): string[];
+    /** The session this call runs in. */
+    callerSession?(): string | undefined;
+    /** Run `fn` (synchronous) with `session` as the one the `quest` scope means. */
+    inSession?<T>(session: string, fn: () => T): T;
 }
+
+// ===========================================================================
+// `sessions`: quest memory is per session
+// ===========================================================================
+
+/** The tools' input field naming the sessions whose quest memory a call works on. */
+export interface WithSessions {
+    /** A session name, a list, or "all"; default: the session the call runs in. Quest scope only. */
+    sessions?: string | string[];
+}
+
+/**
+ * Run a memory call once per chosen session, each inside that session (quest
+ * memory is per session: `_ai/memory/<quest>/<session>/`). Without `sessions`,
+ * or for the shared scope, the call runs once as before — in the session the
+ * call runs in. `run` is one of the Impls below: they do all their work
+ * synchronously, which `inSession` relies on.
+ */
+async function perSession(
+    store: MemoryStore,
+    sessions: WithSessions['sessions'],
+    scope: unknown,
+    run: () => Promise<string>,
+    combine: (results: Array<{ session: string; out: string }>) => string,
+): Promise<string> {
+    if (sessions === undefined || (sessions as unknown) === '' || scope === 'shared' || !store.inSession || !store.knownSessions) {
+        return run();
+    }
+    const resolved = resolveSessionsArg(sessions, store.knownSessions(), store.callerSession?.() ?? 'default');
+    if (!resolved.ok) { return JSON.stringify({ error: resolved.error, code: resolved.code, sessions: resolved.sessions }); }
+    const results: Array<{ session: string; out: string }> = [];
+    for (const session of resolved.sessions) {
+        let pending: Promise<string> | undefined;
+        store.inSession(session, () => { pending = run(); });
+        results.push({ session, out: await pending! });
+    }
+    return combine(results);
+}
+
+/** Writes: one JSON answer per session. */
+function combineWrites(results: Array<{ session: string; out: string }>): string {
+    const parsed = results.map((r) => { try { return { session: r.session, ...JSON.parse(r.out) }; } catch { return { session: r.session, answer: r.out }; } });
+    return JSON.stringify({ ok: parsed.every((p) => p.ok === true), sessions: parsed });
+}
+
+/** Reads: each session's text under its own heading. */
+function combineReads(results: Array<{ session: string; out: string }>): string {
+    return results.map((r) => `## session ${r.session}\n\n${r.out}`).join('\n\n');
+}
+
+const SESSIONS_DOC = ' Quest memory is per session (`_ai/memory/<quest>/<session>/`; shared memory is one set): '
+    + '`sessions` — a session name, a list, or `"all"` — works on those sessions\' quest memory (writes: each of them; '
+    + 'reads and lists: each under a `## session <name>` heading); default the session the call runs in. An unknown '
+    + 'session is refused (code unknownSession) naming the sessions there are. Ignored for scope `shared`.';
 
 // ===========================================================================
 // Helpers
@@ -88,7 +149,11 @@ export interface MemorySaveInput {
     heading?: string;
 }
 
-export async function saveMemoryImpl(store: MemoryStore, input: MemorySaveInput): Promise<string> {
+export async function saveMemoryImpl(store: MemoryStore, input: MemorySaveInput & WithSessions): Promise<string> {
+    return perSession(store, input.sessions, input.scope, () => saveMemoryOne(store, input), combineWrites);
+}
+
+async function saveMemoryOne(store: MemoryStore, input: MemorySaveInput): Promise<string> {
     try {
         const scope = parseWriteScope(input.scope);
         const file = (input.file || 'facts.md').trim() || 'facts.md';
@@ -125,7 +190,7 @@ export const SAVE_MEMORY_DESCRIPTION =
     '`heading` is semantically the same as `updateMemory`; pick `updateMemory` ' +
     'when you specifically want section-replace semantics so the intent is ' +
     'obvious to the reviewer. Scope is `quest` (default — per-quest facts) ' +
-    'or `shared` (workspace-wide facts).';
+    'or `shared` (workspace-wide facts).' + SESSIONS_DOC;
 
 export const SAVE_MEMORY_TOOL: SharedToolDefinition<MemorySaveInput> = {
     name: 'tomAi_saveMemory',
@@ -139,6 +204,7 @@ export const SAVE_MEMORY_TOOL: SharedToolDefinition<MemorySaveInput> = {
         required: ['content'],
         properties: {
             scope: { type: 'string', enum: ['quest', 'shared'], description: 'Memory tier (default `quest`).' },
+            sessions: SESSIONS_PARAM_SCHEMA,
             file: { type: 'string', description: 'File name within the scope (default `facts.md`).' },
             content: { type: 'string', description: 'Fact body to persist.' },
             heading: { type: 'string', description: 'Optional section heading. Omit to append at end of file.' },
@@ -158,7 +224,11 @@ export interface MemoryUpdateInput {
     content: string;
 }
 
-export async function updateMemoryImpl(store: MemoryStore, input: MemoryUpdateInput): Promise<string> {
+export async function updateMemoryImpl(store: MemoryStore, input: MemoryUpdateInput & WithSessions): Promise<string> {
+    return perSession(store, input.sessions, input.scope, () => updateMemoryOne(store, input), combineWrites);
+}
+
+async function updateMemoryOne(store: MemoryStore, input: MemoryUpdateInput): Promise<string> {
     try {
         const scope = parseWriteScope(input.scope);
         if (!input.file || !input.heading) {
@@ -184,7 +254,7 @@ export const UPDATE_MEMORY_DESCRIPTION =
     'Semantically the same as `saveMemory` with `heading` provided — prefer ' +
     'this tool when section-replace is the intent so a reviewer can tell at ' +
     'a glance. Pass empty `content` to leave a stub heading; use ' +
-    '`forgetMemory` with `heading` to remove a section entirely.';
+    '`forgetMemory` with `heading` to remove a section entirely.' + SESSIONS_DOC;
 
 export const UPDATE_MEMORY_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
     name: 'tomAi_updateMemory',
@@ -198,6 +268,7 @@ export const UPDATE_MEMORY_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
         required: ['file', 'heading', 'content'],
         properties: {
             scope: { type: 'string', enum: ['quest', 'shared'] },
+            sessions: SESSIONS_PARAM_SCHEMA,
             file: { type: 'string' },
             heading: { type: 'string', description: 'Heading text without the leading `#`.' },
             content: { type: 'string', description: 'New body for the section.' },
@@ -216,7 +287,11 @@ export interface MemoryForgetInput {
     heading?: string;
 }
 
-export async function forgetMemoryImpl(store: MemoryStore, input: MemoryForgetInput): Promise<string> {
+export async function forgetMemoryImpl(store: MemoryStore, input: MemoryForgetInput & WithSessions): Promise<string> {
+    return perSession(store, input.sessions, input.scope, () => forgetMemoryOne(store, input), combineWrites);
+}
+
+async function forgetMemoryOne(store: MemoryStore, input: MemoryForgetInput): Promise<string> {
     try {
         const scope = parseWriteScope(input.scope);
         if (!input.file) {
@@ -254,7 +329,7 @@ export const FORGET_MEMORY_DESCRIPTION =
     '(empty section). To wipe a section heading and all, delete the file ' +
     'and re-create it via `saveMemory`. **Wildcards (`*`, `?`) are NOT ' +
     'supported** — pass a literal file name. Use `tomAi_listMemory` to ' +
-    'enumerate files first if you need to clean up several at once.';
+    'enumerate files first if you need to clean up several at once.' + SESSIONS_DOC;
 
 export const FORGET_MEMORY_TOOL: SharedToolDefinition<MemoryForgetInput> = {
     name: 'tomAi_forgetMemory',
@@ -268,6 +343,7 @@ export const FORGET_MEMORY_TOOL: SharedToolDefinition<MemoryForgetInput> = {
         required: ['file'],
         properties: {
             scope: { type: 'string', enum: ['quest', 'shared'] },
+            sessions: SESSIONS_PARAM_SCHEMA,
             file: { type: 'string', description: 'Exact file name within the scope (no wildcards).' },
             heading: { type: 'string', description: 'Optional heading to clear instead of deleting the whole file.' },
         },
@@ -291,7 +367,11 @@ export interface MemoryReadInput {
     suffix?: string;
 }
 
-export async function readMemoryImpl(store: MemoryStore, input: MemoryReadInput): Promise<string> {
+export async function readMemoryImpl(store: MemoryStore, input: MemoryReadInput & WithSessions): Promise<string> {
+    return perSession(store, input.sessions, input.scope, () => readMemoryOne(store, input), combineReads);
+}
+
+async function readMemoryOne(store: MemoryStore, input: MemoryReadInput): Promise<string> {
     try {
         const scope = parseReadScope(input.scope);
         const suffix = input.suffix?.trim() || undefined;
@@ -340,7 +420,7 @@ export const READ_MEMORY_DESCRIPTION =
     '(e.g. `"gemma4"`) to restrict to `facts-<suffix>.md` only — matches ' +
     'the per-profile memory bucket that gets injected into the system ' +
     'prompt for that profile, so you can verify exactly what the LLM will ' +
-    'see. `suffix` is ignored when an explicit `file` is given.';
+    'see. `suffix` is ignored when an explicit `file` is given.' + SESSIONS_DOC;
 
 export const READ_MEMORY_TOOL: SharedToolDefinition<MemoryReadInput> = {
     name: 'tomAi_readMemory',
@@ -353,6 +433,7 @@ export const READ_MEMORY_TOOL: SharedToolDefinition<MemoryReadInput> = {
         type: 'object',
         properties: {
             scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
+            sessions: SESSIONS_PARAM_SCHEMA,
             file: { type: 'string', description: 'Optional file name within the scope.' },
             suffix: { type: 'string', description: 'Optional profile suffix. Restricts to `facts-<suffix>.md`. Ignored when `file` is set.' },
         },
@@ -369,7 +450,11 @@ export interface MemoryListInput {
     suffix?: string;
 }
 
-export async function listMemoryImpl(store: MemoryStore, input: MemoryListInput): Promise<string> {
+export async function listMemoryImpl(store: MemoryStore, input: MemoryListInput & WithSessions): Promise<string> {
+    return perSession(store, input.sessions, input.scope, () => listMemoryOne(store, input), combineReads);
+}
+
+async function listMemoryOne(store: MemoryStore, input: MemoryListInput): Promise<string> {
     try {
         const scope = parseReadScope(input.scope);
         const suffix = input.suffix?.trim() || undefined;
@@ -399,7 +484,7 @@ export const LIST_MEMORY_DESCRIPTION =
     '<scope>)` line** — never mixed with path-like lines, so the output ' +
     'is safe to split-parse. Scope is `quest` (default), `shared`, or ' +
     '`all`. **Pass `suffix`** to restrict to `facts-<suffix>.md` only ' +
-    '(matches the per-profile injection policy).';
+    '(matches the per-profile injection policy).' + SESSIONS_DOC;
 
 export const LIST_MEMORY_TOOL: SharedToolDefinition<MemoryListInput> = {
     name: 'tomAi_listMemory',
@@ -412,6 +497,7 @@ export const LIST_MEMORY_TOOL: SharedToolDefinition<MemoryListInput> = {
         type: 'object',
         properties: {
             scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
+            sessions: SESSIONS_PARAM_SCHEMA,
             suffix: { type: 'string', description: 'Optional profile suffix. Restricts to `facts-<suffix>.md`.' },
         },
     },

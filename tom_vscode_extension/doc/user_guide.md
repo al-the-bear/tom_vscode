@@ -241,7 +241,7 @@ A conversation lives in a **session**: a `<name>.session.json` file in the quest
   - **New for every prompt** — every prompt starts again, from the base's current conversation or fresh without a base, and nothing is saved, so the base can hold preparatory context (read the spec, the guidelines, …) while the prompts in this session never change the context of the ones after them.
   - **New for every queue iteration** — each round of a queued item's repeat count, or each todo of a `<prefix>*` walk, starts again from the base (or fresh); that iteration's pre-prompts, main prompt and follow-ups continue it.
 - Then for the **profile** the session runs with: its prompts use it unless the queued item names its own profile; without one they use the queue default. The session list shows each session's model.
-- **The SESSIONS view** (@TOM sidebar, above SESSION TODOS) lists the quest's sessions — `default` (the queue's) and `chat` (the panel's) always, then every session file — with what each is based on, its lifetime, profile and model, whether it has a conversation yet and when it was last used. **+** in its title bar creates a session (the picker's new-session steps); per row, **Reset** forgets the conversation and keeps the base, lifetime and profile (a based session starts from its base again), and **Delete** removes the session after asking — not while another session is based on it. Both touch only the session file; a session's history folder (`history/sessions/<name>/`) stays.
+- **The SESSIONS view** (@TOM sidebar, above SESSION TODOS) lists the quest's sessions — `default` (the queue's) and `chat` (the panel's) always, then every session file — with what each is based on, its lifetime, profile and model, whether it has a conversation yet and when it was last used. **+** in its title bar creates a session (the picker's new-session steps); per row, **Reset** forgets the conversation — its history and its Agent SDK session — and keeps the base, lifetime, profile, its trails and its quest memory (a based session starts from its base again; `default` and `chat` can be reset too), and **Delete** removes the session with its whole storage after a confirmation naming what goes: `history/sessions/<name>/` (history, prompts/answers trail, live trail, raw trail, tool results) and its quest memory `_ai/memory/<quest>/<name>/` — not while another session is based on it.
 - **Clear Session** forgets the selected session's conversation; a session you created keeps its definition (base, lifetime and profile) and starts again from it.
 - A queued item can name a session that does not exist yet, as a name or with its base, lifetime and profile: it is created before the item's first prompt is sent. An item whose profile keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a direct-API profile, or the reverse) is refused when it is queued.
 
@@ -252,7 +252,7 @@ On the **direct API transport** the extension sends the history itself — the c
 - **New for every prompt**: every prompt reads the base's current history, or none without a base, and nothing is saved or compacted;
 - **New for every queue iteration**: the session's folder holds the current iteration's history and is started again from the base's (or empty) when the next iteration begins.
 
-The live trail and the prompt/answer trail stay one per quest (a log of every exchange); **Recreate history from trail** rebuilds the quest's own history.
+The trails are per session too (§9); **Recreate history from trail** rebuilds each chosen session's history from its own trail.
 
 ### Copilot
 
@@ -563,7 +563,7 @@ Every Anthropic session — `chat` (the panel), `default` (the queue) and every 
 
 Git tracks a session's `compacted_history.md`, snapshot and `live-trail.md`; the rest is machine-local. On a quest's first use a window moves its files from the older per-quest layout (`history/`, the quest folder's `live-trail.md`, `_ai/trail/anthropic/<quest>/`, `_ai/memory/<quest>/`) into the `default` session, once per machine.
 
-Clear the session (reset history + tool trail + SDK session id) via the subpanel's Clear button or `@T: Clear Anthropic Session`.
+**Choosing the sessions.** Every button that works on this storage asks which sessions first: a multi-select of the quest's sessions (the SESSIONS view's list — `default`, `chat`, the session files, temporary ones marked, and storage left without a file) with **All sessions** on top and the panel's session preselected. That holds for the subpanel's **Clear** (history + tool trail + SDK session id), **Recreate history** and **Recreate memory** — these three then confirm, naming the sessions — and for **Open session history**, **Open live trail**, the summary trail and the raw trail, which open one editor per chosen session. The Status Page's compaction **Dry Run** (each chosen session's rolling history) and **Trail Viewer**, the memory panel (its **Session** button: whose quest memory it shows and edits) and the command `Tom AI: Migrate compaction format` (the chosen sessions in every quest; **All sessions** means every session of every quest) ask the same way. `@T: Clear Anthropic Session` clears the queue's `default` session.
 
 ## 10) Keyboard productivity
 

@@ -32,6 +32,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { sessionRoot, sessionsWithStorage } from './sessionStorage';
 
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
@@ -65,11 +66,20 @@ export interface MigrationReport {
     memoryFilesMigrated: number;
     memoryFilesAlreadyCurrent: number;
     memoryFilesFailed: number;
+    /** Session histories (`history/sessions/<name>/`) looked at, and migrated. */
+    sessionHistoriesScanned: number;
+    sessionHistoriesMigrated: number;
     progressLines: string[];
 }
 
 interface MigrationCallbacks {
     onProgress?: (msg: string) => void;
+    /**
+     * Which sessions' storage to migrate besides each quest's root history:
+     * their `history/sessions/<name>/` and quest memory
+     * `_ai/memory/<quest>/<name>/`. Default `'all'`.
+     */
+    sessions?: readonly string[] | 'all';
 }
 
 /**
@@ -86,8 +96,11 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
         memoryFilesMigrated: 0,
         memoryFilesAlreadyCurrent: 0,
         memoryFilesFailed: 0,
+        sessionHistoriesScanned: 0,
+        sessionHistoriesMigrated: 0,
         progressLines: [],
     };
+    const chosen = (name: string): boolean => !opts?.sessions || opts.sessions === 'all' || opts.sessions.includes(name);
     const emit = (line: string): void => {
         report.progressLines.push(line);
         opts?.onProgress?.(line);
@@ -127,6 +140,18 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
                 report.questsFailed += 1;
                 emit(`quest: ${quest} — FAILED: ${e instanceof Error ? e.message : String(e)}`);
             }
+            // Every chosen session keeps its own history (history/sessions/<name>/).
+            for (const session of sessionsWithStorage(historyFolder).filter(chosen)) {
+                report.sessionHistoriesScanned += 1;
+                try {
+                    const outcome = migrateOneQuestHistory(sessionRoot(historyFolder, session), rawTurnsKept);
+                    if (outcome === 'migrated') { report.sessionHistoriesMigrated += 1; }
+                    emit(`quest: ${quest}, session ${session} — ${outcome === 'migrated' ? 'migrated' : outcome === 'already-current' ? 'already in block format' : 'no history to migrate'}`);
+                } catch (e) {
+                    report.questsFailed += 1;
+                    emit(`quest: ${quest}, session ${session} — FAILED: ${e instanceof Error ? e.message : String(e)}`);
+                }
+            }
         }
     }
 
@@ -134,8 +159,13 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
     if (fs.existsSync(memoryRoot)) {
         for (const sub of listSubdirectories(memoryRoot)) {
             const subFolder = path.join(memoryRoot, sub);
-            for (const file of listMarkdownFiles(subFolder)) {
-                const rel = `${sub}/${path.basename(file)}`;
+            // The quest's own files, then each chosen session's (`_ai/memory/<quest>/<session>/`).
+            const files = [
+                ...listMarkdownFiles(subFolder).map((f) => ({ file: f, rel: `${sub}/${path.basename(f)}` })),
+                ...(sub === 'shared' ? [] : listSubdirectories(subFolder).filter(chosen).flatMap((session) =>
+                    listMarkdownFiles(path.join(subFolder, session)).map((f) => ({ file: f, rel: `${sub}/${session}/${path.basename(f)}` })))),
+            ];
+            for (const { file, rel } of files) {
                 report.memoryFilesScanned += 1;
                 try {
                     const outcome = migrateOneMemoryFile(file);
@@ -156,6 +186,7 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
 
     emit(
         `Done — ${report.questsMigrated} quest(s) migrated (${report.questsAlreadyCurrent} already current, ${report.questsFailed} failed); ` +
+        `${report.sessionHistoriesMigrated}/${report.sessionHistoriesScanned} session histories migrated; ` +
         `${report.memoryFilesMigrated} memory file(s) migrated (${report.memoryFilesAlreadyCurrent} already current, ${report.memoryFilesFailed} failed).`,
     );
     return report;

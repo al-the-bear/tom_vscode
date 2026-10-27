@@ -8,12 +8,16 @@
  *
  * - Add (title-bar icon, `tomAi.sessions.add`): the session picker's
  *   new-session path; the file is written at once.
- * - Reset (row): forget the conversation, keep base, lifetime and profile.
- * - Delete (row, confirmed): remove the `.session.json`; refused while another
- *   session is based on it.
+ * - Reset (row): forget the conversation — its history (compacted blocks,
+ *   rolling tail, accumulator) and its SDK session id — and keep base,
+ *   lifetime, profile, its trails and its quest memory.
+ * - Delete (row, confirmed, naming what goes): remove the session with its
+ *   whole storage — `history/sessions/<name>/` (history, trail pair,
+ *   live trail, raw trail, tool results) and its quest memory
+ *   (`_ai/memory/<quest>/<name>/`); refused while another session is based on
+ *   it. `default` and `chat` have no file: Delete removes their storage only.
  *
- * Reset and Delete touch only the `.session.json`; a direct-API history
- * folder (`history/sessions/<name>/`) is left alone. The view refreshes when
+ * The view refreshes when
  * this store writes or removes a session file, when the folder changes on
  * disk (another window), and when it becomes visible.
  *
@@ -24,6 +28,10 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 
 import { clearSessionId, deleteSession, listSessions, onSessionsChanged } from '../services/agentSdkSessionStore';
+import { TwoTierMemoryService } from '../services/memory-service';
+import { removeSessionStorage } from '../services/sessionStorage';
+import { deleteSessionDetail } from '../utils/sessionSelection';
+import { AnthropicHandler } from './anthropic-handler';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { sessionRows } from '../utils/sessionsViewRows';
 import { WsPaths } from '../utils/workspacePaths';
@@ -112,20 +120,24 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'reset':
                 if (folder && msg.name) {
+                    // The conversation goes (history and SDK id); trails and memory stay.
+                    AnthropicHandler.instance.clearSession(msg.name);
                     clearSessionId(folder, msg.name);
                     this.send();
                 }
                 break;
             case 'delete': {
-                if (!folder || !msg.name) { break; }
+                if (!folder || !msg.name || !quest) { break; }
                 const answer = await vscode.window.showWarningMessage(
                     `Delete the session "${msg.name}"?`,
-                    { modal: true, detail: 'Only its .session.json is removed; its history folder stays.' },
+                    { modal: true, detail: deleteSessionDetail(quest, msg.name) },
                     'Delete',
                 );
                 if (answer !== 'Delete') { break; }
                 const result = deleteSession(folder, msg.name);
-                if (!result.ok) { void vscode.window.showWarningMessage(result.error); }
+                if (!result.ok) { void vscode.window.showWarningMessage(result.error); this.send(); break; }
+                AnthropicHandler.instance.clearSession(msg.name);
+                removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), quest, msg.name);
                 this.send();
                 break;
             }

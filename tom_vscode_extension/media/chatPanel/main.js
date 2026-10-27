@@ -437,10 +437,10 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — the rolling history.md from the quest folder, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
+                '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — each chosen session&#39;s rolling history.md, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
                 '<button class="icon-btn" data-action="openLiveTrail" data-id="anthropic" title="Open live trail — continuously-updating MD of the current + last 4 prompts (thinking, tool calls + results, assistant text); opens in the MD Browser which auto-reloads as the turn runs"><span class="codicon codicon-pulse"></span></button>' +
                 '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
-                '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history"><span class="codicon codicon-clear-all"></span></button>',
+                '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history — choose the sessions (the panel&#39;s preselected, or All sessions); asks to confirm"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
                 '<div id="anthropic-approval-overlay" class="context-overlay" style="display:none;">' +
                 '<div id="anthropic-approval-popup" class="context-popup">' +
@@ -471,8 +471,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
-                '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate history.json from the prompt/answer trail files. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate quest memory from the prompt/answer trail files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
+                '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate the history of the chosen sessions, each from its own prompt/answer trail. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate the quest memory of the chosen sessions, each from its own prompt/answer trail. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
@@ -801,7 +801,8 @@ function handleAction(action, id, slot) {
         case 'openContextSettingsEditor': vscode.postMessage({ type: 'openContextSettingsEditor' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
         case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
-        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); _anthropicSessionDeny = {}; anthropicSessionTurns = 0; anthropicLastToolCalls = 0; setAnthropicStatus('History cleared'); break;
+        // The host asks which sessions to clear and answers with anthropicHistoryCleared.
+        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); break;
         case 'openAnthropicMemory': vscode.postMessage({ type: 'openAnthropicMemory' }); break;
         case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
         case 'anthropicApprovalApproveAll': resolveAnthropicApproval(true, true); break;
@@ -1237,6 +1238,10 @@ window.addEventListener('message', function(e) {
         anthropicApiKeyOk = !!msg.ok;
         updateAnthropicApiKeyDot();
         updateAnthropicSendButton();
+    } else if (msg.type === 'anthropicHistoryCleared') {
+        // Sessions cleared after the session selection; the counters belong to the panel's session.
+        if (msg.panelSession) { _anthropicSessionDeny = {}; anthropicSessionTurns = 0; anthropicLastToolCalls = 0; }
+        setAnthropicStatus('History cleared: ' + (Array.isArray(msg.sessions) ? msg.sessions.join(', ') : ''));
     } else if (msg.type === 'anthropicStatus') {
         // Handler-driven status text (e.g. "waiting for history
         // compaction…", "Rebuild history from last N prompts…").
