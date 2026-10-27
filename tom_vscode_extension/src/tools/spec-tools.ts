@@ -84,8 +84,10 @@ const SKIPPED_DIRS = new Set(['node_modules', 'out', 'dist', 'build', 'ztmp']);
 /**
  * The search stops at whichever comes first and says which. Candidates come
  * from vscode.workspace.findFiles in the extension (ripgrep: measured on mbp,
- * the whole workspace's 4 888 candidates in under 1 s, `_ai` symlink
- * followed); the Node walk is the fallback, and it is slow on a large tree
+ * the whole workspace's 4 888 candidates in under 1 s from a shell; in the
+ * extension host the whole call — search, reading the candidates, the
+ * listing — took 1.0–1.5 s: untruncated with a 1.5 s budget, truncated at
+ * 1 s, 2026-10-27; `_ai` symlink followed); the Node walk is the fallback, and it is slow on a large tree
  * (17 600 directories, 3.1 s on mbp), which is why the budget is generous and
  * can be raised per call.
  */
@@ -295,7 +297,7 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
         + '`dir` (default: the workspace): `*.docspecs.yaml`, and `*.md` whose headings carry `<!--[SECTIONID]-->`. Each document '
         + 'comes with its root, model-version stamp and editability under the SOM §4.2 version rules. Skips dot-folders, '
         + 'node_modules, out, dist, build and ztmp. Candidates come from VS Code\'s file search (`search: "findFiles"`, '
-        + 'symlinked folders followed; measured on mbp: the whole workspace in about a second), else from walking the '
+        + 'symlinked folders followed; measured on mbp in the extension host: the whole workspace in 1–1.5 s), else from walking the '
         + 'folders (`search: "walk"`, slower on a large tree). Stops at `maxResults` (default 200), the time budget '
         + '(`timeBudgetMs`, default 10 s, at most 120 s) or a directory / candidate cap, and then says `truncated: true` '
         + 'with `stoppedBy` (`maxResults`, `time`, `directories`, `candidates`) — raise `timeBudgetMs` or narrow `dir`. Next: tomAi_specOutline on a document for its paths and editability, tomAi_specReflect for what the '
