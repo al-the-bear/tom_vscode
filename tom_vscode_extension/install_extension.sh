@@ -67,6 +67,17 @@ export PATH="$DART_DIR:$PATH"
 echo "✅ Dart SDK: $DART_DIR"
 echo ""
 
+# From source: the bridge is compiled against its pubspec.lock, which is
+# machine-local and which `dart pub get` never moves. A lock behind the tom_*
+# releases the regenerated bridges need fails only at `dart compile exe`, after
+# the whole build — so upgrade the bridge's frozen tom_* packages now, in
+# seconds (pub.dev, else the pub cache; scripts/bridge-lock-preflight.cjs).
+if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
+    echo "🔎 Checking the bridge's tom_* resolutions..."
+    node scripts/bridge-lock-preflight.cjs --fix || exit 1
+    echo ""
+fi
+
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -249,6 +260,10 @@ else
     # from. With Dart at hand, say when the committed bridges lag behind the
     # scripting API (BRIDGE-FRESH-01, ~6 s); a warning, not a stop.
     if command -v dart &> /dev/null; then
+        # The bridge's lock decides what the bridge's tests run against: name
+        # frozen tom_* resolutions (a warning; from source upgrades them).
+        echo "📦 Checking the bridge's tom_* resolutions..."
+        ( cd "$SCRIPT_DIR" && node scripts/bridge-lock-preflight.cjs --warn ) || true
         echo "📦 Checking that the committed d4rt bridges are fresh..."
         ( cd "$SCRIPT_DIR" && node scripts/check-bridge-fresh.cjs > /dev/null 2>&1 ) \
             && echo "  ✔ the committed bridges match the scripting API" \

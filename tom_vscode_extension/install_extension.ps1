@@ -113,6 +113,21 @@ $env:Path = "$DartDir;$env:Path"
 Write-Host "Dart SDK: $DartDir"
 Write-Host ""
 
+# From source: the bridge is compiled against its pubspec.lock, which is
+# machine-local and which `dart pub get` never moves. A lock behind the tom_*
+# releases the regenerated bridges need fails only at `dart compile exe`, after
+# the whole build - so upgrade the bridge's frozen tom_* packages now, in
+# seconds (pub.dev, else the pub cache; scripts/bridge-lock-preflight.cjs).
+if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
+    Write-Host "Checking the bridge's tom_* resolutions..."
+    Invoke-Native { node scripts/bridge-lock-preflight.cjs --fix }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Upgrading the bridge's tom_* packages failed (see above)"
+        exit 1
+    }
+    Write-Host ""
+}
+
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -327,6 +342,11 @@ if ($CodeCli) {
             # built from: with Dart at hand, warn when the committed bridges lag
             # behind the scripting API (BRIDGE-FRESH-01). Not a stop.
             if (Get-Command dart -ErrorAction SilentlyContinue) {
+                # The bridge's lock decides what the bridge's tests run against:
+                # name frozen tom_* resolutions (a warning; from source upgrades them).
+                Write-Host "Checking the bridge's tom_* resolutions..."
+                $LockReport = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-lock-preflight.cjs') --warn }
+                foreach ($line in @($LockReport)) { Write-Host "$line" }
                 Write-Host "Checking that the committed d4rt bridges are fresh..."
                 $null = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-bridge-fresh.cjs') 2>&1 }
                 if ($LASTEXITCODE -eq 0) {
