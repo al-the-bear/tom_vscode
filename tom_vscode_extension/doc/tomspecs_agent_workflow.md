@@ -163,7 +163,9 @@ it after each step. How to do a stage is in its runbook:
 
 The extension's MCP server serves the same tools. A client without the API key
 gets the read-only floor: every tool above that only reads, and none that
-writes. See [mcp_server.md](mcp_server.md) §4. An MCP client also finds the
-CodeSpecs guides as resources (`codespecs-guide://prompt`,
+writes — and only from this machine or the fleet VPN; from any other network it
+needs the key. See [mcp_server.md](mcp_server.md) §4 and §4.1. An MCP client also
+finds the CodeSpecs guides as resources (`codespecs-guide://prompt`,
 `codespecs-guide://mapping`, one section at `codespecs-guide://<guide>/<number>`)
-and the stage runbooks as prompts, with or without the key.
+and the stage runbooks as prompts, with the key or, without it, from this machine
+or the VPN.
