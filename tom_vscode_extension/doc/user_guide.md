@@ -177,7 +177,13 @@ The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens fo
 
 The list is grouped by **todo-id prefix** — the characters before the id's first digit, so `qr1-…` and `qr3-…` share the group `qr`. Ids that start with a digit, or contain no digit at all, collect in a group called **Unprefixed**, which always sits last. Each group is headed by a thin separator line showing the prefix, the number of todos in brackets, and a triangle that expands or collapses the group.
 
-The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Collapse all** toolbar button closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
+The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Expand all** toolbar button opens every group and **Collapse all** closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
+
+#### Your own todos (👤)
+
+A todo marked `user_action: true` is yours to do — a review, an answer, a look at a screen. Its title is **yellow** in every todo list and it carries 👤. The **👤 toolbar button** shows only those todos and opens every prefix group, so none hides in a collapsed one; press it again to see all todos. The filter (funnel button) has a **User action** section for the same choice: your own todos, the others, or (nothing ticked) both. Set or clear the mark with the *Your to do* checkbox in the detail form.
+
+Work that has to wait for you — a check that can only run after you reload the window, say — is written as a 👤 todo for your part plus the work itself, `status: blocked` with `blocked_by` naming the 👤 todo. A `prefix*` queue walk passes both; once you complete the 👤 todo, the walk releases the blocked one and sends it.
 
 #### Moving todos between files
 

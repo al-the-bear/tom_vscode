@@ -60,7 +60,8 @@
 - Separator line per group: chevron + prefix + count in brackets; click to expand/collapse
 - Named groups keep first-appearance order, so the active filter/sort still drives the layout
 - List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
-- Collapse all: toolbar button `qt-btn-collapse-all` (collapse-all icon)
+- Collapse all / Expand all: toolbar buttons `qt-btn-collapse-all` / `qt-btn-expand-all`
+- 👤 `qt-btn-only-mine`: only the user's own todos (`user_action: true`), every group open; again: all todos. Filter section **User action** (yes / no). User-action titles are yellow
 - Shift-click stack ranges only span **visible** rows — a collapsed group is never traversed
 
 ## Quest TODO Panel — archive/delete buttons

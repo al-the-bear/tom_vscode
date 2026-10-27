@@ -160,7 +160,7 @@ Where the pieces live:
 | Grouping rule (pure) | `media/questTodoPanel/grouping.js` — `qtTodoPrefix`, `qtGroupTodosByPrefix` |
 | Rendering + toggle state | `media/questTodoPanel/main.js` — `qtRenderGroupHeader`, `qtRenderTodoRow`, `qtIsGroupExpanded`, `qtToggleGroup`, `qtCollapseAllGroups`, `qtExpandGroupForTodo` |
 | Separator styling | `media/questTodoPanel/style.css` — `.qt-group-header` (the `::after` hairline is what makes it read as a separator rather than a row) |
-| Collapse-all button | `fragment.html` `#qt-btn-collapse-all` (collapse-all icon) |
+| Collapse-all / expand-all buttons | `fragment.html` `#qt-btn-collapse-all`, `#qt-btn-expand-all`; `qtCollapseAllGroups`, `qtExpandAllGroups` |
 | Script composition | `getQuestTodoScript()` prepends `grouping.js` before `main.js` |
 
 `grouping.js` is a **separate file on purpose**: it has no DOM and no `vscode`
@@ -177,7 +177,8 @@ Collapse state rules:
   reload or a VS Code restart, and since the webview script is re-evaluated on
   both, an empty set on every fresh load *is* that state.
 - Expansion survives a data refresh (`qtTodos` push) within the session — only
-  a script reload or the **Collapse all** button closes the groups.
+  a script reload or the **Collapse all** button closes the groups. **Expand
+  all** and the 👤 toggle open every group of the loaded todos.
 - `qtLastRenderOrder` holds only the **visible** rows, so a shift-click stack
   range can never reach into a collapsed group.
 - The reveal path (`qtPendingSelect`) calls `qtExpandGroupForTodo` first, so an
@@ -255,6 +256,19 @@ can be removed). A `prefix*` queue walk passes such a todo: it stays
 `not-started` and the next todo of the series is sent (`pickNextTodoForIteration`
 / `collectUserActionTodos` in `queueStep3Utils.ts`). A process step's
 `userAction: true` is the same idea for processes.
+
+In the panel a user-action row has the class `user-action` (yellow title,
+`style.css`). The filter state carries `userAction` (`[]` all, `['yes']`,
+`['no']`; `qtEmptyFilterState`), shown as the picker's **User action** section;
+an older saved state restores as `[]`. The 👤 toolbar button
+(`#qt-btn-only-mine`, `qtToggleOnlyUserActions`) switches between `['yes']`
+(opening every group) and `[]`. Tests: `questTodoUserAction.dom.test.ts` QU-1–6.
+
+Waiting for the user is expressed with this field and `blocked_by`, nothing
+else: a 👤 todo for the user's part, the dependent work `blocked` with
+`blocked_by` naming it. The walk passes the 👤 todo, leaves the blocked one
+blocked, and `releaseUnblockedTodos` releases it once the 👤 todo is completed
+(UA-7 in `todoIterationUserAction.test.ts`).
 
 ## 3. Session todos — stable per-host file (TRA04)
 

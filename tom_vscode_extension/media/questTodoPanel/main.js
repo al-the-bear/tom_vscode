@@ -22,7 +22,11 @@ var qtFormDecisions = [];
 var qtDecisionOpen = [];
 var qtTagPickerCallback = null;
 var qtFilterSearch = '';
-var qtFilterState = { status: [], priority: [], tags: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
+/** A filter that keeps every todo. `userAction`: [] all, ['yes'] the user's own todos, ['no'] the others. */
+function qtEmptyFilterState() {
+    return { status: [], priority: [], tags: [], userAction: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
+}
+var qtFilterState = qtEmptyFilterState();
 var qtSortFields = []; // [{field,asc}]
 var SORTABLE_FIELDS = ['quest','status','priority','title','created','updated','completed_date'];
 var qtUserName = '';
@@ -201,6 +205,10 @@ function qtNavPush(todoId) {
     // Collapse-all button — closes every prefix group in the list pane.
     var btnCollapseAll = document.getElementById('qt-btn-collapse-all');
     if (btnCollapseAll) btnCollapseAll.addEventListener('click', function() { qtCollapseAllGroups(); });
+    var btnExpandAll = document.getElementById('qt-btn-expand-all');
+    if (btnExpandAll) btnExpandAll.addEventListener('click', function() { qtExpandAllGroups(); });
+    var btnOnlyMine = document.getElementById('qt-btn-only-mine');
+    if (btnOnlyMine) btnOnlyMine.addEventListener('click', function() { qtToggleOnlyUserActions(); });
     // Clear todo stack button
     var btnClearStack = document.getElementById('qt-btn-clear-stack');
     if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
@@ -522,6 +530,17 @@ function qtToggleGroup(prefix) {
     qtRenderList();
 }
 
+/** Open every prefix group of the todos loaded (the list is not re-rendered). */
+function qtExpandAllGroupsState() {
+    qtGroupTodosByPrefix(qtTodos).forEach(function(g) { qtExpandedGroups['#' + g.prefix] = true; });
+}
+
+/** Open every prefix group — the "Expand all" action-bar button. */
+function qtExpandAllGroups() {
+    qtExpandAllGroupsState();
+    qtRenderList();
+}
+
 /** Close every prefix group — the "Collapse all" action-bar button. */
 function qtCollapseAllGroups() {
     qtExpandedGroups = {};
@@ -542,6 +561,7 @@ function qtExpandGroupForTodo(id) {
 function qtRenderTodoRow(t) {
     var icon = qtStatusIcon(t.status);
     var cls = 'qt-todo-item status-' + (t.status || 'not-started');
+    if (t.user_action === true) cls += ' user-action';
     if (t.id === qtSelectedTodoId) cls += ' selected';
     var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
     var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
@@ -635,6 +655,7 @@ function qtRenderList() {
             for (var ti = 0; ti < qtFilterState.tags.length; ti++) { if (tTags.indexOf(qtFilterState.tags[ti]) >= 0) { hasTag = true; break; } }
             if (!hasTag) return false;
         }
+        if (qtFilterState.userAction.length && qtFilterState.userAction.indexOf(t.user_action === true ? 'yes' : 'no') === -1) return false;
         if (qtFilterState.createdFrom && (t.created || '') < qtFilterState.createdFrom) return false;
         if (qtFilterState.createdTo && (t.created || '') > qtFilterState.createdTo) return false;
         if (qtFilterState.updatedFrom && (t.updated || '') < qtFilterState.updatedFrom) return false;
@@ -906,14 +927,40 @@ function qtToggleFilterPicker() {
 
 function qtHasActiveFilters() {
     return qtFilterState.status.length > 0 || qtFilterState.priority.length > 0 || qtFilterState.tags.length > 0 ||
+        qtFilterState.userAction.length > 0 ||
         qtFilterState.createdFrom || qtFilterState.createdTo || qtFilterState.updatedFrom || qtFilterState.updatedTo;
 }
 
 function qtUpdateFilterIndicator() {
     var btn = document.getElementById('qt-btn-filter');
-    if (!btn) return;
-    if (qtHasActiveFilters()) btn.classList.add('active-indicator');
-    else btn.classList.remove('active-indicator');
+    if (btn) {
+        if (qtHasActiveFilters()) btn.classList.add('active-indicator');
+        else btn.classList.remove('active-indicator');
+    }
+    var mine = document.getElementById('qt-btn-only-mine');
+    if (mine) mine.classList.toggle('active-indicator', qtShowsOnlyUserActions());
+}
+
+/** Is the list showing only the user's own todos (the 👤 toggle)? */
+function qtShowsOnlyUserActions() {
+    return qtFilterState.userAction.length === 1 && qtFilterState.userAction[0] === 'yes';
+}
+
+/**
+ * The 👤 toggle: only the user's own todos (`user_action: true`), or all todos
+ * again. Showing only them opens every prefix group, so none hides in a
+ * collapsed one.
+ */
+function qtToggleOnlyUserActions() {
+    if (qtShowsOnlyUserActions()) {
+        qtFilterState.userAction = [];
+    } else {
+        qtFilterState.userAction = ['yes'];
+        qtExpandAllGroupsState();
+    }
+    qtUpdateFilterIndicator();
+    qtRenderList();
+    qtPersistState();
 }
 
 function qtRenderFilterPicker() {
@@ -947,6 +994,12 @@ function qtRenderFilterPicker() {
                 '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + qtEsc(tag) + '</div>';
         });
     }
+    html += '<div class="qt-picker-section-header">User action</div>';
+    [['yes', '👤 the user\'s own todos'], ['no', 'the other todos']].forEach(function(o) {
+        var checked = qtFilterState.userAction.indexOf(o[0]) >= 0;
+        html += '<div class="qt-picker-option" data-qt-filter-type="userAction" data-qt-filter-val="' + o[0] + '">' +
+            '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + o[1] + '</div>';
+    });
     html += '<div class="qt-picker-section-header">Date Ranges</div>';
     html += '<div class="qt-picker-date-row"><label>Created</label><input type="date" id="qt-fp-created-from" value="' + (qtFilterState.createdFrom || '') + '"><span>–</span><input type="date" id="qt-fp-created-to" value="' + (qtFilterState.createdTo || '') + '"></div>';
     html += '<div class="qt-picker-date-row"><label>Updated</label><input type="date" id="qt-fp-updated-from" value="' + (qtFilterState.updatedFrom || '') + '"><span>–</span><input type="date" id="qt-fp-updated-to" value="' + (qtFilterState.updatedTo || '') + '"></div>';
@@ -976,7 +1029,7 @@ function qtRenderFilterPicker() {
     if (utEl) utEl.addEventListener('change', function() { qtFilterState.updatedTo = this.value; });
     // Reset
     document.getElementById('qt-fp-reset').addEventListener('click', function() {
-        qtFilterState = { status: [], priority: [], tags: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
+        qtFilterState = qtEmptyFilterState();
         qtRenderFilterPicker();
         qtUpdateFilterIndicator();
         qtRenderList();
@@ -2290,6 +2343,7 @@ function qtHandleMessage(msg) {
                         status: fs.status || [],
                         priority: fs.priority || [],
                         tags: fs.tags || [],
+                        userAction: fs.userAction || [],
                         createdFrom: fs.createdFrom || '',
                         createdTo: fs.createdTo || '',
                         updatedFrom: fs.updatedFrom || '',

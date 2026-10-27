@@ -14,11 +14,14 @@
  *   UA-4 the plan stays as it was for a series without one (no empty list added)
  *   UA-5 an unmade decision still holds the series, user-action todo or not
  *   UA-6 only `not-started` user-action todos are reported as waiting
+ *   UA-7 work that has to wait for the user (e.g. a check after the user reloads the window): a user-action
+ *        todo, and the work `blocked` with `blocked_by` naming it. The walk passes both until the user
+ *        completes the user-action todo; then the blocked one is released and sent
  */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectPrefixTodos, pickNextTodoForIteration, planMainStageDispatch } from '../queueStep3Utils.js';
+import { collectPrefixTodos, pickNextTodoForIteration, planMainStageDispatch, todosToUnblock } from '../queueStep3Utils.js';
 
 function t(id: string, status?: string, userAction?: boolean) {
     return { id, status, ...(userAction ? { userAction } : {}) };
@@ -63,5 +66,20 @@ describe('prefix walk: user-action todos', () => {
     test('UA-6: only not-started ones wait for the user', () => {
         const plan = planMainStageDispatch('vbs*', 0, 4, [t('vbs2', 'completed', true), t('vbs3', 'blocked', true), t('vbs4', 'not-started')]);
         assert.deepEqual(Object.keys(plan).sort(), ['mode', 'todo']);
+    });
+
+    test('UA-7: waiting for the user through blocked_by', () => {
+        const reload = { id: 'vbs5', status: 'not-started', userAction: true };
+        const check = { id: 'vbs6', status: 'blocked', blockedBy: ['vbs5'] };
+        const before = [reload, check];
+        const lookup = (todos: Array<{ id: string; status: string }>) => (ref: string) => todos.find((x) => x.id === ref);
+        const plan = planMainStageDispatch('vbs*', 0, 6, before);
+        assert.equal(plan.mode, 'exhausted', 'nothing is sent while the user has not acted');
+        assert.deepEqual(plan.mode === 'exhausted' && plan.waitingForUser?.map((e) => e.id), ['vbs5']);
+        assert.deepEqual(todosToUnblock('vbs*', before, lookup(before)), [], 'the check stays blocked');
+        const after = [{ ...reload, status: 'completed' }, check];
+        assert.deepEqual(todosToUnblock('vbs*', after, lookup(after)).map((u) => u.id), ['vbs6'], 'released once the user is done');
+        const next = planMainStageDispatch('vbs*', 0, 6, [after[0], { ...check, status: 'not-started' }]);
+        assert.equal(next.mode === 'todo' && next.todo.id, 'vbs6');
     });
 });
