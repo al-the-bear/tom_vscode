@@ -123,6 +123,7 @@ function getAnthropicSection(): AnthropicSectionForStatusPage {
 }
 import type { TimerScheduleSlot } from '../managers/timerEngine';
 import type { CommandlineEntry } from './commandline-handler';
+import { DEFAULT_API_KEY_ENV_VAR, directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import {
     readQueueSettings,
     writeQueueSettings,
@@ -1041,7 +1042,7 @@ async function runCompactionDryRunFor(
 
 async function runTestAnthropicApiKey(): Promise<void> {
     const anthropic = getAnthropicSection();
-    const envVar = anthropic.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+    const envVar = directApiKeyEnvVar(anthropic);
     const present = !!process.env[envVar];
     if (!present) {
         vscode.window.showWarningMessage(
@@ -1430,7 +1431,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // -----------------------------------------------------------------
         case 'updateAnthropicApiKeyEnvVar': {
             const raw = typeof message.value === 'string' ? message.value.trim() : '';
-            const envVar = raw || 'ANTHROPIC_API_KEY';
+            // An emptied field means the default variable.
+            const envVar = directApiKeyEnvVar({ apiKeyEnvVar: raw });
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.anthropic) { stcConfig.anthropic = {}; }
             stcConfig.anthropic.apiKeyEnvVar = envVar;
@@ -2303,7 +2305,7 @@ export async function gatherStatusData(): Promise<StatusData> {
                 anthropicConfigurationChoices: configurations.map((c) => ({
                     id: c.id, name: c.name || c.id,
                 })),
-                anthropicApiKeyEnvVar: anthropic.apiKeyEnvVar || 'ANTHROPIC_API_KEY',
+                anthropicApiKeyEnvVar: directApiKeyEnvVar(anthropic),
                 anthropicConfigurationsSummary: configurations.map((cc) => {
                     const transport = cc.transport === 'agentSdk'
                         ? 'agentSdk'
@@ -3172,7 +3174,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </p>
             <div class="sp-settings-row" style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
                 <label style="flex:0 0 auto;white-space:nowrap"><strong>API key env var:</strong></label>
-                <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="ANTHROPIC_API_KEY" style="flex:1;min-width:200px">
+                <input type="text" id="sp-anthropic-apiKeyEnvVar" value="${escapeHtmlContent(status.anthropicApiKeyEnvVar)}" placeholder="${DEFAULT_API_KEY_ENV_VAR}" style="flex:1;min-width:200px">
                 <button class="sp-btn small" data-status-action="updateAnthropicApiKeyEnvVar" style="flex:0 0 auto">Save</button>
                 <button class="sp-btn small" data-status-action="testAnthropicApiKey" style="flex:0 0 auto" title="Send a tiny one-shot request to verify the API key">🧪 Test</button>
             </div>

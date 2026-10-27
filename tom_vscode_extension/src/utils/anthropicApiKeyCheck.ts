@@ -28,9 +28,15 @@ export interface MissingApiKey {
     configurationId: string;
 }
 
-/** The key variable of the direct transport: `apiKeyEnvVar`, else `ANTHROPIC_API_KEY`. */
+/** The variable the direct API key is read from when `anthropic.apiKeyEnvVar` names none. */
+export const DEFAULT_API_KEY_ENV_VAR = 'ANTHROPIC_API_KEY';
+
+/**
+ * The key variable of the direct transport: `apiKeyEnvVar`, else
+ * {@link DEFAULT_API_KEY_ENV_VAR}. The one rule; nothing else spells it out.
+ */
 export function directApiKeyEnvVar(section: AnthropicKeySection | undefined): string {
-    return section?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+    return section?.apiKeyEnvVar || DEFAULT_API_KEY_ENV_VAR;
 }
 
 /** The profile a request runs with: by id, else the default one, else the first. */

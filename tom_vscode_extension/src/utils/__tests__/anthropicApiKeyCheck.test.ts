@@ -12,11 +12,15 @@
  *        is not enough
  *   AK-5 the profile pickers' list: every profile with an id, in order, marked when it lacks its key
  *   AK-6 the queue recognises the transport's no-key failure and records why, that it is not retried, and the fix
+ *   AK-7 one rule: no source file but this module writes the default variable name; the chat panel's key dot and
+ *        the Status Page go through directApiKeyEnvVar (an emptied Status Page field still means the default)
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- environments are keyed by variable names */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import {
     directApiKeyEnvVar,
@@ -113,5 +117,24 @@ describe('anthropicApiKeyCheck', () => {
         assert.match(withCauses, /Not retried/);
         assert.match(withCauses, /quit and restart VS Code \(a window reload keeps the old environment\), then resend the item/);
         assert.match(missingApiKeyFailureText([], 'TEST_VSCODE_KEY'), /The direct API key variable TEST_VSCODE_KEY is not set/);
+    });
+
+    test('AK-7: one rule for the key variable', () => {
+        const srcRoot = join(__dirname, '..', '..', '..', 'src');
+        const files: string[] = [];
+        const walk = (dir: string): void => {
+            for (const name of readdirSync(dir)) {
+                const p = join(dir, name);
+                if (statSync(p).isDirectory()) { if (name !== '__tests__') { walk(p); } }
+                else if (name.endsWith('.ts')) { files.push(p); }
+            }
+        };
+        walk(srcRoot);
+        assert.ok(files.length > 100, 'the source tree was read');
+        const writers = files
+            .filter((f) => /['"`]ANTHROPIC_API_KEY['"`]/.test(readFileSync(f, 'utf-8')))
+            .map((f) => relative(srcRoot, f).split('\\').join('/'));
+        assert.deepEqual(writers, ['utils/anthropicApiKeyCheck.ts']);
+        assert.equal(directApiKeyEnvVar({ apiKeyEnvVar: '' }), 'ANTHROPIC_API_KEY', 'an emptied field still means the default');
     });
 });

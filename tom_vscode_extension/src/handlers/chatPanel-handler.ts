@@ -55,7 +55,7 @@ import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
 import { wireCompletionMessages } from '../utils/completionWiring';
-import { NO_API_KEY_LABEL, profileKeyStates } from '../utils/anthropicApiKeyCheck';
+import { NO_API_KEY_LABEL, directApiKeyEnvVar, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 
 // ============================================================================
 // Answer File Utilities (for Copilot answer file feature)
@@ -972,7 +972,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 .filter((t: any) => t && typeof t.id === 'string')
                 .map((t: any) => t.id)
             : [];
-        const envVar = config?.anthropic?.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
+        const envVar = directApiKeyEnvVar(config?.anthropic);
         const anthropicApiKeyOk = !!process.env[envVar];
         // Spec §18.6: the 🤖 dot appears only when at least one
         // configuration opts into the Agent SDK transport. Configs are
