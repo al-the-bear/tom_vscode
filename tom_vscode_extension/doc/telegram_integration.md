@@ -56,7 +56,7 @@ Registered only while a live-conversation forwarder is active for the window.
 | `send_prompt <text>` | Run `<text>` as a prompt in **this quest's** Anthropic chat panel. |
 | `chat_start` / `chat_stop` | Master switch: turn live forwarding on / off. |
 | `chat_listen` / `chat_silent` | While forwarding: stream every update, or only the final answer + footer. |
-| `chat_status` | Show currently-running prompt(s), elapsed time, and the listening / forwarding mode. |
+| `chat_status` | Show currently-running prompt(s) with their session and elapsed time, and the listening / forwarding mode. |
 | `cancel_chat` | Cancel the running direct prompt. |
 | `cancel_queue` | Cancel the running queue prompt. |
 
@@ -163,11 +163,19 @@ else to the quest file.
 ## 6. Live-conversation forwarding
 
 `TelegramLiveConversationForwarder` (`telegramTrailForwarder.ts`) bridges the
-window's live trail to Telegram. It subscribes to every live-trail event for the
+window's live trails to Telegram. It subscribes to every live-trail event for the
 window's quest (filtered via `questMatches`, so only this quest's events are
 forwarded) and streams the prompt restatement, tool calls, assistant text, and a
 terminal footer, tracking each running prompt (direct vs queue) with elapsed
 time.
+
+It follows **every session** of the quest. Each event names the Anthropic
+session whose trail it belongs to (`default` the queue's, `chat` the ANTHROPIC
+panel's, any other a named session's; none for the Local LLM). Each stream — a
+session and a prompt source — keeps its own coalescer and final answer, so two
+prompts running at once never mix their text. While only one session has been
+forwarded, messages carry no prefix; from the second session on, every message
+starts with its session: `[default] …`, `[chat] …`, `[Local LLM] …`.
 
 Two independent switches control it:
 
@@ -178,7 +186,8 @@ Two independent switches control it:
   tool-call / streamed-text updates and sends only the final answer + footer when
   the turn ends.
 
-`chat_status` reports the current running prompt(s) plus both switch states.
+`chat_status` reports the current running prompt(s), each with the session it
+runs in, plus both switch states.
 
 ### Notifications (`TelegramNotifier`)
 

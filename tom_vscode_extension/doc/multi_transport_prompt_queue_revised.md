@@ -799,6 +799,20 @@ logic is pure and unit-tested in
   prompt to dispatch (the blank trim-and-reset case stays instant) and cleared in
   the `finally`, so a failed refresh never leaves the banner stuck on.
 
+- **What a refresh reads and trims.** Every Anthropic session keeps its own live
+  trail (`history/sessions/<session>/live-trail.md`). The Anthropic refresh
+  prompt gets the list of the session trails written since the last refresh,
+  newest first, with their workspace-relative paths and last-write times
+  (`sessionLiveTrailsSince` in `services/sessionStorage.ts`, formatted by
+  `utils/refreshSessionTrails.ts`): in place of `${refreshSessions}` when the
+  configured `questRefresh.anthropic.refreshPrompt` holds it, else appended.
+  The refresh then trims every session's trail to the base five blocks, resets
+  the counter and records `lastRefreshAt` in the `questRefresh` section of the
+  host's `extension_config.<host>.<quest>.yaml` — the later of now and the
+  trim's own writes, so the next list starts after it. Before the first refresh
+  on a host, every session's trail is listed. The other panels have no
+  sessions; there the placeholder is removed.
+
 ### 4.19 Sessions, iterations and the session's profile
 
 An item runs in a named session (`session`; unset: the queue default, else the queue's own `default`). The session's lifetimes and files are described in `anthropic_sdk_integration.md` §18.12; the queue's part is:

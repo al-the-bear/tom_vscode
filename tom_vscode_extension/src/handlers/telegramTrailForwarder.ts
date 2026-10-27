@@ -26,9 +26,17 @@
  * in. Running-state bookkeeping still updates while muted, so `/chat_status`
  * remains accurate.
  *
+ * **Every session of the quest is followed.** Each live-trail event names the
+ * Anthropic session whose trail it belongs to (`default` the queue's, `chat` the
+ * panel's, any other a named session's; none for the Local LLM). Each stream —
+ * one session and prompt source — keeps its own coalescer and final answer, so
+ * two prompts running at once in different sessions never mix their text. As
+ * soon as more than one session has been forwarded, every message is prefixed
+ * with its session (`[default] …`), so the follower can tell them apart.
+ *
  * The forwarder also tracks whether a prompt is currently running (and for how
- * long) so the `/chat_status` command and the "already running" rejection can
- * report it.
+ * long, in which session) so the `/chat_status` command and the "already
+ * running" rejection can report it.
  *
  * Sends are serialized through a promise chain so messages keep their emission
  * order; send failures are swallowed — trail forwarding is best-effort
@@ -62,18 +70,20 @@ export interface RunningPromptInfo {
     transport?: string;
     /** Configuration name of the running prompt. */
     config?: string;
+    /** The Anthropic session it runs in; absent for the Local LLM. */
+    session?: string;
 }
 
 /**
  * Snapshot of the currently-running prompt(s) (if any) for `/chat_status`.
  *
- * The queue and a direct chat send can run **concurrently**, so running prompts
- * are tracked per {@link PromptSource}: `running` may hold zero, one, or two
- * entries (one `queue` + one `chat`). `/chat_status` reports one block per
- * entry.
+ * The queue and a direct chat send can run **concurrently**, and in different
+ * sessions, so running prompts are tracked per stream (session and
+ * {@link PromptSource}): `running` holds one entry per stream with a prompt
+ * running. `/chat_status` reports one block per entry.
  */
 export interface LiveConversationStatus {
-    /** Currently-running prompts, one entry per active source. Empty when idle. */
+    /** Currently-running prompts, one entry per active stream. Empty when idle. */
     running: RunningPromptInfo[];
     /** Whether live updates are currently being streamed (vs. silent mode). */
     listening: boolean;
@@ -85,8 +95,23 @@ export interface LiveConversationStatus {
     forwarding: boolean;
 }
 
+/** What the forwarder keeps per stream: one session and prompt source. */
+interface ForwardedStream {
+    readonly source: PromptSource;
+    readonly session: string | undefined;
+    readonly coalescer: TelegramTrailCoalescer;
+    /** Accumulated assistant text since the last prompt/tool call — the final answer. */
+    finalAnswer: string;
+    /** Set while a prompt runs in this stream. */
+    running?: { since: number; transport?: string; config?: string };
+}
+
+/** The label a session's messages are prefixed with; the Local LLM has no session. */
+export function forwardedSessionLabel(session: string | undefined): string {
+    return session ?? 'Local LLM';
+}
+
 export class TelegramLiveConversationForwarder {
-    private readonly coalescer = new TelegramTrailCoalescer();
     private disposable: { dispose(): void } | undefined;
     /** Serializes outbound sends so messages keep their emission order. */
     private sendChain: Promise<void> = Promise.resolve();
@@ -100,14 +125,14 @@ export class TelegramLiveConversationForwarder {
      * accurate while muted. `/chat_start` flips it back on.
      */
     private forwarding = true;
-    /** Accumulated assistant text since the last prompt/tool call — the final answer. */
-    private finalAnswer = '';
     /**
-     * Currently-running prompts keyed by originator. The queue and a direct chat
-     * send can run concurrently, so each source tracks its own start time and
-     * metadata independently. Empty when idle.
+     * One entry per stream (session + prompt source) seen. The queue and a
+     * direct chat send can run concurrently, in different sessions, so each
+     * stream keeps its own coalescer, final answer and running state.
      */
-    private readonly running = new Map<PromptSource, { since: number; transport?: string; config?: string }>();
+    private readonly streams = new Map<string, ForwardedStream>();
+    /** The sessions forwarded so far (labels); more than one turns the prefix on. */
+    private readonly forwardedSessions = new Set<string>();
 
     /**
      * @param channel  Channel used to send progress messages (the polling
@@ -161,12 +186,15 @@ export class TelegramLiveConversationForwarder {
     getStatus(): LiveConversationStatus {
         const now = Date.now();
         const running: RunningPromptInfo[] = [];
-        for (const [source, info] of this.running) {
+        for (const stream of this.streams.values()) {
+            const info = stream.running;
+            if (!info) { continue; }
             running.push({
-                source,
+                source: stream.source,
                 elapsedMs: now - info.since,
                 ...(info.transport ? { transport: info.transport } : {}),
                 ...(info.config ? { config: info.config } : {}),
+                ...(stream.session ? { session: stream.session } : {}),
             });
         }
         return {
@@ -188,24 +216,25 @@ export class TelegramLiveConversationForwarder {
     private onEvent(event: LiveTrailEvent): void {
         if (!questMatches(event.questId, this.questId)) { return; }
 
-        const source: PromptSource = event.source ?? 'chat';
+        const stream = this.streamFor(event);
+        const label = forwardedSessionLabel(stream.session);
 
         // --- Running-state + final-answer bookkeeping (independent of mode) ---
         switch (event.kind) {
             case 'prompt':
-                this.running.set(source, {
+                stream.running = {
                     since: Date.now(),
                     ...(event.transport ? { transport: event.transport } : {}),
                     ...(event.config ? { config: event.config } : {}),
-                });
-                this.finalAnswer = '';
+                };
+                stream.finalAnswer = '';
                 break;
             case 'toolCall':
                 // Anything before the last tool call isn't the final answer.
-                this.finalAnswer = '';
+                stream.finalAnswer = '';
                 break;
             case 'assistant':
-                this.finalAnswer += event.text;
+                stream.finalAnswer += event.text;
                 break;
             default:
                 break;
@@ -215,14 +244,14 @@ export class TelegramLiveConversationForwarder {
             event.kind === 'done' || event.kind === 'error' || event.kind === 'interruption';
 
         // Always feed the coalescer so its buffer stays coherent for streaming.
-        const coalesced = this.coalescer.push(event);
+        const coalesced = stream.coalescer.push(event);
 
         // The prompt restatement is a main message — always forward it, even in
         // silent mode, so the follower always sees which prompt just started
         // (whether typed in VS Code or queued), mirroring the always-delivered
         // final answer. Only the intermediate updates honour silent mode.
         if (event.kind === 'prompt') {
-            this.enqueue(coalesced);
+            this.enqueue(coalesced, label);
             return;
         }
 
@@ -230,34 +259,54 @@ export class TelegramLiveConversationForwarder {
             if (this.listening) {
                 // Streaming already delivered the answer progressively; the
                 // coalescer's terminal output is the tail + footer.
-                this.enqueue(coalesced);
+                this.enqueue(coalesced, label);
             } else {
                 // Silent: deliver the complete final answer + footer now.
-                const messages = splitTelegramMessage(this.finalAnswer.trim());
+                const messages = splitTelegramMessage(stream.finalAnswer.trim());
                 messages.push(formatTrailTerminalLine(event));
-                this.enqueue(messages);
+                this.enqueue(messages, label);
             }
-            this.running.delete(source);
+            stream.running = undefined;
             return;
         }
 
         // Non-terminal: stream only while listening.
         if (this.listening) {
-            this.enqueue(coalesced);
+            this.enqueue(coalesced, label);
         }
     }
 
-    /** Append messages to the serialized send chain. */
-    private enqueue(messages: string[]): void {
+    /** The stream an event belongs to, created on its first event. */
+    private streamFor(event: LiveTrailEvent): ForwardedStream {
+        const source: PromptSource = event.source ?? 'chat';
+        const session = event.session || undefined;
+        const key = `${session ?? ''}\u0000${source}`;
+        let stream = this.streams.get(key);
+        if (!stream) {
+            stream = { source, session, coalescer: new TelegramTrailCoalescer(), finalAnswer: '' };
+            this.streams.set(key, stream);
+        }
+        return stream;
+    }
+
+    /**
+     * Append messages to the serialized send chain, prefixed with their
+     * session's label once more than one session has been forwarded.
+     */
+    private enqueue(messages: string[], sessionLabel: string): void {
         // Master switch: when forwarding is off, drop everything — including the
         // always-delivered prompt restatement and final answer. Gating here (not
         // in `onEvent`) keeps running-state bookkeeping live so `/chat_status`
         // stays accurate while muted.
         if (!this.forwarding) { return; }
         if (messages.length === 0 || !this.channel) { return; }
+        if (!messages.some((m) => m)) { return; }
+        this.forwardedSessions.add(sessionLabel);
+        const prefix = this.forwardedSessions.size > 1 ? `[${sessionLabel}] ` : '';
         const channel = this.channel;
-        for (const message of messages) {
-            if (!message) { continue; }
+        for (const raw of messages) {
+            if (!raw) { continue; }
+            const message = prefix + raw;
             this.sendChain = this.sendChain.then(async () => {
                 try {
                     await channel.sendMessage(message, this.chatId, { plain: true });

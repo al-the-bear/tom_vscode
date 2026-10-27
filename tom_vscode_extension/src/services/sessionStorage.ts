@@ -82,6 +82,30 @@ export function sessionsWithStorage(historyRoot: string): string[] {
     }
 }
 
+/** One session's live trail, with when it was last written. */
+export interface SessionLiveTrail {
+    session: string;
+    file: string;
+    modified: Date;
+}
+
+/**
+ * The live trails of the sessions written since `since` (every session with a
+ * live trail when `since` is undefined), newest first — what a quest refresh,
+ * and a new session start, read.
+ */
+export function sessionLiveTrailsSince(historyRoot: string, since?: Date): SessionLiveTrail[] {
+    const trails: SessionLiveTrail[] = [];
+    for (const session of sessionsWithStorage(historyRoot)) {
+        const file = sessionLiveTrailFile(historyRoot, session);
+        let modified: Date;
+        try { modified = fs.statSync(file).mtime; } catch { continue; }
+        if (since && modified.getTime() <= since.getTime()) { continue; }
+        trails.push({ session, file, modified });
+    }
+    return trails.sort((a, b) => b.modified.getTime() - a.modified.getTime() || a.session.localeCompare(b.session));
+}
+
 /** Remove everything session `name` stored: its storage root and its quest memory. */
 export function removeSessionStorage(historyRoot: string, memoryRoot: string, quest: string, name: string): void {
     fs.rmSync(sessionRoot(historyRoot, name), { recursive: true, force: true });

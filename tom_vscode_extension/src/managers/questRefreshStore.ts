@@ -9,6 +9,8 @@
  *
  *   - `active`: the per-quest activation checkbox.
  *   - `count` : prompts sent since the last refresh, per (quest, panel).
+ *   - `lastRefreshAt`: when the last refresh ran (ISO), per (quest, panel) —
+ *     the refresh reads the session live trails changed since then.
  *
  * Storage: the `questRefresh` section of the machine-specific consolidated
  * config file `_ai/quests/{questId}/extension_config.{hostname}.{questId}.yaml`
@@ -19,7 +21,7 @@
  *
  *     questRefresh:
  *       panels:
- *         anthropic: { active: true,  count: 3 }
+ *         anthropic: { active: true,  count: 3, lastRefreshAt: '2026-10-27T09:12:00.000Z' }
  *         localLlm:  { active: false, count: 0 }
  *         copilot:   { active: false, count: 0 }
  *
@@ -48,6 +50,8 @@ export interface QuestRefreshPanelState {
     active: boolean;
     /** Prompts sent since the last refresh. */
     count: number;
+    /** When the last refresh ran, ISO; absent before the first one on this host. */
+    lastRefreshAt?: string;
 }
 
 interface QuestRefreshFile {
@@ -118,12 +122,19 @@ export class QuestRefreshStore {
         return file.panels[panel].count;
     }
 
-    /** Reset the prompt counter for a panel to 0 (after a refresh fires). */
-    resetCount(panel: QuestRefreshPanel, questId?: string): void {
+    /** A refresh ran: reset the panel's prompt counter to 0 and record when. */
+    recordRefresh(panel: QuestRefreshPanel, questId?: string, at: Date = new Date()): void {
         const quest = this.resolveQuest(questId);
         const file = this.read(quest);
         file.panels[panel].count = 0;
+        file.panels[panel].lastRefreshAt = at.toISOString();
         this.write(quest, file);
+    }
+
+    /** When the panel's last refresh ran; undefined before the first one (or when unreadable). */
+    lastRefreshAt(panel: QuestRefreshPanel, questId?: string): Date | undefined {
+        const raw = this.getPanelState(panel, questId).lastRefreshAt;
+        return raw ? new Date(raw) : undefined;
     }
 
     // ---- global config (read-through, not owned here) ----
@@ -188,9 +199,13 @@ export class QuestRefreshStore {
         const panels = {} as Record<QuestRefreshPanel, QuestRefreshPanelState>;
         for (const panel of PANELS) {
             const entry = raw?.panels?.[panel];
+            const last = typeof entry?.lastRefreshAt === 'string' && !Number.isNaN(Date.parse(entry.lastRefreshAt))
+                ? entry.lastRefreshAt
+                : undefined;
             panels[panel] = {
                 active: entry?.active === true,
                 count: typeof entry?.count === 'number' && entry.count > 0 ? Math.floor(entry.count) : 0,
+                ...(last ? { lastRefreshAt: last } : {}),
             };
         }
         return { panels };

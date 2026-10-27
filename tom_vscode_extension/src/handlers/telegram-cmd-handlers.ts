@@ -713,7 +713,7 @@ async function chatStopHandler(deps: CommandRegistryDeps): Promise<TelegramComma
 /**
  * Handle `chat_status` — report which prompt(s) are running and for how long.
  * The queue and a direct chat send can run concurrently, so this emits one
- * block per running source (📋 queue / 💬 direct).
+ * block per running stream (📋 queue / 💬 direct), naming the session it runs in.
  */
 async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
     const status = deps.liveConversation.getStatus();
@@ -732,7 +732,8 @@ async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCom
         const label = r.source === 'queue' ? '📋 Queue prompt' : '💬 Direct prompt';
         const where = [r.transport, r.config].filter(Boolean).join('/');
         const whereLine = where ? ` [${where}]` : '';
-        return `${label}${whereLine} — running ${formatElapsed(r.elapsedMs)}`;
+        const sessionPart = r.session ? ` in session ${r.session}` : '';
+        return `${label}${whereLine}${sessionPart} — running ${formatElapsed(r.elapsedMs)}`;
     });
     return {
         text: `⏳ ${status.running.length} prompt(s) running:\n${blocks.join('\n')}\n${stateLines}`,

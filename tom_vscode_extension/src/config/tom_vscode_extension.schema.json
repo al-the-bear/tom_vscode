@@ -273,7 +273,7 @@
                 "refreshPrompt": {
                     "type": "string",
                     "default": "",
-                    "description": "The refresh prompt text dispatched through the panel's transport when the interval elapses."
+                    "description": "The refresh prompt text dispatched through the panel's transport when the interval elapses. On the anthropic panel, ${refreshSessions} is replaced by the list of session live trails written since the last refresh, newest first (appended when the prompt does not hold it)."
                 }
             },
             "additionalProperties": false

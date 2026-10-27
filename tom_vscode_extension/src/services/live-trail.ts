@@ -198,6 +198,18 @@ export interface LiveTrailPromptInfo {
 }
 
 /**
+ * What every {@link LiveTrailEvent} carries: the quest, the prompt source, and
+ * the Anthropic session whose live trail the writer writes (`undefined` for a
+ * writer without one — the Local LLM's trail). The forwarder follows every
+ * session of the quest and tells them apart by this.
+ */
+export interface LiveTrailEventCommon {
+    questId: string;
+    source?: PromptSource;
+    session?: string;
+}
+
+/**
  * Semantic events emitted by a {@link LiveTrailWriter} as a turn runs. These
  * mirror the markdown the writer appends to `live-trail.md`, but as structured
  * data so consumers (e.g. the Telegram forwarder) can follow a turn without
@@ -225,17 +237,17 @@ export interface LiveTrailPromptInfo {
  *   - `interruption` — the turn was interrupted/rate-limited (`label`/`message`).
  */
 export type LiveTrailEvent =
-    | { kind: 'prompt'; questId: string; source?: PromptSource; transport: string; config: string; userText: string }
-    | { kind: 'thinking'; questId: string; source?: PromptSource; text: string }
-    | { kind: 'toolCall'; questId: string; source?: PromptSource; toolName: string; replayKey: string }
-    | { kind: 'toolResult'; questId: string; source?: PromptSource; fullLength: number }
-    | { kind: 'assistant'; questId: string; source?: PromptSource; text: string }
-    | { kind: 'retry'; questId: string; source?: PromptSource; message: string; cause?: string }
-    | { kind: 'notice'; questId: string; source?: PromptSource; message: string }
-    | { kind: 'usage'; questId: string; source?: PromptSource; usage: LiveTrailUsage }
-    | { kind: 'done'; questId: string; source?: PromptSource; rounds: number; toolCalls: number; durationMs: number }
-    | { kind: 'error'; questId: string; source?: PromptSource; message: string }
-    | { kind: 'interruption'; questId: string; source?: PromptSource; label: string; message: string };
+    | LiveTrailEventCommon & { kind: 'prompt'; transport: string; config: string; userText: string }
+    | LiveTrailEventCommon & { kind: 'thinking'; text: string }
+    | LiveTrailEventCommon & { kind: 'toolCall'; toolName: string; replayKey: string }
+    | LiveTrailEventCommon & { kind: 'toolResult'; fullLength: number }
+    | LiveTrailEventCommon & { kind: 'assistant'; text: string }
+    | LiveTrailEventCommon & { kind: 'retry'; message: string; cause?: string }
+    | LiveTrailEventCommon & { kind: 'notice'; message: string }
+    | LiveTrailEventCommon & { kind: 'usage'; usage: LiveTrailUsage }
+    | LiveTrailEventCommon & { kind: 'done'; rounds: number; toolCalls: number; durationMs: number }
+    | LiveTrailEventCommon & { kind: 'error'; message: string }
+    | LiveTrailEventCommon & { kind: 'interruption'; label: string; message: string };
 
 /** Observer callback invoked for every {@link LiveTrailEvent}. */
 export type LiveTrailObserver = (event: LiveTrailEvent) => void;
@@ -247,10 +259,10 @@ export type LiveTrailObserver = (event: LiveTrailEvent) => void;
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 /**
- * A {@link LiveTrailEvent} as supplied to `emit`, before `questId` and `source`
- * are stamped on from the writer's own fields.
+ * A {@link LiveTrailEvent} as supplied to `emit`, before `questId`, `source`
+ * and `session` are stamped on from the writer's own fields.
  */
-type LiveTrailEventInput = DistributiveOmit<LiveTrailEvent, 'questId' | 'source'>;
+type LiveTrailEventInput = DistributiveOmit<LiveTrailEvent, 'questId' | 'source' | 'session'>;
 
 export class LiveTrailWriter {
     /**
@@ -278,6 +290,8 @@ export class LiveTrailWriter {
 
     /** Raw (unsanitized) quest id stamped onto every emitted event. */
     private readonly questId: string;
+    /** The Anthropic session this writer's trail belongs to; stamped on every event. */
+    private readonly session: string | undefined;
     /**
      * Which originator the current turn belongs to — `'queue'` for prompts
      * dispatched by the prompt queue, `'chat'` for direct sends (panel Send,
@@ -324,6 +338,7 @@ export class LiveTrailWriter {
      */
     constructor(questId: string, fileName: string = 'live-trail.md', session?: string) {
         this.questId = questId || 'default';
+        this.session = session || undefined;
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
@@ -572,7 +587,7 @@ export class LiveTrailWriter {
      */
     private emit(event: LiveTrailEventInput): void {
         if (LiveTrailWriter.observers.size === 0) { return; }
-        const full = { ...event, questId: this.questId, source: this.promptSource } as LiveTrailEvent;
+        const full = { ...event, questId: this.questId, source: this.promptSource, session: this.session } as LiveTrailEvent;
         for (const observer of LiveTrailWriter.observers) {
             try {
                 observer(full);

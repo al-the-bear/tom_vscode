@@ -16,7 +16,8 @@
  */
 
 import { TwoTierMemoryService } from './memory-service';
-import { sessionsWithStorage } from './sessionStorage';
+import { sessionLiveTrailsSince, sessionsWithStorage } from './sessionStorage';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     LiveTrailWriter,
@@ -27,6 +28,11 @@ import { WsPaths } from '../utils/workspacePaths';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import type { QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { toolLog } from '../utils/toolLog';
+import {
+    REFRESH_SESSIONS_PLACEHOLDER,
+    applyRefreshSessionTrails,
+    formatRefreshSessionTrails,
+} from '../utils/refreshSessionTrails';
 
 /** Live-trail filename for each refreshable panel. */
 function trailFileName(panel: QuestRefreshPanel): string {
@@ -70,9 +76,11 @@ export class QuestRefreshService {
 
     /**
      * Run one refresh cycle for a panel:
-     *   1. dispatch the configured refresh prompt (skipped when blank),
-     *   2. force-trim the panel's live-trail back to base,
-     *   3. reset the per-quest prompt counter.
+     *   1. dispatch the configured refresh prompt (skipped when blank) — for
+     *      the Anthropic panel with the list of session live trails written
+     *      since the last refresh, newest first (`${refreshSessions}`),
+     *   2. force-trim the panel's live-trail(s) back to base — every session's,
+     *   3. reset the per-quest prompt counter and record when it ran.
      *
      * The caller owns the actual send via `dispatch` — it must route through the
      * panel's transport with quest-refresh skipping so the refresh prompt itself
@@ -89,7 +97,8 @@ export class QuestRefreshService {
     ): Promise<void> {
         const store = QuestRefreshStore.instance;
         const quest = (questId ?? WsPaths.getWorkspaceQuestId() ?? 'default').trim() || 'default';
-        const refreshText = store.getRefreshPrompt(panel).trim();
+        const configured = store.getRefreshPrompt(panel).trim();
+        const refreshText = configured ? this.withSessionTrails(panel, quest, configured) : '';
         const startedAt = Date.now();
         toolLog(
             `[quest-refresh] start panel=${panel} quest=${quest} ` +
@@ -117,7 +126,7 @@ export class QuestRefreshService {
             // on every subsequent prompt.
             this.setRefreshing(false);
             this.truncateTrail(panel, quest);
-            store.resetCount(panel, quest);
+            store.recordRefresh(panel, quest, this.refreshTime(panel, quest));
             toolLog(`[quest-refresh] done panel=${panel} quest=${quest} — trail trimmed to base, counter reset`);
         }
     }
@@ -128,6 +137,44 @@ export class QuestRefreshService {
      */
     shouldAutoRefresh(panel: QuestRefreshPanel, questId?: string): boolean {
         return QuestRefreshStore.instance.shouldRefresh(panel, questId);
+    }
+
+    /**
+     * The refresh prompt with the session live trails to read. Only the
+     * Anthropic panel has sessions; on the others the placeholder is removed.
+     */
+    private withSessionTrails(panel: QuestRefreshPanel, quest: string, prompt: string): string {
+        if (panel !== 'anthropic') {
+            return prompt.split(REFRESH_SESSIONS_PLACEHOLDER).join('').trim();
+        }
+        try {
+            const since = QuestRefreshStore.instance.lastRefreshAt(panel, quest);
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const trails = sessionLiveTrailsSince(TwoTierMemoryService.instance.historyFolder(quest), since)
+                .map((t) => ({ ...t, file: (wsRoot ? path.relative(wsRoot, t.file) : t.file).split(path.sep).join('/') }));
+            return applyRefreshSessionTrails(prompt, formatRefreshSessionTrails(trails, since));
+        } catch (err) {
+            toolLog(`[quest-refresh] session list failed quest=${quest}: ${err instanceof Error ? err.message : String(err)}`);
+            return prompt;
+        }
+    }
+
+    /**
+     * The time a finished refresh records: now, or the last write of a session
+     * trail if later — the trim just rewrote them, and the file system's clock
+     * can run a millisecond ahead of `Date`, so without this the next refresh
+     * would list every trail the trim touched as written since.
+     */
+    private refreshTime(panel: QuestRefreshPanel, quest: string): Date {
+        let at = Date.now();
+        if (panel === 'anthropic') {
+            try {
+                for (const t of sessionLiveTrailsSince(TwoTierMemoryService.instance.historyFolder(quest))) {
+                    at = Math.max(at, t.modified.getTime());
+                }
+            } catch { /* no trails to compare with */ }
+        }
+        return new Date(at);
     }
 
     /** Force-trim the panel's live-trail to the base block count. */

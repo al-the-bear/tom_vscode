@@ -526,7 +526,11 @@ export interface QuestRefreshConfig {
 export interface QuestRefreshPanelConfig {
     /** Number of prompts between refreshes. `0` (default) ⇒ never auto-refresh. */
     promptInterval?: number;
-    /** The refresh prompt text dispatched through the panel's transport. */
+    /**
+     * The refresh prompt text dispatched through the panel's transport. On the
+     * anthropic panel `${refreshSessions}` becomes the list of session live
+     * trails written since the last refresh (appended when absent).
+     */
     refreshPrompt?: string;
 }
 
