@@ -9,7 +9,7 @@ environment:
 # Add regular dependencies here.
 dependencies:
   path: ^1.9.0
-  tom_vscode_scripting_api: ^2.0.0
+  tom_vscode_scripting_api: ^2.0.1
   # The generated scripting-API bridges import the todo model directly.
   tom_todo_model: ^1.1.0   # the regenerated bridges use TomTodo.userAction (1.1.0)
   # 1.225.0: `D4rt.loadedSourceModuleCount`, which tom_d4rt_dcli 1.8.0's bridges

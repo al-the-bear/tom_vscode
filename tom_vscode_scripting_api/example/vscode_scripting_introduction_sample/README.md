@@ -93,7 +93,7 @@ box: it simply reports "no window found" and stops.
 
 ```text
 vscode_scripting_introduction_sample/
-├── pubspec.yaml                 # depends only on tom_vscode_scripting_api >=1.2.2
+├── pubspec.yaml                 # depends only on tom_vscode_scripting_api ^2.0.1
 ├── analysis_options.yaml        # package:lints/recommended.yaml
 ├── README.md                    # this article
 ├── run_example.sh               # POSIX runner (pub get on first run, forwards args)
