@@ -87,7 +87,7 @@ import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handle
 import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
 import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
-import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered } from './handlers/windowStatusPanel-handler';
+import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
@@ -97,7 +97,10 @@ import {
     setActiveMcpServerController,
     createTrailServiceMcpSink,
     reconcileMcpServerConfig,
+    getMcpServerStatus,
 } from './handlers/mcpServer-handler';
+import { getCliServerStatus } from './handlers/cliServer-handler';
+import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { debounce } from './utils/debounce';
@@ -553,6 +556,29 @@ export async function activate(context: vscode.ExtensionContext) {
     // even before it dispatches anything (otherwise open-but-idle windows
     // never appear). Does not clobber an existing file with real status.
     ensureWindowStateRegistered(wsWindowId, getWorkspaceName(), WsPaths.getWorkspaceQuestId());
+    // The heartbeat: every 30 s the time, this process and its CLI / MCP
+    // servers, so other windows (WINDOW STATUS, tomAi_sendItemToQuest) can
+    // tell a running window from a gone one.
+    {
+        let beating = false;
+        const beat = async (): Promise<void> => {
+            if (beating) { return; }
+            beating = true;
+            try {
+                const cli = await getCliServerStatus();
+                writeWindowHeartbeat(wsWindowId, getWorkspaceName(), WsPaths.getWorkspaceQuestId(), {
+                    pid: process.pid,
+                    cliServer: { running: !!cli.running, ...(cli.port ? { port: cli.port } : {}) },
+                    mcpServer: getMcpServerStatus(),
+                });
+            } finally {
+                beating = false;
+            }
+        };
+        void beat();
+        const heartbeatTimer = setInterval(() => { void beat(); }, HEARTBEAT_INTERVAL_MS);
+        context.subscriptions.push({ dispose: () => clearInterval(heartbeatTimer) });
+    }
     // Cleanup own window state file on deactivation
     context.subscriptions.push({ dispose: () => deleteCurrentWindowState(wsWindowId) });
     timeStep('windowStatusView', stepStart);

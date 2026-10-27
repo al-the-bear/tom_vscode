@@ -140,6 +140,8 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
   - **Orange**: Prompt sent, awaiting answer
   - **Green**: Answer received
 - **Relative timestamps**: Shows how long ago each state change occurred
+- **Servers**: behind the indicators, the servers the window runs with their ports, e.g. `CLI :19901 · MCP :19921`
+- **Heartbeat**: every window rewrites its heartbeat (time, process id, servers) every 30 seconds; a window whose heartbeat is older than 90 seconds is shown dimmed and marked *gone*. A window of an older build writes no heartbeat and is not judged.
 - **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 3 seconds
 - **Cleanup**: Delete button to remove stale window entries
 
@@ -369,7 +371,39 @@ because of *how* it happened to finish.
 The flag stays on the item rather than being consumed, so re-staging and
 sending it again pauses the queue again. Clear it with the same button; it
 remains visible (inverted) on a finished item precisely so a leftover flag
-cannot hide.
+cannot hide. The one exception is an item with a done notification: the
+flag moves to the notification, so the queue pauses after the notification.
+
+### Done notification
+
+Under every item's prompt is a collapsible **Done notification** section: a
+prompt queued right after the item when the item is finished — all its
+pre-prompts, repetitions (or `<prefix>*` todos), follow-ups and template
+iterations done — or when it ended in an error that will not recover (no API
+key, a request the API refused, retries exhausted). Waiting out a usage quota
+or a rate limit is not such an error, so nothing is queued then.
+
+- The notification is queued ahead of every other pending item and runs with
+  the item's transport, profile and session. Its header reads *notification of
+  <item>*.
+- `${itemOutcome}` in it reads `done` or `error: <message>`.
+- The bell icon in the section's title switches it off (the prompt is kept, not
+  queued) and on again. The prompt can be changed until the item is sent, also
+  while it is running.
+- It is queued once per run: a failed item retried by hand that then succeeds
+  does not notify twice; Send Now on a sent item starts a new run.
+
+### Items from other quests
+
+An agent in one quest's window can put a prompt into the queue of another
+quest's window on the same machine with `tomAi_sendItemToQuest` (also over
+MCP). The target window takes it up at once — or when a window of that quest
+starts — and queues it with its own defaults; the item shows **from
+<quest>** in its header. The sender may give the profile, an existing session
+of the target quest, or a new session based on one (without a name, a
+temporary session deleted when the item and its notification are done), and a
+done-notification prompt, typically one that sends a message back. In those
+prompts `${senderQuest}` is the sending quest.
 
 ### Interrupt for continuation
 

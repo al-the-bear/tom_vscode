@@ -45,7 +45,13 @@
      * answer received. */
     var SUBSYSTEMS = ['queue', 'anthropic', 'copilot'];
 
-    function statusLineHtml(statusArray) {
+    /* The servers the window runs (CLI / MCP with their ports), after the dots;
+     * `servers` and `gone` are computed by the extension from the heartbeat. */
+    function serversHtml(s) {
+        return s.servers ? '<span class="status-servers" title="Servers this window runs">' + escapeHtml(s.servers) + '</span>' : '';
+    }
+
+    function statusLineHtml(statusArray, extraHtml) {
         var byName = {};
         if (statusArray && statusArray.length) {
             for (var j = 0; j < statusArray.length; j++) {
@@ -74,7 +80,7 @@
                 + '<span class="status-pill-label">' + escapeHtml(name) + '</span>'
                 + '</span>';
         }
-        return '<div class="status-line">' + pills + '</div>';
+        return '<div class="status-line">' + pills + (extraHtml || '') + '</div>';
     }
 
     function renderStates() {
@@ -91,13 +97,14 @@
             var questLabel = s.activeQuest || s.workspace || 'unknown';
             var aiConversationActive = s.aiConversationActive === true;
             var aiConversationHtml = '<div class="ai-conversation-line ' + (aiConversationActive ? 'active' : 'inactive') + '">AI conversation: ' + (aiConversationActive ? 'active' : 'inactive') + '</div>';
-            html += '<div class="window-card">'
+            var goneHtml = s.gone ? ' <span class="window-gone" title="No heartbeat since ' + escapeHtml(timeAgo(s.heartbeat)) + ': the window is gone">gone</span>' : '';
+            html += '<div class="window-card' + (s.gone ? ' gone' : '') + '">'
                 + '<div class="window-card-header">'
-                + '<span class="window-workspace">' + escapeHtml(questLabel) + '</span>'
+                + '<span class="window-workspace">' + escapeHtml(questLabel) + goneHtml + '</span>'
                 + '<button class="delete-btn" data-windowid="' + escapeHtml(s.windowId) + '" title="Remove window status">'
                 + '<span class="codicon codicon-trash"></span></button>'
                 + '</div>'
-                + statusLineHtml(s.status)
+                + statusLineHtml(s.status, serversHtml(s))
                 + aiConversationHtml
                 + '</div>';
         }

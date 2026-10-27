@@ -22,6 +22,7 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { buildQueueEntryFileName, findEntryFileForId, sanitizeHostnameForFile } from '../utils/queueStep5Utils.js';
 import { getWorkspaceName } from '../utils/panelYamlStore.js';
+import { INBOX_SUFFIX } from '../utils/questInbox.js';
 
 // ============================================================================
 // Constants
@@ -776,7 +777,9 @@ export function deleteTemplate(templateId: string): boolean {
 // ============================================================================
 
 let _entryWatcher: vscode.FileSystemWatcher | undefined;
+let _inboxWatcher: vscode.FileSystemWatcher | undefined;
 const _changeListeners: Array<() => void> = [];
+const _inboxListeners: Array<() => void> = [];
 
 /**
  * Start watching the queue folder for changes.
@@ -804,6 +807,15 @@ export function startWatching(): void {
     _entryWatcher.onDidChange(notify);
     _entryWatcher.onDidDelete(notify);
 
+    // Items other quests' windows send to this workspace (src/utils/questInbox.ts):
+    // only a new inbox file matters; a claim renames it away.
+    _inboxWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, `${fullPrefix}*${INBOX_SUFFIX}`));
+    _inboxWatcher.onDidCreate(() => {
+        for (const listener of _inboxListeners) {
+            try { listener(); } catch { /* swallow */ }
+        }
+    });
+
     if (QUEUE_STORAGE_DEBUG) debugLog(`[QueueStorage] Started watching: ${folder}`, 'INFO', 'queueStorage');
 }
 
@@ -811,6 +823,8 @@ export function startWatching(): void {
  * Stop watching the queue folder.
  */
 export function stopWatching(): void {
+    _inboxWatcher?.dispose();
+    _inboxWatcher = undefined;
     if (_entryWatcher) {
         _entryWatcher.dispose();
         _entryWatcher = undefined;
@@ -827,6 +841,15 @@ export function onQueueChanged(listener: () => void): vscode.Disposable {
     return new vscode.Disposable(() => {
         const idx = _changeListeners.indexOf(listener);
         if (idx >= 0) _changeListeners.splice(idx, 1);
+    });
+}
+
+/** Register a listener for new inbox files of this workspace (tomAi_sendItemToQuest). */
+export function onInboxChanged(listener: () => void): vscode.Disposable {
+    _inboxListeners.push(listener);
+    return new vscode.Disposable(() => {
+        const idx = _inboxListeners.indexOf(listener);
+        if (idx >= 0) _inboxListeners.splice(idx, 1);
     });
 }
 

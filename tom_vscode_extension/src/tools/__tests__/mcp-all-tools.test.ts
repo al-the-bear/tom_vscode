@@ -85,6 +85,8 @@ function seedFixture(): void {
     put('notes/plain.md', '# Notes\n\nalpha beta gamma\n');
     put('notebook.ipynb', JSON.stringify({ cells: [{ cell_type: 'code', source: 'print(1)', metadata: {}, outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
     put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Quest Overview: Demo\n\n**Quest ID:** demo\n');
+    // A second quest, for tomAi_sendItemToQuest.
+    put('_ai/quests/other/overview.other.md', '# Quest Overview: Other\n\n**Quest ID:** other\n');
     put(`_ai/quests/${QUEST}/${TODO_FILE}`, [
         'todos:',
         '  - id: demo1_aaaa-first',
@@ -251,6 +253,7 @@ function inputs(): Record<string, Input> {
         tomAi_removeQueueFollowUp: (p: Record<string, Json>) => ({ queueItemId: queued(p), followUpId: followUp(p) }),
         tomAi_removeQueueItem: (p: Record<string, Json>) => ({ queueItemId: queued(p) }),
         tomAi_sendQueuedPrompt: { queueItemId: 'no-such-item' },
+        tomAi_sendItemToQuest: { quest: 'other', text: 'sent by the MCP test', doneNotificationPrompt: 'tell ${senderQuest}: ${itemOutcome}' },
         tomAi_resendQueueItem: { queueItemId: 'no-such-item' },
         tomAi_addTimedRequest: { text: 'a timed prompt from the MCP test', intervalMinutes: 60 },
         tomAi_updateTimedRequest: (p: Record<string, Json>) => ({ entryId: timed(p), patch: { intervalMinutes: 90 } }),
@@ -711,6 +714,10 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(fs.readFileSync(path.join(WS, 'notes/doc.md'), 'utf8'), /delta, written by the MCP test/, 'tomAi_docspecsReplaceSection');
         assert.match(fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.yaml`), 'utf8'), /process: flow/, 'tomAi_setProcessState');
         assert.ok(fs.existsSync(path.join(WS, 'specs/generated-doc/codespecs_extracts/gate.verdicts.yaml')), 'tomAi_specCodeSpecsSetVerdict');
+        const inbox = fs.readdirSync(path.join(WS, '_ai/queue')).filter((f) => f.endsWith('.inbox.queue.yaml'));
+        assert.equal(inbox.length, 1, 'tomAi_sendItemToQuest wrote one inbox file');
+        assert.match(inbox[0], /_other_\d{6}_\d{6}-[a-z0-9]+\.inbox\.queue\.yaml$/, 'for the workspace of quest "other"');
+        assert.match(fs.readFileSync(path.join(WS, '_ai/queue', inbox[0]), 'utf8'), /text: sent by the MCP test/);
     });
 
     test('MA-4: the right answers', () => {

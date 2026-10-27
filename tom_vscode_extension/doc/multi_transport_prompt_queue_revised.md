@@ -811,6 +811,22 @@ An item runs in a named session (`session`; unset: the queue default, else the q
 
 Persisted keys (entry YAML): `session` is a string, or the map `{name, basedOn, mode, profile}` when the item carries a spec; `execution.run-id`, `execution.iteration-seq` and `execution.last-dispatched.iteration-key`. The older key `agent-sdk-session` is still read.
 
+### 4.20 Done notification and items from other quests
+
+**Done notification** (`src/utils/doneNotification.ts`). An item may carry `doneNotificationPrompt`. Every completion path calls `_afterItemDone`, which queues the next template iteration (`buildNextTemplateIterationParams` carries transport, profile, session and the notification fields to it) or, after the last, calls `_itemFinished`. `_markItemError` and `_failForMissingApiKey` call `_itemFinished` for the errors that will not recover: no API key, a request the API refused (400 `invalid_request_error`), an exhausted retry schedule. A usage limit being waited out (`waiting`) and a scheduled retry (`retry`) are not the end of the item. `_itemFinished` plans with `planDoneNotification`:
+
+- nothing when there is no prompt, a blank one, `doneNotificationDisabled`, or one already queued for this run (`doneNotificationRun`: a retried error that then succeeds does not notify twice; Send Now starts a new run, which notifies again);
+- otherwise a new item at the index of the first pending item (ahead of everything else pending; appended when nothing is pending), with the finished item's transport, profile and session, `notificationOf: <item id>` and the sender (`from`) of the item;
+- `${itemOutcome}` becomes `done` or `error: <message>` (one line);
+- the item's `pauseAfter` moves to the notification, so the queue pauses after the notification, not before it;
+- a temporary session is handed to the notification, which runs in it; it is deleted once the notification is done, or at once when there is no notification (`_deleteTemporarySession`: the `.session.json` and `history/sessions/<name>/`).
+
+`updateItemDoneNotification(id, {prompt?, disabled?})` changes the prompt or switches it off until the item is `sent`, also while it is sending; the queue editor shows it in a collapsible section under the item's prompt with a bell icon, and `tomAi_updateQueueItem` takes `doneNotificationPrompt` / `doneNotificationDisabled`.
+
+**Items from other quests** (`src/utils/questInbox.ts`, `tomAi_sendItemToQuest`). The sender writes `<host>_<workspace>_<yymmdd_hhmmss>-<token>.inbox.queue.yaml` into the queue folder (a dot-named temporary file renamed into place), holding only what it said: text, template, `anthropic-profile-id`, `done-notification-prompt`, `pause-after`, `session` or `new-session`, and `from` (quest, window id, host, time). The workspace is that of a running window of the quest (its window-state file), else the quest id. The target window's `takeInbox` runs on the inbox watcher (`onInboxChanged`, pattern `<host>_<workspace>_*.inbox.queue.yaml`), at start (files written while no window ran) and in the health check. It claims each file by renaming it to `<file>.claimed-<window id>`, so with two windows on one quest only one gets it. A claim older than two minutes (a window that stopped mid-way) is claimed again. `planInboxConversion` turns the file into enqueue options with the target's defaults for what the sender left unset: a given profile means transport `anthropic`, and `${senderQuest}` in the text and the notification prompt becomes the sender's quest. A new session is created before the item is queued (profile: the one given, else the base's, else the item's; without a name `tmp-<yymmdd-hhmmss>-<token>`, `temporarySession`). A profile or session the target does not have, or a session the profile cannot continue, queues the item as an `error` (prefixed `Sent by <quest>:`), and its done-notification still goes out. A file that cannot be read is set aside as `<file>.rejected`.
+
+Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-for-run?}`, `notification-of`, `from: {quest, window-id, host, sent-at}`, `temporary-session`.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.

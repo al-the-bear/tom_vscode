@@ -22,6 +22,7 @@ import { debugLog } from '../utils/debugLogger.js';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { isWindowAlive, serverSummary, withHeartbeat, type WindowHeartbeat } from '../utils/windowHeartbeat';
 
 // ============================================================================
 // Constants
@@ -57,8 +58,8 @@ export interface SubsystemStatus {
     lastAnswerAt: string;
 }
 
-/** Full window state persisted to disk */
-export interface WindowStateFile {
+/** Full window state persisted to disk (with the heartbeat: src/utils/windowHeartbeat.ts) */
+export interface WindowStateFile extends WindowHeartbeat {
     /** Unique window identifier: sessionId(8)_machineId(8) */
     windowId: string;
     /** Workspace name or folder label */
@@ -200,7 +201,13 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
         try {
             switch (msg.type) {
                 case 'loadWindowStates': {
-                    const states = loadAllWindowStates();
+                    // `gone`: the heartbeat is older than 90 s (a window without one — an older build — is not judged).
+                    const now = Date.now();
+                    const states = loadAllWindowStates().map((s) => ({
+                        ...s,
+                        servers: serverSummary(s),
+                        gone: !!s.heartbeat && !isWindowAlive(s, now),
+                    }));
                     this._view?.webview.postMessage({ type: 'windowStates', states });
                     break;
                 }
@@ -527,6 +534,31 @@ export function ensureWindowStateRegistered(
         debugLog(`[WindowStatus] Registered idle window state: windowId=${windowId}`, 'INFO', 'windowStatus');
     } catch (error) {
         reportException('windowStatusPanel.ensureWindowStateRegistered', error, { windowId });
+    }
+}
+
+/**
+ * Write this window's heartbeat: the time, its process id and its CLI and MCP
+ * servers, merged into its state file (other fields kept; created when
+ * missing). Rewritten every 30 s by extension.ts.
+ */
+export function writeWindowHeartbeat(
+    windowId: string,
+    workspace: string,
+    activeQuest: string,
+    beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer'>,
+): void {
+    try {
+        const filePath = stateFilePath(windowId);
+        if (!filePath) { return; }
+        const existing = fs.existsSync(filePath) ? readWindowStateFile(filePath) : undefined;
+        const base: WindowStateFile = existing ?? { windowId, workspace, activeQuest, status: [], aiConversationActive: false };
+        const state = withHeartbeat({ ...base, workspace, activeQuest }, beat, new Date());
+        const tempPath = filePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.renameSync(tempPath, filePath);
+    } catch (error) {
+        reportException('windowStatusPanel.writeWindowHeartbeat', error, { windowId });
     }
 }
 

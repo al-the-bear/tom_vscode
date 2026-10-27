@@ -169,6 +169,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_removeQueuePrePrompt',
         'tomAi_sendQueuedPrompt',
         'tomAi_resendQueueItem',
+        'tomAi_sendItemToQuest',
         'tomAi_addTimedRequest',
         'tomAi_updateTimedRequest',
         'tomAi_removeTimedRequest',

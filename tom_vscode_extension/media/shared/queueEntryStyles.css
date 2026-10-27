@@ -108,3 +108,32 @@
     border: 1px solid rgba(233, 167, 0, 0.35); }
   .warning-chip .codicon { font-size: 13px; }
   
+
+/* An item sent by another quest's window, or the done-notification of an item. */
+.queue-from-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.15);
+  font-size: 0.85em;
+}
+
+/* The done-notification section under an item's prompt. */
+.done-notification {
+  margin: 4px 0;
+  font-size: 0.9em;
+}
+.done-notification summary {
+  cursor: pointer;
+  opacity: 0.85;
+}
+.done-notification.disabled .done-notification-input,
+.done-notification.disabled .done-notification-text {
+  opacity: 0.5;
+}
+.done-notification-input {
+  width: 100%;
+  min-height: 3em;
+}

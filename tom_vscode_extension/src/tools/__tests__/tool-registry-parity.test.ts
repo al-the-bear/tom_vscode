@@ -110,7 +110,7 @@ describe('the queue and timer control plane', () => {
         'tomAi_addQueueItem', 'tomAi_updateQueueItem', 'tomAi_removeQueueItem', 'tomAi_setQueueItemStatus',
         'tomAi_addQueueFollowUp', 'tomAi_updateQueueFollowUp', 'tomAi_removeQueueFollowUp',
         'tomAi_addQueuePrePrompt', 'tomAi_updateQueuePrePrompt', 'tomAi_removeQueuePrePrompt',
-        'tomAi_sendQueuedPrompt', 'tomAi_resendQueueItem',
+        'tomAi_sendQueuedPrompt', 'tomAi_resendQueueItem', 'tomAi_sendItemToQuest',
         'tomAi_addTimedRequest', 'tomAi_updateTimedRequest', 'tomAi_removeTimedRequest', 'tomAi_setTimerEngineState',
     ];
 

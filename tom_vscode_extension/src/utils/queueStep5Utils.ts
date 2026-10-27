@@ -21,7 +21,7 @@ export function sanitizeHostnameForFile(hostname: string): string {
     return trimmed.replace(/[^a-z0-9_-]/g, '_') || 'unknown';
 }
 
-function sanitizeFilePart(value: string): string {
+export function sanitizeFilePart(value: string): string {
     return value.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
 }
 

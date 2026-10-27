@@ -382,6 +382,13 @@ function renderEntry(item, idx) {
           '</span>' +
         '</span>' +
         '<span style="display:flex;align-items:center;gap:6px;">' +
+          // Sent by another quest's window (tomAi_sendItemToQuest), and the notification of which item.
+          (item.from && item.from.quest
+            ? '<span class="queue-from-chip" title="' + escapeHtml('Sent by the quest ' + item.from.quest + (item.from.sentAt ? ' at ' + item.from.sentAt : '')) + '">from ' + escapeHtml(item.from.quest) + '</span>'
+            : '') +
+          (item.notificationOf
+            ? '<span class="queue-from-chip" title="' + escapeHtml('The done-notification of item ' + item.notificationOf) + '"><span class="codicon codicon-bell"></span> notification of ' + escapeHtml(String(item.notificationOf).slice(0, 8)) + '</span>'
+            : '') +
           '#' + queuePos + '  ' + time + (sentTime ? ' \u2192 ' + sentTime : '') +
           ' <span class="codicon ' + typeIconClass + '" style="color:#000;"></span>' +
         '</span>' +
@@ -434,6 +441,7 @@ function renderEntry(item, idx) {
       ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
       : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
     templateRow +
+    (editorMode === 'template' ? '' : renderDoneNotification(item, safeId, safeStatus)) +
     reminderRow +
     renderPrePrompts(item, safeStatus) +
     renderFollowUps(item, safeStatus) +
@@ -458,6 +466,30 @@ function renderEntry(item, idx) {
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +
   '</div>';
+}
+
+/*
+ * The done-notification section under the item's prompt (src/utils/doneNotification.ts):
+ * collapsed unless the item has a prompt; editable until the item is sent; the bell icon
+ * switches it off (the prompt is kept but not queued) and on again.
+ */
+function renderDoneNotification(item, safeId, safeStatus) {
+  var prompt = typeof item.doneNotificationPrompt === 'string' ? item.doneNotificationPrompt : '';
+  var disabled = item.doneNotificationDisabled === true;
+  var finished = safeStatus === 'sent';
+  var toggle = prompt
+    ? '<span class="codicon ' + (disabled ? 'codicon-bell-slash' : 'codicon-bell') + '" style="cursor:pointer;margin-left:6px;"'
+      + (finished ? '' : ' onclick="event.preventDefault();setDoneNotificationDisabled(\'' + safeId + '\', ' + !disabled + ')"')
+      + ' title="' + (disabled ? 'Off: the prompt is kept but not queued' + (finished ? '' : ' — click to switch on') : 'On: queued when the item is done or fails for good' + (finished ? '' : ' — click to switch off')) + '"></span>'
+    : '';
+  var body = finished
+    ? '<div class="done-notification-text" style="white-space:pre-wrap;">' + escapeHtml(prompt) + '</div>'
+    : '<textarea class="done-notification-input" placeholder="Queued after this item when it is done, or fails for good. ${itemOutcome}: done / error: <message>." onchange="updateDoneNotification(\'' + safeId + '\', this.value)">' + escapeHtml(prompt) + '</textarea>';
+  if (finished && !prompt) { return ''; }
+  return '<details class="done-notification' + (disabled ? ' disabled' : '') + '"' + (prompt ? ' open' : '') + '>'
+    + '<summary>Done notification' + toggle + '</summary>'
+    + body
+    + '</details>';
 }
 
 function warningKindLabel(kind) {

@@ -127,3 +127,20 @@ body {
     font-size: 32px;
     margin-bottom: 8px;
 }
+
+/* The servers a window runs (heartbeat): CLI / MCP with their ports. */
+.status-servers {
+    margin-left: 8px;
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+/* A window whose heartbeat is older than 90 s. */
+.window-card.gone {
+    opacity: 0.55;
+}
+.window-gone {
+    font-size: 0.8em;
+    font-weight: normal;
+    color: var(--vscode-errorForeground);
+}

@@ -22,6 +22,8 @@ import {
     startWatching as startQueueWatching,
     stopWatching as stopQueueWatching,
     onQueueChanged,
+    onInboxChanged,
+    getQueueFolder,
     trimSentEntries,
     readQueueSettings,
     writeQueueSettings,
@@ -60,8 +62,30 @@ import { extractResponseValuesFromText } from '../utils/responseValues';
 import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
 import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
-import { ensureSession, readSession } from '../services/agentSdkSessionStore';
-import { sessionTransportMismatch } from '../services/directSessionHistory';
+import { createSession, deleteSession, ensureSession, readSession } from '../services/agentSdkSessionStore';
+import { sessionHistoryFolder, sessionTransportMismatch } from '../services/directSessionHistory';
+import {
+    applyPlanToItem,
+    deletesTemporarySession,
+    doneNotificationMetaFromYaml,
+    doneNotificationMetaToYaml,
+    planDoneNotification,
+    type DoneNotificationItem,
+    type ItemOutcome,
+} from '../utils/doneNotification';
+import {
+    claimInboxFile,
+    listInboxFiles,
+    listStaleClaims,
+    parseInboxItem,
+    planInboxConversion,
+    rejectClaimedFile,
+    type InboxItem,
+    type InboxSender,
+} from '../utils/questInbox';
+import { getWindowId } from '../services/copilotAnswerService';
+import { getWorkspaceName } from '../utils/panelYamlStore';
+import * as os from 'os';
 import { lookupProfile, parseSessionSpec, specExtras, type ProfileSection, type SessionSpec } from '../utils/sessionSpecs';
 import { pickAnthropicProfile } from '../utils/anthropicApiKeyCheck';
 import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
@@ -354,6 +378,22 @@ export interface QueuedPrompt {
      * `utils/queueTodoClaim.ts`.
      */
     todoClaim?: TodoClaim;
+    /**
+     * Queued right after this item when it is finished — done, or ended in an
+     * error that will not recover (src/utils/doneNotification.ts).
+     * `${itemOutcome}` in it reads `done` / `error: <message>`.
+     */
+    doneNotificationPrompt?: string;
+    /** The done-notification prompt is kept but not queued. */
+    doneNotificationDisabled?: boolean;
+    /** The run the done-notification was queued for (not again for the same run). */
+    doneNotificationRun?: string;
+    /** On a done-notification item: the id of the item it reports on. */
+    notificationOf?: string;
+    /** On an item another quest's window sent (tomAi_sendItemToQuest): who sent it. */
+    from?: InboxSender;
+    /** The item's session is temporary: deleted (file and history) once the item and its notification are done. */
+    temporarySession?: boolean;
 }
 
 // ============================================================================
@@ -594,6 +634,9 @@ export class PromptQueueManager {
     private _fileNameMap = new Map<string, string>();
     /** Disposable for queue file change listener. */
     private _queueChangeDisposable?: vscode.Disposable;
+    private _inboxChangeDisposable?: vscode.Disposable;
+    /** A take-up of the inbox is running (the watcher and the health check may both call it). */
+    private _takingInbox = false;
 
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
@@ -837,6 +880,9 @@ export class PromptQueueManager {
             m._reloadFromDisk();
         });
         PromptQueueManager._inst = m;
+        // Items other quests' windows sent while this window was not running, and from now on as they arrive.
+        m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
+        void m.takeInbox();
         logQueue(`PromptQueueManager initialised — ${m._items.length} items restored, autoSend=${m._autoSendEnabled}`);
     }
 
@@ -865,6 +911,7 @@ export class PromptQueueManager {
         this.stopHealthCheck();
         this.stopAnswerPolling();
         this._queueChangeDisposable?.dispose();
+        this._inboxChangeDisposable?.dispose();
         this._statusBarChangeDisposable?.dispose();
         this._statusBarItem?.dispose();
         stopQueueWatching();
@@ -1020,6 +1067,8 @@ export class PromptQueueManager {
     }
 
     private async runHealthCheck(): Promise<void> {
+        // The inbox: a file the folder watcher missed, or a claim a stopped window left behind.
+        await this.takeInbox();
         // Resume rate-limit "waiting" items whose reset+buffer instant has
         // arrived: flip them back to `pending` so the normal send path retries
         // them. Because this runs on the health-check timer (which survives a
@@ -1322,7 +1371,7 @@ export class PromptQueueManager {
                         sending.lastReminderAt = undefined;
                         this.removePendingReminderFor(sending.id);
 
-                        await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-wait');
+                        await this._afterItemDone(sending, 'answer-wait');
 
                         this.persist();
                         this._onDidChange.fire();
@@ -1529,7 +1578,7 @@ export class PromptQueueManager {
                 sending.lastReminderAt = undefined;
                 this.removePendingReminderFor(sending.id);
 
-                await this._enqueueNextTemplateIterationIfNeeded(sending, 'answer-file');
+                await this._afterItemDone(sending, 'answer-file');
 
                 this.persist();
                 this._onDidChange.fire();
@@ -1743,7 +1792,7 @@ export class PromptQueueManager {
                 liveItem.status = 'sent';
                 // Continue the outer template-repeat loop — see the
                 // matching call in sendItem for the rationale.
-                await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resume/anthropic');
+                await this._afterItemDone(liveItem, 'resume/anthropic');
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
@@ -1906,6 +1955,13 @@ export class PromptQueueManager {
         session?: string | Record<string, unknown>;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
+        /** "Pause after this". */
+        pauseAfter?: boolean;
+        doneNotificationPrompt?: string;
+        doneNotificationDisabled?: boolean;
+        notificationOf?: string;
+        from?: InboxSender;
+        temporarySession?: boolean;
     }): Promise<QueuedPrompt> {
         for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
@@ -2003,6 +2059,12 @@ export class PromptQueueManager {
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
+            ...(opts.pauseAfter ? { pauseAfter: true } : {}),
+            ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
+            ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
+            ...(opts.notificationOf ? { notificationOf: opts.notificationOf } : {}),
+            ...(opts.from ? { from: opts.from } : {}),
+            ...(opts.temporarySession ? { temporarySession: true } : {}),
         };
 
         const sessionRefusal = this.sessionRefusal(item);
@@ -2602,7 +2664,7 @@ export class PromptQueueManager {
         sending.lastReminderAt = undefined;
         this.removePendingReminderFor(sending.id);
 
-        await this._enqueueNextTemplateIterationIfNeeded(sending, reason);
+        await this._afterItemDone(sending, reason);
 
         this.persist();
         this._onDidChange.fire();
@@ -3111,7 +3173,7 @@ export class PromptQueueManager {
                 // Anthropic items with templateRepeatCount > 1 terminate
                 // after iteration 1 and the user perceives "the outer
                 // loop always starts at 1 again" when they retry.
-                await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'sendItem/anthropic');
+                await this._afterItemDone(liveItem, 'sendItem/anthropic');
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
@@ -3250,7 +3312,7 @@ export class PromptQueueManager {
                     // Without this a Resend on the last iteration of a
                     // failed multi-iteration sequence would never spawn
                     // the next iteration.
-                    await this._enqueueNextTemplateIterationIfNeeded(liveItem, 'resend/anthropic');
+                    await this._afterItemDone(liveItem, 'resend/anthropic');
                     this.persist();
                     this._onDidChange.fire();
                     if (this._shouldAdvanceQueueAfter(liveItem)) {
@@ -3370,6 +3432,7 @@ export class PromptQueueManager {
             }
             this.persist();
             this._onDidChange.fire();
+            void this._itemFinished(item, { kind: 'error', message: item.error ?? String(err) });
             return;
         }
 
@@ -3412,6 +3475,8 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+        // The schedule is exhausted: the item will not recover by itself.
+        void this._itemFinished(item, { kind: 'error', message: item.error ?? String(err) });
     }
 
     /** When each missing-key notice was last sent (by its text), so a run of items on one keyless profile notifies once. */
@@ -3434,6 +3499,7 @@ export class PromptQueueManager {
         logQueue(`Item ${item.id} failed (${scope}): no API key (${envVar}) — not retried`);
         this.persist();
         this._onDidChange.fire();
+        void this._itemFinished(item, { kind: 'error', message: item.error ?? text });
         const now = Date.now();
         const last = this._missingKeyNoticeAt.get(text);
         if (last !== undefined && now - last < MISSING_KEY_NOTICE_INTERVAL_MS) { return; }
@@ -3948,6 +4014,159 @@ export class PromptQueueManager {
      * an error appeared to "always start at iteration 1 again" instead
      * of continuing the outer loop.
      */
+    /**
+     * Take up the inbox files other quests' windows wrote for this window's
+     * workspace (tomAi_sendItemToQuest; src/utils/questInbox.ts): claim each
+     * by renaming it (so a second window on the quest leaves it), queue it as
+     * an item with this queue's defaults, delete it. A file that cannot be
+     * read is set aside as `<file>.rejected`. Answers how many were queued.
+     */
+    async takeInbox(): Promise<number> {
+        if (this._takingInbox) { return 0; }
+        const folder = getQueueFolder();
+        if (!folder || !fs.existsSync(folder)) { return 0; }
+        this._takingInbox = true;
+        let taken = 0;
+        try {
+            const host = os.hostname();
+            const workspace = getWorkspaceName();
+            const files = [...listInboxFiles(folder, host, workspace), ...listStaleClaims(folder, host, workspace, Date.now())];
+            for (const file of files) {
+                const claimed = claimInboxFile(folder, file, getWindowId());
+                if (!claimed) { continue; }
+                const parsed = parseInboxItem(fs.readFileSync(claimed, 'utf-8'));
+                if (!parsed.ok) {
+                    const aside = rejectClaimedFile(claimed);
+                    logQueue(`Inbox file ${file} rejected (${parsed.error}); kept as ${path.basename(aside)}`);
+                    continue;
+                }
+                await this._queueInboxItem(parsed.item, file);
+                fs.rmSync(claimed, { force: true });
+                taken += 1;
+            }
+        } catch (err) {
+            logQueueError('inbox', err);
+        } finally {
+            this._takingInbox = false;
+        }
+        return taken;
+    }
+
+    /**
+     * Queue one inbox item with this queue's defaults (what the sender left
+     * unset stays unset). Its new session is created now, before the first
+     * send. A profile or session this window does not have makes the item an
+     * error — queued all the same, so its done-notification tells the sender.
+     */
+    private async _queueInboxItem(inbox: InboxItem, file: string): Promise<void> {
+        const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+        const folder = this.sessionsFolder();
+        const conversion = planInboxConversion(inbox, {
+            profileExists: (id) => !!lookupProfile(section, id),
+            readSession: (name) => readSession(folder, name),
+            now: new Date(),
+            token: randomUUID().slice(0, 8),
+        });
+        let error = conversion.error;
+        let created: string | undefined;
+        if (!error && conversion.createSession) {
+            const c = conversion.createSession;
+            const model = c.profile ? lookupProfile(section, c.profile)?.model : undefined;
+            const made = createSession(folder, c.name, {
+                basedOn: c.basedOn,
+                mode: c.mode,
+                ...(c.profile ? { profile: { id: c.profile, ...(model ? { model } : {}) } } : {}),
+            });
+            if (made.ok) { created = c.name; } else { error = made.error; }
+        }
+        const withoutSession = { ...conversion.enqueue, session: undefined, temporarySession: undefined };
+        let item: QueuedPrompt;
+        try {
+            item = await this.enqueue(error
+                ? { ...withoutSession, initialStatus: 'staged', deferSend: true }
+                : { ...conversion.enqueue, initialStatus: 'pending' });
+        } catch (refused) {
+            // The item's profile cannot continue the session's conversation (sessionRefusal).
+            error = (refused as Error).message;
+            if (created && conversion.createSession?.temporary) { this._deleteTemporarySession(created); }
+            item = await this.enqueue({ ...withoutSession, initialStatus: 'staged', deferSend: true });
+        }
+        if (error) {
+            applyErrorTransition(item, `Sent by ${inbox.from.quest}: ${error}`);
+            this.persist();
+            this._onDidChange.fire();
+            logQueue(`Inbox item from ${inbox.from.quest} (${file}) queued as error ${item.id}: ${error}`);
+            await this._itemFinished(item, { kind: 'error', message: item.error ?? error });
+            return;
+        }
+        logQueue(`Inbox item from ${inbox.from.quest} (${file}) queued as ${item.id}${created ? ` in new session ${created}` : ''}`);
+    }
+
+    /**
+     * Everything that follows an item reaching `sent`: its next template
+     * iteration, or — when it was the last — its done-notification and the
+     * clean-up of a temporary session. Called on every completion path,
+     * before the queue decides whether to advance (so a "pause after this"
+     * the notification takes over is already moved).
+     */
+    private async _afterItemDone(sending: QueuedPrompt, reason: string): Promise<void> {
+        const nextIteration = await this._enqueueNextTemplateIterationIfNeeded(sending, reason);
+        if (nextIteration) { return; }
+        await this._itemFinished(sending, { kind: 'done' });
+    }
+
+    /**
+     * The item is finished — done, or ended in an error that will not recover:
+     * queue its done-notification (once per run) ahead of every pending item,
+     * and delete its temporary session unless the notification runs in it.
+     */
+    private async _itemFinished(item: QueuedPrompt, outcome: ItemOutcome): Promise<void> {
+        try {
+            const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items);
+            const deleteSessionNow = deletesTemporarySession(item as DoneNotificationItem, plan);
+            if (plan) {
+                applyPlanToItem(item as DoneNotificationItem, plan);
+                this.persist();
+                const notification = await this.enqueue({
+                    originalText: plan.text,
+                    position: plan.position,
+                    initialStatus: 'pending',
+                    deferSend: true,
+                    transport: plan.transport,
+                    anthropicProfileId: plan.anthropicProfileId,
+                    anthropicConfigId: plan.anthropicConfigId,
+                    ...(plan.session ? { session: plan.session } : {}),
+                    pauseAfter: plan.pauseAfter,
+                    notificationOf: plan.notificationOf,
+                    temporarySession: plan.temporarySession,
+                    ...(item.from ? { from: item.from } : {}),
+                });
+                logQueue(`Item ${item.id} finished (${outcome.kind}): done-notification ${notification.id} queued next`);
+            }
+            if (deleteSessionNow && item.session) {
+                item.temporarySession = false;
+                this.persist();
+                this._deleteTemporarySession(item.session);
+            }
+        } catch (err) {
+            logQueueError(`done-notification of ${item.id}`, err);
+        }
+    }
+
+    /** Delete a temporary session: its file and its direct-API history folder. */
+    private _deleteTemporarySession(name: string): void {
+        if (name === 'default' || name === 'chat') { return; }
+        try {
+            const folder = this.sessionsFolder();
+            const result = deleteSession(folder, name);
+            if (!result.ok) { logQueue(`Temporary session ${name} kept: ${result.error}`); return; }
+            fs.rmSync(sessionHistoryFolder(folder, name), { recursive: true, force: true });
+            logQueue(`Temporary session ${name} deleted`);
+        } catch (err) {
+            logQueueError(`delete temporary session ${name}`, err);
+        }
+    }
+
     private async _enqueueNextTemplateIterationIfNeeded(
         sending: QueuedPrompt,
         reason: string,
@@ -4518,6 +4737,25 @@ export class PromptQueueManager {
         return true;
     }
 
+    /**
+     * Set an item's done-notification prompt ('' removes it) and / or switch it
+     * off or on. Possible until the item is finished — also while it is
+     * sending; false for an unknown or finished (`sent`) item.
+     */
+    updateItemDoneNotification(id: string, patch: { prompt?: string; disabled?: boolean }): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status === 'sent') { return false; }
+        if (patch.prompt !== undefined) {
+            item.doneNotificationPrompt = patch.prompt.trim() === '' ? undefined : patch.prompt;
+        }
+        if (patch.disabled !== undefined) {
+            item.doneNotificationDisabled = patch.disabled ? true : undefined;
+        }
+        this.persist();
+        this._onDidChange.fire();
+        return true;
+    }
+
     /** An item's session as given (name or spec), checked; undefined for none. Throws for a malformed one. */
     private parseItemSession(raw: string | Record<string, unknown> | undefined): SessionSpec | undefined {
         if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) { return undefined; }
@@ -4845,6 +5083,7 @@ export class PromptQueueManager {
                 processRun: parseProcessRun(main['process-run']),
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
+                ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
 
             // Resend metadata + warning chip — persisted under execution.
@@ -5141,6 +5380,7 @@ export class PromptQueueManager {
                 status: item.status,
                 // Omitted when unset so untouched entries round-trip unchanged.
                 ...(item.pauseAfter ? { 'pause-after': true } : {}),
+                ...doneNotificationMetaToYaml(item),
                 created: item.createdAt,
                 'main-prompt': 'P1',
                 'queue-order-index': Number.isFinite(orderIndex as number) ? orderIndex : undefined,

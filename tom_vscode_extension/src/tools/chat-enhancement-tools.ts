@@ -659,6 +659,10 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemSession(id, session);
     },
+    updateItemDoneNotification(id, patch) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemDoneNotification(id, patch);
+    },
     addPrePrompt(id, text, template, opts) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.addPrePrompt(id, text, template, opts);
@@ -747,6 +751,64 @@ export const QUEUE_UPDATE_FOLLOW_UP_TOOL: SharedToolDefinition<UpdateQueueFollow
 export const QUEUE_REMOVE_FOLLOW_UP_TOOL: SharedToolDefinition<RemoveQueueFollowUpInput> = {
     ...REMOVE_QUEUE_FOLLOW_UP_DEF,
     execute: (input) => removeQueueFollowUpImpl(livePromptQueueAccess, input),
+};
+
+// ============================================================================
+// tomAi_sendItemToQuest — the queue of another quest's window (send-to-quest-tools.ts)
+// ============================================================================
+
+import { SEND_ITEM_TO_QUEST_TOOL as SEND_ITEM_TO_QUEST_DEF, sendItemToQuestImpl, type QuestSendAccess, type SendItemToQuestInput } from './send-to-quest-tools';
+
+const liveQuestSendAccess: QuestSendAccess = {
+    currentQuest: () => WsPaths.getWorkspaceQuestId() || undefined,
+    questExists: (quest) => {
+        const folder = WsPaths.ai('quests', quest);
+        return !!folder && fs.existsSync(folder) && fs.statSync(folder).isDirectory();
+    },
+    profileExists: (id) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { lookupProfile } = require('../utils/sessionSpecs') as typeof import('../utils/sessionSpecs');
+        return !!lookupProfile(loadSendToChatConfig()?.anthropic as import('../utils/sessionSpecs').ProfileSection | undefined, id);
+    },
+    listSessions: (quest) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { listSessions } = require('../services/agentSdkSessionStore') as typeof import('../services/agentSdkSessionStore');
+        return listSessions(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest));
+    },
+    liveWindows: (quest) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { loadAllWindowStates } = require('../handlers/windowStatusPanel-handler') as typeof import('../handlers/windowStatusPanel-handler');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { liveWindowsOf } = require('../utils/windowHeartbeat') as typeof import('../utils/windowHeartbeat');
+        return liveWindowsOf(loadAllWindowStates(), quest, Date.now()).map((w) => ({ windowId: w.windowId, workspace: w.workspace }));
+    },
+    sender: () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getWindowId } = require('../services/copilotAnswerService') as typeof import('../services/copilotAnswerService');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return { windowId: getWindowId(), host: require('os').hostname() as string };
+    },
+    deliver: (workspace, item) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ensureQueueFolder } = require('../storage/queueFileStorage') as typeof import('../storage/queueFileStorage');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { inboxFileName, writeInboxFile } = require('../utils/questInbox') as typeof import('../utils/questInbox');
+        const folder = ensureQueueFolder();
+        if (!folder) { throw new Error('There is no queue folder (no workspace open).'); }
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const host = require('os').hostname() as string;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const token = (require('crypto') as typeof import('crypto')).randomUUID().slice(0, 8);
+        return writeInboxFile(folder, inboxFileName(host, workspace, new Date(), token), item);
+    },
+    now: () => new Date(),
+};
+
+export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
+    ...SEND_ITEM_TO_QUEST_DEF,
+    execute: (input) => sendItemToQuestImpl(liveQuestSendAccess, input),
 };
 
 // ============================================================================
@@ -1228,6 +1290,7 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     QUEUE_REMOVE_ITEM_TOOL,
     QUEUE_UPDATE_FOLLOW_UP_TOOL,
     QUEUE_REMOVE_FOLLOW_UP_TOOL,
+    SEND_ITEM_TO_QUEST_TOOL,
     TIMED_LIST_TOOL,
     TIMED_UPDATE_ENTRY_TOOL,
     TIMED_REMOVE_ENTRY_TOOL,

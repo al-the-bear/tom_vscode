@@ -102,6 +102,7 @@ const TOM_AI_CHAT_ALLOWED_TOOLS = new Set<string>([
     'tomAi_removeQueueItem',
     'tomAi_updateQueueFollowUp',
     'tomAi_removeQueueFollowUp',
+    'tomAi_sendItemToQuest',
     'tomAi_listTimedRequests',
     'tomAi_updateTimedRequest',
     'tomAi_removeTimedRequest',

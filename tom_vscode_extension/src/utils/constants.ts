@@ -263,6 +263,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_removeQueuePrePrompt',
     'tomAi_sendQueuedPrompt',
     'tomAi_resendQueueItem',
+    // The queue of another quest's window (cross-quest work and its notification).
+    'tomAi_sendItemToQuest',
     'tomAi_addTimedRequest',
     'tomAi_updateTimedRequest',
     'tomAi_removeTimedRequest',

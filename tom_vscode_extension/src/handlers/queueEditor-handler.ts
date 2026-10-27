@@ -627,6 +627,12 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'setPauseAfter':
             qm.setPauseAfter(msg.id, !!msg.pauseAfter);
             break;
+        case 'updateDoneNotification':
+            qm.updateItemDoneNotification(String(msg.id), { prompt: String(msg.prompt ?? '') });
+            break;
+        case 'setDoneNotificationDisabled':
+            qm.updateItemDoneNotification(String(msg.id), { disabled: !!msg.disabled });
+            break;
         case 'setItemStatus':
           if (msg.status === 'staged' || msg.status === 'pending') {
             qm.setStatus(msg.id, msg.status);

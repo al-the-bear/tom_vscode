@@ -319,6 +319,9 @@ export class TomScriptingBridgeHandler {
                     reminderTemplateId: params.reminderTemplateId,
                     reminderTimeoutMinutes: params.reminderTimeoutMinutes,
                     reminderRepeat: params.reminderRepeat,
+                    // Queued right after the item when it is done or fails for good (src/utils/doneNotification.ts).
+                    ...(typeof params.doneNotificationPrompt === 'string' && params.doneNotificationPrompt.trim()
+                        ? { doneNotificationPrompt: params.doneNotificationPrompt } : {}),
                 });
                 return item;
             }

@@ -129,6 +129,13 @@ export interface QueueItemSnapshot {
     lastDispatched?: string;
     /** Why the last send did not complete (rate limit, quota, overload, …), as the queue records it. */
     warning?: { kind: string; message: string; at?: string };
+    /** Queued right after the item when it is finished (src/utils/doneNotification.ts). */
+    doneNotificationPrompt?: string;
+    doneNotificationDisabled?: boolean;
+    /** On a done-notification item: the item it reports on. */
+    notificationOf?: string;
+    /** On an item another quest's window sent: its sender. */
+    from?: { quest: string; windowId: string; host: string; sentAt: string };
 }
 
 /**
@@ -143,7 +150,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
-    'answerText', 'lastDispatched', 'warning',
+    'answerText', 'lastDispatched', 'warning', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -191,6 +198,7 @@ export interface EnqueueInput {
     session?: QueueSessionInput;
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
+    doneNotificationPrompt?: string;
 }
 
 /** A queue item's session as a tool takes it: a name, or how to create it when missing. */
@@ -239,6 +247,8 @@ export interface PromptQueueAccess {
      * change. Throws when the item's profile cannot continue the session's conversation.
      */
     updateItemSession?(id: string, session: QueueSessionInput): boolean;
+    /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
+    updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean }): boolean;
 
     addPrePrompt(id: string, text: string, template: string | undefined, opts?: {
         transport?: QueueTransport;
@@ -369,6 +379,9 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         session: i.session || null,
         ...(i.sessionCreate ? { sessionSpec: { name: i.session, ...i.sessionCreate } } : {}),
         answerText: i.answerText || null,
+        ...(i.doneNotificationPrompt ? { doneNotificationPrompt: i.doneNotificationPrompt, doneNotificationDisabled: !!i.doneNotificationDisabled } : {}),
+        ...(i.notificationOf ? { notificationOf: i.notificationOf } : {}),
+        ...(i.from ? { from: i.from } : {}),
     };
 }
 
@@ -407,6 +420,7 @@ export interface AddQueueItemInput {
     anthropicConfigId?: string;
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
+    doneNotificationPrompt?: string;
 }
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
@@ -442,6 +456,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
             ...(input.session ? { session: input.session } : {}),
+            ...(input.doneNotificationPrompt ? { doneNotificationPrompt: input.doneNotificationPrompt } : {}),
             prePrompts: input.prePrompts ?? [],
             followUps: (input.followUps ?? []).map((f) => ({
                 originalText: f.text,
@@ -466,6 +481,13 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         return err((e as Error).message);
     }
 }
+
+/** What a queue item's `doneNotificationPrompt` is. */
+const DONE_NOTIFICATION_DOC = 'A prompt queued right after the item, ahead of every other pending item, when the item '
+    + 'is finished: all its pre-prompts, repetitions (or `<prefix>*` todos), follow-ups and template iterations done, or '
+    + 'ended in an error that will not recover (no API key, a request the API refused, an exhausted retry schedule; '
+    + 'not a quota or rate limit being waited out). It runs with the item\'s transport, profile and session, takes over '
+    + 'its "pause after this", and is queued once per run. `${itemOutcome}` in it reads `done` or `error: <message>`.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
     'Stage a new prompt-queue item with optional pre-prompts, main-prompt ' +
@@ -511,6 +533,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
+            doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -735,6 +758,9 @@ export interface UpdateQueueItemInput {
     anthropicConfigId?: string;
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
+    /** '' removes it. */
+    doneNotificationPrompt?: string;
+    doneNotificationDisabled?: boolean;
 }
 
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
@@ -789,6 +815,15 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 return err(`The session of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
             }
         }
+        if (input.doneNotificationPrompt !== undefined || input.doneNotificationDisabled !== undefined) {
+            const changed = access.updateItemDoneNotification?.(input.queueItemId, {
+                ...(input.doneNotificationPrompt !== undefined ? { prompt: input.doneNotificationPrompt } : {}),
+                ...(input.doneNotificationDisabled !== undefined ? { disabled: input.doneNotificationDisabled } : {}),
+            });
+            if (!changed) {
+                return err(`The done-notification of queue item "${input.queueItemId}" cannot be changed (the item is finished).`);
+            }
+        }
         const updated = access.getById(input.queueItemId);
         return ok({
             id: input.queueItemId,
@@ -800,6 +835,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             templateRepeatCount: updated?.templateRepeatCount ?? null,
             answerWaitMinutes: updated?.answerWaitMinutes ?? null,
             transport: updated?.transport ?? 'copilot',
+            ...(updated?.doneNotificationPrompt ? { doneNotificationPrompt: updated.doneNotificationPrompt, doneNotificationDisabled: !!updated.doneNotificationDisabled } : {}),
             ...apiKeyWarning(access, input.queueItemId),
         });
     } catch (e) {
@@ -814,7 +850,8 @@ export const UPDATE_QUEUE_ITEM_DESCRIPTION =
     '`staged` / `pending` states** — items in `sending`/`sent`/`error` are ' +
     'frozen. `repeatCount`/`templateRepeatCount` accept literal numbers or ' +
     'chat-variable names. To change pre-prompts use `tomAi_updateQueuePrePrompt`; ' +
-    'for follow-ups use `tomAi_updateQueueFollowUp`.';
+    'for follow-ups use `tomAi_updateQueueFollowUp`. `doneNotificationPrompt` (\'\' removes it) and ' +
+    '`doneNotificationDisabled` can be changed until the item is finished, also while it is sending.';
 
 export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> = {
     name: 'tomAi_updateQueueItem',
@@ -843,6 +880,8 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
+            doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
+            doneNotificationDisabled: { type: 'boolean', description: 'Keep the done-notification prompt but do not queue it.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

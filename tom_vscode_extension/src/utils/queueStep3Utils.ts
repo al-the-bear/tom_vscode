@@ -682,7 +682,23 @@ function fillRepetitionPlaceholders(template: string, repeatCount: number, repea
  * the fields that survive across template iterations; kept local so the
  * pure helper has no dependency on the manager type.
  */
-export interface NextTemplateIterationSource {
+/**
+ * What every template iteration of an item shares besides its prompts: where
+ * it runs (transport, profile, session) and what it reports when the last
+ * iteration is done (the done-notification, the sender, a temporary session).
+ */
+export interface TemplateIterationCarried {
+    transport?: 'copilot' | 'anthropic';
+    anthropicProfileId?: string;
+    anthropicConfigId?: string;
+    session?: string;
+    doneNotificationPrompt?: string;
+    doneNotificationDisabled?: boolean;
+    from?: { quest: string; windowId: string; host: string; sentAt: string };
+    temporarySession?: boolean;
+}
+
+export interface NextTemplateIterationSource extends TemplateIterationCarried {
     originalText: string;
     template?: string;
     answerWrapper?: boolean;
@@ -724,7 +740,7 @@ export interface NextTemplateIterationSource {
  * the caller uses when logging. Returned by `buildNextTemplateIterationParams`
  * when another template iteration is required.
  */
-export interface NextTemplateIterationParams {
+export interface NextTemplateIterationParams extends TemplateIterationCarried {
     originalText: string;
     template?: string;
     answerWrapper?: boolean;
@@ -777,6 +793,20 @@ export interface NextTemplateIterationParams {
  * synchronous Anthropic transport never spawned the second iteration
  * (the next-iteration enqueue lived only on Copilot/manual paths).
  */
+/** The carried fields that are set on `item`. */
+export function templateIterationCarried(item: TemplateIterationCarried): TemplateIterationCarried {
+    const out: TemplateIterationCarried = {};
+    if (item.transport) { out.transport = item.transport; }
+    if (item.anthropicProfileId) { out.anthropicProfileId = item.anthropicProfileId; }
+    if (item.anthropicConfigId) { out.anthropicConfigId = item.anthropicConfigId; }
+    if (item.session) { out.session = item.session; }
+    if (item.doneNotificationPrompt) { out.doneNotificationPrompt = item.doneNotificationPrompt; }
+    if (item.doneNotificationDisabled) { out.doneNotificationDisabled = true; }
+    if (item.from) { out.from = item.from; }
+    if (item.temporarySession) { out.temporarySession = true; }
+    return out;
+}
+
 export function buildNextTemplateIterationParams(
     sending: NextTemplateIterationSource,
     resolvedTemplateRepeatCount: number,
@@ -791,6 +821,7 @@ export function buildNextTemplateIterationParams(
     }
 
     return {
+        ...templateIterationCarried(sending),
         originalText: sending.originalText,
         template: sending.template,
         answerWrapper: sending.answerWrapper,
