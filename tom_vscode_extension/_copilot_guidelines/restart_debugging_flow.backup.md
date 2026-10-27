@@ -13,7 +13,7 @@ Backup reference for extension runtime troubleshooting. Use when a reload alone 
 
 - Verify command registration matches between `package.json` and `src/handlers/*` / `src/extension.ts`.
 - Inspect the "Extension Host" and "Tom Debug" output channels for activation errors.
-- For Anthropic-path issues, inspect `_ai/trail/anthropic/<quest>/` for the most recent `*_payload_*.payload.md` / `*_answer_*.answer.json` to see what reached / came back from the model.
+- For Anthropic-path issues, inspect the session's raw trail, `_ai/quests/<quest>/history/sessions/<session>/trail/` (`default` for the queue, `chat` for the panel), for the most recent `*_payload_*.payload.md` / `*_answer_*.answer.json` to see what reached / came back from the model.
 - For Agent SDK SDK-managed continuity: inspect `_ai/quests/<quest>/history/default.session.json` — delete it if corrupted; a fresh session will be created next turn.
 - Reinstall the extension package (see [reinstall_extension.md](reinstall_extension.md)) and reload.
 

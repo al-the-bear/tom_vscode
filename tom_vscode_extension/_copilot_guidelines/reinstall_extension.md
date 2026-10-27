@@ -98,7 +98,7 @@ never hard-coded in a script and never left to vsce (VB-1 – VB-3).
 - Command appears with updated title / keybinding in the palette.
 - Panel / view naming and sections are updated (`@CHAT`, `@WS`, `@TOM`).
 - No activation errors in "Extension Host" output or "Tom Debug" output channel.
-- For chat changes: send a test prompt and confirm trails land in `_ai/trail/` / `_ai/quests/<quest>/live-trail.md`.
+- For chat changes: send a test prompt and confirm trails land in the session's folder, `_ai/quests/<quest>/history/sessions/<session>/` (`live-trail.md`, `trail/`).
 
 ## Unattended runs on Windows (over SSH)
 
@@ -107,7 +107,7 @@ which also auto-confirms the package prompt. Running it with its output sent to
 a log works under Windows PowerShell 5.1 and PowerShell 7:
 
 ```powershell
-& .\compile_and_install.ps1 *> C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\ztmp\install.log
+& .\compile_and_install.ps1 *> C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\ztmp\<quest>_<yymmdd>_<todo-id>_install.log
 ```
 
 `install_extension.ps1` keeps `$ErrorActionPreference = "Stop"`. Under PS 5.1
@@ -131,7 +131,7 @@ session:
 
   ```powershell
   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-    CommandLine = 'cmd.exe /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\tom_ai\vscode\tom_vscode_extension\compile_and_install.ps1 > C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\ztmp\install.log 2>&1'
+    CommandLine = 'cmd.exe /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\tom_ai\vscode\tom_vscode_extension\compile_and_install.ps1 > C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\ztmp\<quest>_<yymmdd>_<todo-id>_install.log 2>&1'
     CurrentDirectory = 'C:\Code\al_the_bear\inhouse\second_wind\enterprise_flutter\tom_agent_container\tom_ai\vscode\tom_vscode_extension'
   }
   ```
@@ -140,7 +140,7 @@ session:
   workspace is mirrored at the same shape under every fleet root.) Name the log
   by the ztmp rule (`<quest>_<yymmdd>_<todo-id>_install.log`). The log is
   UTF-8 (cmd.exe's redirection), apart from PowerShell's error records.
-  Then follow the log (`Get-Content ...\install.log -Tail 20`). The run has
+  Then follow the log (`Get-Content ...\<quest>_<yymmdd>_<todo-id>_install.log -Tail 20`), and delete it once the todo is done. The run has
   succeeded when the log ends with `Installation complete!` and the
   `Finished at` line.
 - **Do not use `Start-Process`** from an SSH session for this. Its process is a

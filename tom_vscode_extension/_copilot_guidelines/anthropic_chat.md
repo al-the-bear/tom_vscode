@@ -47,7 +47,7 @@ Stored in `config.anthropic.configurations` ([sendToChatConfig.ts](../src/utils/
 
 A profile's `configId` may also point at a **Local LLM configuration** (`config.localLlm.configurations`). When the Anthropic handler detects this, it synthesises a runtime-only `transport: 'localLlm'` on the resolved configuration and routes to `callLocalLlmOnce` — the extracted Ollama HTTP primitive shared with `LocalLlmManager`.
 
-**Effect:** the Anthropic handler's full loop, tool-approval gate, live trail, user-message templates, and trail directory (`_ai/trail/anthropic/*`) all apply — even though the actual API call goes to Ollama. The Local LLM panel's own flow (`ollamaGenerateWithTools`) is byte-identical to before (writes to `_ai/trail/local/*`, uses Local LLM's own template store, runs its own approval).
+**Effect:** the Anthropic handler's full loop, tool-approval gate, live trail, user-message templates, and raw trail (the session's `history/sessions/<session>/trail/`) all apply — even though the actual API call goes to Ollama. The Local LLM panel's own flow (`ollamaGenerateWithTools`) is byte-identical to before (writes to `_ai/trail/localllm/<quest>-<config>/`, uses Local LLM's own template store, runs its own approval).
 
 The profile config picker in the panel's UI merges both Anthropic configurations and Local LLM configurations, each labelled by backing type (`[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`).
 
@@ -60,7 +60,7 @@ When a configuration has `transport: 'vscodeLm'`, the handler calls `vscode.lm.s
 - **Model is pinned at configure-time**, not per send. When creating or editing a `vscodeLm` configuration, the Extension State Page's model picker calls `vscode.lm.selectChatModels()` once, the user picks a model, and `{vendor, family, modelId}` are stored on the configuration. On subsequent sends the handler filters against VS Code's cached list by `modelId` — no fresh enumeration.
 - **System prompt concatenation.** VS Code LM has no separate system/user fields. The handler prepends `{systemPrompt}\n\n` to the composed user message before calling `model.sendRequest`.
 - **Informational model dropdown on the panel.** When the active configuration is `vscodeLm`, the Anthropic panel's bottom area shows a dropdown listing currently available models from `vscode.lm.selectChatModels()`, plus a **Refresh** button. This is read-only — changing the selection here does NOT retarget sends. To change the target model, edit the configuration.
-- **Trail directory** is the same as other Anthropic configs: `_ai/trail/anthropic/*`.
+- **Trail directory** is the same as other Anthropic configs: the session's `history/sessions/<session>/trail/`.
 
 Configuration shape (relevant fields):
 
@@ -90,13 +90,13 @@ The Anthropic panel (and all Anthropic leaf paths including VS Code LM and Local
 
 ## Live trail
 
-Each `sendMessage()` call creates a `LiveTrailWriter` pointed at `_ai/quests/<quest>/live-trail.md`. The writer:
+Each `sendMessage()` call creates a `LiveTrailWriter` pointed at the session's live trail, `_ai/quests/<quest>/history/sessions/<session>/live-trail.md` (`chat` for the panel, `default` for the queue, else the named session). The writer:
 
 - Calls `beginPrompt()` once — trims the file to the last 5 prompt blocks and writes the new `## 🚀 PROMPT …` header.
 - Appends thinking, tool calls, tool results, and assistant text incrementally as the turn runs.
 - Calls `endPrompt()` with round/tool-call count and duration on completion.
 
-The **Open Live Trail** button in the panel header fires `tomAi.openInMdBrowserLive`, which opens the current quest's `live-trail.md` in the MD Browser's live-mode singleton (auto-scroll-to-bottom on each file-watcher update).
+The **Open Live Trail** button in the panel header fires `tomAi.openInMdBrowserLive`, which opens the panel's session's `live-trail.md` (the Local LLM panel: the quest's `live-trail-localLLM.md`) in the MD Browser's live-mode singleton (auto-scroll-to-bottom on each file-watcher update).
 
 Isolated sub-agent runs (`options.isolated = true`) receive a null writer — their intermediate work does not appear in the quest's live trail.
 
@@ -143,12 +143,12 @@ The approval gate is part of the Anthropic handler's shared loop and applies to 
 
 - **Tom AI** — assistant text + tool summaries for the Anthropic panel's turns.
 - **Tom AI Log** — debug / timing details.
-- Raw trail: `_ai/trail/anthropic/<quest>/<requestId>.*`.
+- Raw trail: `_ai/quests/<quest>/history/sessions/<session>/trail/` (gitignored, one per session).
 
 ## Operational notes for agents
 
 - `resolveAnthropicTargets(profileId, configId)` in `src/utils/resolveAnthropicTargets.ts` is the single resolver for `(profile, configuration)` pairs. Use it instead of duplicating the Anthropic-then-LocalLlm fallback chain.
 - When adding a new Anthropic leaf path, plug it into `AnthropicHandler.sendMessage()` as a fourth leaf primitive (join the shared agent loop, not `ollamaGenerateWithTools`).
-- Both `vscodeLm` and Local-LLM-backed configs are **Anthropic-profile-level** concerns. They write to `_ai/trail/anthropic/*` and use Anthropic user-message templates — do not create separate subsystems.
+- Both `vscodeLm` and Local-LLM-backed configs are **Anthropic-profile-level** concerns. They write to the session's trail (`history/sessions/<session>/trail/`) and use Anthropic user-message templates — do not create separate subsystems.
 - The VS Code LM model dropdown on the panel is **informational only** — do not wire it to retarget sends.
 - `tomAi.tomAiChat.*` commands route through the same `AnthropicHandler` but via a separate handler ([tomAiChat-handler.ts](../src/handlers/tomAiChat-handler.ts)) with a curated tool set. Changes to the Anthropic handler's shared loop affect both panels.
