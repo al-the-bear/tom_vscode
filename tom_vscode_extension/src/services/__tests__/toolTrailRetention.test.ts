@@ -2,14 +2,17 @@
 /**
  * The tool loop's retention step (src/services/toolTrailRetention.ts) and extended thinking.
  *
- *   TR-1 thinking on: a tool loop of more rounds than keepRounds (a fake model whose every assistant
- *        turn carries a signed thinking block) — after each round, every message before the last
- *        assistant turn is byte-identical to what was sent before; only the round just added is cut,
- *        once, to the inline length. The API would otherwise refuse the request: "Invalid `signature`
- *        in `thinking` block. The block is bound to a different conversation."
- *   TR-2 thinking off: as before — the newest keepRounds rounds inline (cut), older ones stubbed, the
- *        tool_use / tool_result pairing kept
- *   TR-3 the handler: the step runs with freezeEarlierRounds = thinking on
+ *   TR-1 a model that thinks: a tool loop of more rounds than keepRounds (a fake model whose every
+ *        assistant turn carries a signed thinking block) — after each round, every message before the
+ *        last assistant turn is byte-identical to what was sent before; only the round just added is
+ *        cut, once, to the inline length. The API would otherwise refuse the request: "Invalid
+ *        `signature` in `thinking` block. The block is bound to a different conversation."
+ *        Decided by the conversation, not by the profile: a model thinks without a `thinking`
+ *        parameter (Opus 5.5 with `thinkingEnabled: false`, measured 2026-10-27), and a
+ *        `redacted_thinking` block is signed the same way.
+ *   TR-2 no thinking block in the conversation: as before — the newest keepRounds rounds inline
+ *        (cut), older ones stubbed, the tool_use / tool_result pairing kept
+ *   TR-3 the handler: the step is not told whether thinking was requested
  */
 
 import test, { describe } from 'node:test';
@@ -25,7 +28,7 @@ const KEEP = 2;
 const INLINE = 120;
 
 /** A fake tool loop: `rounds` rounds of thinking + tool_use, each answered with a long tool result. */
-function runLoop(thinking: boolean, onRound: (messages: RetentionMessage[], round: number) => void): RetentionMessage[] {
+function runLoop(thinking: false | 'thinking' | 'redacted_thinking', onRound: (messages: RetentionMessage[], round: number) => void): RetentionMessage[] {
     const trail = new ToolTrail({ keepRounds: KEEP, inlineMaxChars: INLINE });
     const byId = new Map<string, ToolTrailEntry>();
     const messages: RetentionMessage[] = [{ role: 'user', content: 'do the work' }];
@@ -34,7 +37,8 @@ function runLoop(thinking: boolean, onRound: (messages: RetentionMessage[], roun
         messages.push({
             role: 'assistant',
             content: [
-                ...(thinking ? [{ type: 'thinking', thinking: `plan ${round}`, signature: `sig-over-${messages.length}-messages` }] : []),
+                ...(thinking === 'thinking' ? [{ type: 'thinking', thinking: `plan ${round}`, signature: `sig-over-${messages.length}-messages` }] : []),
+                ...(thinking === 'redacted_thinking' ? [{ type: 'redacted_thinking', data: `opaque-${messages.length}` }] : []),
                 { type: 'tool_use', id, name: 'tomAi_readFile', input: { path: `f${round}` } },
             ],
         });
@@ -42,7 +46,7 @@ function runLoop(thinking: boolean, onRound: (messages: RetentionMessage[], roun
         byId.set(id, trail.add({ timestamp: '00:00:00', round, toolName: 'tomAi_readFile', inputSummary: `f${round}`, result, durationMs: 1 }));
         messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: result }] });
         applyToolTrailRetention(messages, trail, (toolUseId) => byId.get(toolUseId),
-            { keepRounds: KEEP, inlineMaxChars: INLINE, freezeEarlierRounds: thinking });
+            { keepRounds: KEEP, inlineMaxChars: INLINE });
         onRound(messages, round);
     }
     return messages;
@@ -51,9 +55,9 @@ function runLoop(thinking: boolean, onRound: (messages: RetentionMessage[], roun
 const resultOf = (m: RetentionMessage): string => String((m.content as Array<{ content: string }>)[0].content);
 
 describe('tool-trail retention and extended thinking', () => {
-    test('TR-1: thinking on — nothing before the last assistant turn changes', () => {
+    for (const kind of ['thinking', 'redacted_thinking'] as const) test(`TR-1: the model returns ${kind} blocks — nothing before the last assistant turn changes`, () => {
         let sent: string[] = [];
-        runLoop(true, (messages, round) => {
+        runLoop(kind, (messages, round) => {
             const now = messages.map((m) => JSON.stringify(m));
             const lastAssistant = messages.map((m) => m.role).lastIndexOf('assistant');
             for (let i = 0; i < Math.min(lastAssistant, sent.length); i++) {
@@ -68,7 +72,7 @@ describe('tool-trail retention and extended thinking', () => {
         assert.ok(ROUNDS > KEEP + 1, 'more rounds than keepRounds');
     });
 
-    test('TR-2: thinking off — older rounds are stubbed', () => {
+    test('TR-2: no thinking block — older rounds are stubbed', () => {
         const messages = runLoop(false, () => undefined);
         const results = messages.filter((m) => m.role === 'user' && Array.isArray(m.content)).map(resultOf);
         assert.equal(results.length, ROUNDS);
@@ -81,10 +85,10 @@ describe('tool-trail retention and extended thinking', () => {
             'every tool_use keeps its tool_result');
     });
 
-    test('TR-3: the handler freezes earlier rounds while thinking is on', () => {
+    test('TR-3: the handler does not decide the freeze from the profile', () => {
         const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'anthropic-handler.ts'), 'utf-8');
-        assert.match(handler, /this\.applyToolTrailRetentionPolicy\(messages, caps, thinkingBlock !== undefined\);/);
-        assert.match(handler, /freezeEarlierRounds: thinkingEnabled/);
+        assert.match(handler, /this\.applyToolTrailRetentionPolicy\(messages, caps\);/);
+        assert.doesNotMatch(handler, /freezeEarlierRounds/);
         assert.doesNotMatch(handler, /tt\.renderStub\(/, 'the stubbing lives in the shared step only');
     });
 });

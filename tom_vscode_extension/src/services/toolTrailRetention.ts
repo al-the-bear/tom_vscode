@@ -7,17 +7,21 @@
  * results become a one-line stub naming the replay key, so a long tool loop
  * does not resend every full result each round.
  *
- * With extended thinking on, an earlier message must never change: every
- * assistant turn of the running loop carries `thinking` blocks whose
- * signature covers the conversation as it was when they were produced, and
- * the API rejects a request whose earlier messages no longer match ("Invalid
+ * Once the conversation holds a thinking block, an earlier message must
+ * never change: a `thinking` (or `redacted_thinking`) block's signature
+ * covers the conversation as it was when it was produced, and the API
+ * rejects a request whose earlier messages no longer match ("Invalid
  * `signature` in `thinking` block. The block is bound to a different
- * conversation") — a 400 no retry can fix. Dropping the thinking blocks is no
- * way out either: an assistant message that ends in `tool_use` must keep
- * them. So only the round just added is touched — its results are cut to the
- * inline length once, before any assistant turn follows them — and older
- * rounds stay as they were sent. They are not carried into the next prompt
- * anyway: the history between prompts is text only.
+ * conversation") — a 400 no retry can fix. Dropping the blocks is no way out
+ * either: an assistant message that ends in `tool_use` must keep them. So only
+ * the round just added is touched — its results are cut to the inline length
+ * once, before any assistant turn follows them — and older rounds stay as
+ * they were sent. They are not carried into the next prompt anyway: the
+ * history between prompts is text only.
+ *
+ * The conversation decides, not the profile: a model may think without a
+ * `thinking` request parameter (Opus 5.5 does, measured 2026-10-27 with a
+ * profile whose `thinkingEnabled` is false).
  *
  * vscode-free.
  */
@@ -33,8 +37,14 @@ export interface RetentionMessage {
 export interface RetentionOptions {
     keepRounds: number;
     inlineMaxChars: number;
-    /** Extended thinking is on: rounds before the newest are left exactly as they were sent. */
-    freezeEarlierRounds: boolean;
+}
+
+const SIGNED_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking']);
+
+/** Does an assistant turn of `messages` carry a signed thinking block? Then no earlier message may change. */
+export function conversationHasThinking(messages: readonly RetentionMessage[]): boolean {
+    return messages.some((m) => m.role === 'assistant' && Array.isArray(m.content)
+        && (m.content as Array<{ type?: unknown }>).some((b) => SIGNED_BLOCK_TYPES.has(String(b?.type))));
 }
 
 /** The parts of a ToolTrail this step uses. */
@@ -62,6 +72,7 @@ export function applyToolTrailRetention(
 ): void {
     trail.inlineMaxChars = Math.max(100, options.inlineMaxChars);
     trail.keepRounds = Math.max(0, options.keepRounds);
+    const freezeEarlierRounds = conversationHasThinking(messages);
     // Walk newest-first, counting the user turns that carry tool results: one per round.
     let roundsSeen = 0;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -70,8 +81,8 @@ export function applyToolTrailRetention(
         const blocks = msg.content as Array<Record<string, unknown>>;
         if (!blocks.some((b) => b.type === 'tool_result')) { continue; }
         roundsSeen += 1;
-        if (options.freezeEarlierRounds && roundsSeen > 1) { return; }
-        const inline = options.freezeEarlierRounds || roundsSeen <= trail.keepRounds;
+        if (freezeEarlierRounds && roundsSeen > 1) { return; }
+        const inline = freezeEarlierRounds || roundsSeen <= trail.keepRounds;
         for (const block of blocks) {
             if (block.type !== 'tool_result') { continue; }
             const id = String(block.tool_use_id ?? '');

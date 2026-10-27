@@ -1140,20 +1140,20 @@ export class AnthropicHandler {
     /**
      * The retention step after each round of the tool loop
      * (src/services/toolTrailRetention.ts): older rounds' tool results are
-     * cut or stubbed — unless extended thinking is on, when only the round
-     * just added is cut and every earlier message stays as it was sent, so
-     * the thinking blocks' signatures still match the conversation.
+     * cut or stubbed — unless the conversation holds a thinking block
+     * (requested or not), when only the round just added is cut and every
+     * earlier message stays as it was sent, so the blocks' signatures still
+     * match the conversation.
      */
     private applyToolTrailRetentionPolicy(
         messages: AnthropicMessageParam[],
         caps: { toolTrailKeepRounds: number; toolTrailMaxResultChars: number },
-        thinkingEnabled: boolean,
     ): void {
         applyToolTrailRetention(
             messages as unknown as RetentionMessage[],
             this.toolTrail,
             (id) => this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id)),
-            { keepRounds: caps.toolTrailKeepRounds, inlineMaxChars: caps.toolTrailMaxResultChars, freezeEarlierRounds: thinkingEnabled },
+            { keepRounds: caps.toolTrailKeepRounds, inlineMaxChars: caps.toolTrailMaxResultChars },
         );
     }
 
@@ -2419,10 +2419,11 @@ export class AnthropicHandler {
                 // outgoing prompt — full bodies live on disk under
                 // `_ai/trail/anthropic/<quest>/tool_results/<key>.json`
                 // and are recoverable via tomAi_readPastToolResult.
-                // With extended thinking on, earlier rounds are never rewritten:
-                // the thinking blocks of later turns are signed over them.
+                // Once a turn carries a thinking block (the model may think
+                // without being asked), earlier rounds are never rewritten:
+                // the blocks are signed over them.
                 const caps = this.resolveEffectiveCaps(configuration);
-                this.applyToolTrailRetentionPolicy(messages, caps, thinkingBlock !== undefined);
+                this.applyToolTrailRetentionPolicy(messages, caps);
             }
         } catch (err) {
             // Guarantee the raw answer file exists even when the API
