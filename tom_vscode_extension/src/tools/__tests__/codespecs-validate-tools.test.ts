@@ -20,7 +20,7 @@
  *   SC-1  a step's context: its areas' extracts exactly, its entries, its project
  *   SC-2  every step's areas have extracts and contract entries
  *   SC-3  input errors, a missing extract, §2 in full
- *   SC-4  the packaged contract equals tom_core's
+ *   SC-4  the packaged contract equals its source in ai_build
  *   SC-5  registration
  */
 
@@ -50,7 +50,7 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const SAMPLE_TRIO = path.join(AI_BUILD, 'tom_specs_samples', 'phase4_codespecs_run', 'codespec');
-const CONTRACT_SOURCE = path.resolve(EXT_ROOT, '..', '..', 'core', 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
+const CONTRACT_SOURCE = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
 const VOCABULARY_SOURCE = path.join(AI_BUILD, 'tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-validate-'));
@@ -273,10 +273,10 @@ describe('CodeSpecs step context', () => {
         assert.equal(own.checksRun, 38);
     });
 
-    test('SC-4: the packaged contract equals tom_core\'s', (t) => {
+    test('SC-4: the packaged contract equals its source in ai_build', (t) => {
         assert.ok(fs.existsSync(CONTRACT_FILE), `missing ${CONTRACT_FILE}: run npm run som:pack`);
         if (!fs.existsSync(CONTRACT_SOURCE)) {
-            t.skip(`no tom_core checkout at ${CONTRACT_SOURCE}`);
+            t.skip(`no ai_build checkout at ${CONTRACT_SOURCE}`);
             return;
         }
         assert.equal(fs.readFileSync(CONTRACT_FILE, 'utf8'), fs.readFileSync(CONTRACT_SOURCE, 'utf8'),

@@ -69,9 +69,9 @@ reads from ai_build. The script also copies the CodeSpecs area catalogue
 vocabulary (`tom_code_specs/lib/src/annotations/vocabulary.dart`, the hook
 catalogue CodeSpecs validate checks 40 and 41 need), the two CodeSpecs
 workflow guides (`tom_specs_model/doc/codespecs_prompt.md` and
-`tom_ai/core/tom_core_codespecs/doc/codespecs_mapping.md`) and the CodeSpecs
-derivation contract (`tom_ai/core/tom_core_codespecs/doc/codespecs_derivation_contract.md`,
-`TOM_CORE_CHECKOUT` overrides the location) to `resources/codespecs/`
+`tom_ai/ai_build/tom_core_codespecs/doc/codespecs_mapping.md`) and the CodeSpecs
+derivation contract (`tom_ai/ai_build/tom_core_codespecs/doc/codespecs_derivation_contract.md`)
+to `resources/codespecs/`
 (gitignored), which the VSIX carries too.
 
 The CodeSpecs validate and trace tools run `validate_codespecs` from ai_build's

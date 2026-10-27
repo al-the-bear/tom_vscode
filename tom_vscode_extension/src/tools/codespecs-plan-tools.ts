@@ -60,8 +60,8 @@ export interface PlanTodoDeps {
 }
 
 const STEP_COUNT_NOTE = 'codespecs_mapping.md §4.4.6';
-const CONTRACT = 'tom_ai/core/tom_core_codespecs/doc/codespecs_derivation_contract.md';
-const MAPPING = 'tom_ai/core/tom_core_codespecs/doc/codespecs_mapping.md';
+const CONTRACT = 'tom_ai/ai_build/tom_core_codespecs/doc/codespecs_derivation_contract.md';
+const MAPPING = 'tom_ai/ai_build/tom_core_codespecs/doc/codespecs_mapping.md';
 
 type Kind = 'csopen' | 'csproj' | 'csgen';
 

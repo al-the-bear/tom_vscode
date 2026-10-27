@@ -4,7 +4,8 @@
  * which §3 contract entries an authoring step is handed (§2.9's `<ENTRIES>`).
  *
  * The packaged copy lives in `<extension>/resources/codespecs/`;
- * scripts/build-som-packages.cjs copies it there from tom_core.
+ * scripts/build-som-packages.cjs copies it there from ai_build's
+ * tom_core_codespecs.
  *
  * Which entries a step gets is read off the contract's own headings: §3 is
  * organised by slice (`### 3.<slice>`), and each entry's heading names its
@@ -49,7 +50,7 @@ const HEADING = /^(#{2,4})\s+(\d+(?:\.\d+)*)\.?\s+(.*)$/;
 export function readContract(file: string = CONTRACT_FILE): ContractView {
     if (!fs.existsSync(file)) {
         throw new Error(`The CodeSpecs derivation contract is missing at ${file}. Run \`npm run som:pack\` in the extension `
-            + '(it copies the contract from tom_ai/core/tom_core_codespecs/doc/).');
+            + '(it copies the contract from tom_ai/ai_build/tom_core_codespecs/doc/).');
     }
     const lines = fs.readFileSync(file, 'utf8').split('\n');
     const heads: Array<{ level: number; number: string; title: string; index: number }> = [];

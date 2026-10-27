@@ -3,7 +3,7 @@
  * documents the Phase-4 workflow is written in, packaged with the extension,
  * read as numbered sections, and the stage runbooks built from them.
  *
- *   GD-1  both guides are packaged and equal their sources (tom_core's mapping, ai_build's prompt)
+ *   GD-1  both guides are packaged and equal their sources (both in ai_build)
  *   GD-2  the outline: numbered sections with level and line; unnumbered subheadings and fenced
  *         `#` lines are not sections of their own
  *   GD-3  a section is its whole subtree; an unknown number names the outline; a too-large
@@ -29,7 +29,7 @@ import {
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SOURCES: Record<string, string> = {
-    mapping: path.resolve(EXT_ROOT, '..', '..', 'core', 'tom_core_codespecs', 'doc', 'codespecs_mapping.md'),
+    mapping: path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_core_codespecs', 'doc', 'codespecs_mapping.md'),
     prompt: path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_specs_model', 'doc', 'codespecs_prompt.md'),
 };
 

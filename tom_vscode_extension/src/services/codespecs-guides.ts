@@ -4,7 +4,7 @@
  *
  * - `prompt`  — codespecs_prompt.md (tom_specs_model/doc in ai_build): the run
  *   procedure: Stage A, the extraction run, Stage B, Stage C, the prompt.
- * - `mapping` — codespecs_mapping.md (tom_core_codespecs/doc in tom_ai/core):
+ * - `mapping` — codespecs_mapping.md (tom_core_codespecs/doc in ai_build):
  *   the concepts, the Phase-4 contract, the todo tree, the parts catalogue.
  *
  * Both are packaged in `<extension>/resources/codespecs/` by
@@ -45,7 +45,7 @@ export const GUIDES: readonly GuideInfo[] = [
         id: 'mapping',
         title: 'CodeSpecs Mapping (concepts and contract)',
         file: path.join(RESOURCES, 'codespecs_mapping.md'),
-        source: 'tom_ai/core/tom_core_codespecs/doc/codespecs_mapping.md',
+        source: 'tom_ai/ai_build/tom_core_codespecs/doc/codespecs_mapping.md',
         summary: 'Purpose, the Phase-4 production contract and run procedure (§1.1), the todo tree, the parts catalogue, slices and authoring order (§4.4), DocSpecs ↔ CodeSpecs linking (§9).',
     },
 ];
