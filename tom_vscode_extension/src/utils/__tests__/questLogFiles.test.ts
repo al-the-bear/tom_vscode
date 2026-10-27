@@ -240,8 +240,8 @@ describe('questLogLocation', () => {
     });
 
     test('the current-prompt file name does not carry the quest id', () => {
-        // The quest is already the containing directory (one trail bucket per
-        // quest). Repeating it in the name would only invite the two to
+        // The quest is already in the containing directory (the quest folder of
+        // the session). Repeating it in the name would only invite the two to
         // disagree.
         assert.equal(
             questLogLocation('currentPrompt', 'alpha', 'queueUser').fileName,

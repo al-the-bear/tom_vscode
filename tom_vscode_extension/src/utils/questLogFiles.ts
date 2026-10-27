@@ -10,11 +10,10 @@
  * side that writes and the side that reads cannot drift apart — a mismatch
  * there would not fail anywhere, it would just show an empty tab forever.
  *
- * Files live in one of three {@link QuestLogArea}s. Most are quest documents.
- * The other two hold machine-written files, which the fleet-shared `_ai` repo
- * does not track: the summary prompt/answer pair grows on every exchange and
- * lives in the quest's `history/` folder, and the current-prompt files are
- * rewritten on every send and live in the trail area.
+ * Files live in one of two {@link QuestLogArea}s. Most are quest documents in
+ * the quest folder. The Logs tabs read a session's storage under the quest's
+ * `history/` folder: its live trail, its summary prompt/answer pair and, in its
+ * gitignored `trail/`, the current-prompt files rewritten on every send.
  *
  * The viewer polls these files every few seconds and some of them are large
  * (the live trail routinely passes half a megabyte), so it reads only
@@ -44,11 +43,10 @@ export type QuestLogTabId =
 
 /**
  * Which directory a tab's file lives in: the active quest's folder under
- * `_ai/quests/<quest>/`, that folder's `history/` subfolder, or the quest's
- * Anthropic trail bucket under `_ai/trail/anthropic/<quest>/`. The handler owns
- * the absolute paths; this module only says which of the three applies.
+ * `_ai/quests/<quest>/`, or that folder's `history/` subfolder. The handler
+ * owns the absolute paths; this module only says which applies.
  */
-export type QuestLogArea = 'quest' | 'questHistory' | 'trail';
+export type QuestLogArea = 'quest' | 'questHistory';
 
 /** Where a tab reads from — the pair the handler joins into a path. */
 export interface QuestLogLocation {
@@ -162,7 +160,7 @@ export const CURRENT_PROMPT_VARIANTS: readonly QuestLogVariant[] = PROMPT_SOURCE
 /** Option selected when nothing has been persisted yet. */
 export const DEFAULT_QUEST_LOG_VARIANT_ID: QuestLogVariantId = 'chatLiteral';
 
-/** File name backing one (origin, part) pair, in the quest's trail bucket. */
+/** File name backing one (origin, part) pair, in a session's trail folder. */
 function currentPromptFileName(source: QuestLogPromptSource, part: QuestLogPromptPart): string {
     // No quest id in the name — the quest is already the containing directory,
     // and repeating it would only invite the two to disagree.

@@ -3,23 +3,21 @@
  * now, one file each, replaced on every send.
  *
  * This backs the @WS panel's **Logs → Current Prompt** tab. The per-call trail
- * files under `_ai/trail/anthropic/<quest>/` accumulate and have to be hunted
- * through by timestamp; the live trail interleaves prompts with answers. What
- * was missing was the flat question "what exactly is in flight right now, and
- * how does it differ from what I typed" — answered by three always-current
- * files:
+ * files accumulate and have to be hunted through by timestamp; the live trail
+ * interleaves prompts with answers. What was missing was the flat question
+ * "what exactly is in flight right now, and how does it differ from what I
+ * typed" — answered by always-current files in the session's own trail folder:
  *
- *   _ai/trail/anthropic/<quest>/current_prompt.<chat|queue>.<literal|user|system>.md
+ *   _ai/quests/<quest>/history/sessions/<session>/trail/current_prompt.<chat|queue>.<literal|user|system>.md
  *
  * `literal` is the user's own text; `user` is the message that actually went to
  * the model after placeholder expansion; `system` is the assembled system
  * prompt. Seeing the first two side by side is the point — that gap is where
  * placeholder and template bugs hide.
  *
- * A send in a named session also writes the three files into that session's
- * own trail folder (`history/sessions/<session>/trail/`), so every session
- * keeps the last prompt it sent; the quest-level set above is the one the
- * Logs tab reads.
+ * Only a send in a session writes them; that is where the tab reads. A send
+ * without a session — an isolated call such as history compaction or memory
+ * extraction — is not a user prompt and writes none.
  *
  * Chat and queue get separate sets because both can be in flight at once: a
  * queue item runs while the user sends a chat message, and one overwriting the
@@ -30,10 +28,9 @@
  * two moments is not small (see `beginCurrentPrompt`), and leaving the previous
  * send's files in place across it is what makes the tab look frozen.
  *
- * The files live in the trail area, which is gitignored. They must not go in
- * the quest folder — that is tracked in the fleet-shared `_ai` repo, and a file
- * rewritten on every prompt would produce a merge conflict per send across four
- * machines.
+ * The raw trail folder is gitignored. The files must not go anywhere tracked —
+ * the quest folder is in the fleet-shared `_ai` repo, and a file rewritten on
+ * every prompt would produce a merge conflict per send across four machines.
  *
  * File names come from `questLogFiles.ts`, the same module the viewer resolves
  * through, so the writer and the reader cannot disagree about them.
@@ -43,8 +40,6 @@ import * as path from 'path';
 
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
-import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { resolveTrailPath } from './trailPathResolver';
 import { sessionTrailFolder } from './sessionStorage';
 import { questHistoryRoot } from './trailService';
 import {
@@ -55,30 +50,13 @@ import {
     type QuestLogPromptSource,
 } from '../utils/questLogFiles';
 
-/**
- * Directory holding the current-prompt files for a quest — the Anthropic trail
- * bucket, shared with the raw per-call trail and `last_request.json`.
- *
- * Exported because the Logs viewer resolves the same directory when it reads
- * them back; two independent derivations of one path is exactly the drift this
- * module exists to avoid.
- */
-export function currentPromptDir(questId?: string): string {
-    const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
-    const raw = (trail.raw ?? trail) as Record<string, unknown>;
-    const paths = (raw.paths ?? {}) as Record<string, string>;
-    const base = paths.anthropic ?? '${ai}/trail/anthropic/${quest}';
-    const quest = questId || WsPaths.getWorkspaceQuestId();
-    return resolveTrailPath(base, { subsystem: 'anthropic', quest });
-}
-
 /** The prompt about to be dispatched, as the viewer will show it. */
 export interface CurrentPromptCapture extends CurrentPromptTexts {
     /** Which of the two prompts that can run in parallel this is. */
     source: QuestLogPromptSource;
     /** Quest to file it under; defaults to the workspace's active quest. */
     questId?: string;
-    /** The session the prompt runs in: a copy goes to its trail folder. */
+    /** The session the prompt runs in; without one nothing is written. */
     session?: string;
 }
 
@@ -124,13 +102,11 @@ export function writeCurrentPrompt(capture: CurrentPromptCapture): void {
 }
 
 function writeFiles(files: CurrentPromptFile[], questId?: string, session?: string): void {
+    if (!session) { return; }
     try {
-        const dirs = [currentPromptDir(questId)];
-        if (session) { dirs.push(sessionTrailFolder(questHistoryRoot(questId || WsPaths.getWorkspaceQuestId()), session)); }
-        for (const dir of dirs) {
-            for (const file of files) {
-                FsUtils.safeWriteText(path.join(dir, file.fileName), file.text);
-            }
+        const dir = sessionTrailFolder(questHistoryRoot(questId || WsPaths.getWorkspaceQuestId()), session);
+        for (const file of files) {
+            FsUtils.safeWriteText(path.join(dir, file.fileName), file.text);
         }
     } catch {
         // Best-effort diagnostics — never break the send path over a log file.

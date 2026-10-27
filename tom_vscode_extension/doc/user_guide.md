@@ -77,7 +77,8 @@ The files behind it are the session's own copy in its trail folder
 they change on every prompt, so they are deliberately kept out of what git
 tracks. They are written for every Anthropic transport (direct SDK, Agent SDK,
 vscodeLm) and persist after the answer arrives, so the tab still shows the last
-prompt sent when nothing is running.
+prompt sent when nothing is running. Internal calls that run in no session
+(history compaction, memory extraction) write none.
 - **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
   editor** opens it in a normal text editor
 

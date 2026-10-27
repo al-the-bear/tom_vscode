@@ -40,7 +40,6 @@ import { TwoTierMemoryService } from '../services/memory-service.js';
 import { questTrailFolder, sanitizeQuestSegment } from '../utils/questPaths.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown.js';
 import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
-import { currentPromptDir } from '../services/current-prompt-dump.js';
 import { listSessions } from '../services/agentSdkSessionStore.js';
 import { sessionLiveTrailFile, sessionsWithStorage } from '../services/sessionStorage.js';
 import { planSessionSwitch, type SwitchSession } from '../utils/sessionSwitch.js';
@@ -174,9 +173,8 @@ export function getQuestLogsScript(): string {
  *
  * The catalogue names the *area*; resolving it to a directory is this
  * function's only real job. `quest` is the quest folder and `questHistory` its
- * `history/` subfolder; `trail` is the quest's Anthropic trail bucket, resolved
- * by the module that writes into it so the two ends of the current-prompt files
- * never derive the path differently.
+ * `history/` subfolder, which holds every session's storage (the current-prompt
+ * files are in a session's `trail/`).
  */
 function resolveQuestLogPath(
     tab: QuestLogTabId,
@@ -185,10 +183,6 @@ function resolveQuestLogPath(
 ): { questId: string; filePath: string; fileName: string } {
     const questId = activeQuestId();
     const { area, fileName } = questLogLocation(tab, questId, variant, session);
-
-    if (area === 'trail') {
-        return { questId: questId || 'default', fileName, filePath: path.join(currentPromptDir(questId), fileName) };
-    }
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
     const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
