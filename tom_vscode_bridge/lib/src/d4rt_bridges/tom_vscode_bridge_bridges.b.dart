@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 35 files
-// Generated: 2026-10-21T14:38:52.932292 by tom_d4rt_generator 1.51.0
+// Generated: 2026-10-27T19:15:29.090061 by tom_d4rt_generator 1.52.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -19621,6 +19621,11 @@ BridgedClass _createTomTodoBridge() {
           named,
           'feedbackSource',
         );
+        final userAction = D4.getNamedArgWithDefault<bool>(
+          named,
+          'userAction',
+          false,
+        );
         return $tom_todo_model_1.TomTodo(
           id: id,
           title: title,
@@ -19650,6 +19655,7 @@ BridgedClass _createTomTodoBridge() {
           bundleId: bundleId,
           derivedFrom: derivedFrom,
           feedbackSource: feedbackSource,
+          userAction: userAction,
         );
       },
     },
@@ -19715,6 +19721,9 @@ BridgedClass _createTomTodoBridge() {
       'feedbackSource': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .feedbackSource,
+      'userAction': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .userAction,
       'due': (visitor, target) =>
           D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due,
       'created': (visitor, target) => D4
@@ -19891,6 +19900,13 @@ BridgedClass _createTomTodoBridge() {
             value,
             'feedbackSource',
           ),
+      'userAction': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .userAction = D4.extractBridgedArg<bool>(
+            value,
+            'userAction',
+          ),
       'due': (visitor, target, value) =>
           D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due =
               D4.extractBridgedArgOrNull<DateTime>(value, 'due'),
@@ -20043,7 +20059,7 @@ BridgedClass _createTomTodoBridge() {
       },
     },
     constructorSignatures: {
-      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource})',
+      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false})',
     },
     methodSignatures: {
       'recordCreation':
@@ -20077,6 +20093,7 @@ BridgedClass _createTomTodoBridge() {
       'bundleId': 'String? get bundleId',
       'derivedFrom': 'String? get derivedFrom',
       'feedbackSource': 'String? get feedbackSource',
+      'userAction': 'bool get userAction',
       'due': 'DateTime? get due',
       'created': 'DateTime? get created',
       'updated': 'DateTime? get updated',
@@ -20110,6 +20127,7 @@ BridgedClass _createTomTodoBridge() {
       'bundleId': 'set bundleId(dynamic value)',
       'derivedFrom': 'set derivedFrom(dynamic value)',
       'feedbackSource': 'set feedbackSource(dynamic value)',
+      'userAction': 'set userAction(dynamic value)',
       'due': 'set due(DateTime? value)',
       'created': 'set created(DateTime? value)',
       'updated': 'set updated(DateTime? value)',
