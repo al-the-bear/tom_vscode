@@ -9,6 +9,8 @@
  *        (none); a filter state saved before the field existed restores as "all"
  *   QU-5 the 👤 toggle shows only the user's own todos and opens every prefix group; again, all todos
  *   QU-6 "Expand all" opens every prefix group, "Collapse all" closes them
+ *   QU-7 the new-todo form offers the same "Your to do" checkbox, unticked; its Create message carries
+ *        user_action true when ticked and false when not
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- `user_action` is the todo schema's YAML key */
@@ -52,9 +54,10 @@ describe('todo panel: user-action todos', () => {
         w.document.getElementById('qt-d-user-action').checked = false;
         assert.equal(w.qtCollectFormData().user_action, false);
         pane.innerHTML = '';
-        assert.equal(w.qtCollectFormData().user_action, undefined, 'the new-todo form has no checkbox: nothing to write');
-        const form = media('questTodoPanel', 'main.js');
-        assert.match(form, /id="qt-d-user-action"' \+ \(todo\.user_action === true \? ' checked' : ''\)/, 'the detail form shows the stored value');
+        assert.equal(w.qtCollectFormData().user_action, undefined, 'a form without the checkbox: nothing to write');
+        assert.match(w.qtUserActionRow(true), /id="qt-d-user-action" checked>/);
+        assert.doesNotMatch(w.qtUserActionRow(false), /checked/);
+        assert.match(media('questTodoPanel', 'main.js'), /qtUserActionRow\(todo\.user_action === true\)/, 'the detail form shows the stored value');
     });
 
     const todos = [
@@ -99,6 +102,26 @@ describe('todo panel: user-action todos', () => {
         w.document.getElementById('qt-btn-only-mine').click();
         assert.deepEqual(rows(w).sort(), ['qr1', 'vbs3', 'vbs4'], 'all again, and every group stayed open');
         assert.equal(w.document.getElementById('qt-btn-only-mine').classList.contains('active-indicator'), false);
+    });
+
+    test('QU-7: the new-todo form', (t) => {
+        const w = setup(t);
+        const sent: Win[] = [];
+        w.vscode.postMessage = (m: Win) => { sent.push(m); };
+        const create = (tick: boolean): Win => {
+            w.qtShowNewTodoForm('vbs9');
+            const box = w.document.getElementById('qt-d-user-action');
+            assert.ok(box, 'the new-todo form has the checkbox');
+            assert.equal(box.checked, false, 'unticked to start');
+            box.checked = tick;
+            w.document.getElementById('qt-d-desc').value = 'Look at the screen';
+            w.document.getElementById('qt-btn-create').click();
+            const msg = sent.filter((m) => m.type === 'qtCreateTodo').pop();
+            assert.ok(msg, 'a create message');
+            return msg.todo;
+        };
+        assert.equal(create(true).user_action, true);
+        assert.equal(create(false).user_action, false);
     });
 
     test('QU-6: expand and collapse all', (t) => {

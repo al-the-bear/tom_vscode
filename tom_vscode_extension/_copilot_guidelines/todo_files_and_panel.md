@@ -251,8 +251,8 @@ A todo that only the user can do (reviewing, answering questions, looking at a
 screen) carries `user_action: true` (schema field, boolean; `false` removes the
 key). `questTodoManager` reads, writes, verifies and updates it, and both write
 tools take it. The panel shows 👤 in the list row and a *Your to do* checkbox in
-the detail form (`qtCollectFormData` sends `false` when unchecked, so the mark
-can be removed). A `prefix*` queue walk passes such a todo: it stays
+the new-todo and the detail form (`qtUserActionRow`; `qtCollectFormData` sends
+`false` when unchecked, so the mark can be removed). A `prefix*` queue walk passes such a todo: it stays
 `not-started` and the next todo of the series is sent (`pickNextTodoForIteration`
 / `collectUserActionTodos` in `queueStep3Utils.ts`). A process step's
 `userAction: true` is the same idea for processes.

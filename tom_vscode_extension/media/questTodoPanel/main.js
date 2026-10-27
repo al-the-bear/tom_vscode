@@ -1150,8 +1150,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         '</div>' +
-        qtFormRow('Your to do', '<label title="A prefix* queue walk passes this todo and goes on with the next one">' +
-            '<input type="checkbox" id="qt-d-user-action"' + (todo.user_action === true ? ' checked' : '') + '> 👤 user action</label>') +
+        qtUserActionRow(todo.user_action === true) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -2095,6 +2094,7 @@ function qtShowNewTodoForm(id) {
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions('not-started') + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions('medium') + '</select>') +
         '</div>' +
+        qtUserActionRow(false) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags"></div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -2146,6 +2146,12 @@ function qtShowNewTodoForm(id) {
 }
 
 function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + label + '</label>' + input + '</div>'; }
+
+/** The "Your to do" checkbox (`user_action`), the same in the new-todo and the detail form. */
+function qtUserActionRow(checked) {
+    return qtFormRow('Your to do', '<label title="A prefix* queue walk passes this todo and goes on with the next one">' +
+        '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>');
+}
 
 function qtShowMassAddOverlay() {
     var overlay = document.getElementById('qt-mass-overlay');
