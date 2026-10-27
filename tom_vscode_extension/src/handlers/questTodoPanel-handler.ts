@@ -1728,10 +1728,7 @@ function _notifyMoveResult(pastVerb: string, result: questTodo.TodoMoveResult): 
  * A missing todo falls through to deleteTodos, which reports it in skipped.
  */
 function _moveTodoToSiblingByStatus(filePath: string, todoId: string): questTodo.TodoMoveResult {
-    const todo = questTodo.findTodoByIdInFile(filePath, todoId);
-    return todo?.status === 'completed'
-        ? questTodo.archiveTodos(filePath, [todoId])
-        : questTodo.deleteTodos(filePath, [todoId]);
+    return questTodo.moveTodoToSiblingByStatus(filePath, todoId);
 }
 
 function _sendTodoList(questId: string, file: string | undefined, post: (m: any) => void): void {

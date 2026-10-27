@@ -105,6 +105,21 @@ Models: the shared todo model of `tom_todo_model`, re-exported here — `TomTodo
 a `TomTodo`; `TodoWire` maps it to the extension's quest/workspace shape or,
 for a session todo, to `{title, details, status: pending|done, ...}`.
 
+What the extension answers:
+
+- `getQuestTodo`, `getWorkspaceTodo` and `getSessionTodo` return `null` when
+  there is no such todo; a missing todo is never an error.
+- `file` names one todo file, and only that file is read or written. For a quest
+  it is a bare file name in the quest folder (an absolute path, or a path with a
+  `/` relative to the workspace root, works too); for workspace todos a path
+  relative to the workspace root, as `listWorkspaceTodoFiles` returns it.
+- The three deletes are recoverable: the todo moves to its file's `-deleted`
+  sibling (`-archived` when it is completed). `true` means it moved; `false`
+  that nothing did (the extension answers the reason).
+- Updating a todo that does not exist throws.
+- A session todo is created with the status it carries (`done` or `pending`);
+  updating it changes its title, details, priority, status and tags.
+
 ---
 
 ## `TomQueueApi` — the prompt queue

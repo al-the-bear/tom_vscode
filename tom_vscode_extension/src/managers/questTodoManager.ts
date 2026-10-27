@@ -20,7 +20,7 @@ import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 
 import { WsPaths } from '../utils/workspacePaths';
 import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
-import { forceBlockStyle } from '../utils/todoArchive';
+import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as deleteTodosInFile, type TodoMoveResult as TodoFileMoveResult } from '../utils/todoArchive';
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
@@ -158,6 +158,42 @@ export function listTodoFiles(questId: string, scope?: TodoFileScope): string[] 
 /** Persistent todo file path. */
 export function persistentTodoPath(questId: string): string {
     return path.join(questFolder(questId), `todos.${questId}.todo.yaml`);
+}
+
+/**
+ * The todo file a caller names for a quest: an absolute path as it is, a bare
+ * file name in the quest folder, a path with a `/` relative to the workspace
+ * root; none is the quest's own `todos.<quest>.todo.yaml`. Callers outside the
+ * extension (the scripting bridge) name files these three ways; read relative
+ * to the process's working directory a bare name found nothing.
+ */
+export function questTodoFilePath(questId: string, file?: string): string {
+    if (!file) { return persistentTodoPath(questId); }
+    if (path.isAbsolute(file)) { return file; }
+    return file.includes('/') ? path.join(getWorkspaceRoot(), file) : path.join(questFolder(questId), file);
+}
+
+/**
+ * A workspace-level todo file a caller names: an absolute path as it is, any
+ * other path relative to the workspace root (the shape `listWorkspaceTodoFiles`
+ * answers); none is `<workspace root>/workspace.todo.yaml`.
+ */
+export function workspaceTodoFilePath(file?: string): string {
+    if (!file) { return path.join(getWorkspaceRoot(), 'workspace.todo.yaml'); }
+    return path.isAbsolute(file) ? file : path.join(getWorkspaceRoot(), file);
+}
+
+/**
+ * Remove one todo recoverably, the way the todo panel and the todo tools do: a
+ * completed todo to the file's `-archived` sibling (completed todos are only
+ * ever archived), any other to its `-deleted` sibling. A missing todo is
+ * reported in `skipped`.
+ */
+export function moveTodoToSiblingByStatus(filePath: string, todoId: string): TodoFileMoveResult {
+    const todo = findTodoByIdInFile(filePath, todoId);
+    return todo?.status === 'completed'
+        ? archiveTodosInFile(filePath, [todoId])
+        : deleteTodosInFile(filePath, [todoId]);
 }
 
 // ============================================================================

@@ -193,7 +193,7 @@ export class SessionTodoStore {
     add(
         title: string,
         source: ChangeSource,
-        opts?: { details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; tags?: string[] },
+        opts?: { details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; tags?: string[]; status?: 'pending' | 'done' },
     ): SessionTodoItem {
         // Lazily create the session file on first write
         this.ensureSessionFile();
@@ -202,7 +202,7 @@ export class SessionTodoStore {
             id,
             title,
             description: opts?.details || title,
-            status: 'not-started',
+            status: SessionTodoStore.toYamlStatus(opts?.status),
             priority: opts?.priority ?? 'medium',
             tags: opts?.tags ?? [],
         }, { quest: this.questId });
@@ -240,13 +240,17 @@ export class SessionTodoStore {
 
     update(
         id: string,
-        updates: { title?: string; details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; status?: 'pending' | 'done' },
+        updates: { title?: string; details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; status?: 'pending' | 'done'; tags?: string[] },
     ): SessionTodoItem | undefined {
+        // A field the caller leaves out stays as it is — the status included:
+        // mapping an absent status to `not-started` reopened a done todo on
+        // every title or priority edit.
         const updated = updateTodoInFile(this.sessionFilePath, id, {
             title: updates.title,
             description: updates.details,
             priority: updates.priority,
-            status: SessionTodoStore.toYamlStatus(updates.status),
+            ...(updates.status !== undefined ? { status: SessionTodoStore.toYamlStatus(updates.status) } : {}),
+            ...(updates.tags !== undefined ? { tags: updates.tags } : {}),
         });
         this.restore();
         const mapped = SessionTodoStore.toItem(updated);

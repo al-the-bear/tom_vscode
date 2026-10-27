@@ -40,6 +40,37 @@ export function getTomScriptingBridgeHandler(): TomScriptingBridgeHandler | unde
 // Handler Class
 // ============================================================================
 
+/**
+ * The answer of a todo delete: `{success: true, movedTo}` with the sibling file
+ * it went to, or `{success: false, error}` naming why nothing moved.
+ */
+function deleteResult(result: questTodo.TodoMoveResult, todoId: string): { success: boolean; movedTo?: string; error?: string } {
+    if (result.moved.length > 0) {
+        return { success: true, movedTo: result.targetFile };
+    }
+    const reason = result.error ?? result.skipped.find((sk) => sk.id === todoId)?.reason ?? 'not found';
+    return { success: false, error: `${todoId}: ${reason}` };
+}
+
+/**
+ * The todo wire contract (`todo.*Vce`, read by tom_vscode_scripting_api's
+ * TomTodoApi):
+ *
+ * - `get{Quest,Workspace,Session}Vce` answer the todo, or `null` when there is
+ *   none; never an error for a missing todo.
+ * - `file` names one todo file: for a quest a bare name in the quest folder (or
+ *   absolute, or relative to the workspace root when it holds a `/`), for the
+ *   workspace a path relative to the workspace root (as
+ *   `listWorkspaceFilesVce` answers it) or absolute. With `file` only that
+ *   file is read or written.
+ * - `delete{Quest,Workspace,Session}Vce` move the todo to its file's
+ *   `-deleted` sibling (`-archived` when completed) and answer
+ *   `{success, movedTo}` or `{success: false, error}`.
+ * - `update*Vce` of a todo that does not exist throws `Todo not found: <id>`.
+ * - Session todos: `createSessionVce` takes `status: done | pending`;
+ *   `updateSessionVce` updates title, details, priority, status and tags, and
+ *   leaves a field it is not given as it is.
+ */
 export class TomScriptingBridgeHandler {
     private ctx: vscode.ExtensionContext;
 
@@ -134,40 +165,46 @@ export class TomScriptingBridgeHandler {
 
     private async todoListQuest(questId: string, file?: string): Promise<any> {
         if (file) {
-            const todos = questTodo.readTodoFile(file);
+            const todos = questTodo.readTodoFile(questTodo.questTodoFilePath(questId, file));
             return { todos, questId, file };
         }
         const todos = questTodo.readAllTodos(questId);
         return { todos, questId };
     }
 
+    /** The todo, or `null` when there is none (see the wire contract in the class doc). */
     private async todoGetQuest(questId: string, todoId: string, file?: string): Promise<any> {
         const todos = file
-            ? questTodo.readTodoFile(file)
+            ? questTodo.readTodoFile(questTodo.questTodoFilePath(questId, file))
             : questTodo.readAllTodos(questId);
-        const todo = todos.find((t: any) => t.id === todoId);
-        return todo || null;
+        return todos.find((t: any) => t.id === todoId) ?? null;
     }
 
     private async todoCreateQuest(questId: string, todo: any, file?: string): Promise<any> {
-        const targetFile = file || questTodo.persistentTodoPath(questId);
-        const created = questTodo.createTodoInFile(targetFile, todo, { quest: questId });
-        return created;
+        return questTodo.createTodoInFile(questTodo.questTodoFilePath(questId, file), todo, { quest: questId });
     }
 
     private async todoUpdateQuest(questId: string, todo: any, file?: string): Promise<any> {
-        const targetFile = file || questTodo.persistentTodoPath(questId);
-        const updated = questTodo.updateTodoInFile(targetFile, todo.id, todo);
+        const updated = questTodo.updateTodoInFile(questTodo.questTodoFilePath(questId, file), todo.id, todo);
         if (!updated) {
             throw new Error(`Todo not found: ${todo.id}`);
         }
         return updated;
     }
 
+    /**
+     * Recoverable, like the todo panel and the todo tools: the todo moves to
+     * its file's `-deleted` sibling (`-archived` when completed). Without a
+     * `file` the quest file holding the todo is used.
+     */
     private async todoDeleteQuest(questId: string, todoId: string, file?: string): Promise<any> {
-        const targetFile = file || questTodo.persistentTodoPath(questId);
-        const success = questTodo.deleteTodo(questId, todoId, targetFile);
-        return { success };
+        const filePath = file
+            ? questTodo.questTodoFilePath(questId, file)
+            : questTodo.questTodoSourcePath(questId, todoId);
+        if (!filePath) {
+            return { success: false, error: `Todo not found in quest ${questId}: ${todoId}` };
+        }
+        return deleteResult(questTodo.moveTodoToSiblingByStatus(filePath, todoId), todoId);
     }
 
     private async todoListWorkspaceFiles(): Promise<any> {
@@ -175,50 +212,37 @@ export class TomScriptingBridgeHandler {
         return { files };
     }
 
+    /** One file when `file` is given (nothing else is read), else every workspace todo file. */
     private async todoListWorkspace(file?: string): Promise<any> {
-        const todos = questTodo.readWorkspaceTodos();
-        // If a specific file is requested, filter to that file's todos
         if (file) {
-            const fileTodos = questTodo.readTodoFile(file);
-            return { todos: fileTodos, file };
+            return { todos: questTodo.readTodoFile(questTodo.workspaceTodoFilePath(file)), file };
         }
-        return { todos };
+        return { todos: questTodo.readWorkspaceTodos() };
     }
 
+    /** The todo (in `file` when given), or `null` when there is none. */
     private async todoGetWorkspace(todoId: string, file?: string): Promise<any> {
-        const todos = questTodo.readWorkspaceTodos();
-        const todo = todos.find((t: any) => t.id === todoId);
-        return todo || null;
+        const todos = file
+            ? questTodo.readTodoFile(questTodo.workspaceTodoFilePath(file))
+            : questTodo.readWorkspaceTodos();
+        return todos.find((t: any) => t.id === todoId) ?? null;
     }
 
     private async todoCreateWorkspace(todo: any, file?: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const targetFile = file || path.join(wsRoot, 'workspace.todo.yaml');
-        const created = questTodo.createTodoInFile(targetFile, todo, {});
-        return created;
+        return questTodo.createTodoInFile(questTodo.workspaceTodoFilePath(file), todo, {});
     }
 
     private async todoUpdateWorkspace(todo: any, file?: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const targetFile = file || path.join(wsRoot, 'workspace.todo.yaml');
-        const updated = questTodo.updateTodoInFile(targetFile, todo.id, todo);
+        const updated = questTodo.updateTodoInFile(questTodo.workspaceTodoFilePath(file), todo.id, todo);
         if (!updated) {
             throw new Error(`Todo not found: ${todo.id}`);
         }
         return updated;
     }
 
+    /** Recoverable, as {@link todoDeleteQuest}: the todo moves to its file's `-deleted` (or `-archived`) sibling. */
     private async todoDeleteWorkspace(todoId: string, file?: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const targetFile = file || path.join(wsRoot, 'workspace.todo.yaml');
-        let todos = questTodo.readTodoFile(targetFile);
-        const idx = todos.findIndex((t: any) => t.id === todoId);
-        if (idx < 0) {
-            return { success: false };
-        }
-        // Use updateTodoInFile with cancelled status since there's no direct delete
-        questTodo.updateTodoInFile(targetFile, todoId, { status: 'cancelled' });
-        return { success: true };
+        return deleteResult(questTodo.moveTodoToSiblingByStatus(questTodo.workspaceTodoFilePath(file), todoId), todoId);
     }
 
     private async todoListSession(): Promise<any> {
@@ -227,37 +251,39 @@ export class TomScriptingBridgeHandler {
         return { todos: result.todos, count: result.count, pendingCount: result.pendingCount };
     }
 
+    /** The todo, or `null` when there is none. */
     private async todoGetSession(todoId: string): Promise<any> {
-        const store = SessionTodoStore.instance;
-        const todo = store.get(todoId);
-        return todo || null;
+        return SessionTodoStore.instance.get(todoId) ?? null;
     }
 
+    /** Status `done` creates the todo done; anything else pending. */
     private async todoCreateSession(todo: any): Promise<any> {
-        const store = SessionTodoStore.instance;
-        const created = store.add(todo.title || todo.description, 'copilot', {
+        return SessionTodoStore.instance.add(todo.title || todo.description, 'copilot', {
             details: todo.details || todo.description,
             priority: todo.priority,
             tags: todo.tags,
+            status: todo.status === 'done' ? 'done' : 'pending',
         });
-        return created;
     }
 
+    /** Title, details, priority, status and tags; a field left out stays as it is. */
     private async todoUpdateSession(todo: any): Promise<any> {
-        const store = SessionTodoStore.instance;
-        const updated = store.update(todo.id, {
+        const updated = SessionTodoStore.instance.update(todo.id, {
             title: todo.title,
             details: todo.details,
             priority: todo.priority,
-            status: todo.status,
+            status: todo.status === 'done' || todo.status === 'pending' ? todo.status : undefined,
+            tags: Array.isArray(todo.tags) ? todo.tags.map(String) : undefined,
         });
-        return updated || null;
+        if (!updated) {
+            throw new Error(`Session todo not found: ${todo.id}`);
+        }
+        return updated;
     }
 
+    /** Recoverable, as the session-todo tool does it: to the session file's `-deleted` (or `-archived`) sibling. */
     private async todoDeleteSession(todoId: string): Promise<any> {
-        const store = SessionTodoStore.instance;
-        const success = store.delete(todoId);
-        return { success };
+        return deleteResult(questTodo.moveTodoToSiblingByStatus(SessionTodoStore.instance.filePath, todoId), todoId);
     }
 
     private async todoListAll(params: any): Promise<any> {
