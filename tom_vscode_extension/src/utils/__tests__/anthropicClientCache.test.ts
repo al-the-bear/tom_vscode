@@ -13,6 +13,7 @@
  *        every call (no client field kept beside it)
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- environment variable names */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
