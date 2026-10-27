@@ -88,6 +88,13 @@ export interface QuestTodoItem {
     references?: QuestTodoReference[];
     dependencies?: string[];
     blocked_by?: string[];
+    /**
+     * Publish conditions that block the todo, each `<package> >= <x.y.z>` (or
+     * `>`): met when pub.dev's latest release satisfies it
+     * (_bin/check_todo_blocks.py, the queue's unblock).
+     */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    blocked_until?: string[];
     /** Decisions the user has to make before this todo can be started. */
     decisions?: TodoDecision[];
     notes?: string;
@@ -378,7 +385,7 @@ function assertTodoFieldsPersisted(
 const VERIFIED_TODO_FIELDS = new Set<string>([
     'title', 'description', 'status', 'priority', 'notes',
     'completed_date', 'completed_by',
-    'tags', 'dependencies', 'blocked_by', 'references',
+    'tags', 'dependencies', 'blocked_by', 'blocked_until', 'references',
     'decisions', 'scope', 'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
@@ -485,6 +492,8 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (deps) { item.dependencies = deps; }
     const blockedBy = getArr('blocked_by');
     if (blockedBy) { item.blocked_by = blockedBy; }
+    const blockedUntil = getArr('blocked_until');
+    if (blockedUntil) { item.blocked_until = blockedUntil; }
     const notes = getStr('notes');
     if (notes) { item.notes = notes; }
     const created = getStr('created');
@@ -668,7 +677,7 @@ export function createTodoInFile(
  */
 const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
-    'dependencies', 'blocked_by', 'references', 'completed_date',
+    'dependencies', 'blocked_by', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
@@ -709,6 +718,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
     if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
+    if (todo.blocked_until && todo.blocked_until.length) { plain.blocked_until = todo.blocked_until; }
     if (todo.references && todo.references.length) {
         // The tools reject bare strings (SCE243). An internal caller that
         // passes one anyway gets it stored as `{path}`, the shape
@@ -776,6 +786,7 @@ function applyTodoUpdates(
     if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
     if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
     if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
+    if (updates.blocked_until !== undefined) { setOrDelete(item, 'blocked_until', updates.blocked_until?.length ? doc.createNode(updates.blocked_until) : undefined); applied.blocked_until = updates.blocked_until; }
     if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
     if (completedDate !== undefined) { setOrDelete(item, 'completed_date', completedDate); applied.completed_date = completedDate; }
     if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }

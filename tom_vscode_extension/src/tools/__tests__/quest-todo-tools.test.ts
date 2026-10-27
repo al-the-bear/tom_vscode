@@ -1179,7 +1179,7 @@ describe('SCE248: replacement warnings for notes and description', () => {
         for (const phrase of [
             /REPLACES the stored value/,
             /`notes` and `description` are overwritten, never appended to/,
-            /`tags`, `dependencies`, `blocked_by`, `references` and `decisions` replace the whole list/,
+            /`tags`, `dependencies`, `blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list/,
             /`scope` replaces the whole object/,
             /empty string or empty list removes the field/,
             /`warning`/,

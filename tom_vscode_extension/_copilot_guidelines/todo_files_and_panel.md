@@ -218,7 +218,7 @@ string already in a file (hand-written, or from an older build) is read as
 
 **`tomAi_updateQuestTodo` replaces; it never merges or appends.** Every field
 passed overwrites the stored value: `notes` and `description` as whole texts,
-the lists (`tags`, `dependencies`, `blocked_by`, `references`, `decisions`)
+the lists (`tags`, `dependencies`, `blocked_by`, `blocked_until`, `references`, `decisions`)
 entirely, `scope` as a whole object. An empty value removes the field, and
 fields not passed are kept. Because a status-only update once overwrote a
 todo's operating instructions in `notes`, a `notes` or `description`

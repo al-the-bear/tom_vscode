@@ -81,6 +81,7 @@ export interface QuestTodoFull {
     references?: Array<{ type?: string; path?: string; url?: string; description?: string; lines?: string }>;
     dependencies?: string[];
     blocked_by?: string[];
+    blocked_until?: string[];
     /** Decisions the user has to make before the todo can be started. */
     decisions?: TodoDecision[];
     notes?: string;
@@ -172,6 +173,42 @@ const ORCHESTRATION_SCHEMA = {
     feedback_source: { type: 'string', description: 'The feedback that raised this todo (Worktracker).' },
 } as const;
 
+/**
+ * A `blocked_until` entry: `<package> >= <x.y.z>` or `<package> > <x.y.z>`, the
+ * todo schema's pattern (_ai/schemas/yaml/todo.schema.json), which
+ * _bin/check_todo_blocks.py and the queue's unblock read.
+ */
+export const BLOCKED_UNTIL_PATTERN = '^\\s*[a-z0-9_]+\\s*(>=|>)\\s*\\d+\\.\\d+\\.\\d+\\s*$';
+
+/** `blocked_until`, shared by create and update. */
+const BLOCKED_UNTIL_SCHEMA = {
+    blocked_until: {
+        type: 'array',
+        items: { type: 'string', pattern: BLOCKED_UNTIL_PATTERN },
+        description: 'Publish conditions that block the todo, each `<package> >= <x.y.z>` (or `>`): met when pub.dev\'s latest release satisfies it. Keep the prose in `notes`. [] removes the field.',
+    },
+} as const;
+
+/**
+ * Checks `blocked_until` against the schema's pattern; the error to report, or
+ * `undefined` when acceptable (absent counts as acceptable). A condition no
+ * reader can parse would keep the todo blocked for ever, so it is refused.
+ */
+export function validateBlockedUntil(blockedUntil: unknown): string | undefined {
+    if (blockedUntil === undefined) { return undefined; }
+    if (!Array.isArray(blockedUntil)) {
+        return '`blocked_until` must be a list of conditions such as ["tom_d4rt >= 1.225.0"].';
+    }
+    const pattern = new RegExp(BLOCKED_UNTIL_PATTERN);
+    for (let i = 0; i < blockedUntil.length; i++) {
+        const entry: unknown = blockedUntil[i];
+        if (typeof entry !== 'string' || !pattern.test(entry)) {
+            return `blocked_until[${i}] (${JSON.stringify(entry)}) is not a condition: write \`<package> >= <x.y.z>\` or \`<package> > <x.y.z>\`, e.g. "tom_d4rt >= 1.225.0".`;
+        }
+    }
+    return undefined;
+}
+
 /** `user_action`, shared by create and update. */
 const USER_ACTION_SCHEMA = {
     user_action: {
@@ -187,7 +224,8 @@ const DATES_AND_ORCHESTRATION_DOC =
     '`created` / `updated` are stamped by the writer (local date). The Worktracker orchestration fields ' +
     '`execution_role`, `qa_role`, `orchestration_role`, `bundle_id`, `derived_from`, `feedback_source` ' +
     '(optional strings) are written, read back and kept by updates that do not name them. ' +
-    "`user_action: true` marks a todo that is the user's to do: a `<prefix>*` queue walk passes it and goes on with the next todo.";
+    "`user_action: true` marks a todo that is the user's to do: a `<prefix>*` queue walk passes it and goes on with the next todo. " +
+    '`blocked_until` lists publish conditions (`<package> >= <x.y.z>`) that keep a blocked todo blocked until pub.dev has the release; an entry in another form is refused with nothing written.';
 
 // ===========================================================================
 // listQuestTodos
@@ -327,6 +365,7 @@ export interface CreateQuestTodoInput {
         scope?: QuestTodoFull['scope'];
         references?: QuestTodoFull['references'];
         blocked_by?: string[];
+        blocked_until?: string[];
         decisions?: TodoDecision[];
         /** A date (YYYY-MM-DD); a timestamp is written as the date it names. */
         completed_date?: string;
@@ -505,7 +544,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
         }
-        const referencesError = validateTodoReferences(input.todo.references);
+        const referencesError = validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -590,6 +629,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     completed_by: { type: 'string' },
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,
+                    ...BLOCKED_UNTIL_SCHEMA,
                 },
             },
         },
@@ -615,6 +655,7 @@ export interface UpdateQuestTodoInput {
         completed_by?: string;
         dependencies?: string[];
         blocked_by?: string[];
+        blocked_until?: string[];
         decisions?: TodoDecision[];
         /** Replaces the list; each entry an object (see `validateTodoReferences`). */
         references?: QuestTodoFull['references'];
@@ -682,7 +723,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateTodoReferences(input.updates?.references);
+        const referencesError = validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -708,7 +749,7 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     'value as a whole; nothing is merged or appended.** `notes` and `description` are ' +
     'overwritten, never appended to: to add a paragraph, read the todo with ' +
     '`tomAi_getQuestTodo` and send the old text plus the new. `tags`, `dependencies`, ' +
-    '`blocked_by`, `references` and `decisions` replace the whole list. `scope` replaces ' +
+    '`blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list. `scope` replaces ' +
     'the whole object, so keys you leave out are dropped. An empty string or empty list ' +
     'removes the field. **Fields you do NOT pass are kept verbatim**, including `scope`, ' +
     '`references`, `created` timestamps, `_sourceFile` and unknown fields an earlier ' +
@@ -754,6 +795,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     references: { type: 'array', items: REFERENCE_SCHEMA },
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,
+                    ...BLOCKED_UNTIL_SCHEMA,
                 },
             },
         },

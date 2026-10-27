@@ -202,6 +202,15 @@ is written as `user_action: true`, read back and verified, kept by an update
 that does not name it, and removed by `false`. A `prefix*` queue walk passes
 such a todo instead of sending it to an agent, and the todo panel marks it 👤.
 
+**Publish conditions.** Both write tools take `blocked_until` (a list of
+`<package> >= <x.y.z>` or `<package> > <x.y.z>`, the todo schema's pattern):
+the releases a blocked todo waits for, met when pub.dev's latest satisfies them
+(`_bin/check_todo_blocks.py`). It is written, read back and verified, kept by an
+update that does not name it, replaced by one that does, and removed by `[]`. An
+entry in another form is refused (`ok: false`) with nothing written, since no
+reader could ever find it met. The queue's unblock reads it too: a todo with a
+`blocked_until` stays blocked in a `prefix*` walk.
+
 ### 4.11a Id generation
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |

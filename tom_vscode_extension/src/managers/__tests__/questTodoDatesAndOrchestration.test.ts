@@ -22,6 +22,10 @@
  *   QD-5 the writer's own stamps are the local date
  *   QD-6 `user_action` (the todo is the user's to do): written as `true` on create, read back, kept by an
  *        update that does not name it, removed by `false`
+ *   QD-7 `blocked_until` (publish conditions `<package> >= <x.y.z>`, read by _bin/check_todo_blocks.py and
+ *        the queue's unblock): written on create and read back (the write is verified), kept by an update that
+ *        does not name it, replaced by one that does, removed by []; an entry outside the schema's pattern is
+ *        refused with nothing written
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -162,5 +166,42 @@ describe('quest-todo writers: schema dates and orchestration fields', () => {
         const plain = await call(createQuestTodoImpl(deps, { questId: QUEST, todo: { id: 'u2', description: 'x', status: 'not-started', user_action: false } }));
         assert.equal(plain.ok, true, plain.error);
         assert.doesNotMatch(raw(), /user_action: false/);
+    });
+
+    test('QD-7: blocked_until', async () => {
+        const created = await call(createQuestTodoImpl(deps, { questId: QUEST, todo: {
+            id: 'b1', description: 'waits for a release', status: 'blocked', blocked_until: ['tom_d4rt >= 1.225.0'],
+        } }));
+        assert.equal(created.ok, true, created.error);
+        assert.match(raw(), /\n {4}blocked_until:\n {6}- tom_d4rt >= 1\.225\.0\n/);
+        assert.deepEqual(findTodoById(QUEST, 'b1')?.blocked_until, ['tom_d4rt >= 1.225.0']);
+        assert.deepEqual(created.todo.blocked_until, ['tom_d4rt >= 1.225.0']);
+
+        const kept = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'b1', updates: { notes: 'later' } }));
+        assert.equal(kept.ok, true, kept.error);
+        assert.deepEqual(findTodoById(QUEST, 'b1')?.blocked_until, ['tom_d4rt >= 1.225.0'], 'an update that does not name it keeps it');
+
+        const replaced = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'b1', updates: {
+            blocked_until: ['tom_d4rt >= 1.226.0', 'tom_d4rt_ast > 0.176.0'],
+        } }));
+        assert.equal(replaced.ok, true, replaced.error);
+        assert.deepEqual(findTodoById(QUEST, 'b1')?.blocked_until, ['tom_d4rt >= 1.226.0', 'tom_d4rt_ast > 0.176.0']);
+
+        const before = raw();
+        for (const bad of [['tom_d4rt 1.0.0'], ['tom_d4rt >= 1.0'], 'tom_d4rt >= 1.0.0', [3]]) {
+            const refused = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'b1', updates: { blocked_until: bad as never, notes: 'x' } }));
+            assert.equal(refused.ok, false, JSON.stringify(bad));
+            assert.match(refused.error, /blocked_until/);
+        }
+        const refusedCreate = await call(createQuestTodoImpl(deps, { questId: QUEST, todo: {
+            id: 'b2', description: 'x', status: 'blocked', blocked_until: ['nope'],
+        } }));
+        assert.equal(refusedCreate.ok, false);
+        assert.equal(raw(), before, 'a refused write changes nothing');
+
+        const cleared = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'b1', updates: { blocked_until: [] } }));
+        assert.equal(cleared.ok, true, cleared.error);
+        assert.doesNotMatch(raw(), /blocked_until/);
+        assert.equal(findTodoById(QUEST, 'b1')?.blocked_until, undefined);
     });
 });
