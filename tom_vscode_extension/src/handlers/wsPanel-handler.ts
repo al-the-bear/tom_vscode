@@ -30,6 +30,7 @@ import {
 } from './questTodoPanel-handler.js';
 import {
     getQuestLogsHtmlFragment,
+    getQuestDocsHtmlFragment,
     getQuestLogsCss,
     getQuestLogsScript,
     handleQuestLogsMessage,
@@ -290,7 +291,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                 id: 'documentation',
                 title: 'Documentation',
                 icon: 'note',
-                content: `
+                // Sub-tabs: Documents (this editor), then the quest's documents (questLogs-handler).
+                content: getQuestDocsHtmlFragment(`
 <div class="toolbar">
     ${getDocumentPickerHtml({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true, groupLabel: 'Group:', fileLabel: 'File:' })}
     <button class="icon-btn" onclick="reloadDocs()" title="Reload"><span class="codicon codicon-refresh"></span></button>
@@ -301,7 +303,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     <button class="icon-btn" onclick="openDocsExternal()" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>
 </div>
 <textarea id="docs-text" placeholder="Documentation..." spellcheck="false" data-completion="on"></textarea>
-<div class="status-bar">Documentation viewer</div>`,
+<div class="status-bar">Documentation viewer</div>`),
             },
             {
                 id: 'logs',

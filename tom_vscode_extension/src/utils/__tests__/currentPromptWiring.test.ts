@@ -200,7 +200,7 @@ describe('the Logs viewer carries the variant end to end', () => {
     test('the client ignores a reply for a variant it is no longer showing', () => {
         assert.match(
             client,
-            /msg\.variant\s*!==\s*qlogActiveVariant/,
+            /msg\.variant\s*!==\s*v\.variant/,
             'without this, a reply in flight when the dropdown changed is applied to the new label',
         );
     });
@@ -214,8 +214,9 @@ describe('the Logs viewer carries the variant end to end', () => {
     });
 
     test('the dropdown selection survives a reload alongside the tab', () => {
-        assert.match(client, /s\.qlogVariant\s*=\s*qlogActiveVariant/, 'the variant is never persisted');
-        assert.match(client, /s\.qlogVariant/, 'the variant is never restored');
+        // Each viewer keeps its selection under its own key in the shared state.
+        assert.match(client, /all\[stateKey\]\s*=\s*\{\s*tab:\s*v\.tab,\s*variant:\s*v\.variant/, 'the variant is never persisted');
+        assert.match(client, /isKnownVariant\(s\.variant\)\)\s*\{\s*v\.variant\s*=\s*s\.variant/, 'the variant is never restored');
     });
 
     test('the dropdown is built from the catalogue and shown only for its tab', () => {
@@ -224,10 +225,12 @@ describe('the Logs viewer carries the variant end to end', () => {
             /CURRENT_PROMPT_VARIANTS/,
             'the six options must come from the catalogue, not be re-typed into HTML',
         );
+        // The element is the viewer's `<prefix>-variant` (qlog-variant for Logs).
         assert.match(
             client,
-            /qlog-variant/,
+            /el\('variant'\)/,
             'the client never touches the dropdown element',
         );
+        assert.match(handler, /id="qlog-variant"/, 'the Logs viewer has the dropdown');
     });
 });

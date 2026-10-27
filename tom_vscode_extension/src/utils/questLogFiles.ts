@@ -23,7 +23,7 @@
  * line boundary by {@link trimToLineStart} / {@link trimToLineEnd}.
  */
 
-import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSIONS_FOLDER } from '../services/sessionStorage';
+import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSION_TRAIL_FOLDER, SESSIONS_FOLDER } from '../services/sessionStorage';
 import { sanitizeQuestSegment } from './questPaths.js';
 
 /** Identifier of one Logs sub-tab. */
@@ -68,9 +68,17 @@ export type QuestLogView = 'rendered' | 'source';
  */
 export type QuestLogNewestAt = 'end' | 'start';
 
-/** One entry of the Logs tab strip. */
+/**
+ * Which @WS section shows a tab: `logs` (the per-session files: live trail,
+ * trail pair, current prompt — with a session switch) or `docs` (the quest's
+ * own documents, sub-tabs of Documentation).
+ */
+export type QuestLogSection = 'logs' | 'docs';
+
+/** One entry of the Logs / Documentation tab strips. */
 export interface QuestLogTab {
     readonly id: QuestLogTabId;
+    readonly section: QuestLogSection;
     /** Label shown in the tab strip. */
     readonly label: string;
     /** Codicon name (without the `codicon-` prefix). */
@@ -238,29 +246,41 @@ export function pendingCurrentPromptFiles(
  * rendered view hides the structure you are debugging.
  */
 export const QUEST_LOG_TABS: readonly QuestLogTab[] = [
-    { id: 'mdTrail', label: 'MD Trail', icon: 'preview', view: 'rendered', newestAt: 'end' },
-    { id: 'trail', label: 'Trail', icon: 'pulse', view: 'source', newestAt: 'end' },
-    { id: 'prompts', label: 'Prompts', icon: 'comment', view: 'source', newestAt: 'start' },
-    { id: 'answers', label: 'Answers', icon: 'comment-discussion', view: 'source', newestAt: 'start' },
-    { id: 'progress', label: 'Progress', icon: 'graph', view: 'source', newestAt: 'start' },
-    { id: 'overview', label: 'Overview', icon: 'book', view: 'source', newestAt: 'start' },
-    { id: 'notes', label: 'Notes', icon: 'note', view: 'source', newestAt: 'start' },
-    { id: 'refresh', label: 'Refresh', icon: 'refresh', view: 'source', newestAt: 'start' },
-    { id: 'docUpdate', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source', newestAt: 'start' },
+    // Logs: what one session wrote — the session switch picks which.
+    { id: 'mdTrail', section: 'logs', label: 'MD Trail', icon: 'preview', view: 'rendered', newestAt: 'end' },
+    { id: 'trail', section: 'logs', label: 'Trail', icon: 'pulse', view: 'source', newestAt: 'end' },
+    { id: 'prompts', section: 'logs', label: 'Prompts', icon: 'comment', view: 'source', newestAt: 'start' },
+    { id: 'answers', section: 'logs', label: 'Answers', icon: 'comment-discussion', view: 'source', newestAt: 'start' },
+    // The only tab that shows *now* rather than history: the prompt the
+    // session last sent, replaced on every send. Its files are rewritten
+    // wholesale, so like the quest documents it is read and opened from the top.
+    {
+        id: 'currentPrompt', section: 'logs', label: 'Current Prompt', icon: 'send',
+        view: 'source', newestAt: 'start', variants: CURRENT_PROMPT_VARIANTS,
+    },
+    // Documentation: the quest's own documents, one set for every session.
+    { id: 'progress', section: 'docs', label: 'Quest Progress', icon: 'graph', view: 'source', newestAt: 'start' },
+    { id: 'overview', section: 'docs', label: 'Quest Overview', icon: 'book', view: 'source', newestAt: 'start' },
+    { id: 'notes', section: 'docs', label: 'Quest Notes', icon: 'note', view: 'source', newestAt: 'start' },
+    { id: 'refresh', section: 'docs', label: 'Quest Refresh', icon: 'refresh', view: 'source', newestAt: 'start' },
+    { id: 'docUpdate', section: 'docs', label: 'DocUpdate', icon: 'file-symlink-file', view: 'source', newestAt: 'start' },
     // The three journals. Unlike their neighbours these are appended to — a
     // deferred step, an answered question and a recorded decision are all added
     // after the ones already there — so they grow at the bottom.
-    { id: 'deferred', label: 'Deferred', icon: 'bookmark', view: 'source', newestAt: 'end' },
-    { id: 'questions', label: 'Questions', icon: 'question', view: 'source', newestAt: 'end' },
-    { id: 'decisions', label: 'Decisions', icon: 'checklist', view: 'source', newestAt: 'end' },
-    // The only tab that shows *now* rather than history: the prompt currently
-    // running, replaced on every send. Its files are rewritten wholesale, so
-    // like the quest documents it is read and opened from the top.
-    {
-        id: 'currentPrompt', label: 'Current Prompt', icon: 'send',
-        view: 'source', newestAt: 'start', variants: CURRENT_PROMPT_VARIANTS,
-    },
+    { id: 'deferred', section: 'docs', label: 'Deferred', icon: 'bookmark', view: 'source', newestAt: 'end' },
+    { id: 'questions', section: 'docs', label: 'Questions', icon: 'question', view: 'source', newestAt: 'end' },
+    { id: 'decisions', section: 'docs', label: 'Decisions', icon: 'checklist', view: 'source', newestAt: 'end' },
 ];
+
+/** The tabs of one section, in display order. */
+export function questLogTabsOf(section: QuestLogSection): readonly QuestLogTab[] {
+    return QUEST_LOG_TABS.filter(t => t.section === section);
+}
+
+/** Whether a tab shows a session's file (the Logs tabs). */
+export function isSessionTab(tab: QuestLogTabId): boolean {
+    return QUEST_LOG_TABS.find(t => t.id === tab)?.section === 'logs';
+}
 
 /** Tab selected when nothing has been persisted yet. */
 export const DEFAULT_QUEST_LOG_TAB_ID: QuestLogTabId = 'mdTrail';
@@ -272,8 +292,13 @@ export const DEFAULT_QUEST_LOG_TAB_ID: QuestLogTabId = 'mdTrail';
  */
 export const MAX_QUEST_LOG_BYTES = 256 * 1024;
 
-/** The session folder (relative to the quest's `history/`) the per-session tabs read. */
-const LOGS_SESSION_FOLDER = `${SESSIONS_FOLDER}/${MIGRATION_TARGET_SESSION}`;
+/** The session the Logs tabs show when none is chosen: the prompt queue's. */
+export const DEFAULT_LOG_SESSION = MIGRATION_TARGET_SESSION;
+
+/** A session name a Logs tab may read (the rule of session names; anything else falls back to the default). */
+function safeSession(session: string | undefined | null): string {
+    return typeof session === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(session) ? session : DEFAULT_LOG_SESSION;
+}
 
 /** Type guard for values arriving from the webview / persisted state. */
 export function isQuestLogTabId(value: unknown): value is QuestLogTabId {
@@ -294,19 +319,19 @@ export function questLogLocation(
     tab: QuestLogTabId,
     questId: string | undefined | null,
     variant?: QuestLogVariantId,
+    session?: string,
 ): QuestLogLocation {
     const quest = sanitizeQuestSegment(questId);
+    // The Logs tabs read the chosen session's storage (src/services/sessionStorage.ts).
+    const folder = `${SESSIONS_FOLDER}/${safeSession(session)}`;
     switch (tab) {
-        // The live trail and the trail pair are per session
-        // (src/services/sessionStorage.ts): these tabs show the queue's
-        // session, `default`.
         case 'mdTrail':
         case 'trail':
-            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${SESSION_LIVE_TRAIL_FILE}` };
+            return { area: 'questHistory', fileName: `${folder}/${SESSION_LIVE_TRAIL_FILE}` };
         case 'prompts':
-            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${quest}.anthropic.prompts.md` };
+            return { area: 'questHistory', fileName: `${folder}/${quest}.anthropic.prompts.md` };
         case 'answers':
-            return { area: 'questHistory', fileName: `${LOGS_SESSION_FOLDER}/${quest}.anthropic.answers.md` };
+            return { area: 'questHistory', fileName: `${folder}/${quest}.anthropic.answers.md` };
         case 'progress':
             return { area: 'quest', fileName: `progress.${quest}.md` };
         case 'overview':
@@ -324,9 +349,10 @@ export function questLogLocation(
         case 'decisions':
             return { area: 'quest', fileName: `decisions.${quest}.md` };
         case 'currentPrompt': {
+            // The session's own copy, in its trail folder (current-prompt-dump.ts).
             const id = isQuestLogVariantId(variant) ? variant : DEFAULT_QUEST_LOG_VARIANT_ID;
             const entry = CURRENT_PROMPT_VARIANTS.find(v => v.id === id)!;
-            return { area: 'trail', fileName: currentPromptFileName(entry.source, entry.part) };
+            return { area: 'questHistory', fileName: `${folder}/${SESSION_TRAIL_FOLDER}/${currentPromptFileName(entry.source, entry.part)}` };
         }
     }
 }
@@ -340,12 +366,12 @@ export function questLogLocation(
  * for one variant because a different one had not moved, and five of the six
  * options would never load.
  */
-export function questLogViewKey(tab: QuestLogTabId, variant?: QuestLogVariantId): string {
+export function questLogViewKey(tab: QuestLogTabId, variant?: QuestLogVariantId, session?: string): string {
     const entry = QUEST_LOG_TABS.find(t => t.id === tab);
-    if (!entry?.variants) {
-        return tab;
-    }
-    return `${tab}:${isQuestLogVariantId(variant) ? variant : DEFAULT_QUEST_LOG_VARIANT_ID}`;
+    const base = entry?.variants ? `${tab}:${isQuestLogVariantId(variant) ? variant : DEFAULT_QUEST_LOG_VARIANT_ID}` : tab;
+    // A Logs tab is one file per session: keyed by tab alone, switching the
+    // session would be answered "unchanged" and keep the other session's text.
+    return entry?.section === 'logs' ? `${base}@${safeSession(session)}` : base;
 }
 
 /**

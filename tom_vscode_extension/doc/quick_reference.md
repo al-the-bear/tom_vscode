@@ -152,8 +152,8 @@
 | Section | Icon | Description |
 | --- | --- | --- |
 | Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
-| Documentation | `note` | Project documentation |
-| Logs | `output` | Active quest's log files — see [Logs sub-tabs](#logs-sub-tabs) |
+| Documentation | `note` | Sub-tabs: **Documents** (the document editor) and the quest's own documents — see [Documentation sub-tabs](#documentation-sub-tabs) |
+| Logs | `output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | Issue tracking |
 | Tests | `beaker` | Test results |
@@ -161,33 +161,47 @@
 
 #### Logs sub-tabs
 
-Read-only viewers over the active quest's files in `_ai/quests/{quest}/` — plus
-**Current Prompt**, which reads the quest's gitignored trail folder. The
-selected sub-tab survives a window reload; the content refreshes every 2.5 s. A
-file larger than 256 KB is read from — and the view opens at — the end its
-newest content is at (the *Opens at* column below). Two toolbar buttons act on
-the selected sub-tab: **Refresh** re-reads from disk, **Open in editor** opens
-the file in a normal text editor.
+Read-only viewers over one Anthropic session's files in
+`_ai/quests/{quest}/history/sessions/{session}/`. A **session switch** sits above
+the sub-tabs: one button per session, the most recently used first; with more
+than four sessions a dropdown holding every session comes first and the buttons
+are the four most recently used. The list follows sessions created and deleted
+while the section is open; each sub-tab remembers its session (default:
+`default`, the queue's) and the selected sub-tab survives a window reload. The
+content refreshes every 2.5 s. A file larger than 256 KB is read from — and the
+view opens at — the end its newest content is at (the *Opens at* column below).
+Two toolbar buttons act on the selected sub-tab: **Refresh** re-reads from disk,
+**Open in editor** opens the file in a normal text editor.
 
-| Sub-tab | File | View | Opens at |
+| Sub-tab | File (in the session's folder) | View | Opens at |
 | --- | --- | --- | --- |
-| MD Trail | `history/sessions/default/live-trail.md` | Rendered markdown | Bottom (appended to) |
-| Trail | `history/sessions/default/live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
-| Prompts | `history/sessions/default/{quest}.anthropic.prompts.md` | Source | Top |
-| Answers | `history/sessions/default/{quest}.anthropic.answers.md` | Source | Top |
-| Progress | `progress.{quest}.md` | Source | Top |
-| Overview | `overview.{quest}.md` | Source | Top |
-| Notes | `quest-notes.{quest}.md` | Source | Top |
-| Refresh | `quest_refresh.{quest}.md` | Source | Top |
-| DocUpdate | `quest_documentation_update.{quest}.md` | Source | Top |
-| Deferred | `deferred.{quest}.md` | Source | Bottom (appended to) |
-| Questions | `questions.{quest}.md` | Source | Bottom (appended to) |
-| Decisions | `decisions.{quest}.md` | Source | Bottom (appended to) |
-| Current Prompt | `_ai/trail/anthropic/{quest}/current_prompt.*.md` | Source | Top |
+| MD Trail | `live-trail.md` | Rendered markdown | Bottom (appended to) |
+| Trail | `live-trail.md` | Source, syntax-highlighted | Bottom (appended to) |
+| Prompts | `{quest}.anthropic.prompts.md` | Source | Top |
+| Answers | `{quest}.anthropic.answers.md` | Source | Top |
+| Current Prompt | `trail/current_prompt.*.md` | Source | Top |
 
-Not every quest has every file; a missing one is reported in the viewer. The
-live trail and the trail pair are per session; these tabs show the prompt
-queue's session, `default`.
+A session without the file yet shows a line saying so.
+
+#### Documentation sub-tabs
+
+**Documents** is the document editor (Workspace / Projects / Notes groups). The
+other sub-tabs are read-only viewers over the quest's own documents in
+`_ai/quests/{quest}/`, one set for every session, with the same toolbar, refresh
+and 256 KB window as the Logs:
+
+| Sub-tab | File | Opens at |
+| --- | --- | --- |
+| Quest Progress | `progress.{quest}.md` | Top |
+| Quest Overview | `overview.{quest}.md` | Top |
+| Quest Notes | `quest-notes.{quest}.md` | Top |
+| Quest Refresh | `quest_refresh.{quest}.md` | Top |
+| DocUpdate | `quest_documentation_update.{quest}.md` | Top |
+| Deferred | `deferred.{quest}.md` | Bottom (appended to) |
+| Questions | `questions.{quest}.md` | Bottom (appended to) |
+| Decisions | `decisions.{quest}.md` | Bottom (appended to) |
+
+Not every quest has every file; a missing one is reported in the viewer.
 
 **Current Prompt** is the one sub-tab that shows several files, picked from a
 toolbar dropdown that appears only while it is selected. The six options are the

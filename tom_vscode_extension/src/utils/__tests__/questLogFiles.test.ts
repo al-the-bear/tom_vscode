@@ -1,8 +1,9 @@
 /**
- * Tests for the quest log-file catalogue that backs the @WS panel's Logs
- * section (thirteen sub-tabs: MD Trail, Trail, Prompts, Answers, Progress,
- * Overview, Notes, Refresh, DocUpdate, Deferred, Questions, Decisions,
- * Current Prompt).
+ * Tests for the quest log-file catalogue that backs two @WS sections: the Logs
+ * section (one session's files: MD Trail, Trail, Prompts, Answers, Current
+ * Prompt) and the quest-document sub-tabs of Documentation (Quest Progress,
+ * Quest Overview, Quest Notes, Quest Refresh, DocUpdate, Deferred, Questions,
+ * Decisions).
  *
  * The catalogue is pure — no `vscode`, no `fs` — so the sub-tab → file mapping,
  * the quest-id sanitisation and the tail window can be pinned down here rather
@@ -40,6 +41,8 @@ import {
     isQuestLogVariantId,
     questLogLocation,
     questLogViewKey,
+    questLogTabsOf,
+    isSessionTab,
     computeTailStart,
     trimToLineStart,
     trimToLineEnd,
@@ -48,24 +51,29 @@ import {
 } from '../questLogFiles.js';
 
 describe('QUEST_LOG_TABS catalogue', () => {
-    test('declares exactly the thirteen sub-tabs, in order', () => {
+    test('declares exactly the thirteen sub-tabs, in order: the Logs tabs, then the quest documents', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.id),
             [
-                'mdTrail', 'trail', 'prompts', 'answers', 'progress',
-                'overview', 'notes', 'refresh', 'docUpdate', 'deferred',
-                'questions', 'decisions', 'currentPrompt',
+                'mdTrail', 'trail', 'prompts', 'answers', 'currentPrompt',
+                'progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred',
+                'questions', 'decisions',
             ],
         );
+        assert.deepEqual(questLogTabsOf('logs').map(t => t.id), ['mdTrail', 'trail', 'prompts', 'answers', 'currentPrompt']);
+        assert.deepEqual(questLogTabsOf('docs').map(t => t.id),
+            ['progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred', 'questions', 'decisions']);
+        assert.deepEqual(QUEST_LOG_TABS.filter(t => isSessionTab(t.id)).map(t => t.id), questLogTabsOf('logs').map(t => t.id),
+            'exactly the Logs tabs show a session');
     });
 
     test('labels match the names the panel shows', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.label),
             [
-                'MD Trail', 'Trail', 'Prompts', 'Answers', 'Progress',
-                'Overview', 'Notes', 'Refresh', 'DocUpdate', 'Deferred',
-                'Questions', 'Decisions', 'Current Prompt',
+                'MD Trail', 'Trail', 'Prompts', 'Answers', 'Current Prompt',
+                'Quest Progress', 'Quest Overview', 'Quest Notes', 'Quest Refresh', 'DocUpdate', 'Deferred',
+                'Questions', 'Decisions',
             ],
         );
     });
@@ -107,8 +115,8 @@ describe('QUEST_LOG_TABS catalogue', () => {
 
         const fromStart = QUEST_LOG_TABS.filter(t => t.newestAt === 'start').map(t => t.id);
         assert.deepEqual(fromStart, [
-            'prompts', 'answers', 'progress', 'overview',
-            'notes', 'refresh', 'docUpdate', 'currentPrompt',
+            'prompts', 'answers', 'currentPrompt', 'progress', 'overview',
+            'notes', 'refresh', 'docUpdate',
         ]);
     });
 
@@ -177,6 +185,16 @@ describe('questLogLocation', () => {
         });
     }
 
+    test('the Logs tabs read the chosen session\'s storage', () => {
+        assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'chat'), { area: 'questHistory', fileName: 'sessions/chat/live-trail.md' });
+        assert.deepEqual(questLogLocation('prompts', 'demo', undefined, 'tmp-261027-120000-a1'),
+            { area: 'questHistory', fileName: 'sessions/tmp-261027-120000-a1/demo.anthropic.prompts.md' });
+        assert.deepEqual(questLogLocation('answers', 'demo'), { area: 'questHistory', fileName: 'sessions/default/demo.anthropic.answers.md' },
+            'no session: the queue\'s');
+        assert.equal(questLogLocation('trail', 'demo', undefined, '../../etc').fileName, 'sessions/default/live-trail.md', 'a bad name cannot leave the folder');
+        assert.deepEqual(questLogLocation('progress', 'demo', undefined, 'chat'), { area: 'quest', fileName: 'progress.demo.md' }, 'a quest document has no session');
+    });
+
     test('both trail tabs read the same file — one rendered, one as source', () => {
         assert.deepEqual(
             questLogLocation('mdTrail', 'demo'),
@@ -197,18 +215,18 @@ describe('questLogLocation', () => {
         assert.equal(fileName, 'overview..._.._etc.md');
     });
 
-    test('Current Prompt reads the trail area, not the quest folder', () => {
-        // This is the load-bearing half of the tab. The files are rewritten on
-        // every single send; the quest folder is tracked in the fleet-shared
-        // `_ai` repo, so parking them there would produce a merge conflict per
-        // prompt on four machines. `_ai/trail/**` is gitignored — that is the
-        // reason the area exists as a concept at all.
-        assert.equal(questLogLocation('currentPrompt', 'demo', 'chatLiteral').area, 'trail');
+    test('Current Prompt reads the session\'s trail folder, not the quest folder', () => {
+        // The files are rewritten on every single send; the quest folder is
+        // tracked in the fleet-shared `_ai` repo, so parking them there would
+        // produce a merge conflict per prompt on four machines. A session's
+        // `trail/` is gitignored, and holds its own copy of the files.
+        const loc = questLogLocation('currentPrompt', 'demo', 'chatLiteral', 'walk');
+        assert.deepEqual(loc, { area: 'questHistory', fileName: 'sessions/walk/trail/current_prompt.chat.literal.md' });
     });
 
     test('each of the six variants maps to its own file', () => {
         const names = CURRENT_PROMPT_VARIANTS.map(
-            v => questLogLocation('currentPrompt', 'demo', v.id).fileName,
+            v => questLogLocation('currentPrompt', 'demo', v.id).fileName.split('/').pop(),
         );
         assert.deepEqual(names, [
             'current_prompt.chat.literal.md',
@@ -337,6 +355,15 @@ describe('questLogViewKey', () => {
         const keys = QUEST_LOG_TABS.map(t => questLogViewKey(t.id));
         assert.equal(new Set(keys).size, QUEST_LOG_TABS.length);
     });
+
+    test('a Logs tab has one key per session; a quest document has one', () => {
+        assert.notEqual(questLogViewKey('mdTrail', undefined, 'chat'), questLogViewKey('mdTrail', undefined, 'default'),
+            'switching the session must load the other session\'s file, not answer "unchanged"');
+        assert.equal(questLogViewKey('mdTrail'), questLogViewKey('mdTrail', undefined, 'default'), 'no session: the default one');
+        assert.equal(questLogViewKey('currentPrompt', 'queueUser', 'walk'), 'currentPrompt:queueUser@walk');
+        assert.equal(questLogViewKey('progress', undefined, 'walk'), 'progress', 'the quest documents are one set');
+        assert.equal(questLogViewKey('trail', undefined, '../evil'), questLogViewKey('trail', undefined, 'default'), 'a bad name is the default');
+    });
 });
 
 /**
@@ -370,7 +397,8 @@ describe('currentPromptFiles', () => {
             ...currentPromptFiles('queue', texts),
         ].map(f => f.fileName));
         for (const variant of CURRENT_PROMPT_VARIANTS) {
-            const { fileName } = questLogLocation('currentPrompt', 'demo', variant.id);
+            // The reader looks in the session's trail folder; the name is the writer's.
+            const fileName = questLogLocation('currentPrompt', 'demo', variant.id).fileName.split('/').pop()!;
             assert.ok(written.has(fileName), `nothing writes ${fileName} (variant ${variant.id})`);
         }
     });

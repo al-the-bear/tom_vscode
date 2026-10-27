@@ -9,7 +9,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 Current bottom panel layout:
 
 - `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
-- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section carries its own strip of thirteen sub-tabs over the active quest's log files and the running prompt — see [Logs Panel](#logs-panel).
+- `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section shows one session's live trail, prompts, answers and running prompt, with a session switch — see [Logs Panel](#logs-panel); the Documentation section's sub-tabs hold the document editor and the quest's own documents — see [Documentation Panel](#documentation-panel).
 
 AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
 
@@ -23,31 +23,35 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 
 ### Logs Panel
 
-The Logs section of @WS shows the active quest's log-style markdown files from
-`_ai/quests/{quest}/`, plus the prompt that is running right now. It is
-read-only; use the toolbar to edit.
+The Logs section of @WS shows what one Anthropic session wrote: its live trail,
+its prompts and answers, and the prompt it last sent. Every session — `default`
+(the prompt queue), `chat` (the ANTHROPIC panel) and each named session — keeps
+these in `_ai/quests/{quest}/history/sessions/{session}/`. It is read-only; use
+the toolbar to edit.
 
-- **Sub-tabs**: **MD Trail** (the queue session's `live-trail.md`, rendered), **Trail** (the same
-  file as highlighted source), **Prompts** / **Answers** (the queue session's
-  `{quest}.anthropic.prompts.md` / `.answers.md`, all in `history/sessions/default/`), **Progress**, **Overview**,
-  **Notes** (`quest-notes.{quest}.md`), **Refresh**
-  (`quest_refresh.{quest}.md`), **DocUpdate**
-  (`quest_documentation_update.{quest}.md`), **Deferred**
-  (`deferred.{quest}.md`), **Questions** (`questions.{quest}.md` — every
-  question the model asked you and the answer you gave), **Decisions**
-  (`decisions.{quest}.md` — the decisions carried by each todo, copied here when
-  the todo is archived as completed), **Current Prompt** (see below)
-- **Remembered selection**: the active sub-tab is restored after a window reload
+- **Session switch**: above the sub-tabs, one button per session, the most
+  recently used first. With more than four sessions a dropdown holding every
+  session comes first, and the buttons are the four most recently used; the
+  chosen session shows in the dropdown when it has no button. The list follows
+  sessions created and deleted while the section is open, and a session without
+  that file yet shows a line saying so. The choice is remembered per sub-tab;
+  without one the tab shows `default`.
+- **Sub-tabs**: **MD Trail** (the session's `live-trail.md`, rendered), **Trail**
+  (the same file as highlighted source), **Prompts** / **Answers** (the session's
+  `{quest}.anthropic.prompts.md` / `.answers.md`), **Current Prompt** (see below)
+- **Remembered selection**: the active sub-tab and each sub-tab's session are
+  restored after a window reload
 - **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
   that has not changed costs no read
 - **256 KB window**: a larger file is shown from the end its newest content is
-  at — the last 256 KB (marked `(tail)`) of the two trail tabs and of the three
-  journals (**Deferred**, **Questions**, **Decisions**), which are appended to,
-  and the first 256 KB (marked `(head)`) of the remaining tabs, whose documents
-  are prepended to or rewritten wholesale
+  at — the last 256 KB (marked `(tail)`) of the two trail tabs, the first 256 KB
+  (marked `(head)`) of the others
 - **Follow scrolling**: the view opens at that same end, and a reader still
   sitting there stays there as the file grows; scrolling away to study something
   holds that position
+
+The quest's own documents moved to the **Documentation** section (see
+[Documentation Panel](#documentation-panel)).
 
 #### Current Prompt sub-tab
 
@@ -68,16 +72,33 @@ separate sets: the **Chat** options never show a queue item's prompt and vice
 versa. The dropdown selection is remembered across a window reload alongside the
 sub-tab.
 
-The files behind it live in the quest's Anthropic trail folder
-(`_ai/trail/anthropic/{quest}/current_prompt.*.md`), which is gitignored — they
-change on every prompt, so they are deliberately kept out of the tracked quest
-folder. They are written for every Anthropic transport (direct SDK, Agent SDK,
+The files behind it are the session's own copy in its trail folder
+(`history/sessions/{session}/trail/current_prompt.*.md`), which is gitignored —
+they change on every prompt, so they are deliberately kept out of what git
+tracks. They are written for every Anthropic transport (direct SDK, Agent SDK,
 vscodeLm) and persist after the answer arrives, so the tab still shows the last
 prompt sent when nothing is running.
 - **Toolbar**: **Refresh** re-reads the selected file from disk; **Open in
   editor** opens it in a normal text editor
-- **Missing files**: not every quest has every document; a missing one is
-  reported in the viewer rather than treated as an error
+
+### Documentation Panel
+
+The Documentation section of @WS has its own sub-tabs:
+
+- **Documents** — the document editor: pick a group (Workspace, Projects,
+  Notes) and a file, edit it, open it in an editor or the MD viewer.
+- The quest's documents, read-only like the Logs (the same toolbar, 2.5 s
+  refresh and 256 KB window): **Quest Progress** (`progress.{quest}.md`),
+  **Quest Overview** (`overview.{quest}.md`), **Quest Notes**
+  (`quest-notes.{quest}.md`), **Quest Refresh** (`quest_refresh.{quest}.md`),
+  **DocUpdate** (`quest_documentation_update.{quest}.md`), **Deferred**
+  (`deferred.{quest}.md`), **Questions** (`questions.{quest}.md` — every question
+  the model asked you and the answer you gave), **Decisions**
+  (`decisions.{quest}.md` — the decisions carried by each todo, copied here when
+  the todo is archived as completed). The three journals (Deferred, Questions,
+  Decisions) are appended to and open at their end; the others open at the top.
+  These are one set per quest, shared by every session. Not every quest has
+  every document; a missing one is reported in the viewer.
 
 ### Markdown Browser
 

@@ -73,3 +73,21 @@
 .qlog-body table { border-collapse: collapse; margin: 6px 0; }
 .qlog-body th, .qlog-body td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; text-align: left; }
 .qlog-body th { background: var(--vscode-keybindingTable-headerBackground, var(--vscode-editorWidget-background)); }
+
+/* ── Session switch (Logs) ─────────────────────────────── */
+/* A dropdown (only with more than four sessions) then one button per session,
+   the four most recently used. The chosen session's button is marked like the
+   active tab. */
+.qlog-session-bar { align-items: center; }
+.qlog-session-label { font-size: 11px; opacity: 0.8; }
+.qlog-sessions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.qlog-session-select { height: 20px; max-width: 160px; padding: 0 4px; font-size: 11px; font-family: inherit; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 2px; cursor: pointer; }
+.qlog-session-btn { height: 20px; padding: 0 6px; font-size: 11px; font-family: inherit; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid transparent; border-radius: 2px; cursor: pointer; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.qlog-session-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.qlog-session-btn.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: var(--vscode-focusBorder); font-weight: 600; }
+
+/* ── Documentation sub-tabs ────────────────────────────── */
+/* The Documents pane holds the document editor and takes the section's height
+   like the viewer does; [hidden] needs the explicit rule against display:flex. */
+.qdoc-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.qdoc-pane[hidden], .qlog-body[hidden], .status-bar[hidden], .icon-btn[hidden] { display: none; }
