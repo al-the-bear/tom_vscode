@@ -98,9 +98,12 @@
             var aiConversationActive = s.aiConversationActive === true;
             var aiConversationHtml = '<div class="ai-conversation-line ' + (aiConversationActive ? 'active' : 'inactive') + '">AI conversation: ' + (aiConversationActive ? 'active' : 'inactive') + '</div>';
             var goneHtml = s.gone ? ' <span class="window-gone" title="No heartbeat since ' + escapeHtml(timeAgo(s.heartbeat)) + ': the window is gone">gone</span>' : '';
+            // `reload`: the window runs an older build than the one installed (computed by the extension).
+            var reloadHtml = s.reload ? ' <span class="window-reload" title="Runs ' + escapeHtml(s.reload.running) + '; installed is '
+                + escapeHtml(s.reload.installed) + '. Reload that window to run the installed build.">reload needed</span>' : '';
             html += '<div class="window-card' + (s.gone ? ' gone' : '') + '">'
                 + '<div class="window-card-header">'
-                + '<span class="window-workspace">' + escapeHtml(questLabel) + goneHtml + '</span>'
+                + '<span class="window-workspace">' + escapeHtml(questLabel) + goneHtml + reloadHtml + '</span>'
                 + '<button class="delete-btn" data-windowid="' + escapeHtml(s.windowId) + '" title="Remove window status">'
                 + '<span class="codicon codicon-trash"></span></button>'
                 + '</div>'

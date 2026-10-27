@@ -90,7 +90,7 @@ Each table lists every tool in the family with a per-transport default.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`). | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |

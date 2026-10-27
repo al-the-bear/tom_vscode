@@ -164,8 +164,13 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 - **Servers**: behind the indicators, the servers the window runs with their ports, e.g. `CLI :19901 · MCP :19921`
 - **Heartbeat**: every window rewrites its heartbeat (time, process id, servers) every 30 seconds; a window whose heartbeat is older than 90 seconds is shown dimmed and marked *gone*. A window of an older build writes no heartbeat and is not judged.
 - **What each window is doing**: with every heartbeat, and about a second after it changes, a window also writes its host, role, process position, the ANTHROPIC panel's profile and session, and a queue summary (auto-send, paused, items per status, the defaults, the item being sent). An agent or MCP client reads all of it, with each quest's sessions and the Anthropic profiles, through `tomAi_getQuestWindowStatus` — the lookup before `tomAi_sendItemToQuest`.
+- **Reload needed**: a window that runs an older build of the extension than the one installed is marked *reload needed*; the tooltip names both builds. Reload that window to run the installed build.
 - **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 3 seconds
 - **Cleanup**: Delete button to remove stale window entries
+
+#### Which build a window runs
+
+A window loads the extension once, when it starts; a build installed later reaches it only after a reload. Every compile writes `out/build-info.json` (commit, uncommitted changes, build time), and each window compares the build it runs with the installed one every 30 seconds and whenever it gains focus. When a newer build is installed, the status bar shows **Reload: newer Tom AI build** (click it to reload the window), the Status Page shows an **Extension build** section with a **Reload window** button, and the WINDOW STATUS view marks the window. Nothing reloads by itself: a reload ends a queue send that is running. Agents read the same through `tomAi_getWorkspaceInfo` (`build`) and `tomAi_getQuestWindowStatus` (`build` per window).
 
 The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Sessions, Session Todos); @TOM WS the workspace's (VS Code Notes, Workspace Notes, Workspace Todos, TODO Log, Window Status).
 

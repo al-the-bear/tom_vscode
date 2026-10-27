@@ -41,6 +41,7 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import type { BuildStatus } from '../utils/buildStamp';
 
 // ===========================================================================
 // Snapshot shapes — what the production bridge passes to the impls
@@ -75,6 +76,8 @@ export interface WorkspaceInfoSnapshot {
     projectsSource: string | null;
     /** Whether the workspace is a git repo. `null` means not a repo. */
     git: GitSnapshot | null;
+    /** The extension build this window runs and the one installed; absent outside a window. */
+    build?: BuildStatus;
 }
 
 export interface EditorSelectionSnapshot {
@@ -170,6 +173,7 @@ export async function getWorkspaceInfoImpl(
         projects: snap.projects,
         projectsSource: snap.projectsSource,
         git: snap.git,
+        ...(snap.build ? { build: snap.build } : {}),
     }, null, 2);
 }
 
@@ -179,7 +183,10 @@ export const GET_WORKSPACE_INFO_DESCRIPTION =
     '`quest` (active quest id, empty string when none), `projects` ' +
     '(parsed from `.tom_metadata/tom_master.yaml`; null when the file is ' +
     'absent), `projectsSource` (the path the projects came from, or null), ' +
-    'and `git` (`{branch, commit, dirty, remote}`; null when not a git repo). ' +
+    'and `git` (`{branch, commit, dirty, remote}`; null when not a git repo), ' +
+    'and `build`: the extension build this window runs and the one installed (`running` / ' +
+    '`installed`, each `{commit, dirty, builtAt}`), with `reloadNeeded: true` when a newer build is ' +
+    'installed than the window runs — a live check of a new feature should stop there and ask for a reload. ' +
     'Pass `includeGit: false` to skip the git CLI calls when you only need the ' +
     'workspace shape.';
 

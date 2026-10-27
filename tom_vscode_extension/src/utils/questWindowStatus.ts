@@ -22,6 +22,7 @@
  */
 
 import type { SessionRecord } from './agentSdkSessions';
+import type { BuildStatus } from './buildStamp';
 import { sessionRows } from './sessionsViewRows';
 import { HEARTBEAT_STALE_MS, isWindowAlive, type HeartbeatState } from './windowHeartbeat';
 
@@ -144,6 +145,8 @@ export interface WindowStatusEntry {
     pid?: number;
     cliServer?: { running: boolean; port?: number };
     mcpServer?: { running: boolean; host?: string; port?: number };
+    /** The extension build the window runs and the one installed; `reloadNeeded`: a newer build is installed. */
+    build?: BuildStatus;
     /** queue / anthropic / copilot / … whose prompt is out, and the AI conversation. */
     activeSubsystems: string[];
     aiConversationActive: boolean;
@@ -236,6 +239,7 @@ export function buildQuestWindowStatus(input: QuestWindowStatusInput): QuestWind
                 ...(Number.isFinite(at) ? { heartbeatAgeSeconds: Math.max(0, Math.round((nowMs - at) / 1000)) } : {}),
                 ...(s.pid ? { pid: s.pid } : {}),
                 ...(s.cliServer ? { cliServer: s.cliServer } : {}),
+                ...(s.build ? { build: s.build } : {}),
                 ...(s.mcpServer ? { mcpServer: s.mcpServer } : {}),
                 activeSubsystems: (s.status ?? []).filter((x) => x.status === 'prompt-sent').map((x) => x.subsystem),
                 aiConversationActive: s.aiConversationActive === true,

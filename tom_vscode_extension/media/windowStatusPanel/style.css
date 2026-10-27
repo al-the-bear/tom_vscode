@@ -144,3 +144,9 @@ body {
     font-weight: normal;
     color: var(--vscode-errorForeground);
 }
+/* The window runs an older build than the one installed. */
+.window-reload {
+    font-size: 0.8em;
+    font-weight: normal;
+    color: var(--vscode-editorWarning-foreground);
+}

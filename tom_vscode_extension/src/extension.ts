@@ -101,6 +101,7 @@ import {
 } from './handlers/mcpServer-handler';
 import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
+import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
@@ -557,6 +558,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // even before it dispatches anything (otherwise open-but-idle windows
     // never appear). Does not clobber an existing file with real status.
     ensureWindowStateRegistered(wsWindowId, getWorkspaceName(), WsPaths.getWorkspaceQuestId());
+    // The running build, compared with the installed one on every heartbeat:
+    // a status-bar item asks for a reload when a newer build is installed.
+    initBuildStatus(context);
     // The heartbeat: every 30 s the time, this process and its CLI / MCP
     // servers, so other windows (WINDOW STATUS, tomAi_sendItemToQuest) can
     // tell a running window from a gone one.
@@ -571,6 +575,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     pid: process.pid,
                     cliServer: { running: !!cli.running, ...(cli.port ? { port: cli.port } : {}) },
                     mcpServer: getMcpServerStatus(),
+                    build: checkBuildStatus(),
                 }, collectWindowActivity(context));
             } finally {
                 beating = false;

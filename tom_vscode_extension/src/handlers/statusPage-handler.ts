@@ -11,6 +11,8 @@
  * - Telegram Settings
  */
 
+import { checkBuildStatus } from '../services/buildStatusService';
+import { buildLabel, type BuildStatus } from '../utils/buildStamp';
 import * as vscode from 'vscode';
 import { pickSessions } from './sessionSelectionPicker';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -1089,6 +1091,10 @@ async function runTestAnthropicApiKey(): Promise<void> {
  */
 export async function handleStatusAction(action: string, message: any): Promise<void> {
     switch (action) {
+        // A newer extension build is installed: run it (only on the user's click).
+        case 'reloadWindow':
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            break;
         // Queue & Timer
         case 'setQueueOn':
         case 'setQueueOff': {
@@ -1898,6 +1904,8 @@ export interface StatusData {
     setups: AiConversationSetup[];
     /** Strict configuration validation errors shown in UI/output */
     configErrors: string[];
+    /** The extension build this window runs and the one installed (undefined before activation). */
+    build?: BuildStatus;
     /** History compaction settings (anthropic_sdk_integration.md §10). */
     compaction: {
         /** Global kill switch — skip the background compaction + memory
@@ -2238,6 +2246,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             trailSummarizationLlmConfig: typeof v?.trailSummarizationLlmConfig === 'string' ? v.trailSummarizationLlmConfig : '',
         })),
         configErrors: strictErrors,
+        build: checkBuildStatus(),
         compaction: {
             disabled: sendToChatConfig?.compaction?.disabled === true,
             llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
@@ -2361,6 +2370,28 @@ function renderQuestRefreshPanel(
             <label style="align-self:flex-start">Refresh prompt:</label>
             <textarea id="sp-qr-${panel}-prompt" rows="3" style="flex:1;min-width:200px">${escapeHtmlContent(data.refreshPrompt)}</textarea>
         </div>
+    </div>`;
+}
+
+/**
+ * The Extension build section: which build this window runs and which is
+ * installed; when a newer one is installed, a warning and a Reload button
+ * (never a reload by itself — it ends a queue send that is running).
+ */
+export function buildSectionHtml(build: BuildStatus | undefined): string {
+    if (!build) { return ''; }
+    const warn = build.reloadNeeded
+        ? 'border-color: var(--vscode-inputValidation-warningBorder); background: var(--vscode-inputValidation-warningBackground);'
+        : '';
+    const reload = build.reloadNeeded
+        ? `<div class="sp-settings-row"><label>A newer build is installed.</label>
+            <div class="sp-controls"><button class="sp-btn primary" data-status-action="reloadWindow" title="Reload this window to run the installed build (a queue send that is running is ended)">Reload window</button></div></div>`
+        : '';
+    return `<div class="sp-section" data-section="build"${warn ? ` style="${warn}"` : ''}>
+        <div class="sp-section-header"><span class="sp-section-title">🧩 Extension build</span></div>
+        <div class="sp-settings-row"><label>Running:</label><span>${escapeHtmlContent(buildLabel(build.running))}</span></div>
+        <div class="sp-settings-row"><label>Installed:</label><span>${escapeHtmlContent(buildLabel(build.installed))}</span></div>
+        ${reload}
     </div>`;
 }
 
@@ -2587,6 +2618,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     return `
 <div class="sp-panel">
     ${strictErrorsHtml}
+    ${buildSectionHtml(status.build)}
     <!-- Queue & Timer Switches -->
     <div class="sp-section">
         <div class="sp-section-header">

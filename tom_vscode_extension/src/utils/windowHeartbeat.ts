@@ -9,6 +9,8 @@
  * vscode-free.
  */
 
+import type { BuildStatus } from './buildStamp';
+
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_STALE_MS = 90_000;
 
@@ -24,6 +26,8 @@ export interface WindowHeartbeat {
     pid?: number;
     cliServer?: ServerState;
     mcpServer?: ServerState;
+    /** The extension build the window runs and the one installed (src/utils/buildStamp.ts). */
+    build?: BuildStatus;
 }
 
 /** The fields of a window state file the rules below read. */
@@ -61,5 +65,6 @@ export function withHeartbeat<T extends object>(state: T, beat: Required<Pick<Wi
         pid: beat.pid,
         cliServer: beat.cliServer ?? { running: false },
         mcpServer: beat.mcpServer ?? { running: false },
+        ...(beat.build ? { build: beat.build } : {}),
     };
 }

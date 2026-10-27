@@ -8,6 +8,7 @@
  * All executors return a plain string result.
  */
 
+import { checkBuildStatus } from '../services/buildStatusService';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -895,6 +896,7 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
         }
     }
 
+    const build = checkBuildStatus();
     return {
         workspaceName: wsName,
         workspaceFile: wsFile,
@@ -903,6 +905,8 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
         projects,
         projectsSource,
         git,
+        // Checked now, so an agent sees a build installed a moment ago.
+        ...(build ? { build } : {}),
     };
 }
 

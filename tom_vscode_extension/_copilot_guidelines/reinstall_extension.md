@@ -6,7 +6,7 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 
 1. Typecheck: `npx tsc --noEmit`. Fix all errors and Problems-pane warnings first.
 2. Package or install the updated extension in the target VS Code host.
-3. Reload the VS Code window (`Developer: Reload Window`).
+3. Reload the VS Code window (`Developer: Reload Window`). Until it is reloaded, a window runs the build it started with: its status bar says **Reload: newer Tom AI build**, and `tomAi_getWorkspaceInfo` answers `build.reloadNeeded: true` (`tomAi_getQuestWindowStatus` per window). A live check of a new feature reads that first and stops with "reload first" instead of testing old code.
 4. Re-run the affected command or open the affected view.
 
 The tom_vscode_bridge d4rt bridges: a from-source install

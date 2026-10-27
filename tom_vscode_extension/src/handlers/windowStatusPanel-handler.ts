@@ -23,6 +23,7 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { isWindowAlive, serverSummary, withHeartbeat, type WindowHeartbeat } from '../utils/windowHeartbeat';
+import { buildLabel } from '../utils/buildStamp';
 import type { WindowActivity } from '../utils/questWindowStatus';
 
 // ============================================================================
@@ -211,6 +212,10 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
                         ...s,
                         servers: serverSummary(s),
                         gone: !!s.heartbeat && !isWindowAlive(s, now),
+                        // A newer build is installed than this window runs.
+                        reload: s.build?.reloadNeeded
+                            ? { running: buildLabel(s.build.running), installed: buildLabel(s.build.installed) }
+                            : undefined,
                     }));
                     this._view?.webview.postMessage({ type: 'windowStates', states });
                     break;
@@ -550,7 +555,7 @@ export function writeWindowHeartbeat(
     windowId: string,
     workspace: string,
     activeQuest: string,
-    beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer'>,
+    beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer' | 'build'>,
     activity?: WindowActivity,
 ): void {
     try {
