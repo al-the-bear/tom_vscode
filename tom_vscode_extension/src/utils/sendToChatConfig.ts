@@ -41,11 +41,10 @@ export interface SendToChatConfig {
             isDefault?: boolean;
             /**
              * Suffix for the per-profile history snapshot files in
-             * `_ai/quests/<quest>/history/`. When set, the manager
-             * reads/writes `history-<historySuffix>.{json,md}` instead
-             * of the canonical `history.{json,md}` pair. Leaves the
-             * Anthropic handler's snapshot untouched so the two panels
-             * can run in parallel without clobbering each other.
+             * `_ai/quests/<quest>/history/`: the manager reads/writes
+             * `history-<historySuffix>.{json,md}`; unset, the shared
+             * `history-localLLM.{json,md}` (src/utils/localLlmHistory.ts).
+             * The Anthropic sessions keep their own histories.
              */
             historySuffix?: string;
             /**

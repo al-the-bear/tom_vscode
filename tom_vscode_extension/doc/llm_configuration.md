@@ -72,13 +72,17 @@ Settings (`compaction.*` with per-configuration overrides on every
 
 ### Where the bodies live
 
-Every tool result that runs through either handler is **persisted to disk**
-under the active quest's trail folder. Layout:
+Every tool result that runs through either handler is **persisted to disk**:
+an Anthropic session's in its own storage, the Local LLM's in its trail folder.
+Layout:
 
 ```text
-_ai/trail/anthropic/<quest>/tool_results/t14.json
+_ai/quests/<quest>/history/sessions/<session>/trail/tool_results/t14.json
 _ai/trail/localllm/<quest>/tool_results/t14.json
 ```
+
+An Anthropic session's keys continue past the results it has stored, so a key
+never names two results.
 
 The file is a JSON object matching `ToolTrailEntry`
 ([services/tool-trail.ts:22](../src/services/tool-trail.ts#L22)):
@@ -355,6 +359,23 @@ The Status Page Local LLM card surfaces both fields: an **API style** dropdown
 (Ollama / OpenAI) and an **API Key Env** input.
 
 ---
+
+### 5.5 Where the Local LLM keeps its files
+
+The Local LLM has no sessions (the Anthropic transports have them): its files
+are per profile and per quest.
+
+| What | Where |
+| --- | --- |
+| History snapshot | `_ai/quests/<quest>/history/history-<suffix>.{json,md}` — the profile's `historySuffix`; a profile without one shares `history-localLLM.{json,md}` with the other unsuffixed profiles (`src/utils/localLlmHistory.ts`). The plain `history.{json,md}` is not written: it was the Anthropic history before every session kept its own |
+| Summary trail | `_ai/quests/<quest>/history/<quest>.localllm-<config>.{prompts,answers}.md` |
+| Raw trail | `_ai/trail/localllm/<quest>-<config>/` |
+| Tool results | `_ai/trail/localllm/<quest>/tool_results/` |
+| Live trail | `_ai/quests/<quest>/live-trail-localLLM.md` |
+| Memory | `${memory}` reads shared memory and the `default` session's quest memory (`_ai/memory/<quest>/default/`); `memorySuffix` narrows it to `facts-<suffix>.md` |
+
+Copilot has no sessions either: `_ai/quests/<quest>/history/<quest>.copilot.{prompts,answers}.md`
+and `_ai/trail/copilot/<quest>/`, one set per quest.
 
 ## 6. Anthropic configuration (`anthropic` section)
 

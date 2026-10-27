@@ -15,6 +15,7 @@
  * Configuration lives in the `localLlm` section of tom_vscode_extension.json.
  */
 
+import { localLlmHistorySuffix } from '../utils/localLlmHistory';
 import * as vscode from 'vscode';
 import * as http from 'http';
 import * as fs from 'fs';
@@ -179,10 +180,10 @@ export interface ExpanderProfile {
     stripThinkingTags?: boolean;
     /**
      * Suffix for the per-profile history snapshot files in
-     * `_ai/quests/<quest>/history/`. When set, the manager reads/writes
-     * `history-<historySuffix>.{json,md}` instead of the canonical
-     * `history.{json,md}` pair so each profile can own its own
-     * conversation thread.
+     * `_ai/quests/<quest>/history/`: the manager reads/writes
+     * `history-<historySuffix>.{json,md}`, so each profile can own its own
+     * conversation thread. Unset: `history-localLLM.{json,md}`, shared by
+     * the profiles without one (src/utils/localLlmHistory.ts).
      */
     historySuffix?: string;
     /**
@@ -461,11 +462,9 @@ export class LocalLlmManager {
 
     /**
      * Seed `compactedSummary` + `rawTurns` from
-     * `_ai/quests/<quest>/history/<base>.json` (where `<base>` is
-     * `history-<suffix>` when a profile supplies a `historySuffix`,
-     * otherwise `history`). Mirrors `AnthropicHandler.seedHistoryFromSnapshot`
-     * so both panels share the same on-disk schema and the rolling
-     * pair can be read across panels when no suffix is set.
+     * `_ai/quests/<quest>/history/history-<suffix>.json` (the profile's
+     * `historySuffix`, else `localLLM`). Same on-disk schema as the
+     * Anthropic snapshot; the Local LLM has no sessions.
      *
      * Re-seeds whenever the `(quest, suffix)` pair changes vs. the
      * previous call — switching profiles mid-session pulls the right
@@ -2217,7 +2216,9 @@ export class LocalLlmManager {
         //                    to the system prompt source before
         //                    placeholder resolution so the profile
         //                    doesn't have to spell the placeholder out.
-        const historySuffix = profile?.historySuffix;
+        // A profile without its own suffix keeps `history-localLLM.*`: the plain
+        // `history.*` was the Anthropic history, which is per session now.
+        const historySuffix = localLlmHistorySuffix(profile?.historySuffix);
         const memorySuffix = profile?.memorySuffix;
         const autoInjectMemory = profile?.autoInjectMemory === true;
 
@@ -2545,11 +2546,9 @@ export class LocalLlmManager {
 
                 // Persist the per-profile snapshot to disk so the
                 // history survives a window reload — matches the
-                // Anthropic handler's behaviour. The Anthropic panel
-                // uses the canonical `history.{json,md}`; LocalLLM
-                // profiles use their own `history-<historySuffix>.{json,md}`
-                // when `historySuffix` is set, otherwise share the
-                // canonical pair.
+                // Anthropic handler's behaviour. Every LocalLLM profile
+                // has its own `history-<suffix>.{json,md}`: its
+                // `historySuffix`, else `localLLM` (localLlmHistory.ts).
                 this.persistSessionHistory(questForHistory, historySuffix);
             }
 
