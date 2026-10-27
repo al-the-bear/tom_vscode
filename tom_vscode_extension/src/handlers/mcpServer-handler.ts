@@ -30,6 +30,7 @@
  * with the real instance + the window id / quest id.
  */
 
+import { mcpRequestAdmission, type McpAdmission } from '../utils/mcpPeerAccess';
 import * as http from 'node:http';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -242,6 +243,30 @@ export function resolveMcpRequestTools(
     return tools;
 }
 
+/**
+ * Whether to serve a request: with the key from anywhere, without it only from
+ * loopback or the fleet VPN ({@link mcpRequestAdmission}). A refusal is logged
+ * with the peer address (never a token). `env` defaults to `process.env`.
+ */
+export function admitMcpRequest(
+    settings: ResolvedMcpServerSettings,
+    bearer: string | undefined,
+    remoteAddress: string | undefined,
+    log: (line: string) => void,
+    env: NodeJS.ProcessEnv = process.env,
+): McpAdmission {
+    const expectedToken = settings.apiKeyEnv ? (env[settings.apiKeyEnv] ?? '') : '';
+    const admission = mcpRequestAdmission({
+        authenticated: isMcpAuthenticated(expectedToken, bearer),
+        remoteAddress,
+        apiKeyEnv: settings.apiKeyEnv || undefined,
+    });
+    if (!admission.admitted) {
+        log(`request refused (401): no API key from ${remoteAddress ?? 'an unknown address'}, outside loopback and the fleet VPN`);
+    }
+    return admission;
+}
+
 /** A built MCP server plus the names of the tools registered on it. */
 export interface BuiltMcpServer {
     server: McpServer;
@@ -350,6 +375,11 @@ export const MCP_PORT_PROBE_ATTEMPTS = 100;
  */
 export interface McpHttpServerDeps {
     resolveTools: (bearer: string | undefined) => SharedToolDefinition[];
+    /**
+     * Whether to serve the request at all (src/utils/mcpPeerAccess.ts): without
+     * the key only from loopback or the fleet VPN. Absent: every request is served.
+     */
+    admit?: (bearer: string | undefined, remoteAddress: string | undefined) => McpAdmission;
     sink: McpToolTrailSink;
     /** Optional audit log for port probing + per-request errors (default no-op). */
     log?: (line: string) => void;
@@ -427,6 +457,19 @@ async function handleMcpRequest(
     deps: McpHttpServerDeps,
 ): Promise<void> {
     const bearer = extractBearerToken(req.headers.authorization);
+    const admission = deps.admit?.(bearer, req.socket.remoteAddress) ?? { admitted: true };
+    if (!admission.admitted) {
+        // Refused before any tool set is built: nothing of the server is reachable.
+        // The body is read (and dropped) first, so the answer is not lost to a
+        // connection reset while the client is still sending.
+        req.resume();
+        req.once('end', () => {
+            res.setHeader('Content-Type', 'application/json');
+            res.writeHead(401);
+            res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: admission.reason }, id: null }));
+        });
+        return;
+    }
     const tools = deps.resolveTools(bearer);
     const { server } = buildToolMcpServer(tools, deps.sink);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -483,7 +526,12 @@ export function defaultMcpServerStarter(
 ): McpServerStarter {
     return (settings) => startMcpHttpServer(
         { host: settings.host, basePort: settings.basePort },
-        { resolveTools: (bearer) => resolveMcpRequestTools(settings, bearer, log), sink, log },
+        {
+            resolveTools: (bearer) => resolveMcpRequestTools(settings, bearer, log),
+            admit: (bearer, remoteAddress) => admitMcpRequest(settings, bearer, remoteAddress, log),
+            sink,
+            log,
+        },
     );
 }
 

@@ -160,9 +160,12 @@ export function renderToolsNote(
     const lines: string[] = [];
     const counts = model.effectiveToolCounts;
     if (counts) {
+        // A client without the key is served only from this machine or the fleet VPN (src/utils/mcpPeerAccess.ts).
         lines.push(model.apiKeyEnv
-            ? `Serves ${counts.authenticated} tools to a client with the API key, ${counts.unauthenticated} without it.`
-            : `No API key is configured: every client is served ${counts.unauthenticated} tools${model.allowWriteWithoutAuth ? '' : ' (the read-only part of the selection)'}.`);
+            ? `Serves ${counts.authenticated} tools to a client with the API key, ${counts.unauthenticated} without it — `
+                + `from this machine or the fleet VPN (10.8.0.0/16) only; other networks need the key.`
+            : `No API key is configured: a client on this machine or the fleet VPN (10.8.0.0/16) is served ${counts.unauthenticated} tools`
+                + `${model.allowWriteWithoutAuth ? '' : ' (the read-only part of the selection)'}; one from any other network is refused.`);
     }
     if (mode === 'custom' && readOnlyToolNames && model.enabledTools.length > 0) {
         const missing = [...readOnlyToolNames].filter((t) => !model.enabledTools.includes(t)).length;

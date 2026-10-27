@@ -272,14 +272,14 @@ describe('the read-only mode is stored as a mode (vbs1)', () => {
             effectiveToolCounts: { authenticated: 3, unauthenticated: 3 } };
         const html = renderMcpServerCard(model, [...readOnly, 'tomAi_applyEdit'], readOnly);
         assert.match(html, /<option value="readonly" selected>/);
-        assert.match(html, /Serves 3 tools to a client with the API key, 3 without it\./);
+        assert.match(html, /Serves 3 tools to a client with the API key, 3 without it — from this machine or the fleet VPN \(10\.8\.0\.0\/16\) only; other networks need the key\./);
         assert.doesNotMatch(html, /not in it/, 'no stale-list hint in Read-only mode');
     });
 
     test('MR-4: the note', () => {
         const counts = { authenticated: 10, unauthenticated: 4 };
         assert.match(renderToolsNote({ apiKeyEnv: '', allowWriteWithoutAuth: false, enabledTools: [], effectiveToolCounts: counts }, 'all'),
-            /No API key is configured: every client is served 4 tools \(the read-only part of the selection\)\./);
+            /No API key is configured: a client on this machine or the fleet VPN \(10\.8\.0\.0\/16\) is served 4 tools \(the read-only part of the selection\); one from any other network is refused\./);
         const stale = renderToolsNote({ apiKeyEnv: 'K', allowWriteWithoutAuth: false, enabledTools: oldList }, 'custom', readOnly);
         assert.match(stale, /1 read-only tools are not in it/);
         assert.match(stale, /Pick &quot;Read-only tools&quot;/);

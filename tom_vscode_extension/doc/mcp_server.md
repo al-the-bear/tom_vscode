@@ -51,7 +51,7 @@ All fields are optional; `getMcpServerSettings` applies the defaults below.
 | --- | --- | --- | --- |
 | `enabled` | boolean | `false` | Master on/off switch. |
 | `autostart` | boolean | `false` | Start on extension activation (only when `enabled`). Machine-specific (per-host file). |
-| `host` | string | `0.0.0.0` | Bind address. `0.0.0.0` is reachable across the VPN; use `127.0.0.1` to keep it host-local. |
+| `host` | string | `0.0.0.0` | Bind address. `0.0.0.0` listens on every interface, but a client without the key is served only from this machine or the fleet VPN (§4.1); use `127.0.0.1` to keep it host-local. |
 | `basePort` | number | `19920` | First port to try. The server probes **upward** to the first free port (clear of the CLI bridge's `19900`). |
 | `apiKeyEnv` | string | `""` | **Name** of the env var holding the expected inbound bearer token — never the secret itself. Empty ⇒ no auth configured. |
 | `allowWriteWithoutAuth` | boolean | `false` | When `true`, unauthenticated clients also get the write tools. **Read the security note in §5 first.** |
@@ -127,6 +127,10 @@ A missing/empty/wrong bearer — or no configured token at all — is unauthenti
 
 The read-only floor is the safe default: an unconfigured or unauthenticated server still answers read queries but cannot mutate the workspace or run commands. The bearer token value is **never** logged — only the decision (authenticated / read-only floor) and the tool count.
 
+### 4.1 Where a client without the key may connect from
+
+Before any of the above, each request is checked for where it comes from (`admitMcpRequest`, `src/utils/mcpPeerAccess.ts`). A request **with** the key is served from any address. A request **without** it is served only when its peer address is loopback (`127.0.0.0/8`, `::1`) or on the fleet VPN (`10.8.0.0/16`), IPv4-mapped IPv6 addresses included. Any other address is answered **401** with a JSON-RPC error that names the address and how to get in (the key from `apiKeyEnv` as a bearer token). This is checked before a tool set is built, so a client without the key on a home or public Wi-Fi reaches **nothing**: not the read-only floor, not the CodeSpecs resources. The check runs per request, so it holds when the VPN comes up after the server started. The refusal is logged with the peer address, never a token; `allowWriteWithoutAuth` does not widen it.
+
 ### The TomSpecs, DocSpecs and CodeSpecs tools
 
 Of the 49 spec tools, the floor serves the 24 that only read:
@@ -159,7 +163,7 @@ resources (the Agent SDK's in-process server carries tools only).
 
 ## 5. Security warning — `0.0.0.0` + `allowWriteWithoutAuth`
 
-The default `host` is `0.0.0.0`, which makes the server reachable by **every machine on the fleet VPN (OpenVPN, `10.8.0.0/24`)**, not just localhost. That is intentional (so other fleet hosts can drive it) but it means:
+The default `host` is `0.0.0.0`, which listens on **every interface** the host has. Without the key only this machine and the fleet VPN (OpenVPN, `10.8.0.0/16`) are served (§4.1); a client on any other network needs the key. Keyless VPN access is intentional (so other fleet hosts can drive it) but it means:
 
 > **`host: "0.0.0.0"` together with `allowWriteWithoutAuth: true` exposes unattended write + command-execution tools to every VPN peer with no credential.** Anyone who can route to the port can edit files and run shell commands in this workspace.
 
