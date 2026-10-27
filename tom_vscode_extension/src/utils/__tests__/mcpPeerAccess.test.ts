@@ -78,10 +78,14 @@ describe('MCP keyless access', () => {
     });
 });
 
+/** HTTP header names are not camelCase. */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+const HEADERS = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+
 function post(port: number): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
         // agent: false — a fresh connection each time; a kept-alive one would reach the closed first server.
-        const req = http.request({ agent: false, host: '127.0.0.1', port, method: 'POST', path: '/mcp', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' } }, (res) => {
+        const req = http.request({ agent: false, host: '127.0.0.1', port, method: 'POST', path: '/mcp', headers: HEADERS }, (res) => {
             let body = '';
             res.on('data', (c) => { body += c; });
             res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
