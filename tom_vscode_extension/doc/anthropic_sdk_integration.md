@@ -1418,7 +1418,7 @@ Delivers: Anthropic subsystem in trail, tool registry ready, basic send loop, to
 - **Read first:** `src/handlers/localLlm-handler.ts` lines 839–994 (`ollamaGenerateWithTools()` — the tool loop pattern to mirror); `src/tools/shared-tool-registry.ts` (`executeToolCall()` signature); `src/services/trailService.ts` (`writeRawPrompt`, `writeRawAnswer`, `writeRawToolRequest`, `writeRawToolResult` signatures); `src/types/webviewMessages.ts` (existing message types to understand the shape before adding new ones)
 - Create `src/handlers/anthropic-handler.ts`
 - `AnthropicHandler` singleton:
-  - Constructor: reads `anthropic.apiKeyEnvVar` from `TomAiConfiguration`; creates `new Anthropic({ apiKey: process.env[apiKeyEnvVar] })`
+  - Client: `getClient()` reads `anthropic.apiKeyEnvVar` and `process.env[apiKeyEnvVar]` on every call and makes `new Anthropic({ apiKey })` again when the name or the value changed (`KeyedClientCache`); undefined without a key
   - `fetchModels()` — calls `this.client.models.list()`; returns model array or `{ models: [], error }` on failure
   - `sendMessage(userText, profile, configuration, tools)`:
     1. Build system prompt string from `profile.systemPrompt`

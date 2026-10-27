@@ -10,6 +10,8 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
+import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
@@ -470,7 +472,7 @@ type AnthropicToolResultBlockParam = Anthropic.ToolResultBlockParam;
 
 export class AnthropicHandler {
     private static _instance: AnthropicHandler | undefined;
-    private client: Anthropic | undefined;
+    private readonly clientCache = new KeyedClientCache<Anthropic>((apiKey) => new Anthropic({ apiKey }));
     /** The tool trail of the session the current send runs in (one per session: {@link toolTrailFor}). */
     private toolTrail: ToolTrail;
     private readonly toolTrails = new Map<string, ToolTrail>();
@@ -1683,26 +1685,18 @@ export class AnthropicHandler {
     }
 
     /**
-     * Read the API key from the environment variable named in config and
-     * (re)build the SDK client. Returns `undefined` if the env var is unset.
+     * The SDK client for the key in the environment variable the config names
+     * now — the name and the value are read on every call, and the client is
+     * made again when either changed (src/utils/anthropicClientCache.ts).
+     * Returns `undefined` when the variable is unset, as the key check says.
      */
     private getClient(): Anthropic | undefined {
-        if (this.client) {
-            return this.client;
-        }
-        const section = this.getAnthropicSection();
-        const envVar = section.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
-        const apiKey = process.env[envVar];
-        if (!apiKey) {
-            return undefined;
-        }
-        this.client = new Anthropic({ apiKey });
-        return this.client;
+        return this.clientCache.get(directApiKeyEnvVar(this.getAnthropicSection()), process.env);
     }
 
-    /** Clear the cached client so the next call re-reads the env var. */
+    /** Forget the client; the next call makes a new one. */
     resetClient(): void {
-        this.client = undefined;
+        this.clientCache.reset();
     }
 
     /**
@@ -1743,9 +1737,7 @@ export class AnthropicHandler {
     async fetchModels(): Promise<{ models: Array<{ id: string; display_name?: string }>; error?: string }> {
         const client = this.getClient();
         if (!client) {
-            const section = this.getAnthropicSection();
-            const envVar = section.apiKeyEnvVar || 'ANTHROPIC_API_KEY';
-            return { models: [], error: `${envVar} environment variable not set` };
+            return { models: [], error: `${directApiKeyEnvVar(this.getAnthropicSection())} environment variable not set` };
         }
         try {
             const page = await client.models.list({ limit: 100 });

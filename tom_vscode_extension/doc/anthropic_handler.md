@@ -10,7 +10,7 @@ The key is read from an environment variable at runtime — never written to the
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-The variable name is configurable via `anthropic.apiKeyEnvVar` in `tom_vscode_extension.json` (default `ANTHROPIC_API_KEY`). The 🔑 dot in the ANTHROPIC panel toolbar is green when the variable is populated, red otherwise.
+The variable name is configurable via `anthropic.apiKeyEnvVar` in `tom_vscode_extension.json` (default `ANTHROPIC_API_KEY`). The direct client reads the name and its value on every call and is made again when either changed (`src/utils/anthropicClientCache.ts`), so a hand edit of the setting, or a key that is set or removed, takes effect at the next send without a reload; with no key the send fails at once, as the queue's missing-key warning said. The 🔑 dot in the ANTHROPIC panel toolbar is green when the variable is populated, red otherwise.
 
 The variable is read from the extension host's environment, which VS Code takes from the environment it was **launched** with. "Developer: Reload Window" restarts the extension host from the same main process and does not refresh it: after setting the variable (on macOS e.g. `launchctl setenv`, or in the shell VS Code is started from), quit VS Code and start it again. Until then:
 
