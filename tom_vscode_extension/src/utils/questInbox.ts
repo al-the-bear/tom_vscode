@@ -85,6 +85,11 @@ export function inboxFileName(host: string, workspace: string, now: Date, token:
     return `${inboxFilePrefix(host, workspace)}${stamp(now)}-${sanitizeFilePart(token)}${INBOX_SUFFIX}`;
 }
 
+/** Whether `name` is a temporary session's (deleted once its item and notification are done). */
+export function isTemporarySessionName(name: string): boolean {
+    return /^tmp-\d{6}-\d{6}-[a-z0-9_-]+$/.test(name);
+}
+
 /** The name of a temporary session: `tmp-<yymmdd-hhmmss>-<token>`. */
 export function temporarySessionName(now: Date, token: string): string {
     return `tmp-${stamp(now).replace('_', '-')}-${sanitizeFilePart(token)}`;

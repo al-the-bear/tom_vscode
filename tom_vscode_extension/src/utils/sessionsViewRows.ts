@@ -10,6 +10,7 @@
  */
 
 import type { SessionRecord } from './agentSdkSessions';
+import { isTemporarySessionName } from './questInbox';
 
 /** The sessions every quest has, with what uses them. */
 export const IMPLICIT_SESSIONS: ReadonlyArray<{ name: string; usedBy: string }> = [
@@ -33,6 +34,8 @@ export interface SessionRow {
     lastUse?: string;
     /** The sessions based on this one: while there are any, it cannot be deleted. */
     dependents: string[];
+    /** A temporary session of an item another quest sent: deleted once the item is done. */
+    temporary?: boolean;
 }
 
 export function sessionRows(records: readonly SessionRecord[]): SessionRow[] {
@@ -51,13 +54,15 @@ export function sessionRows(records: readonly SessionRecord[]): SessionRow[] {
             hasConversation: !!(r?.sessionId || r?.iteration?.sessionId),
             ...(r?.updatedAt ?? r?.createdAt ? { lastUse: r?.updatedAt ?? r?.createdAt } : {}),
             dependents: records.filter((x) => x.basedOn === name).map((x) => x.name).sort(),
+            ...(isTemporarySessionName(name) ? { temporary: true } : {}),
         };
     };
     const implicit = IMPLICIT_SESSIONS.map((s) => row(s.name, s.usedBy));
     const named = records
         .filter((r) => !IMPLICIT_SESSIONS.some((s) => s.name === r.name))
         .map((r) => r.name)
-        .sort((a, b) => a.localeCompare(b))
+        // Temporary sessions last: they go away with their item.
+        .sort((a, b) => Number(isTemporarySessionName(a)) - Number(isTemporarySessionName(b)) || a.localeCompare(b))
         .map((n) => row(n));
     return [...implicit, ...named];
 }

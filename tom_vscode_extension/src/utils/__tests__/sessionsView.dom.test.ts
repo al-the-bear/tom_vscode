@@ -6,6 +6,8 @@
  *   SV-2 the view renders each row with its description line; Reset is offered for a session file with a
  *        conversation, Delete for a file nothing is based on (its tooltip names the dependents otherwise);
  *        a click posts the row's name
+ *   SV-4 a temporary session (`tmp-<yymmdd-hhmmss>-<token>`, of an item another quest sent) is listed last and
+ *        tagged temporary; a lasting session whose name merely starts with `tmp` is not
  *   SV-3 the host: Reset clears the id, Delete asks first and goes through deleteSession; the add command
  *        is the picker's new-session path; the folder is watched with an error listener and the store's
  *        notifications refresh the view
@@ -49,6 +51,28 @@ describe('SESSIONS view', () => {
         assert.deepEqual([by.prep.hasConversation, by.prep.lastUse, by.prep.dependents, by.prep.lifetime], [true, '2026-10-26T18:00:00Z', ['walk'], undefined]);
         assert.deepEqual([by.solo.lifetime, by.solo.hasConversation], ['per prompt', true], 'an iteration\'s conversation counts');
         assert.deepEqual([by.chat.hasConversation, by.chat.dependents], [false, []]);
+    });
+
+    test('SV-4: temporary sessions', (t) => {
+        const records: SessionRecord[] = [
+            { name: 'tmp-261027-123456-a1b2c3d4', mode: 'continue', basedOn: 'prep' },
+            { name: 'prep', mode: 'continue' },
+            { name: 'tmpl', mode: 'continue' },
+        ];
+        const rows = sessionRows(records);
+        assert.deepEqual(rows.map((r) => [r.name, !!r.temporary]), [
+            ['default', false], ['chat', false], ['prep', false], ['tmpl', false], ['tmp-261027-123456-a1b2c3d4', true],
+        ]);
+        const dom = new JSDOM(source('media', 'sessionsView', 'index.html').replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' });
+        const w = dom.window as Win;
+        t.after(() => w.close());
+        w.acquireVsCodeApi = () => ({ postMessage: () => undefined });
+        w.__INIT__ = {};
+        w.eval(source('media', 'sessionsView', 'main.js'));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: 'q', rows } }));
+        const tags = (name: string): string[] => [...w.document.querySelectorAll(`.session[data-name="${name}"] .tag`)].map((e: Win) => e.textContent);
+        assert.deepEqual(tags('tmp-261027-123456-a1b2c3d4'), ['temporary']);
+        assert.deepEqual(tags('tmpl'), []);
     });
 
     test('SV-2: the view', (t) => {

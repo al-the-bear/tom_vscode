@@ -50,6 +50,7 @@
             return '<div class="session" data-name="' + esc(r.name) + '">'
                 + '<div class="body"><span class="name">' + esc(r.name) + '</span>'
                 + (r.usedBy ? '<span class="tag">' + esc(r.usedBy) + '</span>' : '')
+                + (r.temporary ? '<span class="tag" title="Created for an item another quest sent; deleted once the item and its notification are done">temporary</span>' : '')
                 + '<div class="meta">' + esc(meta(r)) + '</div></div>'
                 + '<div class="actions">'
                 + '<button class="icon" data-op="reset" title="Reset: forget the conversation, keep base, lifetime and profile"'

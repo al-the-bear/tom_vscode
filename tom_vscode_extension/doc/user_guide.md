@@ -401,7 +401,8 @@ MCP). The target window takes it up at once — or when a window of that quest
 starts — and queues it with its own defaults; the item shows **from
 <quest>** in its header. The sender may give the profile, an existing session
 of the target quest, or a new session based on one (without a name, a
-temporary session deleted when the item and its notification are done), and a
+temporary session deleted when the item and its notification are done; the
+SESSIONS view lists it last, tagged *temporary*), and a
 done-notification prompt, typically one that sends a message back. In those
 prompts `${senderQuest}` is the sending quest.
 
