@@ -125,7 +125,7 @@ Build, package, and install the extension from
 ```bash
 cd tom_vscode_extension
 npm run compile          # tsc + copy config json to out/config/
-./install_extension.sh   # build the VSIX and install it
+./compile_and_install.sh # build tom_bs from source, the VSIX, and install it
 # then in VS Code: Cmd+Shift+P → "Developer: Reload Window"
 ```
 

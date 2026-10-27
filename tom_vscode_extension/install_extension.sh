@@ -232,6 +232,10 @@ if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
     node "$SCRIPT_DIR/scripts/bridge-generated-churn.cjs" "$BRIDGE_DIR"
 else
     echo "📦 Bundling bridge binaries..."
+    # The prebuilt tom_bs binaries are not rebuilt: compile_and_install.sh is
+    # the install route on every host, and this one serves a machine without
+    # the d4rt and bridge checkouts.
+    echo "  ℹ The prebuilt tom_bs binaries in tom_binaries are not kept current; compile_and_install.sh builds a current one for this host."
     TOTAL_BUNDLED=0
     for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
         PLAT_ID="${PLAT_SPEC%%:*}"

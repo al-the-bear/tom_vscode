@@ -72,11 +72,11 @@ cd tom_ai/vscode/tom_vscode_bridge
 dart pub upgrade tom_vscode_scripting_api   # move the lock to the new version
 d4rtgen                                      # regenerate the d4rt bridges
 dart analyze
-buildkit :compiler -t linux-x64              # compile tom_bs into tom_binaries
+cd ../tom_vscode_extension && ./compile_and_install.sh   # compile tom_bs for this host and install
 ```
 
-`buildkit :compiler` writes `tom_bs` into `$TOM_BINARY_PATH/<platform>/`;
-`install_extension.sh` then bundles whatever binaries are present there. Only the
-host platform can be compiled natively (darwin/win32 binaries must be rebuilt on
-their own hosts). If the target binary is in use by a running window you will get
-`Text file busy` — compile to a temp path and `mv` it into place.
+`compile_and_install.sh` / `.ps1` regenerates the bridges again, compiles
+`tom_bs` for the host into the extension's `bin/<platform>/` and installs the
+VSIX; run it on each host. The prebuilt binaries in `tom_binaries` that
+`install_extension.sh` bundles are not kept current, so a new API never reaches
+a window through them.

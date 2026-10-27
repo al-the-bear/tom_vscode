@@ -320,6 +320,10 @@ if ($CodeCli) {
             )
 
             Write-Host "Bundling bridge binaries..."
+            # The prebuilt tom_bs binaries are not rebuilt: compile_and_install.ps1
+            # is the install route on every host, and this one serves a machine
+            # without the d4rt and bridge checkouts.
+            Write-Host "  The prebuilt tom_bs binaries in tom_binaries are not kept current; compile_and_install.ps1 builds a current one for this host."
             $TotalBundled = 0
             foreach ($plat in $Platforms) {
                 $srcDir = Join-Path $TomBinDir $plat.Id

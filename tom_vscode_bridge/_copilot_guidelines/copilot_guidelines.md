@@ -67,11 +67,18 @@ When either is updated:
 2. `dart pub upgrade <package>` (move the lock)
 3. Regenerate bridges with `d4rtgen`
 4. `dart analyze`
-5. Recompile the `tom_bs` binary (see below)
+5. Rebuild and install with `../tom_vscode_extension/compile_and_install.sh`
+   (see below)
 
 ## Building the `tom_bs` binary
 
-`buildkit :compiler` compiles `bin/tom_bs.dart` into
+The extension gets its `tom_bs` from `compile_and_install.sh` / `.ps1`, the
+install route on every host: it regenerates the bridges, compiles `tom_bs` for
+the host into the extension's own `bin/<platform>/` and installs the VSIX. The
+prebuilt binaries in `tom_binaries` are not kept current (last built
+2026-10-02); `install_extension.*` bundles them and warns that they lag.
+
+To build a binary outside an install, `buildkit :compiler` compiles `bin/tom_bs.dart` into
 `$TOM_BINARY_PATH/<platform>/tom_bs` per the `compiler:` section of
 `buildkit.yaml`:
 
@@ -83,7 +90,7 @@ Only the host platform compiles natively; darwin / win32 binaries are built on
 their own hosts. If the target binary is in use by a running VS Code window the
 compile fails with `Text file busy` — compile to a temp path and `mv` it into
 place (rename works over a busy executable on Linux). `install_extension.sh`
-bundles whatever `tom_bs` binaries are present under `$TOM_BINARY_PATH/`.
+bundles whatever `tom_bs` binaries are present under `tom_binaries/tom/`.
 
 ## Live scripting tests
 
@@ -98,7 +105,7 @@ When testing changes to the bridge or extension, use the dedicated reinstallatio
 
 ```bash
 cd ../tom_vscode_extension
-./install_extension.sh
+./compile_and_install.sh
 ```
 
 After reinstallation, the user must manually reload VS Code:

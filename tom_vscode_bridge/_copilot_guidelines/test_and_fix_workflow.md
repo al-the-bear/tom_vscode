@@ -17,7 +17,7 @@ When working on the VS Code extension or Dart bridge, changes require either a f
 |--------|------------------|
 | Extension source | `tom_vscode_extension/src/` |
 | Bridge source | `tom_vscode_bridge/lib/` |
-| Reinstall extension | `cd tom_vscode_extension && ./install_extension.sh` |
+| Reinstall extension | `cd tom_vscode_extension && ./compile_and_install.sh` |
 | Reload window | `dartscript.reloadWindow` command |
 | Restart bridge only | `dartscript.restartBridge` command |
 | Run tests | `dartscript.runTests` command |
@@ -36,7 +36,7 @@ Use the full reinstall when changes were made to **tom_vscode_extension/src/** (
 
 1. **Run the reinstall script:**
    ```bash
-   cd tom_vscode_extension && ./install_extension.sh
+   cd tom_vscode_extension && ./compile_and_install.sh
    ```
 
 2. **Reload the VS Code window** by sending the `workbench.action.reloadWindow` command
@@ -218,6 +218,6 @@ When you receive a prompt containing `!!!Reload finished` in Copilot Chat, this 
 | Bridge not starting | Check for port conflicts; ensure Dart is on PATH |
 | Tests not found | Verify test files are in `tom_vscode_bridge/test/` |
 | Changes not taking effect | Full reinstall + reload may be needed instead of bridge restart |
-| TypeScript compile errors | Check terminal output after running `install_extension.sh` |
+| TypeScript compile errors | Check terminal output after running `compile_and_install.sh` |
 
 ````

@@ -121,9 +121,14 @@ After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window
 ### Alternative: bundle prebuilt binaries for all platforms
 
 `install_extension.sh` / `.ps1` builds the same VSIX but bundles prebuilt
-`tom_bs` binaries for all five platforms copied from
-`tom_binaries/tom/<platform>/` (it does **not** compile from source). Use this
-only when the prebuilt binaries layer is present:
+`tom_bs` binaries copied from `tom_binaries/tom/<platform>/` (it does **not**
+compile the bridge). **Those binaries are not kept current**: they were last
+built on 2026-10-02 and lag the bridge sources, so a script using a newer part
+of the scripting API (the todo API on `tom_todo_model`, for one) can fail
+through them. `compile_and_install` is the install route on every host; this
+one is for a machine without the d4rt and bridge checkouts. It needs the Dart
+SDK as well (it compiles `validate_codespecs`), and it says which bridge source
+the bundled `tom_bs` was built from (`npm run check:tom-bs`) and that it lags:
 
 ```bash
 bash install_extension.sh        # macOS / Linux
@@ -160,7 +165,7 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 │   └── ai_build/                      # ai_build repo (sibling of vscode/)
 │       ├── tom_som_typescript_runtime/ # SOM runtime → vendor/tom_som/*.tgz
 │       └── tom_som_typescript_v0/     # SOM typed facade, meta, schemas
-└── tom_binaries/                      # prebuilt binaries layer (install_extension only)
+└── tom_binaries/                      # prebuilt binaries layer (install_extension only; not kept current)
     └── tom/<platform>/tom_bs
 ```
 
