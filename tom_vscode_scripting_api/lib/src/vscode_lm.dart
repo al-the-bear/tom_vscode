@@ -163,6 +163,10 @@ class LanguageModelChat {
   }
 
   /// Send a chat request to this model
+  ///
+  /// The reply is read from `response.text`, the strings of the text parts: a
+  /// `LanguageModelTextPart` carries its text in `value`, so reading a `text`
+  /// field off the stream's parts returned an empty reply.
   Future<LanguageModelChatResponse> sendRequest(
     VSCodeAdapter adapter,
     List<LanguageModelChatMessage> messages, {
@@ -173,14 +177,18 @@ class LanguageModelChat {
       'executeScriptVce',
       {
         'script': '''
-        const models = await context.vscode.lm.selectChatModels({id: params.modelId});
+        const vs = context.vscode;
+        const models = await vs.lm.selectChatModels({id: params.modelId});
         if (models.length === 0) throw new Error('Model not found');
-        const response = await models[0].sendRequest(params.messages, params.options);
-        let text = '';
-        for await (const part of response.stream) {
-          if (part && part.text) text += part.text;
-        }
-        return {text, stream: [text]};
+        // VS Code takes LanguageModelChatMessage instances, not plain objects.
+        const messages = params.messages.map((m) => m.role === 'assistant'
+          ? vs.LanguageModelChatMessage.Assistant(m.content, m.name)
+          : vs.LanguageModelChatMessage.User(m.content, m.name));
+        const response = await models[0].sendRequest(messages, params.options);
+        // response.text yields the strings of the text parts.
+        const stream = [];
+        for await (const chunk of response.text) stream.push(chunk);
+        return {text: stream.join(''), stream};
       ''',
         'params': {
           'modelId': id,

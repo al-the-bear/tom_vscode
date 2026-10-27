@@ -242,10 +242,13 @@ class VSCodeBridgeClient {
   }
 
   /// Sends a JSON-RPC request to the bridge.
+  ///
+  /// Waits [timeout] for the answer, [requestTimeout] when none is given.
   Future<Map<String, dynamic>> sendRequest(
     String method,
-    Map<String, dynamic> params,
-  ) async {
+    Map<String, dynamic> params, {
+    Duration? timeout,
+  }) async {
     if (!isConnected) {
       throw StateError('Not connected to VS Code bridge');
     }
@@ -264,11 +267,12 @@ class VSCodeBridgeClient {
     _writeMessage(request);
 
     // Wait for response with timeout
+    final wait = timeout ?? requestTimeout;
     try {
-      return await completer.future.timeout(requestTimeout);
+      return await completer.future.timeout(wait);
     } on TimeoutException {
       _pendingRequests.remove(id);
-      throw TimeoutException('Request timed out', requestTimeout);
+      throw TimeoutException('Request timed out', wait);
     }
   }
 

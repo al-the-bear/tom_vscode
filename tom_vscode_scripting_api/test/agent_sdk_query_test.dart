@@ -92,8 +92,9 @@ class _RecordingClient extends VSCodeBridgeClient {
   @override
   Future<Map<String, dynamic>> sendRequest(
     String method,
-    Map<String, dynamic> params,
-  ) async {
+    Map<String, dynamic> params, {
+    Duration? timeout,
+  }) async {
     requests.add((method, params));
     return replies[method] ?? {'success': true};
   }

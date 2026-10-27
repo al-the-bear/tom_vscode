@@ -41,8 +41,9 @@ class VSCodeBridgeAdapter implements VSCodeAdapter {
       throw StateError('VSCodeBridgeClient is not connected');
     }
 
-    // Use the client's sendRequest with the method and params
-    final response = await client.sendRequest(method, params);
+    // The call's own timeout, not the client's default: a language-model
+    // request asks for minutes, the client's default is 30 s.
+    final response = await client.sendRequest(method, params, timeout: timeout);
     return response;
   }
 
@@ -212,8 +213,8 @@ class LazyVSCodeBridgeAdapter implements VSCodeAdapter {
       }
     }
 
-    // Use the client's sendRequest
-    final response = await _client!.sendRequest(method, params);
+    // The call's own timeout, not the client's default.
+    final response = await _client!.sendRequest(method, params, timeout: timeout);
     return response;
   }
 }

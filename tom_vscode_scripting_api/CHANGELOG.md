@@ -1,3 +1,20 @@
+## 2.0.1
+
+The language-model calls work through a bridge adapter.
+
+- `VSCodeBridgeAdapter` and `LazyVSCodeBridgeAdapter` pass the call's
+  `timeout` on. They dropped it, so every call waited the client's
+  `requestTimeout` (30 s by default) whatever it asked for:
+  `LanguageModelChat.sendRequest` asks for 300 s and was cut at 30 s, before a
+  model reply or VS Code's first-use consent prompt could arrive.
+  `VSCodeBridgeClient.sendRequest` takes an optional `timeout` for this; a
+  subclass overriding it adds the parameter.
+- `LanguageModelChat.sendRequest` hands VS Code `LanguageModelChatMessage`
+  instances (it sent plain `{role, content}` objects) and reads the reply from
+  `response.text`. It read a `text` field off the stream's parts, which a
+  `LanguageModelTextPart` does not have, so an answered request came back
+  empty.
+
 ## 2.0.0
 
 **Breaking.** The todo API speaks the workspace's shared todo model.
