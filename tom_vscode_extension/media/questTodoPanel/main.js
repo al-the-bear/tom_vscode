@@ -572,6 +572,7 @@ function qtRenderTodoRow(t) {
     return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
         '<div class="qt-todo-item-row1">' +
         '<span class="status-icon">' + icon + '</span>' +
+        (t.user_action === true ? '<span class="qt-user-action" title="Your to do: a prefix* queue walk passes it">👤</span>' : '') +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
@@ -1096,6 +1097,8 @@ function qtRenderDetail(todo) {
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         '</div>' +
+        qtFormRow('Your to do', '<label title="A prefix* queue walk passes this todo and goes on with the next one">' +
+            '<input type="checkbox" id="qt-d-user-action"' + (todo.user_action === true ? ' checked' : '') + '> 👤 user action</label>') +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -1119,6 +1122,7 @@ function qtRenderDetail(todo) {
     });
 
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
+    document.getElementById('qt-d-user-action').addEventListener('change', qtAutoSave);
     document.getElementById('qt-btn-delete').addEventListener('click', function() {
         var delQuestId = (todo._resolvedQuestId) || qtCurrentQuestId;
         vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile });
@@ -2010,6 +2014,9 @@ function qtCollectFormData() {
         created: createdValue || undefined,
         completed_date: completedDateValue || undefined,
         completed_by: completedByValue || undefined,
+        // Absent on the new-todo form (undefined: nothing to write); false
+        // clears the mark on an existing todo.
+        user_action: document.getElementById('qt-d-user-action') ? document.getElementById('qt-d-user-action').checked : undefined,
     };
 }
 

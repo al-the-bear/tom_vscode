@@ -95,6 +95,8 @@ export interface QuestTodoFull {
     bundle_id?: string;
     derived_from?: string;
     feedback_source?: string;
+    /** The todo is the user's to do: a `<prefix>*` walk passes it. */
+    user_action?: boolean;
     /** Runtime: which file the item was loaded from. */
     sourceFile?: string;
 }
@@ -170,13 +172,22 @@ const ORCHESTRATION_SCHEMA = {
     feedback_source: { type: 'string', description: 'The feedback that raised this todo (Worktracker).' },
 } as const;
 
+/** `user_action`, shared by create and update. */
+const USER_ACTION_SCHEMA = {
+    user_action: {
+        type: 'boolean',
+        description: "true: the todo is the user's to do (a review, an answer, a look at a screen). A `<prefix>*` queue walk passes it instead of sending it to an agent, and the todo panel marks it 👤. false removes the mark.",
+    },
+} as const;
+
 /** The sentence both write tools' descriptions carry about dates and the orchestration fields. */
 const DATES_AND_ORCHESTRATION_DOC =
     ' **Dates are dates:** `completed_date` (and every other date field of the schema) is written as YYYY-MM-DD; ' +
     'a timestamp is accepted and written as the date it names, anything else is refused with nothing written. ' +
     '`created` / `updated` are stamped by the writer (local date). The Worktracker orchestration fields ' +
     '`execution_role`, `qa_role`, `orchestration_role`, `bundle_id`, `derived_from`, `feedback_source` ' +
-    '(optional strings) are written, read back and kept by updates that do not name them.';
+    '(optional strings) are written, read back and kept by updates that do not name them. ' +
+    "`user_action: true` marks a todo that is the user's to do: a `<prefix>*` queue walk passes it and goes on with the next todo.";
 
 // ===========================================================================
 // listQuestTodos
@@ -326,6 +337,7 @@ export interface CreateQuestTodoInput {
         bundle_id?: string;
         derived_from?: string;
         feedback_source?: string;
+        user_action?: boolean;
     };
 }
 
@@ -577,6 +589,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     completed_date: DATE_SCHEMA,
                     completed_by: { type: 'string' },
                     ...ORCHESTRATION_SCHEMA,
+                    ...USER_ACTION_SCHEMA,
                 },
             },
         },
@@ -611,6 +624,7 @@ export interface UpdateQuestTodoInput {
         bundle_id?: string;
         derived_from?: string;
         feedback_source?: string;
+        user_action?: boolean;
     };
 }
 
@@ -739,6 +753,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     blocked_by: { type: 'array', items: { type: 'string' } },
                     references: { type: 'array', items: REFERENCE_SCHEMA },
                     ...ORCHESTRATION_SCHEMA,
+                    ...USER_ACTION_SCHEMA,
                 },
             },
         },

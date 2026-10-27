@@ -4349,6 +4349,12 @@ export class PromptQueueManager {
             this._onDidChange.fire();
             return 'paused';
         }
+        if ((plan.mode === 'todo' || plan.mode === 'exhausted') && plan.waitingForUser) {
+            // The user's own todos are passed, not sent: they stay not-started
+            // for the user, and the series goes on without them.
+            const forUser = plan.waitingForUser.map(t => (t.title ? `${t.id} (${t.title})` : t.id)).join(', ');
+            logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' passes the user's todos (user_action): ${forUser}`);
+        }
         // Something of the main stage is left to send: hold here when paused,
         // before a todo is claimed for it.
         if (plan.mode !== 'exhausted' && this._pauseBeforeNextDispatch(item)) { return 'paused'; }
@@ -5452,8 +5458,9 @@ function readQuestTodoEntries(questId: string): TodoIterationSource[] {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
-        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string }>;
-        return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status }));
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- `user_action` is the todo schema's YAML key
+        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean }>;
+        return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status, ...(t.user_action === true ? { userAction: true } : {}) }));
     } catch { return []; }
 }
 

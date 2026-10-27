@@ -20,6 +20,8 @@
  *   QD-4 an update rewrites a timestamped `created` already on the item as its date, and clearing a field
  *        through the tool path removes the key instead of writing `null`
  *   QD-5 the writer's own stamps are the local date
+ *   QD-6 `user_action` (the todo is the user's to do): written as `true` on create, read back, kept by an
+ *        update that does not name it, removed by `false`
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -141,5 +143,24 @@ describe('quest-todo writers: schema dates and orchestration fields', () => {
         assert.equal(fieldLine('created'), `created: ${todayLocalDate()}`);
         await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 's1', updates: { notes: 'n' } }));
         assert.equal(fieldLine('updated'), `updated: ${todayLocalDate()}`);
+    });
+
+    test('QD-6: user_action', async () => {
+        const created = await call(createQuestTodoImpl(deps, { questId: QUEST, todo: {
+            id: 'u1', description: 'look at the screen', status: 'not-started', user_action: true,
+        } }));
+        assert.equal(created.ok, true, created.error);
+        assert.equal(fieldLine('user_action'), 'user_action: true');
+        assert.equal(findTodoById(QUEST, 'u1')?.user_action, true);
+        const kept = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'u1', updates: { notes: 'later' } }));
+        assert.equal(kept.ok, true, kept.error);
+        assert.equal(fieldLine('user_action'), 'user_action: true', 'an update that does not name it keeps it');
+        const cleared = await call(updateQuestTodoImpl(deps, { questId: QUEST, todoId: 'u1', updates: { user_action: false } }));
+        assert.equal(cleared.ok, true, cleared.error);
+        assert.equal(fieldLine('user_action'), undefined, 'false removes the key');
+        assert.equal(findTodoById(QUEST, 'u1')?.user_action, undefined);
+        const plain = await call(createQuestTodoImpl(deps, { questId: QUEST, todo: { id: 'u2', description: 'x', status: 'not-started', user_action: false } }));
+        assert.equal(plain.ok, true, plain.error);
+        assert.doesNotMatch(raw(), /user_action: false/);
     });
 });

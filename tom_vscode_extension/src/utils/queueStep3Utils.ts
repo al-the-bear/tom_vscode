@@ -215,6 +215,8 @@ export interface TodoIterationSource {
     id: string;
     status?: string;
     title?: string;
+    /** The todo is the user's to do (`user_action: true`): the walk passes it. */
+    userAction?: boolean;
 }
 
 /** A quest todo that matched a `prefix*` pattern, with its parsed number. */
@@ -227,6 +229,8 @@ export interface TodoIterationEntry {
     title?: string;
     /** Normalised status — lower-case, dashes, never empty. */
     status: string;
+    /** Set when the todo is the user's to do; the walk never dispatches it. */
+    userAction?: true;
 }
 
 /** The one status that makes a todo eligible for dispatch. */
@@ -309,6 +313,7 @@ export function collectPrefixTodos(
             index: parseInt(match[1], 10),
             title: todo.title,
             status: normaliseStatus(todo.status),
+            ...(todo.userAction === true ? { userAction: true as const } : {}),
         });
     }
     entries.sort((a, b) => (a.index - b.index) || a.id.localeCompare(b.id));
@@ -320,6 +325,10 @@ export function collectPrefixTodos(
  *
  * Only `not-started` qualifies: `in-progress` means "we already dispatched
  * this one", and completed / cancelled / blocked todos are not work to do.
+ * A todo that is the user's to do (`userAction`) is passed: an agent can only
+ * prepare it, and since it stays `not-started` the walk would pick it on every
+ * pass. It waits for the user while the series goes on
+ * ({@link collectUserActionTodos}).
  * Because the dispatcher marks the picked todo `in-progress`, the candidate
  * set strictly shrinks — that is what makes the walk terminate.
  *
@@ -334,7 +343,22 @@ export function pickNextTodoForIteration(
     if (prefix === undefined) {
         return undefined;
     }
-    return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED);
+    return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED && !e.userAction);
+}
+
+/**
+ * The `not-started` todos of a `prefix*` series that are the user's to do —
+ * the ones the walk passes. In series order.
+ */
+export function collectUserActionTodos(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return [];
+    }
+    return collectPrefixTodos(prefix, todos).filter(e => e.status === NOT_STARTED && e.userAction);
 }
 
 /**
@@ -447,9 +471,9 @@ export function releaseUnblockedTodos(
 /** What the main stage should send next — see {@link planMainStageDispatch}. */
 export type MainStageDispatchPlan =
     | { mode: 'counter'; repeatIndex: number }
-    | { mode: 'todo'; todo: TodoIterationEntry }
+    | { mode: 'todo'; todo: TodoIterationEntry; waitingForUser?: TodoIterationEntry[] }
     | { mode: 'decision-needed'; todos: TodoIterationEntry[] }
-    | { mode: 'exhausted' };
+    | { mode: 'exhausted'; waitingForUser?: TodoIterationEntry[] };
 
 /**
  * Decide whether the main stage has another prompt to send, and what drives it.
@@ -474,6 +498,10 @@ export type MainStageDispatchPlan =
  * from a guess about the very thing still being decided; and reporting
  * `exhausted` would quietly finish the queue item with the question never
  * surfacing.
+ *
+ * **User-action todos are passed**, not held on: the walk takes the next todo
+ * and the plan names the passed ones in `waitingForUser` (present only when
+ * there are some), so the caller can say they are left for the user.
  */
 export function planMainStageDispatch(
     repeatCountRaw: number | string | undefined,
@@ -487,7 +515,9 @@ export function planMainStageDispatch(
             return { mode: 'decision-needed', todos: waiting };
         }
         const todo = pickNextTodoForIteration(repeatCountRaw, todos);
-        return todo ? { mode: 'todo', todo } : { mode: 'exhausted' };
+        const forUser = collectUserActionTodos(repeatCountRaw, todos);
+        const passed = forUser.length > 0 ? { waitingForUser: forUser } : {};
+        return todo ? { mode: 'todo', todo, ...passed } : { mode: 'exhausted', ...passed };
     }
     return sentCount < repeatCount ? { mode: 'counter', repeatIndex: sentCount } : { mode: 'exhausted' };
 }

@@ -196,6 +196,12 @@ take the schema's Worktracker fields `execution_role`, `qa_role`,
 the write like the other fields, and kept by an update that does not name them;
 `''` removes one.
 
+**The user's own todos.** Both write tools take `user_action` (boolean): `true`
+marks a todo only the user can do (a review, an answer, a look at a screen). It
+is written as `user_action: true`, read back and verified, kept by an update
+that does not name it, and removed by `false`. A `prefix*` queue walk passes
+such a todo instead of sending it to an agent, and the todo panel marks it 👤.
+
 ### 4.11a Id generation
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |

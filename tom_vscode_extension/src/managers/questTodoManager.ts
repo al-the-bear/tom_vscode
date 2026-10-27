@@ -107,6 +107,13 @@ export interface QuestTodoItem {
     derived_from?: string;
     /** Worktracker orchestration: the feedback that raised this todo. */
     feedback_source?: string;
+    /**
+     * The todo is the user's to do (reviewing, answering, a look at a screen):
+     * a `<prefix>*` queue walk passes it and the todo panel marks it. Written
+     * only as `true`; `false` removes the key.
+     */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    user_action?: boolean;
     /** Runtime: which file this item was loaded from (not persisted). */
     _sourceFile?: string;
 }
@@ -336,7 +343,7 @@ const VERIFIED_TODO_FIELDS = new Set<string>([
     'title', 'description', 'status', 'priority', 'notes',
     'completed_date', 'completed_by',
     'tags', 'dependencies', 'blocked_by', 'references',
-    'decisions', 'scope',
+    'decisions', 'scope', 'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -456,6 +463,7 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
         const value = getStr(field);
         if (value) { item[field] = value; }
     }
+    if (get('user_action') === true) { item.user_action = true; }
 
     // scope
     const scopeNode = node.get('scope', true);
@@ -626,6 +634,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
     'dependencies', 'blocked_by', 'references', 'completed_date',
     'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
+    'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -677,6 +686,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     for (const field of TODO_ORCHESTRATION_FIELDS) {
         if (todo[field]) { plain[field] = todo[field]; }
     }
+    if (todo.user_action === true) { plain.user_action = true; }
     if (todo.scope) {
         const scopeObj: Record<string, unknown> = {};
         if (todo.scope.project) { scopeObj.project = todo.scope.project; }
@@ -735,6 +745,11 @@ function applyTodoUpdates(
     if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }
     for (const field of TODO_ORCHESTRATION_FIELDS as readonly TodoOrchestrationField[]) {
         if (updates[field] !== undefined) { setOrDelete(item, field, updates[field]); applied[field] = updates[field]; }
+    }
+    if (updates.user_action !== undefined) {
+        const userAction = updates.user_action === true ? true : undefined;
+        setOrDelete(item, 'user_action', userAction);
+        applied.user_action = userAction;
     }
     if (updates.scope !== undefined) {
         if (updates.scope && (updates.scope.project || updates.scope.projects?.length || updates.scope.module || updates.scope.area || updates.scope.files?.length)) {
