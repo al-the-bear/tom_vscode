@@ -104,7 +104,7 @@ export function forgetTodoFile(filePath: string): void {
  * after `blocked_by` (else `blocked_until`), so the two ends of the relation
  * sit together; without either it goes last.
  */
-function setBlocking(doc: Document, node: YAMLMap, blocking: string[]): void {
+export function setBlocking(doc: Document, node: YAMLMap, blocking: string[]): void {
     if (!blocking.length) { node.delete('blocking'); return; }
     if (node.has('blocking')) { node.set('blocking', doc.createNode(blocking)); return; }
     const pair = doc.createPair('blocking', blocking);

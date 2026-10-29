@@ -37,7 +37,7 @@ export const TOOL_RESULTS_FOLDER = 'tool_results';
 export const MIGRATION_TARGET_SESSION = 'default';
 /** Written into `history/sessions/` once a quest's files were migrated. */
 export const MIGRATION_MARKER_FILE = '.storage-version';
-const STORAGE_VERSION = '2';
+export const STORAGE_VERSION = '2';
 
 /** The storage root of session `name`; `historyRoot` is the quest's `history/` folder. */
 export function sessionRoot(historyRoot: string, name: string): string {
@@ -155,7 +155,7 @@ export interface MigrationReport {
 }
 
 /** The history files of the layout before that belong to the queue (the suffixed Local LLM snapshots stay). */
-function isLegacyHistoryFile(name: string): boolean {
+export function isLegacyHistoryFile(name: string): boolean {
     return [
         'compacted_history.md',
         'rawTurns.json',

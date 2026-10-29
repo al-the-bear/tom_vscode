@@ -3131,6 +3131,7 @@
     "pretest": "npm run compile && npm run typecheck:media",
     "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
     "test:services": "node --test --test-concurrency=1 out/services/__tests__/*.test.js",
+    "migrate:ai-formats": "node scripts/migrate-ai-formats.cjs",
     "test:utils": "node --test --test-concurrency=1 out/utils/__tests__/*.test.js",
     "test:managers": "node --test --test-concurrency=1 out/managers/__tests__/*.test.js",
     "test:handlers": "node --test --test-concurrency=1 out/handlers/__tests__/*.test.js",

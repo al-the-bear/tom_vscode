@@ -16,6 +16,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
+import { hostSlugOf } from './hostSlug';
 
 // ============================================================================
 // Configurable folder names (the ONLY place these strings appear)
@@ -149,9 +150,7 @@ export class WsPaths {
      * character outside `[a-z0-9_-]` replaced by `_`.
      */
     static hostSlug(): string {
-        const short = os.hostname().split('.')[0].trim().toLowerCase();
-        const safe = short.replace(/[^a-z0-9_-]/g, '_');
-        return safe || 'unknown-host';
+        return hostSlugOf();
     }
 
     // ── Workspace root helper ───────────────────────────────────────
