@@ -26,6 +26,7 @@ export interface TodoListSource {
     updated?: string;
     completed_date?: string;
     user_action?: boolean;
+    blocking?: string[];
 }
 
 export interface TodoListItem {
@@ -39,6 +40,8 @@ export interface TodoListItem {
     completed_date?: string;
     /** Present, and true, only for the user's own todos. */
     user_action?: true;
+    /** The todos this one blocks (the reverse of their `blocked_by`); present only when there are any. */
+    blocking?: string[];
     sourceFile: string;
 }
 
@@ -62,5 +65,6 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
     };
     if (todo.completed_date) { row.completed_date = todo.completed_date; }
     if (todo.user_action === true) { row.user_action = true; }
+    if (todo.blocking && todo.blocking.length) { row.blocking = todo.blocking; }
     return row;
 }

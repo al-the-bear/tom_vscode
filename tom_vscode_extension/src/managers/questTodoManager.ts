@@ -24,6 +24,7 @@ import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as del
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
+import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
 
@@ -88,6 +89,13 @@ export interface QuestTodoItem {
     references?: QuestTodoReference[];
     dependencies?: string[];
     blocked_by?: string[];
+    /**
+     * The live todos whose `blocked_by` names this one (bare ids in the same
+     * quest, `<quest>/<id>` from another): the reverse of `blocked_by`. Derived
+     * — every write keeps it in step (utils/todoBlockingSync.ts) — so no update
+     * path takes it.
+     */
+    blocking?: string[];
     /**
      * Publish conditions that block the todo, each `<package> >= <x.y.z>` (or
      * `>`): met when pub.dev's latest release satisfies it
@@ -222,7 +230,18 @@ function loadDocument(filePath: string): Document {
 
 /** Write a Document back, preserving formatting. */
 function saveDocument(filePath: string, doc: Document): void {
-    fs.writeFileSync(filePath, doc.toString(), 'utf8');
+    configureBlockingSync();
+    writeTodoFileText(filePath, doc.toString());
+}
+
+/**
+ * Tell the `blocking` sync where this workspace's quests are. Every write of
+ * a todo file goes through `writeTodoFileText` (utils/todoBlockingSync.ts),
+ * which writes the text and then keeps `blocking` in step with `blocked_by`
+ * for the todos the write can have changed.
+ */
+function configureBlockingSync(): void {
+    setTodoQuestsRoot(WsPaths.ai('quests') || path.join(getWorkspaceRoot(), '_ai', 'quests'));
 }
 
 /**
@@ -443,7 +462,8 @@ function saveDocumentWithSchema(filePath: string, doc: Document): void {
     if (!content.startsWith('# yaml-language-server:')) {
         content = schemaComment(filePath) + content;
     }
-    fs.writeFileSync(filePath, content, 'utf8');
+    configureBlockingSync();
+    writeTodoFileText(filePath, content);
 }
 
 /**
@@ -492,6 +512,8 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (deps) { item.dependencies = deps; }
     const blockedBy = getArr('blocked_by');
     if (blockedBy) { item.blocked_by = blockedBy; }
+    const blocking = getArr('blocking');
+    if (blocking) { item.blocking = blocking; }
     const blockedUntil = getArr('blocked_until');
     if (blockedUntil) { item.blocked_until = blockedUntil; }
     const notes = getStr('notes');
@@ -677,7 +699,7 @@ export function createTodoInFile(
  */
 const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
-    'dependencies', 'blocked_by', 'blocked_until', 'references', 'completed_date',
+    'dependencies', 'blocked_by', 'blocking', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
@@ -718,6 +740,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
     if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
+    if (todo.blocking && todo.blocking.length) { plain.blocking = todo.blocking; }
     if (todo.blocked_until && todo.blocked_until.length) { plain.blocked_until = todo.blocked_until; }
     if (todo.references && todo.references.length) {
         // The tools reject bare strings (SCE243). An internal caller that

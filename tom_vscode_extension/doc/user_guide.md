@@ -191,6 +191,10 @@ A todo marked `user_action: true` is yours to do — a review, an answer, a look
 
 Work that has to wait for you — a check that can only run after you reload the window, say — is written as a 👤 todo for your part plus the work itself, `status: blocked` with `blocked_by` naming the 👤 todo. A `prefix*` queue walk passes both; once you complete the 👤 todo, the walk releases the blocked one and sends it.
 
+#### Todos that block others (⛓️)
+
+A todo's **Blocked By** names the todos it waits for. The other end is kept for you: each todo carries a **`blocking`** list — the todos whose Blocked By names it (by id in the same quest, as `quest/id` from another quest) — which every save keeps in step, whether it comes from the todo panel, a todo tool or a script. A todo that blocks at least one open todo shows **⛓️** next to its status icon; hover it to see which. Its detail form shows a read-only **Blocking** row whose entries open the blocked todo. To change the relation, edit Blocked By on the blocked todo; Blocking follows.
+
 #### Moving todos between files
 
 Four top-bar buttons move todos between files instead of destroying them:

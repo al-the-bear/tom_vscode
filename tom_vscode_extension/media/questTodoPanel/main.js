@@ -557,6 +557,30 @@ function qtExpandGroupForTodo(id) {
     qtExpandedGroups['#' + qtTodoPrefix(id)] = true;
 }
 
+/**
+ * The todos in `t.blocking` that are still open: a todo of this list that is
+ * neither completed nor cancelled, and any todo the list does not hold (one of
+ * another quest, `<quest>/<id>`, or of a file not shown), whose state the
+ * panel cannot see.
+ */
+function qtOpenBlockedTodos(t) {
+    return (t.blocking || []).filter(function(ref) {
+        for (var i = 0; i < qtTodos.length; i++) {
+            if (qtTodos[i].id === ref) {
+                return qtTodos[i].status !== 'completed' && qtTodos[i].status !== 'cancelled';
+            }
+        }
+        return true;
+    });
+}
+
+/** ⛓️ beside the status icon of a todo that blocks open todos; its tooltip names them. */
+function qtBlockingMark(t) {
+    var open = qtOpenBlockedTodos(t);
+    if (!open.length) return '';
+    return '<span class="qt-blocking" title="Blocks: ' + qtEsc(open.join(', ')) + '">⛓️</span>';
+}
+
 /** One todo row of the list pane. */
 function qtRenderTodoRow(t) {
     var icon = qtStatusIcon(t.status);
@@ -593,6 +617,7 @@ function qtRenderTodoRow(t) {
         '<div class="qt-todo-item-row1">' +
         '<span class="status-icon">' + icon + '</span>' +
         (t.user_action === true ? '<span class="qt-user-action" title="Your to do: a prefix* queue walk passes it">👤</span>' : '') +
+        qtBlockingMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
@@ -1159,6 +1184,10 @@ function qtRenderDetail(todo) {
             '<button class="qt-edit-btn" id="qt-d-deps-add" title="Add dependency">➕</button></div>') +
         qtFormRow('Blocked By', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocked-wrap">' + blockedByBadges +
             '<button class="qt-edit-btn" id="qt-d-blocked-add" title="Add blocked-by">➕</button></div>') +
+        ((todo.blocking || []).length
+            ? qtFormRow('Blocking', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocking-wrap" title="The todos whose Blocked By names this one; set Blocked By on those to change it">' +
+                qtRenderTodoBadges(todo.blocking, 'blocking') + '</div>')
+            : '') +
         qtFormRow('Notes', '<textarea id="qt-d-notes" data-completion="on">' + qtEsc(todo.notes || '') + '</textarea>') +
         qtRenderDecisionsSection() +
         qtRenderScopeSection(qtFormScope) +
@@ -1212,6 +1241,7 @@ function qtRenderDetail(todo) {
 
     qtAttachTodoBadgeHandlers('blocked-by');
     qtAttachTodoBadgeHandlers('deps');
+    qtAttachTodoBadgeHandlers('blocking');
     document.getElementById('qt-d-blocked-add').addEventListener('click', function() { qtShowTodoPicker('blocked-by'); });
     document.getElementById('qt-d-deps-add').addEventListener('click', function() { qtShowTodoPicker('deps'); });
 
@@ -1230,17 +1260,19 @@ function qtRenderDetail(todo) {
 }
 
 // ── Todo badge rendering for blocked-by / dependencies ──
+/** Badges of todo ids; `blocking` badges are read-only (the list is derived from the others' blocked_by). */
 function qtRenderTodoBadges(ids, category) {
+    var removable = category !== 'blocking';
     return ids.map(function(id) {
         return '<span class="qt-todo-badge" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '" title="Navigate to ' + qtEsc(id) + '">' +
             qtEsc(id) +
-            '<span class="qt-badge-remove" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '">×</span>' +
+            (removable ? '<span class="qt-badge-remove" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '">×</span>' : '') +
             '</span>';
     }).join('');
 }
 
 function qtAttachTodoBadgeHandlers(category) {
-    var wrapId = category === 'blocked-by' ? 'qt-d-blocked-wrap' : 'qt-d-deps-wrap';
+    var wrapId = category === 'blocked-by' ? 'qt-d-blocked-wrap' : category === 'blocking' ? 'qt-d-blocking-wrap' : 'qt-d-deps-wrap';
     var wrap = document.getElementById(wrapId);
     if (!wrap) return;
     wrap.querySelectorAll('.qt-todo-badge[data-qt-badge-cat="' + category + '"]').forEach(function(badge) {

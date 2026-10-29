@@ -47,8 +47,12 @@ const FILES = ['src/managers/questTodoManager.ts', 'src/utils/todoArchive.ts'];
 /** Calls that confirm a write by re-reading the file. */
 const VERIFIERS = new Set(['assertTodoPersisted', 'assertTodoFieldsPersisted', 'assertMovePersisted']);
 
-/** Raw file writes (the callee's last name). */
-const RAW_WRITES = /^(writeFileSync|appendFileSync|writeFile|appendFile)$/;
+/**
+ * Raw file writes (the callee's last name). `writeTodoFileText` is the todo
+ * writers' file write: it writes the text and then keeps `blocking` in step
+ * with `blocked_by` (utils/todoBlockingSync.ts).
+ */
+const RAW_WRITES = /^(writeFileSync|appendFileSync|writeFile|appendFile|writeTodoFileText)$/;
 
 /**
  * The census: every write site, as `<file>: <function> → <callee>(<path>)`.
@@ -65,7 +69,7 @@ const CENSUS = [
     'questTodoManager.ts: updateTodo → saveDocument(filePath)',
     'questTodoManager.ts: updateTodoInFile → saveDocument(filePath)',
     'todoArchive.ts: journalDecisions → fs.appendFileSync(file)',
-    'todoArchive.ts: moveTodosOrThrow → fs.writeFileSync(sourceFilePath)',
+    'todoArchive.ts: moveTodosOrThrow → writeTodoFileText(sourceFilePath)',
     'todoArchive.ts: moveTodosOrThrow → writeTodosIntoTarget(targetFile)',
 ];
 

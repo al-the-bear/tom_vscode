@@ -194,6 +194,19 @@ const BLOCKED_UNTIL_SCHEMA = {
  * `undefined` when acceptable (absent counts as acceptable). A condition no
  * reader can parse would keep the todo blocked for ever, so it is refused.
  */
+/**
+ * `blocking` is derived: every write recomputes it from the `blocked_by` of the
+ * live todos (utils/todoBlockingSync.ts). A caller that sends it would see its
+ * value replaced at once, so it is refused with the field to set instead.
+ */
+export function validateNoBlocking(record: unknown): string | undefined {
+    if (record && typeof record === 'object' && 'blocking' in (record as Record<string, unknown>)) {
+        return '`blocking` is derived from `blocked_by` and kept in step by every write; it cannot be set. '
+            + 'To make todo A block todo B, set `blocked_by` on B (a bare id in the same quest, `<quest>/<id>` across quests).';
+    }
+    return undefined;
+}
+
 export function validateBlockedUntil(blockedUntil: unknown): string | undefined {
     if (blockedUntil === undefined) { return undefined; }
     if (!Array.isArray(blockedUntil)) {
@@ -321,7 +334,7 @@ export const GET_QUEST_TODO_DESCRIPTION =
     'Get a single quest todo by id, returning every field on disk — ' +
     '`id`, `title`, `description`, `status`, `priority`, `tags`, `scope` ' +
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
-    '`dependencies`/`blocked_by`, `decisions[]` (the open questions behind a ' +
+    '`dependencies`/`blocked_by`, `blocking` (the todos this one blocks, derived), `decisions[]` (the open questions behind a ' +
     '`decision-needed` status), `notes`, `created`/`updated`/`completed_date`/' +
     '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
@@ -544,7 +557,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
         }
-        const referencesError = validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
+        const referencesError = validateNoBlocking(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -723,7 +736,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
+        const referencesError = validateNoBlocking(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -749,7 +762,8 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     'value as a whole; nothing is merged or appended.** `notes` and `description` are ' +
     'overwritten, never appended to: to add a paragraph, read the todo with ' +
     '`tomAi_getQuestTodo` and send the old text plus the new. `tags`, `dependencies`, ' +
-    '`blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list. `scope` replaces ' +
+    '`blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list. `blocking` (the todos this one ' +
+    'blocks, the reverse of their `blocked_by`) is derived and kept in step by every write; passing it is refused. `scope` replaces ' +
     'the whole object, so keys you leave out are dropped. An empty string or empty list ' +
     'removes the field. **Fields you do NOT pass are kept verbatim**, including `scope`, ' +
     '`references`, `created` timestamps, `_sourceFile` and unknown fields an earlier ' +

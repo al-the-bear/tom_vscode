@@ -273,6 +273,33 @@ else: a 👤 todo for the user's part, the dependent work `blocked` with
 blocked, and `releaseUnblockedTodos` releases it once the 👤 todo is completed
 (UA-7 in `todoIterationUserAction.test.ts`).
 
+### `blocking` — the reverse of `blocked_by`
+
+`blocking` lists the LIVE todos whose `blocked_by` names the todo: a bare id in
+the same quest, `<quest>/<id>` from another; a todo of a non-quest todo file
+(`workspace.todo.yaml`) is named only inside that file. It is derived and never
+set: every todo file write in the extension goes through `writeTodoFileText`
+(`src/utils/todoBlockingSync.ts`), which writes the text and then recomputes
+`blocking` for the todos the write can have changed — those named by the
+file's `blocked_by` before or after the write, and the file's own todos. The
+rules are pure in `src/utils/todoBlocking.ts`. Terminal siblings
+(`-archived` / `-deleted`) are not live and are never rewritten; archiving a
+blocked todo drops it from its blocker's list. The corpus scan keeps a stat
+cache (measured 2026-10-29: 60 live files, 175 ms cold, a few ms warm).
+Untouched todos elsewhere are not rewritten: the format migration fills the
+existing corpus.
+
+`applyTodoUpdates` never writes `blocking`; `tomAi_createQuestTodo` /
+`tomAi_updateQuestTodo` refuse it (`validateNoBlocking`); a bridge update that
+sends the whole todo map back carries it harmlessly. The panel shows ⛓️ in a
+row whose `blocking` names an open todo (`qtBlockingMark`; a cross-quest entry
+counts as open) and a read-only **Blocking** row of badges in the detail form.
+`todoWriteSitesGuard.test.ts` counts `writeTodoFileText` as a raw write.
+`_ai/schemas/todo_blocking.py` (pass 9 of `validate_todo_corpus.py`) reports a
+mismatched pair; a todo with no `blocking` key yet is counted as unmigrated.
+Tests: `todoBlocking.test.ts` TB-1–8, `questTodoBlocking.test.ts` QBM-1–5,
+`questTodoBlocking.dom.test.ts` QB-1–3.
+
 ## 3. Session todos — stable per-host file (TRA04)
 
 Session todos live in **one stable, git-tracked file per host+quest** inside

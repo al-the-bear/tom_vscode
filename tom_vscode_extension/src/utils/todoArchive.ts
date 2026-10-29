@@ -51,6 +51,7 @@ import {
 } from './decisionsJournalFormat';
 import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
 import { todayLocalDate } from './todoDates';
+import { writeTodoFileText } from './todoBlockingSync';
 
 // ============================================================================
 // Result types
@@ -371,7 +372,7 @@ function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResul
         todosNode.items.splice(idx, 1);
     }
     stampUpdated(sourceDoc);
-    fs.writeFileSync(sourceFilePath, sourceDoc.toString(), 'utf8');
+    writeTodoFileText(sourceFilePath, sourceDoc.toString());
 
     assertMovePersisted(sourceFilePath, targetFile, moved);
 
@@ -521,7 +522,7 @@ function writeTodosIntoTarget(
     if (prefix && !content.startsWith('# yaml-language-server:')) {
         content = prefix + content;
     }
-    fs.writeFileSync(targetFile, content, 'utf8');
+    writeTodoFileText(targetFile, content);
     return replaced;
 }
 

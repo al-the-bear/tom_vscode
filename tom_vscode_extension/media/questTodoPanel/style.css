@@ -177,6 +177,8 @@
 .qt-trash-btn:hover { opacity: 1; color: var(--vscode-errorForeground); }
 .qt-reopen-btn:hover { opacity: 1; color: var(--vscode-testing-iconPassed); }
 .qt-todo-item .qt-user-action { flex-shrink: 0; font-size: 0.9em; }
+/* A todo that blocks open todos (its `blocking`): ⛓️ beside the status icon. */
+.qt-todo-item .qt-blocking { flex-shrink: 0; font-size: 0.9em; }
 /* The user's own todos (user_action: true): 👤 before the title and a purple title,
    a colour no status uses (blocked's border is the warning yellow, in-progress's the info blue). */
 .qt-todo-item.user-action .ttitle { color: var(--vscode-charts-purple, #b180d7); }
