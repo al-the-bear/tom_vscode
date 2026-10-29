@@ -14,6 +14,12 @@
  *   AK-6 the queue recognises the transport's no-key failure and records why, that it is not retried, and the fix
  *   AK-7 one rule: no source file but this module writes the default variable name; the chat panel's key dot and
  *        the Status Page go through directApiKeyEnvVar (an emptied Status Page field still means the default)
+ *   AK-8 a stage whose direct-API key is missing is refused before it is sent: the refusal is the transport's
+ *        own no-key failure (so the queue fails it at once, without retry) and names the cause; a stage whose
+ *        key is set, or that is not on the direct transport, is not refused
+ *   AK-9 one source for the variable: the direct send (AnthropicHandler) and the queue's dispatch read the
+ *        anthropic section the key check reads (loadSendToChatConfig, the file as it is now), never the
+ *        configuration loaded at activation; the dispatch checks the key before anything is sent
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- environments are keyed by variable names */
@@ -32,6 +38,7 @@ import {
     ANTHROPIC_CLIENT_UNAVAILABLE,
     isMissingApiKeyFailure,
     missingApiKeyFailureText,
+    stageKeyRefusal,
     type AnthropicKeySection,
 } from '../anthropicApiKeyCheck.js';
 
@@ -136,5 +143,30 @@ describe('anthropicApiKeyCheck', () => {
             .map((f) => relative(srcRoot, f).split('\\').join('/'));
         assert.deepEqual(writers, ['utils/anthropicApiKeyCheck.ts']);
         assert.equal(directApiKeyEnvVar({ apiKeyEnvVar: '' }), 'ANTHROPIC_API_KEY', 'an emptied field still means the default');
+    });
+
+    test('AK-8: a stage without its key is refused before it is sent', () => {
+        const refusal = stageKeyRefusal(SECTION, { profileId: 'direct-p' }, {});
+        assert.ok(refusal, 'a direct stage without its key is refused');
+        assert.ok(isMissingApiKeyFailure(refusal), 'the queue reads it as the no-key failure');
+        assert.match(refusal, /TEST_VSCODE_KEY/);
+        assert.equal(stageKeyRefusal(SECTION, { profileId: 'direct-p' }, { TEST_VSCODE_KEY: 'k' }), undefined);
+        assert.equal(stageKeyRefusal(SECTION, { profileId: 'sdk-p' }, {}), undefined);
+        assert.equal(stageKeyRefusal(SECTION, { profileId: 'local-p' }, {}), undefined);
+    });
+
+    test('AK-9: the send and the dispatch read the variable from where the check reads it', () => {
+        const src = (rel: string) => readFileSync(join(__dirname, '..', '..', '..', 'src', rel), 'utf-8');
+        const handler = src('handlers/anthropic-handler.ts');
+        assert.doesNotMatch(handler, /directApiKeyEnvVar\(this\.getAnthropicSection\(\)\)/,
+            'the handler takes the key variable from the configuration loaded at activation');
+        assert.match(handler, /directApiKeyEnvVar\(loadSendToChatConfig\(\)\?\.anthropic\)/);
+        const queue = src('managers/promptQueueManager.ts');
+        const start = queue.indexOf('private async dispatchStage(');
+        assert.ok(start > 0, 'dispatchStage found');
+        const body = queue.slice(start, queue.indexOf('\n    }\n', start));
+        const check = body.indexOf('stageKeyRefusal(loadSendToChatConfig()?.anthropic');
+        assert.ok(check > 0, 'dispatchStage checks the key with the file\'s section');
+        assert.ok(check < body.indexOf('ensureItemSession('), 'before the session is made or anything is sent');
     });
 });

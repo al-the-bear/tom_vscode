@@ -60,7 +60,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
 import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
-import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage } from '../utils/anthropicApiKeyCheck';
+import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage, stageKeyRefusal } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 import { createSession, deleteSession, ensureSession, readSession } from '../services/agentSdkSessionStore';
 import { sessionTransportMismatch } from '../services/directSessionHistory';
@@ -3868,6 +3868,18 @@ export class PromptQueueManager {
         };
 
         logQueue(`dispatchStage: anthropic profile=${profile.id} config=${configuration.id}${resolved.session ? ` session=${resolved.session}` : ''}${resolved.iterationKey ? ` iteration=${resolved.iterationKey}` : ''}`);
+        // A stage whose direct-API key is missing is not sent: the refusal is the
+        // transport's own no-key failure, so the error path fails the item at
+        // once without retry (`_failForMissingApiKey`). Read from the config
+        // file as it is now — the same section the warnings were given from.
+        const keyRefusal = stageKeyRefusal(loadSendToChatConfig()?.anthropic, {
+            profileId: resolved.anthropicProfileId,
+            configId: resolved.anthropicConfigId,
+        }, process.env);
+        if (keyRefusal) {
+            logQueue(`dispatchStage: not sent — ${keyRefusal}`);
+            throw new Error(keyRefusal);
+        }
         // A missing named session is created from the item's spec before the first send.
         if (resolved.item) { this.ensureItemSession(resolved.item, resolved.session); }
         // CTS scope: created here so the Stop button (`stopActiveItem`)

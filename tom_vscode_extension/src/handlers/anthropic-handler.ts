@@ -13,6 +13,7 @@
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
@@ -1690,9 +1691,13 @@ export class AnthropicHandler {
      * now — the name and the value are read on every call, and the client is
      * made again when either changed (src/utils/anthropicClientCache.ts).
      * Returns `undefined` when the variable is unset, as the key check says.
+     * The name comes from the config FILE as it is now, the same read the key
+     * check, the profile pickers' marks and the queue use: the configuration
+     * loaded at activation is not re-read after a hand edit of the file, and
+     * the send then used a variable the check no longer named.
      */
     private getClient(): Anthropic | undefined {
-        return this.clientCache.get(directApiKeyEnvVar(this.getAnthropicSection()), process.env);
+        return this.clientCache.get(directApiKeyEnvVar(loadSendToChatConfig()?.anthropic), process.env);
     }
 
     /** Forget the client; the next call makes a new one. */
@@ -1738,7 +1743,7 @@ export class AnthropicHandler {
     async fetchModels(): Promise<{ models: Array<{ id: string; display_name?: string }>; error?: string }> {
         const client = this.getClient();
         if (!client) {
-            return { models: [], error: `${directApiKeyEnvVar(this.getAnthropicSection())} environment variable not set` };
+            return { models: [], error: `${directApiKeyEnvVar(loadSendToChatConfig()?.anthropic)} environment variable not set` };
         }
         try {
             const page = await client.models.list({ limit: 100 });

@@ -9,7 +9,7 @@
  *   AC-2 another variable name, or another value of the same variable: a new client with the new key
  *   AC-3 the key is missing now: undefined, and a later key creates a fresh client
  *   AC-4 reset: the next call creates a new client even with the same key
- *   AC-5 the handler resolves its client through the cache with the variable rule the key check uses, on
+ *   AC-5 the handler resolves its client through the cache with the variable rule AND the config read the key check uses, on
  *        every call (no client field kept beside it)
  */
 
@@ -71,7 +71,8 @@ describe('the direct-API client cache', () => {
         const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'anthropic-handler.ts'), 'utf-8');
         const at = src.indexOf('private getClient(');
         const body = src.slice(at, src.indexOf('\n    }\n', at));
-        assert.match(body, /this\.clientCache\.get\(directApiKeyEnvVar\(this\.getAnthropicSection\(\)\), process\.env\)/);
+        assert.match(body, /this\.clientCache\.get\(directApiKeyEnvVar\(loadSendToChatConfig\(\)\?\.anthropic\), process\.env\)/,
+            'the variable comes from the config file as it is now, the read the key check makes (finishvsd4)');
         assert.doesNotMatch(src, /private client: Anthropic/, 'no client cached outside the keyed cache');
         assert.doesNotMatch(src, /apiKeyEnvVar \|\| 'ANTHROPIC_API_KEY'/, 'one rule for the variable name');
     });

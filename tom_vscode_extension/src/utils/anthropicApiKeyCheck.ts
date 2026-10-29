@@ -125,6 +125,21 @@ export function isMissingApiKeyFailure(text: string | undefined): boolean {
 }
 
 /**
+ * Why a stage on `target` must not be sent: its direct-API key is missing.
+ * The text is the transport's own no-key failure plus the cause, so the queue
+ * fails the stage the way it fails a send that found no key — at once, without
+ * retry. Undefined when the stage may go (key set, or not the direct transport).
+ */
+export function stageKeyRefusal(
+    section: AnthropicKeySection | undefined,
+    target: { profileId?: string; configId?: string },
+    env: Record<string, string | undefined>,
+): string | undefined {
+    const missing = missingDirectApiKey(section, target, env);
+    return missing ? `${ANTHROPIC_CLIENT_UNAVAILABLE}: ${missingApiKeyMessage(missing)}` : undefined;
+}
+
+/**
  * What a queue item records when a send failed for a missing key: the causes
  * the queue found for its stages (one line each, from missingApiKeyMessage),
  * else the variable alone, and that the item is to be resent once the key is
