@@ -83,7 +83,7 @@ To switch, edit the JSON config:
 
 `maxBackgroundWaitMinutes` matters when the model starts a command in the background (`run_in_background`) and ends its turn while it runs, for example "WAITING for the suites". The prompt stays open until the command finishes, and the model then continues with its result. After this many minutes (default 30) the wait is checked. A command still producing output, or a background agent still reporting progress, earns another period of the same length. One showing nothing is abandoned, and the live trail says so in a `⏳ notice`. `0` turns waiting off, and such a command's result is then never delivered.
 
-Ignored fields on the `agentSdk` path: `apiKeyEnvVar`, `promptCachingEnabled`, `historyMode`, `maxHistoryTokens`. The approval gate still runs — write tools prompt identically on both paths via the SDK's `canUseTool` hook.
+Ignored fields on the `agentSdk` path: `apiKeyEnvVar`, `promptCachingEnabled`, `historyMode`, `maxHistoryTokens`. The approval gate still runs — write tools prompt identically on both paths via the SDK's `canUseTool` hook. **The profile's Tool Approval decides, not the configuration's `permissionMode`** (`src/utils/agentSdkPermissionMode.ts`): `never` runs in `bypassPermissions`; `always` never does — a configuration set to `bypassPermissions` runs in `default` for such a profile (the transport logs it in the Tom Tool Log, the profile editor's Tool Approval help names the configuration), because the SDK does not call `canUseTool` under `bypassPermissions`. `acceptEdits` and `plan` are kept. Queued prompts never ask: the queue sends with approval off.
 
 The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `transport: "agentSdk"`:
 
@@ -152,7 +152,7 @@ The extension intercepts `AskUserQuestion` in the `canUseTool` callback (`agent-
 - When the active profile sets **`allowInteractiveQuestions: true`**, each question is shown as a native VS Code QuickPick (multi-select honoured). A free-text **"Other…"** entry falls through to an input box; it stays visible under any filter (`alwaysShow`), and typing an answer that matches no option and pressing Enter submits it directly. The collected answers are returned to the agent as the tool result via `{ behavior: 'deny', message }`, so the agent continues the turn with the user's choices.
 - When interactive questions are **off**, or the user **dismisses** the picker/input box, a fallback message (the `interactiveQuestionsTemplateId` template, or a built-in default) is returned instead. Its body may reference `${questions}` — a bulleted digest of the headers and options — instructing the agent to proceed autonomously.
 
-> **Limitation:** `canUseTool` is not fired when `permissionMode === 'bypassPermissions'`, which `toolApprovalMode: 'never'` forces. With a never-approve profile the interception is skipped and the SDK's default headless behaviour applies. Use `toolApprovalMode: 'default'` (or `'auto'`) for interactive questions to take effect.
+> **Limitation:** `canUseTool` is not fired when `permissionMode === 'bypassPermissions'`, which `toolApprovalMode: 'never'` forces. With a never-approve profile the interception is skipped and the SDK's default headless behaviour applies. Use `toolApprovalMode: 'always'` for interactive questions to take effect — it runs outside `bypassPermissions` whatever the configuration sets.
 
 Configure per-profile (`anthropicProfile`):
 

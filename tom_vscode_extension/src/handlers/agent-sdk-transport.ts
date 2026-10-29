@@ -27,6 +27,7 @@ import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
+import { effectivePermissionMode, permissionModeOverride } from '../utils/agentSdkPermissionMode';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
 // host compiles to CommonJS. We load it via dynamic `import()` and cache
@@ -862,11 +863,13 @@ async function runAgentSdkAttempt(
 
     const maxTurns = configuration.agentSdk?.maxTurns ?? configuration.maxRounds;
     const configuredMode = (configuration.agentSdk?.permissionMode ?? 'default') as PermissionMode;
-    // toolApprovalMode === 'never' forces 'bypassPermissions' so the SDK
-    // doesn't fire canUseTool at all.
-    const permissionMode: PermissionMode = approvalMode === 'never'
-        ? 'bypassPermissions'
-        : configuredMode;
+    // The profile's Tool Approval wins (utils/agentSdkPermissionMode.ts):
+    // 'never' runs in bypassPermissions, so the SDK does not fire canUseTool
+    // at all; 'always' never does, so a configured bypass runs in 'default'
+    // and the extension's write tools ask for approval.
+    const permissionMode: PermissionMode = effectivePermissionMode(approvalMode, configuredMode);
+    const modeOverride = permissionModeOverride(approvalMode, configuredMode);
+    if (modeOverride) { toolLog(`[agent-sdk] ${modeOverride} (configuration ${configuration.id})`); }
     let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
     let effectiveSystemPrompt = systemPrompt;
     // Auto-load workspace instructions when the handler asks for it

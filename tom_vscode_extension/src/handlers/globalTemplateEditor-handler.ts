@@ -505,7 +505,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'thinkingEnabled', label: 'Extended Thinking', type: 'checkbox', value: String(p.thinkingEnabled === true), help: 'Enable Claude extended thinking. Sends <code>thinking: { type: "enabled", budget_tokens }</code> on the direct SDK; forwarded to the Agent SDK where supported.' },
                 { name: 'thinkingBudgetTokens', label: 'Thinking Budget (tokens)', type: 'number', value: String(p.thinkingBudgetTokens ?? 8192), help: 'Token budget for extended thinking. Minimum 1024. Ignored when Extended Thinking is off.', disabledWhen: { field: 'thinkingEnabled', equals: 'false' } },
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
-                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it also forces <code>permissionMode=bypassPermissions</code>).' },
+                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: toolApprovalHelp(profile.configurationId, config.anthropic?.configurations) },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, …; the task-tracking tools TaskCreate/TaskUpdate are default only on models up to Opus 4.7 / Sonnet 4.6) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
                 { name: 'allowInteractiveQuestions', label: 'Allow Interactive Questions', type: 'checkbox', value: String(p.allowInteractiveQuestions === true), help: 'Agent SDK transport only: when the agent calls the built-in <code>AskUserQuestion</code> tool, show a VS Code QuickPick per question and feed your selections back to the model. When unchecked (default), the questions are answered with the fallback template below, telling the agent to proceed autonomously. Requires "Use Built-In Agent SDK Tools"; has no effect when Tool Approval is "Never" (the SDK does not fire the approval callback under <code>bypassPermissions</code>).' },
                 { name: 'interactiveQuestionsTemplateId', label: 'Interactive Questions Fallback', type: 'select', value: p.interactiveQuestionsTemplateId || '', options: interactiveQuestionsTemplateOptions, help: 'Fallback template (from the "Anthropic — Interactive Questions" category) returned to the agent when interactive questions are off or you dismiss the picker. Bodies may reference <code>${questions}</code>. "(built-in default)" uses the hard-coded autonomous fallback.' },
@@ -1591,4 +1591,25 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
     if (saveSendToChatConfig(config)) {
         _sendAllData(category);
     }
+}
+
+/**
+ * The Tool Approval field's help. The profile's setting decides approval on
+ * both transports; on the Agent SDK the configuration's `permissionMode` does
+ * not (utils/agentSdkPermissionMode.ts). When the profile's configuration
+ * (else the default one) sets `bypassPermissions`, the help names it.
+ */
+function toolApprovalHelp(
+    configurationId: string | undefined,
+    configurations: Array<{ id?: string; isDefault?: boolean; transport?: string; agentSdk?: { permissionMode?: string } }> | undefined,
+): string {
+    const list = configurations ?? [];
+    const conf = list.find((c) => c.id === configurationId) ?? list.find((c) => c.isDefault === true);
+    const base = 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it runs in <code>permissionMode=bypassPermissions</code>). '
+        + 'This setting wins: the configuration\'s permission mode does not decide approval — with <strong>Always</strong> a configuration set to <code>bypassPermissions</code> runs in <code>default</code>, so the bar is shown. '
+        + 'Queued prompts never ask: the prompt queue runs unattended and sends with approval off.';
+    if (conf?.transport === 'agentSdk' && conf.agentSdk?.permissionMode === 'bypassPermissions') {
+        return base + `<br><br><strong>Note:</strong> this profile's configuration <code>${conf.id ?? ''}</code> sets <code>permissionMode=bypassPermissions</code>; with <strong>Always</strong> that setting is ignored.`;
+    }
+    return base;
 }

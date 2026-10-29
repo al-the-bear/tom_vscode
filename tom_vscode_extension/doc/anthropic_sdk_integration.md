@@ -1808,7 +1808,7 @@ When `transport === 'agentSdk'`:
 - `historyMode`, `maxHistoryTokens` are ignored — the SDK handles compaction internally.
 - `maxRounds` is used as the fallback for `agentSdk.maxTurns` when the latter is absent.
 - `enabledTools` is honored — tools are still filtered per configuration, then exposed to the agent via an in-process MCP server.
-- `toolApprovalMode` is honored via the SDK's `canUseTool` callback.
+- `toolApprovalMode` is honored via the SDK's `canUseTool` callback, and it decides the permission mode: `never` → `bypassPermissions`; `always` → the configuration's `agentSdk.permissionMode`, except that `bypassPermissions` becomes `default` (`effectivePermissionMode`, `src/utils/agentSdkPermissionMode.ts`), since the SDK skips `canUseTool` under it.
 - `memoryToolsEnabled` and memory tools behave identically (the tools run in-extension; the agent calls them over MCP).
 
 ### 18.3 What is reused from the direct-SDK implementation
@@ -1950,7 +1950,7 @@ In a headless extension host there is no TTY, so the SDK auto-allows the call an
 
 **Configuration.** Per-profile (`anthropicProfile`): `allowInteractiveQuestions` (boolean) and `interactiveQuestionsTemplateId` (string, id into `anthropic.interactiveQuestionsTemplates`). The template store mirrors `transportRetry`. A new Global Template Editor category `interactiveQuestions` ("Anthropic — Interactive Questions") manages the fallback templates.
 
-**Limitation.** `canUseTool` is not fired under `permissionMode === 'bypassPermissions'` (forced by `toolApprovalMode: 'never'`), so interactive questions require `toolApprovalMode: 'default'`/`'auto'` to take effect.
+**Limitation.** `canUseTool` is not fired under `permissionMode === 'bypassPermissions'` (forced by `toolApprovalMode: 'never'`), so interactive questions require `toolApprovalMode: 'always'` to take effect; with `always` the send never runs in `bypassPermissions`, whatever the configuration sets.
 
 Touched files: `services/agent-sdk-questions.ts` (new) + test, `handlers/agent-sdk-transport.ts`, `handlers/anthropic-handler.ts`, `handlers/globalTemplateEditor-handler.ts`, `tools/user-interaction-tools.ts` (export `liveUserPrompter`), `utils/sendToChatConfig.ts`, `config/tom_vscode_extension.schema.json`.
 
