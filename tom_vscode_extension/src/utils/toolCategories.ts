@@ -273,6 +273,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     'VS Code Commands': [
         'tomAi_listCommands',
         'tomAi_openFile',
+        'tomAi_closeEditor',
         'tomAi_runVscodeCommand',
         'tomAi_runVscodeCommandTyped',
     ],

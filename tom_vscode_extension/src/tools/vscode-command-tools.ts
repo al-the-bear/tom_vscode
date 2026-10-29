@@ -1,6 +1,7 @@
 /**
  * VS Code command tools — `tomAi_runVscodeCommand`,
- * `tomAi_runVscodeCommandTyped`, `tomAi_listCommands`, `tomAi_openFile`.
+ * `tomAi_runVscodeCommandTyped`, `tomAi_listCommands`, `tomAi_openFile`,
+ * `tomAi_closeEditor`.
  *
  * Refactored for coverage entry #6:
  *
@@ -343,6 +344,94 @@ export const OPEN_FILE_TOOL: SharedToolDefinition<OpenFileInput> = {
     execute: async () => '{"error":"execute() must be installed by tool-executors.ts"}',
 };
 
+// ===========================================================================
+// closeEditor
+// ===========================================================================
+
+/** One editor tab of a file, as the closer sees it. */
+export interface EditorTabHandle {
+    /** View-column group number. */
+    group: number | undefined;
+    /** The tab has unsaved changes. */
+    dirty: boolean;
+}
+
+export interface EditorCloser {
+    wsRoot: string;
+    /** The text and text-diff tabs showing `absPath`: in every group, or only the active one. */
+    tabsOf(absPath: string, allGroups: boolean): EditorTabHandle[];
+    /** Save the open document of `absPath`; false when it could not be saved. */
+    save(absPath: string): Promise<boolean>;
+    /** Close these tabs without focusing anything; never called with a dirty tab. */
+    close(tabs: EditorTabHandle[]): Promise<boolean>;
+}
+
+export interface CloseEditorInput {
+    filePath: string;
+    /** Close the file's tabs in every editor group (default) or only in the active one. */
+    allGroups?: boolean;
+    /** Save the file first when a tab has unsaved changes, then close it. Default false. */
+    save?: boolean;
+}
+
+/**
+ * Close every text editor of a file. A tab with unsaved changes is never
+ * closed unsaved: it is kept and reported, or with `save: true` saved first
+ * (and kept when the save fails). Nothing is discarded.
+ */
+export async function closeEditorImpl(deps: EditorCloser, input: CloseEditorInput): Promise<string> {
+    if (!input.filePath) { return JSON.stringify({ error: '`filePath` is required.' }); }
+    const abs = path.isAbsolute(input.filePath)
+        ? input.filePath
+        : resolveAgainstWsRoot(input.filePath, deps.wsRoot);
+    if (!isInsideWorkspace(abs, deps.wsRoot)) {
+        return JSON.stringify({ error: `Path is outside the workspace: ${input.filePath}` });
+    }
+    const allGroups = input.allGroups !== false;
+    let tabs = deps.tabsOf(abs, allGroups);
+    if (tabs.length === 0) {
+        return JSON.stringify({ ok: true, closed: 0, keptDirty: [], notOpen: true });
+    }
+    if (input.save === true && tabs.some((t) => t.dirty)) {
+        await deps.save(abs);
+        tabs = deps.tabsOf(abs, allGroups);
+    }
+    const clean = tabs.filter((t) => !t.dirty);
+    const dirty = tabs.filter((t) => t.dirty);
+    if (clean.length > 0 && !(await deps.close(clean))) {
+        return JSON.stringify({ ok: false, error: `Could not close the editors of ${abs}.` });
+    }
+    return JSON.stringify({ ok: true, closed: clean.length, keptDirty: dirty.map((t) => ({ group: t.group })), notOpen: false });
+}
+
+export const CLOSE_EDITOR_DESCRIPTION =
+    'Close every text editor tab (text and diff) of a file, in every editor group (`allGroups: false`: only ' +
+    'the active group), without focusing anything and without touching other tabs. **It never discards ' +
+    'changes:** a tab with unsaved changes is kept and listed in `keptDirty` (`[{group}]`); with `save: true` ' +
+    'the file is saved first and then closed (a failed save keeps the tab). A file that is not open answers ' +
+    '`{ok: true, closed: 0, notOpen: true}`. Answer: `{ok, closed, keptDirty, notOpen}`. Workspace-relative or ' +
+    'absolute path; a path outside the workspace is refused. MD Browser panels are not text editors: see ' +
+    '`tomAi_listMdBrowserPanels`. Requires approval.';
+
+export const CLOSE_EDITOR_TOOL: SharedToolDefinition<CloseEditorInput> = {
+    name: 'tomAi_closeEditor',
+    displayName: 'Close Editor',
+    description: CLOSE_EDITOR_DESCRIPTION,
+    tags: ['editor', 'navigation', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        required: ['filePath'],
+        properties: {
+            filePath: { type: 'string', description: 'Workspace-relative or absolute file path.' },
+            allGroups: { type: 'boolean', description: 'Close the file\'s tabs in every editor group. Default true.' },
+            save: { type: 'boolean', description: 'Save the file first when a tab has unsaved changes, then close it. Default false: such a tab is kept and reported.' },
+        },
+    },
+    execute: async () => '{"error":"execute() must be installed by tool-executors.ts"}',
+};
+
 // ---------------------------------------------------------------------------
 // Master list — now includes RUN_VSCODE_COMMAND_TOOL too (relocated from
 // tool-executors.ts so the impl + def + tests live in one place).
@@ -354,4 +443,5 @@ export const VSCODE_COMMAND_TOOLS: SharedToolDefinition<any>[] = [
     RUN_VSCODE_COMMAND_TYPED_TOOL,
     LIST_COMMANDS_TOOL,
     OPEN_FILE_TOOL,
+    CLOSE_EDITOR_TOOL,
 ];

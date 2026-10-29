@@ -102,6 +102,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_searchProjectGuidelines',
     // VS Code commands and navigation
     'tomAi_openFile',
+    'tomAi_closeEditor',
     'tomAi_listCommands',
     'tomAi_runVscodeCommandTyped',
     // User interaction

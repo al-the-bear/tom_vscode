@@ -1164,11 +1164,16 @@ import {
     RUN_VSCODE_COMMAND_TYPED_TOOL as RUN_VSCODE_COMMAND_TYPED_DEF,
     LIST_COMMANDS_TOOL as LIST_COMMANDS_DEF,
     OPEN_FILE_TOOL as OPEN_FILE_DEF,
+    CLOSE_EDITOR_TOOL as CLOSE_EDITOR_DEF,
     ListCommandsInput,
     OpenFileInput,
+    type CloseEditorInput,
     type CommandRunner,
+    type EditorCloser,
+    type EditorTabHandle,
     type FileOpener,
     type OpenFileShowOptions,
+    closeEditorImpl,
     listCommandsImpl,
     openFileImpl,
     runVscodeCommandImpl,
@@ -1224,6 +1229,39 @@ const liveFileOpener: FileOpener = {
     (input) => listCommandsImpl(liveCommandRunner, input);
 (OPEN_FILE_DEF as { execute: (input: OpenFileInput) => Promise<string> }).execute =
     (input) => openFileImpl(liveFileOpener, input);
+
+/** A text tab of the live editor area, with the vscode.Tab behind it. */
+interface LiveEditorTab extends EditorTabHandle { tab: vscode.Tab }
+
+/** Does the tab show `absPath` as a text editor (either side of a diff counts)? */
+function textTabShows(tab: vscode.Tab, absPath: string): boolean {
+    const input = tab.input;
+    if (input instanceof vscode.TabInputText) { return input.uri.fsPath === absPath; }
+    if (input instanceof vscode.TabInputTextDiff) {
+        return input.modified.fsPath === absPath || input.original.fsPath === absPath;
+    }
+    return false;
+}
+
+const liveEditorCloser: EditorCloser = {
+    get wsRoot() { return getWorkspaceRoot(); },
+    tabsOf(absPath, allGroups) {
+        const groups = allGroups ? vscode.window.tabGroups.all : [vscode.window.tabGroups.activeTabGroup];
+        return groups.flatMap((g) => g.tabs
+            .filter((t) => textTabShows(t, absPath))
+            .map((t): LiveEditorTab => ({ group: g.viewColumn, dirty: t.isDirty, tab: t })));
+    },
+    async save(absPath) {
+        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === absPath);
+        if (!doc) { return false; }
+        try { return await doc.save(); } catch { return false; }
+    },
+    async close(tabs) {
+        try { return await vscode.window.tabGroups.close((tabs as LiveEditorTab[]).map((t) => t.tab), true); } catch { return false; }
+    },
+};
+(CLOSE_EDITOR_DEF as { execute: (input: CloseEditorInput) => Promise<string> }).execute =
+    (input) => closeEditorImpl(liveEditorCloser, input);
 import { USER_INTERACTION_TOOLS } from './user-interaction-tools';
 import { ASK_USER_LIVE_TOOL } from '../handlers/askUser-handler';
 import {

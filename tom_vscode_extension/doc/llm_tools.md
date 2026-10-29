@@ -85,6 +85,7 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_runVscodeCommandTyped` | Execute command ID (typed args, safe-list hints). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_listCommands` | Discover command IDs (filtered). | ✅ | ✅ | ⚪ | ✅ | ✅ |
 | `tomAi_openFile` | `showTextDocument` with optional selection. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_closeEditor` | Close every text / diff tab of a file (every group, or the active one) without focusing anything; a tab with unsaved changes is kept and reported, or saved first with `save: true` — never discarded. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.5 Editor and workspace context
 
