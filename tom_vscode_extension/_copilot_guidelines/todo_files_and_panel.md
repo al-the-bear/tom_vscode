@@ -257,8 +257,11 @@ the new-todo and the detail form (`qtUserActionRow`; `qtCollectFormData` sends
 / `collectUserActionTodos` in `queueStep3Utils.ts`). A process step's
 `userAction: true` is the same idea for processes.
 
-In the panel a user-action row has the class `user-action` (yellow title,
-`style.css`). The filter state carries `userAction` (`[]` all, `['yes']`,
+In the panel a user-action row has the class `user-action` (purple title,
+`style.css` — a colour no status border uses). Every list row is built by
+`todoListItem` (`src/utils/todoListItem.ts`), which carries `user_action` and
+`completed_date`; a field the list needs is added there, never in one of the
+handler's list builders (`todoListItem.test.ts` TL-1–5). The filter state carries `userAction` (`[]` all, `['yes']`,
 `['no']`; `qtEmptyFilterState`), shown as the picker's **User action** section;
 an older saved state restores as `[]`. The 👤 toolbar button
 (`#qt-btn-only-mine`, `qtToggleOnlyUserActions`) switches between `['yes']`

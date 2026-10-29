@@ -4,7 +4,8 @@
  *   QU-1 a list row of a user-action todo carries the 👤 mark; any other row does not
  *   QU-2 the detail form's checkbox shows the field, and the form data carries it: true when checked,
  *        false when not (an update then removes the key)
- *   QU-3 a user-action row carries the `user-action` class, whose title the stylesheet colours yellow
+ *   QU-3 a user-action row carries the `user-action` class, whose title the stylesheet colours purple
+ *        (not the warning yellow of the blocked status border)
  *   QU-4 the filter's "User action" section keeps the user's own todos (yes), the others (no), or all
  *        (none); a filter state saved before the field existed restores as "all"
  *   QU-5 the 👤 toggle shows only the user's own todos and opens every prefix group; again, all todos
@@ -69,11 +70,11 @@ describe('todo panel: user-action todos', () => {
     const rows = (w: Win): string[] => [...w.document.querySelectorAll('#qt-list-pane .qt-todo-item')].map((e: Win) => e.getAttribute('data-qt-id'));
     const groupsOpen = (w: Win): number => w.document.querySelectorAll('#qt-list-pane .qt-group-header:not(.collapsed)').length;
 
-    test('QU-3: yellow title', (t) => {
+    test('QU-3: purple title', (t) => {
         const w = setup(t);
         assert.match(w.qtRenderTodoRow(todos[0]), /class="qt-todo-item status-not-started user-action"/);
         assert.doesNotMatch(w.qtRenderTodoRow(todos[1]), /user-action"/);
-        assert.match(media('questTodoPanel', 'style.css'), /\.qt-todo-item\.user-action \.ttitle \{ color: var\(--vscode-editorWarning-foreground/);
+        assert.match(media('questTodoPanel', 'style.css'), /\.qt-todo-item\.user-action \.ttitle \{ color: var\(--vscode-charts-purple/);
     });
 
     test('QU-4: the filter', (t) => {

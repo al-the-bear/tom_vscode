@@ -187,7 +187,7 @@ The list opens **fully collapsed** — after a window reload or a VS Code restar
 
 #### Your own todos (👤)
 
-A todo marked `user_action: true` is yours to do — a review, an answer, a look at a screen. Its title is **yellow** in every todo list and it carries 👤. The **👤 toolbar button** shows only those todos and opens every prefix group, so none hides in a collapsed one; press it again to see all todos. The filter (funnel button) has a **User action** section for the same choice: your own todos, the others, or (nothing ticked) both. Set the mark with the *Your to do* checkbox when you create the todo (the new-todo form) or later in its detail form, where you can also clear it.
+A todo marked `user_action: true` is yours to do — a review, an answer, a look at a screen. Its title is **purple** in every todo list and it carries 👤. (A row's left border shows its status, not this mark: **blue** for in progress, **yellow** for blocked.) The **👤 toolbar button** shows only those todos and opens every prefix group, so none hides in a collapsed one; press it again to see all todos. The filter (funnel button) has a **User action** section for the same choice: your own todos, the others, or (nothing ticked) both. Set the mark with the *Your to do* checkbox when you create the todo (the new-todo form) or later in its detail form, where you can also clear it.
 
 Work that has to wait for you — a check that can only run after you reload the window, say — is written as a 👤 todo for your part plus the work itself, `status: blocked` with `blocked_by` naming the 👤 todo. A `prefix*` queue walk passes both; once you complete the 👤 todo, the walk releases the blocked one and sends it.
 

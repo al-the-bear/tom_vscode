@@ -18,6 +18,7 @@ import * as path from 'path';
 import * as yaml from 'yaml';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import * as questTodo from '../managers/questTodoManager.js';
+import { todoListItem } from '../utils/todoListItem';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
@@ -361,16 +362,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 }
                 questTodo.ensureTodoFile(fp, { scope: { area: 'workspace' } });
                 const items = questTodo.readTodoFile(fp);
-                const todos = items.map(t => ({
-                    id: t.id,
-                    title: t.title ?? t.description?.substring(0, 60),
-                    status: t.status,
-                    priority: t.priority,
-                    tags: t.tags,
-                    created: t.created,
-                    updated: t.updated,
-                    sourceFile: path.basename(fp),
-                }));
+                const todos = items.map(t => todoListItem(t, path.basename(fp)));
                 post({ type: 'qtTodos', todos, questId: '__all_workspace__', file: path.basename(fp) });
                 post({ type: 'qtFiles', files: [path.basename(fp)], questId: '__all_workspace__' });
                 return true;
@@ -469,16 +461,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const updated = fp ? questTodo.updateTodoInFile(fp, msg.todoId, msg.updates) : undefined;
                 post({ type: 'qtSaved', success: !!updated, todoId: msg.todoId });
                 if (fp) {
-                    const items = questTodo.readTodoFile(fp).map(t => ({
-                        id: t.id,
-                        title: t.title ?? t.description?.substring(0, 60),
-                        status: t.status,
-                        priority: t.priority,
-                        tags: t.tags,
-                        created: t.created,
-                        updated: t.updated,
-                        sourceFile: path.basename(fp),
-                    }));
+                    const items = questTodo.readTodoFile(fp).map(t => todoListItem(t, path.basename(fp)));
                     post({ type: 'qtTodos', todos: items, questId: '__all_workspace__', file: path.basename(fp) });
                 }
                 return true;
@@ -801,12 +784,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const fp = workspaceFilePath();
                 if (fp) {
                     questTodo.updateTodoInFile(fp, msg.todoId, { status: 'not-started', completed_date: '', completed_by: '' });
-                    const items = questTodo.readTodoFile(fp).map(t => ({
-                        id: t.id, title: t.title ?? t.description?.substring(0, 60),
-                        status: t.status, priority: t.priority, tags: t.tags,
-                        created: t.created, updated: t.updated,
-                        sourceFile: path.basename(fp),
-                    }));
+                    const items = questTodo.readTodoFile(fp).map(t => todoListItem(t, path.basename(fp)));
                     post({ type: 'qtTodos', todos: items, questId: '__all_workspace__', file: path.basename(fp) });
                     // Refresh detail view
                     const rTodo = questTodo.findTodoByIdInFile(fp, msg.todoId);
@@ -889,12 +867,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                             } catch { /* skip */ }
                         }
                         vscode.window.showInformationMessage(`Imported ${imported} todo(s) from ${path.basename(importPath)}.`);
-                        const refreshItems = questTodo.readTodoFile(fp).map(t => ({
-                            id: t.id, title: t.title ?? t.description?.substring(0, 60),
-                            status: t.status, priority: t.priority, tags: t.tags,
-                            created: t.created, updated: t.updated,
-                            sourceFile: path.basename(fp),
-                        }));
+                        const refreshItems = questTodo.readTodoFile(fp).map(t => todoListItem(t, path.basename(fp)));
                         post({ type: 'qtTodos', todos: refreshItems, questId: '__all_workspace__', file: path.basename(fp) });
                     }
                 } else {
@@ -1644,16 +1617,7 @@ function _collectSessionTodos(questId: string): Array<Record<string, unknown>> {
             if (t.status === 'cancelled') {
                 continue;
             }
-            todos.push({
-                id: _composeSessionTodoId(sourceFile, t.id),
-                title: t.title ?? t.description?.substring(0, 60),
-                status: t.status,
-                priority: t.priority,
-                tags: t.tags,
-                created: t.created,
-                updated: t.updated,
-                sourceFile,
-            });
+            todos.push({ ...todoListItem(t, sourceFile, _composeSessionTodoId(sourceFile, t.id)) });
         }
     }
     return todos;
@@ -1749,16 +1713,7 @@ function _sendTodoList(questId: string, file: string | undefined, post: (m: any)
             const fp = WsPaths.ai('quests', questId, mainFile) || path.join(wsRoot, '_ai', 'quests', questId, mainFile);
             items = questTodo.readTodoFile(fp);
         }
-        const list = items.map(t => ({
-            id: t.id,
-            title: t.title ?? t.description?.substring(0, 60),
-            status: t.status,
-            priority: t.priority,
-            tags: t.tags,
-            created: t.created,
-            updated: t.updated,
-            sourceFile: t._sourceFile,
-        }));
+        const list = items.map(t => todoListItem(t, t._sourceFile ?? ''));
         post({ type: 'qtTodos', todos: list, questId, file: file ?? 'all' });
         _sendFileList(questId, post);
     } catch { /* */ }
