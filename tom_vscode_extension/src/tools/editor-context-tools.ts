@@ -107,7 +107,7 @@ export interface EditorSnapshot {
     visibleRange: { startLine: number; endLine: number } | null;
 }
 
-export type TabKind = 'text' | 'text-diff' | 'notebook' | 'notebook-diff' | 'custom' | 'webview' | 'terminal' | 'unknown';
+export type TabKind = 'text' | 'text-diff' | 'notebook' | 'notebook-diff' | 'custom' | 'webview' | 'mdBrowser' | 'terminal' | 'unknown';
 
 export interface TabSnapshot {
     /** View-column group number (1, 2, 3, …). */
@@ -121,6 +121,8 @@ export interface TabSnapshot {
     dirty: boolean;
     pinned: boolean;
     preview: boolean;
+    /** MD Browser tabs: the panel's id in the registry (tomAi_listMdBrowserPanels). */
+    panelId?: string;
 }
 
 // ===========================================================================
@@ -299,8 +301,10 @@ export const GET_OPEN_EDITORS_DESCRIPTION =
     '`{count, tabs[]}` where each tab has `group` (view-column number), ' +
     '`label`, `file` (workspace-relative path; **null** for non-file tabs ' +
     'like webviews, terminals, custom editors), `absolutePath`, `kind` ' +
-    '(`text`/`text-diff`/`notebook`/`notebook-diff`/`custom`/`webview`/' +
-    '`terminal`/`unknown`), `active`, `dirty`, `pinned`, `preview`. The ' +
+    '(`text`/`text-diff`/`notebook`/`notebook-diff`/`custom`/`webview`/`mdBrowser`/' +
+    '`terminal`/`unknown`), `active`, `dirty`, `pinned`, `preview`. An MD Browser tab is ' +
+    '`kind: "mdBrowser"` with the `file` / `absolutePath` it shows and its `panelId` ' +
+    '(details: `tomAi_listMdBrowserPanels`). The ' +
     '`kind` field tells you why a tab might have `file: null` — a webview ' +
     'or terminal genuinely has no file path; a custom-editor tab represents ' +
     'a file but VS Code doesn\'t expose it in the standard place.';

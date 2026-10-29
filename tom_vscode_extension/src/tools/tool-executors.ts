@@ -834,6 +834,8 @@ import {
     getOpenEditorsImpl,
     getWorkspaceInfoImpl,
 } from './editor-context-tools';
+import { LIST_MD_BROWSER_PANELS_TOOL, MD_BROWSER_TOOLS, listMdBrowserPanelsImpl, markMdBrowserTabs } from './md-browser-tools';
+import { mdBrowserRegistry } from '../utils/mdBrowserRegistry';
 import { execFile } from 'child_process';
 import { WsPaths as EditorWsPaths } from '../utils/workspacePaths';
 
@@ -956,7 +958,9 @@ function liveActiveEditorSnapshot(opts: { includeSelectionText: boolean; maxSele
 
 function liveOpenEditorsSnapshot(): TabSnapshot[] {
     const groups = vscode.window.tabGroups.all;
-    return groups.flatMap((g) =>
+    const viewTypes = groups.flatMap((g) => g.tabs.map((t) =>
+        t.input instanceof vscode.TabInputWebview ? t.input.viewType : undefined));
+    const tabs: TabSnapshot[] = groups.flatMap((g) =>
         g.tabs.map((t) => {
             const { file, absolutePath, kind } = describeTab(t.input);
             return {
@@ -972,6 +976,8 @@ function liveOpenEditorsSnapshot(): TabSnapshot[] {
             };
         }),
     );
+    // MD Browser tabs are webviews: the panel registry knows their file.
+    return markMdBrowserTabs(tabs, viewTypes, mdBrowserRegistry, WsPaths.wsRoot);
 }
 
 function describeTab(input: unknown): { file: boolean; absolutePath: string | null; kind: TabKind } {
@@ -1006,6 +1012,8 @@ function describeTab(input: unknown): { file: boolean; absolutePath: string | nu
     (input) => getActiveEditorImpl({ source: { snapshot: liveActiveEditorSnapshot } }, input);
 (GET_OPEN_EDITORS_DEF as { execute: (input: GetOpenEditorsInput) => Promise<string> }).execute =
     (input) => getOpenEditorsImpl({ source: { snapshot: liveOpenEditorsSnapshot } }, input);
+(LIST_MD_BROWSER_PANELS_TOOL as { execute: (input: Record<string, unknown>) => Promise<string> }).execute =
+    (input) => listMdBrowserPanelsImpl({ registry: mdBrowserRegistry, workspaceRoot: WsPaths.wsRoot }, input);
 import {
     DIAGNOSTICS_TOOLS,
     GET_ERRORS_TOOL as GET_ERRORS_DEF_INSTALL,
@@ -1607,6 +1615,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     // --- Families defined in dedicated files ---
     ...CHAT_ENHANCEMENT_TOOLS,  // quest/session todos, notify, queue, timed, templates, reminders
     ...EDITOR_CONTEXT_TOOLS,    // getWorkspaceInfoFull, getActiveEditor, getOpenEditors
+    ...MD_BROWSER_TOOLS,        // listMdBrowserPanels
     ...DIAGNOSTICS_TOOLS,       // getProblems, getOutputChannel, getTerminalOutput
     ...LANGUAGE_SERVICE_TOOLS,  // findSymbol, gotoDefinition, findReferences, getCodeActions(+Cached), applyCodeAction, rename
     ...GUIDELINE_TOOLS,         // readGuideline, readLocalGuideline, listGuidelines, searchGuidelines

@@ -113,6 +113,7 @@ export function formatToolSummary(
         case 'tomAi_getActiveEditor':
         case 'tomAi_getOpenEditors':
         case 'tomAi_getWorkspaceInfo':
+        case 'tomAi_listMdBrowserPanels':
             return `${name.slice('tomAi_'.length)}()${result ? arrow + truncate(result, 120).replace(/\s+/g, ' ') : ''}${failedTag}`;
         case 'tomAi_runCommand':
             return `runCommand(\`${truncate(i.command, 60)}\`)${result ? arrow + truncate(result.replace(/\s+/g, ' '), 120) : ''}${failedTag}`;

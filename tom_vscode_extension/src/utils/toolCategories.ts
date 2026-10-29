@@ -66,6 +66,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_getActiveEditor',
         'tomAi_getOpenEditors',
         'tomAi_getWorkspaceInfo',
+        'tomAi_listMdBrowserPanels',
     ],
     'Files (read)': [
         'tomAi_findFiles',

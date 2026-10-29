@@ -92,7 +92,8 @@ Each table lists every tool in the family with a per-transport default.
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`). | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, restored): file, live mode, title, column, active / visible, unsaved in-place edits. Read-only. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.6 Diagnostics

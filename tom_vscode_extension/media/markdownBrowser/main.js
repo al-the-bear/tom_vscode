@@ -148,6 +148,7 @@
         // (Backend will send groups and initial file content)
         setTimeout(function() {
             vscode.postMessage({ type: 'webviewReady' });
+            vscode.postMessage({ type: 'editState', openEditors: 0 });
         }, 10);
 
         // ---- Navigation Buttons ----
@@ -950,6 +951,9 @@
          */
         function updateEditorLocks() {
             var locked = openEditors > 0;
+            // Tell the host whether in-place editors are open (unsaved text):
+            // the panel registry reports it to agents before they close a tab.
+            vscode.postMessage({ type: 'editState', openEditors: openEditors });
             [searchInput, searchClearBtn, navPrevBtnEl(), navNextBtnEl(), document.getElementById('navKindBtn')].forEach(function(el) {
                 if (el) { el.disabled = locked; }
             });

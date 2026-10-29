@@ -53,6 +53,7 @@ const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { readMediaText } from '../utils/webviewLoader.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
+import { mdBrowserRegistry } from '../utils/mdBrowserRegistry.js';
 
 // ============================================================================
 // Constants
@@ -132,6 +133,8 @@ class MdBrowserPanel {
     /** Last observed mtime of the watched file; drives the poll's change detection. */
     private _lastMtimeMs?: number;
     private readonly _onDisposeCallback: () => void;
+    /** This panel's id in the window's registry (utils/mdBrowserRegistry.ts). */
+    private readonly _panelId: string;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -173,6 +176,30 @@ class MdBrowserPanel {
         );
 
         this._panel.onDidDispose(() => this._onDispose());
+
+        // Every panel — static, live, restored — is in the registry the
+        // tools read (tomAi_listMdBrowserPanels, tomAi_getOpenEditors).
+        this._panelId = mdBrowserRegistry.register({
+            filePath: resolveFilePath(filePath) ?? filePath,
+            liveMode,
+            viewColumn: this._panel.viewColumn,
+            active: this._panel.active,
+            visible: this._panel.visible,
+        });
+        allPanels.add(this);
+        this._panel.onDidChangeViewState((e) => {
+            mdBrowserRegistry.update(this._panelId, {
+                viewColumn: e.webviewPanel.viewColumn,
+                active: e.webviewPanel.active,
+                visible: e.webviewPanel.visible,
+            });
+        }, undefined, context.subscriptions);
+        refreshPanelTitles();
+    }
+
+    /** Show the title the registry gives this panel (it names the file). */
+    refreshTitle(): void {
+        this._panel.title = mdBrowserRegistry.titleOf(this._panelId);
     }
 
     // ---- Public API --------------------------------------------------------
@@ -184,6 +211,8 @@ class MdBrowserPanel {
     /** Upgrade to live mode (never downgrade). */
     upgradeLiveMode(): void {
         this._liveMode = true;
+        mdBrowserRegistry.update(this._panelId, { liveMode: true });
+        refreshPanelTitles();
     }
 
     /** The anchor to scroll to once the first file has loaded. */
@@ -199,6 +228,9 @@ class MdBrowserPanel {
 
     private _onDispose(): void {
         this._stopWatching();
+        mdBrowserRegistry.unregister(this._panelId);
+        allPanels.delete(this);
+        refreshPanelTitles();
         this._onDisposeCallback();
     }
 
@@ -237,6 +269,8 @@ class MdBrowserPanel {
             }
 
             this._history.push({ filePath: absPath, group });
+            mdBrowserRegistry.update(this._panelId, { filePath: absPath });
+            refreshPanelTitles();
             this._sendFileContent(absPath, anchor);
             this._watchCurrentFile(absPath);
             this._sendNavState();
@@ -310,7 +344,7 @@ class MdBrowserPanel {
             const wsRoot = WsPaths.wsRoot || '';
             const relativePath = wsRoot ? path.relative(wsRoot, absPath) : path.basename(absPath);
 
-            this._panel.title = (this._liveMode ? 'MD (live): ' : 'MD: ') + path.basename(absPath);
+            this.refreshTitle();
             this._panel.webview.postMessage({
                 type: 'mdContent',
                 content,
@@ -564,6 +598,10 @@ class MdBrowserPanel {
             if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
 
             switch (msg?.type) {
+                case 'editState':
+                    // The webview's open in-place editors: text not yet saved.
+                    mdBrowserRegistry.update(this._panelId, { unsavedEdits: Number(msg.openEditors) > 0 });
+                    break;
                 case 'webviewReady':
                     this._sendGroups();
                     if (this._pendingInitialFile) {
@@ -891,6 +929,14 @@ class MdBrowserPanel {
  * close creates a new panel.
  */
 const livePanelInstances = new Map<string, MdBrowserPanel>();
+
+/** Every open panel, static and live: their titles are set together (a name clash adds the folder). */
+const allPanels = new Set<MdBrowserPanel>();
+
+/** Give every open panel the title the registry assigns it now. */
+function refreshPanelTitles(): void {
+    for (const panel of allPanels) { panel.refreshTitle(); }
+}
 
 // ============================================================================
 // Public API
