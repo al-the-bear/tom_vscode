@@ -122,6 +122,21 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 `tomAi_docspecsGetSection`, `tomAi_docspecsReplaceSection` and
 `tomAi_docspecsValidate`.
 
+## Show the user the current version
+
+At the end of a step the user should look at the document as it now is, not at
+an earlier copy left open from a previous step folder:
+
+- `tomAi_closeEditor` closes the text editors of the document's rendition in
+  every group; a tab with unsaved changes is kept and named in `keptDirty`
+  (or saved first with `save: true`) — nothing the user typed is lost.
+- `tomAi_closeMdBrowser` with `under` (the phase's spec folder) and
+  `exceptFilePath` (the working rendition) closes the MD Browser panels showing
+  earlier versions; a panel with an answer or edit still open is kept and
+  reported unless `force: true`. `tomAi_listMdBrowserPanels` shows what is open.
+- `tomAi_openInMdBrowser` (reuse, the default) brings the working rendition to
+  the front, or opens it once.
+
 ## Take it through Phase 4 (CodeSpecs)
 
 **Where is it?** `tomAi_specCodeSpecsStatus` with the document (and `questId`,

@@ -54,6 +54,7 @@ import { readMediaText } from '../utils/webviewLoader.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry.js';
+import type { MdBrowserController } from '../tools/md-browser-tools.js';
 
 // ============================================================================
 // Constants
@@ -142,6 +143,7 @@ class MdBrowserPanel {
         liveMode: boolean,
         onDispose: () => void,
         restorePanel?: vscode.WebviewPanel,
+        show?: MdBrowserShowOptions,
     ) {
         this._context = context;
         this._liveMode = liveMode;
@@ -159,7 +161,10 @@ class MdBrowserPanel {
             this._panel = vscode.window.createWebviewPanel(
                 PANEL_VIEW_TYPE,
                 PANEL_TITLE,
-                vscode.ViewColumn.Active,
+                {
+                    viewColumn: (show?.viewColumn as vscode.ViewColumn | undefined) ?? vscode.ViewColumn.Active,
+                    preserveFocus: show?.preserveFocus === true,
+                },
                 {
                     ...getMdBrowserWebviewOptions(context),
                     retainContextWhenHidden: true,
@@ -206,6 +211,23 @@ class MdBrowserPanel {
 
     reveal(): void {
         this._panel.reveal(vscode.ViewColumn.Active);
+    }
+
+    /** This panel's id in the registry. */
+    get panelId(): string {
+        return this._panelId;
+    }
+
+    /** Bring the panel to the front (into `viewColumn` when given) and render its file again. */
+    revealAndRefresh(show: MdBrowserShowOptions): void {
+        this._panel.reveal(show.viewColumn as vscode.ViewColumn | undefined, show.preserveFocus === true);
+        const current = this._history.current;
+        if (current && fs.existsSync(current.filePath)) { this._sendFileContent(current.filePath); }
+    }
+
+    /** Close the panel (its dispose handler unregisters it). */
+    close(): void {
+        this._panel.dispose();
     }
 
     /** Upgrade to live mode (never downgrade). */
@@ -952,8 +974,8 @@ function refreshPanelTitles(): void {
 export function openMarkdownBrowser(
     context: vscode.ExtensionContext,
     filePath: string,
-    options?: { liveMode?: boolean; anchor?: string },
-): void {
+    options?: { liveMode?: boolean; anchor?: string; show?: MdBrowserShowOptions },
+): string | undefined {
     try {
         if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] openMarkdownBrowser file=${filePath} liveMode=${options?.liveMode === true}`, 'INFO', 'mdBrowser');
 
@@ -965,13 +987,13 @@ export function openMarkdownBrowser(
             const key = path.resolve(filePath);
             const existing = livePanelInstances.get(key);
             if (existing) {
-                existing.reveal();
+                if (options.show) { existing.revealAndRefresh(options.show); } else { existing.reveal(); }
                 existing.upgradeLiveMode();
                 // Same file already showing — re-issue navigateTo
                 // defensively so the panel rebinds its watcher in case
                 // the file was deleted + recreated between opens.
                 existing.navigateTo(filePath);
-                return;
+                return existing.panelId;
             }
             const fresh = new MdBrowserPanel(context, filePath, true, () => {
                 // Only clear the entry if it still points at this
@@ -982,24 +1004,70 @@ export function openMarkdownBrowser(
                 if (livePanelInstances.get(key) === fresh) {
                     livePanelInstances.delete(key);
                 }
-            });
+            }, undefined, options.show);
             livePanelInstances.set(key, fresh);
+            return fresh.panelId;
         } else {
             // --- Static panel: always open a fresh window ---
             const panel = new MdBrowserPanel(context, filePath, false, () => {
                 // No singleton to clear — the panel is self-contained.
-            });
+            }, undefined, options?.show);
             panel.setInitialAnchor(options?.anchor);
+            return panel.panelId;
         }
     } catch (err) {
         debugLog(`[MdBrowser] openMarkdownBrowser error: ${err}`, 'ERROR', 'mdBrowser');
+        return undefined;
     }
 }
+
+/** Where a panel opens or is revealed: its editor column, and whether the focus stays put. */
+interface MdBrowserShowOptions {
+    viewColumn?: number;
+    preserveFocus?: boolean;
+}
+
+/** The extension context, kept for the tools' controller (set by registerMarkdownBrowser). */
+let mdBrowserContext: vscode.ExtensionContext | undefined;
+
+function panelById(panelId: string): MdBrowserPanel | undefined {
+    for (const panel of allPanels) { if (panel.panelId === panelId) { return panel; } }
+    return undefined;
+}
+
+/**
+ * What tomAi_openInMdBrowser / tomAi_closeMdBrowser drive (src/tools/md-browser-tools.ts):
+ * the registry, and opening, revealing and closing panels.
+ */
+export const mdBrowserController: MdBrowserController = {
+    registry: mdBrowserRegistry,
+    get workspaceRoot() { return WsPaths.wsRoot; },
+    exists(absPath) {
+        try { return fs.existsSync(absPath); } catch { return false; }
+    },
+    open(absPath, opts) {
+        if (!mdBrowserContext) { return undefined; }
+        return openMarkdownBrowser(mdBrowserContext, absPath, {
+            liveMode: opts.live,
+            show: { viewColumn: opts.viewColumn, preserveFocus: opts.preserveFocus },
+        });
+    },
+    reveal(panelId, opts) {
+        const panel = panelById(panelId);
+        if (!panel) { return false; }
+        panel.revealAndRefresh(opts);
+        return true;
+    },
+    close(panelIds) {
+        for (const id of panelIds) { panelById(id)?.close(); }
+    },
+};
 
 /**
  * Register the "@T: Open in MD Browser" command and the live variant.
  */
 export function registerMarkdownBrowser(context: vscode.ExtensionContext): void {
+    mdBrowserContext = context;
     context.subscriptions.push(
         // Context-menu / palette: always opens a NEW browser window.
         vscode.commands.registerCommand('tomAi.openInMdBrowser', (uri?: vscode.Uri) => {

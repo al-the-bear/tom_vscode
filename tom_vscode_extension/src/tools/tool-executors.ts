@@ -834,7 +834,11 @@ import {
     getOpenEditorsImpl,
     getWorkspaceInfoImpl,
 } from './editor-context-tools';
-import { LIST_MD_BROWSER_PANELS_TOOL, MD_BROWSER_TOOLS, listMdBrowserPanelsImpl, markMdBrowserTabs } from './md-browser-tools';
+import {
+    CLOSE_MD_BROWSER_TOOL, LIST_MD_BROWSER_PANELS_TOOL, MD_BROWSER_TOOLS, OPEN_IN_MD_BROWSER_TOOL, closeMdBrowserImpl,
+    listMdBrowserPanelsImpl, markMdBrowserTabs, openInMdBrowserImpl, type CloseMdBrowserInput, type OpenInMdBrowserInput,
+} from './md-browser-tools';
+import { mdBrowserController } from '../handlers/markdownBrowser-handler';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry';
 import { execFile } from 'child_process';
 import { WsPaths as EditorWsPaths } from '../utils/workspacePaths';
@@ -1014,6 +1018,10 @@ function describeTab(input: unknown): { file: boolean; absolutePath: string | nu
     (input) => getOpenEditorsImpl({ source: { snapshot: liveOpenEditorsSnapshot } }, input);
 (LIST_MD_BROWSER_PANELS_TOOL as { execute: (input: Record<string, unknown>) => Promise<string> }).execute =
     (input) => listMdBrowserPanelsImpl({ registry: mdBrowserRegistry, workspaceRoot: WsPaths.wsRoot }, input);
+(OPEN_IN_MD_BROWSER_TOOL as { execute: (input: OpenInMdBrowserInput) => Promise<string> }).execute =
+    (input) => openInMdBrowserImpl(mdBrowserController, input);
+(CLOSE_MD_BROWSER_TOOL as { execute: (input: CloseMdBrowserInput) => Promise<string> }).execute =
+    (input) => closeMdBrowserImpl(mdBrowserController, input);
 import {
     DIAGNOSTICS_TOOLS,
     GET_ERRORS_TOOL as GET_ERRORS_DEF_INSTALL,

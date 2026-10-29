@@ -95,6 +95,8 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, restored): file, live mode, title, column, active / visible, unsaved in-place edits. Read-only. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_openInMdBrowser` | Open a `.md` file in the MD Browser; `reuse` (default) brings a panel already showing it to the front and renders it again; `live`, `viewColumn`, `preserveFocus`. Answers the panel id. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_closeMdBrowser` | Close MD Browser panels by `panelId`, `filePath`, or `under` a folder except `exceptFilePath`; a panel with unsaved in-place edits is kept unless `force`. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.6 Diagnostics

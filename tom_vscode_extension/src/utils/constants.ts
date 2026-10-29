@@ -85,6 +85,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_getActiveEditor',
     'tomAi_getOpenEditors',
     'tomAi_listMdBrowserPanels',
+    'tomAi_openInMdBrowser',
+    'tomAi_closeMdBrowser',
     // Diagnostics
     'tomAi_getProblems',
     'tomAi_readOutputChannel',
