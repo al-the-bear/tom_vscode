@@ -1,3 +1,9 @@
+## 2.0.3
+
+- Requires `tom_todo_model` ^1.2.0. Todo files now carry `blocking` (1.2.0)
+  and `user_action` (1.1.0); an older model resolved alongside this package
+  read them as unknown keys.
+
 ## 2.0.2
 
 The language-model calls return what the model answered.

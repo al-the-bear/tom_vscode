@@ -14,7 +14,12 @@
 ///   TODOAPI-6 writing: the schema map for quest/workspace, the session shape
 ///   TODOAPI-7 a list keeps the todos it can read and names the ones it cannot
 ///   TODOAPI-8 the API: ops, params, `_scope`, a missing todo is null
+///   TODOAPI-9 the published floor admits no tom_todo_model before 1.2.0: the
+///             extension writes `blocking` (1.2.0) and `user_action` (1.1.0),
+///             which an older model reads as unknown keys
 library;
+
+import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
@@ -264,5 +269,14 @@ void main() {
       expect(await TomTodoApi.getQuestTodo('q', 'none'), isNull);
       expect(await TomTodoApi.getSessionTodo('none'), isNull);
     });
+  });
+
+  test('TODOAPI-9: the tom_todo_model floor is 1.2.0', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final m = RegExp(r'^\s+tom_todo_model:\s*\^(\d+)\.(\d+)\.(\d+)\s*$', multiLine: true).firstMatch(pubspec);
+    expect(m, isNotNull, reason: 'tom_todo_model is declared as ^x.y.z');
+    final floor = [for (var i = 1; i <= 3; i++) int.parse(m!.group(i)!)];
+    expect(floor[0] == 1 && (floor[1] > 2 || (floor[1] == 2 && floor[2] >= 0)), isTrue,
+        reason: 'declared ^${floor.join('.')}; 1.2.0 carries `blocking`');
   });
 }

@@ -1,6 +1,6 @@
 name: tom_vscode_scripting_api
 description: Dart abstractions for VS Code extension APIs, providing a bridge-agnostic interface for VS Code scripting.
-version: 2.0.2
+version: 2.0.3
 repository: https://github.com/al-the-bear/tom_vscode
 homepage: https://github.com/al-the-bear/tom_vscode/tree/main/tom_vscode_scripting_api
 topics:
@@ -14,7 +14,7 @@ environment:
 
 # One dependency: the shared todo model the todo API speaks.
 dependencies:
-  tom_todo_model: ^1.0.1
+  tom_todo_model: ^1.2.0
 
 dev_dependencies:
   lints: ^6.0.0
