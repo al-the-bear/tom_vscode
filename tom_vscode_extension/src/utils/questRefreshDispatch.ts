@@ -36,6 +36,13 @@ export interface MainStageRefreshHooks<T> {
     sendMain: () => Promise<T>;
     /** Optional observer for a swallowed refresh failure (logging). */
     onRefreshError?: (err: unknown) => void;
+    /**
+     * Why this stage cannot be sent at all (e.g. its direct-API key is
+     * missing), else undefined. A refused stage runs no refresh — the refresh
+     * stays due for the next stage that can run — and does not count; the main
+     * dispatch then fails with its own error.
+     */
+    stageRefused?: () => string | undefined;
 }
 
 /**
@@ -46,6 +53,9 @@ export interface MainStageRefreshHooks<T> {
  * whether the refresh ran or failed (matching the original interactive hook).
  */
 export async function runMainStageWithRefresh<T>(hooks: MainStageRefreshHooks<T>): Promise<T> {
+    if (hooks.stageRefused?.()) {
+        return hooks.sendMain();
+    }
     try {
         if (hooks.shouldRefresh()) {
             await hooks.runRefresh();

@@ -9,6 +9,8 @@
  */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
     runMainStageWithRefresh,
@@ -90,6 +92,47 @@ describe('runMainStageWithRefresh', () => {
         });
         assert.equal(result, 'answer');
         assert.equal(counted, 1);
+    });
+});
+
+describe('runMainStageWithRefresh: a stage that cannot be sent (finishvsf2)', () => {
+    // A key-less direct-API stage is refused at dispatch. A due refresh used to
+    // run first on the same profile, be refused too, and log "queued prompt still
+    // sent" for a prompt that was not sent; the refresh was then carried to the
+    // next item. It is now skipped while it stays due.
+    test('a refused stage does not run the due refresh or count, and still fails with its own error', async () => {
+        const order: string[] = [];
+        let counted = 0;
+        await assert.rejects(runMainStageWithRefresh<string>({
+            shouldRefresh: () => { order.push('should'); return true; },
+            runRefresh: async () => { order.push('refresh'); },
+            incrementCount: () => { counted += 1; },
+            stageRefused: () => 'no API key: ANTHROPIC_X is not set',
+            sendMain: async () => { order.push('main'); throw new Error('no API key: ANTHROPIC_X is not set'); },
+        }), /no API key/);
+        assert.deepEqual(order, ['main'], 'the refresh is neither asked for nor run');
+        assert.equal(counted, 0, 'a prompt that was not sent does not count toward the interval');
+    });
+
+    test('a stage that is not refused refreshes as before', async () => {
+        const order: string[] = [];
+        await runMainStageWithRefresh<string>({
+            shouldRefresh: () => true,
+            runRefresh: async () => { order.push('refresh'); },
+            incrementCount: () => order.push('count'),
+            stageRefused: () => undefined,
+            sendMain: async () => { order.push('main'); return 'ok'; },
+        });
+        assert.deepEqual(order, ['refresh', 'count', 'main']);
+    });
+
+    test('the queue passes the key check and logs no "still sent"', () => {
+        const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'managers', 'promptQueueManager.ts'), 'utf-8');
+        const at = src.indexOf('private async _dispatchMainStageWithRefresh(');
+        const body = src.slice(at, src.indexOf('\n    }\n', at));
+        assert.match(body, /stageRefused: \(\) => stageKeyRefusal\(/);
+        assert.doesNotMatch(src, /queued prompt still sent/);
+        assert.match(body, /Quest Refresh failed — the main prompt is dispatched next/);
     });
 });
 

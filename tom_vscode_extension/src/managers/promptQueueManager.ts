@@ -3974,8 +3974,15 @@ export class PromptQueueManager {
             ),
             incrementCount: () => { QuestRefreshStore.instance.incrementCount('anthropic', quest); },
             onRefreshError: (err) => logQueue(
-                `Quest Refresh failed — queued prompt still sent: ${err instanceof Error ? err.message : String(err)}`,
+                `Quest Refresh failed — the main prompt is dispatched next: ${err instanceof Error ? err.message : String(err)}`,
             ),
+            // A stage dispatchStage would refuse (no direct-API key) runs no
+            // refresh: it would be refused the same way, and the refresh stays
+            // due for the next stage that can run.
+            stageRefused: () => stageKeyRefusal(loadSendToChatConfig()?.anthropic, {
+                profileId: resolved.anthropicProfileId,
+                configId: resolved.anthropicConfigId,
+            }, process.env),
             sendMain: () => this.dispatchStage(item.expandedText, resolved, item, true),
         });
     }
