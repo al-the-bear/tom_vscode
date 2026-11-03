@@ -24,7 +24,7 @@ var qtTagPickerCallback = null;
 var qtFilterSearch = '';
 /** A filter that keeps every todo. `userAction`: [] all, ['yes'] the user's own todos, ['no'] the others. */
 function qtEmptyFilterState() {
-    return { status: [], priority: [], tags: [], userAction: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
+    return { status: [], priority: [], tags: [], userAction: [], blocking: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
 }
 var qtFilterState = qtEmptyFilterState();
 var qtSortFields = []; // [{field,asc}]
@@ -685,6 +685,10 @@ function qtRenderList() {
         if (qtFilterState.createdTo && (t.created || '') > qtFilterState.createdTo) return false;
         if (qtFilterState.updatedFrom && (t.updated || '') < qtFilterState.updatedFrom) return false;
         if (qtFilterState.updatedTo && (t.updated || '') > qtFilterState.updatedTo) return false;
+        // A todo without a completed_date is outside every Completed range.
+        if (qtFilterState.completedFrom && (!t.completed_date || t.completed_date < qtFilterState.completedFrom)) return false;
+        if (qtFilterState.completedTo && (!t.completed_date || t.completed_date > qtFilterState.completedTo)) return false;
+        if (qtFilterState.blocking.length && qtFilterState.blocking.indexOf(qtOpenBlockedTodos(t).length ? 'yes' : 'no') === -1) return false;
         if (qtFilterSearch) {
             var hay = ((t.id || '') + ' ' + (t.title || '') + ' ' + (t.sourceFile || '')).toLowerCase();
             if (hay.indexOf(qtFilterSearch) === -1) return false;
@@ -952,8 +956,9 @@ function qtToggleFilterPicker() {
 
 function qtHasActiveFilters() {
     return qtFilterState.status.length > 0 || qtFilterState.priority.length > 0 || qtFilterState.tags.length > 0 ||
-        qtFilterState.userAction.length > 0 ||
-        qtFilterState.createdFrom || qtFilterState.createdTo || qtFilterState.updatedFrom || qtFilterState.updatedTo;
+        qtFilterState.userAction.length > 0 || qtFilterState.blocking.length > 0 ||
+        !!(qtFilterState.createdFrom || qtFilterState.createdTo || qtFilterState.updatedFrom || qtFilterState.updatedTo ||
+            qtFilterState.completedFrom || qtFilterState.completedTo);
 }
 
 function qtUpdateFilterIndicator() {
@@ -1025,9 +1030,16 @@ function qtRenderFilterPicker() {
         html += '<div class="qt-picker-option" data-qt-filter-type="userAction" data-qt-filter-val="' + o[0] + '">' +
             '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + o[1] + '</div>';
     });
+    html += '<div class="qt-picker-section-header">Blocking</div>';
+    [['yes', '⛓️ blocks open todos'], ['no', 'blocks no open todo']].forEach(function(o) {
+        var checked = qtFilterState.blocking.indexOf(o[0]) >= 0;
+        html += '<div class="qt-picker-option" data-qt-filter-type="blocking" data-qt-filter-val="' + o[0] + '">' +
+            '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + o[1] + '</div>';
+    });
     html += '<div class="qt-picker-section-header">Date Ranges</div>';
     html += '<div class="qt-picker-date-row"><label>Created</label><input type="date" id="qt-fp-created-from" value="' + (qtFilterState.createdFrom || '') + '"><span>–</span><input type="date" id="qt-fp-created-to" value="' + (qtFilterState.createdTo || '') + '"></div>';
     html += '<div class="qt-picker-date-row"><label>Updated</label><input type="date" id="qt-fp-updated-from" value="' + (qtFilterState.updatedFrom || '') + '"><span>–</span><input type="date" id="qt-fp-updated-to" value="' + (qtFilterState.updatedTo || '') + '"></div>';
+    html += '<div class="qt-picker-date-row"><label>Completed</label><input type="date" id="qt-fp-completed-from" value="' + (qtFilterState.completedFrom || '') + '"><span>–</span><input type="date" id="qt-fp-completed-to" value="' + (qtFilterState.completedTo || '') + '"></div>';
     html += '<div class="qt-picker-footer"><button class="secondary" id="qt-fp-reset">Reset</button><button class="primary" id="qt-fp-ok">OK</button></div>';
     el.innerHTML = html;
 
@@ -1052,6 +1064,10 @@ function qtRenderFilterPicker() {
     if (ctEl) ctEl.addEventListener('change', function() { qtFilterState.createdTo = this.value; });
     if (ufEl) ufEl.addEventListener('change', function() { qtFilterState.updatedFrom = this.value; });
     if (utEl) utEl.addEventListener('change', function() { qtFilterState.updatedTo = this.value; });
+    var cofEl = document.getElementById('qt-fp-completed-from');
+    var cotEl = document.getElementById('qt-fp-completed-to');
+    if (cofEl) cofEl.addEventListener('change', function() { qtFilterState.completedFrom = this.value; });
+    if (cotEl) cotEl.addEventListener('change', function() { qtFilterState.completedTo = this.value; });
     // Reset
     document.getElementById('qt-fp-reset').addEventListener('click', function() {
         qtFilterState = qtEmptyFilterState();
@@ -2382,6 +2398,7 @@ function qtHandleMessage(msg) {
                         priority: fs.priority || [],
                         tags: fs.tags || [],
                         userAction: fs.userAction || [],
+                        blocking: fs.blocking || [],
                         createdFrom: fs.createdFrom || '',
                         createdTo: fs.createdTo || '',
                         updatedFrom: fs.updatedFrom || '',

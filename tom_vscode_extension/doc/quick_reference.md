@@ -62,7 +62,8 @@
 - List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
 - Collapse all / Expand all: toolbar buttons `qt-btn-collapse-all` / `qt-btn-expand-all`
 - 👤 `qt-btn-only-mine`: only the user's own todos (`user_action: true`), every group open; again: all todos. Filter section **User action** (yes / no). User-action titles are purple (the left border is the status: blue in progress, yellow blocked)
-- ⛓️ beside the status icon: the todo blocks open todos (its `blocking`, the reverse of their `blocked_by`, kept in step by every save; hover for the list). The detail form shows it as a read-only **Blocking** row
+- ⛓️ beside the status icon: the todo blocks open todos (its `blocking`, the reverse of their `blocked_by`, kept in step by every save; hover for the list). The detail form shows it as a read-only **Blocking** row. Filter section **Blocking** (yes / no)
+- Filter **Date Ranges**: Created, Updated, Completed (`completed_date`; a todo without one is hidden while a Completed bound is set)
 - Shift-click stack ranges only span **visible** rows — a collapsed group is never traversed
 
 ## Quest TODO Panel — archive/delete buttons

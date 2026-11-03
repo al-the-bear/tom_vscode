@@ -265,7 +265,14 @@ handler's list builders (`todoListItem.test.ts` TL-1–5). The filter state carr
 `['no']`; `qtEmptyFilterState`), shown as the picker's **User action** section;
 an older saved state restores as `[]`. The 👤 toolbar button
 (`#qt-btn-only-mine`, `qtToggleOnlyUserActions`) switches between `['yes']`
-(opening every group) and `[]`. Tests: `questTodoUserAction.dom.test.ts` QU-1–6.
+(opening every group) and `[]`. Tests: `questTodoUserAction.dom.test.ts` QU-1–7.
+
+The filter state also carries `blocking` (`[]` all, `['yes']` blocks an open todo by
+`qtOpenBlockedTodos`, `['no']`) and the date bounds `createdFrom`/`To`, `updatedFrom`/`To`,
+`completedFrom`/`To` (inclusive ISO date strings; a todo without `completed_date` fails any
+Completed bound). Every field of `qtEmptyFilterState` must be read by the filter loop, counted by
+`qtHasActiveFilters`, offered by `qtRenderFilterPicker` and restored with a default in the saved
+state. Tests: `questTodoFilterRanges.dom.test.ts` QF-1–4.
 
 Waiting for the user is expressed with this field and `blocked_by`, nothing
 else: a 👤 todo for the user's part, the dependent work `blocked` with

@@ -195,7 +195,11 @@ Work that has to wait for you — a check that can only run after you reload the
 
 #### Todos that block others (⛓️)
 
-A todo's **Blocked By** names the todos it waits for. The other end is kept for you: each todo carries a **`blocking`** list — the todos whose Blocked By names it (by id in the same quest, as `quest/id` from another quest) — which every save keeps in step, whether it comes from the todo panel, a todo tool or a script. A todo that blocks at least one open todo shows **⛓️** next to its status icon; hover it to see which. Its detail form shows a read-only **Blocking** row whose entries open the blocked todo. To change the relation, edit Blocked By on the blocked todo; Blocking follows.
+A todo's **Blocked By** names the todos it waits for. The other end is kept for you: each todo carries a **`blocking`** list — the todos whose Blocked By names it (by id in the same quest, as `quest/id` from another quest) — which every save keeps in step, whether it comes from the todo panel, a todo tool or a script. A todo that blocks at least one open todo shows **⛓️** next to its status icon; hover it to see which. Its detail form shows a read-only **Blocking** row whose entries open the blocked todo. To change the relation, edit Blocked By on the blocked todo; Blocking follows. The filter has a **Blocking** section: the todos that block open todos, the others, or (nothing ticked) both.
+
+#### Filtering by date
+
+The filter's **Date Ranges** rows — **Created**, **Updated** and **Completed** — each take a from and a to date, both inclusive, either one optional. A Completed range shows only todos whose `completed_date` lies inside it, so a todo that was never completed is hidden while a Completed bound is set.
 
 #### Moving todos between files
 
