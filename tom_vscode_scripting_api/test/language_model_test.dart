@@ -17,6 +17,16 @@
 //   LM-3 the client alone keeps its own requestTimeout
 //   LM-4 sendRequest's script builds real messages and reads response.text;
 //        it asks for its timeoutSeconds
+//
+// Then the first live run found the models and got an answer — and printed an
+// empty reply. The bridge wraps every script's return value in an envelope,
+// {success, result} (or {success: false, error}); sendRequest, countTokens and
+// invokeTool read their fields from the envelope instead of from `result`.
+// The fake bridge here had returned the bare value, so the tests passed.
+//
+//   LM-5 sendRequest, countTokens and invokeTool read the bridge's envelope
+//   LM-6 a failed script ({success: false, error}) is an exception naming the
+//        operation and the error, not an empty answer
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -55,8 +65,13 @@ Future<ServerSocket> _slowBridge(Duration delay) async {
   return server;
 }
 
-/// Records what a call sends instead of sending it.
+/// Records what a call sends instead of sending it, and answers as the real
+/// bridge does: the script's return value wrapped in `{success, result}`.
 class _CaptureAdapter implements VSCodeAdapter {
+  _CaptureAdapter([Object? value, Map<String, dynamic>? answer])
+      : answer = answer ?? {'success': true, 'result': value ?? {'text': 'Dart is a language.', 'stream': ['Dart is a language.']}};
+
+  final Map<String, dynamic> answer;
   String? method;
   Map<String, dynamic>? params;
   Duration? timeout;
@@ -67,9 +82,13 @@ class _CaptureAdapter implements VSCodeAdapter {
     this.method = method;
     this.params = params;
     this.timeout = timeout;
-    return {'text': 'Dart is a language.', 'stream': ['Dart is a language.']};
+    return answer;
   }
 }
+
+final _model = LanguageModelChat(
+  id: 'm1', vendor: 'copilot', family: 'f', version: '1', name: 'Model', maxInputTokens: 1000,
+);
 
 void main() {
   test('LM-1: VSCodeBridgeAdapter honours the call\'s timeout', () async {
@@ -118,10 +137,7 @@ void main() {
 
   test('LM-4: the request script', () async {
     final adapter = _CaptureAdapter();
-    final model = LanguageModelChat(
-      id: 'm1', vendor: 'copilot', family: 'f', version: '1', name: 'Model', maxInputTokens: 1000,
-    );
-    final reply = await model.sendRequest(adapter, [
+    final reply = await _model.sendRequest(adapter, [
       LanguageModelChatMessage.user('Hi'),
       LanguageModelChatMessage.assistant('Hello'),
     ]);
@@ -133,5 +149,31 @@ void main() {
     expect(script, contains('LanguageModelChatMessage.Assistant('));
     expect(script, contains('response.text'));
     expect(script, isNot(contains('part.text')), reason: 'a LanguageModelTextPart carries value, not text');
+  });
+
+  test('LM-5: the bridge\'s envelope is unwrapped', () async {
+    final reply = await _model.sendRequest(_CaptureAdapter(), [LanguageModelChatMessage.user('Hi')]);
+    expect(reply.text, 'Dart is a language.');
+    expect(reply.streamParts, ['Dart is a language.']);
+
+    expect(await _model.countTokens(_CaptureAdapter(42), 'some text'), 42);
+
+    final lm = VSCodeLanguageModel(_CaptureAdapter({'content': ['done']}));
+    final tool = await lm.invokeTool('myTool', {'input': {}});
+    expect(tool.content, ['done']);
+  });
+
+  test('LM-6: a failed script is an exception naming the operation', () async {
+    final failed = {'success': false, 'error': 'Model not found', 'stack': '...'};
+    await expectLater(
+      _model.sendRequest(_CaptureAdapter(null, failed), [LanguageModelChatMessage.user('Hi')]),
+      throwsA(isA<LanguageModelCallException>()
+          .having((e) => e.operation, 'operation', 'LanguageModelChat.sendRequest')
+          .having((e) => e.message, 'message', 'Model not found')),
+    );
+    await expectLater(_model.countTokens(_CaptureAdapter(null, failed), 'x'),
+        throwsA(isA<LanguageModelCallException>().having((e) => e.operation, 'operation', 'LanguageModelChat.countTokens')));
+    await expectLater(VSCodeLanguageModel(_CaptureAdapter(null, failed)).invokeTool('t', {}),
+        throwsA(isA<LanguageModelCallException>().having((e) => e.operation, 'operation', 'invokeTool')));
   });
 }

@@ -71,7 +71,8 @@ class VSCodeLanguageModel {
       scriptName: 'invokeTool',
       timeout: Duration(seconds: timeoutSeconds),
     );
-    return LanguageModelToolResult.fromJson(result);
+    return LanguageModelToolResult.fromJson(
+        _scriptValue(result, 'invokeTool') as Map<String, dynamic>? ?? const {});
   }
 
   /// Register a language model tool
@@ -199,7 +200,8 @@ class LanguageModelChat {
       scriptName: 'LanguageModelChat.sendRequest',
       timeout: Duration(seconds: timeoutSeconds),
     );
-    return LanguageModelChatResponse.fromJson(result);
+    return LanguageModelChatResponse.fromJson(
+        _scriptValue(result, 'LanguageModelChat.sendRequest') as Map<String, dynamic>? ?? const {});
   }
 
   /// Count tokens in text
@@ -222,8 +224,33 @@ class LanguageModelChat {
       scriptName: 'LanguageModelChat.countTokens',
       timeout: Duration(seconds: timeoutSeconds),
     );
-    return result as int;
+    return (_scriptValue(result, 'LanguageModelChat.countTokens') as num).toInt();
   }
+}
+
+/// A language-model call whose script failed in the window (the bridge
+/// answered `{success: false, error}`): a missing model, a refused consent, a
+/// network error inside VS Code.
+class LanguageModelCallException implements Exception {
+  /// The call that failed, e.g. `LanguageModelChat.sendRequest`.
+  final String operation;
+
+  /// The error the window reported.
+  final String message;
+
+  LanguageModelCallException(this.operation, this.message);
+
+  @override
+  String toString() => 'LanguageModelCallException: $operation failed: $message';
+}
+
+/// The value a script returned. The bridge wraps it as `{success, result}`;
+/// a failed script (`{success: false, error}`) throws.
+Object? _scriptValue(Map<String, dynamic> answer, String operation) {
+  if (answer['success'] != true) {
+    throw LanguageModelCallException(operation, '${answer['error'] ?? 'the window reported no success'}');
+  }
+  return answer['result'];
 }
 
 /// A message in a chat conversation

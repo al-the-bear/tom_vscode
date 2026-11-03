@@ -1,3 +1,16 @@
+## 2.0.2
+
+The language-model calls return what the model answered.
+
+- `LanguageModelChat.sendRequest`, `LanguageModelChat.countTokens` and
+  `VSCodeLanguageModel.invokeTool` read the script's value from the bridge's
+  answer, `{success, result}`. They read their fields from that outer answer, so
+  a reply the window had received came back empty (`sendRequest`),
+  `countTokens` failed with a type error, and `invokeTool` returned no content.
+- A failed script (`{success: false, error}`, e.g. no such model) now throws
+  `LanguageModelCallException`, naming the call and the window's error, instead
+  of an empty result.
+
 ## 2.0.1
 
 The language-model calls work through a bridge adapter.
