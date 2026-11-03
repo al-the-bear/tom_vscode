@@ -15,6 +15,12 @@ paths**, including:
 
 All file references below point under [tom_vscode_extension/src/](../src/).
 
+Edits to `tom_vscode_extension.json` (and to the user-global overlay
+`~/.tom/vscode/tom_vscode_extension.user.yaml`) take effect at the next read,
+whether they are made on the Status Page, by hand or by an agent: the
+configuration compares the files' stat on every read and parses them again only
+when they changed. No *Reload Chat Config* or window reload is needed.
+
 ---
 
 ## 1. Two distinct accumulators — history and tool trail

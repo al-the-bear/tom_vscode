@@ -827,15 +827,12 @@ export function loadSendToChatConfig(): SendToChatConfig | null {
 /**
  * Save the send-to-chat configuration to the config file.
  *
- * After writing, re-hydrates `TomAiConfiguration.instance` so any
- * running handler that reads via `getSection()` sees the new values
- * immediately. Without this reload the in-memory cache stays stuck
- * on whatever was loaded at extension init — e.g. toggling
- * `compaction.disabled` on the status page would persist to disk
- * but wouldn't actually stop the background compaction/extraction
- * LLM calls until the window was reloaded (the symptom that crashed
- * the user's machine: local LLM memory compaction kept running under
- * a "disabled" setting).
+ * `TomAiConfiguration` notices a changed file on its next read (a stat
+ * per read), so its `getSection()` readers would see the new values
+ * anyway. The reload after the write makes it immediate even for a
+ * write the stat cannot tell apart (same size, same timestamp): a
+ * setting such as `compaction.disabled` has to take effect at once,
+ * not on a guess about file timestamps.
  */
 export function saveSendToChatConfig(config: SendToChatConfig): boolean {
     const configPath = getConfigPathSimple();

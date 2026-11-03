@@ -937,9 +937,9 @@ function registerCommands(context: vscode.ExtensionContext) {
     );
 
     // Re-read the extension's on-disk configuration. The main
-    // TomAiConfiguration singleton only resolves `tomAi.configPath` and loads
-    // the file once, in its constructor at activation — so without an explicit
-    // refresh, a changed path is not picked up until a full window reload.
+    // TomAiConfiguration follows its files and the `tomAi.configPath` setting on
+    // every read; the command forces that now and reloads the send-to-chat
+    // manager (its own copy, kept current by its own file watcher).
     const reloadAllConfig = async (notify: boolean): Promise<void> => {
         try {
             TomAiConfiguration.instance.reload();

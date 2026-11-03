@@ -79,6 +79,14 @@ export class TomAiConfiguration {
      * conflating the two sources on disk.
      */
     private userGlobal: Record<string, unknown> = {};
+    /**
+     * What both files looked like when `config` was built (path, mtime, ctime,
+     * size of each; see `filesStamp`). Every read compares it with the files as
+     * they are now and rebuilds `config` when they differ, so a hand edit — or
+     * an agent's text edit — reaches every reader without a reload. Unchanged
+     * files cost one stat each and are not parsed again.
+     */
+    private stamp: string | undefined;
 
     static init(context: vscode.ExtensionContext): void {
         if (!TomAiConfiguration._instance) {
@@ -152,13 +160,20 @@ export class TomAiConfiguration {
     }
 
     get configPath(): string {
+        const r = this.resolveConfigPath();
+        logConfigAccess('TomAiConfiguration.configPath', r.path, {
+            action: 'resolve',
+            branch: r.branch,
+            ...(r.setting !== undefined ? { setting: r.setting } : {}),
+        });
+        return r.path;
+    }
+
+    /** Where the workspace config is, and why; no logging (it runs on every read). */
+    private resolveConfigPath(): { path: string; branch: string; setting?: string } {
         const wsConfigPath = WsPaths.wsConfig(WsPaths.configFileName);
         if (wsConfigPath && fs.existsSync(wsConfigPath)) {
-            logConfigAccess('TomAiConfiguration.configPath', wsConfigPath, {
-                action: 'resolve',
-                branch: 'workspace .tom (exists)',
-            });
-            return wsConfigPath;
+            return { path: wsConfigPath, branch: 'workspace .tom (exists)' };
         }
 
         const configuredPath = vscode.workspace
@@ -166,32 +181,38 @@ export class TomAiConfiguration {
             .get<string>('configPath');
 
         if (configuredPath && configuredPath.trim()) {
-            const resolved = this.resolveConfiguredPath(configuredPath.trim());
-            logConfigAccess('TomAiConfiguration.configPath', resolved, {
-                action: 'resolve',
+            return {
+                path: this.resolveConfiguredPath(configuredPath.trim()),
                 branch: 'tomAi.configPath setting',
                 setting: configuredPath,
-            });
-            return resolved;
+            };
         }
 
         if (wsConfigPath) {
-            logConfigAccess('TomAiConfiguration.configPath', wsConfigPath, {
-                action: 'resolve',
-                branch: 'workspace .tom (default target)',
-            });
-            return wsConfigPath;
+            return { path: wsConfigPath, branch: 'workspace .tom (default target)' };
         }
 
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const fallback = wsRoot
-            ? path.join(wsRoot, '.tom', WsPaths.configFileName)
-            : path.join(os.homedir(), '.tom', 'vscode', WsPaths.configFileName);
-        logConfigAccess('TomAiConfiguration.configPath', fallback, {
-            action: 'resolve',
-            branch: wsRoot ? 'workspace root fallback' : 'home fallback (no workspace)',
-        });
-        return fallback;
+        return wsRoot
+            ? { path: path.join(wsRoot, '.tom', WsPaths.configFileName), branch: 'workspace root fallback' }
+            : { path: path.join(os.homedir(), '.tom', 'vscode', WsPaths.configFileName), branch: 'home fallback (no workspace)' };
+    }
+
+    /** The state of the workspace config and the user-global overlay, as one comparable string. */
+    private filesStamp(): string {
+        return [this.resolveConfigPath().path, userGlobalConfigPath()].map((filePath) => {
+            try {
+                const st = fs.statSync(filePath);
+                return `${filePath}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`;
+            } catch {
+                return `${filePath}:-`;
+            }
+        }).join('|');
+    }
+
+    /** Rebuild `config` when either file changed since it was built. */
+    private refreshIfChanged(): void {
+        if (this.filesStamp() !== this.stamp) { this.reload(); }
     }
 
     getLocalLlm(): LocalLlmConfig { return this.getSection<LocalLlmConfig>('localLlm') ?? {}; }
@@ -215,6 +236,7 @@ export class TomAiConfiguration {
     async saveFavorites(favorites: FavoriteEntry[]): Promise<void> { await this.updateSection('favorites', favorites); }
 
     getSection<T>(key: string): T | undefined {
+        this.refreshIfChanged();
         return this.config[key] as T | undefined;
     }
 
@@ -227,11 +249,16 @@ export class TomAiConfiguration {
     }
 
     async updateSection(key: string, value: unknown): Promise<void> {
+        // Why: the whole config is written back, so a hand edit not read yet
+        // would otherwise be overwritten with the copy from before it.
+        this.refreshIfChanged();
         this.config[key] = value;
         await this.persistConfig();
     }
 
     reload(): void {
+        // Taken before the reads: a change while they run makes the next read reload again.
+        this.stamp = this.filesStamp();
         this.userGlobal = this.loadUserGlobal();
 
         const filePath = this.configPath;
@@ -330,10 +357,11 @@ export class TomAiConfiguration {
 
         if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
             FsUtils.safeWriteYaml(filePath, this.config);
-            return;
+        } else {
+            FsUtils.safeWriteJson(filePath, this.config, 2);
         }
-
-        FsUtils.safeWriteJson(filePath, this.config, 2);
+        // The file now holds `config`: no need to parse it back.
+        this.stamp = this.filesStamp();
     }
 
     private resolveConfiguredPath(configuredPath: string): string {
