@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 35 files
-// Generated: 2026-10-29T19:43:32.096162 by tom_d4rt_generator 1.52.0
+// Generated: 2026-11-03T17:19:55.704936 by tom_d4rt_generator 1.51.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -105,6 +105,7 @@ class AllBridge {
       _createVSCodeExtensionsBridge(),
       _createVSCodeLanguageModelBridge(),
       _createLanguageModelChatBridge(),
+      _createLanguageModelCallExceptionBridge(),
       _createLanguageModelChatMessageBridge(),
       _createLanguageModelChatResponseBridge(),
       _createLanguageModelToolResultBridge(),
@@ -282,6 +283,7 @@ class AllBridge {
       'VSCodeExtensions': _createVSCodeExtensionsBridge,
       'VSCodeLanguageModel': _createVSCodeLanguageModelBridge,
       'LanguageModelChat': _createLanguageModelChatBridge,
+      'LanguageModelCallException': _createLanguageModelCallExceptionBridge,
       'LanguageModelChatMessage': _createLanguageModelChatMessageBridge,
       'LanguageModelChatResponse': _createLanguageModelChatResponseBridge,
       'LanguageModelToolResult': _createLanguageModelToolResultBridge,
@@ -460,6 +462,8 @@ class AllBridge {
       'VSCodeExtensions': $tom_vscode_scripting_api_26.VSCodeExtensions,
       'VSCodeLanguageModel': $tom_vscode_scripting_api_28.VSCodeLanguageModel,
       'LanguageModelChat': $tom_vscode_scripting_api_28.LanguageModelChat,
+      'LanguageModelCallException':
+          $tom_vscode_scripting_api_28.LanguageModelCallException,
       'LanguageModelChatMessage':
           $tom_vscode_scripting_api_28.LanguageModelChatMessage,
       'LanguageModelChatResponse':
@@ -664,6 +668,8 @@ class AllBridge {
       'VSCodeLanguageModel':
           'package:tom_vscode_scripting_api/src/vscode_lm.dart',
       'LanguageModelChat':
+          'package:tom_vscode_scripting_api/src/vscode_lm.dart',
+      'LanguageModelCallException':
           'package:tom_vscode_scripting_api/src/vscode_lm.dart',
       'LanguageModelChatMessage':
           'package:tom_vscode_scripting_api/src/vscode_lm.dart',
@@ -945,6 +951,7 @@ class AllBridge {
       'VSCodeBridgeAdapter': ['VSCodeAdapter'],
       'LazyVSCodeBridgeAdapter': ['VSCodeAdapter'],
       'BridgeWorkspaceNotFoundException': ['Exception'],
+      'LanguageModelCallException': ['Exception'],
       'Selection': ['Range'],
       'SdkAssistantMessage': ['SdkMessage'],
       'SdkUserMessage': ['SdkMessage'],
@@ -7101,6 +7108,70 @@ BridgedClass _createLanguageModelChatBridge() {
       'version': 'String get version',
       'name': 'String get name',
       'maxInputTokens': 'int get maxInputTokens',
+    },
+  );
+}
+
+// =============================================================================
+// LanguageModelCallException Bridge
+// =============================================================================
+
+BridgedClass _createLanguageModelCallExceptionBridge() {
+  return BridgedClass(
+    nativeType: $tom_vscode_scripting_api_28.LanguageModelCallException,
+    name: 'LanguageModelCallException',
+    isAssignable: (v) =>
+        v is $tom_vscode_scripting_api_28.LanguageModelCallException,
+    hierarchyDepth: 1,
+    constructors: {
+      '': (visitor, positional, named) {
+        D4.requireMinArgs(positional, 2, 'LanguageModelCallException');
+        final operation = D4.getRequiredArg<String>(
+          positional,
+          0,
+          'operation',
+          'LanguageModelCallException',
+        );
+        final message = D4.getRequiredArg<String>(
+          positional,
+          1,
+          'message',
+          'LanguageModelCallException',
+        );
+        return $tom_vscode_scripting_api_28.LanguageModelCallException(
+          operation,
+          message,
+        );
+      },
+    },
+    getters: {
+      'operation': (visitor, target) => D4
+          .validateTarget<
+            $tom_vscode_scripting_api_28.LanguageModelCallException
+          >(target, 'LanguageModelCallException')
+          .operation,
+      'message': (visitor, target) => D4
+          .validateTarget<
+            $tom_vscode_scripting_api_28.LanguageModelCallException
+          >(target, 'LanguageModelCallException')
+          .message,
+    },
+    methods: {
+      'toString': (visitor, target, positional, named, typeArgs) {
+        final t = D4
+            .validateTarget<
+              $tom_vscode_scripting_api_28.LanguageModelCallException
+            >(target, 'LanguageModelCallException');
+        return t.toString();
+      },
+    },
+    constructorSignatures: {
+      '': 'LanguageModelCallException(String operation, String message)',
+    },
+    methodSignatures: {'toString': 'String toString()'},
+    getterSignatures: {
+      'operation': 'String get operation',
+      'message': 'String get message',
     },
   );
 }
