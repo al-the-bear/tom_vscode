@@ -142,6 +142,7 @@ import {
     questConfigPath,
 } from './managers/extensionConfigStore';
 import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
+import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -200,34 +201,12 @@ function installGlobalInstrumentation(): void {
                         const resolveStart = performance.now();
                         debugLog(`webview resolve triggered: ${viewId}`, 'INFO', 'webview.resolve');
                         try {
-                            const webviewAny = webviewView.webview as unknown as {
-                                onDidReceiveMessage: typeof webviewView.webview.onDidReceiveMessage;
-                                __tomAiMessageInstrumented?: boolean;
-                            };
-
-                            if (!webviewAny.__tomAiMessageInstrumented) {
-                                const originalOnDidReceiveMessage = webviewView.webview.onDidReceiveMessage.bind(webviewView.webview);
-                                webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
-                                    const wrappedListener = async (message: unknown) => {
-                                        // Skip logging for high-frequency polling messages
-                                        const msgType = typeof message === 'object' && message !== null && 'type' in (message as Record<string, unknown>)
-                                            ? (message as Record<string, unknown>).type
-                                            : undefined;
-                                        const isPolling = msgType === 'loadWindowStates' || msgType === 'poll' || msgType === 'ping';
-                                        if (!isPolling) {
-                                            debugLog(`webview message: ${viewId} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'webview.message');
-                                        }
-                                        try {
-                                            return await Promise.resolve(listener.call(thisArgs, message));
-                                        } catch (error) {
-                                            reportException(`webview:${viewId}.onDidReceiveMessage`, error, { messageType: msgType });
-                                            throw error;
-                                        }
-                                    };
-                                    return originalOnDidReceiveMessage(wrappedListener, thisArgs, disposables);
-                                }) as typeof webviewView.webview.onDidReceiveMessage;
-                                webviewAny.__tomAiMessageInstrumented = true;
-                            }
+                            instrumentWebviewMessages(webviewView.webview, {
+                                source: viewId,
+                                skipTypes: ['loadWindowStates', 'poll', 'ping'],
+                                log: (line) => debugLog(`webview message: ${line}`, 'INFO', 'webview.message'),
+                                report: (where, error, details) => reportException(`webview:${where}`, error, details),
+                            });
 
                             provider.resolveWebviewView(webviewView, webviewViewResolveContext, token);
                             const resolveMs = Math.round((performance.now() - resolveStart) * 100) / 100;
@@ -257,30 +236,12 @@ function installGlobalInstrumentation(): void {
                     async resolveCustomTextEditor(document, webviewPanel, token) {
                         debugLog(`custom editor resolve triggered: ${viewType} file=${document.uri.fsPath}`, 'INFO', 'customEditor.resolve');
                         try {
-                            const webviewAny = webviewPanel.webview as unknown as {
-                                onDidReceiveMessage: typeof webviewPanel.webview.onDidReceiveMessage;
-                                __tomAiCustomMessageInstrumented?: boolean;
-                            };
-
-                            if (viewType !== 'tomAi.trailViewer' && !webviewAny.__tomAiCustomMessageInstrumented) {
-                                const originalOnDidReceiveMessage = webviewPanel.webview.onDidReceiveMessage.bind(webviewPanel.webview);
-                                webviewAny.onDidReceiveMessage = ((listener, thisArgs, disposables) => {
-                                    const wrappedListener = async (message: unknown) => {
-                                        debugLog(`custom editor message: ${viewType} payload=${JSON.stringify(message, (_k, v) => typeof v === 'function' ? '[Function]' : v)}`, 'INFO', 'customEditor.message');
-                                        try {
-                                            return await Promise.resolve(listener.call(thisArgs, message));
-                                        } catch (error) {
-                                            reportException(`customEditor:${viewType}.onDidReceiveMessage`, error, {
-                                                messageType: typeof message === 'object' && message && 'type' in (message as Record<string, unknown>)
-                                                    ? (message as Record<string, unknown>).type
-                                                    : undefined,
-                                            });
-                                            throw error;
-                                        }
-                                    };
-                                    return originalOnDidReceiveMessage(wrappedListener, thisArgs, disposables);
-                                }) as typeof webviewPanel.webview.onDidReceiveMessage;
-                                webviewAny.__tomAiCustomMessageInstrumented = true;
+                            if (viewType !== 'tomAi.trailViewer') {
+                                instrumentWebviewMessages(webviewPanel.webview, {
+                                    source: viewType,
+                                    log: (line) => debugLog(`custom editor message: ${line}`, 'INFO', 'customEditor.message'),
+                                    report: (where, error, details) => reportException(`customEditor:${where}`, error, details),
+                                });
                             }
 
                             const resolver = (provider as { resolveCustomTextEditor?: (document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, token: vscode.CancellationToken) => unknown }).resolveCustomTextEditor;
