@@ -20,6 +20,10 @@ Edits to `tom_vscode_extension.json` (and to the user-global overlay
 whether they are made on the Status Page, by hand or by an agent: the
 configuration compares the files' stat on every read and parses them again only
 when they changed. No *Reload Chat Config* or window reload is needed.
+A save through the extension writes only the section it saves into the
+workspace file, so the user-global overlay keeps serving every section the
+workspace file does not define. While the workspace file does not parse, saves
+are refused with a message, so a half-finished hand edit is not overwritten.
 
 ---
 

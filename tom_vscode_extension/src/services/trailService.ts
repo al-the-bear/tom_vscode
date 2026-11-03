@@ -215,7 +215,10 @@ export class TrailService {
         const current = raw.enabled !== false;
         raw.enabled = !current;
         cfg.raw = raw;
-        void TomAiConfiguration.instance.saveTrail(cfg);
+        // A save is refused while the config file does not parse; say so instead of an unhandled rejection.
+        TomAiConfiguration.instance.saveTrail(cfg).catch((err: unknown) => {
+            void vscode.window.showWarningMessage(err instanceof Error ? err.message : String(err));
+        });
     }
 
     getSubsystemPath(subsystem: TrailSubsystem, questId?: string): string {

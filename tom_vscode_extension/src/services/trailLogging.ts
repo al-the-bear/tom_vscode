@@ -70,7 +70,10 @@ export function setTrailEnabled(enabled: boolean): void {
     const raw = ((trail.raw ?? {}) as Record<string, unknown>);
     raw.enabled = enabled;
     trail.raw = raw;
-    void TomAiConfiguration.instance.saveTrail(trail);
+    // A save is refused while the config file does not parse; say so instead of an unhandled rejection.
+    TomAiConfiguration.instance.saveTrail(trail).catch((err: unknown) => {
+        void vscode.window.showWarningMessage(err instanceof Error ? err.message : String(err));
+    });
 }
 
 export function toggleTrail(): void {

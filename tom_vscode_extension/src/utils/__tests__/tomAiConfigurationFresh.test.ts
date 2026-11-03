@@ -12,6 +12,13 @@
  *   TC-5 a hand edit of the user-global overlay is seen too
  *   TC-6 a hand edit that leaves the file unparsable keeps nothing stale: the
  *        section reads as the defaults until the file parses again
+ *   TC-7 a save writes only the saved section into the workspace file: the
+ *        defaults and the user-global overlay's sections stay out of it, and the
+ *        file's other sections stay as they were
+ *   TC-8 after a save, a later edit of the overlay is still seen for a section
+ *        the workspace file does not define
+ *   TC-9 a save while the workspace file does not parse is refused and leaves
+ *        the file as it is (a half-finished hand edit is not overwritten)
  */
 
 import test, { describe, beforeEach } from 'node:test';
@@ -110,5 +117,34 @@ describe('TomAiConfiguration follows hand edits', () => {
         assert.equal(c.getLocalLlm().ollamaUrl, TomAiConfiguration.defaults.localLlm.ollamaUrl);
         handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://fixed' } }));
         assert.equal(c.getLocalLlm().ollamaUrl, 'http://fixed');
+    });
+
+    test('TC-7: a save writes only the saved section', async () => {
+        handEdit(userConfig, 'todo:\n  defaultColumns: [mine]\n');
+        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://one' }, custom: { keep: 1 } }));
+        const c = cfg();
+        await c.saveTrail({ raw: { enabled: false } });
+        const onDisk = JSON.parse(fs.readFileSync(wsConfig, 'utf-8'));
+        assert.deepEqual(Object.keys(onDisk).sort(), ['custom', 'localLlm', 'trail']);
+        assert.deepEqual(onDisk.trail, { raw: { enabled: false } });
+        assert.deepEqual(onDisk.custom, { keep: 1 }, 'another section the file had');
+        assert.deepEqual(c.getTrail(), { raw: { enabled: false } });
+        assert.deepEqual(c.getTodo().defaultColumns, ['mine'], 'the overlay still serves its section');
+    });
+
+    test('TC-8: after a save, an overlay edit is still seen', async () => {
+        handEdit(userConfig, 'todo:\n  defaultColumns: [first]\n');
+        const c = cfg();
+        await c.saveLocalLlm({ ollamaUrl: 'http://saved' });
+        handEdit(userConfig, 'todo:\n  defaultColumns: [second]\n');
+        assert.deepEqual(c.getTodo().defaultColumns, ['second']);
+        assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).todo, undefined);
+    });
+
+    test('TC-9: a save while the file does not parse is refused', async () => {
+        const c = cfg();
+        handEdit(wsConfig, '{ "localLlm": { "ollamaUrl": "http://half"');
+        await assert.rejects(() => c.saveTrail({ raw: { enabled: false } }), /does not parse/);
+        assert.equal(fs.readFileSync(wsConfig, 'utf-8'), '{ "localLlm": { "ollamaUrl": "http://half"');
     });
 });

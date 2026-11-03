@@ -70,7 +70,16 @@ function userGlobalConfigPath(): string {
 export class TomAiConfiguration {
     private static _instance: TomAiConfiguration | undefined;
     private readonly context: vscode.ExtensionContext;
+    /** What readers see: defaults < user-global overlay < workspace file. */
     private config: Record<string, unknown> = {};
+    /**
+     * The workspace file's own sections, as parsed. Saves write this and
+     * nothing else, so the file never gains a default or an overlay section it
+     * did not have — which would then shadow the overlay for good.
+     */
+    private workspace: Record<string, unknown> = {};
+    /** The workspace file exists but did not parse; a save would overwrite it. */
+    private workspaceUnreadable = false;
     /**
      * Raw user-global overlay as parsed from
      * `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`. Empty
@@ -249,10 +258,14 @@ export class TomAiConfiguration {
     }
 
     async updateSection(key: string, value: unknown): Promise<void> {
-        // Why: the whole config is written back, so a hand edit not read yet
-        // would otherwise be overwritten with the copy from before it.
+        // Why: the workspace file is written back whole, so a hand edit not read
+        // yet would otherwise be overwritten with the copy from before it.
         this.refreshIfChanged();
-        this.config[key] = value;
+        if (this.workspaceUnreadable) {
+            throw new Error(`Not saved: ${this.configPath} does not parse; fix the file first, then save again.`);
+        }
+        this.workspace = { ...this.workspace, [key]: value };
+        this.config = this.mergeConfig(this.workspace);
         await this.persistConfig();
     }
 
@@ -260,6 +273,8 @@ export class TomAiConfiguration {
         // Taken before the reads: a change while they run makes the next read reload again.
         this.stamp = this.filesStamp();
         this.userGlobal = this.loadUserGlobal();
+        this.workspace = {};
+        this.workspaceUnreadable = false;
 
         const filePath = this.configPath;
         if (!FsUtils.fileExists(filePath)) {
@@ -281,11 +296,21 @@ export class TomAiConfiguration {
             return;
         }
 
-        const parsed = this.parseConfig(raw, filePath) ?? {};
+        const parsed = this.parseConfig(raw, filePath);
+        if (!parsed) {
+            logConfigAccess('TomAiConfiguration.reload', filePath, {
+                action: 'parse-failed',
+                note: 'file does not parse — using defaults; saves are refused until it does',
+            });
+            this.workspaceUnreadable = true;
+            this.config = this.mergeConfig({});
+            return;
+        }
         logConfigAccess('TomAiConfiguration.reload', filePath, {
             action: 'loaded',
             note: `${raw.length} bytes`,
         });
+        this.workspace = parsed;
         this.config = this.mergeConfig(parsed);
     }
 
@@ -330,7 +355,9 @@ export class TomAiConfiguration {
     }
 
     async createDefaultConfig(): Promise<void> {
-        this.config = { ...TomAiConfiguration.defaults };
+        this.workspace = { ...TomAiConfiguration.defaults };
+        this.workspaceUnreadable = false;
+        this.config = this.mergeConfig(this.workspace);
         await this.persistConfig();
     }
 
@@ -356,11 +383,11 @@ export class TomAiConfiguration {
         FsUtils.ensureDir(path.dirname(filePath));
 
         if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
-            FsUtils.safeWriteYaml(filePath, this.config);
+            FsUtils.safeWriteYaml(filePath, this.workspace);
         } else {
-            FsUtils.safeWriteJson(filePath, this.config, 2);
+            FsUtils.safeWriteJson(filePath, this.workspace, 2);
         }
-        // The file now holds `config`: no need to parse it back.
+        // The file now holds `workspace` and `config` is built from it: no need to parse it back.
         this.stamp = this.filesStamp();
     }
 
