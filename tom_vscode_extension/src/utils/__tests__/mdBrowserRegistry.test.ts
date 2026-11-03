@@ -80,6 +80,24 @@ describe('MD Browser registry', () => {
         assert.equal(r.list('/elsewhere')[0].file, '/w/doc/a.md', 'outside the workspace: the absolute path');
     });
 
+    test('MR-6: a tab restored after a reload and not shown yet is a dormant panel with its file', () => {
+        const r = new MdBrowserRegistry();
+        const live = r.register({ filePath: '/w/x/doc.md', liveMode: false, viewColumn: 1 });
+        const d = r.registerDormant({ label: 'MD: doc.md (y)', viewColumn: 2, filePath: '/w/y/doc.md', liveMode: false });
+        const u = r.registerDormant({ label: 'MD: old.md', viewColumn: 1, liveMode: false });
+        assert.equal(r.titleOf(d), 'MD: doc.md (y)', 'a dormant tab keeps the label it came back with');
+        assert.equal(r.titleOf(live), 'MD: doc.md (x)', 'a dormant file counts for the name clash');
+        const [, pd, pu] = r.list('/w');
+        assert.deepEqual([pd.file, pd.absolutePath, pd.dormant, pd.unsavedEdits, pd.title], ['y/doc.md', '/w/y/doc.md', true, false, 'MD: doc.md (y)']);
+        assert.deepEqual([pu.file, pu.absolutePath, pu.dormant], [null, null, true], 'no record named its file');
+        assert.equal(r.list('/w')[0].dormant, false);
+        assert.deepEqual(r.matchTabs([{ group: 2, label: 'MD: doc.md (y)' }]).map((m) => m?.panelId), [d]);
+        // The serializer revives the tab: the dormant entry gives way to the real panel.
+        assert.equal(r.dropDormant({ viewColumn: 2, label: 'MD: doc.md (y)' }), d);
+        assert.equal(r.dropDormant({ viewColumn: 2, label: 'MD: doc.md (y)' }), undefined);
+        assert.deepEqual(r.entries().map((e) => e.panelId), [live, u]);
+    });
+
     test('MR-5: the handler and the webview are wired', () => {
         const src = (...p: string[]) => readFileSync(join(__dirname, '..', '..', '..', ...p), 'utf-8');
         const handler = src('src', 'handlers', 'markdownBrowser-handler.ts');
@@ -90,5 +108,20 @@ describe('MD Browser registry', () => {
         assert.match(handler, /mdBrowserRegistry\.titleOf\(/);
         const webview = src('media', 'markdownBrowser', 'main.js');
         assert.match(webview, /type: 'editState'/);
+    });
+
+    test('MR-7: tabs restored after a reload are registered, revived, closed and remembered', () => {
+        const src = (...p: string[]) => readFileSync(join(__dirname, '..', '..', '..', ...p), 'utf-8');
+        const handler = src('src', 'handlers', 'markdownBrowser-handler.ts');
+        assert.match(handler, /MD_BROWSER_RECORDS_KEY/, 'the open tabs are remembered in the workspace state');
+        assert.match(handler, /rememberedRecords\(/);
+        assert.match(handler, /planDormantTabs\(/, 'at activation the restored tabs are planned');
+        assert.match(handler, /mdBrowserRegistry\.registerDormant\(/);
+        assert.match(handler, /mdBrowserRegistry\.dropDormant\(/, 'a revived or closed tab leaves the dormant list');
+        assert.match(handler, /tabGroups\.onDidChangeTabs/);
+        assert.match(handler, /tabGroups\.close\(/, 'dormant and gone tabs are closed through the tab API');
+        const pkg = JSON.parse(src('package.json')) as { activationEvents: string[] };
+        assert.ok(pkg.activationEvents.includes('onWebviewPanel:tomAi.markdownBrowser'),
+            'a tab visible at startup is revived even before onStartupFinished');
     });
 });

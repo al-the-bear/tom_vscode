@@ -54,6 +54,9 @@ import { readMediaText } from '../utils/webviewLoader.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry.js';
+import {
+    MD_BROWSER_RECORDS_KEY, planDormantTabs, rememberedRecords, type MdPanelRecord, type MdTabRef,
+} from '../utils/mdBrowserRestore.js';
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
 
 // ============================================================================
@@ -198,6 +201,7 @@ class MdBrowserPanel {
                 active: e.webviewPanel.active,
                 visible: e.webviewPanel.visible,
             });
+            scheduleRememberOpenPanels();
         }, undefined, context.subscriptions);
         refreshPanelTitles();
     }
@@ -958,6 +962,92 @@ const allPanels = new Set<MdBrowserPanel>();
 /** Give every open panel the title the registry assigns it now. */
 function refreshPanelTitles(): void {
     for (const panel of allPanels) { panel.refreshTitle(); }
+    scheduleRememberOpenPanels();
+}
+
+// ============================================================================
+// Tabs across a window reload (utils/mdBrowserRestore.ts)
+// ============================================================================
+
+/** The open MD Browser tabs, with what the tab API says about them. */
+function openMdBrowserTabs(): Array<{ tab: vscode.Tab; ref: MdTabRef }> {
+    const out: Array<{ tab: vscode.Tab; ref: MdTabRef }> = [];
+    for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+            if (tab.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith(PANEL_VIEW_TYPE)) {
+                out.push({ tab, ref: { label: tab.label, viewColumn: group.viewColumn } });
+            }
+        }
+    }
+    return out;
+}
+
+let rememberTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Write down, for every open MD Browser tab, the file it shows (workspace
+ * state), so a tab VS Code restores after a reload can be registered with its
+ * file before it is revived. Debounced: titles, columns and files change in
+ * bursts.
+ */
+function scheduleRememberOpenPanels(): void {
+    if (!mdBrowserContext) { return; }
+    if (rememberTimer) { clearTimeout(rememberTimer); }
+    rememberTimer = setTimeout(() => {
+        rememberTimer = undefined;
+        const context = mdBrowserContext;
+        if (!context) { return; }
+        try {
+            const held: MdPanelRecord[] = mdBrowserRegistry.entries()
+                .filter((e) => e.filePath !== '')
+                .map((e) => ({ label: mdBrowserRegistry.titleOf(e.panelId), viewColumn: e.viewColumn, filePath: e.filePath, liveMode: e.liveMode }));
+            const previous = context.workspaceState.get<MdPanelRecord[]>(MD_BROWSER_RECORDS_KEY, []);
+            const records = rememberedRecords(held, previous, openMdBrowserTabs().map((t) => t.ref));
+            void context.workspaceState.update(MD_BROWSER_RECORDS_KEY, records);
+        } catch (err) {
+            debugLog(`[MdBrowser] remembering the open tabs failed: ${err}`, 'WARN', 'mdBrowser');
+        }
+    }, 300);
+}
+
+/**
+ * At activation: register every MD Browser tab VS Code restored and has not
+ * revived as a dormant panel with the file remembered for it, and close the
+ * tabs whose file is gone (the serializer would close them on revival anyway,
+ * so a dead tab is not left standing until someone clicks it).
+ */
+function registerRestoredTabs(context: vscode.ExtensionContext): void {
+    try {
+        const tabs = openMdBrowserTabs();
+        if (!tabs.length) { return; }
+        const heldByLive = mdBrowserRegistry.entries()
+            .map((e) => ({ label: mdBrowserRegistry.titleOf(e.panelId), viewColumn: e.viewColumn }));
+        const records = context.workspaceState.get<MdPanelRecord[]>(MD_BROWSER_RECORDS_KEY, []);
+        const plan = planDormantTabs(tabs.map((t) => t.ref), heldByLive, records, (p) => fs.existsSync(p));
+        for (const { tab, record } of plan.dormant) {
+            mdBrowserRegistry.registerDormant({ label: tab.label, viewColumn: tab.viewColumn, filePath: record.filePath, liveMode: record.liveMode });
+        }
+        for (const tab of plan.unknown) {
+            mdBrowserRegistry.registerDormant({ label: tab.label, viewColumn: tab.viewColumn, liveMode: tab.label.startsWith('MD (live)') });
+        }
+        const gone = plan.gone
+            .map((g) => tabs.find((t) => t.ref.label === g.tab.label && t.ref.viewColumn === g.tab.viewColumn)?.tab)
+            .filter((t): t is vscode.Tab => !!t);
+        if (gone.length) { void vscode.window.tabGroups.close(gone, true); }
+        debugLog(`[MdBrowser] restored tabs: ${plan.dormant.length} dormant, ${plan.unknown.length} unknown, ${gone.length} closed (file gone)`, 'INFO', 'mdBrowser');
+        refreshPanelTitles();
+    } catch (err) {
+        debugLog(`[MdBrowser] registering restored tabs failed: ${err}`, 'WARN', 'mdBrowser');
+    }
+}
+
+/** Close a dormant tab (its entry leaves the registry). */
+function closeDormantTab(panelId: string): void {
+    const entry = mdBrowserRegistry.entries().find((e) => e.panelId === panelId && e.dormant);
+    if (!entry) { return; }
+    const hit = openMdBrowserTabs().find((t) => t.ref.label === entry.label && t.ref.viewColumn === entry.viewColumn);
+    mdBrowserRegistry.unregister(panelId);
+    if (hit) { void vscode.window.tabGroups.close(hit.tab, true); }
 }
 
 // ============================================================================
@@ -1059,7 +1149,10 @@ export const mdBrowserController: MdBrowserController = {
         return true;
     },
     close(panelIds) {
-        for (const id of panelIds) { panelById(id)?.close(); }
+        for (const id of panelIds) {
+            const panel = panelById(id);
+            if (panel) { panel.close(); } else { closeDormantTab(id); }
+        }
     },
 };
 
@@ -1115,6 +1208,9 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
         // entry + follow-tail behaviour) comes back instead of a blank tab.
         vscode.window.registerWebviewPanelSerializer(PANEL_VIEW_TYPE, {
             async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+                // The tab was registered as dormant at activation; the panel
+                // made below (or the disposal) takes its place.
+                mdBrowserRegistry.dropDormant({ viewColumn: panel.viewColumn, label: panel.title });
                 try {
                     const restoreState = (state || {}) as { filePath?: string; liveMode?: boolean };
                     const filePath = restoreState.filePath;
@@ -1150,7 +1246,19 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
                 }
             },
         }),
+        // A closed tab leaves the dormant list; every tab change is remembered.
+        vscode.window.tabGroups.onDidChangeTabs((e) => {
+            for (const tab of e.closed) {
+                if (tab.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith(PANEL_VIEW_TYPE)) {
+                    mdBrowserRegistry.dropDormant({ viewColumn: tab.group.viewColumn, label: tab.label });
+                }
+            }
+            scheduleRememberOpenPanels();
+        }),
     );
+    // The tabs VS Code restored after a reload: registered with their files
+    // until they are shown (and revived by the serializer above).
+    registerRestoredTabs(context);
 }
 
 // ============================================================================

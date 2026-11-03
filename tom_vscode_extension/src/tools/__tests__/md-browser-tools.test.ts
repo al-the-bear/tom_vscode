@@ -16,6 +16,10 @@
  *   MB-7 a panel with unsaved in-place edits is kept and reported unless `force: true`
  *   MB-8 close refusals: no selector or two selectors, `exceptFilePath` without `under`, an unknown panelId
  *   MB-9 both tools ask for approval and are wired to the handler's controller and registered
+ *   MB-10 a tab restored after a reload and not shown yet (dormant) is listed with its file and `dormant:
+ *        true`, named in tomAi_getOpenEditors, closed by panelId, filePath or `under`; opening its file
+ *        closes the dormant tab and opens a live panel instead of "reusing" a tab with no webview; a
+ *        dormant tab no record named (no file) is reached only by panelId
  */
 
 import test, { describe } from 'node:test';
@@ -45,7 +49,7 @@ describe('MD Browser tools', () => {
         assert.equal(answer.count, 1);
         assert.deepEqual(answer.panels[0], {
             panelId: 'mdb-1', file: 'spec/a.md', absolutePath: '/w/spec/a.md', liveMode: false,
-            title: 'MD: a.md', viewColumn: 2, active: true, visible: true, unsavedEdits: false,
+            title: 'MD: a.md', viewColumn: 2, active: true, visible: true, unsavedEdits: false, dormant: false,
         });
         assert.equal(LIST_MD_BROWSER_PANELS_TOOL.readOnly, true);
     });
@@ -146,6 +150,31 @@ describe('MD Browser tools', () => {
         assert.match(JSON.parse(await closeMdBrowserImpl(c, { panelId: 'mdb-1', filePath: 'a.md' })).error, /exactly one/);
         assert.match(JSON.parse(await closeMdBrowserImpl(c, { filePath: 'a.md', exceptFilePath: 'b.md' })).error, /exceptFilePath/);
         assert.match(JSON.parse(await closeMdBrowserImpl(c, { panelId: 'mdb-99' })).error, /no MD Browser panel/i);
+    });
+
+    test('MB-10: dormant tabs after a reload', async () => {
+        const { c, calls, registry } = controller(['/w/spec/b.md', '/w/spec/02_Deepening/b.md']);
+        const old = registry.registerDormant({ label: 'MD: b.md (02_Deepening)', viewColumn: 1, filePath: '/w/spec/02_Deepening/b.md', liveMode: false });
+        const cur = registry.registerDormant({ label: 'MD: b.md (spec)', viewColumn: 1, filePath: '/w/spec/b.md', liveMode: false });
+        const anon = registry.registerDormant({ label: 'MD: old.md', viewColumn: 2, liveMode: false });
+
+        const listed = JSON.parse(await listMdBrowserPanelsImpl({ registry, workspaceRoot: '/w' }, {}));
+        assert.deepEqual(listed.panels.map((p: { file: string | null; dormant: boolean }) => [p.file, p.dormant]),
+            [['spec/02_Deepening/b.md', true], ['spec/b.md', true], [null, true]]);
+        const viewType = `mainThreadWebview-${MD_BROWSER_VIEW_TYPE}`;
+        const marked = markMdBrowserTabs([tab(1, 'MD: b.md (spec)')], [viewType], registry, '/w');
+        assert.deepEqual([marked[0].file, marked[0].panelId], ['spec/b.md', cur]);
+
+        let out = JSON.parse(await closeMdBrowserImpl(c, { under: 'spec', exceptFilePath: 'spec/b.md' }));
+        assert.deepEqual(out.closed, [{ panelId: old, file: 'spec/02_Deepening/b.md' }], 'the file-less tab is not under anything');
+
+        out = JSON.parse(await openInMdBrowserImpl(c, { filePath: 'spec/b.md' }));
+        assert.equal(out.reused, false, 'a dormant tab has no webview to reuse');
+        assert.deepEqual(calls.slice(-2), [`close ${cur}`, 'open /w/spec/b.md']);
+        assert.ok(!registry.entries().some((e) => e.panelId === cur));
+
+        out = JSON.parse(await closeMdBrowserImpl(c, { panelId: anon }));
+        assert.deepEqual(out.closed, [{ panelId: anon, file: null }]);
     });
 
     test('MB-9: approval and wiring', () => {

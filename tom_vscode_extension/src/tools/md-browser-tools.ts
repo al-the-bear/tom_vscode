@@ -53,10 +53,13 @@ export function markMdBrowserTabs(
 }
 
 export const LIST_MD_BROWSER_PANELS_DESCRIPTION =
-    'List the open MD Browser panels of this window (static and live, including panels restored after a ' +
+    'List the open MD Browser panels of this window (static and live, including the tabs restored after a ' +
     'window reload): `{count, panels[]}`, each `{panelId, file, absolutePath, liveMode, title, viewColumn, ' +
-    'active, visible, unsavedEdits}`. `file` is workspace-relative (absolute for a file outside the ' +
-    'workspace). `unsavedEdits` is true while the panel has in-place editors open (answer fields or edit-mode ' +
+    'active, visible, unsavedEdits, dormant}`. `file` is workspace-relative (absolute for a file outside the ' +
+    'workspace). `dormant: true` marks a tab VS Code restored after a reload and has not shown since: it is ' +
+    'revived (as a new panel id) when it is shown; its file is the one remembered for it, null when none ' +
+    'was. `tomAi_closeMdBrowser` closes dormant tabs like any other; `tomAi_openInMdBrowser` on such a file ' +
+    'replaces the dormant tab with a running panel. `unsavedEdits` is true while the panel has in-place editors open (answer fields or edit-mode ' +
     'text not yet saved), false when none, null before the panel reported. A panel\'s title names its file ' +
     '(`MD: <name>`, `MD (live): <name>`; the parent folder is added while another panel shows a different ' +
     'file of the same name). `tomAi_getOpenEditors` reports the same panels as tabs of `kind: "mdBrowser"`.';
@@ -122,11 +125,16 @@ export async function openInMdBrowserImpl(deps: MdBrowserController, input: Open
     const show = { viewColumn: input.viewColumn, preserveFocus: input.preserveFocus };
 
     if (input.reuse !== false) {
-        const onFile = deps.registry.entries().filter((e) => path.resolve(e.filePath) === abs);
-        const match = onFile.find((e) => e.liveMode === live) ?? (live ? undefined : onFile[0]);
+        const onFile = deps.registry.entries().filter((e) => e.filePath !== '' && path.resolve(e.filePath) === abs);
+        const running = onFile.filter((e) => !e.dormant);
+        const match = running.find((e) => e.liveMode === live) ?? (live ? undefined : running[0]);
         if (match && deps.reveal(match.panelId, show)) {
             return JSON.stringify({ ok: true, panelId: match.panelId, reused: true, file });
         }
+        // A tab restored after a reload and not shown since has no webview to
+        // reuse: it is closed, and the file opens in a live panel below.
+        const dormant = onFile.filter((e) => e.dormant).map((e) => e.panelId);
+        if (!match && dormant.length) { deps.close(dormant); }
     }
     const before = new Set(deps.registry.entries().map((e) => e.panelId));
     const panelId = deps.open(abs, { live, ...show });
@@ -187,7 +195,7 @@ export async function closeMdBrowserImpl(deps: MdBrowserController, input: Close
     } else if (input.filePath) {
         const r = resolveInWorkspace(input.filePath, deps.workspaceRoot);
         if ('error' in r) { return JSON.stringify({ error: r.error }); }
-        chosen = entries.filter((e) => path.resolve(e.filePath) === r.abs);
+        chosen = entries.filter((e) => e.filePath !== '' && path.resolve(e.filePath) === r.abs);
     } else {
         const r = resolveInWorkspace(input.under!, deps.workspaceRoot);
         if ('error' in r) { return JSON.stringify({ error: r.error }); }
@@ -198,14 +206,15 @@ export async function closeMdBrowserImpl(deps: MdBrowserController, input: Close
             except = x.abs;
         }
         chosen = entries.filter((e) => {
+            if (e.filePath === '') { return false; }
             const f = path.resolve(e.filePath);
             return f.startsWith(r.abs + path.sep) && f !== except;
         });
     }
-    const closed: Array<{ panelId: string; file: string }> = [];
-    const kept: Array<{ panelId: string; file: string; reason: string }> = [];
+    const closed: Array<{ panelId: string; file: string | null }> = [];
+    const kept: Array<{ panelId: string; file: string | null; reason: string }> = [];
     for (const e of chosen) {
-        const file = relativeFile(path.resolve(e.filePath), deps.workspaceRoot);
+        const file = e.filePath === '' ? null : relativeFile(path.resolve(e.filePath), deps.workspaceRoot);
         if (e.unsavedEdits === true && input.force !== true) {
             kept.push({ panelId: e.panelId, file, reason: 'unsaved in-place edits' });
         } else {
