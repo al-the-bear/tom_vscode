@@ -15,6 +15,7 @@ import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { addTokenCounts, directSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
+import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
@@ -1107,8 +1108,10 @@ export class AnthropicHandler {
 
     private getWorkspaceCompactionConfig(): {
         disabled: boolean;
-        llmProvider: 'localLlm' | 'anthropic';
-        llmConfigId: string;
+        /** The model compaction runs on (compaction.compactionModel); configId '' = not configured. */
+        compactionTarget: CompactionTarget;
+        /** The model memory extraction runs on (compaction.memoryExtractionModel); configId '' = not configured. */
+        memoryTarget: CompactionTarget;
         compactionTemplateId?: string;
         memoryExtractionTemplateId?: string;
         compactionMaxRounds: number;
@@ -1126,6 +1129,8 @@ export class AnthropicHandler {
     } {
         const section = TomAiConfiguration.instance.getSection<{
             disabled?: boolean;
+            compactionModel?: string;
+            memoryExtractionModel?: string;
             llmProvider?: 'localLlm' | 'anthropic';
             llmConfigId?: string;
             compactionTemplateId?: string;
@@ -1145,8 +1150,8 @@ export class AnthropicHandler {
         }>('compaction') ?? {};
         return {
             disabled: section.disabled === true,
-            llmProvider: section.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm',
-            llmConfigId: section.llmConfigId ?? '',
+            compactionTarget: resolveCompactionTarget(section, 'compaction'),
+            memoryTarget: resolveCompactionTarget(section, 'memory'),
             compactionTemplateId: section.compactionTemplateId,
             memoryExtractionTemplateId: section.memoryExtractionTemplateId,
             compactionMaxRounds: Number.isFinite(section.compactionMaxRounds) ? (section.compactionMaxRounds as number) : 4,
@@ -1291,7 +1296,7 @@ export class AnthropicHandler {
         configuration?: AnthropicConfiguration,
     ): Promise<void> {
         const cfg = this.getCompactionConfig();
-        if (!cfg.llmConfigId) {
+        if (!cfg.compactionTarget.configId) {
             return Promise.resolve();
         }
         // Per-configuration override wins for char/turn caps so a 200k
@@ -1309,8 +1314,8 @@ export class AnthropicHandler {
                     existingSummary: existingSummaryText,
                     existingBlocks: existingBlocksRendered,
                     lastTurn: lastExchange,
-                    llmProvider: cfg.llmProvider,
-                    llmConfigId: cfg.llmConfigId,
+                    llmProvider: cfg.compactionTarget.kind,
+                    llmConfigId: cfg.compactionTarget.configId,
                     compactionTemplateId: cfg.compactionTemplateId,
                     maxHistoryTokens: caps.maxHistoryTokens,
                     historyMaxChars: caps.historyMaxChars,
@@ -1356,7 +1361,7 @@ export class AnthropicHandler {
         configuration?: AnthropicConfiguration,
     ): Promise<void> {
         const cfg = this.getCompactionConfig();
-        if (!cfg.runMemoryExtractionOnCompaction || !cfg.llmConfigId) {
+        if (!cfg.runMemoryExtractionOnCompaction || !cfg.memoryTarget.configId) {
             return Promise.resolve();
         }
         const caps = configuration
@@ -1368,8 +1373,8 @@ export class AnthropicHandler {
                 await runIncrementalMemoryExtraction({
                     lastTurn: lastExchange,
                     compactedSummary: this.compactedSummaryText,
-                    llmProvider: cfg.llmProvider,
-                    llmConfigId: cfg.llmConfigId,
+                    llmProvider: cfg.memoryTarget.kind,
+                    llmConfigId: cfg.memoryTarget.configId,
                     memoryTemplateId: cfg.memoryExtractionTemplateId,
                     historyMaxChars: caps.historyMaxChars,
                     memoryMaxChars: caps.memoryMaxChars,
@@ -1450,7 +1455,7 @@ export class AnthropicHandler {
         // The session's memory, from the session's own trail.
         await this.awaitInFlightBackgroundWork();
         this.activateSession(sessionKey);
-        if (!cfg.llmConfigId) {
+        if (!cfg.memoryTarget.configId && !cfg.compactionTarget.configId) {
             this._onStatusUpdate.fire('Memory rebuild skipped — no compaction LLM configured');
             return;
         }
@@ -1486,8 +1491,8 @@ export class AnthropicHandler {
                     await runIncrementalMemoryExtraction({
                         lastTurn: chunkMessages,
                         compactedSummary: this.compactedSummaryText,
-                        llmProvider: cfg.llmProvider,
-                        llmConfigId: cfg.llmConfigId,
+                        llmProvider: cfg.memoryTarget.kind,
+                        llmConfigId: cfg.memoryTarget.configId,
                         memoryTemplateId: cfg.memoryExtractionTemplateId,
                         historyMaxChars: cfg.historyMaxChars,
                         memoryMaxChars: cfg.memoryMaxChars,
@@ -1530,7 +1535,7 @@ export class AnthropicHandler {
             logHistoryInfo(
                 `history rebuild start: quest=${questId} exchanges=${exchanges.length} ` +
                 `limit=${limit}${opts.force ? ' [forced]' : ''} ` +
-                `provider=${cfg.llmProvider} config=${cfg.llmConfigId || '<none>'} disabled=${cfg.disabled}`,
+                `compaction=${cfg.compactionTarget.kind}:${cfg.compactionTarget.configId || '<none>'} memory=${cfg.memoryTarget.kind}:${cfg.memoryTarget.configId || '<none>'} disabled=${cfg.disabled}`,
             );
 
             // Chunked rebuild — mirror live operation's every-N-rounds
@@ -1571,7 +1576,7 @@ export class AnthropicHandler {
             // branch below still restores the most recent exchanges. The
             // explicit "Recreate History" button overrides this via `force`.
             const compactionAllowed = opts.force || !cfg.disabled;
-            const canCompact = compactionAllowed && prefix.length > 0 && cfg.llmConfigId.length > 0;
+            const canCompact = compactionAllowed && prefix.length > 0 && cfg.compactionTarget.configId.length > 0;
             if (canCompact) {
                 const { runIncrementalCompaction } = await import('../services/history-compaction.js');
                 const totalChunks = Math.ceil(prefix.length / chunkSize);
@@ -1589,8 +1594,8 @@ export class AnthropicHandler {
                             existingSummary: this.compactedSummaryText,
                             existingBlocks: renderBlocksForLlm(this.compactedHistoryBlocks),
                             lastTurn: chunkMessages,
-                            llmProvider: cfg.llmProvider,
-                            llmConfigId: cfg.llmConfigId,
+                            llmProvider: cfg.compactionTarget.kind,
+                            llmConfigId: cfg.compactionTarget.configId,
                             compactionTemplateId: cfg.compactionTemplateId,
                             maxHistoryTokens: cfg.maxHistoryTokens,
                             historyMaxChars: cfg.historyMaxChars,
@@ -1754,6 +1759,57 @@ export class AnthropicHandler {
             .filter((b): b is Extract<AnthropicContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
             .join('');
+    }
+
+    /**
+     * The same one-shot call on the Agent SDK (compaction / memory extraction
+     * on an Agent SDK configuration): one turn, no tools, no session resumed,
+     * no live trail, approval off.
+     */
+    async runInternalAgentSdkCall(configuration: AnthropicConfiguration, params: { systemPrompt: string; userPrompt: string }): Promise<string> {
+        const requestId = this.generateRequestId();
+        const result = await runAgentSdkQuery({
+            configuration: { ...configuration, maxRounds: 1 },
+            tools: [],
+            systemPrompt: params.systemPrompt,
+            userText: params.userPrompt,
+            toolApprovalMode: 'never',
+            useBuiltInTools: false,
+            context: {
+                requestApproval: async () => false,
+                sessionApprovals: new Set<string>(),
+                toolTrail: this.toolTrail,
+                round: 0,
+                questId: WsPaths.getWorkspaceQuestId(),
+                windowId: vscode.env.sessionId,
+                requestId,
+            },
+        });
+        return result.text;
+    }
+
+    /**
+     * The same one-shot call on a VS Code language model (compaction / memory
+     * extraction on a VS Code LM configuration). VS Code LM has no system role:
+     * the system prompt goes before the user prompt, as in the chat path.
+     */
+    async runInternalVsCodeLmCall(configuration: AnthropicConfiguration, params: { systemPrompt: string; userPrompt: string }): Promise<string> {
+        const vscodeLm = configuration.vscodeLm;
+        if (!vscodeLm || !vscodeLm.modelId) {
+            throw new Error(`Anthropic configuration "${configuration.id}" has transport='vscodeLm' but no vscodeLm.modelId set.`);
+        }
+        const models = await vscode.lm.selectChatModels({ vendor: vscodeLm.vendor, family: vscodeLm.family });
+        const model = models.find((m) => m.id === vscodeLm.modelId) ?? models[0];
+        if (!model) {
+            throw new Error(`VS Code LM model not available for vendor="${vscodeLm.vendor}" family="${vscodeLm.family}" modelId="${vscodeLm.modelId}".`);
+        }
+        const combined = params.systemPrompt ? `${params.systemPrompt}\n\n${params.userPrompt}` : params.userPrompt;
+        const request = await model.sendRequest([vscode.LanguageModelChatMessage.User(combined)], {});
+        let text = '';
+        for await (const part of request.stream) {
+            if (part instanceof vscode.LanguageModelTextPart) { text += part.value; }
+        }
+        return text;
     }
 
     /**

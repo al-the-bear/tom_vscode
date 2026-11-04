@@ -367,7 +367,13 @@ export interface SendToChatConfig {
          * `compactionOverride` can force on/off regardless of this flag.
          */
         disabled?: boolean;
+        /** The model compaction runs on: `anthropic:<id>` or `localLlm:<id>` (src/utils/compactionTarget.ts). */
+        compactionModel?: string;
+        /** The model memory extraction runs on, written like `compactionModel`. */
+        memoryExtractionModel?: string;
+        /** Older form, read only when the two keys above are unset; the Status Page drops it on save. */
         llmProvider?: 'localLlm' | 'anthropic';
+        /** Older form, with `llmProvider`. */
         llmConfigId?: string;
         compactionTemplateId?: string;
         memoryExtractionTemplateId?: string;

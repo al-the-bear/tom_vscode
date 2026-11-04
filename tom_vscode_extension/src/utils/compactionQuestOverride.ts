@@ -4,9 +4,11 @@
  * The workspace config (`compaction` in `.tom/tom_vscode_extension.json`)
  * applies to every quest. A quest can override part of it in its
  * machine-independent `extension_config.<quest>.yaml`, section `compaction`:
- * switch compaction on or off, or point it at another model, for that quest
- * only. Only the known keys are taken, each only with a value of the right
- * type; everything else falls back to the workspace setting.
+ * switch compaction on or off, change its rhythm, sizes or templates, for that
+ * quest only. The models (compaction and memory extraction) are the workspace's
+ * alone (src/utils/compactionTarget.ts): a quest cannot choose them. Only the
+ * known keys are taken, each only with a value of the right type; everything
+ * else falls back to the workspace setting.
  *
  * vscode-free.
  */
@@ -15,7 +17,7 @@
 export const SECTION_COMPACTION = 'compaction';
 
 const BOOLEAN_KEYS = ['disabled', 'runMemoryExtractionOnCompaction', 'archiveHistoryEveryTurn'] as const;
-const STRING_KEYS = ['llmConfigId', 'compactionTemplateId', 'memoryExtractionTemplateId'] as const;
+const STRING_KEYS = ['compactionTemplateId', 'memoryExtractionTemplateId'] as const;
 const COUNT_KEYS = [
     'runEveryNRounds', 'rawTurnsKept', 'maxHistoryTokens', 'historyMaxChars', 'memoryMaxChars',
     'compactionMaxRounds', 'toolTrailMaxResultChars', 'toolTrailKeepRounds', 'fullTrailMaxTurns', 'rebuildFromLastNPrompts',
@@ -32,6 +34,5 @@ export function applyQuestCompactionOverride<T extends object>(workspace: T, que
         const v = q[k];
         if (typeof v === 'number' && Number.isFinite(v) && v >= 0) { out[k] = v; }
     }
-    if (q.llmProvider === 'anthropic' || q.llmProvider === 'localLlm') { out.llmProvider = q.llmProvider; }
     return out as T;
 }

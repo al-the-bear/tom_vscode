@@ -24,10 +24,10 @@
  * `CompactionOptions.llmProvider` and `llmConfigId` from their config.
  */
 
-import * as http from 'http';
-import * as https from 'https';
 import * as vscode from 'vscode';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { routeCompactionTarget, runTargetCall, type InternalCallRunners } from '../utils/compactionTarget';
+import type { AnthropicConfiguration } from '../handlers/anthropic-handler';
 import { resolveVariables } from '../utils/variableResolver';
 import { TwoTierMemoryService } from './memory-service';
 import { TrailService } from './trailService';
@@ -373,216 +373,87 @@ async function runCompactionCall(
     userPrompt: string,
     trailCategory: 'compaction' | 'memory' = 'compaction',
 ): Promise<string> {
-    return withCompactionRetry(trailCategory, options.onProgress, async () => {
-        if (options.llmProvider === 'anthropic') {
-            return runAnthropicCompaction(options, systemPrompt, userPrompt, trailCategory);
-        }
-        return runOllamaCompaction(options, systemPrompt, userPrompt, trailCategory);
-    });
+    return withCompactionRetry(trailCategory, options.onProgress, async () =>
+        runRoutedCompactionCall(options, systemPrompt, userPrompt, trailCategory));
 }
 
-async function runAnthropicCompaction(
+/** A Local LLM configuration as the compaction call reads it (on disk: `ollamaUrl`, or `baseUrl`). */
+interface CompactionLocalConfig {
+    id?: string;
+    name?: string;
+    model?: string;
+    ollamaUrl?: string;
+    baseUrl?: string;
+    apiStyle?: 'ollama' | 'openai';
+    temperature?: number;
+    keepAlive?: string;
+    apiKeyEnv?: string;
+}
+
+/**
+ * One compaction or memory-extraction call on the target the options name
+ * (`llmProvider` + `llmConfigId`, picked per purpose by the caller from
+ * `compaction.compactionModel` / `compaction.memoryExtractionModel`), through
+ * that configuration's own transport: the direct API, the Agent SDK, VS Code
+ * LM or a Local LLM (src/utils/compactionTarget.ts). The prompt and the answer
+ * go to the raw trail as before.
+ */
+async function runRoutedCompactionCall(
     options: CompactionOptions,
     systemPrompt: string,
     userPrompt: string,
-    trailCategory: 'compaction' | 'memory' = 'compaction',
-): Promise<string> {
-    // Lazy import to avoid a cycle — the Anthropic handler imports the
-    // compaction module for its post-exchange `compactHistoryAsync` call.
-    const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
-    const handler = AnthropicHandler.instance;
-    const section = loadSendToChatConfig()?.anthropic;
-    const cfg = section?.configurations?.find((c) => c.id === options.llmConfigId)
-        ?? section?.configurations?.find((c) => c.isDefault)
-        ?? section?.configurations?.[0];
-    if (!cfg) {
-        throw new Error(`No anthropic configuration available for compaction (llmConfigId=${options.llmConfigId})`);
-    }
-
-    const subsystem = { ...ANTHROPIC_SUBSYSTEM, category: trailCategory, ...(options.session ? { session: options.session } : {}) };
-    const windowId = vscode.env.sessionId;
-    const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const questId = options.questId;
-
-    TrailService.instance.writeRawPrompt(
-        subsystem,
-        `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
-        windowId,
-        requestId,
-        questId,
-    );
-
-    const result = await handler.runInternalCall({
-        systemPrompt,
-        userPrompt,
-        model: cfg.model,
-        maxTokens: cfg.maxTokens ?? 2048,
-        temperature: cfg.temperature,
-    });
-
-    TrailService.instance.writeRawAnswer(
-        subsystem,
-        result,
-        windowId,
-        requestId,
-        questId,
-    );
-
-    return result;
-}
-
-async function runOllamaCompaction(
-    options: CompactionOptions,
-    systemPrompt: string,
-    userPrompt: string,
-    trailCategory: 'compaction' | 'memory' = 'compaction',
+    trailCategory: 'compaction' | 'memory',
 ): Promise<string> {
     const cfg = loadSendToChatConfig();
-    const localCfg = cfg?.localLlm?.configurations?.find((c) => c.id === options.llmConfigId)
-        ?? cfg?.localLlm?.configurations?.find((c) => c.isDefault)
-        ?? cfg?.localLlm?.configurations?.[0];
-    if (!localCfg || !localCfg.ollamaUrl || !localCfg.model) {
-        throw new Error(`No complete Ollama configuration for compaction (llmConfigId=${options.llmConfigId})`);
-    }
+    const anthropicConfigs = (cfg?.anthropic?.configurations ?? []) as unknown as AnthropicConfiguration[];
+    const localConfigs = ((cfg as { localLlm?: { configurations?: CompactionLocalConfig[] } })?.localLlm?.configurations ?? []);
+    const route = routeCompactionTarget<AnthropicConfiguration, CompactionLocalConfig>(
+        { kind: options.llmProvider, configId: options.llmConfigId }, anthropicConfigs, localConfigs,
+    );
 
-    // Trail — write to localllm-compaction/{quest}/ so both Ollama and
-    // Anthropic compaction calls are visible in the same viewer category.
-    const subsystem = { type: 'localLlm' as const, configName: `compaction-${trailCategory}` };
+    const isLocal = 'kind' in route && route.kind === 'localLlm';
+    const subsystem = isLocal
+        ? { type: 'localLlm' as const, configName: `compaction-${trailCategory}` }
+        : { ...ANTHROPIC_SUBSYSTEM, category: trailCategory, ...(options.session ? { session: options.session } : {}) };
     const windowId = vscode.env.sessionId;
     const requestId = `${trailCategory}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const questId = options.questId;
-    TrailService.instance.writeRawPrompt(
-        subsystem,
-        `MODEL: ${localCfg.model}\nSYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
-        windowId,
-        requestId,
-        questId,
-    );
+    if ('kind' in route) {
+        const model = route.kind === 'localLlm' ? route.localConfig.model : route.configuration.model;
+        options.onProgress?.(`[compaction] ${trailCategory} on ${route.kind} (config=${route.kind === 'localLlm' ? route.localConfig.id : route.configuration.id}, model=${model ?? '?'})`);
+        TrailService.instance.writeRawPrompt(subsystem, `MODEL: ${model ?? '?'}\nSYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`, windowId, requestId, questId);
+    }
 
-    // Honour the configuration's `apiStyle` so a vLLM / llama.cpp /
-    // LM Studio backend gets the OpenAI-compatible endpoint (`/v1/chat/completions`
-    // with the flat body shape) instead of Ollama's `/api/chat` (with the
-    // `options: { temperature }` wrapper). Without this branch the
-    // compaction call against a vLLM URL fires at `/api/chat` and gets a
-    // 404 every time, causing every overflow turn to silently fail to
-    // fold into the summary.
-    const apiStyle = (localCfg as { apiStyle?: 'ollama' | 'openai' }).apiStyle ?? 'ollama';
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-    ];
-    const body = JSON.stringify(
-        apiStyle === 'openai'
-            ? {
-                model: localCfg.model,
-                messages,
-                stream: false,
-                temperature: localCfg.temperature ?? 0.3,
-            }
-            : {
-                model: localCfg.model,
-                messages,
-                stream: false,
-                options: { temperature: localCfg.temperature ?? 0.3 },
-            },
-    );
-    const url = new URL(
-        localCfg.ollamaUrl.replace(/\/$/, '') +
-            (apiStyle === 'openai' ? '/v1/chat/completions' : '/api/chat'),
-    );
-    // Surface the resolved destination so the chat panel's logChannel
-    // shows exactly which endpoint the compaction request hits. This
-    // is the missing piece the user asked about: without it, a 404 in
-    // the vLLM log had no corresponding entry in "Tom AI Local Log"
-    // because runOllamaCompaction never went through the
-    // `[ollamaChat] POST …` log line in localLlm-handler.
-    options.onProgress?.(
-        `[runOllamaCompaction] POST ${url.toString()} ` +
-        `(apiStyle=${apiStyle}, llmConfigId=${localCfg.id ?? '?'}, ` +
-        `model=${localCfg.model}, bodyBytes=${Buffer.byteLength(body)}, ` +
-        `category=${trailCategory})`,
-    );
-    const startedAt = Date.now();
-    const lib = url.protocol === 'https:' ? https : http;
-    const result = await new Promise<string>((resolve, reject) => {
-        const req = lib.request(
-            {
-                method: 'POST',
-                hostname: url.hostname,
-                port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                path: url.pathname + url.search,
-                headers: {
-                    'content-type': 'application/json',
-                    'content-length': Buffer.byteLength(body),
-                },
-            },
-            (res) => {
-                const chunks: Buffer[] = [];
-                res.on('data', (c) => chunks.push(Buffer.from(c)));
-                res.on('end', () => {
-                    const text = Buffer.concat(chunks).toString('utf8');
-                    const elapsed = Date.now() - startedAt;
-                    if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-                        const label = apiStyle === 'openai' ? 'OpenAI/vLLM' : 'Ollama';
-                        // Tag the error with `.statusCode` so the
-                        // `withCompactionRetry` wrapper can decide
-                        // whether the failure is retryable (5xx / 429
-                        // → yes, 4xx → no). Without this, vLLM 503s
-                        // would surface as a hard error on the first
-                        // request, defeating the schedule.
-                        const err = new Error(`${label} compaction HTTP ${res.statusCode}: ${text.slice(0, 200)}`) as Error & { statusCode?: number };
-                        if (typeof res.statusCode === 'number') {
-                            err.statusCode = res.statusCode;
-                        }
-                        // Mirror the failure to onProgress so it shows
-                        // up in the log channel directly (the throw
-                        // path eventually surfaces in the caller's
-                        // catch, but only as a one-liner; this gives
-                        // the user the URL, status, body preview and
-                        // duration in one place at fail time).
-                        options.onProgress?.(
-                            `[runOllamaCompaction] ✗ ${url.toString()} → HTTP ${res.statusCode} after ${elapsed}ms` +
-                            ` — body[0..200]: ${text.slice(0, 200).replace(/\n/g, ' ')}`,
-                        );
-                        reject(err);
-                        return;
-                    }
-                    try {
-                        // Ollama: `{ message: { content } }`.
-                        // OpenAI: `{ choices: [{ message: { content } }] }`.
-                        const json = JSON.parse(text) as {
-                            message?: { content?: string };
-                            choices?: Array<{ message?: { content?: string } }>;
-                        };
-                        const content = apiStyle === 'openai'
-                            ? json.choices?.[0]?.message?.content ?? ''
-                            : json.message?.content ?? '';
-                        options.onProgress?.(
-                            `[runOllamaCompaction] ✓ ${url.toString()} → HTTP ${res.statusCode} after ${elapsed}ms` +
-                            ` — returned ${content.length} chars`,
-                        );
-                        resolve(content);
-                    } catch (e) {
-                        options.onProgress?.(
-                            `[runOllamaCompaction] ✗ ${url.toString()} → JSON parse failure after ${elapsed}ms: ${(e as Error).message}`,
-                        );
-                        reject(new Error(`Compaction JSON parse: ${(e as Error).message}`));
-                    }
-                });
-            },
-        );
-        req.on('error', (e) => {
-            options.onProgress?.(
-                `[runOllamaCompaction] ✗ ${url.toString()} → socket error after ${Date.now() - startedAt}ms: ${e.message}`,
-            );
-            reject(e);
-        });
-        req.write(body);
-        req.end();
-    });
-
+    // Lazy imports avoid a cycle: the handlers import this module for their post-exchange passes.
+    const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
+    const runners: InternalCallRunners<AnthropicConfiguration, CompactionLocalConfig> = {
+        direct: (c, p) => AnthropicHandler.instance.runInternalCall({
+            systemPrompt: p.systemPrompt, userPrompt: p.userPrompt, model: c.model, maxTokens: c.maxTokens ?? 2048, temperature: c.temperature,
+        }),
+        agentSdk: (c, p) => AnthropicHandler.instance.runInternalAgentSdkCall(c, p),
+        vscodeLm: (c, p) => AnthropicHandler.instance.runInternalVsCodeLmCall(c, p),
+        localLlm: async (c, p) => {
+            const baseUrl = c.ollamaUrl ?? c.baseUrl;
+            if (!baseUrl || !c.model) { throw new Error(`Local LLM configuration "${c.id ?? '?'}" has no URL or model.`); }
+            const { getLocalLlmManager } = await import('../handlers/localLlm-handler.js');
+            const manager = getLocalLlmManager();
+            if (!manager) { throw new Error('The Local LLM manager is not running yet; compaction tries again after the next turn.'); }
+            const result = await manager.callLocalLlmOnce({
+                baseUrl,
+                model: c.model,
+                temperature: c.temperature ?? 0.3,
+                messages: [{ role: 'system', content: p.systemPrompt }, { role: 'user', content: p.userPrompt }],
+                tools: [],
+                keepAlive: c.keepAlive,
+                apiStyle: c.apiStyle,
+                apiKeyEnv: c.apiKeyEnv,
+                onRetryStatus: (text: string) => options.onProgress?.(text),
+            });
+            return result.text ?? '';
+        },
+    };
+    const result = await runTargetCall(route, runners, { systemPrompt, userPrompt });
     TrailService.instance.writeRawAnswer(subsystem, result, windowId, requestId, questId);
-
     return result;
 }
 

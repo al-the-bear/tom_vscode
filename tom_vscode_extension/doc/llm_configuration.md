@@ -425,8 +425,9 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | Field | Default | Where used |
 | --- | --- | --- |
 | `disabled` | `false` | Global kill switch for the post-turn compaction + memory-extraction pass. Also suppresses the **automatic** trail-based history rebuild on session seed (so a disabled compactor makes no LLM/Ollama calls on a fresh session); the explicit "Recreate History" button still forces a rebuild. Per-config `compactionOverride` wins. |
-| `llmProvider` | `'localLlm'` | Picks Anthropic vs Local LLM as the compactor backend. |
-| `llmConfigId` | — | Configuration id within the chosen provider. |
+| `compactionModel` | — | The model compaction runs on: `anthropic:<configuration id>` — any Anthropic configuration, on the direct API, the Agent SDK or VS Code LM, called through its own transport — or `localLlm:<configuration id>`. Unset: no compaction. Chosen in the Status Page's History Compaction section ("Compaction model"). |
+| `memoryExtractionModel` | — | The model memory extraction runs on, written the same way ("Memory extraction model"). Unset: no memory extraction. |
+| `llmProvider`, `llmConfigId` | — | The older form: one model for both. Read only while the two keys above are unset; the Status Page writes the two keys and drops these on save. |
 | `compactionTemplateId` | — | Active compaction template (`compaction.templates[]`). |
 | `memoryExtractionTemplateId` | — | Active memory-extraction template. |
 | `compactionMaxRounds` | `1` | Local-LLM compactor tool loop. |
@@ -451,17 +452,16 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 The `compaction` section above applies to every quest that reads this config
 file. A quest can override part of it in its own machine-independent
 `_ai/quests/<quest>/extension_config.<quest>.yaml`, so compaction runs for that
-quest only, or with another model:
+quest only, or with other sizes or templates. The models are the workspace's
+alone: a quest cannot choose them.
 
 ```yaml
 compaction:
   disabled: false               # on for this quest, whatever the workspace says
-  llmProvider: anthropic
-  llmConfigId: haiku-5-5-direct # an anthropic.configurations[] id
+  runEveryNRounds: 10
 ```
 
-The keys taken are `disabled`, `llmProvider` (`anthropic` / `localLlm`),
-`llmConfigId`, `compactionTemplateId`, `memoryExtractionTemplateId`,
+The keys taken are `disabled`, `compactionTemplateId`, `memoryExtractionTemplateId`,
 `runMemoryExtractionOnCompaction`, `archiveHistoryEveryTurn` and the counts
 (`runEveryNRounds`, `rawTurnsKept`, `maxHistoryTokens`, `historyMaxChars`,
 `memoryMaxChars`, `compactionMaxRounds`, `toolTrailMaxResultChars`,
@@ -500,8 +500,8 @@ Config (relevant excerpt):
     ]
   },
   "compaction": {
-    "llmProvider": "localLlm",
-    "llmConfigId": "bomber-gemma4-26b-8001",
+    "compactionModel": "localLlm:bomber-gemma4-26b-8001",
+    "memoryExtractionModel": "localLlm:bomber-gemma4-26b-8001",
     "compactionTemplateId": "default-compaction",
     "memoryExtractionTemplateId": "default-memory-extraction",
     "compactionMaxRounds": 40,

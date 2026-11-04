@@ -444,8 +444,8 @@ export type CompactionLlmProvider = 'localLlm' | 'anthropic';
 export interface CompactionOptions {
     mode: HistoryMode;
     maxHistoryTokens?: number;         // for trim_and_summary
-    llmProvider: CompactionLlmProvider; // which provider runs compaction
-    llmConfigId: string;               // config ID within that provider
+    llmProvider: CompactionLlmProvider; // the target of this call: 'anthropic' or 'localLlm'
+    llmConfigId: string;               // its configuration id (the caller picks the purpose's model)
     compactionTemplateId?: string;     // Global Template Editor template ID
     memoryTemplateId?: string;         // memory extraction template ID
     compactionTools?: string[];        // tool names for compaction loop (localLlm only)
@@ -760,7 +760,7 @@ All memory write tools are subject to the approval gate (§8.1).
 
 ### 8.4 Compaction tool set (separate from main tool set)
 
-The compaction LLM has its own restricted tool set, configured in the `compaction` config section. This applies when `llmProvider` is `localLlm`; when Anthropic is the compaction provider, the Anthropic configuration's `enabledTools` is used instead. Default is read-only file access:
+The compaction LLM has its own restricted tool set, configured in the `compaction` config section. The one-shot compaction and memory-extraction calls themselves run without tools on every transport (the LLM dispatch in the compaction module's description below). Default is read-only file access:
 
 ```json
 "compaction.enabledTools": [
@@ -1195,8 +1195,8 @@ type AnthropicProfile = AnthropicProfileTemplate;
 
 ```json
 "compaction": {
-  "llmProvider": "localLlm",
-  "llmConfigId": "default",
+  "compactionModel": "localLlm:default",
+  "memoryExtractionModel": "anthropic:opus-5-5-agent",
   "compactionTemplateId": "default-summary",
   "memoryExtractionTemplateId": "default-memory",
   "enabledTools": [
@@ -1534,7 +1534,7 @@ Delivers: two-tier memory read/write; memory tools; Memory Panel webview; histor
   - `summary` → call compaction LLM with `compaction` template; return 2-turn replacement `[user: summary, assistant: Understood]`
   - `trim_and_summary` → drop oldest turns beyond token budget; generate summary of dropped portion; prepend as first turn
   - `llm_extract` → per-turn extraction: call memory LLM with `memoryExtraction` template; write results via `TwoTierMemoryService`; return history trimmed to `maxRounds`
-  - LLM dispatch: `options.llmProvider === 'anthropic'` → call `AnthropicHandler` (internal, no tool loop, no trail write); `'localLlm'` → call Ollama directly
+  - LLM dispatch: the call's target (`compaction.compactionModel` for compaction, `compaction.memoryExtractionModel` for memory extraction; `src/utils/compactionTarget.ts`) is routed to its configuration's transport: `AnthropicHandler.runInternalCall` (direct API), `runInternalAgentSdkCall` (Agent SDK, one turn, no tools, no session), `runInternalVsCodeLmCall` (VS Code LM), or `LocalLlmManager.callLocalLlmOnce` (Local LLM). No tool loop; the prompt and answer go to the raw trail. So compaction needs no direct-API key unless a direct configuration is chosen.
 
 ---
 

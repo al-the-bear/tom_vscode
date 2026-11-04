@@ -130,15 +130,24 @@
                     "default": false,
                     "description": "Global kill switch. When true, the background compaction + memory extraction pass after every Anthropic turn is skipped entirely (both direct and Agent SDK transports). Use when you want the SDK to own conversation state by itself, or when the extra API call per turn isn't worth it."
                 },
+                "compactionModel": {
+                    "type": "string",
+                    "pattern": "^(anthropic|localLlm):.+$",
+                    "description": "The model history compaction runs on: 'anthropic:<configuration id>' (any Anthropic configuration — direct API, Agent SDK or VS Code LM — through its own transport) or 'localLlm:<configuration id>'. Unset: no compaction (unless the older llmProvider / llmConfigId pair is set)."
+                },
+                "memoryExtractionModel": {
+                    "type": "string",
+                    "pattern": "^(anthropic|localLlm):.+$",
+                    "description": "The model memory extraction runs on, written like compactionModel. Unset: no memory extraction (unless the older pair is set)."
+                },
                 "llmProvider": {
                     "type": "string",
                     "enum": ["localLlm", "anthropic"],
-                    "default": "localLlm",
-                    "description": "Which provider runs the compaction LLM."
+                    "description": "Older form, read only when compactionModel / memoryExtractionModel are unset: the provider of the one model both ran on. The Status Page replaces it with the two keys on save."
                 },
                 "llmConfigId": {
                     "type": "string",
-                    "description": "Configuration id within the selected provider."
+                    "description": "Older form, with llmProvider: the configuration both ran on."
                 },
                 "compactionTemplateId": {
                     "type": "string",

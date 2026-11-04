@@ -14,6 +14,7 @@
 import { checkBuildStatus } from '../services/buildStatusService';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
+import { compactionTargetChoices, encodeCompactionTarget, parseCompactionTarget, resolveCompactionTarget } from '../utils/compactionTarget';
 import type { UsageSummary } from '../utils/usageLedger';
 import { buildLabel, type BuildStatus } from '../utils/buildStamp';
 import * as vscode from 'vscode';
@@ -946,8 +947,8 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
  *   - Does NOT mutate the active Anthropic handler's rolling history.
  */
 async function runCompactionDryRun(settings: {
-    llmProvider?: string;
-    llmConfigId?: string;
+    compactionModel?: string;
+    memoryExtractionModel?: string;
     compactionTemplateId?: string;
     memoryExtractionTemplateId?: string;
     compactionMaxRounds?: number;
@@ -999,10 +1000,15 @@ async function runCompactionDryRunFor(
 
     const questId = WsPaths.getWorkspaceQuestId() ?? '';
     const saved = loadSendToChatConfig()?.compaction ?? {};
-    const llmProvider: CompactionLlmProvider = (settings.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm');
-    const llmConfigId = String(settings.llmConfigId || saved.llmConfigId || '').trim();
+    // The purpose's model: memory extraction for llm_extract, compaction otherwise
+    // (the dropdown's value when given, else the saved setting).
+    const purpose = mode.value === 'llm_extract' ? 'memory' : 'compaction';
+    const fromForm = parseCompactionTarget(purpose === 'memory' ? settings.memoryExtractionModel : settings.compactionModel);
+    const target = fromForm ?? resolveCompactionTarget(saved, purpose);
+    const llmProvider: CompactionLlmProvider = target.kind;
+    const llmConfigId = target.configId;
     if (!llmConfigId) {
-        vscode.window.showWarningMessage('Dry run: no LLM configuration selected. Pick one in the Compaction section first.');
+        vscode.window.showWarningMessage(`Dry run: no ${purpose === 'memory' ? 'memory extraction' : 'compaction'} model selected. Pick one in the History Compaction section first.`);
         return;
     }
     const maxHistoryTokens = Number.isFinite(settings.maxHistoryTokens) ? settings.maxHistoryTokens : saved.maxHistoryTokens ?? 8000;
@@ -1357,8 +1363,11 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.compaction) { stcConfig.compaction = {}; }
             const s = message.settings || {};
             stcConfig.compaction.disabled = s.disabled === true;
-            stcConfig.compaction.llmProvider = s.llmProvider === 'anthropic' ? 'anthropic' : 'localLlm';
-            stcConfig.compaction.llmConfigId = s.llmConfigId || '';
+            // One model each; the older shared pair is dropped (src/utils/compactionTarget.ts).
+            stcConfig.compaction.compactionModel = parseCompactionTarget(s.compactionModel) ? s.compactionModel : undefined;
+            stcConfig.compaction.memoryExtractionModel = parseCompactionTarget(s.memoryExtractionModel) ? s.memoryExtractionModel : undefined;
+            delete stcConfig.compaction.llmProvider;
+            delete stcConfig.compaction.llmConfigId;
             stcConfig.compaction.compactionTemplateId = s.compactionTemplateId || '';
             stcConfig.compaction.memoryExtractionTemplateId = s.memoryExtractionTemplateId || '';
             stcConfig.compaction.compactionMaxRounds = Number.isFinite(s.compactionMaxRounds) ? s.compactionMaxRounds : 4;
@@ -1922,8 +1931,11 @@ export interface StatusData {
         /** Global kill switch — skip the background compaction + memory
          *  extraction pass after every Anthropic turn. Default false. */
         disabled: boolean;
-        llmProvider: 'localLlm' | 'anthropic';
-        llmConfigId: string;
+        /** `anthropic:<id>` / `localLlm:<id>`, '' when not set. */
+        compactionModel: string;
+        memoryExtractionModel: string;
+        /** Every Anthropic configuration (with its transport) and every Local LLM configuration. */
+        modelChoices: Array<{ value: string; label: string }>;
         compactionTemplateId: string;
         memoryExtractionTemplateId: string;
         /** Raw turns sent alongside the compacted summary. */
@@ -2261,8 +2273,21 @@ export async function gatherStatusData(): Promise<StatusData> {
         usage: usageSummary(),
         compaction: {
             disabled: sendToChatConfig?.compaction?.disabled === true,
-            llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
-            llmConfigId: sendToChatConfig?.compaction?.llmConfigId || '',
+            ...(() => {
+                const section = sendToChatConfig?.compaction;
+                const encoded = (purpose: 'compaction' | 'memory'): string => {
+                    const t = resolveCompactionTarget(section, purpose);
+                    return t.configId ? encodeCompactionTarget(t) : '';
+                };
+                return {
+                    compactionModel: encoded('compaction'),
+                    memoryExtractionModel: encoded('memory'),
+                    modelChoices: compactionTargetChoices(
+                        (sendToChatConfig?.anthropic?.configurations ?? []) as Array<{ id: string; name?: string; transport?: string }>,
+                        ((sendToChatConfig as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } })?.localLlm?.configurations ?? []),
+                    ),
+                };
+            })(),
             compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
             memoryExtractionTemplateId: sendToChatConfig?.compaction?.memoryExtractionTemplateId || '',
             compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 4,
@@ -3026,16 +3051,17 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 </label>
             </div>
             <div class="sp-settings-row">
-                <label>Provider:</label>
-                <select id="sp-comp-llmProvider">
-                    <option value="localLlm" ${status.compaction.llmProvider === 'localLlm' ? 'selected' : ''}>Local LLM</option>
-                    <option value="anthropic" ${status.compaction.llmProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                <label title="The configuration history compaction runs on, through its own transport (direct API, Agent SDK, VS Code LM or Local LLM). Not set: no compaction.">Compaction model:</label>
+                <select id="sp-comp-compactionModel">
+                    <option value="">(not set — no compaction)</option>
+                    ${status.compaction.modelChoices.map(c => `<option value="${escapeHtmlContent(c.value)}" ${c.value === status.compaction.compactionModel ? 'selected' : ''}>${escapeHtmlContent(c.label)}</option>`).join('')}
                 </select>
-                <label>Config:</label>
-                <select id="sp-comp-llmConfigId">
-                    <option value="" data-provider="">(default)</option>
-                    ${status.configurations.map(c => `<option value="${c.id}" data-provider="localLlm" ${status.compaction.llmProvider === 'localLlm' && c.id === status.compaction.llmConfigId ? 'selected' : ''}>${escapeHtmlContent(c.name)}</option>`).join('')}
-                    ${status.anthropicConfigurationChoices.map(c => `<option value="${c.id}" data-provider="anthropic" ${status.compaction.llmProvider === 'anthropic' && c.id === status.compaction.llmConfigId ? 'selected' : ''}>${escapeHtmlContent(c.name)}</option>`).join('')}
+            </div>
+            <div class="sp-settings-row">
+                <label title="The configuration memory extraction runs on, through its own transport. Not set: no memory extraction.">Memory extraction model:</label>
+                <select id="sp-comp-memoryExtractionModel">
+                    <option value="">(not set — no memory extraction)</option>
+                    ${status.compaction.modelChoices.map(c => `<option value="${escapeHtmlContent(c.value)}" ${c.value === status.compaction.memoryExtractionModel ? 'selected' : ''}>${escapeHtmlContent(c.label)}</option>`).join('')}
                 </select>
             </div>
             <div class="sp-settings-row">

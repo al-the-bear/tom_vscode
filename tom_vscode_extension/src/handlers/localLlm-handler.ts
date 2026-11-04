@@ -44,6 +44,7 @@ import { writeToolResult } from '../services/tool-result-store';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { LiveTrailWriter, LOCAL_LLM_LIVE_TRAIL_FILENAME, type LiveTrailTokenCounts } from '../services/live-trail';
 import { addTokenCounts, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
+import { resolveCompactionTarget, type CompactionPurpose } from '../utils/compactionTarget';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
@@ -612,8 +613,7 @@ export class LocalLlmManager {
                 role: m.role as 'user' | 'assistant' | 'system',
                 content: m.content,
             }));
-            const provider = (compactionCfg.llmProvider as 'localLlm' | 'anthropic') ?? 'localLlm';
-            const llmConfigId = (compactionCfg.llmConfigId as string) ?? (mc as { id?: string }).id ?? 'default';
+            const { provider, llmConfigId } = panelCompactionTarget(compactionCfg, 'compaction', mc);
             const existingSummaryLen = this.compactedSummary.length;
             const lastTurnChars = lastTurn.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
             // Detailed entry log so the user can see compaction firing
@@ -2403,8 +2403,10 @@ export class LocalLlmManager {
                             historyMaxChars: eCaps.historyMaxChars,
                             memoryMaxChars: eCaps.memoryMaxChars,
                             maxRounds: Math.max(1, eCaps.rawTurnsKept),
-                            llmProvider: (compactionCfg.llmProvider as 'localLlm' | 'anthropic') ?? 'localLlm',
-                            llmConfigId: (compactionCfg.llmConfigId as string) ?? (mc as { id?: string }).id ?? 'default',
+                            ...(() => {
+                                const t = panelCompactionTarget(compactionCfg, effectiveHistoryMode === 'llm_extract' ? 'memory' : 'compaction', mc);
+                                return { llmProvider: t.provider, llmConfigId: t.llmConfigId };
+                            })(),
                             compactionTemplateId: compactionCfg.compactionTemplateId as string | undefined,
                             memoryTemplateId: compactionCfg.memoryExtractionTemplateId as string | undefined,
                             compactionMaxRounds: (compactionCfg.compactionMaxRounds as number | undefined) ?? 1,
@@ -3230,4 +3232,20 @@ export async function switchModelHandler(): Promise<void> {
         logLocalAi(`switchLocalModel FAILED: ${error}`, 'ERROR');
         vscode.window.showErrorMessage(`Switch Local Model failed: ${error}`);
     }
+}
+
+/**
+ * The Local LLM panel's compaction / memory-extraction model: the one chosen on
+ * the Status Page for that purpose (compaction.compactionModel /
+ * memoryExtractionModel, src/utils/compactionTarget.ts), else the panel's own
+ * configuration, as before.
+ */
+function panelCompactionTarget(
+    compactionCfg: Record<string, unknown>,
+    purpose: CompactionPurpose,
+    mc: { id?: string } | object,
+): { provider: 'localLlm' | 'anthropic'; llmConfigId: string } {
+    const t = resolveCompactionTarget(compactionCfg, purpose);
+    if (t.configId) { return { provider: t.kind, llmConfigId: t.configId }; }
+    return { provider: 'localLlm', llmConfigId: (mc as { id?: string }).id ?? 'default' };
 }

@@ -17,7 +17,7 @@ Single-page view for runtime visibility into extension state, configuration high
 - **Bridge / runtime status** — bridge profile, PID, last message, connection state.
 - **Chat subsystems readiness** — per-subsystem (Anthropic, Tom AI Chat, AI Conversation, Copilot, Local LLM) config snapshot with transport + history-mode indicators.
 - **Anthropic profiles** — curated profiles (3 models × 3 modes) with picker; per-profile memory / tool-set / approval mode overrides.
-- **History + memory settings** — compaction mode, memory injection toggles, two-tier memory paths.
+- **History + memory settings** — compaction mode, memory injection toggles, two-tier memory paths. History Compaction has two dropdowns, **Compaction model** and **Memory extraction model**, each listing every Anthropic configuration (with its transport) and every Local LLM configuration (`compactionTargetChoices`, `src/utils/compactionTarget.ts`); saving writes `compaction.compactionModel` / `memoryExtractionModel` and drops the older `llmProvider` / `llmConfigId`.
 - **Configured paths** — workspace root, quest folder, trail folder, Copilot answer folder.
 - **Quick actions** — restart bridge, toggle debug logging, open config file, clear session, etc.
 

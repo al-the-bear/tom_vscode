@@ -128,8 +128,8 @@ function attachStatusPanelListeners(skipEditorInit) {
             } else if (action === 'updateCompactionSettings' || action === 'runCompactionDryRun') {
                 msgData.settings = {
                     disabled: (document.getElementById('sp-comp-disabled') || {}).checked === true,
-                    llmProvider: (document.getElementById('sp-comp-llmProvider') || {}).value || 'localLlm',
-                    llmConfigId: (document.getElementById('sp-comp-llmConfigId') || {}).value || '',
+                    compactionModel: (document.getElementById('sp-comp-compactionModel') || {}).value || '',
+                    memoryExtractionModel: (document.getElementById('sp-comp-memoryExtractionModel') || {}).value || '',
                     compactionTemplateId: (document.getElementById('sp-comp-compactionTemplateId') || {}).value || '',
                     memoryExtractionTemplateId: (document.getElementById('sp-comp-memoryExtractionTemplateId') || {}).value || '',
                     compactionMaxRounds: parseInt((document.getElementById('sp-comp-maxRounds') || {}).value || '4'),
@@ -287,38 +287,6 @@ function attachStatusPanelListeners(skipEditorInit) {
         }
     }
 
-    var compProviderSel = document.getElementById('sp-comp-llmProvider');
-    var compConfigSel = document.getElementById('sp-comp-llmConfigId');
-    if (compProviderSel && compConfigSel && !compProviderSel.dataset.spProviderBound) {
-        compProviderSel.dataset.spProviderBound = '1';
-        var filterCompConfig = function() {
-            var p = compProviderSel.value || 'localLlm';
-            var firstVisibleValue = '';
-            Array.prototype.forEach.call(compConfigSel.options, function(opt) {
-                var dp = opt.getAttribute('data-provider') || '';
-                var visible = (dp === '' || dp === p);
-                opt.hidden = !visible;
-                opt.disabled = !visible;
-                if (visible && !firstVisibleValue && opt.value) firstVisibleValue = opt.value;
-            });
-            var current = compConfigSel.selectedOptions[0];
-            if (!current || current.disabled) {
-                compConfigSel.value = firstVisibleValue;
-            }
-            var toolSetBtn = document.querySelector('[data-status-action="editCompactionToolSet"]');
-            if (toolSetBtn) {
-                if (p === 'anthropic') {
-                    toolSetBtn.setAttribute('disabled', 'disabled');
-                    toolSetBtn.title = "Anthropic uses the active profile's enabledTools";
-                } else {
-                    toolSetBtn.removeAttribute('disabled');
-                    toolSetBtn.title = '';
-                }
-            }
-        };
-        compProviderSel.addEventListener('change', filterCompConfig);
-        filterCompConfig();
-    }
 
     if (skipEditorInit) {
         return;

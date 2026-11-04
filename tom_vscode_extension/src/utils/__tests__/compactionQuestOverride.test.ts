@@ -1,11 +1,12 @@
 /**
  * A quest can override the workspace's compaction settings in its own
  * `extension_config.<quest>.yaml` (section `compaction`), so compaction can be
- * switched on — or pointed at another model — for one quest while the
- * workspace setting stays as it is for every other quest.
+ * switched on for one quest while the workspace setting stays as it is for
+ * every other quest. The models are the workspace's alone (CT-6 in
+ * compactionTarget.test.ts; ccparity_a_directapi-4).
  *
  *   CQ-1 no quest section: the workspace settings, unchanged
- *   CQ-2 the quest section overrides disabled, llmProvider, llmConfigId and the other known keys
+ *   CQ-2 the quest section overrides disabled and the other known keys; llmProvider / llmConfigId no longer
  *   CQ-3 a value of the wrong type, an unknown provider or an unknown key is ignored
  *   CQ-4 the handler reads the quest section of the window's quest
  */
@@ -37,7 +38,7 @@ describe('applyQuestCompactionOverride', () => {
         const out = applyQuestCompactionOverride(GLOBAL, {
             disabled: false, llmProvider: 'anthropic', llmConfigId: 'haiku-5-5-direct', runEveryNRounds: 10,
         });
-        assert.deepEqual(out, { ...GLOBAL, disabled: false, llmProvider: 'anthropic', llmConfigId: 'haiku-5-5-direct', runEveryNRounds: 10 });
+        assert.deepEqual(out, { ...GLOBAL, disabled: false, runEveryNRounds: 10 }, 'the model stays the workspace\'s');
         assert.equal(GLOBAL.disabled, true, 'the workspace settings object is not changed');
     });
 
