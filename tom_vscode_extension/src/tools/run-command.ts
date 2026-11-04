@@ -72,6 +72,25 @@ export interface RunCommandDeps {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;  // 10 MB per stream
 const KILL_GRACE_MS = 250;                    // SIGTERM → SIGKILL window
+/**
+ * Characters of each stream the model gets back. Why: the 10 MB capture cap
+ * protects the extension host, not the conversation — a build log of that size
+ * would fill the context and cost the whole window in tokens. Head and tail
+ * are kept, because a failure is usually reported at the end.
+ */
+export const RUN_COMMAND_MAX_RETURNED_CHARS = 30_000;
+
+/** `text` if short enough, else its head and tail with the middle named. */
+export function boundForModel(text: string, label: string, max = RUN_COMMAND_MAX_RETURNED_CHARS): string {
+    if (text.length <= max) { return text; }
+    const head = Math.floor(max / 2);
+    const tail = max - head;
+    const left = text.length - head - tail;
+    return text.slice(0, head) +
+        `\n… (${label}: ${text.length.toLocaleString('en-US')} characters, the middle ${left.toLocaleString('en-US')} left out — ` +
+        'narrow the command, or redirect to a file and read parts of it) …\n' +
+        text.slice(text.length - tail);
+}
 
 // ---------------------------------------------------------------------------
 // Impl
@@ -185,8 +204,8 @@ interface FormatInput {
 function formatResult(r: FormatInput): string {
     const truncationNote = (label: string, present: boolean) =>
         present ? `\n(${label} truncated at ${DEFAULT_MAX_BUFFER.toLocaleString()} bytes — re-run with a tighter scope)` : '';
-    const stdoutWithNote = r.stdout + truncationNote('stdout', r.stdoutTruncated);
-    const stderrWithNote = r.stderr + truncationNote('stderr', r.stderrTruncated);
+    const stdoutWithNote = boundForModel(r.stdout, 'stdout') + truncationNote('stdout', r.stdoutTruncated);
+    const stderrWithNote = boundForModel(r.stderr, 'stderr') + truncationNote('stderr', r.stderrTruncated);
 
     if (r.timedOut) {
         const sections = [`Command timed out after ${r.timeoutMs} ms (sent SIGTERM, then SIGKILL after ${KILL_GRACE_MS} ms).`];
@@ -263,7 +282,10 @@ export const RUN_COMMAND_DESCRIPTION =
     'returns the partial output. stdout and stderr are both captured; the ' +
     'response includes the exit code on any non-zero or signal exit. Buffer ' +
     'cap is 10 MB per stream; output past that is explicitly truncated rather ' +
-    'than silently dropped.';
+    'than silently dropped. At most 30 000 characters of each stream are returned: ' +
+    'a longer one comes back as its head and tail with the left-out middle named. ' +
+    'For a long-running command (a test suite, a build) pass a larger `timeoutMs` ' +
+    'or use `tomAi_runCommandStream`.';
 
 export const RUN_COMMAND_TOOL: SharedToolDefinition<RunCommandInput> = {
     name: 'tomAi_runCommand',

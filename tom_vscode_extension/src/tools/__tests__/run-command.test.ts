@@ -103,28 +103,26 @@ describe('runCommandImpl — exit codes', () => {
 
 describe('runCommandImpl — large output', () => {
 
-    test('1 MB of stdout is NOT silently truncated (the old 1 MB buffer trap)', async () => {
+    test('1 MB of stdout is captured whole (the old 1 MB buffer trap)', async () => {
         // The old impl used exec() with maxBuffer=1MB, which threw
         // ERR_CHILD_PROCESS_STDIO_MAXBUFFER and dropped everything.
-        // Now we have a 10 MB cap and explicit truncation.
+        // Now the whole stream is captured up to 10 MB; what the model gets
+        // back is bounded separately (DT-9), and names the captured length.
         const out = await runCommandImpl({ wsRoot: ws }, {
-            // ~ 1.5 MB of 'a's. dd is portable and fast.
             command: 'head -c 1500000 /dev/zero | tr "\\0" "a"',
         });
-        // Should be just the 1.5M 'a's, no truncation note (under the 10 MB cap).
-        assert.equal(out.length, 1500000, `expected exactly 1 500 000 bytes, got ${out.length}`);
-        assert.doesNotMatch(out, /truncated/);
+        assert.match(out, /stdout: 1,500,000 characters, the middle 1,470,000 left out/);
+        assert.doesNotMatch(out, /truncated at/);
     });
 
     test('output above the 10 MB cap is reported with an explicit truncation note', async () => {
-        // 12 MB > 10 MB cap → first 10 MB kept + note appended.
+        // 12 MB > 10 MB cap → the first 10 MB captured + note appended.
         const out = await runCommandImpl({ wsRoot: ws }, {
             command: 'head -c 12000000 /dev/zero | tr "\\0" "a"',
         });
         assert.match(out, /truncated at 10,485,760 bytes/);
-        // The 'a' run plus the note: the run is exactly the cap.
-        const aRun = out.match(/^a+/)?.[0] ?? '';
-        assert.equal(aRun.length, 10 * 1024 * 1024, 'truncation must cut at the cap, not earlier');
+        // The capture cut at the cap, not earlier.
+        assert.match(out, /stdout: 10,485,760 characters/);
     });
 });
 

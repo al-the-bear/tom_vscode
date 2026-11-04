@@ -48,7 +48,7 @@ Each table lists every tool in the family with a per-transport default.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readFile` | Read file (optional line range). | 🔁 | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). | 🔁 | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_createFile` | Create a file (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_editFile` | Find-replace edit (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_multiEditFile` | Batched find-replace (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
@@ -56,14 +56,27 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_moveFile` | Rename / move a file (approval). | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
 | `tomAi_listDirectory` | List directory entries. | 🔁 | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_findFiles` | Glob file search. | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_findTextInFiles` | Content search (grep). | 🔁 | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, 20 s budget. | 🔁 | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_applyEdit` | Transactional multi-file WorkspaceEdit (atomic undo). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+
+On the direct API these tools, with the shell and git tools of §4.2 and §4.8,
+are what a todo walk has in place of Claude Code's built-ins: Read →
+`tomAi_readFile`, Edit → `tomAi_editFile` / `tomAi_multiEditFile`, Write →
+`tomAi_createFile`, Bash → `tomAi_runCommand` / `tomAi_runCommandStream`, Grep →
+`tomAi_findTextInFiles`, Glob → `tomAi_findFiles` / `tomAi_listDirectory`. A
+direct profile with `toolsEnabled` gets all of them; only an Agent SDK profile
+with `useBuiltInTools` hides them in favour of Claude Code's own
+(`DUPLICATES_OF_CLAUDE_CODE_BUILTINS`). Their limits are set for that use: a
+read without a range stops at 2000 lines, a command returns its output's head
+and tail past 30 000 characters, and a text search reads every file (no file
+cap) until it has its matches or 20 s have passed, saying so when it stopped
+early (`src/tools/__tests__/direct-tool-coverage.test.ts`, DT-1 – DT-9).
 
 ### 4.2 Shell and tasks
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_runCommand` | Fire-and-forget shell command. | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
+| `tomAi_runCommand` | Shell command; returns at most 30 000 characters per stream (head and tail). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_runCommandStream` | Spawn, return handle + initial output. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_readCommandOutput` | Poll stdout / stderr / exit. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
 | `tomAi_killCommand` | Signal a running handle. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |

@@ -42,6 +42,8 @@ export interface ReadFileInput {
     filePath: string;
     startLine?: number;
     endLine?: number;
+    /** Prefix every line with its 1-based number and a tab. */
+    lineNumbers?: boolean;
 }
 
 export interface ListDirectoryInput {
@@ -58,6 +60,10 @@ export interface FindTextInFilesInput {
     filePattern?: string;
     isRegex?: boolean;
     maxResults?: number;
+    /** Match ignoring case (substring and regex alike). */
+    caseInsensitive?: boolean;
+    /** Lines shown before and after each match, 0–10. */
+    contextLines?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +95,11 @@ export function isInsideWorkspace(resolved: string, wsRoot: string): boolean {
 // readFile
 // ---------------------------------------------------------------------------
 
+/** Lines a read without a range returns, as Claude Code's Read does. */
+export const READ_FILE_MAX_LINES = 2000;
+/** Characters any read returns at most. */
+export const READ_FILE_MAX_CHARS = 200_000;
+
 export async function readFileImpl(wsRoot: string, input: ReadFileInput): Promise<string> {
     const resolved = resolveAgainstWsRoot(input.filePath, wsRoot);
     if (!isInsideWorkspace(resolved, wsRoot)) {
@@ -109,18 +120,33 @@ export async function readFileImpl(wsRoot: string, input: ReadFileInput): Promis
     } catch (err) {
         return `Error reading file: ${(err as Error).message}`;
     }
-    if (input.startLine === undefined && input.endLine === undefined) {
-        return content;
-    }
     const lines = content.split('\n');
+    const unbounded = input.startLine === undefined && input.endLine === undefined;
     // 1-based, inclusive on both ends. Out-of-range values clamp.
     const start = Math.max(0, (input.startLine ?? 1) - 1);
-    const end = Math.min(lines.length, input.endLine ?? lines.length);
+    let end = Math.min(lines.length, input.endLine ?? lines.length);
     if (start >= end) {
         return `(empty: requested range startLine=${input.startLine ?? 1}, endLine=${input.endLine ?? lines.length} ` +
                `is out of bounds for a ${lines.length}-line file)`;
     }
-    return lines.slice(start, end).join('\n');
+    // Why: a read without a range lands whole in the model's context; a
+    // history.json or a trail file is several MB. Stop where Claude Code's
+    // Read stops and say how to read on.
+    let note = '';
+    if (unbounded && lines.length > READ_FILE_MAX_LINES) {
+        end = READ_FILE_MAX_LINES;
+        note = `\n(lines 1–${READ_FILE_MAX_LINES} of ${lines.length} shown; pass startLine / endLine for the rest)`;
+    }
+    let text = lines.slice(start, end)
+        .map((line, i) => input.lineNumbers ? `${String(start + i + 1).padStart(6)}\t${line}` : line)
+        .join('\n');
+    if (text.length > READ_FILE_MAX_CHARS) {
+        const total = text.length;
+        text = text.slice(0, READ_FILE_MAX_CHARS);
+        note = `\n(${READ_FILE_MAX_CHARS.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} characters shown; ` +
+               'pass a narrower startLine / endLine for the rest)';
+    }
+    return text + note;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +236,12 @@ export interface FindTextDeps {
      * fixture small. The walker returns workspace-relative paths.
      */
     walk?(pattern: string, exclude: string, limit: number): Promise<string[]>;
+    /** How long the search may take; default FIND_TEXT_TIME_BUDGET_MS. */
+    timeBudgetMs?: number;
 }
+
+/** How long a text search may take before it answers with what it found. */
+export const FIND_TEXT_TIME_BUDGET_MS = 20_000;
 
 export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInFilesInput): Promise<string> {
     if (!input.searchText) {
@@ -218,7 +249,8 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     }
     const limit = clampLimit(input.maxResults, 50, 1000);
     const includePattern = normalizeFilePattern(input.filePattern);
-    const walker = deps.walk ?? ((p, e, l) => nodeNativeWalker(deps.wsRoot, p, e, l));
+    const context = Math.max(0, Math.min(10, Math.floor(Number(input.contextLines) || 0)));
+    const budgetMs = deps.timeBudgetMs ?? FIND_TEXT_TIME_BUDGET_MS;
 
     // Compile the search predicate. For non-regex inputs we test for
     // substring directly — no escape-then-recompile dance, no surprise
@@ -227,55 +259,79 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     if (input.isRegex) {
         let re: RegExp;
         try {
-            re = new RegExp(input.searchText);
+            re = new RegExp(input.searchText, input.caseInsensitive ? 'i' : '');
         } catch (err) {
             return `Error: \`searchText\` is not a valid regex: ${(err as Error).message}`;
         }
         predicate = (line) => re.test(line);
+    } else if (input.caseInsensitive) {
+        const needle = input.searchText.toLowerCase();
+        predicate = (line) => line.toLowerCase().includes(needle);
     } else {
         const needle = input.searchText;
         predicate = (line) => line.includes(needle);
     }
 
-    let files: string[];
+    // An injected walker (tests) hands over its list; production walks the
+    // tree lazily, so every file is read until `limit` matches or the time
+    // budget — no file cap that answers "no matches" for files never read.
+    let files: Iterable<string>;
     try {
-        // Scan up to 50× the result limit of files so we don't load the
-        // entire repo into memory if the LLM passes `*` as the include.
-        // The first `limit` matches win.
-        files = await walker(includePattern, '**/node_modules/**', limit * 50);
+        files = deps.walk
+            ? await deps.walk(includePattern, '**/node_modules/**', Number.MAX_SAFE_INTEGER)
+            : walkFiles(deps.wsRoot, globToRegExp(includePattern), null);
     } catch (err) {
         return `Error walking files: ${(err as Error).message}`;
     }
 
     const out: string[] = [];
+    let matches = 0;
     let scanned = 0;
-    for (const rel of files) {
-        if (out.length >= limit) { break; }
-        const abs = path.join(deps.wsRoot, rel);
-        let content: string;
-        try {
-            const buf = fs.readFileSync(abs);
-            if (looksBinary(buf)) { continue; }   // skip binaries silently
-            content = buf.toString('utf8');
-        } catch {
-            continue;                              // skip unreadable files silently
-        }
-        scanned += 1;
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-            if (predicate(lines[i])) {
+    let outOfTime = false;
+    const startedAt = Date.now();
+    try {
+        for (const rel of files) {
+            if (matches >= limit) { break; }
+            if (Date.now() - startedAt >= budgetMs) { outOfTime = true; break; }
+            const abs = path.join(deps.wsRoot, rel);
+            let content: string;
+            try {
+                const buf = fs.readFileSync(abs);
+                if (looksBinary(buf)) { continue; }   // skip binaries silently
+                content = buf.toString('utf8');
+            } catch {
+                continue;                              // skip unreadable files silently
+            }
+            scanned += 1;
+            const lines = content.split('\n');
+            let shownUpTo = -1;                        // last line index already printed
+            for (let i = 0; i < lines.length && matches < limit; i++) {
+                if (!predicate(lines[i])) { continue; }
+                matches += 1;
+                for (let j = Math.max(shownUpTo + 1, i - context); j < i; j++) { out.push(`${rel}-${j + 1}-${lines[j]}`); }
                 out.push(`${rel}:${i + 1}:${lines[i]}`);
-                if (out.length >= limit) { break; }
+                shownUpTo = i;
+                // Trailing context stops at the next match, which prints itself.
+                for (let j = i + 1; j <= Math.min(lines.length - 1, i + context) && !predicate(lines[j]); j++) {
+                    out.push(`${rel}-${j + 1}-${lines[j]}`);
+                    shownUpTo = j;
+                }
             }
         }
+    } catch (err) {
+        return `Error walking files: ${(err as Error).message}`;
     }
 
+    const budgetNote = outOfTime
+        ? `\n(stopped after the time budget of ${Math.round(budgetMs / 1000)} s with ${scanned} file${scanned === 1 ? '' : 's'} scanned — ` +
+          'not every file was searched; pass a tighter `filePattern`)'
+        : '';
     if (out.length === 0) {
         const kind = input.isRegex ? 'regex' : 'substring';
         return `No matches for ${kind} \`${input.searchText}\` (scanned ${scanned} file${scanned === 1 ? '' : 's'} ` +
-               `matching \`${includePattern}\`).`;
+               `matching \`${includePattern}\`).${budgetNote}`;
     }
-    return out.join('\n');
+    return out.join('\n') + budgetNote;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,15 +391,61 @@ export function globToRegExp(glob: string): RegExp {
     return new RegExp(re);
 }
 
+/** Folders no search enters: dependencies, git's store, Dart's generated state. */
+const SKIPPED_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git', '.dart_tool']);
+
 /**
- * Walk `root` recursively, returning workspace-relative paths that
- * match `pattern` and don't match `exclude`. Stops after `limit`
- * matches. `.git/` and `node_modules/` are always skipped — the
- * `exclude` parameter is folded on top of that for compatibility
- * with the vscode.workspace.findFiles signature.
- *
- * Returned paths are sorted ascending so the result is stable across
- * runs (vscode's findFiles is not).
+ * Walk `root` depth-first, yielding the workspace-relative paths of files
+ * that match `include` and not `exclude`, lazily, so a caller can stop at
+ * any point. Symlinked folders are followed — every workspace mounts `_ai`
+ * through one — and each real folder is entered once, so a link back up
+ * the tree ends instead of looping.
+ */
+export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null): Generator<string> {
+    const seen = new Set<string>();
+    const stack: string[] = [root];
+    while (stack.length > 0) {
+        const dir = stack.pop()!;
+        let real: string;
+        try { real = fs.realpathSync(dir); } catch { continue; }
+        if (seen.has(real)) { continue; }
+        seen.add(real);
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        // Reverse-sorted onto the stack, so folders are visited in name order.
+        const subdirs: string[] = [];
+        for (const ent of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+            const abs = path.join(dir, ent.name);
+            let isDir = ent.isDirectory();
+            let isFile = ent.isFile();
+            if (ent.isSymbolicLink()) {
+                try {
+                    const st = fs.statSync(abs);
+                    isDir = st.isDirectory();
+                    isFile = st.isFile();
+                } catch { continue; }                  // a dangling link
+            }
+            if (isDir) {
+                if (!SKIPPED_DIRS.has(ent.name)) { subdirs.push(abs); }
+            } else if (isFile) {
+                const rel = path.relative(root, abs).split(path.sep).join('/');
+                if (include.test(rel) && !(exclude && exclude.test(rel))) {
+                    yield rel;
+                }
+            }
+        }
+        for (let i = subdirs.length - 1; i >= 0; i--) { stack.push(subdirs[i]); }
+    }
+}
+
+/**
+ * Up to `limit` paths from `walkFiles`, sorted, so the result is stable
+ * across runs (vscode's findFiles is not). The tests' stand-in for
+ * `vscode.workspace.findFiles`.
  */
 export async function nodeNativeWalker(
     root: string,
@@ -351,34 +453,12 @@ export async function nodeNativeWalker(
     exclude: string,
     limit: number,
 ): Promise<string[]> {
-    const includeRe = globToRegExp(pattern);
-    const excludeRe = exclude ? globToRegExp(exclude) : null;
     const matches: string[] = [];
-
-    const stack: string[] = [root];
-    while (stack.length > 0 && matches.length < limit * 2) {
-        const dir = stack.pop()!;
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-        for (const ent of entries) {
-            const abs = path.join(dir, ent.name);
-            if (ent.isDirectory()) {
-                if (ent.name === 'node_modules' || ent.name === '.git') { continue; }
-                stack.push(abs);
-            } else if (ent.isFile()) {
-                const rel = path.relative(root, abs).split(path.sep).join('/');
-                if (includeRe.test(rel) && !(excludeRe && excludeRe.test(rel))) {
-                    matches.push(rel);
-                }
-            }
-        }
+    for (const rel of walkFiles(root, globToRegExp(pattern), exclude ? globToRegExp(exclude) : null)) {
+        matches.push(rel);
+        if (matches.length >= limit) { break; }
     }
-    matches.sort();
-    return matches.slice(0, limit);
+    return matches.sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +503,9 @@ function looksBinary(buf: Buffer): boolean {
 export const READ_FILE_DESCRIPTION =
     'Read a UTF-8 text file. Paths are workspace-relative unless absolute. ' +
     'Optional `startLine`/`endLine` are 1-based and inclusive; out-of-range ' +
-    'values clamp. Errors with a clear message if the path is a directory, ' +
+    'values clamp. Without a range at most 2000 lines are returned, and any read ' +
+    'at most 200 000 characters; a note then says what was left out. ' +
+    '`lineNumbers: true` prefixes each line with its number and a tab. Errors with a clear message if the path is a directory, ' +
     'missing, or outside the workspace. Binary files return their bytes ' +
     'interpreted as UTF-8 (may include replacement characters) — use a ' +
     'different tool for binary inspection.';
@@ -440,6 +522,7 @@ export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
             filePath: { type: 'string', description: 'Workspace-relative or absolute path. Example: `src/extension.ts`.' },
             startLine: { type: 'number', description: '1-based start line (inclusive). Default 1.' },
             endLine: { type: 'number', description: '1-based end line (inclusive). Default = last line.' },
+            lineNumbers: { type: 'boolean', description: 'Prefix each line with its 1-based number and a tab. Default false.' },
         },
         required: ['filePath'],
     },
@@ -502,10 +585,14 @@ export const FIND_TEXT_IN_FILES_DESCRIPTION =
     'Search file contents. `searchText` is treated as a literal substring ' +
     'unless `isRegex: true`. `filePattern` is a glob restricting the file set ' +
     '(default `**/*` — every text file under the workspace, recursive). ' +
-    'Output rows are `path:line:matched-line`, up to `maxResults` (default 50, ' +
-    'hard max 1000). Binary files (null byte in first 8 KB) are skipped. ' +
-    '`.gitignore` is not consulted — pass a tight `filePattern` for large ' +
-    'workspaces. `node_modules/` and `.git/` are always skipped.';
+    'Output rows are `path:line:matched-line` (context rows `path-line-text`), ' +
+    'up to `maxResults` matching lines (default 50, hard max 1000). ' +
+    '`caseInsensitive` ignores case; `contextLines` (0–10) adds lines around ' +
+    'each match. Symlinked folders (such as `_ai`) are searched. Binary files ' +
+    '(null byte in first 8 KB) are skipped; `node_modules/`, `.git/` and ' +
+    '`.dart_tool/` are never entered. `.gitignore` is not consulted: every ' +
+    'file is read until `maxResults` matches or a 20 s budget, and a search the ' +
+    'budget stopped says so — pass a tight `filePattern` for large trees.';
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {
     name: 'tomAi_findTextInFiles',
@@ -523,6 +610,8 @@ export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput>
             },
             isRegex: { type: 'boolean', description: 'Treat `searchText` as a JavaScript regex. Default false.' },
             maxResults: { type: 'number', description: 'Maximum matching lines (default 50, max 1000).' },
+            caseInsensitive: { type: 'boolean', description: 'Ignore case. Default false.' },
+            contextLines: { type: 'number', description: 'Lines shown before and after each match, 0–10. Default 0.' },
         },
         required: ['searchText'],
     },
