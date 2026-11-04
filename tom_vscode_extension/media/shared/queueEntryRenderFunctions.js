@@ -65,9 +65,20 @@ function renderEntry(item, idx) {
   if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
     statusLabel = item.awaitingAnswer ? 'SENDING (PAUSED)' : 'PAUSED';
   }
+  // A direct send inside its retry loop: rate limited until the reset the API
+  // stated, or backing off after an overload / 5xx (sendWait, set by the
+  // manager while the wait lasts), e.g. "SENDING — RATE LIMITED, RETRY 2 AT 14:32:05".
+  if (isSending && item.sendWait && item.sendWait.until) {
+    var swd = new Date(item.sendWait.until);
+    var swTime = isNaN(swd.getTime()) ? '' : swd.toLocaleTimeString();
+    var swWhat = item.sendWait.kind === 'rate_limit' ? 'RATE LIMITED' : 'API BUSY';
+    statusLabel = 'SENDING — ' + swWhat + ', RETRY ' + (parseInt(String(item.sendWait.attempt || 0), 10) || 0)
+      + (swTime ? ' AT ' + swTime.toUpperCase() : '');
+  }
   // Rate-limit parked item: show the human-friendly reset time from the
-  // "resets <time> (<tz>)" clause. The manager persists the stated reset
-  // label (waitingResetLabel); the item auto-retries 5 min after it.
+  // "resets <time> (<tz>)" clause, or the reset a direct send was told by
+  // the API. The manager persists the stated reset label (waitingResetLabel);
+  // the item auto-retries 5 min after a "resets" clause, at once after an API reset.
   if (isWaiting) {
     statusLabel = 'WAITING FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
   }

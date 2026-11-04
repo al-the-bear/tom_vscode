@@ -41,7 +41,7 @@ export interface AgentSdkRetryInput {
     cancelled?: boolean;
     /**
      * Whether the failed attempt's error is a transient backend-busy signal
-     * (HTTP 429 / 500 / 503 / 529 / overloaded). The caller classifies the raw
+     * (HTTP 429 / 529 / 5xx / overloaded). The caller classifies the raw
      * error with the shared `isRetryableBusyError` and passes the result here so
      * this module stays free of `vscode` / SDK imports. When true AND a positive
      * `maxTotalWaitMs` is supplied, the retry is bounded by the **time budget**

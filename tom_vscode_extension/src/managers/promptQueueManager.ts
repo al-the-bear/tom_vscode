@@ -43,6 +43,8 @@ import { applyErrorTransition, applyInterruptForContinuation, applyResetToPendin
 import { canSendNow, pausesBeforeNextDispatch, resetItemRunState } from '../utils/queueSendNow';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, isUnretryableRequestError, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
+import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
+import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
@@ -225,6 +227,16 @@ export interface QueuedPrePrompt {
     answerText?: string;
 }
 
+/** A retry wait inside one direct-transport send (`QueuedPrompt.sendWait`). */
+export interface QueueSendWait {
+    /** `rate_limit`: the API said when to retry; `backoff`: overload / 5xx backoff. */
+    kind: 'rate_limit' | 'backoff';
+    /** ISO instant the next attempt goes out. */
+    until: string;
+    /** That attempt's number (2 = the first retry). */
+    attempt: number;
+}
+
 export interface QueuedPrompt {
     id: string;
     template: string;             // Template name or "(None)"
@@ -337,6 +349,13 @@ export interface QueuedPrompt {
      * cleared on the next successful dispatch so a later repetition starts a
      * fresh cascade.
      */
+    /**
+     * While `sending` on the direct transport: the wait the retry loop is in
+     * (a rate limit waited out until the stated reset, or a backoff after an
+     * overload / 5xx), so the queue shows why the item is not answering. Set
+     * and cleared by the dispatch; never meaningful outside `sending`.
+     */
+    sendWait?: QueueSendWait;
     retryAttempt?: number;
     /**
      * When `status === 'retry'`: the ISO instant at which the next retry
@@ -3399,10 +3418,14 @@ export class PromptQueueManager {
         rollbackInFlightRepetition(item);
         this.releaseQuestTodoClaim(item, `error in ${scope}`);
         const searchText = this._errorSearchText(err, interruption);
-        const clause = parseResetClause(searchText);
+        // A direct send rate limited past its retry budget stamps the reset
+        // instant the API stated (rateLimitHeaders); that is exact, so the
+        // item resumes right after it rather than five minutes later.
+        const notBefore = readRetryNotBefore(err);
+        const clause = notBefore !== undefined ? apiRateLimitClause(notBefore) : parseResetClause(searchText);
         if (clause) {
             applyWaitingTransition(item, clause, {
-                retryBufferMs: RESET_RETRY_BUFFER_MS,
+                retryBufferMs: notBefore !== undefined ? 0 : RESET_RETRY_BUFFER_MS,
                 kind: interruption?.kind ?? 'rate_limit',
             });
             logQueue(`Item ${item.id} hit a usage limit (${scope}); waiting for ${item.waitingResetLabel}, auto-retry at ${item.waitingUntil}`);
@@ -3882,6 +3905,9 @@ export class PromptQueueManager {
         }
         // A missing named session is created from the item's spec before the first send.
         if (resolved.item) { this.ensureItemSession(resolved.item, resolved.session); }
+        // The item whose retry waits the queue shows (unset for the internal
+        // Quest Refresh dispatch, which belongs to no item).
+        const waitItem = resolved.item;
         // CTS scope: created here so the Stop button (`stopActiveItem`)
         // can cancel the in-flight round loop. Disposed in `finally` so
         // a stale token never lingers across dispatches.
@@ -3901,6 +3927,7 @@ export class PromptQueueManager {
                 ...(resolved.session ? { sessionKey: resolved.session } : {}),
                 // The queue iteration (a per-iteration session keeps one conversation per key).
                 ...(resolved.iterationKey ? { iterationKey: resolved.iterationKey } : {}),
+                onRetryWait: (wait) => this._showSendWait(waitItem, wait),
             }));
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -3916,6 +3943,7 @@ export class PromptQueueManager {
             this._clearRetryOnDispatchSuccess();
             return { mode: 'direct', answerText: result.text };
         } finally {
+            this._showSendWait(waitItem, null);
             if (this._activeAnthropicCts === cts) {
                 this._activeAnthropicCts = undefined;
             }
@@ -3930,6 +3958,30 @@ export class PromptQueueManager {
      * one. Only touches the retry bookkeeping (attempt + countdown); if there
      * is nothing to clear this is a cheap no-op and no change event fires.
      */
+    /**
+     * Show (or clear, `wait === null`) the retry wait a direct send is in on
+     * its queue item, so the queue editor says "rate limited until …" instead
+     * of a silent SENDING. Persisted like every item change, but only
+     * meaningful while the item is `sending`.
+     */
+    private _showSendWait(item: QueuedPrompt | undefined, wait: RetryWait | null): void {
+        if (!item) { return; }
+        const live = this._items.find(i => i.id === item.id) ?? item;
+        if (wait === null) {
+            if (live.sendWait === undefined) { return; }
+            delete live.sendWait;
+        } else {
+            live.sendWait = {
+                kind: wait.kind,
+                until: new Date(wait.untilMs).toISOString(),
+                attempt: wait.attempt,
+            };
+            logQueue(`Item ${live.id}: ${wait.kind === 'rate_limit' ? 'rate limited' : 'API busy'} — attempt ${wait.attempt} at ${live.sendWait.until}`);
+        }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
     private _clearRetryOnDispatchSuccess(): void {
         const sending = this._items.find(i => i.status === 'sending');
         if (!sending) { return; }

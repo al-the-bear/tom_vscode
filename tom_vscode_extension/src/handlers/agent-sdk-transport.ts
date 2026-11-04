@@ -396,7 +396,7 @@ export interface AgentSdkSendParams {
         buildContinuationPrompt: (errorText: string) => string;
         /**
          * Time budget (ms) for riding out *transient backend-busy* errors
-         * (HTTP 429 / 500 / 503 / 529 / overloaded). Maps from the Anthropic
+         * (HTTP 429 / 529 / 5xx / overloaded). Maps from the Anthropic
          * profile's `retryMaxTotalWaitMinutes`. While a busy error keeps
          * recurring the loop retries with exponential backoff until this budget
          * is spent — independent of `maxAttempts`, which only bounds the

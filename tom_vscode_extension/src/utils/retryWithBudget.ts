@@ -7,13 +7,15 @@
  * The "is this worth retrying?" decision lives in the dependency-free
  * {@link isRetryableBusyError} (re-exported here for existing callers); the
  * Agent SDK transport shares the same classifier so all paths agree on the
- * retryable set (429 / 500 / 503 / 529 + textual signals).
+ * retryable set (429 / 529 / 5xx + textual signals).
  */
 import * as vscode from 'vscode';
 import { toolLog } from './toolLog';
 import { isRetryableBusyError } from './retryableError';
+import { runRetryBudgetLoop, RetryWait } from './retryBudgetLoop';
 
 export { isRetryableBusyError };
+export type { RetryWait };
 
 export interface RetryWithBudgetOptions<T> {
     /** The operation to retry. */
@@ -46,52 +48,32 @@ export interface RetryWithBudgetOptions<T> {
      * and mirrors the retry into the quest live-trail (`cause` shown there).
      */
     onRetryStatus?: (message: string, cause?: string) => void;
+    /**
+     * Milliseconds the provider asks to wait before retrying this error
+     * (e.g. `providerRetryDelayMs`, which reads `retry-after` and the
+     * Anthropic rate-limit reset headers), or undefined to back off as
+     * usual. A stated wait beyond the budget is not waited out here: the
+     * instant is stamped on the rethrown error for the queue.
+     */
+    waitFromError?: (err: unknown, nowMs: number) => number | undefined;
+    /** Structured form of each wait; `null` when it is over and the call goes out again. */
+    onRetryWait?: (wait: RetryWait | null) => void;
 }
 
 /**
- * Run `call`, retrying with exponential backoff while the error is classified
- * as transient (default: 429 / 503 / 529 plus the usual textual signals).
- * Stops as soon as the cumulative elapsed wait time crosses `totalWaitMs` or
- * the cancellation token fires.
+ * Run `call`, retrying while the error is transient (default: 429 / 529 / 5xx
+ * plus the usual textual signals): with exponential backoff, or for as long as
+ * the provider asks when `waitFromError` reads that from the error. Stops as
+ * soon as the cumulative wait would cross `totalWaitMs` or the cancellation
+ * token fires. The loop itself is {@link runRetryBudgetLoop}.
  */
 export async function withRetryBudget<T>(opts: RetryWithBudgetOptions<T>): Promise<T> {
-    const isRetryable = opts.isRetryable ?? isRetryableBusyError;
-    const initialDelayMs = opts.initialDelayMs ?? 1000;
-    const maxDelayMs = opts.maxDelayMs ?? 5 * 60 * 1000;
-    const label = opts.backendLabel ?? 'Backend busy';
-    const totalWaitMs = Math.max(0, opts.totalWaitMs);
-    let delay = initialDelayMs;
-    let firstFailureAt: number | undefined;
-    let attempt = 0;
-    let lastErr: unknown;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        attempt++;
-        try {
-            return await opts.call();
-        } catch (err) {
-            lastErr = err;
-            if (!isRetryable(err) || totalWaitMs <= 0) { throw err; }
-            if (opts.cancellationToken?.isCancellationRequested) { throw new Error('Cancelled'); }
-            if (firstFailureAt === undefined) { firstFailureAt = Date.now(); }
-            const elapsedMs = Date.now() - firstFailureAt;
-            const remainingBudgetMs = totalWaitMs - elapsedMs;
-            const errMsg = err instanceof Error ? err.message : String(err);
-            if (remainingBudgetMs <= 0) {
-                toolLog(`[retry] ${label} — budget exhausted after ${formatDuration(elapsedMs)} over ${attempt} attempt(s); giving up: ${errMsg}`);
-                throw err;
-            }
-            const waitMs = Math.min(delay, remainingBudgetMs);
-            const status = `${label} — retrying in ${formatDuration(waitMs)} (attempt ${attempt + 1}, ${formatDuration(elapsedMs)} / ${formatDuration(totalWaitMs)} elapsed)`;
-            opts.onRetryStatus?.(status, errMsg);
-            // Persist the retry to the shared Tom Tool Log so the backoff is
-            // visible after the fact (the status line is transient UI). Include
-            // the triggering error so the user sees *why* it retried.
-            toolLog(`[retry] ${status} — cause: ${errMsg}`);
-            await sleepCancellable(waitMs, opts.cancellationToken);
-            delay = Math.min(delay * 2, maxDelayMs);
-        }
-    }
+    return runRetryBudgetLoop(opts, {
+        now: () => Date.now(),
+        sleep: (ms) => sleepCancellable(ms, opts.cancellationToken),
+        isCancelled: () => opts.cancellationToken?.isCancellationRequested === true,
+        log: toolLog,
+    });
 }
 
 function sleepCancellable(ms: number, ct?: vscode.CancellationToken): Promise<void> {
@@ -102,15 +84,4 @@ function sleepCancellable(ms: number, ct?: vscode.CancellationToken): Promise<vo
             reject(new Error('Cancelled'));
         });
     });
-}
-
-/** Render a millisecond duration as `1h2m3s` / `4m5s` / `6s`. */
-function formatDuration(ms: number): string {
-    const totalSec = Math.max(0, Math.round(ms / 1000));
-    const hours = Math.floor(totalSec / 3600);
-    const minutes = Math.floor((totalSec % 3600) / 60);
-    const seconds = totalSec % 60;
-    if (hours > 0) { return `${hours}h${minutes}m${seconds}s`; }
-    if (minutes > 0) { return `${minutes}m${seconds}s`; }
-    return `${seconds}s`;
 }

@@ -34,7 +34,8 @@ import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
-import { withRetryBudget } from '../utils/retryWithBudget';
+import { withRetryBudget, RetryWait } from '../utils/retryWithBudget';
+import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     compactHistory,
@@ -347,6 +348,12 @@ export interface AnthropicSendOptions {
      * forwarder) can attribute the run to its source. Defaults to `'chat'`.
      */
     source?: PromptSource;
+    /**
+     * Direct transport: each wait of the retry loop (a rate limit waited out,
+     * or a backoff after an overload / 5xx), and `null` when the call goes out
+     * again. The prompt queue shows it on the sending item.
+     */
+    onRetryWait?: (wait: RetryWait | null) => void;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -2115,7 +2122,7 @@ export class AnthropicHandler {
             const retryParam = retryMaxAttempts > 1
                 ? {
                     maxAttempts: retryMaxAttempts,
-                    // Transient backend-busy errors (429/500/503/529/overloaded)
+                    // Transient backend-busy errors (429/529/5xx/overloaded)
                     // are ridden out for the profile's full retry window with
                     // exponential backoff — same `retryMaxTotalWaitMinutes`
                     // budget the direct-SDK and Local-LLM paths honor — instead
@@ -2444,10 +2451,14 @@ export class AnthropicHandler {
                     totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     backendLabel: 'Anthropic API busy',
                     cancellationToken: options.cancellationToken,
+                    // A 429 says when the window resets (retry-after, the
+                    // anthropic-ratelimit-*-reset headers): wait exactly that.
+                    waitFromError: providerRetryDelayMs,
                     onRetryStatus: (text: string, cause?: string): void => {
                         this._onStatusUpdate.fire(text);
                         liveTrail?.appendRetry(text, cause);
                     },
+                    onRetryWait: options.onRetryWait,
                 });
 
                 usageTotals = addResponseUsage(usageTotals, response.usage);

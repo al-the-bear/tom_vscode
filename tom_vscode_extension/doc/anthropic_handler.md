@@ -167,16 +167,24 @@ Configure per-profile (`anthropicProfile`):
 
 ## 7. Backend-busy retry (all transports)
 
-Transient backend pressure — HTTP **429 / 500 / 503 / 529** and `overloaded_error` — is ridden out automatically, not surfaced as a failure. The retryable set is one shared classifier, `isRetryableBusyError` (`src/utils/retryableError.ts`), used by every send path so they agree on what "busy" means. It matches both error shapes: the raw Anthropic SDK's numeric `.status`, and the Claude Agent SDK's `API Error: <code> { … } · check status.claude.com` message string. **500 ("Internal server error") is included** — it is a server-side transient, not a client bug.
+Transient backend pressure — HTTP **429**, **529**, every **5xx** except 501 and 505 (so a gateway's 502 / 504 too) and `overloaded_error` — is ridden out automatically, not surfaced as a failure. The retryable set is one shared classifier, `isRetryableBusyError` (`src/utils/retryableError.ts`), used by every send path so they agree on what "busy" means. It matches both error shapes: the raw Anthropic SDK's numeric `.status`, and the Claude Agent SDK's `API Error: <code> { … } · check status.claude.com` message string. **500 ("Internal server error") is included** — it is a server-side transient, not a client bug.
 
 How long it retries depends on the transport, but all of them honour the profile's **`retryMaxTotalWaitMinutes`** (default 10; set 240 for a 4-hour window that survives a long overload):
 
 | Transport | Mechanism | Bound | Backoff |
 | --- | --- | --- | --- |
-| `direct`, `localLlm` | `withRetryBudget` (`src/utils/retryWithBudget.ts`) | time budget = `retryMaxTotalWaitMinutes` | exponential, capped 5 min/step |
+| `direct`, `localLlm` | `withRetryBudget` (`src/utils/retryWithBudget.ts`, loop in `retryBudgetLoop.ts`) | time budget = `retryMaxTotalWaitMinutes` | exponential, capped 5 min/step; on `direct`, a rate limit waits as long as the API says (below) |
 | `agentSdk` | `runAgentSdkQuery` loop + `planAgentSdkRetry` (`src/services/agent-sdk-retry.ts`) | **busy** errors: same time budget; **non-busy** "resume interrupted work" errors: `anthropic.transportRetry.maxAttempts` (default 3) | a reported **rate-limit reset** when there is one (see below), otherwise exponential (`computeBackoffMs`), capped 5 min/step, bounded by remaining budget |
 
 On the `agentSdk` path a busy error keeps retrying past the small `maxAttempts` cap until the time budget is spent — a sustained 529 needs many spaced-out retries, not three instant ones. Each backoff sleep is cancellable (Stop button / cancellation token) and pushes a status line (`Anthropic API busy (Agent SDK) — retrying in …`) to the panel via `_onStatusUpdate`, plus a `[retry]` line to the Tom Tool Log. The `transportRetry` *template* (§5) still governs the continuation prompt sent when a retry **resumes** the failed session.
+
+### Rate limits on the direct transport
+
+A 429 on a `direct` profile is not retried on the exponential schedule: the API says when the window resets, and retrying earlier only burns a request. `providerRetryDelayMs` (`src/utils/rateLimitHeaders.ts`) reads, in order, `retry-after-ms`, `retry-after` (seconds or an HTTP date) and, on a 429 without either, the `anthropic-ratelimit-{requests,tokens,input-tokens,output-tokens}-reset` instants — the latest reset among the buckets whose `-remaining` is 0, else the earliest future one. A 529 or 5xx honours `retry-after` when it carries one.
+
+- **Within the budget** the send waits that long plus one second and tries again. The wait counts against `retryMaxTotalWaitMinutes` like a backoff does.
+- **Beyond the budget** it does not wait: it stamps the reset instant on the error and rethrows it. The prompt queue then parks the item as `waiting` ("WAITING FOR API RATE LIMIT RESET 14:32") and sends it again once the instant has passed (checked every minute), the way it waits out a "resets <time>" clause from the Agent SDK. Auto-send stays on, so an unattended `<prefix>*` walk does not stop.
+- **While a send waits** inside its loop, the queue item shows it: "SENDING — RATE LIMITED, RETRY 2 AT 14:32:05" (or "API BUSY" for a backoff), from `QueuedPrompt.sendWait`, set and cleared through `AnthropicSendOptions.onRetryWait`.
 
 ### Retries are visible in the live-trail
 

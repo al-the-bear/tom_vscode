@@ -55,6 +55,21 @@ describe('isRetryableBusyError — Agent SDK message shape', () => {
 });
 
 describe('isRetryableBusyError — textual signals (HTTP-prefixed + phrases)', () => {
+    test('retries on 502 / 504 from a gateway, not on 501 / 505', () => {
+        for (const status of [502, 504]) {
+            assert.equal(isRetryableBusyError(Object.assign(new Error('x'), { status })), true, String(status));
+        }
+        for (const status of [501, 505]) {
+            assert.equal(isRetryableBusyError(Object.assign(new Error('x'), { status })), false, String(status));
+        }
+        assert.equal(isRetryableBusyError(new Error('HTTP 502 from proxy')), true);
+        assert.equal(isRetryableBusyError(new Error('API Error: 504 upstream')), true);
+        assert.equal(isRetryableBusyError(new Error('Bad Gateway')), true);
+        assert.equal(isRetryableBusyError(new Error('Gateway Timeout')), true);
+        assert.equal(isRetryableBusyError(new Error('HTTP 501 not implemented')), false);
+        assert.equal(isRetryableBusyError(new Error('HTTP 505')), false);
+    });
+
     test('retries on HTTP 500 / 503 / 529 textual forms', () => {
         assert.equal(isRetryableBusyError(new Error('HTTP 500 from backend')), true);
         assert.equal(isRetryableBusyError(new Error('HTTP 503 service down')), true);

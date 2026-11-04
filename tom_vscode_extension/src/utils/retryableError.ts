@@ -8,7 +8,7 @@
  *   - the **Agent SDK** transport retry loop (`agent-sdk-transport.ts`, driven by
  *     `agent-sdk-retry.ts`).
  *
- * Different backends signal "busy" differently — Anthropic uses 429/500/529, the
+ * Different backends signal "busy" differently — Anthropic uses 429/500/529 (and a gateway in front of it 502/504), the
  * Claude Agent SDK surfaces the same as `API Error: <code> { ... }` strings,
  * vLLM uses 429/503, Ollama tends to use 500/503 with a textual hint. This
  * normalises across them by inspecting both a numeric `.status` (the raw
@@ -16,8 +16,18 @@
  * status code in the message instead).
  */
 
-/** HTTP status codes treated as transient backend pressure worth retrying. */
-const RETRYABLE_STATUS = new Set([429, 500, 503, 529]);
+/**
+ * HTTP statuses treated as transient backend pressure worth retrying: 429
+ * (rate limit), 529 (Anthropic overloaded) and every 5xx except 501 (Not
+ * Implemented) and 505 (HTTP Version Not Supported), which say the request
+ * can never succeed. 502 / 504 are what a proxy or gateway in front of the
+ * API answers while it is unreachable or slow, so they are as transient as
+ * a 503.
+ */
+export function isRetryableStatus(status: number): boolean {
+    if (status === 429 || status === 529) { return true; }
+    return status >= 500 && status <= 599 && status !== 501 && status !== 505;
+}
 
 /**
  * Returns true when an error looks like a transient "backend busy / overloaded /
@@ -32,13 +42,14 @@ const RETRYABLE_STATUS = new Set([429, 500, 503, 529]);
 export function isRetryableBusyError(err: unknown): boolean {
     if (err === null || err === undefined) { return false; }
     const anyErr = err as { status?: number; message?: string };
-    if (typeof anyErr.status === 'number' && RETRYABLE_STATUS.has(anyErr.status)) {
+    if (typeof anyErr.status === 'number' && isRetryableStatus(anyErr.status)) {
         return true;
     }
     const msg = typeof anyErr.message === 'string' ? anyErr.message : String(err);
     // Both `HTTP 529` (our leaf-wrapped text) and `API Error: 529` (Claude Agent
     // SDK) embed the code in the message — match either prefix.
-    if (/(?:HTTP|API Error:)\s*(?:429|500|503|529)\b/i.test(msg)) { return true; }
+    if (/(?:HTTP|API Error:)\s*(?:429|5(?!0[15])\d\d)\b/i.test(msg)) { return true; }
+    if (/\b(?:bad\s+gateway|gateway\s+time-?out)\b/i.test(msg)) { return true; }
     if (/\brate[\s_-]?limit/i.test(msg)) { return true; }
     if (/\boverload(ed)?/i.test(msg)) { return true; }
     if (/\binternal\s+server\s+error/i.test(msg)) { return true; }
