@@ -114,6 +114,15 @@ let promptTemplates = __INITIAL__.promptTemplates || [];
 // payload so the queue editor's Add form can show a profile +
 // config picker when Anthropic transport is selected.
 let anthropicProfiles = __INITIAL__.anthropicProfiles || [];
+// The default profile's key is missing too (the pickers mark it, as the host does).
+let defaultProfileNoApiKey = __INITIAL__.defaultProfileNoApiKey === true;
+// Same label as NO_API_KEY_LABEL in src/utils/anthropicApiKeyCheck.ts.
+const NO_API_KEY_LABEL = ' (no API key)';
+
+/** A profile option's label: name (id), marked when its direct-API key is missing. */
+function profileOptionLabel(p) {
+  return (p.name ? (p.name + ' (' + p.id + ')') : p.id) + (p.noApiKey ? NO_API_KEY_LABEL : '');
+}
 let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
 let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
 let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
@@ -217,6 +226,7 @@ window.addEventListener('message', e => {
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
       anthropicProfiles = msg.anthropicProfiles || [];
+      defaultProfileNoApiKey = msg.defaultProfileNoApiKey === true;
       anthropicConfigs = msg.anthropicConfigs || [];
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
       queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
@@ -622,11 +632,15 @@ function populateAddForm() {
     var pSel = document.getElementById(prefix + '-transport-profile');
     if (pSel) {
       var prev = pSel.value;
-      pSel.innerHTML = '<option value="">(default profile)</option>';
+      pSel.innerHTML = '';
+      var defOpt = document.createElement('option');
+      defOpt.value = '';
+      defOpt.textContent = '(default profile)' + (defaultProfileNoApiKey ? NO_API_KEY_LABEL : '');
+      pSel.appendChild(defOpt);
       (anthropicProfiles || []).forEach(function(p) {
         var opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = p.name ? (p.name + ' (' + p.id + ')') : p.id;
+        opt.textContent = profileOptionLabel(p);
         pSel.appendChild(opt);
       });
       if (prefix === 'queueDefault' && queueDefaultAnthropicProfileId) {
@@ -693,11 +707,15 @@ function populateAddForm() {
   var profSel = document.getElementById('addForm-transport-profile');
   if (profSel) {
     var prevProf = profSel.value;
-    profSel.innerHTML = '<option value="">(default profile)</option>';
+    profSel.innerHTML = '';
+    var defProf = document.createElement('option');
+    defProf.value = '';
+    defProf.textContent = '(default profile)' + (defaultProfileNoApiKey ? NO_API_KEY_LABEL : '');
+    profSel.appendChild(defProf);
     (anthropicProfiles || []).forEach(function(p) {
       var opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = p.name ? (p.name + ' (' + p.id + ')') : p.id;
+      opt.textContent = profileOptionLabel(p);
       profSel.appendChild(opt);
     });
     if (prevProf) { profSel.value = prevProf; }

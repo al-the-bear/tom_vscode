@@ -18,6 +18,7 @@ import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../mana
 import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
@@ -1064,7 +1065,10 @@ function buildState(): Record<string, unknown> {
     } catch { /* service not ready */ }
 
     let promptTemplates: string[] = [];
-    let anthropicProfiles: Array<{ id: string; name?: string }> = [];
+    // `noApiKey`: a direct-API profile whose key variable is not in this VS
+    // Code's environment (the pickers mark it, as the host-rendered ones do).
+    let anthropicProfiles: Array<{ id: string; name?: string; noApiKey?: boolean }> = [];
+    let defaultProfileNoApiKey = false;
     let anthropicConfigs: Array<{ id: string; name?: string; transport?: string }> = [];
     try {
         const config = loadSendToChatConfig();
@@ -1077,9 +1081,11 @@ function buildState(): Record<string, unknown> {
         // editor's config dropdown shows every option a profile
         // could reference. Tagged by backing type so the rendered
         // label stays unambiguous.
+        const keyless = new Map(profileKeyStates(config?.anthropic, process.env).map((k) => [k.id, k.noApiKey]));
         anthropicProfiles = (config?.anthropic?.profiles || [])
             .filter((p) => !!p && typeof p.id === 'string')
-            .map((p) => ({ id: p.id, name: p.name }));
+            .map((p) => ({ id: p.id, name: p.name, noApiKey: keyless.get(p.id) === true }));
+        defaultProfileNoApiKey = !!missingDirectApiKey(config?.anthropic, {}, process.env);
         anthropicConfigs = [
             ...((config?.anthropic?.configurations || [])
                 .filter((c) => !!c && typeof c.id === 'string')
@@ -1103,6 +1109,7 @@ function buildState(): Record<string, unknown> {
         reminderTemplates: templates,
         promptTemplates,
         anthropicProfiles,
+        defaultProfileNoApiKey,
         anthropicConfigs,
         // Anthropic user-message templates — surfaced so the queue
         // editor's add-form can offer them when the effective
