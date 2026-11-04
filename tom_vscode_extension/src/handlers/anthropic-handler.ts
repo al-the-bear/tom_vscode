@@ -368,6 +368,8 @@ export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 // trail utilities) import it from this module by name.
 import { buildPayloadDump, temperatureField, isConversationMessage, resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import { abortSignalFor, createMessageStreamed } from '../services/anthropicMessageCall';
+import { addResponseUsage, withLastMessageCacheBreakpoint, withToolsCacheBreakpoint } from '../utils/anthropicPromptCache';
+import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
 import { applyToolTrailRetention, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
@@ -447,6 +449,16 @@ export interface AnthropicSendResult {
     turnsUsed: number;
     toolCallCount: number;
     stopReason?: string;
+    /**
+     * Token usage summed over the rounds of the send, cache reads and writes
+     * included. Set by the direct transport when the API reported usage.
+     */
+    usage?: LiveTrailTokenCounts;
+}
+
+/** The send result with its usage, when there is any. */
+function withUsage(result: AnthropicSendResult, usage: LiveTrailTokenCounts | undefined): AnthropicSendResult {
+    return usage ? { ...result, usage } : result;
 }
 
 /**
@@ -2364,6 +2376,23 @@ export class AnthropicHandler {
         let lastText = '';
         let lastStopReason: string | undefined;
 
+        // Prompt caching (CC-5, CC-56): besides the system prompt's breakpoint,
+        // mark the last tool definition and the newest turn, so every round of
+        // the tool loop reads the tools and the conversation so far from the
+        // cache. The message breakpoint is put on a copy per request — see
+        // anthropicPromptCache.ts for why `messages` itself is never marked.
+        const requestTools = effectiveCaching ? withToolsCacheBreakpoint(anthropicTools) : anthropicTools;
+        const requestMessages = (): AnthropicMessageParam[] =>
+            effectiveCaching ? withLastMessageCacheBreakpoint(messages) : messages;
+        // Token usage summed over the rounds of this send (cache reads and
+        // writes included); reported in the live trail and the send result.
+        let usageTotals: LiveTrailTokenCounts = {};
+        const finishUsage = (): LiveTrailTokenCounts | undefined => {
+            if (Object.keys(usageTotals).length === 0) { return undefined; }
+            liveTrail?.appendUsage({ totals: usageTotals });
+            return usageTotals;
+        };
+
         // Dump the initial assembled request (system + compactedSummary
         // pair + rawTurns + current user) to `_ai/trail/anthropic/<quest>/
         // last_request.json`. Fires once per user prompt — NOT on each
@@ -2385,8 +2414,8 @@ export class AnthropicHandler {
                     ...temperatureField(configuration.temperature),
                     ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
                     system: systemParam,
-                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
-                    messages,
+                    ...(requestTools.length > 0 ? { tools: requestTools } : {}),
+                    messages: requestMessages(),
                 },
             }, quest);
         } catch { /* best-effort */ }
@@ -2405,8 +2434,8 @@ export class AnthropicHandler {
                     ...temperatureField(configuration.temperature),
                     ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
                     system: systemParam,
-                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
-                    messages,
+                    ...(requestTools.length > 0 ? { tools: requestTools } : {}),
+                    messages: requestMessages(),
                 };
                 const response = await withRetryBudget({
                     // Streamed: the SDK refuses a non-streaming request whose
@@ -2421,6 +2450,7 @@ export class AnthropicHandler {
                     },
                 });
 
+                usageTotals = addResponseUsage(usageTotals, response.usage);
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;
                 this.rememberAssistantText(lastText);
@@ -2438,7 +2468,8 @@ export class AnthropicHandler {
                 }
 
                 if (response.stop_reason !== 'tool_use') {
-                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail);
+                    const usage = finishUsage();
+                    return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
                 }
 
                 messages.push({ role: 'assistant', content: response.content });
@@ -2498,7 +2529,8 @@ export class AnthropicHandler {
             throw err;
         }
 
-        return this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail);
+        const usage = finishUsage();
+        return withUsage(this.finalize(userContent, lastText, configuration.maxRounds, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
     }
 
     /**

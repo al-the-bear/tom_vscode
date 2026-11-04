@@ -399,7 +399,7 @@ and `_ai/trail/copilot/<quest>/`, one set per quest.
 | **`toolTrailMaxResultChars`** | Per-config tool-result inline cap (overrides `compaction.toolTrailMaxResultChars`). |
 | **`toolTrailKeepRounds`** | Per-config tool-trail keep-rounds (overrides `compaction.toolTrailKeepRounds`). |
 | `compactionOverride` | `'default' \| 'on' \| 'off'` — per-config override for the global compaction kill switch. |
-| `promptCachingEnabled` | Adds `cache_control` blocks. Doesn't shrink the prompt; reduces cost. |
+| `promptCachingEnabled` | Adds `cache_control` breakpoints on the system prompt, the tool definitions and the newest turn, so each tool-loop round reads the earlier prefix from the cache. Doesn't shrink the prompt; reduces cost. Cache reads and writes show in the live trail's usage block. |
 | `transport` | `'direct'` / `'agentSdk'` / `'vscodeLm'`. Tool-trail enforcement applies to `'direct'`. |
 | `memoryToolsEnabled` | Expose memory read/write tools to the model. |
 | `maxRounds`, `maxTokens` | Standard agent loop knobs. |

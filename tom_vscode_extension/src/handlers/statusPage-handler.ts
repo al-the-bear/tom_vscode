@@ -738,7 +738,7 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
                 { label: 'Yes', value: true },
             ],
             {
-                placeHolder: `Prompt caching (cache_control on system prompt)? (current: ${promptCachingEnabled ? 'Yes' : 'No'})`,
+                placeHolder: `Prompt caching (cache_control on system prompt, tools and conversation)? (current: ${promptCachingEnabled ? 'Yes' : 'No'})`,
                 ignoreFocusOut: true,
             },
         );

@@ -61,7 +61,7 @@ stream in flight.
 | --- | --- | --- |
 | Auth source | `ANTHROPIC_API_KEY` env var | Inherited from the host Claude Code install |
 | Billing | Anthropic API account | Claude Code subscription / Bedrock / Vertex |
-| Prompt caching | Opt-in via `promptCachingEnabled` | SDK-managed (field ignored) |
+| Prompt caching | `promptCachingEnabled`: system prompt, tools and newest turn; usage (cache reads/writes) in the live trail | SDK-managed (field ignored) |
 | Context compaction | Our `history-compaction.ts` | SDK-managed (`historyMode`, `maxHistoryTokens` ignored) |
 | Tool-use loop | Hand-rolled in `anthropic-handler.ts` | SDK-managed |
 | Memory tools | Same (`tomAi_memory_*`) | Same (`tomAi_memory_*`) — still exposed over MCP |
