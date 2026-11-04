@@ -215,10 +215,13 @@ final response = await model.sendRequest(
     LanguageModelChatMessage.user('Explain this stack trace'),
   ],
 );
-// response is a LanguageModelChatResponse
+// response is a LanguageModelChatResponse; response.text is the reply
 
-final tokens = await model.countTokens('some text');
+final tokens = await model.countTokens(VSCode.instance.adapter, 'some text');
 ```
+
+A call whose script fails in the window (no such model, a refused consent)
+throws `LanguageModelCallException`, naming the call and the window's error.
 
 Tools:
 
@@ -230,7 +233,8 @@ await lm.registerTool('myTool', tool);
 
 Key types: `LanguageModelChat`, `LanguageModelChatMessage` (`.user` /
 `.assistant` constructors), `LanguageModelChatResponse`,
-`LanguageModelToolResult`, `LanguageModelToolInformation`.
+`LanguageModelToolResult`, `LanguageModelToolInformation`,
+`LanguageModelCallException`.
 
 > For the **Anthropic** Agent SDK (a different, richer agentic surface), see the
 > [Agent SDK guide](vscode_api_anthropic_agent_sdk_guide.md). `lm` here is the
