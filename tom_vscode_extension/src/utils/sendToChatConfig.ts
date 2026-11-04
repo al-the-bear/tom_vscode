@@ -187,6 +187,20 @@ export interface SendToChatConfig {
      */
     anthropic?: {
         apiKeyEnvVar?: string;
+        /**
+         * Prices of the direct-API models, USD per million tokens, for the cost
+         * in the live trail's usage block and the Status Page's totals. A model
+         * matches its exact entry, else the longest entry its id starts with;
+         * cache prices default to 0.1x / 1.25x the input price
+         * (src/utils/usageCost.ts). A model without an entry shows no cost.
+         */
+        modelPrices?: Array<{
+            model: string;
+            inputPerMTok: number;
+            outputPerMTok: number;
+            cacheReadPerMTok?: number;
+            cacheWritePerMTok?: number;
+        }>;
         configurations?: Array<{
             id: string;
             name: string;

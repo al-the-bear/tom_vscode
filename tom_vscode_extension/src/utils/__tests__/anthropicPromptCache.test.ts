@@ -157,7 +157,8 @@ describe('anthropicPromptCache', () => {
         assert.equal((loop.match(/messages: requestMessages\(\)/g) ?? []).length, 2);
         assert.doesNotMatch(loop, /\? \{ tools: anthropicTools \}/, 'no request goes out with the unmarked tools');
         assert.match(loop, /usageTotals = addResponseUsage\(usageTotals, response\.usage\)/);
-        assert.match(loop, /liveTrail\?\.appendUsage\(\{ totals: usageTotals \}\)/);
+        // The block carries the model line and its cost (usageCost.ts, UC-3) since ccparity_a_directapi-3.
+        assert.match(loop, /liveTrail\?\.appendUsage\(directSendUsage\(configuration\.model, usageTotals, /);
         // Every way the loop ends with an answer reports the usage.
         const finals = loop.match(/return (withUsage\()?this\.finalize\(/g) ?? [];
         assert.ok(finals.length >= 2);

@@ -13,6 +13,7 @@ Single-page view for runtime visibility into extension state, configuration high
 ## Content areas
 
 - **Extension build** — the build this window runs and the one installed (`buildSectionHtml`, from `src/services/buildStatusService.ts`); when a newer one is installed, a warning and a **Reload window** button (action `reloadWindow`).
+- **Usage and cost** — today's and the since-reset totals of this window's sends, per model: sends, tokens, cache reads and writes, cost (`usageSectionHtml`, `src/utils/usageSection.ts`, from the ledger in `src/services/usageLedgerService.ts`). Costs come from `anthropic.modelPrices` (direct) or the Agent SDK's own report; an unpriced model or a Local LLM shows "no price". **Reset** (action `resetUsage`) starts the since-reset totals again.
 - **Bridge / runtime status** — bridge profile, PID, last message, connection state.
 - **Chat subsystems readiness** — per-subsystem (Anthropic, Tom AI Chat, AI Conversation, Copilot, Local LLM) config snapshot with transport + history-mode indicators.
 - **Anthropic profiles** — curated profiles (3 models × 3 modes) with picker; per-profile memory / tool-set / approval mode overrides.

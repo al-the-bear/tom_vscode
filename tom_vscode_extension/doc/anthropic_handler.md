@@ -249,7 +249,13 @@ Both cost figures are **US dollars**, not cents — `costUSD` / `total_cost_usd`
 
 The `when` column stamps the moment the accounting was recorded, in the same `YYYYMMDD_HHMMSS` format as the enclosing `## 🚀 PROMPT …` header so the two can be read together. They are deliberately not the same instant: the header marks when the turn *started*, and a turn that runs for minutes finishes far from where it began. `formatLiveTrailUsage` takes that time as an argument rather than reading the clock, which is what keeps it pure.
 
-The aggregate `usage` arrives in the wire format's snake_case while `modelUsage` uses camelCase; the transport normalises both onto the trail's single vocabulary. Rendering is `formatLiveTrailUsage` — a pure function in `live-trail.ts`, unit-tested — and a usage object with nothing to report renders nothing rather than an empty heading. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
+The aggregate `usage` arrives in the wire format's snake_case while `modelUsage` uses camelCase; the transport normalises both onto the trail's single vocabulary.
+
+### The same block on `direct` and Local LLM
+
+The **direct** transport sums `response.usage` over the rounds of a send (cache reads and writes included) and writes the same block: the totals, one line for the configuration's model and its cost from the price table `anthropic.modelPrices` (USD per million tokens; a model matches its exact entry, else the longest entry its id starts with; cache prices default to 0.1x read and 1.25x write of the input price). A model without an entry shows its tokens and no cost: prices are configured, never guessed (`src/utils/usageCost.ts`). A **Local LLM** send (through a profile or the Local LLM panel) sums each round's prompt and completion tokens and writes tokens only. VS Code LM reports no usage, so its sends have no block.
+
+Every `usage` event, from any transport, is also added to this window's usage ledger (`src/services/usageLedgerService.ts`, kept in the workspace state, per day and model, 62 days), which the Status Page shows as today's and the since-reset totals. Rendering is `formatLiveTrailUsage` — a pure function in `live-trail.ts`, unit-tested — and a usage object with nothing to report renders nothing rather than an empty heading. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
 
 ## Related sections of the spec
 

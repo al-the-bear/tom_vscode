@@ -38,6 +38,22 @@
                     "default": "ANTHROPIC_API_KEY",
                     "description": "Environment variable name from which the Anthropic API key is read at runtime. No key material is stored in this file."
                 },
+                "modelPrices": {
+                    "type": "array",
+                    "description": "Prices of the direct-API models, USD per million tokens, for the cost in the live trail's usage block and the Status Page's usage totals. A model matches its exact entry, else the longest entry its id starts with (\"claude-opus-5\" prices every claude-opus-5-*). Cache prices default to 0.1x (read) and 1.25x (write) the input price. A model without an entry shows its tokens and no cost. The Agent SDK reports its own cost.",
+                    "items": {
+                        "type": "object",
+                        "required": ["model", "inputPerMTok", "outputPerMTok"],
+                        "properties": {
+                            "model": { "type": "string", "minLength": 1, "description": "A model id, or the start of one." },
+                            "inputPerMTok": { "type": "number", "minimum": 0 },
+                            "outputPerMTok": { "type": "number", "minimum": 0 },
+                            "cacheReadPerMTok": { "type": "number", "minimum": 0 },
+                            "cacheWritePerMTok": { "type": "number", "minimum": 0 }
+                        },
+                        "additionalProperties": false
+                    }
+                },
                 "configurations": {
                     "type": "array",
                     "description": "Named Anthropic configurations selectable in the ANTHROPIC panel section.",

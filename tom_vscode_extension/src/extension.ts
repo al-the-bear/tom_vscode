@@ -104,6 +104,7 @@ import {
 import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
+import { registerUsageLedger } from './services/usageLedgerService';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
@@ -506,6 +507,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Markdown Browser
     stepStart = performance.now();
     registerMarkdownBrowser(context);
+    // Every send's usage block, summed for the Status Page.
+    registerUsageLedger(context);
     timeStep('markdownBrowser', stepStart);
 
     // Register TODO Log explorer sidebar panel

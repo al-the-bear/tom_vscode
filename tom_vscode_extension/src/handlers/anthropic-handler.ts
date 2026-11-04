@@ -14,6 +14,7 @@ import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { addTokenCounts, directSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
 import Anthropic from '@anthropic-ai/sdk';
@@ -2392,11 +2393,13 @@ export class AnthropicHandler {
         const requestMessages = (): AnthropicMessageParam[] =>
             effectiveCaching ? withLastMessageCacheBreakpoint(messages) : messages;
         // Token usage summed over the rounds of this send (cache reads and
-        // writes included); reported in the live trail and the send result.
+        // writes included); reported in the live trail — with the model's cost
+        // from the configured price table (`anthropic.modelPrices`) — and in the
+        // send result.
         let usageTotals: LiveTrailTokenCounts = {};
         const finishUsage = (): LiveTrailTokenCounts | undefined => {
             if (Object.keys(usageTotals).length === 0) { return undefined; }
-            liveTrail?.appendUsage({ totals: usageTotals });
+            liveTrail?.appendUsage(directSendUsage(configuration.model, usageTotals, loadSendToChatConfig()?.anthropic?.modelPrices));
             return usageTotals;
         };
 
@@ -2919,6 +2922,11 @@ export class AnthropicHandler {
         } catch { /* best-effort */ }
 
         try {
+            // Tokens of every round, written as the usage block when the send ends (no cost: a local model).
+            let localUsage: LiveTrailTokenCounts = {};
+            const writeLocalUsage = (): void => {
+                if (Object.keys(localUsage).length > 0) { liveTrail?.appendUsage(localLlmSendUsage(llm.model, localUsage)); }
+            };
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
                     break;
@@ -2965,9 +2973,11 @@ export class AnthropicHandler {
                 });
                 lastText = result.text || lastText;
                 this.rememberAssistantText(lastText);
+                localUsage = addTokenCounts(localUsage, tokensFromLocalStats(result.stats));
 
                 if (!result.toolCalls || result.toolCalls.length === 0) {
                     lastStopReason = 'end_turn';
+                    writeLocalUsage();
                     return this.finalize(
                         userContent,
                         lastText,
@@ -3033,6 +3043,7 @@ export class AnthropicHandler {
 
             // Exhausted maxRounds — finalize with whatever text we have.
             lastStopReason = 'max_tokens';
+            writeLocalUsage();
             return this.finalize(
                 userContent,
                 lastText,

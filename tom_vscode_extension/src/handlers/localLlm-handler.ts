@@ -42,7 +42,8 @@ import {
 import { ToolTrail, setActiveToolTrail } from '../services/tool-trail';
 import { writeToolResult } from '../services/tool-result-store';
 import { TwoTierMemoryService } from '../services/memory-service';
-import { LiveTrailWriter, LOCAL_LLM_LIVE_TRAIL_FILENAME } from '../services/live-trail';
+import { LiveTrailWriter, LOCAL_LLM_LIVE_TRAIL_FILENAME, type LiveTrailTokenCounts } from '../services/live-trail';
+import { addTokenCounts, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
@@ -1774,7 +1775,7 @@ export class LocalLlmManager {
          * events.
          */
         liveTrail?: LiveTrailWriter | null;
-    }): Promise<{ text: string; stats?: OllamaStats; toolCallCount: number; turnsUsed: number }> {
+    }): Promise<{ text: string; stats?: OllamaStats; toolCallCount: number; turnsUsed: number; usage: LiveTrailTokenCounts }> {
         const {
             baseUrl, model, systemPrompt, userPrompt, temperature,
             tools, onToken: callerOnToken, onToolCall, cancellationToken, keepAlive, apiStyle, apiKeyEnv, liveTrail,
@@ -1868,6 +1869,8 @@ export class LocalLlmManager {
         } catch { /* best-effort */ }
 
         let totalToolCalls = 0;
+        // Tokens of every round (`stats` stays the last round's, as before).
+        let usage: LiveTrailTokenCounts = {};
 
         for (let round = 0; round < maxRounds; round++) {
             // Inject turn budget as a system-level note so the model knows its limits
@@ -1913,11 +1916,13 @@ export class LocalLlmManager {
                 apiKeyEnv,
             });
 
+            usage = addTokenCounts(usage, tokensFromLocalStats(result.stats));
+
             // No tool calls → model produced a final text response
             if (!result.toolCalls || result.toolCalls.length === 0) {
                 this.logChannel.appendLine(`✅ Final response after ${round + 1} round(s), ${totalToolCalls} tool call(s)`);
                 this.logChannel.appendLine('');
-                return { text: result.text, stats: result.stats, toolCallCount: totalToolCalls, turnsUsed: round + 1 };
+                return { text: result.text, stats: result.stats, toolCallCount: totalToolCalls, turnsUsed: round + 1, usage };
             }
 
             // Trail: Log intermediate response with tool calls
@@ -2028,6 +2033,7 @@ export class LocalLlmManager {
                   (messages.filter(m => m.role === 'assistant').pop()?.content ?? ''),
             toolCallCount: totalToolCalls,
             turnsUsed: maxRounds,
+            usage,
         };
     }
 
@@ -2483,6 +2489,10 @@ export class LocalLlmManager {
             // `${thinkTagInfo}` placeholder.
             void cleaned;
             void thinkContent;
+            // Tokens of every round; a local model has no cost.
+            if (Object.keys(result.usage ?? {}).length > 0) {
+                liveTrail.appendUsage(localLlmSendUsage(mc.model, result.usage));
+            }
             liveTrail.endPrompt({
                 rounds: turnsUsed ?? 0,
                 toolCalls: toolCallCount ?? 0,

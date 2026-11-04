@@ -404,6 +404,17 @@ and `_ai/trail/copilot/<quest>/`, one set per quest.
 | `memoryToolsEnabled` | Expose memory read/write tools to the model. |
 | `maxRounds`, `maxTokens` | Standard agent loop knobs. |
 
+**`anthropic.modelPrices`** (on the section, not a configuration) is the price table of the direct-API models, in USD per million tokens, for the cost in the live trail's usage block and the Status Page's usage totals:
+
+```json
+"modelPrices": [
+  { "model": "claude-opus-5", "inputPerMTok": 15, "outputPerMTok": 75 },
+  { "model": "claude-haiku-5-5", "inputPerMTok": 1, "outputPerMTok": 5, "cacheReadPerMTok": 0.1, "cacheWritePerMTok": 1.25 }
+]
+```
+
+The numbers are an example of the shape, not current prices: take them from Anthropic's pricing page. A model matches its exact entry, else the longest entry its id starts with (`claude-opus-5` prices every `claude-opus-5-*`). `cacheReadPerMTok` defaults to 0.1x and `cacheWritePerMTok` to 1.25x the input price. A model without an entry shows its tokens and no cost. The Agent SDK reports its own cost; Local LLM sends show tokens only.
+
 ---
 
 ## 7. History Compaction (`compaction` section) — defaults & system-wide flags

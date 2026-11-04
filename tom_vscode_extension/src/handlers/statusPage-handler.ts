@@ -12,6 +12,9 @@
  */
 
 import { checkBuildStatus } from '../services/buildStatusService';
+import { resetUsage, usageSummary } from '../services/usageLedgerService';
+import { usageSectionHtml } from '../utils/usageSection';
+import type { UsageSummary } from '../utils/usageLedger';
 import { buildLabel, type BuildStatus } from '../utils/buildStamp';
 import * as vscode from 'vscode';
 import { pickSessions } from './sessionSelectionPicker';
@@ -1096,6 +1099,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'reloadWindow':
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
             break;
+        // Start the usage totals again (this window's workspace).
+        case 'resetUsage':
+            await resetUsage();
+            break;
         // Queue & Timer
         case 'setQueueOn':
         case 'setQueueOff': {
@@ -1908,6 +1915,8 @@ export interface StatusData {
     configErrors: string[];
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
+    /** This window's usage totals (live-trail usage events, any transport). */
+    usage?: UsageSummary;
     /** History compaction settings (anthropic_sdk_integration.md §10). */
     compaction: {
         /** Global kill switch — skip the background compaction + memory
@@ -2249,6 +2258,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         })),
         configErrors: strictErrors,
         build: checkBuildStatus(),
+        usage: usageSummary(),
         compaction: {
             disabled: sendToChatConfig?.compaction?.disabled === true,
             llmProvider: (sendToChatConfig?.compaction?.llmProvider as 'localLlm' | 'anthropic') || 'localLlm',
@@ -2621,6 +2631,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 <div class="sp-panel">
     ${strictErrorsHtml}
     ${buildSectionHtml(status.build)}
+    ${usageSectionHtml(status.usage)}
     <!-- Queue & Timer Switches -->
     <div class="sp-section">
         <div class="sp-section-header">
