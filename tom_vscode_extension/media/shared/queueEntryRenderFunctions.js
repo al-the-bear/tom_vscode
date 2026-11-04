@@ -437,23 +437,9 @@ function renderEntry(item, idx) {
   return '<div class="queue-item ' + cls.join(' ') + '">' +
     headerHtml +
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
-    (isEditable
-      ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
-      : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
-    templateRow +
-    (editorMode === 'template' ? '' : renderDoneNotification(item, safeId, safeStatus)) +
-    reminderRow +
-    renderPrePrompts(item, safeStatus) +
-    renderFollowUps(item, safeStatus) +
-    answerBlock +
-    // Yellow interruption chip — explains why the send didn't complete.
-    (item.warning && item.warning.kind
-      ? '<div class="warning-chip" title="' + escapeHtml(item.warning.at || '') + '">'
-        + '<span class="codicon codicon-warning"></span>'
-        + '<span><strong>' + escapeHtml(warningKindLabel(item.warning.kind)) + ':</strong> '
-        + escapeHtml(item.warning.message || '')
-        + '</span></div>'
-      : '') +
+    // The chips come first, under the header: they say why the item will
+    // not be sent, or why its last send did not complete — easy to miss below
+    // the prompt, its stages and its answer.
     // A stage on a direct-API profile whose key is not in this VS Code's environment: every send would fail.
     (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0
       ? item.apiKeyWarnings.map(function(line) {
@@ -463,6 +449,23 @@ function renderEntry(item, idx) {
             + '</div>';
         }).join('')
       : '') +
+    // Yellow interruption chip — explains why the send didn't complete.
+    (item.warning && item.warning.kind
+      ? '<div class="warning-chip" title="' + escapeHtml(item.warning.at || '') + '">'
+        + '<span class="codicon codicon-warning"></span>'
+        + '<span><strong>' + escapeHtml(warningKindLabel(item.warning.kind)) + ':</strong> '
+        + escapeHtml(item.warning.message || '')
+        + '</span></div>'
+      : '') +
+    (isEditable
+      ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
+      : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
+    templateRow +
+    (editorMode === 'template' ? '' : renderDoneNotification(item, safeId, safeStatus)) +
+    reminderRow +
+    renderPrePrompts(item, safeStatus) +
+    renderFollowUps(item, safeStatus) +
+    answerBlock +
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +
   '</div>';

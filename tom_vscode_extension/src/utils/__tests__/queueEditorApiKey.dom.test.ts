@@ -10,6 +10,9 @@
  *   QK-1 the state carries `noApiKey` per profile and for the default profile; after a state update the
  *        queue-default and add-form pickers still mark the key-less profiles '(no API key)', and only them
  *   QK-2 an item whose stages would fail for a missing key shows its 'No API key' chip in the editor
+ *   QK-3 the chips come first in the item's body, right under its header and before the prompt text:
+ *        the 'No API key' chip, and the interruption chip (why a send did not complete) beside it; the
+ *        user found the key chip at the bottom, after the answer, where it is missed (finishvsf3)
  */
 
 import test, { describe } from 'node:test';
@@ -86,5 +89,23 @@ describe('Prompt Queue editor — a missing API key', () => {
         const chips = [...window.document.querySelectorAll('.api-key-warning')].map((c: Win) => c.textContent);
         assert.equal(chips.length, 1, 'the chip is rendered');
         assert.match(chips[0], /^No API key: the main prompt: .*K2 is not set$/);
+    });
+
+    test('QK-3: the chips are the first thing in the item body', (t) => {
+        const item = {
+            id: 'probe1', status: 'staged', type: 'normal', transport: 'anthropic', anthropicProfileId: 'sonnet-5-5-direct',
+            originalText: 'probe text', expandedText: 'probe text', template: '(none)', createdAt: new Date().toISOString(),
+            apiKeyWarnings: ['the main prompt: K2 is not set'],
+            warning: { kind: 'overloaded', message: 'the API was overloaded', at: '2026-11-04T10:00:00.000Z' },
+        };
+        const window = setup(t, { items: [item], anthropicProfiles: PROFILES });
+        const header = window.document.querySelector('.queue-item .item-header');
+        const body = header.nextElementSibling;
+        const firstTwo = [...body.children].slice(0, 2).map((c: Win) => c.className);
+        assert.deepEqual(firstTwo, ['warning-chip api-key-warning', 'warning-chip'], 'the key chip first, then the interruption chip');
+        const prompt = body.querySelector('textarea, .mainprompt-content');
+        const chip = body.querySelector('.api-key-warning');
+        assert.ok(chip.compareDocumentPosition(prompt) & window.Node.DOCUMENT_POSITION_FOLLOWING, 'the prompt text comes after the chip');
+        assert.equal(window.document.querySelectorAll('.api-key-warning').length, 1, 'rendered once, not twice');
     });
 });
