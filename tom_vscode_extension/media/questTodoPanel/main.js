@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix, qtCompareTodoIds */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -28,7 +28,9 @@ function qtEmptyFilterState() {
 }
 var qtFilterState = qtEmptyFilterState();
 var qtSortFields = []; // [{field,asc}]
-var SORTABLE_FIELDS = ['quest','status','priority','title','created','updated','completed_date'];
+var SORTABLE_FIELDS = ['id','quest','status','priority','title','created','updated','completed_date'];
+/** Group the list by id prefix (the sort picker's Group checkbox; default on). */
+var qtGroupByPrefix = true;
 var qtUserName = '';
 var qtNavHistory = [];
 var qtNavIndex = -1;
@@ -62,6 +64,7 @@ function qtPersistState() {
         file: qtCurrentFile,
         tagScope: qtTagPickerScope,
         sortFields: qtSortFields,
+        grouped: qtGroupByPrefix,
         filterState: qtFilterState
     }});
 }
@@ -696,8 +699,8 @@ function qtRenderList() {
         return true;
     });
 
-    // Apply multi-field sort
-    if (qtSortFields.length) {
+    // Apply multi-field sort; ties (and no field chosen) by id in natural order.
+    {
         var priOrd = { critical: 0, high: 1, medium: 2, low: 3 };
         var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'completed': 4, 'cancelled': 5 };
         // Rank 0 is falsy, so `|| 9` would sort the *first* rank last. Look the
@@ -710,6 +713,7 @@ function qtRenderList() {
                 var sf = qtSortFields[si];
                 var cmp = 0;
                 switch (sf.field) {
+                    case 'id': cmp = qtCompareTodoIds(a, b); break;
                     case 'quest': cmp = qtQuestKey(a).localeCompare(qtQuestKey(b)); break;
                     case 'status': cmp = rank(staOrd, a.status) - rank(staOrd, b.status); break;
                     case 'priority': cmp = rank(priOrd, a.priority) - rank(priOrd, b.priority); break;
@@ -721,15 +725,16 @@ function qtRenderList() {
                 if (!sf.asc) cmp = -cmp;
                 if (cmp !== 0) return cmp;
             }
-            return 0;
+            return qtCompareTodoIds(a, b);
         });
     }
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
     // Group by id prefix: the groups alphabetically (the "Unprefixed"
-    // catch-all last), the todos in each by their number (grouping.js).
-    var groups = qtGroupTodosByPrefix(filtered);
+    // catch-all last), the todos in each in the sort above (grouping.js).
+    // Ungrouped (the sort picker's Group checkbox off): one plain list.
+    var groups = qtGroupByPrefix ? qtGroupTodosByPrefix(filtered) : [];
     var html = '';
     // Visual order — basis for shift-click stack ranges. Only rows the user can
     // actually see belong in it, so a range never reaches into a collapsed
@@ -743,6 +748,12 @@ function qtRenderList() {
         for (var gt = 0; gt < group.todos.length; gt++) {
             html += qtRenderTodoRow(group.todos[gt]);
             renderOrder.push(group.todos[gt].id);
+        }
+    }
+    if (!qtGroupByPrefix) {
+        for (var pt = 0; pt < filtered.length; pt++) {
+            html += qtRenderTodoRow(filtered[pt]);
+            renderOrder.push(filtered[pt].id);
         }
     }
     qtLastRenderOrder = renderOrder;
@@ -1086,6 +1097,14 @@ function qtRenderFilterPicker() {
 }
 
 // ── Sort picker ──
+/** The Sort button is marked while the list is not in its default order (no field, grouped). */
+function qtUpdateSortIndicator() {
+    var sortBtn = document.getElementById('qt-btn-sort');
+    if (!sortBtn) return;
+    if (qtSortFields.length || !qtGroupByPrefix) sortBtn.classList.add('active-indicator');
+    else sortBtn.classList.remove('active-indicator');
+}
+
 function qtToggleSortPicker() {
     var el = document.getElementById('qt-sort-picker');
     if (!el) return;
@@ -1099,7 +1118,10 @@ function qtRenderSortPicker() {
     var el = document.getElementById('qt-sort-picker');
     if (!el) return;
     var pending = qtSortFields.slice(); // copy for editing
-    var html = '<div class="qt-picker-section-header">Sort Fields</div>';
+    var html = '<label class="qt-picker-option qt-sp-group" title="Group the list by id prefix; off: one plain list">'
+        + '<input type="checkbox" id="qt-sp-group"' + (qtGroupByPrefix ? ' checked' : '') + '> Group by prefix</label>'
+        + '<div class="qt-picker-section-header">Sort Fields</div>'
+        + '<div class="qt-picker-hint">None chosen: by id (number order). Groups stay in alphabetical order.</div>';
     SORTABLE_FIELDS.forEach(function(field) {
         var idx = -1; var asc = true;
         for (var i = 0; i < pending.length; i++) { if (pending[i].field === field) { idx = i; asc = pending[i].asc; break; } }
@@ -1113,7 +1135,17 @@ function qtRenderSortPicker() {
     html += '<div class="qt-picker-footer"><button class="secondary" id="qt-sp-reset">Reset</button><button class="primary" id="qt-sp-ok">OK</button></div>';
     el.innerHTML = html;
 
-    el.querySelectorAll('.qt-picker-option').forEach(function(opt) {
+    var groupBox = document.getElementById('qt-sp-group');
+    if (groupBox) {
+        groupBox.addEventListener('click', function(e) { e.stopPropagation(); });
+        groupBox.addEventListener('change', function() {
+            qtGroupByPrefix = !!groupBox.checked;
+            qtUpdateSortIndicator();
+            qtRenderList();
+            qtPersistState();
+        });
+    }
+    el.querySelectorAll('.qt-picker-option[data-qt-sort-field]').forEach(function(opt) {
         opt.addEventListener('click', function(e) {
             e.stopPropagation();
             var field = opt.dataset.qtSortField;
@@ -1133,8 +1165,8 @@ function qtRenderSortPicker() {
     document.getElementById('qt-sp-reset').addEventListener('click', function(e) {
         e.stopPropagation();
         qtSortFields = []; pending = [];
-        var sortBtn = document.getElementById('qt-btn-sort');
-        if (sortBtn) sortBtn.classList.remove('active-indicator');
+        qtGroupByPrefix = true;
+        qtUpdateSortIndicator();
         qtRenderSortPicker();
         qtRenderList();
         qtPersistState();
@@ -1143,8 +1175,7 @@ function qtRenderSortPicker() {
         e.stopPropagation();
         qtSortFields = pending;
         el.style.display = 'none';
-        var sortBtn = document.getElementById('qt-btn-sort');
-        if (sortBtn) { if (qtSortFields.length) sortBtn.classList.add('active-indicator'); else sortBtn.classList.remove('active-indicator'); }
+        qtUpdateSortIndicator();
         qtRenderList();
         qtPersistState();
     });
@@ -2385,9 +2416,9 @@ function qtHandleMessage(msg) {
                 var st = msg.state;
                 if (st.sortFields && st.sortFields.length) {
                     qtSortFields = st.sortFields;
-                    var sortBtn = document.getElementById('qt-btn-sort');
-                    if (sortBtn) sortBtn.classList.add('active-indicator');
                 }
+                if (st.grouped === false) { qtGroupByPrefix = false; }
+                qtUpdateSortIndicator();
                 if (st.tagScope === 'quest' || st.tagScope === 'all') {
                     qtTagPickerScope = st.tagScope;
                 }

@@ -21,6 +21,7 @@ interface GroupingApi {
     QT_UNPREFIXED_LABEL: string;
     qtTodoPrefix(id: unknown): string;
     qtGroupTodosByPrefix(todos: TodoLike[] | null | undefined): PrefixGroup[];
+    qtCompareTodoIds(a: TodoLike, b: TodoLike): number;
 }
 
 /**
@@ -123,24 +124,24 @@ describe('qtGroupTodosByPrefix', () => {
             'letters without regard to case; `_` before letters');
     });
 
-    test('the same layout for every sort of the same todos', () => {
+    test('the groups are in the same place for every sort of the same todos', () => {
         const todos: TodoLike[] = [{ id: 'vex2' }, { id: 'qr10' }, { id: 'cleanup' }, { id: 'qr2' }, { id: 'vex1' }, { id: 'qr1' }];
-        const layout = (list: TodoLike[]): string[][] => Array.from(api.qtGroupTodosByPrefix(list), (g) => Array.from(idsOf(g), String));
-        const expected = [['qr1', 'qr2', 'qr10'], ['vex1', 'vex2'], ['cleanup']];
-        assert.deepEqual(layout(todos), expected);
-        assert.deepEqual(layout([...todos].reverse()), expected);
-        assert.deepEqual(layout([...todos].sort((a, b) => String(a.id).localeCompare(String(b.id)))), expected);
+        const order = (list: TodoLike[]): string[] => Array.from(api.qtGroupTodosByPrefix(list), (g) => g.label);
+        assert.deepEqual(order(todos), ['qr', 'vex', api.QT_UNPREFIXED_LABEL]);
+        assert.deepEqual(order([...todos].reverse()), ['qr', 'vex', api.QT_UNPREFIXED_LABEL]);
     });
 
-    test('sorts the todos inside a group by their number (natural order)', () => {
-        const groups = api.qtGroupTodosByPrefix([
-            { id: 'qr9-late' }, { id: 'qr10-later' }, { id: 'qr1-early' }, { id: 'qr2-b' },
-        ]);
-        assert.deepEqual(idsOf(groups[0]), ['qr1-early', 'qr2-b', 'qr9-late', 'qr10-later'], '2 before 10');
-        const stems = api.qtGroupTodosByPrefix([
-            { id: 'cc_parity_a_start-16_aker-todo-groups' }, { id: 'cc_parity_a_start-2_aker-x' }, { id: 'cc_parity_a_start-11_aker-y' },
-        ]);
-        assert.deepEqual(idsOf(stems[0]), ['cc_parity_a_start-2_aker-x', 'cc_parity_a_start-11_aker-y', 'cc_parity_a_start-16_aker-todo-groups']);
+    test('keeps the incoming order inside a group: the list\'s sort', () => {
+        const groups = api.qtGroupTodosByPrefix([{ id: 'qr9-late' }, { id: 'qr1-early' }]);
+        assert.deepEqual(idsOf(groups[0]), ['qr9-late', 'qr1-early']);
+    });
+
+    test('qtCompareTodoIds: by number (natural order), the default sort', () => {
+        const sorted = (ids: string[]): string[] => ids.map((id) => ({ id })).sort(api.qtCompareTodoIds).map((t) => String(t.id));
+        assert.deepEqual(sorted(['qr9-late', 'qr10-later', 'qr1-early', 'qr2-b']), ['qr1-early', 'qr2-b', 'qr9-late', 'qr10-later'], '2 before 10');
+        assert.deepEqual(sorted(['cc_parity_a_start-16_x', 'cc_parity_a_start-2_x', 'cc_parity_a_start-11_y']),
+            ['cc_parity_a_start-2_x', 'cc_parity_a_start-11_y', 'cc_parity_a_start-16_x']);
+        assert.deepEqual(sorted(['b', 'A', 'a']), ['A', 'a', 'b'], 'case ignored, then code point');
     });
 
     test('collects prefix-less todos into the Unprefixed group', () => {
@@ -148,7 +149,7 @@ describe('qtGroupTodosByPrefix', () => {
             { id: 'qr1-a' }, { id: 'cleanup' }, { id: '7-seven' },
         ]);
         assert.deepEqual(labels(groups), ['qr', api.QT_UNPREFIXED_LABEL]);
-        assert.deepEqual(idsOf(groups[1]), ['7-seven', 'cleanup'], 'sorted by id too');
+        assert.deepEqual(idsOf(groups[1]), ['cleanup', '7-seven']);
         assert.equal(groups[1].prefix, '', 'the catch-all group is keyed by the empty prefix');
     });
 
@@ -169,7 +170,7 @@ describe('qtGroupTodosByPrefix', () => {
         // already present, which would silently drop every such todo. The
         // implementation must namespace its keys.
         const groups = api.qtGroupTodosByPrefix([
-            { id: 'toString2' }, { id: 'constructor3' }, { id: 'constructor1' },
+            { id: 'constructor1' }, { id: 'toString2' }, { id: 'constructor3' },
         ]);
         assert.deepEqual(labels(groups), ['constructor', 'toString']);
         assert.deepEqual(idsOf(groups[0]), ['constructor1', 'constructor3']);

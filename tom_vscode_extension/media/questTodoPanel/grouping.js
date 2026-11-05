@@ -54,12 +54,25 @@ function qtIdText(t) {
 }
 
 /**
+ * Compare two todos by id in natural order (`qr2` before `qr10`) — the
+ * list's `id` sort, and its order when no sort is chosen.
+ *
+ * @param {QtTodoLike} a
+ * @param {QtTodoLike} b
+ * @returns {number}
+ */
+function qtCompareTodoIds(a, b) {
+    return qtNaturalCompare(qtIdText(a), qtIdText(b));
+}
+
+/**
  * Split a todo list into prefix groups for the list pane.
  *
  * The groups are **sorted alphabetically by prefix**, the `Unprefixed`
- * catch-all last, and the todos inside a group by id in natural order
- * (`qr2` before `qr10`) — whatever the list's sort and filter, so every group
- * is always in the same place. The filter still decides which todos appear.
+ * catch-all last — whatever the list's sort and filter, so every group is
+ * always in the same place. Inside a group the todos keep the incoming order:
+ * the list's sort (by id in natural order when none is chosen). The filter
+ * still decides which todos appear.
  *
  * @param {QtTodoLike[] | null | undefined} todos
  * @returns {QtPrefixGroup[]}
@@ -92,12 +105,9 @@ function qtGroupTodosByPrefix(todos) {
         byKey[key].todos.push(todo);
     }
 
-    /** @param {QtTodoLike} a @param {QtTodoLike} b */
-    var byId = function(a, b) { return qtNaturalCompare(qtIdText(a), qtIdText(b)); };
     var groups = order
         .map(function(k) { return byKey[k]; })
         .sort(/** @param {QtPrefixGroup} a @param {QtPrefixGroup} b */ function(a, b) { return qtNaturalCompare(a.prefix, b.prefix); });
     if (unprefixed) { groups.push(unprefixed); }
-    groups.forEach(function(g) { g.todos.sort(byId); });
     return groups;
 }

@@ -55,7 +55,9 @@
 - Group key = todo id up to its first digit (`qr3-2026…` → `qr`); no digit, or a leading digit → the **Unprefixed** group, always rendered last
 - Prefixes are verbatim: case-sensitive, separators kept (`qr` and `qr-` are different groups)
 - Separator line per group: chevron + prefix + count in brackets; click to expand/collapse
-- Groups sorted alphabetically by prefix (Unprefixed last); todos in a group by number, natural order (`qr2` before `qr10`), whatever the sort; the filter still decides which todos show
+- Groups sorted alphabetically by prefix (Unprefixed last), whatever the sort; the filter still decides which todos show
+- Sort picker: todos in a group by the chosen fields (`id` = number order, `qr2` before `qr10`), none chosen = by id; ties by id
+- Sort picker **Group by prefix** checkbox (default on, saved with the panel state): off = one plain list in the chosen order
 - List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
 - Collapse all / Expand all: toolbar buttons `qt-btn-collapse-all` / `qt-btn-expand-all`
 - 👤 `qt-btn-only-mine`: only the user's own todos (`user_action: true`), every group open; again: all todos. Filter section **User action** (yes / no). User-action titles are purple (the left border is the status: blue in progress, yellow blocked)

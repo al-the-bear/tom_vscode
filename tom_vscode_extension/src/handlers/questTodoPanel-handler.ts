@@ -48,6 +48,8 @@ interface QtPanelState {
     file?: string;
     tagScope?: 'quest' | 'all';
     sortFields?: { field: string; asc: boolean }[];
+    /** The list grouped by id prefix (default true; the sort picker's Group checkbox). */
+    grouped?: boolean;
     filterState?: {
         status?: string[];
         priority?: string[];

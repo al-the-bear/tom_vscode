@@ -126,6 +126,7 @@
 .qt-picker-section-header { padding: 6px 10px 3px 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-panel-border); }
 .qt-picker-section-header:first-child { border-top: none; }
 .qt-picker-option { padding: 4px 10px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.qt-picker-hint { padding: 0 10px 4px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .qt-picker-option:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
 .qt-picker-option .qt-check-box { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .qt-picker-option .qt-check-box .codicon { font-size: 14px; }
