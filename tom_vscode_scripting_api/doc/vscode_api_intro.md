@@ -97,7 +97,7 @@ the entire API targets a different transport (or a test double).
 Most VS Code-namespace calls are implemented by sending an `executeScriptVce`
 request whose payload is JavaScript run in the extension host with a
 `context.vscode` global; the extension-feature APIs instead call dedicated
-`<area>.<op>Vce` methods (e.g. `queue.listVce`, `localLlm.processVce`).
+`<area>.<op>Vce` methods (e.g. `queue.listVce`, `todo.createQuestVce`).
 
 ### Layer 3 — the typed APIs
 
@@ -150,7 +150,7 @@ The Tom AI extension's own subsystems, as static-method Dart classes:
 final todos = await TomTodoApi.listQuestTodos('vscode_extension');
 final queue = await TomQueueApi.list();
 final reply = await TomChatApi.sendToChat('Summarize the open file');
-final result = await AiPromptApi.process(prompt: 'Explain this error');
+final timed = await TomTimedApi.list();
 ```
 
 → [Extension scripting guide](vscode_api_extension_scripting_guide.md)
@@ -219,7 +219,7 @@ The package has two distinct setup mechanisms — know which an API uses:
   `extensions`, `lm`, `chat`) are reached through the **`VSCode` singleton**.
   Call `VSCode.initialize(adapter)` once; then the top-level getters in
   `script_globals.dart` work.
-- **Extension-feature classes** (`TomTodoApi`, `TomQueueApi`, `AiPromptApi`, …)
+- **Extension-feature classes** (`TomTodoApi`, `TomQueueApi`, `TomTimedApi`, …)
   are **static-method classes** that each need
   `<Class>.setAdapter(adapter)` before use (they do not read the `VSCode`
   singleton).

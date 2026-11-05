@@ -283,9 +283,8 @@ final info = await TomWorkspaceApi.getInfo();
 
 So every concept in this sample sets the adapter on the API class(es) it uses,
 as its first line. `workspace_metadata` sets it on `TomWorkspaceApi`; `todos`
-sets it on `TomTodoApi`; and so on. The contract is uniform across all nine
-extension APIs (the seven this sample uses, plus `AiPromptApi` and
-`AiConversationApi`): **call `<Class>.setAdapter(adapter)` before the first call,
+sets it on `TomTodoApi`; and so on. The contract is uniform across all seven
+extension APIs, all of which this sample uses: **call `<Class>.setAdapter(adapter)` before the first call,
 or the next method throws a `StateError`.**
 
 ```dart
@@ -769,7 +768,7 @@ This is the third of four samples under
 ## 14. Where to go next
 
 - [Extension scripting guide](../../doc/vscode_api_extension_scripting_guide.md) —
-  the authoritative reference for all nine extension-feature APIs and the
+  the authoritative reference for all seven extension-feature APIs and the
   "choosing the right API" table.
 - [Scripting API module README](../../README.md) — the full API surface, install,
   and architecture.

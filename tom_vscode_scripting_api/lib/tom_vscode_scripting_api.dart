@@ -55,10 +55,6 @@ export 'src/agent_sdk_tool_registry.dart';
 // incoming `agentSdk.canUseTool` request into a `CanUseTool` invocation.
 export 'src/agent_sdk_permission_dispatch.dart';
 
-// AI APIs (local LLM prompt processing & bot conversation)
-export 'src/ai_prompt_api.dart';
-export 'src/ai_conversation_api.dart';
-
 // Tom APIs (workspace, todos, queue, timed requests, documents)
 export 'src/tom_todo_api.dart';
 export 'src/tom_queue_api.dart';

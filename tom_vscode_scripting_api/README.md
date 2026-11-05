@@ -80,8 +80,6 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 
 | API | What it does |
 | --- | --- |
-| `AiPromptApi` | Run a prompt through the configured local LLM; manage profiles and models. |
-| `AiConversationApi` | Drive the multi-turn bot-conversation engine. |
 | `TomTodoApi` | CRUD over quest / workspace / session todos, as the shared `TomTodo` of `tom_todo_model`. |
 | `TomQueueApi` | Full control of the multi-transport prompt queue. |
 | `TomTimedApi` | Create and manage scheduled prompts; control the timer engine. |
@@ -167,7 +165,7 @@ Know which an API uses:
 - **VS Code-namespace classes** (`VSCode`, `window`, `workspace`, `commands`,
   `extensions`, `lm`, `chat`) read the **`VSCode` singleton** — call
   `VSCode.initialize(adapter)` once.
-- **Extension-feature classes** (`TomTodoApi`, `TomQueueApi`, `AiPromptApi`, …)
+- **Extension-feature classes** (`TomTodoApi`, `TomQueueApi`, `TomTimedApi`, …)
   are **static-method classes** — each needs `<Class>.setAdapter(adapter)`.
 
 ```dart
@@ -270,7 +268,7 @@ different transport (or a test double).
 VS Code-namespace calls are sent as an `executeScriptVce` request whose payload
 is JavaScript run in the extension host with a `context.vscode` global; the
 extension-feature APIs instead call dedicated `<area>.<op>Vce` methods (e.g.
-`queue.listVce`, `localLlm.processVce`). Server→client callbacks (Agent SDK
+`queue.listVce`, `todo.createQuestVce`). Server→client callbacks (Agent SDK
 chunks, `canUseTool`, chat handlers) are JSON-RPC requests pushed back over the
 same socket and routed by `BridgeRequestDispatcher`.
 

@@ -4,11 +4,10 @@ This guide covers the part of `tom_vscode_scripting_api` that scripts the **Tom
 AI extension's own features** — not VS Code itself (see the
 [VS Code scripting guide](vscode_api_vscode_scripting_guide.md)) and not the
 Anthropic Agent SDK (see the [Agent SDK guide](vscode_api_anthropic_agent_sdk_guide.md)),
-but the subsystems the extension adds: local LLM prompts, bot conversations,
-todos, the prompt queue, timed requests, documents, workspace metadata, tools,
-and send-to-chat.
+but the subsystems the extension adds: todos, the prompt queue, timed
+requests, documents, workspace metadata, tools, and send-to-chat.
 
-These nine APIs are **static-method classes**. Each one needs its adapter set
+These seven APIs are **static-method classes**. Each one needs its adapter set
 once before use:
 
 ```dart
@@ -18,7 +17,7 @@ final adapter = await connectToWorkspace('tom_agent_container');
 
 TomTodoApi.setAdapter(adapter);
 TomQueueApi.setAdapter(adapter);
-AiPromptApi.setAdapter(adapter);
+TomTimedApi.setAdapter(adapter);
 // …set the adapter on each API you use
 ```
 
@@ -27,60 +26,6 @@ AiPromptApi.setAdapter(adapter);
 > `<Class>.setAdapter(adapter)` on each. Forgetting throws a `StateError`.
 
 Each API maps to a family of bridge methods named `<area>.<op>Vce`.
-
----
-
-## `AiPromptApi` — local LLM prompt processing
-
-Run a prompt through the extension's configured local LLM, and manage the
-profiles and model configurations. Bridge methods: `localLlm.*Vce`.
-
-```dart
-AiPromptApi.setAdapter(adapter);
-
-final result = await AiPromptApi.process(prompt: 'Summarize this changelog');
-print(result.text);          // AiPromptResult
-print(result.tokenStats);    // AiTokenStats
-
-final profiles = await AiPromptApi.getProfiles();
-await AiPromptApi.updateProfile(/* AiPromptProfile */);
-await AiPromptApi.removeProfile('profileId');
-
-final models = await AiPromptApi.getModels();   // AiModelsResult
-await AiPromptApi.updateModel(/* AiModelConfig */);
-await AiPromptApi.removeModel('modelId');
-```
-
-Models: `AiPromptResult`, `AiTokenStats`, `AiPromptProfile`, `AiModelConfig`,
-`AiModelsResult`.
-
----
-
-## `AiConversationApi` — bot conversations
-
-Drive the extension's multi-turn bot-conversation engine. Bridge methods:
-`botConversation.*Vce`.
-
-```dart
-AiConversationApi.setAdapter(adapter);
-
-await AiConversationApi.start(/* config */);
-final status = await AiConversationApi.status();
-await AiConversationApi.addInfo('Extra context for the bot');
-await AiConversationApi.continueConversation();
-final log = await AiConversationApi.getLog();
-await AiConversationApi.halt();
-await AiConversationApi.stop();
-
-// One-shot:
-final reply = await AiConversationApi.singleTurn(/* … */);
-```
-
-Other members: `getConfig`, `getProfiles`. Enums: `ConversationMode`,
-`HistoryMode`.
-
-> The AI Conversation subsystem is **not queue-compatible** — it is its own
-> conversational loop, distinct from the prompt queue below.
 
 ---
 
@@ -285,8 +230,6 @@ Model: `SendToChatResult`.
 
 | You want to… | Use |
 | ------------ | --- |
-| Run a quick local-LLM prompt | `AiPromptApi.process` |
-| Run a multi-turn bot loop | `AiConversationApi` |
 | Send a prompt to the live chat panel | `TomChatApi.sendToChat` |
 | Drive the prompt queue | `TomQueueApi` |
 | Schedule a prompt for later | `TomTimedApi` |

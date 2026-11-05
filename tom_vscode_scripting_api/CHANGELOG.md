@@ -1,3 +1,17 @@
+## 3.0.0
+
+The Local LLM and AI Conversation APIs are removed: the panels they drove are
+gone from the extension, which answered every call with an error.
+
+- **Breaking:** `AiPromptApi` (`localLlm.*Vce`) and `AiConversationApi`
+  (`botConversation.*Vce`) are removed, with their models — `AiPromptResult`,
+  `AiTokenStats`, `AiPromptProfile`, `AiModelConfig`, `AiModelsResult`,
+  `ConversationResult`, `ConversationStatus`, `ConversationProfile`,
+  `ConversationConfig`, `ConversationExchange`, `ConversationLog`,
+  `ConversationActionResult`, `SingleTurnResult`, `CopilotResponse` — and the
+  enums `ConversationMode` and `HistoryMode`. A local model is reached through
+  an Anthropic profile on a Local LLM configuration in the extension.
+
 ## 2.0.3
 
 - Requires `tom_todo_model` ^1.2.0. Todo files now carry `blocking` (1.2.0)
