@@ -34,11 +34,32 @@ function qtTodoPrefix(id) {
 }
 
 /**
+ * Natural order of two strings: digit runs compare by value (`qr2` before
+ * `qr10`), letters without regard to case; equal that way, by code point, so
+ * the order is total and the same on every machine.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function qtNaturalCompare(a, b) {
+    var cmp = a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
+    if (cmp !== 0) { return cmp; }
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** @param {QtTodoLike} t */
+function qtIdText(t) {
+    return t && t.id !== null && t.id !== undefined ? String(t.id) : '';
+}
+
+/**
  * Split a todo list into prefix groups for the list pane.
  *
- * Named groups keep **first-appearance order**, so whatever filter/sort the
- * user has applied still drives the layout; the `Unprefixed` catch-all is
- * always appended last. Order within a group is the incoming order.
+ * The groups are **sorted alphabetically by prefix**, the `Unprefixed`
+ * catch-all last, and the todos inside a group by id in natural order
+ * (`qr2` before `qr10`) — whatever the list's sort and filter, so every group
+ * is always in the same place. The filter still decides which todos appear.
  *
  * @param {QtTodoLike[] | null | undefined} todos
  * @returns {QtPrefixGroup[]}
@@ -71,7 +92,12 @@ function qtGroupTodosByPrefix(todos) {
         byKey[key].todos.push(todo);
     }
 
-    var groups = order.map(function(k) { return byKey[k]; });
+    /** @param {QtTodoLike} a @param {QtTodoLike} b */
+    var byId = function(a, b) { return qtNaturalCompare(qtIdText(a), qtIdText(b)); };
+    var groups = order
+        .map(function(k) { return byKey[k]; })
+        .sort(/** @param {QtPrefixGroup} a @param {QtPrefixGroup} b */ function(a, b) { return qtNaturalCompare(a.prefix, b.prefix); });
     if (unprefixed) { groups.push(unprefixed); }
+    groups.forEach(function(g) { g.todos.sort(byId); });
     return groups;
 }

@@ -111,18 +111,36 @@ describe('qtGroupTodosByPrefix', () => {
         assert.deepEqual(idsOf(groups[1]), ['vex2-b']);
     });
 
-    test('keeps groups in first-appearance order, so the active sort survives', () => {
+    test('sorts the groups alphabetically by prefix, whatever the incoming order', () => {
         const groups = api.qtGroupTodosByPrefix([
             { id: 'zz9' }, { id: 'aa1' }, { id: 'mm5' },
         ]);
-        assert.deepEqual(labels(groups), ['zz', 'aa', 'mm']);
+        assert.deepEqual(labels(groups), ['aa', 'mm', 'zz']);
+        const real = api.qtGroupTodosByPrefix([
+            { id: 'user_action3' }, { id: 'dapieff2' }, { id: 'ccparity_b_panels-1' }, { id: 'cc_parity_a_start-16_aker-x' }, { id: 'Beta1' },
+        ]);
+        assert.deepEqual(labels(real), ['Beta', 'cc_parity_a_start-', 'ccparity_b_panels-', 'dapieff', 'user_action'],
+            'letters without regard to case; `_` before letters');
     });
 
-    test('preserves the incoming order of todos within a group', () => {
+    test('the same layout for every sort of the same todos', () => {
+        const todos: TodoLike[] = [{ id: 'vex2' }, { id: 'qr10' }, { id: 'cleanup' }, { id: 'qr2' }, { id: 'vex1' }, { id: 'qr1' }];
+        const layout = (list: TodoLike[]): string[][] => Array.from(api.qtGroupTodosByPrefix(list), (g) => Array.from(idsOf(g), String));
+        const expected = [['qr1', 'qr2', 'qr10'], ['vex1', 'vex2'], ['cleanup']];
+        assert.deepEqual(layout(todos), expected);
+        assert.deepEqual(layout([...todos].reverse()), expected);
+        assert.deepEqual(layout([...todos].sort((a, b) => String(a.id).localeCompare(String(b.id)))), expected);
+    });
+
+    test('sorts the todos inside a group by their number (natural order)', () => {
         const groups = api.qtGroupTodosByPrefix([
-            { id: 'qr9-late' }, { id: 'qr1-early' },
+            { id: 'qr9-late' }, { id: 'qr10-later' }, { id: 'qr1-early' }, { id: 'qr2-b' },
         ]);
-        assert.deepEqual(idsOf(groups[0]), ['qr9-late', 'qr1-early']);
+        assert.deepEqual(idsOf(groups[0]), ['qr1-early', 'qr2-b', 'qr9-late', 'qr10-later'], '2 before 10');
+        const stems = api.qtGroupTodosByPrefix([
+            { id: 'cc_parity_a_start-16_aker-todo-groups' }, { id: 'cc_parity_a_start-2_aker-x' }, { id: 'cc_parity_a_start-11_aker-y' },
+        ]);
+        assert.deepEqual(idsOf(stems[0]), ['cc_parity_a_start-2_aker-x', 'cc_parity_a_start-11_aker-y', 'cc_parity_a_start-16_aker-todo-groups']);
     });
 
     test('collects prefix-less todos into the Unprefixed group', () => {
@@ -130,7 +148,7 @@ describe('qtGroupTodosByPrefix', () => {
             { id: 'qr1-a' }, { id: 'cleanup' }, { id: '7-seven' },
         ]);
         assert.deepEqual(labels(groups), ['qr', api.QT_UNPREFIXED_LABEL]);
-        assert.deepEqual(idsOf(groups[1]), ['cleanup', '7-seven']);
+        assert.deepEqual(idsOf(groups[1]), ['7-seven', 'cleanup'], 'sorted by id too');
         assert.equal(groups[1].prefix, '', 'the catch-all group is keyed by the empty prefix');
     });
 
@@ -151,7 +169,7 @@ describe('qtGroupTodosByPrefix', () => {
         // already present, which would silently drop every such todo. The
         // implementation must namespace its keys.
         const groups = api.qtGroupTodosByPrefix([
-            { id: 'constructor1' }, { id: 'toString2' }, { id: 'constructor3' },
+            { id: 'toString2' }, { id: 'constructor3' }, { id: 'constructor1' },
         ]);
         assert.deepEqual(labels(groups), ['constructor', 'toString']);
         assert.deepEqual(idsOf(groups[0]), ['constructor1', 'constructor3']);

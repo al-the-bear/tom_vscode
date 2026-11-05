@@ -183,7 +183,7 @@ The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens fo
 
 #### Prefix groups
 
-The list is grouped by **todo-id prefix** — the characters before the id's first digit, so `qr1-…` and `qr3-…` share the group `qr`. Ids that start with a digit, or contain no digit at all, collect in a group called **Unprefixed**, which always sits last. Each group is headed by a thin separator line showing the prefix, the number of todos in brackets, and a triangle that expands or collapses the group.
+The list is grouped by **todo-id prefix** — the characters before the id's first digit, so `qr1-…` and `qr3-…` share the group `qr`. Ids that start with a digit, or contain no digit at all, collect in a group called **Unprefixed**, which always sits last. The groups are in alphabetical order of their prefix, and the todos in a group in the order of their number (`qr2` before `qr10`), whatever the list's sort, so every group is always in the same place; the filter decides which todos show. Each group is headed by a thin separator line showing the prefix, the number of todos in brackets, and a triangle that expands or collapses the group.
 
 The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Expand all** toolbar button opens every group and **Collapse all** closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
 

@@ -727,8 +727,8 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
-    // Group by id prefix. Named groups keep the order the active sort put them
-    // in; the "Unprefixed" catch-all is appended last.
+    // Group by id prefix: the groups alphabetically (the "Unprefixed"
+    // catch-all last), the todos in each by their number (grouping.js).
     var groups = qtGroupTodosByPrefix(filtered);
     var html = '';
     // Visual order — basis for shift-click stack ranges. Only rows the user can
