@@ -252,6 +252,10 @@ export interface SendToChatConfig {
             toolTrailMaxResultChars?: number;
             /** Per-configuration override for `compaction.toolTrailKeepRounds`. */
             toolTrailKeepRounds?: number;
+            /** Per-configuration override for `compaction.toolTrailCollapseRounds` (direct API with caching). */
+            toolTrailCollapseRounds?: number;
+            /** Per-configuration override for `compaction.toolTrailCollapseChars` (direct API with caching). */
+            toolTrailCollapseChars?: number;
             isDefault?: boolean;
         }>;
         profiles?: Array<{
@@ -388,6 +392,10 @@ export interface SendToChatConfig {
         fullTrailMaxTurns?: number;
         toolTrailMaxResultChars?: number;
         toolTrailKeepRounds?: number;
+        /** Direct API with caching: earlier tool rounds stay as sent until more than this many are kept whole. */
+        toolTrailCollapseRounds?: number;
+        /** Direct API with caching: … or until their results exceed this many characters. */
+        toolTrailCollapseChars?: number;
         /** Number of recent user/assistant turn pairs (2 messages each) kept verbatim in
          *  the prompt before incremental compaction folds them into the running summary.
          *  Per-configuration `rawTurnsKept` takes precedence. */

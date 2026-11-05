@@ -77,8 +77,10 @@ Settings (`compaction.*` with per-configuration overrides on every
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `toolTrailMaxResultChars` | `1000` | Each tool_result block kept inline is truncated to this many chars; a `[Truncated inline view: N/total chars. Full result available via tomAi_readPastToolResult({"key":"tX"})...]` marker is prefixed so the model knows where to look. |
-| `toolTrailKeepRounds` | `2` | The most-recent N tool rounds keep (truncated) bodies inline. Tool rounds older than this have their `tool_result` content replaced with a one-line stub naming the replay key. The `tool_use` / `tool_result` pairing is preserved so the Anthropic API stays happy. **Once an assistant turn of the loop carries a thinking block, no earlier round is rewritten:** that holds whether or not the profile asks for thinking (`thinkingEnabled`), because a model may think unasked — Opus 5.5 does. The `thinking` / `redacted_thinking` blocks are signed over the conversation as it was, and the API refuses a request whose earlier messages changed ("Invalid `signature` in `thinking` block"). Each round's results are then cut to `toolTrailMaxResultChars` once, as they are added, and nothing is stubbed (`src/services/toolTrailRetention.ts`). Long tool loops send a larger prompt in that case; the history kept between prompts is text only and unaffected. |
+| `toolTrailMaxResultChars` | `30000` | A tool_result block is cut to this many chars once, when it arrives (a cut result is never cut again); a `[Truncated inline view: N/total chars. Full result available via tomAi_readPastToolResult({"key":"tX"})...]` marker is prefixed so the model knows where to look. |
+| `toolTrailKeepRounds` | `2` | The tool rounds kept whole: without prompt caching, the newest N rounds at any time; with caching, the newest N rounds after a collapse. Older rounds have their `tool_result` content replaced with a one-line stub naming the replay key. The `tool_use` / `tool_result` pairing is preserved so the Anthropic API stays happy. **Once an assistant turn of the loop carries a thinking block, no earlier round is rewritten:** that holds whether or not the profile asks for thinking (`thinkingEnabled`), because a model may think unasked — Opus 5.5 does. The `thinking` / `redacted_thinking` blocks are signed over the conversation as it was, and the API refuses a request whose earlier messages changed ("Invalid `signature` in `thinking` block"). Each round's results are then cut to `toolTrailMaxResultChars` once, as they are added, and nothing is stubbed (`src/services/toolTrailRetention.ts`). Long tool loops send a larger prompt in that case; the history kept between prompts is text only and unaffected. |
+| `toolTrailCollapseRounds` | `30` | **Direct API with prompt caching.** The conversation is cached up to the newest turn (a read costs 0.1× the input price, a write 1.25×), and stubbing an old round rewrites a message inside that prefix — the next request reads the cache only up to it and writes everything after it again. So earlier rounds stay exactly as sent until more than this many rounds are kept whole; then every round but the newest `toolTrailKeepRounds` becomes a stub at once. The prefix changes once per batch (keep 2, collapse 30: at rounds 31, 60, 89, …) instead of every round. Without caching, every round past `toolTrailKeepRounds` is stubbed. |
+| `toolTrailCollapseChars` | `300000` | With caching, collapse also once the results of the rounds kept whole exceed this many characters, so a few huge results do not wait for `toolTrailCollapseRounds`. |
 
 ### Where the bodies live
 
@@ -310,6 +312,8 @@ direct-SDK alike), the placeholders `${compactedSummary}`, `${rawTurns}`, and
 | **`memoryMaxChars`** | Memory-extraction input cap | Per-config override for `compaction.memoryMaxChars`. |
 | **`toolTrailMaxResultChars`** | Tool-trail | Per-config override for `compaction.toolTrailMaxResultChars`. |
 | **`toolTrailKeepRounds`** | Tool-trail | Per-config override for `compaction.toolTrailKeepRounds`. |
+| **`toolTrailCollapseRounds`** | Tool-trail | Per-config override for `compaction.toolTrailCollapseRounds`. |
+| **`toolTrailCollapseChars`** | Tool-trail | Per-config override for `compaction.toolTrailCollapseChars`. |
 | `trailMaximumTokens`, `trailSummarizationTemperature`, `removePromptTemplateFromTrail` | Trail viewer | Visual / summarisation hints for the trail UI; not used in model requests. |
 | `answerFolder`, `logFolder` | Trail layout | Folder overrides for per-config trail output. |
 | `isDefault` | Picker | One configuration may be flagged default. |
@@ -398,6 +402,9 @@ and `_ai/trail/copilot/<quest>/`, one set per quest.
 | **`rawTurnsKept`** | Per-config raw-turn-pair cap (overrides `compaction.rawTurnsKept`). |
 | **`toolTrailMaxResultChars`** | Per-config tool-result inline cap (overrides `compaction.toolTrailMaxResultChars`). |
 | **`toolTrailKeepRounds`** | Per-config tool-trail keep-rounds (overrides `compaction.toolTrailKeepRounds`). |
+| **`toolTrailCollapseRounds`** / **`toolTrailCollapseChars`** | Per-config collapse thresholds (override the `compaction` ones). |
+
+An Anthropic configuration inherits every one of these unless it sets its own. The Status Page lists the configurations with ⚙ and the values each sets itself; its edit wizard asks for the retention values on a direct configuration — *Use the defaults*, *Keep this configuration's values* or *Customise…* (an empty field inherits) — and keeps the other overrides as they were.
 | `compactionOverride` | `'default' \| 'on' \| 'off'` — per-config override for the global compaction kill switch. |
 | `promptCachingEnabled` | Adds `cache_control` breakpoints on the system prompt, the tool definitions and the newest turn, so each tool-loop round reads the earlier prefix from the cache. Doesn't shrink the prompt; reduces cost. Cache reads and writes show in the live trail's usage block. |
 | `transport` | `'direct'` / `'agentSdk'` / `'vscodeLm'`. Tool-trail enforcement applies to `'direct'`. |
@@ -435,7 +442,7 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | `historyMaxChars` | `24000` | Fallback char ceiling on `${existingSummary}` / `${compactedSummary}`. |
 | `memoryMaxChars` | `8000` | Fallback char ceiling on `${existingMemory}`. |
 | **`rawTurnsKept`** | `4` | Fallback raw-turn-pair count for `trim_and_summary`. |
-| **`toolTrailMaxResultChars`** | `1000` | Fallback per-result inline truncation (now wired in both tool loops). |
+| **`toolTrailMaxResultChars`** | `30000` | Fallback per-result inline truncation (both tool loops; Local LLM configurations with a small context set their own). |
 | **`toolTrailKeepRounds`** | `2` | Fallback in-message keep window for tool_result blocks. |
 | `fullTrailMaxTurns` | `200` | Safety cap on `historyMode: full`. |
 | `backgroundExtractionEnabled` | `true` | Anthropic background `llm_extract` pass on/off. |

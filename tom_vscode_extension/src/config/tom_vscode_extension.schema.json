@@ -193,14 +193,26 @@
                 "toolTrailMaxResultChars": {
                     "type": "integer",
                     "minimum": 100,
-                    "default": 1000,
-                    "description": "Per tool-result truncation when injected back into the model's prompt. Applies to both Local LLM and Anthropic tool loops. Full bodies are persisted via TrailService and recoverable through `tomAi_readPastToolResult({key})`. Per-configuration overrides take precedence."
+                    "default": 30000,
+                    "description": "Per tool-result truncation when injected back into the model's prompt (cut once, when the result arrives). Applies to both Local LLM and Anthropic tool loops. Full bodies are persisted via TrailService and recoverable through `tomAi_readPastToolResult({key})`. Per-configuration overrides take precedence."
                 },
                 "toolTrailKeepRounds": {
                     "type": "integer",
                     "minimum": 0,
                     "default": 2,
                     "description": "Number of most-recent tool-result blocks kept in-message (truncated to toolTrailMaxResultChars each). Older tool_result blocks are replaced with a stub naming the key (e.g. `[Past tool call t14 — tomAi_readFile(...) — 61823 chars. Use tomAi_readPastToolResult({key:'t14'}) to retrieve.]`). Per-configuration overrides take precedence."
+                },
+                "toolTrailCollapseRounds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 30,
+                    "description": "Direct API with prompt caching: earlier tool rounds stay exactly as sent until more than this many rounds are kept whole; then every round but the newest toolTrailKeepRounds is stubbed at once, so the cached conversation prefix changes once per batch instead of every round. Without caching every round past toolTrailKeepRounds is stubbed. Per-configuration overrides take precedence."
+                },
+                "toolTrailCollapseChars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 300000,
+                    "description": "Direct API with prompt caching: collapse (see toolTrailCollapseRounds) also once the results of the rounds kept whole exceed this many characters. Per-configuration overrides take precedence."
                 },
                 "rawTurnsKept": {
                     "type": "integer",
@@ -328,6 +340,8 @@
                 "rawTurnsKept": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.rawTurnsKept (raw turn pairs kept inline)." },
                 "toolTrailMaxResultChars": { "type": "integer", "minimum": 100, "description": "Per-configuration override for compaction.toolTrailMaxResultChars." },
                 "toolTrailKeepRounds": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.toolTrailKeepRounds." },
+                "toolTrailCollapseRounds": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.toolTrailCollapseRounds." },
+                "toolTrailCollapseChars": { "type": "integer", "minimum": 0, "description": "Per-configuration override for compaction.toolTrailCollapseChars." },
                 "maxRounds": { "type": "integer", "minimum": 1, "default": 10 },
                 "memoryExtractionTemplateId": { "type": "string" },
                 "promptCachingEnabled": {

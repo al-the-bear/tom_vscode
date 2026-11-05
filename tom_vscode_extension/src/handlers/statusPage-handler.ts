@@ -128,6 +128,8 @@ function getAnthropicSection(): AnthropicSectionForStatusPage {
 import type { TimerScheduleSlot } from '../managers/timerEngine';
 import type { CommandlineEntry } from './commandline-handler';
 import { DEFAULT_API_KEY_ENV_VAR, directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
+import { resolveRetentionCaps, RETENTION_DEFAULTS, RETENTION_KEYS, type RetentionCaps } from '../services/toolTrailRetention';
+import { configurationOverrides } from '../utils/configurationOverrides';
 import {
     readQueueSettings,
     writeQueueSettings,
@@ -847,6 +849,52 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         }
     }
 
+    // Tool-trail retention (direct transport): the compaction section's
+    // defaults, or this configuration's own values.
+    const existingRecord = (existing ?? {}) as Record<string, unknown>;
+    let retentionOverrides: Partial<RetentionCaps> = {};
+    for (const key of RETENTION_KEYS) {
+        if (typeof existingRecord[key] === 'number') { retentionOverrides[key] = existingRecord[key] as number; }
+    }
+    if (transport === 'direct') {
+        const defaults = resolveRetentionCaps(stcConfig.compaction, undefined);
+        const describeCaps = (c: RetentionCaps): string =>
+            `result ${c.toolTrailMaxResultChars} chars · keep ${c.toolTrailKeepRounds} rounds · collapse after ${c.toolTrailCollapseRounds} rounds or ${c.toolTrailCollapseChars} chars`;
+        const own = Object.keys(retentionOverrides).length > 0;
+        const retentionPick = await vscode.window.showQuickPick(
+            [
+                { label: 'Use the defaults', description: describeCaps(defaults), value: 'inherit' as const },
+                ...(own ? [{ label: 'Keep this configuration\'s values', description: describeCaps(resolveRetentionCaps(stcConfig.compaction, retentionOverrides)), value: 'keep' as const }] : []),
+                { label: 'Customise…', description: 'Set one or more values for this configuration; leave a field empty to use the default', value: 'custom' as const },
+            ],
+            { placeHolder: 'Tool-trail retention (direct API; the defaults are on the Status Page under History Compaction)', ignoreFocusOut: true },
+        );
+        if (!retentionPick) { return; }
+        if (retentionPick.value === 'inherit') {
+            retentionOverrides = {};
+        } else if (retentionPick.value === 'custom') {
+            const labels: Record<keyof RetentionCaps, string> = {
+                toolTrailMaxResultChars: 'Tool result max chars (a result is cut to this when it arrives)',
+                toolTrailKeepRounds: 'Tool keep rounds (kept whole after a collapse)',
+                toolTrailCollapseRounds: 'Tool collapse after rounds (with prompt caching)',
+                toolTrailCollapseChars: 'Tool collapse after chars (with prompt caching)',
+            };
+            const next: Partial<RetentionCaps> = {};
+            for (const key of RETENTION_KEYS) {
+                const v = await vscode.window.showInputBox({
+                    prompt: `${labels[key]} — empty uses the default (${defaults[key]})`,
+                    value: retentionOverrides[key] !== undefined ? String(retentionOverrides[key]) : '',
+                    placeHolder: `(default ${defaults[key]})`,
+                    ignoreFocusOut: true,
+                    validateInput: (t) => (t.trim() === '' || (Number.isInteger(Number(t)) && Number(t) >= 0) ? null : 'Enter a whole number, 0 or more (or leave empty)'),
+                });
+                if (v === undefined) { return; }
+                if (v.trim() !== '') { next[key] = parseInt(v, 10); }
+            }
+            retentionOverrides = next;
+        }
+    }
+
     const existingCompactionOverride = (existing as { compactionOverride?: 'default' | 'on' | 'off' } | undefined)?.compactionOverride ?? 'default';
     const compactionOverridePick = await vscode.window.showQuickPick(
         [
@@ -886,6 +934,12 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
             // Store only the non-default values to keep the JSON clean —
             // 'default' is the same as "field absent" for the handler.
             ...(compactionOverridePick.value === 'default' ? {} : { compactionOverride: compactionOverridePick.value }),
+            // Overrides the wizard does not ask for are kept as they were.
+            ...(['historyMaxChars', 'memoryMaxChars', 'rawTurnsKept'] as const).reduce<Record<string, number>>((acc, key) => {
+                if (typeof existingRecord[key] === 'number') { acc[key] = existingRecord[key] as number; }
+                return acc;
+            }, {}),
+            ...retentionOverrides,
             ...(tempStr.trim() === '' ? {} : { temperature: parseFloat(tempStr) }),
             ...(transport === 'direct'
                 ? {
@@ -1403,8 +1457,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
                     stcConfig.anthropic.memory.autoExtractMode = m;
                 }
             }
-            stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : 1000;
-            stcConfig.compaction.toolTrailKeepRounds = Number.isFinite(s.toolTrailKeepRounds) ? s.toolTrailKeepRounds : 2;
+            stcConfig.compaction.toolTrailMaxResultChars = Number.isFinite(s.toolTrailMaxResultChars) ? s.toolTrailMaxResultChars : RETENTION_DEFAULTS.toolTrailMaxResultChars;
+            stcConfig.compaction.toolTrailKeepRounds = Number.isFinite(s.toolTrailKeepRounds) ? s.toolTrailKeepRounds : RETENTION_DEFAULTS.toolTrailKeepRounds;
+            stcConfig.compaction.toolTrailCollapseRounds = Number.isFinite(s.toolTrailCollapseRounds) ? s.toolTrailCollapseRounds : RETENTION_DEFAULTS.toolTrailCollapseRounds;
+            stcConfig.compaction.toolTrailCollapseChars = Number.isFinite(s.toolTrailCollapseChars) ? s.toolTrailCollapseChars : RETENTION_DEFAULTS.toolTrailCollapseChars;
             stcConfig.compaction.rawTurnsKept = Number.isFinite(s.rawTurnsKept) ? s.rawTurnsKept : 4;
             stcConfig.compaction.runEveryNRounds = Number.isFinite(s.runEveryNRounds) && s.runEveryNRounds >= 1 ? s.runEveryNRounds : 15;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
@@ -1956,6 +2012,10 @@ export interface StatusData {
         /** Number of most-recent tool rounds kept inline (with truncation);
          *  older rounds collapse to a stub naming the replay key. */
         toolTrailKeepRounds: number;
+        /** Direct API with caching: collapse after this many whole rounds … */
+        toolTrailCollapseRounds: number;
+        /** … or this many characters of their results. */
+        toolTrailCollapseChars: number;
         /** Number of recent user/assistant turn PAIRS kept verbatim before
          *  overflow folds into the running compacted summary. */
         rawTurnsKept: number;
@@ -2023,6 +2083,8 @@ export interface StatusData {
         maxRounds?: number;
         temperature?: number;
         maxHistoryTokens?: number;
+        /** The compaction / retention values it sets itself (configurationOverrides). */
+        overrides: Array<{ key: string; value: number }>;
         memoryToolsEnabled?: boolean;
         settingSources?: Array<'user' | 'project' | 'local'>;
         maxTurns?: number;
@@ -2298,8 +2360,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             runMemoryExtractionOnCompaction: (sendToChatConfig?.compaction as { runMemoryExtractionOnCompaction?: boolean })?.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: sendToChatConfig?.compaction?.rebuildFromLastNPrompts ?? 200,
             archiveHistoryEveryTurn: (sendToChatConfig?.compaction as { archiveHistoryEveryTurn?: boolean })?.archiveHistoryEveryTurn === true,
-            toolTrailMaxResultChars: sendToChatConfig?.compaction?.toolTrailMaxResultChars ?? 1000,
-            toolTrailKeepRounds: sendToChatConfig?.compaction?.toolTrailKeepRounds ?? 2,
+            ...resolveRetentionCaps(sendToChatConfig?.compaction, undefined),
             rawTurnsKept: sendToChatConfig?.compaction?.rawTurnsKept ?? 4,
             runEveryNRounds: (sendToChatConfig?.compaction as { runEveryNRounds?: number })?.runEveryNRounds ?? 15,
             backgroundExtractionEnabled: sendToChatConfig?.compaction?.backgroundExtractionEnabled === true,
@@ -2360,6 +2421,7 @@ export async function gatherStatusData(): Promise<StatusData> {
                         maxRounds: cc.maxRounds,
                         temperature: cc.temperature,
                         maxHistoryTokens: cc.maxHistoryTokens,
+                        overrides: configurationOverrides(cc as unknown as Record<string, unknown>),
                         memoryToolsEnabled: cc.memoryToolsEnabled,
                         settingSources: cc.agentSdk?.settingSources,
                         maxTurns: cc.agentSdk?.maxTurns,
@@ -3102,6 +3164,12 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 <input type="number" id="sp-comp-toolTrailKeepRounds" value="${status.compaction.toolTrailKeepRounds}" min="0" max="50" style="width:80px">
             </div>
             <div class="sp-settings-row">
+                <label title="Direct API with prompt caching: earlier tool rounds stay exactly as sent (so the cached conversation is read, not written again) until more than this many rounds are kept whole; then every round but the newest 'Tool keep rounds' becomes a stub at once. Without caching, every round past 'Tool keep rounds' is stubbed. A configuration may override it.">Tool collapse after rounds:</label>
+                <input type="number" id="sp-comp-toolTrailCollapseRounds" value="${status.compaction.toolTrailCollapseRounds}" min="0" max="500" style="width:80px">
+                <label title="Direct API with prompt caching: collapse also once the results of the rounds kept whole exceed this many characters. A configuration may override it.">… or chars:</label>
+                <input type="number" id="sp-comp-toolTrailCollapseChars" value="${status.compaction.toolTrailCollapseChars}" min="0" step="10000" style="width:100px">
+            </div>
+            <div class="sp-settings-row">
                 <label title="Hard char cap on history content (compacted summary + related context) injected into the compaction and memory-extraction prompts. Also exposed to the compaction template as \${historyMaxChars} so the LLM steers output toward this size. 24000 is a safe default for MoE local models; bump up for high-context cloud configs.">History max chars:</label>
                 <input type="number" id="sp-comp-historyMaxChars" value="${status.compaction.historyMaxChars}" min="1000" style="width:90px">
                 <label title="Hard char cap on existing memory content injected into the memory-extraction prompt. Older entries beyond this size are dropped from the file tail (entries are prepended newest-first, so truncation removes the oldest).">Memory max chars:</label>
@@ -3249,6 +3317,9 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                                 ? '<span title="Managed by Agent SDK" style="color:var(--vscode-descriptionForeground)">SDK-managed</span>'
                                 : escapeHtmlContent(c.historyMode || '—');
                             const defaultMark = c.isDefault ? ' <span title="Default" style="color:var(--vscode-editorWarning-foreground, #cca700)">★</span>' : '';
+                            const customMark = c.overrides.length > 0
+                                ? ` <span title="Sets its own: ${escapeHtmlContent(c.overrides.map((o) => `${o.key} ${o.value}`).join(', '))} (everything else inherits the History Compaction defaults)">⚙</span>`
+                                : '';
                             // Build the second-line detail summary. Every
                             // configuration field the wizard can set is
                             // listed here so the user sees the current
@@ -3271,9 +3342,12 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                                     : '(isolation)';
                                 detailParts.push(`${dim('settingSources')} ${sources}`);
                             }
+                            if (c.overrides.length > 0) {
+                                detailParts.push(`⚙ ${dim('own')} ${c.overrides.map((o) => `${o.key.replace(/^toolTrail/, '')} ${o.value}`).join(', ')}`);
+                            }
                             const detailLine = detailParts.join(' &nbsp;·&nbsp; ');
                             return `<tr style="border-bottom:1px solid var(--vscode-panel-border)">
-                                <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong>${defaultMark}<br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
+                                <td style="padding:4px 8px"><strong>${escapeHtmlContent(c.name)}</strong>${defaultMark}${customMark}<br><code style="font-size:10px;color:var(--vscode-descriptionForeground)">${escapeHtmlContent(c.id)}</code></td>
                                 <td style="padding:4px 8px"><code style="font-size:10px">${escapeHtmlContent(c.model)}</code></td>
                                 <td style="padding:4px 8px">${transportBadge}</td>
                                 <td style="padding:4px 8px">${c.transport === 'agentSdk' ? escapeHtmlContent(c.permissionMode || 'default') : '—'}</td>

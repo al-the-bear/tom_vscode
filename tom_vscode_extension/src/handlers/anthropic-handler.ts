@@ -380,7 +380,7 @@ import { abortSignalFor, createMessageStreamed } from '../services/anthropicMess
 import { addResponseUsage, withLastMessageCacheBreakpoint, withToolsCacheBreakpoint } from '../utils/anthropicPromptCache';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
-import { applyToolTrailRetention, type RetentionMessage } from '../services/toolTrailRetention';
+import { applyToolTrailRetention, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
 import { readQuestSection } from '../managers/extensionConfigStore';
 export { temperatureField };
@@ -1122,6 +1122,8 @@ export class AnthropicHandler {
         runEveryNRounds: number;
         toolTrailMaxResultChars: number;
         toolTrailKeepRounds: number;
+        toolTrailCollapseRounds: number;
+        toolTrailCollapseChars: number;
         fullTrailMaxTurns: number;
         runMemoryExtractionOnCompaction: boolean;
         rebuildFromLastNPrompts: number;
@@ -1143,6 +1145,8 @@ export class AnthropicHandler {
             runEveryNRounds?: number;
             toolTrailMaxResultChars?: number;
             toolTrailKeepRounds?: number;
+            toolTrailCollapseRounds?: number;
+            toolTrailCollapseChars?: number;
             fullTrailMaxTurns?: number;
             runMemoryExtractionOnCompaction?: boolean;
             rebuildFromLastNPrompts?: number;
@@ -1160,8 +1164,7 @@ export class AnthropicHandler {
             memoryMaxChars: Number.isFinite(section.memoryMaxChars) ? (section.memoryMaxChars as number) : 8000,
             rawTurnsKept: Number.isFinite(section.rawTurnsKept) ? (section.rawTurnsKept as number) : 4,
             runEveryNRounds: Number.isFinite(section.runEveryNRounds) ? Math.max(1, section.runEveryNRounds as number) : 15,
-            toolTrailMaxResultChars: Number.isFinite(section.toolTrailMaxResultChars) ? (section.toolTrailMaxResultChars as number) : 1000,
-            toolTrailKeepRounds: Number.isFinite(section.toolTrailKeepRounds) ? (section.toolTrailKeepRounds as number) : 2,
+            ...resolveRetentionCaps(section, undefined),
             fullTrailMaxTurns: Number.isFinite(section.fullTrailMaxTurns) ? (section.fullTrailMaxTurns as number) : 200,
             runMemoryExtractionOnCompaction: section.runMemoryExtractionOnCompaction !== false,
             rebuildFromLastNPrompts: Number.isFinite(section.rebuildFromLastNPrompts) ? (section.rebuildFromLastNPrompts as number) : 200,
@@ -1183,6 +1186,8 @@ export class AnthropicHandler {
         rawTurnsKept: number;
         toolTrailMaxResultChars: number;
         toolTrailKeepRounds: number;
+        toolTrailCollapseRounds: number;
+        toolTrailCollapseChars: number;
         maxHistoryTokens: number;
     } {
         const cfg = this.getCompactionConfig();
@@ -1198,29 +1203,39 @@ export class AnthropicHandler {
             historyMaxChars: Number.isFinite(c.historyMaxChars) ? (c.historyMaxChars as number) : cfg.historyMaxChars,
             memoryMaxChars: Number.isFinite(c.memoryMaxChars) ? (c.memoryMaxChars as number) : cfg.memoryMaxChars,
             rawTurnsKept: Number.isFinite(c.rawTurnsKept) ? (c.rawTurnsKept as number) : cfg.rawTurnsKept,
-            toolTrailMaxResultChars: Number.isFinite(c.toolTrailMaxResultChars) ? (c.toolTrailMaxResultChars as number) : cfg.toolTrailMaxResultChars,
-            toolTrailKeepRounds: Number.isFinite(c.toolTrailKeepRounds) ? (c.toolTrailKeepRounds as number) : cfg.toolTrailKeepRounds,
+            // The retention caps: the configuration's, else the compaction section's, else the defaults.
+            ...resolveRetentionCaps(cfg, configuration as unknown as Record<string, unknown>),
             maxHistoryTokens: Number.isFinite(c.maxHistoryTokens) ? (c.maxHistoryTokens as number) : cfg.maxHistoryTokens,
         };
     }
 
     /**
      * The retention step after each round of the tool loop
-     * (src/services/toolTrailRetention.ts): older rounds' tool results are
-     * cut or stubbed — unless the conversation holds a thinking block
-     * (requested or not), when only the round just added is cut and every
-     * earlier message stays as it was sent, so the blocks' signatures still
+     * (src/services/toolTrailRetention.ts): a new result is cut to the inline
+     * length; older rounds are stubbed — every round without caching, in
+     * batches at the collapse thresholds with caching, so the cached prefix
+     * changes once per batch. A conversation holding a thinking block keeps
+     * every earlier message as it was sent, so the blocks' signatures still
      * match the conversation.
      */
     private applyToolTrailRetentionPolicy(
         messages: AnthropicMessageParam[],
-        caps: { toolTrailKeepRounds: number; toolTrailMaxResultChars: number },
+        caps: {
+            toolTrailKeepRounds: number; toolTrailMaxResultChars: number;
+            toolTrailCollapseRounds: number; toolTrailCollapseChars: number; cachingEnabled: boolean;
+        },
     ): void {
         applyToolTrailRetention(
             messages as unknown as RetentionMessage[],
             this.toolTrail,
             (id) => this.toolTrail.listEntries().find((e) => this.entryMatchesToolUseId(e, id)),
-            { keepRounds: caps.toolTrailKeepRounds, inlineMaxChars: caps.toolTrailMaxResultChars },
+            {
+                keepRounds: caps.toolTrailKeepRounds,
+                inlineMaxChars: caps.toolTrailMaxResultChars,
+                cachingEnabled: caps.cachingEnabled,
+                collapseRounds: caps.toolTrailCollapseRounds,
+                collapseChars: caps.toolTrailCollapseChars,
+            },
         );
     }
 
@@ -2576,7 +2591,7 @@ export class AnthropicHandler {
                 // Once a turn carries a thinking block (the model may think
                 // without being asked), earlier rounds are never rewritten:
                 // the blocks are signed over them.
-                const caps = this.resolveEffectiveCaps(configuration);
+                const caps = { ...this.resolveEffectiveCaps(configuration), cachingEnabled: effectiveCaching };
                 this.applyToolTrailRetentionPolicy(messages, caps);
             }
         } catch (err) {

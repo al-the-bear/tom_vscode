@@ -46,6 +46,11 @@ const DEFAULT_MAX_RESULT_CHARS = 100_000; // hard cap per entry so a runaway too
 const DEFAULT_KEEP_ROUNDS = 2;            // tool-result blocks kept inline; older replaced with stub
 const DEFAULT_INLINE_MAX_CHARS = 1000;    // truncation applied to the inline-kept tool_result content
 
+/** How a cut inline view begins: `truncateInline` recognises its own output by it. */
+export const INLINE_TRUNCATION_PREFIX = '[Truncated inline view: ';
+/** How a stub begins (`renderStub` / `renderStubByKey`, and the retention step's own fallback). */
+export const PAST_TOOL_CALL_STUB_PREFIX = '[Past tool call ';
+
 export class ToolTrail {
     private entries: ToolTrailEntry[] = [];
     private nextKeyIndex = 1;
@@ -95,9 +100,12 @@ export class ToolTrail {
     truncateInline(key: string, toolName: string, inputSummary: string, result: string): string {
         if (!result) { return result; }
         if (result.length <= this.inlineMaxChars) { return result; }
+        // Already cut by an earlier pass: cutting again would nest the header
+        // and change a message the conversation cache already holds.
+        if (result.startsWith(INLINE_TRUNCATION_PREFIX)) { return result; }
         const head = result.slice(0, this.inlineMaxChars);
         return (
-            `[Truncated inline view: ${this.inlineMaxChars}/${result.length} chars. ` +
+            `${INLINE_TRUNCATION_PREFIX}${this.inlineMaxChars}/${result.length} chars. ` +
             `Full result available via tomAi_readPastToolResult({"key":"${key}"}). ` +
             `Tool: ${toolName}(${inputSummary})]\n${head}`
         );
@@ -110,11 +118,11 @@ export class ToolTrail {
     renderStubByKey(key: string): string {
         const e = this.getByKey(key);
         if (!e) {
-            return `[Past tool call ${key} — full body not retained. Use tomAi_listPastToolCalls to enumerate available keys.]`;
+            return `${PAST_TOOL_CALL_STUB_PREFIX}${key} — full body not retained. Use tomAi_listPastToolCalls to enumerate available keys.]`;
         }
         const status = e.error ? `ERROR: ${e.error}` : `${(e.result ?? '').length} chars`;
         return (
-            `[Past tool call ${e.key} — ${e.toolName}(${e.inputSummary}) — ${status}. ` +
+            `${PAST_TOOL_CALL_STUB_PREFIX}${e.key} — ${e.toolName}(${e.inputSummary}) — ${status}. ` +
             `Use tomAi_readPastToolResult({"key":"${e.key}"}) to retrieve the full result.]`
         );
     }
