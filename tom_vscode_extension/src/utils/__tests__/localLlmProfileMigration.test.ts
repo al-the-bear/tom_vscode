@@ -14,6 +14,10 @@
  *        `_ai/trail/localllm` again)
  *   LP-5 the removed panels' config goes: `tomAiChat`, `aiConversation` but its `telegram` block,
  *        `localLlm.expansionProfile`; the Local LLM configurations stay
+ *   LP-6 the Local LLM panel's top-level `localLlm` keys go (format version 7) — ollamaUrl, model, temperature,
+ *        stripThinkingTags, resultTemplate, the trail settings, toolsEnabled, models — from the workspace config
+ *        and the user overlay; `configurations` and `tools` stay, so do the same keys inside a configuration;
+ *        a dry run writes nothing, a second run lists nothing
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- config keys as they are written */
@@ -23,7 +27,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { dropRemovedPanelSections, localLlmProfileToAnthropic, localProfileId } from '../localLlmProfileMigration.js';
+import { dropLocalLlmPanelKeys, dropRemovedPanelSections, localLlmProfileToAnthropic, localProfileId, LOCAL_LLM_PANEL_KEYS } from '../localLlmProfileMigration.js';
+import { parse } from 'yaml';
 import { migrateAiFormats } from '../aiFormatMigration.js';
 import { AI_FORMAT_VERSION, readAiFormatStamp, writeAiFormatStamp } from '../aiFormatVersion.js';
 
@@ -137,5 +142,40 @@ describe('removed panels: Local LLM profiles and files', () => {
         assert.ok(s.run(false).changes.some((c) => c.step === 'removed-panels' && /tomAiChat/.test(c.detail)));
         s.run(true);
         assert.deepEqual(JSON.parse(fs.readFileSync(s.cfg, 'utf8')), { localLlm: { configurations: [{ id: 'mac' }] } });
+    });
+
+    test('LP-6: the Local LLM panel\'s top-level keys', () => {
+        const configuration = { id: 'mac', ollamaUrl: 'http://mac:8000', model: 'gemma', temperature: 0.2, trailMaximumTokens: 4000, toolsEnabled: false };
+        const tools = { askCopilot: { enabled: true }, askBigBrother: { enabled: false } };
+        const panelKeys = {
+            ollamaUrl: 'http://localhost:11434', model: 'qwen3:8b', temperature: 0.4, stripThinkingTags: true,
+            resultTemplate: '${response}', trailMaximumTokens: 8000, trailSummarizationPrompt: 'Summarize',
+            trailSummarizationTemperature: 0.3, removePromptTemplateFromTrail: true, toolsEnabled: true,
+            models: { 'qwen3-8b': { model: 'qwen3:8b' } },
+        };
+        assert.deepEqual(Object.keys(panelKeys).sort(), [...LOCAL_LLM_PANEL_KEYS].sort(), 'the test covers every key');
+
+        const cfg: Record<string, unknown> = { localLlm: { ...panelKeys, configurations: [configuration], tools }, copilot: {} };
+        assert.deepEqual(dropLocalLlmPanelKeys(cfg), LOCAL_LLM_PANEL_KEYS.map((k) => `localLlm.${k}`));
+        assert.deepEqual(cfg, { localLlm: { configurations: [configuration], tools }, copilot: {} });
+        assert.deepEqual(dropLocalLlmPanelKeys(cfg), [], 'nothing left to remove');
+        assert.deepEqual(dropLocalLlmPanelKeys({ copilot: {} }), [], 'no localLlm section');
+
+        const s = sandbox();
+        const overlay = path.join(path.dirname(s.cfg), 'user.yaml');
+        fs.writeFileSync(s.cfg, JSON.stringify({ localLlm: { ...panelKeys, configurations: [configuration], tools } }, null, 2) + '\n');
+        fs.writeFileSync(overlay, 'localLlm:\n  ollamaUrl: http://localhost:11434\n  model: qwen3:8b\nuserName: me\n');
+        const run = (apply: boolean) => migrateAiFormats({ aiRoot: s.ai, hostSlug: 'mbp', apply, merge: () => undefined, workspaceConfigPath: s.cfg, userConfigPath: overlay, today: '2026-11-06' });
+        const listed = run(false).changes.filter((c) => c.step === 'local-llm-keys');
+        assert.equal(listed.length, 2, 'one change per file');
+        assert.match(listed[0].detail, /localLlm\.ollamaUrl.*localLlm\.models/);
+        assert.match(fs.readFileSync(s.cfg, 'utf8'), /"ollamaUrl": "http:\/\/localhost/, 'a dry run writes nothing');
+        run(true);
+        assert.deepEqual(JSON.parse(fs.readFileSync(s.cfg, 'utf8')), { localLlm: { configurations: [configuration], tools } });
+        assert.match(fs.readFileSync(s.cfg, 'utf8'), /^\{\n {2}"localLlm"/, 'indentation kept');
+        assert.deepEqual(parse(fs.readFileSync(overlay, 'utf8')), { localLlm: {}, userName: 'me' });
+        assert.equal(readAiFormatStamp(s.ai)?.version, AI_FORMAT_VERSION);
+        assert.ok(AI_FORMAT_VERSION >= 7);
+        assert.deepEqual(run(false).changes, []);
     });
 });

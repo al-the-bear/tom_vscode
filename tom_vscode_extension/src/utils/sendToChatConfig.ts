@@ -25,22 +25,7 @@ import { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
 
 export interface SendToChatConfig {
     localLlm: {
-        /** Default Ollama URL for LLM calls */
-        ollamaUrl?: string;
-        /** Default model name for LLM calls */
-        model?: string;
-        /** Named model configurations that can be referenced by profiles */
-        models?: { [key: string]: {
-            ollamaUrl?: string;
-            model?: string;
-            temperature?: number;
-            stripThinkingTags?: boolean;
-            description?: string;
-            isDefault?: boolean;
-            keepAlive?: string;
-            /** Name of the env var holding the bearer API key (OpenAI-compatible auth). */
-            apiKeyEnv?: string;
-        } };
+        /** Settings of the askCopilot / askBigBrother tools (src/tools/local-llm-tools-config.ts), edited on the Status Page. */
         tools?: {
             askCopilot?: unknown;
             askBigBrother?: unknown;

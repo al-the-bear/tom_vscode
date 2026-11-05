@@ -118,6 +118,32 @@ export function removedPanelPaths(aiRoot: string, quests: string[]): string[] {
 }
 
 /**
+ * The top-level `localLlm` keys only the removed Local LLM panel read (format
+ * version 7). What stays: `configurations` (the Local LLM transport behind the
+ * Anthropic profiles on Local LLM configurations) and `tools` (the
+ * askCopilot / askBigBrother tool settings, src/tools/local-llm-tools-config.ts).
+ * A configuration's own keys of the same names are its settings and stay.
+ */
+export const LOCAL_LLM_PANEL_KEYS: readonly string[] = [
+    'ollamaUrl', 'model', 'temperature', 'stripThinkingTags', 'resultTemplate', 'trailMaximumTokens',
+    'trailSummarizationPrompt', 'trailSummarizationTemperature', 'removePromptTemplateFromTrail', 'toolsEnabled', 'models',
+];
+
+/** The config without {@link LOCAL_LLM_PANEL_KEYS}; answers the keys removed, as `localLlm.<key>` ([] when none). */
+export function dropLocalLlmPanelKeys(cfg: unknown): string[] {
+    const local = (cfg as { localLlm?: unknown } | null)?.localLlm;
+    if (!local || typeof local !== 'object' || Array.isArray(local)) { return []; }
+    const removed: string[] = [];
+    for (const key of LOCAL_LLM_PANEL_KEYS) {
+        if (key in local) {
+            delete (local as Record<string, unknown>)[key];
+            removed.push(`localLlm.${key}`);
+        }
+    }
+    return removed;
+}
+
+/**
  * The config without the removed panels' sections: `tomAiChat`,
  * `aiConversation` but its `telegram` block, `localLlm.expansionProfile`.
  * Answers the keys removed ([] when there were none).

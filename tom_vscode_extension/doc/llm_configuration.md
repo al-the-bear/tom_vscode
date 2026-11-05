@@ -289,6 +289,16 @@ direct-SDK alike), the placeholders `${compactedSummary}`, `${rawTurns}`, and
 
 ## 5. Local LLM configuration (`localLlm` section)
 
+The section holds two keys: `configurations` (§5.1), the Local LLM
+endpoints the Anthropic profiles and compaction run on, and `tools`, the
+settings of the `tomAi_askCopilot` and `tomAi_askBigBrother` tools
+(`askCopilot`, `askBigBrother`; edited on the Status Page,
+`src/tools/local-llm-tools-config.ts`). Every other key — the endpoint,
+model, sampling and trail settings, `models`, `profiles`, `expansionProfile`
+— belonged to the removed Local LLM panel; `npm run migrate:ai-formats`
+removes them (format version 7). A configuration's own keys of the same names
+are its settings and stay.
+
 ### 5.1 `configurations[]` — full configuration entries
 
 | Field | Used by | Meaning |

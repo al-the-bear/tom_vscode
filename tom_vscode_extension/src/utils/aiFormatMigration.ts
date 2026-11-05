@@ -46,6 +46,11 @@
  *     config and the user overlay, nothing of them copied; only an own Answer
  *     Wrapper becomes `copilot.queueWrapper` (copilotTemplates.ts). Format
  *     version 6;
+ *   - the Local LLM panel's top-level `localLlm` keys (ollamaUrl, model,
+ *     temperature, stripThinkingTags, resultTemplate, the trail settings,
+ *     toolsEnabled, models) are removed from that config and the user
+ *     overlay; `configurations` and `tools` stay (localLlmProfileMigration.ts).
+ *     Format version 7;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -75,7 +80,7 @@ import {
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { renameExplainTemplate } from './explainTodoTemplate';
 import { dropCopilotTemplates } from './copilotTemplates';
-import { defaultLocalLlmConfigId, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
+import { defaultLocalLlmConfigId, dropLocalLlmPanelKeys, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -108,7 +113,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'format-version';
     detail: string;
 }
 
@@ -468,6 +473,14 @@ class Run {
         });
     }
 
+    /** The Local LLM panel's top-level `localLlm` keys removed; `configurations` and `tools` stay. */
+    localLlmKeys(): void {
+        this.editConfigFiles('local-llm-keys', (parsed) => {
+            const removed = dropLocalLlmPanelKeys(parsed);
+            return { config: parsed, done: removed.length === 0 ? [] : [`remove the Local LLM panel's keys: ${removed.join(', ')}`] };
+        });
+    }
+
     /** `copilot.templates` and `copilot.defaultTemplate` removed; an own Answer Wrapper kept as `copilot.queueWrapper`. */
     copilotTemplates(): void {
         this.editConfigFiles('copilot-templates', (parsed) => ({ config: parsed, done: dropCopilotTemplates(parsed) }));
@@ -586,6 +599,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.copilotTemplates();
     run.localLlmProfiles();
     run.removedPanelConfig();
+    run.localLlmKeys();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
     stampFormatVersion(opts, run);

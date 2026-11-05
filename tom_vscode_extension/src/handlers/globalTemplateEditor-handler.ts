@@ -8,13 +8,13 @@
  * Categories:
  *   1. Copilot — Queue Wrapper       — config.copilot.queueWrapper (one item)
  *   2. Reminder Templates            — config.reminders.templates
- *   3. Tom AI Chat Templates         — config.tomAiChat.templates
- *   4. AI Conversation Profiles      — config.aiConversation.profiles
- *   5. Local LLM Profiles            — config.localLlm.profiles
- *   6. Timed Requests                — config.timedRequests
- *   7. Self-Talk Profiles            — config.aiConversation.selfTalk
- *   8. Anthropic — Profiles          — config.anthropic.profiles
- *   9. Anthropic — User Message      — config.anthropic.userMessageTemplates
+ *   3. Timed Requests                — config.timedRequests
+ *   4. Anthropic — Profiles          — config.anthropic.profiles
+ *   5. Anthropic — User Message      — config.anthropic.userMessageTemplates
+ *   6. Compaction                    — config.compaction.templates
+ *   7. Memory Extraction             — config.compaction.memoryExtractionTemplates
+ *   8. Transport Retry               — config.anthropic.transportRetry.templates
+ *   9. Interactive Questions         — config.anthropic.interactiveQuestionsTemplates
  *
  * The category dropdown at the top of the editor is the user-facing
  * per-transport switcher mandated by multi_transport_prompt_queue_revised.md

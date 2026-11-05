@@ -30,8 +30,9 @@ import { parse, stringify } from 'yaml';
  *   4  the explain-and-ask template renamed explain-todo (Explain TODO)
  *   5  Local LLM profiles as Anthropic profiles; the removed panels' files deleted
  *   6  copilot.templates removed; the Answer Wrapper as copilot.queueWrapper
+ *   7  the Local LLM panel's top-level localLlm keys removed
  */
-export const AI_FORMAT_VERSION = 6;
+export const AI_FORMAT_VERSION = 7;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

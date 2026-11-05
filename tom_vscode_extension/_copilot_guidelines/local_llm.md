@@ -4,6 +4,8 @@ The Local LLM is reached through **Anthropic profiles** whose configuration is a
 
 ## Local LLM configurations
 
+The `localLlm` section holds `configurations` and `tools` (the `tomAi_askCopilot` / `tomAi_askBigBrother` settings) and nothing else; the removed panel's top-level keys are dropped by the format migration (version 7, `dropLocalLlmPanelKeys` in `src/utils/localLlmProfileMigration.ts`).
+
 Each entry of `localLlm.configurations` names an endpoint (`ollamaUrl`), a model, its sampling and tool settings (`temperature`, `keepAlive`, `toolsEnabled`, `enabledTools`, `maxRounds`, `historyMode`, the per-configuration compaction overrides). They are edited in the Status Page's **LLM Configurations** section. Field reference: [../doc/llm_configuration.md §5](../doc/llm_configuration.md#5-local-llm-configuration-localllm-section).
 
 ## Backends (`apiStyle`) and Bearer auth (`apiKeyEnv`)
@@ -17,7 +19,7 @@ Each configuration picks a protocol via `apiStyle` (default `'ollama'`):
 
 ## The client: `LocalLlmManager.callLocalLlmOnce`
 
-`LocalLlmManager` (a singleton: `getLocalLlmManager` / `ensureLocalLlmManager`) loads the `localLlm` config and offers one primitive, `callLocalLlmOnce`: one chat request with already-composed messages and `SharedToolDefinition[]` tools, streamed through `onToken`, one model response back (`text`, `stats`, `toolCalls`). It has no tool loop, approval gate or template handling. It dispatches on `apiStyle` to the Ollama or the OpenAI-compatible chat call and retries a busy backend (HTTP 429 / 503 / 529) within a wait budget (`retryTotalWaitMs`, default 10 minutes), reporting each retry through `onRetryStatus`.
+`LocalLlmManager` (a singleton: `getLocalLlmManager` / `ensureLocalLlmManager`) offers one primitive, `callLocalLlmOnce`: one chat request with already-composed messages and `SharedToolDefinition[]` tools, streamed through `onToken`, one model response back (`text`, `stats`, `toolCalls`). It has no tool loop, approval gate or template handling. It dispatches on `apiStyle` to the Ollama or the OpenAI-compatible chat call and retries a busy backend (HTTP 429 / 503 / 529) within a wait budget (`retryTotalWaitMs`, default 10 minutes), reporting each retry through `onRetryStatus`.
 
 ## Anthropic profiles on a Local LLM configuration
 

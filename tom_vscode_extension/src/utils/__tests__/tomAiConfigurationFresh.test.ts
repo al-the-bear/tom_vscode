@@ -62,44 +62,44 @@ function cfg(): TomAiConfiguration {
 describe('TomAiConfiguration follows hand edits', () => {
     beforeEach(() => {
         fs.rmSync(userConfig, { force: true });
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://one' } }));
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://one' } }));
     });
 
     test('TC-1: a hand edit of a section is seen without a reload', () => {
         const c = cfg();
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://one');
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://two' }, copilot: { answerFolder: 'x' } }));
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://two');
-        assert.equal(c.getSection<Record<string, unknown>>('copilot')?.answerFolder, 'x');
+        assert.equal(c.getCopilot().answerFolder, 'http://one');
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://two' }, todo: { defaultColumns: ['x'] } }));
+        assert.equal(c.getCopilot().answerFolder, 'http://two');
+        assert.deepEqual(c.getSection<Record<string, unknown>>('todo')?.defaultColumns, ['x']);
     });
 
     test('TC-2: an unchanged file is not read again', (t) => {
         const c = cfg();
-        c.getLocalLlm();
+        c.getCopilot();
         const read = t.mock.method(FsUtils, 'safeReadFile');
-        for (let i = 0; i < 5; i++) { c.getLocalLlm(); c.getTrail(); }
+        for (let i = 0; i < 5; i++) { c.getCopilot(); c.getTrail(); }
         assert.equal(read.mock.callCount(), 0, 'no read while neither file changed');
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://three' } }));
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://three');
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://three' } }));
+        assert.equal(c.getCopilot().answerFolder, 'http://three');
         assert.equal(read.mock.callCount(), 1, 'one read for the one change');
     });
 
     test('TC-3: a file that disappears or appears', () => {
         const c = cfg();
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://one');
+        assert.equal(c.getCopilot().answerFolder, 'http://one');
         fs.rmSync(wsConfig);
-        assert.equal(c.getLocalLlm().ollamaUrl, TomAiConfiguration.defaults.localLlm.ollamaUrl, 'defaults once it is gone');
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://back' } }));
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://back');
+        assert.equal(c.getCopilot().answerFolder, TomAiConfiguration.defaults.copilot.answerFolder, 'defaults once it is gone');
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://back' } }));
+        assert.equal(c.getCopilot().answerFolder, 'http://back');
     });
 
     test('TC-4: a save, then a hand edit', async () => {
         const c = cfg();
-        await c.saveLocalLlm({ ollamaUrl: 'http://saved' });
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://saved');
-        assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).localLlm.ollamaUrl, 'http://saved');
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://edited' } }));
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://edited');
+        await c.saveCopilot({ answerFolder: 'http://saved' });
+        assert.equal(c.getCopilot().answerFolder, 'http://saved');
+        assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).copilot.answerFolder, 'http://saved');
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://edited' } }));
+        assert.equal(c.getCopilot().answerFolder, 'http://edited');
     });
 
     test('TC-5: a hand edit of the user-global overlay', () => {
@@ -113,19 +113,19 @@ describe('TomAiConfiguration follows hand edits', () => {
 
     test('TC-6: an unparsable hand edit', () => {
         const c = cfg();
-        handEdit(wsConfig, '{ "localLlm": ');
-        assert.equal(c.getLocalLlm().ollamaUrl, TomAiConfiguration.defaults.localLlm.ollamaUrl);
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://fixed' } }));
-        assert.equal(c.getLocalLlm().ollamaUrl, 'http://fixed');
+        handEdit(wsConfig, '{ "copilot": ');
+        assert.equal(c.getCopilot().answerFolder, TomAiConfiguration.defaults.copilot.answerFolder);
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://fixed' } }));
+        assert.equal(c.getCopilot().answerFolder, 'http://fixed');
     });
 
     test('TC-7: a save writes only the saved section', async () => {
         handEdit(userConfig, 'todo:\n  defaultColumns: [mine]\n');
-        handEdit(wsConfig, JSON.stringify({ localLlm: { ollamaUrl: 'http://one' }, custom: { keep: 1 } }));
+        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://one' }, custom: { keep: 1 } }));
         const c = cfg();
         await c.saveTrail({ raw: { enabled: false } });
         const onDisk = JSON.parse(fs.readFileSync(wsConfig, 'utf-8'));
-        assert.deepEqual(Object.keys(onDisk).sort(), ['custom', 'localLlm', 'trail']);
+        assert.deepEqual(Object.keys(onDisk).sort(), ['copilot', 'custom', 'trail']);
         assert.deepEqual(onDisk.trail, { raw: { enabled: false } });
         assert.deepEqual(onDisk.custom, { keep: 1 }, 'another section the file had');
         assert.deepEqual(c.getTrail(), { raw: { enabled: false } });
@@ -135,7 +135,7 @@ describe('TomAiConfiguration follows hand edits', () => {
     test('TC-8: after a save, an overlay edit is still seen', async () => {
         handEdit(userConfig, 'todo:\n  defaultColumns: [first]\n');
         const c = cfg();
-        await c.saveLocalLlm({ ollamaUrl: 'http://saved' });
+        await c.saveCopilot({ answerFolder: 'http://saved' });
         handEdit(userConfig, 'todo:\n  defaultColumns: [second]\n');
         assert.deepEqual(c.getTodo().defaultColumns, ['second']);
         assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).todo, undefined);
@@ -143,8 +143,8 @@ describe('TomAiConfiguration follows hand edits', () => {
 
     test('TC-9: a save while the file does not parse is refused', async () => {
         const c = cfg();
-        handEdit(wsConfig, '{ "localLlm": { "ollamaUrl": "http://half"');
+        handEdit(wsConfig, '{ "copilot": { "answerFolder": "http://half"');
         await assert.rejects(() => c.saveTrail({ raw: { enabled: false } }), /does not parse/);
-        assert.equal(fs.readFileSync(wsConfig, 'utf-8'), '{ "localLlm": { "ollamaUrl": "http://half"');
+        assert.equal(fs.readFileSync(wsConfig, 'utf-8'), '{ "copilot": { "answerFolder": "http://half"');
     });
 });

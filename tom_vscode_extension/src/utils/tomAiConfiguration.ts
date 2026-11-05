@@ -15,7 +15,6 @@ import {
     TRAIL_DEFAULT_MAX_ENTRIES,
 } from './constants';
 
-export type LocalLlmConfig = Record<string, unknown>;
 export type CopilotConfig = Record<string, unknown>;
 export type TrailConfig = Record<string, unknown>;
 export type BridgeConfig = Record<string, unknown>;
@@ -25,7 +24,6 @@ export type FavoriteEntry = Record<string, unknown>;
 
 export interface TomAiConfigDefaults {
     userName: string;
-    localLlm: LocalLlmConfig;
     copilot: CopilotConfig;
     trail: TrailConfig;
     bridge: BridgeConfig;
@@ -37,8 +35,8 @@ export interface TomAiConfigDefaults {
 /**
  * User-global preferences file — overlaid on top of the workspace
  * config for values that are the same across every workspace on this
- * machine (user identity, preferred model/profile defaults, Ollama
- * URL, bridge binary paths, reusable personal templates).
+ * machine (user identity, preferred model/profile defaults, bridge
+ * binary paths, reusable personal templates).
  *
  * Resolution: `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`.
  * Path built via `path.join(os.homedir(), ...)` so it resolves to
@@ -108,9 +106,6 @@ export class TomAiConfiguration {
     static get defaults(): Readonly<TomAiConfigDefaults> {
         return {
             userName: os.userInfo().username,
-            localLlm: {
-                ollamaUrl: 'http://localhost:11434',
-            },
             copilot: {
                 answerFolder: '${ai}/chat_replies',
                 showNotifications: true,
@@ -212,7 +207,6 @@ export class TomAiConfiguration {
         if (this.filesStamp() !== this.stamp) { this.reload(); }
     }
 
-    getLocalLlm(): LocalLlmConfig { return this.getSection<LocalLlmConfig>('localLlm') ?? {}; }
     getCopilot(): CopilotConfig { return this.getSection<CopilotConfig>('copilot') ?? {}; }
     getTrail(): TrailConfig { return this.getSection<TrailConfig>('trail') ?? {}; }
     getBridge(): BridgeConfig { return this.getSection<BridgeConfig>('bridge') ?? {}; }
@@ -220,7 +214,6 @@ export class TomAiConfiguration {
     getReminders(): RemindersConfig { return this.getSection<RemindersConfig>('reminders') ?? {}; }
     getFavorites(): FavoriteEntry[] { return this.getSection<FavoriteEntry[]>('favorites') ?? []; }
 
-    async saveLocalLlm(config: LocalLlmConfig): Promise<void> { await this.updateSection('localLlm', config); }
     async saveCopilot(config: CopilotConfig): Promise<void> { await this.updateSection('copilot', config); }
     async saveTrail(config: TrailConfig): Promise<void> { await this.updateSection('trail', config); }
     async saveBridge(config: BridgeConfig): Promise<void> { await this.updateSection('bridge', config); }
