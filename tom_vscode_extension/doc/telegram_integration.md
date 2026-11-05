@@ -104,11 +104,6 @@ telegram:
   allowedUserIds: [123456789]     # whitelisted Telegram user IDs (required)
   defaultChatId: 123456789        # chat that receives notifications
   pollIntervalMs: 2000            # getUpdates interval (default 2000)
-  notifyOnStart: true             # notify when a conversation starts
-  notifyOnTurn: true              # notify per turn
-  notifyOnEnd: true               # notify when a conversation ends
-  includeResponseText: true       # include response text in notifications
-  maxResponseChars: 500           # cap on included response chars
 ```
 
 ### Machine-SPECIFIC — `_ai/quests/{quest}/extension_config.{hostSlug}.{quest}.yaml`
@@ -151,8 +146,7 @@ single-purpose `telegram.{questId}.json` is superseded.
 
 The **Status Page → Telegram** section surfaces the same settings as a form:
 `enabled`, `botTokenEnv`, `defaultChatId`, `allowedUserIds` (comma-separated),
-`pollIntervalMs`, `notifyOnStart` / `notifyOnTurn` / `notifyOnEnd`, and the
-per-host `autostart` checkbox. It pre-populates from the effective merged config
+`pollIntervalMs`, and the per-host `autostart` checkbox. It pre-populates from the effective merged config
 and writes back via `updateTelegramSettings`. Two buttons wire to the VS Code
 commands above: **Test Connection** and **Configure**. Machine-specific fields
 (`enabled`, `autostart`, `botTokenEnv`) are written to the host file; everything

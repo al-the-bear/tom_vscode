@@ -280,9 +280,6 @@ async function updateTelegramSettings(settings: any): Promise<void> {
             ? settings.allowedUserIds.filter((id: any) => typeof id === 'number' && Number.isFinite(id))
             : (telegram.allowedUserIds ?? []),
         pollIntervalMs: settings.pollIntervalMs,
-        notifyOnStart: settings.notifyOnStart,
-        notifyOnTurn: settings.notifyOnTurn,
-        notifyOnEnd: settings.notifyOnEnd
     });
 
     if (writeQuestTelegramRaw(telegram)) {
@@ -1668,9 +1665,6 @@ export interface StatusData {
         defaultChatId: number;
         allowedUserIds: number[];
         pollIntervalMs: number;
-        notifyOnTurn: boolean;
-        notifyOnStart: boolean;
-        notifyOnEnd: boolean;
     };
     chatQuestions: {
         scopeLabel: string;
@@ -1931,9 +1925,6 @@ export async function gatherStatusData(): Promise<StatusData> {
             defaultChatId: telegram.defaultChatId ?? 0,
             allowedUserIds: Array.isArray(telegram.allowedUserIds) ? telegram.allowedUserIds : [],
             pollIntervalMs: telegram.pollIntervalMs ?? 3000,
-            notifyOnTurn: telegram.notifyOnTurn ?? true,
-            notifyOnStart: telegram.notifyOnStart ?? true,
-            notifyOnEnd: telegram.notifyOnEnd ?? true,
         },
         chatQuestions: (() => {
             const cq = readChatQuestionsConfig();
@@ -2474,23 +2465,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <div class="sp-settings-row">
                 <label>Poll (ms):</label>
                 <input type="number" id="sp-tg-pollIntervalMs" value="${status.telegram.pollIntervalMs}" step="1000" min="1000">
-            </div>
-            <div class="sp-settings-row">
-                <label>Notify Start:</label>
-                <select id="sp-tg-notifyOnStart">
-                    <option value="true" ${status.telegram.notifyOnStart ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.telegram.notifyOnStart ? 'selected' : ''}>No</option>
-                </select>
-                <label>Turn:</label>
-                <select id="sp-tg-notifyOnTurn">
-                    <option value="true" ${status.telegram.notifyOnTurn ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.telegram.notifyOnTurn ? 'selected' : ''}>No</option>
-                </select>
-                <label>End:</label>
-                <select id="sp-tg-notifyOnEnd">
-                    <option value="true" ${status.telegram.notifyOnEnd ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.telegram.notifyOnEnd ? 'selected' : ''}>No</option>
-                </select>
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateTelegram">Save Telegram Settings</button>

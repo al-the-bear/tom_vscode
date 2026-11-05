@@ -625,7 +625,7 @@ across two consolidated per-quest files by whether the value is host-invariant:
 
 | File | Scope | Telegram keys |
 | --- | --- | --- |
-| `_ai/quests/{quest}/extension_config.{quest}.yaml` | machine-INDEPENDENT | `allowedUserIds`, `defaultChatId`, `pollIntervalMs`, `notifyOnStart` / `notifyOnTurn` / `notifyOnEnd`, `includeResponseText`, `maxResponseChars` |
+| `_ai/quests/{quest}/extension_config.{quest}.yaml` | machine-INDEPENDENT | `allowedUserIds`, `defaultChatId`, `pollIntervalMs` |
 | `_ai/quests/{quest}/extension_config.{hostSlug}.{quest}.yaml` | machine-SPECIFIC | `enabled`, `autostart`, `botTokenEnv` |
 
 The raw bot token is **never persisted** — it is resolved at load time from

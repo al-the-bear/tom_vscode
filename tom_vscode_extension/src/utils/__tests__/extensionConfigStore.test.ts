@@ -140,7 +140,7 @@ describe('extensionConfigStore — telegram split / merge', () => {
             autostart: true,
             botTokenEnv: 'TG_TOKEN',
             defaultChatId: 99,
-            notifyOnTurn: false,
+            pollIntervalMs: 5000,
             botToken: 'SECRET',
         }, QUEST);
 
@@ -150,7 +150,7 @@ describe('extensionConfigStore — telegram split / merge', () => {
         // The exact-equality assertions below also prove botToken is never
         // persisted to either file (it is absent from both objects).
         assert.deepEqual(machine, { enabled: true, autostart: true, botTokenEnv: 'TG_TOKEN' });
-        assert.deepEqual(quest, { defaultChatId: 99, notifyOnTurn: false });
+        assert.deepEqual(quest, { defaultChatId: 99, pollIntervalMs: 5000 });
     });
 
     test('merge overlays machine fields over the quest fields', () => {
@@ -158,12 +158,12 @@ describe('extensionConfigStore — telegram split / merge', () => {
             enabled: true,
             botTokenEnv: 'TG_TOKEN',
             defaultChatId: 99,
-            notifyOnTurn: false,
+            pollIntervalMs: 5000,
         }, QUEST);
 
         assert.deepEqual(readMergedTelegramRaw(QUEST), {
             defaultChatId: 99,
-            notifyOnTurn: false,
+            pollIntervalMs: 5000,
             enabled: true,
             botTokenEnv: 'TG_TOKEN',
         });

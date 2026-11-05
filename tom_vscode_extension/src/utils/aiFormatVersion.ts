@@ -30,7 +30,8 @@ import { parse, stringify } from 'yaml';
  *   4  the explain-and-ask template renamed explain-todo (Explain TODO)
  *   5  Local LLM profiles as Anthropic profiles; the removed panels' files deleted
  *   6  copilot.templates removed; the Answer Wrapper as copilot.queueWrapper
- *   7  the Local LLM panel's top-level localLlm keys removed
+ *   7  the Local LLM panel's top-level localLlm keys removed; the Telegram
+ *      notification settings nothing reads removed from the quest configs
  */
 export const AI_FORMAT_VERSION = 7;
 

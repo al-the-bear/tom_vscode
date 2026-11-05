@@ -30,16 +30,6 @@ export interface TelegramConfig {
     allowedUserIds: number[];
     /** Default chat ID to send notifications to (usually your personal chat). */
     defaultChatId: number;
-    /** Whether to send a notification for each turn. */
-    notifyOnTurn: boolean;
-    /** Whether to send a notification when the conversation starts. */
-    notifyOnStart: boolean;
-    /** Whether to send a notification when the conversation ends. */
-    notifyOnEnd: boolean;
-    /** Whether to include the full Copilot response text in notifications. */
-    includeResponseText: boolean;
-    /** Max characters of response text to include in notifications. */
-    maxResponseChars: number;
     /** Polling interval in milliseconds for incoming messages. */
     pollIntervalMs: number;
 }
@@ -74,11 +64,6 @@ export const TELEGRAM_DEFAULTS: TelegramConfig = {
     botToken: '',
     allowedUserIds: [],
     defaultChatId: 0,
-    notifyOnTurn: true,
-    notifyOnStart: true,
-    notifyOnEnd: true,
-    includeResponseText: true,
-    maxResponseChars: 500,
     pollIntervalMs: 2000,
 };
 
@@ -243,11 +228,6 @@ export function parseTelegramConfig(raw: any): TelegramConfig {
         botToken,
         allowedUserIds,
         defaultChatId,
-        notifyOnTurn: typeof raw.notifyOnTurn === 'boolean' ? raw.notifyOnTurn : TELEGRAM_DEFAULTS.notifyOnTurn,
-        notifyOnStart: typeof raw.notifyOnStart === 'boolean' ? raw.notifyOnStart : TELEGRAM_DEFAULTS.notifyOnStart,
-        notifyOnEnd: typeof raw.notifyOnEnd === 'boolean' ? raw.notifyOnEnd : TELEGRAM_DEFAULTS.notifyOnEnd,
-        includeResponseText: typeof raw.includeResponseText === 'boolean' ? raw.includeResponseText : TELEGRAM_DEFAULTS.includeResponseText,
-        maxResponseChars: typeof raw.maxResponseChars === 'number' ? raw.maxResponseChars : TELEGRAM_DEFAULTS.maxResponseChars,
         pollIntervalMs: typeof raw.pollIntervalMs === 'number' ? raw.pollIntervalMs : TELEGRAM_DEFAULTS.pollIntervalMs,
     };
 }

@@ -60,10 +60,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                         .split(',')
                         .map(function (s) { return parseInt(s.trim(), 10); })
                         .filter(function (n) { return Number.isFinite(n); }),
-                    pollIntervalMs: parseInt((document.getElementById('sp-tg-pollIntervalMs') || {}).value || '3000'),
-                    notifyOnStart: (document.getElementById('sp-tg-notifyOnStart') || {}).value === 'true',
-                    notifyOnTurn: (document.getElementById('sp-tg-notifyOnTurn') || {}).value === 'true',
-                    notifyOnEnd: (document.getElementById('sp-tg-notifyOnEnd') || {}).value === 'true'
+                    pollIntervalMs: parseInt((document.getElementById('sp-tg-pollIntervalMs') || {}).value || '3000')
                 };
             } else if (action === 'updateChatQuestions') {
                 msgData.settings = {

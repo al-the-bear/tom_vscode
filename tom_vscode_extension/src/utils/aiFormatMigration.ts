@@ -21,6 +21,9 @@
  *     fold into that host's `extension_config.<host>.<quest>.yaml`
  *     (`questRefresh`, when absent) and are removed.
  *   - todos: `user_action: true` where the tag `user-action` says so.
+ *   - Telegram settings: the AI Conversation panel's notification settings
+ *     (REMOVED_TELEGRAM_KEYS) leave the `telegram` section of the quest's
+ *     `extension_config.<quest>.yaml`. Format version 7.
  *   - process state: a `process-state.<quest>.yaml` holding one position at
  *     its top becomes a stack of that one level (processDefinition.ts,
  *     ProcessStateStack); its `updated` time stays. Format version 2.
@@ -87,6 +90,13 @@ import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
+/**
+ * The Telegram settings of the removed AI Conversation panel's notifications,
+ * which nothing reads (format version 7): dropped from every quest's
+ * `extension_config.<quest>.yaml` `telegram` section.
+ */
+export const REMOVED_TELEGRAM_KEYS: readonly string[] = ['notifyOnStart', 'notifyOnTurn', 'notifyOnEnd', 'includeResponseText', 'maxResponseChars'];
+
 export type MergeDriver = 'ai-trail' | 'ai-history-json' | 'ai-history-md' | 'ai-block-history';
 
 export interface FormatMigrationOptions {
@@ -113,7 +123,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'format-version';
     detail: string;
 }
 
@@ -315,6 +325,29 @@ class Run {
             this.change(quest, 'legacy-config', `remove ${this.rel(file)}`);
             if (this.opts.apply) { fs.unlinkSync(file); }
         }
+    }
+
+    // ---- Telegram settings -------------------------------------------------
+
+    /** {@link REMOVED_TELEGRAM_KEYS} out of the `telegram` section of the quest's extension_config.<quest>.yaml. */
+    telegramSettings(quest: string): void {
+        const file = path.join(this.opts.aiRoot, 'quests', quest, `extension_config.${quest}.yaml`);
+        if (!fs.existsSync(file)) { return; }
+        const text = fs.readFileSync(file, 'utf8');
+        const doc = parseDocument(text);
+        const telegram = doc.get('telegram', true);
+        if (!isMap(telegram)) { return; }
+        const present = telegram.items
+            .map((pair) => String((pair.key as { value?: unknown })?.value ?? pair.key))
+            .filter((key) => REMOVED_TELEGRAM_KEYS.includes(key));
+        if (present.length === 0) { return; }
+        this.change(quest, 'telegram-settings', `${this.rel(file)}: remove telegram ${present.join(', ')}`);
+        if (!this.opts.apply) { return; }
+        for (const key of present) { telegram.delete(key); }
+        // Why: these files hold block sequences at the key's own indent (`- x`
+        // under `key:`), not the yaml library's default; written back as found.
+        const indentSeq = !/^( *)[^\s#-][^\n]*:\n\1- /m.test(text);
+        fs.writeFileSync(file, doc.toString({ indentSeq }), 'utf8');
     }
 
     // ---- todos ------------------------------------------------------------
@@ -592,6 +625,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
         run.sessions(quest);
         run.legacyConfig(quest);
         processStateStack(opts, run, quest);
+        run.telegramSettings(quest);
     }
     run.mcpServer(all);
     run.profiles();
