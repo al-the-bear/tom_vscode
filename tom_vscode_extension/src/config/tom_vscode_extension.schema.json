@@ -443,16 +443,21 @@
                 },
                 "maxRounds": { "type": "integer", "minimum": 1 },
                 "historyMode": { "type": ["string", "null"] },
-                "thinkingEnabled": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Enable Claude extended thinking. Passes `thinking: { type: 'enabled', budget_tokens }` on the direct SDK; forwarded to the Agent SDK when set."
+                "thinking": {
+                    "type": "string",
+                    "enum": ["adaptive", "off"],
+                    "description": "Thinking. 'adaptive' sends thinking: {type: 'adaptive'} on current models ({type: 'enabled', budget_tokens: legacyThinkingBudgetTokens} on Haiku 4.5 and older); 'off' sends {type: 'disabled'} where the model allows it (not Opus 5.5 / Fable, nor Opus 5 at effort xhigh / max). Absent: no thinking parameter, the model's default. Passed to the Agent SDK as its thinking option."
                 },
-                "thinkingBudgetTokens": {
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max"],
+                    "description": "Effort, sent as output_config.effort on the direct transport and as the Agent SDK's effort option. Absent: the model's default (medium on Opus 5.5, high elsewhere). A level the model does not take is left out."
+                },
+                "legacyThinkingBudgetTokens": {
                     "type": "integer",
                     "minimum": 1024,
                     "default": 8192,
-                    "description": "Token budget for extended thinking. Ignored if thinkingEnabled is false."
+                    "description": "Thinking budget used only on models without adaptive thinking (Haiku 4.5, the 4.5 models and older) when thinking is 'adaptive'."
                 },
                 "promptCachingEnabled": {
                     "type": "boolean",

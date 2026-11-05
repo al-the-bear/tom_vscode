@@ -30,6 +30,9 @@
  *     `mcpServer` section (as the extension does when a window opens), and is
  *     removed;
  *   - `blocking` (the reverse of `blocked_by`) is filled on every live todo;
+ *   - the Anthropic profiles of that config: `thinkingEnabled` /
+ *     `thinkingBudgetTokens` become `thinking` / `legacyThinkingBudgetTokens`
+ *     (thinkingAndEffort.ts). Format version 3;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -56,6 +59,7 @@ import {
     sessionMemoryFolder,
     sessionRoot,
 } from '../services/sessionStorage';
+import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -86,7 +90,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'format-version';
     detail: string;
 }
 
@@ -332,6 +336,33 @@ class Run {
 
     // ---- workspace config -------------------------------------------------
 
+    /** The workspace config's Anthropic profiles in the current thinking keys. */
+    profiles(): void {
+        const cfgPath = this.opts.workspaceConfigPath;
+        if (!cfgPath || !fs.existsSync(cfgPath)) { return; }
+        const raw = fs.readFileSync(cfgPath, 'utf8');
+        let cfg: { anthropic?: { profiles?: unknown[] } } & Record<string, unknown>;
+        try { cfg = JSON.parse(raw); } catch {
+            this.problem('(workspace)', 'profiles', `${cfgPath} is not readable JSON`);
+            return;
+        }
+        const profiles = cfg.anthropic?.profiles;
+        if (!Array.isArray(profiles)) { return; }
+        let changed = false;
+        profiles.forEach((profile, i) => {
+            if (!profile || typeof profile !== 'object') { return; }
+            const next = migrateProfileThinkingKeys(profile as Record<string, unknown>);
+            if (!next) { return; }
+            changed = true;
+            profiles[i] = next;
+            this.change('(workspace)', 'profiles', `profile ${(profile as { id?: string }).id ?? i}: thinkingEnabled / thinkingBudgetTokens as thinking / legacyThinkingBudgetTokens`);
+        });
+        if (changed && this.opts.apply) {
+            const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? '    ';
+            fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
+        }
+    }
+
     mcpServer(quests: string[]): void {
         const cfgPath = this.opts.workspaceConfigPath;
         if (!cfgPath || !fs.existsSync(cfgPath)) { return; }
@@ -409,6 +440,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
         processStateStack(opts, run, quest);
     }
     run.mcpServer(all);
+    run.profiles();
     run.todos(quests);
     stampFormatVersion(opts, run);
     return run.result;

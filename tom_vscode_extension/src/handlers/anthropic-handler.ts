@@ -187,7 +187,7 @@ export interface AnthropicConfiguration {
  * §12.2). Stored in `anthropic.profiles[]` in the workspace config JSON;
  * the Global Template Editor's `anthropicProfiles` category is the UI.
  *
- * Profile-level overrides (thinkingEnabled, promptCachingEnabled,
+ * Profile-level overrides (thinking, effort, promptCachingEnabled,
  * toolApprovalMode, useBuiltInTools) take precedence over the
  * configuration's settings when provided.
  */
@@ -220,10 +220,15 @@ export interface AnthropicProfile {
      */
     retryMaxTotalWaitMinutes?: number;
     isDefault?: boolean;
-    /** Extended thinking — sends `thinking: { type: 'enabled', budget_tokens }`. */
-    thinkingEnabled?: boolean;
-    /** Budget in tokens for extended thinking. Default 8192 when `thinkingEnabled`. */
-    thinkingBudgetTokens?: number;
+    /**
+     * Thinking: 'adaptive' or 'off'; absent = the model's default. Sent as
+     * each model accepts it (src/utils/thinkingAndEffort.ts).
+     */
+    thinking?: ThinkingMode;
+    /** Effort (`output_config.effort`): low … max; absent = the model's default. */
+    effort?: EffortLevel;
+    /** Thinking budget for models without adaptive thinking (Haiku 4.5 and older). Default 8192. */
+    legacyThinkingBudgetTokens?: number;
     /** Prompt caching — overrides configuration.promptCachingEnabled. Default true at profile level. */
     promptCachingEnabled?: boolean;
     /**
@@ -383,6 +388,7 @@ import { boundPayloadHistory } from '../services/historyPayloadBound';
 import { applyToolTrailRetention, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
 import { readQuestSection } from '../managers/extensionConfigStore';
+import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 export { temperatureField };
 
 /**
@@ -2087,9 +2093,9 @@ export class AnthropicHandler {
         // went out on every turn. History is summarized per-message (role
         // + length + first ~200 chars). Written *before* compaction so the
         // uncompacted rolling history is visible.
-        const effectiveThinkingBudget = profile.thinkingEnabled
-            ? (profile.thinkingBudgetTokens ?? 8192)
-            : undefined;
+        const payloadThinking = transport === 'agentSdk'
+            ? agentSdkThinkingOptions(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>))
+            : directThinkingFields(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>));
         const payloadProfileCaching = profile.promptCachingEnabled;
         const payloadEffectiveCaching = payloadProfileCaching === undefined
             ? configuration.promptCachingEnabled === true
@@ -2110,7 +2116,7 @@ export class AnthropicHandler {
                 history: payloadHistory,
                 userContent,
                 effectiveCaching: payloadEffectiveCaching,
-                thinkingBudgetTokens: effectiveThinkingBudget,
+                thinking: payloadThinking,
                 useBuiltInTools: profile.useBuiltInTools === true,
                 compactedSummary: this.compactedSummaryText,
             }),
@@ -2260,7 +2266,7 @@ export class AnthropicHandler {
                     cancellationToken: options.cancellationToken,
                     toolApprovalMode: profile.toolApprovalMode ?? 'always',
                     useBuiltInTools: profile.useBuiltInTools === true,
-                    thinkingBudgetTokens: profile.thinkingEnabled ? (profile.thinkingBudgetTokens ?? 8192) : undefined,
+                    thinkingOptions: agentSdkThinkingOptions(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>)),
                     resumeSessionId,
                     forkSession: sessionStart.fork,
                     onSessionIdCaptured,
@@ -2447,9 +2453,11 @@ export class AnthropicHandler {
             systemSegments,
             { ...configuration, promptCachingEnabled: effectiveCaching },
         );
-        const thinkingBlock: Anthropic.ThinkingConfigParam | undefined = profile.thinkingEnabled
-            ? { type: 'enabled', budget_tokens: profile.thinkingBudgetTokens ?? 8192 }
-            : undefined;
+        // Thinking and effort as this model takes them (adaptive thinking on
+        // current models; no budget_tokens on 4.7+, which reject it).
+        const thinkingFields = directThinkingFields(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>));
+        const thinkingBlock = thinkingFields.thinking;
+        const outputConfig = thinkingFields.output_config;
 
         let totalToolCalls = 0;
         let lastText = '';
@@ -2494,6 +2502,7 @@ export class AnthropicHandler {
                     max_tokens: configuration.maxTokens,
                     ...temperatureField(configuration.temperature),
                     ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
+                    ...(outputConfig ? { output_config: outputConfig } : {}),
                     system: systemParam,
                     ...(requestTools.length > 0 ? { tools: requestTools } : {}),
                     messages: requestMessages(),
@@ -2514,6 +2523,7 @@ export class AnthropicHandler {
                     max_tokens: configuration.maxTokens,
                     ...temperatureField(configuration.temperature),
                     ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
+                    ...(outputConfig ? { output_config: outputConfig } : {}),
                     system: systemParam,
                     ...(requestTools.length > 0 ? { tools: requestTools } : {}),
                     messages: requestMessages(),

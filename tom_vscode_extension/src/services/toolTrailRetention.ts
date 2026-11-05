@@ -31,7 +31,7 @@
  *
  * The conversation decides, not the profile: a model may think without a
  * `thinking` request parameter (Opus 5.5 does, measured 2026-10-27 with a
- * profile whose `thinkingEnabled` is false).
+ * profile that asks for no thinking).
  *
  * vscode-free.
  */

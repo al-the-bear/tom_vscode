@@ -275,8 +275,12 @@ export interface SendToChatConfig {
             enabledTools?: string[];
             maxRounds?: number;
             historyMode?: string | null;
-            thinkingEnabled?: boolean;
-            thinkingBudgetTokens?: number;
+            /** 'adaptive' | 'off'; absent = the model's default (src/utils/thinkingAndEffort.ts). */
+            thinking?: 'adaptive' | 'off';
+            /** `output_config.effort`; absent = the model's default. */
+            effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            /** Thinking budget for models without adaptive thinking (Haiku 4.5 and older). */
+            legacyThinkingBudgetTokens?: number;
             promptCachingEnabled?: boolean;
             toolApprovalMode?: 'always' | 'never';
             useBuiltInTools?: boolean;

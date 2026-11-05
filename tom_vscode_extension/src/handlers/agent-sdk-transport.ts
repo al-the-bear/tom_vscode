@@ -23,6 +23,7 @@
  * our MCP server when the configuration enables them.
  */
 
+import type { AgentSdkThinkingOptions } from '../utils/thinkingAndEffort';
 import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
 import { z } from 'zod';
@@ -313,8 +314,8 @@ export interface AgentSdkSendParams {
     toolApprovalMode?: 'always' | 'never';
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
-    /** Profile-level override: extended thinking budget (tokens). Forwarded to the SDK. */
-    thinkingBudgetTokens?: number;
+    /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
+    thinkingOptions?: AgentSdkThinkingOptions;
     /**
      * Optional live-trail writer — when set, the transport emits
      * thinking / tool_use / assistant text events into it as the
@@ -967,6 +968,8 @@ async function runAgentSdkAttempt(
             // with no structured message. Kept bounded and scrubbed.
             stderr: (data: string) => failureCollector.addStderr(data),
             ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
+            ...(params.thinkingOptions?.thinking ? { thinking: params.thinkingOptions.thinking } : {}),
+            ...(params.thinkingOptions?.effort ? { effort: params.thinkingOptions.effort } : {}),
         };
         // Continuity: passing `resume` tells the SDK to continue a prior
         // session so it sees the full turn history it produced earlier.
@@ -995,6 +998,9 @@ async function runAgentSdkAttempt(
                 cwd: queryOptions.cwd,
                 resume: queryOptions.resume,
                 forkSession: (queryOptions as { forkSession?: unknown }).forkSession,
+                thinking: queryOptions.thinking,
+                effort: queryOptions.effort,
+                ...(params.thinkingOptions?.notes.length ? { thinkingNotes: params.thinkingOptions.notes } : {}),
                 // mcpServers / canUseTool / abortController are
                 // intentionally omitted — they're runtime callables/
                 // controllers, not serialisable state.

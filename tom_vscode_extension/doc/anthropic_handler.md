@@ -62,6 +62,7 @@ stream in flight.
 | Auth source | `ANTHROPIC_API_KEY` env var | Inherited from the host Claude Code install |
 | Billing | Anthropic API account | Claude Code subscription / Bedrock / Vertex |
 | Prompt caching | `promptCachingEnabled`: system prompt, tools and newest turn; usage (cache reads/writes) in the live trail | SDK-managed (field ignored) |
+| Thinking and effort | The profile's `thinking` (`adaptive` / `off`) and `effort` (`low` … `max`), sent as the model takes them: `thinking: {type: 'adaptive'}` (or `{type: 'disabled'}`) and `output_config.effort`; `{type: 'enabled', budget_tokens: legacyThinkingBudgetTokens}` only on models without adaptive thinking (Haiku 4.5 and older). Off is not possible on Opus 5.5 / Fable, nor on Opus 5 at xhigh / max. A setting the model does not take is left out and named in the payload dump | The SDK's `thinking` and `effort` options, decided the same way |
 | Context compaction | Our `history-compaction.ts` | SDK-managed (`historyMode`, `maxHistoryTokens` ignored) |
 | Tool-use loop | Hand-rolled in `anthropic-handler.ts` | SDK-managed |
 | Memory tools | Same (`tomAi_memory_*`) | Same (`tomAi_memory_*`) — still exposed over MCP |

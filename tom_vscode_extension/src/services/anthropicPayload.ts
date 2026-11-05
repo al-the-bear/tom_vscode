@@ -41,7 +41,8 @@ export interface PayloadDumpInputs {
     history: ConversationMessage[];
     userContent: string;
     effectiveCaching: boolean;
-    thinkingBudgetTokens?: number;
+    /** Thinking and effort as sent (src/utils/thinkingAndEffort.ts). */
+    thinking?: { thinking?: unknown; output_config?: { effort: string }; effort?: string; notes: string[] };
     useBuiltInTools?: boolean;
     compactedSummary?: string;
 }
@@ -69,8 +70,12 @@ export function buildPayloadDump(params: PayloadDumpInputs): string {
         lines.push(`- temperature: ${configuration.temperature}`);
     }
     lines.push(`- promptCachingEnabled (effective): ${params.effectiveCaching}`);
-    if (params.thinkingBudgetTokens !== undefined) {
-        lines.push(`- thinking.budget_tokens: ${params.thinkingBudgetTokens}`);
+    if (params.thinking) {
+        const th = params.thinking;
+        lines.push(`- thinking: ${th.thinking ? JSON.stringify(th.thinking) : '(not sent: the model\'s default)'}`);
+        const effort = th.output_config?.effort ?? th.effort;
+        lines.push(`- effort: ${effort ?? '(not sent: the model\'s default)'}`);
+        for (const note of th.notes) { lines.push(`  - ${note}`); }
     }
     if (transport === 'agentSdk') {
         lines.push(`- useBuiltInTools: ${params.useBuiltInTools === true}`);

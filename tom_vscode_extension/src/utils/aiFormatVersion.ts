@@ -26,8 +26,9 @@ import { parse, stringify } from 'yaml';
  * The `_ai` format version this build reads and writes.
  *   1  the stamp itself
  *   2  process state as a stack of levels
+ *   3  profile thinking keys: thinking / effort / legacyThinkingBudgetTokens
  */
-export const AI_FORMAT_VERSION = 2;
+export const AI_FORMAT_VERSION = 3;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

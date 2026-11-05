@@ -25,6 +25,7 @@
  * and covers the larger set of stores the editor manages.
  */
 
+import { DEFAULT_LEGACY_THINKING_BUDGET, EFFORT_LEVELS, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 import * as vscode from 'vscode';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig, DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY } from '../utils/sendToChatConfig';
@@ -475,8 +476,6 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             // Profile-level overrides (default "on" for promptCaching so
             // the field resolves to true when absent).
             const p = profile as unknown as {
-                thinkingEnabled?: boolean;
-                thinkingBudgetTokens?: number;
                 promptCachingEnabled?: boolean;
                 toolApprovalMode?: 'always' | 'never';
                 useBuiltInTools?: boolean;
@@ -494,6 +493,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                     .map((o) => ({ value: o.id, label: o.name ? `${o.name} (${o.id})` : o.id }))),
             ];
             const promptCachingDefaultOn = p.promptCachingEnabled !== false;
+            const thinkingSettings = profileThinkingSettings(profile as unknown as Record<string, unknown>);
             // Fallback-template dropdown for the AskUserQuestion interception.
             const interactiveQuestionsTemplateOptions = [
                 { value: '', label: '(built-in default)' },
@@ -510,8 +510,9 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, optionGroups: toolOptionGroups, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off. Empty subset → no tools. Use the global toolbar (Select All / None / Read-Only) or per-group buttons for bulk picks.' },
-                { name: 'thinkingEnabled', label: 'Extended Thinking', type: 'checkbox', value: String(p.thinkingEnabled === true), help: 'Enable Claude extended thinking. Sends <code>thinking: { type: "enabled", budget_tokens }</code> on the direct SDK; forwarded to the Agent SDK where supported.' },
-                { name: 'thinkingBudgetTokens', label: 'Thinking Budget (tokens)', type: 'number', value: String(p.thinkingBudgetTokens ?? 8192), help: 'Token budget for extended thinking. Minimum 1024. Ignored when Extended Thinking is off.', disabledWhen: { field: 'thinkingEnabled', equals: 'false' } },
+                { name: 'thinking', label: 'Thinking', type: 'select', value: thinkingSettings.thinking ?? '', options: [{ value: '', label: "(model's default)" }, { value: 'adaptive', label: 'Adaptive — the model decides how much to think' }, { value: 'off', label: 'Off' }], help: 'Sends <code>thinking: { type: "adaptive" }</code> on current models; models without adaptive thinking (Haiku 4.5 and older) get <code>{ type: "enabled", budget_tokens }</code> with the budget below. <strong>Off</strong> is not possible on Opus 5.5 and Fable (thinking is always on there; lower the effort instead) nor on Opus 5 at effort xhigh / max: no thinking parameter is sent then, and the payload dump says so. Passed to the Agent SDK as its <code>thinking</code> option.' },
+                { name: 'effort', label: 'Effort', type: 'select', value: thinkingSettings.effort ?? '', options: [{ value: '', label: "(model's default)" }, ...EFFORT_LEVELS.map((l) => ({ value: l, label: l }))], help: 'Sent as <code>output_config.effort</code> on the direct transport and as the Agent SDK\'s <code>effort</code> option. How much the model thinks and how many tokens it spends; the default is <code>medium</code> on Opus 5.5 and <code>high</code> elsewhere. A level the model does not take (xhigh on 4.6 models, any on Haiku 4.5) is left out and named in the payload dump.' },
+                { name: 'legacyThinkingBudgetTokens', label: 'Thinking Budget (older models)', type: 'number', value: String(thinkingSettings.legacyThinkingBudgetTokens ?? DEFAULT_LEGACY_THINKING_BUDGET), help: 'Token budget used only on models without adaptive thinking (Haiku 4.5, the 4.5 models and older) when Thinking is Adaptive. Minimum 1024; must stay below the configuration\'s max tokens.' },
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
                 { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: toolApprovalHelp(profile.configurationId, config.anthropic?.configurations) },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, …; the task-tracking tools TaskCreate/TaskUpdate are default only on models up to Opus 4.7 / Sonnet 4.6) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
@@ -867,8 +868,10 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             } catch {
                 enabledTools = undefined;
             }
-            const thinkingEnabled = values.thinkingEnabled === 'true';
-            const thinkingBudgetTokens = values.thinkingBudgetTokens ? parseInt(values.thinkingBudgetTokens, 10) : undefined;
+            const thinking: ThinkingMode | undefined = values.thinking === 'adaptive' || values.thinking === 'off' ? values.thinking : undefined;
+            const effort = (EFFORT_LEVELS as readonly string[]).includes(values.effort) ? values.effort as EffortLevel : undefined;
+            const legacyBudget = values.legacyThinkingBudgetTokens ? parseInt(values.legacyThinkingBudgetTokens, 10) : NaN;
+            const legacyThinkingBudgetTokens = Number.isInteger(legacyBudget) && legacyBudget >= 1024 && legacyBudget !== DEFAULT_LEGACY_THINKING_BUDGET ? legacyBudget : undefined;
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
             const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
             const useBuiltInTools = values.useBuiltInTools === 'true';
@@ -886,8 +889,9 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 configurationId: values.configurationId || undefined,
                 toolsEnabled: allToolsEnabled,
                 ...(allToolsEnabled ? {} : { enabledTools: enabledTools ?? [] }),
-                thinkingEnabled,
-                ...(thinkingEnabled && thinkingBudgetTokens ? { thinkingBudgetTokens } : {}),
+                ...(thinking ? { thinking } : {}),
+                ...(effort ? { effort } : {}),
+                ...(legacyThinkingBudgetTokens ? { legacyThinkingBudgetTokens } : {}),
                 promptCachingEnabled,
                 toolApprovalMode,
                 useBuiltInTools,
