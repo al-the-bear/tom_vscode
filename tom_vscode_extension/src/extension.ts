@@ -104,6 +104,7 @@ import {
 import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
+import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
@@ -529,6 +530,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // The running build, compared with the installed one on every heartbeat:
     // a status-bar item asks for a reload when a newer build is installed.
     initBuildStatus(context);
+    // The _ai files' format version against this build's: a warning names the
+    // migration to run, or the newer build to install.
+    warnAboutAiFormatVersion();
     // The heartbeat: every 30 s the time, this process and its CLI / MCP
     // servers, so other windows (WINDOW STATUS, tomAi_sendItemToQuest) can
     // tell a running window from a gone one.

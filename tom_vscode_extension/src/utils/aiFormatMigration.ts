@@ -26,7 +26,11 @@
  *     into each quest's existing `extension_config.<quest>.yaml` that has no
  *     `mcpServer` section (as the extension does when a window opens), and is
  *     removed;
- *   - `blocking` (the reverse of `blocked_by`) is filled on every live todo.
+ *   - `blocking` (the reverse of `blocked_by`) is filled on every live todo;
+ *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
+ *     the format version this build migrated to and the date
+ *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
+ *     left as it is.
  *
  * Idempotent: a second run lists nothing. vscode-free; the merge drivers are
  * passed in (scripts/migrate-ai-formats.cjs runs the ones git has registered).
@@ -49,6 +53,7 @@ import {
     sessionMemoryFolder,
     sessionRoot,
 } from '../services/sessionStorage';
+import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
 
@@ -68,12 +73,16 @@ export interface FormatMigrationOptions {
     workspaceConfigPath?: string;
     /** Only these quests (default: every folder under `quests/`). The workspace-wide steps still run. */
     quests?: string[];
+    /** The format version to stamp (default AI_FORMAT_VERSION; tests). */
+    formatVersion?: number;
+    /** Today, for the stamp (default the local date; tests). */
+    today?: string;
 }
 
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'format-version';
     detail: string;
 }
 
@@ -349,6 +358,27 @@ class Run {
     }
 }
 
+/**
+ * The format-version stamp, written last and only when every step could be
+ * done: the stamp says the files ARE in that format. A stamp of a newer build
+ * stays, as a problem — this build cannot say what that format needs.
+ */
+function stampFormatVersion(opts: FormatMigrationOptions, run: Run): void {
+    const version = opts.formatVersion ?? AI_FORMAT_VERSION;
+    const stamp = readAiFormatStamp(opts.aiRoot);
+    if (stamp && stamp.version > version) {
+        run.problem('(workspace)', 'format-version', `${AI_FORMAT_FILE} says version ${stamp.version}, newer than this build's ${version}: migrate with the newer build`);
+        return;
+    }
+    if (stamp && stamp.version === version) { return; }
+    if (run.result.problems.length > 0) {
+        run.problem('(workspace)', 'format-version', `${AI_FORMAT_FILE} not written: the problems above remain`);
+        return;
+    }
+    run.change('(workspace)', 'format-version', `write ${AI_FORMAT_FILE}: version ${version}${stamp ? ` (was ${stamp.version})` : ''}`);
+    if (opts.apply) { writeAiFormatStamp(opts.aiRoot, { version, date: opts.today ?? localDate() }); }
+}
+
 /** Run the migration (or, with `apply: false`, list it). */
 export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationResult {
     const run = new Run(opts);
@@ -362,5 +392,6 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     }
     run.mcpServer(all);
     run.todos(quests);
+    stampFormatVersion(opts, run);
     return run.result;
 }

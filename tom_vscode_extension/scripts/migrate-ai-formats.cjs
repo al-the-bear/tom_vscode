@@ -15,6 +15,10 @@
  * merge.<driver>.driver`, set up by the al_the_bear skills). Scratch files for
  * a merge go to `<workspace>/ztmp/migrate-ai-formats-<time>/` and are removed.
  *
+ * Last, when nothing is left as a problem, `_ai/format-version.yaml` gets the
+ * format version migrated to and the date (src/utils/aiFormatVersion.ts); the
+ * extension warns at start while it is missing, older or newer than its own.
+ *
  * Exit 0 when everything listed could be (or was) done, 1 when problems
  * remain, 2 on a usage error.
  */
