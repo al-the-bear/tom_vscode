@@ -141,6 +141,27 @@ pwsh install_extension.ps1       # Windows
 code --install-extension tom-ai-extension-0.1.0.vsix
 ```
 
+### After installing: the `_ai` format migration
+
+The `_ai` files carry a format version in `_ai/format-version.yaml`. When a
+window starts, it compares that version with the one its build understands and
+warns:
+- **files older, or unstamped:** run the migration;
+- **files newer:** a newer build migrated them on another machine; install
+  that build.
+
+To migrate, install the new build, reload every window, then run (in this
+folder, after `npm run compile`):
+
+```bash
+npm run migrate:ai-formats              # dry run: lists every change
+npm run migrate:ai-formats -- --apply   # does it
+```
+
+It brings every quest to the current formats in one run and writes the stamp
+last, once nothing is left as a problem. Run it on each machine after a
+reconcile brings older files in.
+
 ### Directory Layout
 
 Both installer scripts resolve the workspace root as **three levels above** the
