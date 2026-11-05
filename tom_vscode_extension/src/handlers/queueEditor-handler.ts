@@ -566,6 +566,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             );
           }
           break;
+        case 'continueOnProfile':
+          // Out of credit: send the stopped stage on another profile (src/utils/outOfBudget.ts).
+          try {
+            await qm.continueOnProfile(msg.id, msg.profileId);
+          } catch (err) {
+            vscode.window.showWarningMessage(
+              `Continue on profile failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          break;
         case 'resetToPending':
           // Soft action on an error item: flip back to `pending`
           // without sending. Auto-send stays off (the error transition

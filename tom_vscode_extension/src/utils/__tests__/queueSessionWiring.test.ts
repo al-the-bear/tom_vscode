@@ -63,7 +63,10 @@ describe('queue session wiring', () => {
     });
 
     test('QW-3: profile precedence', () => {
-        const resolve = body(queue, 'private resolveStageTransport(');
+        // The precedence lives in the queued resolution; resolveStageTransport
+        // only moves a stage off a profile that ran out of credit (outOfBudget.ts).
+        assert.match(body(queue, 'private resolveStageTransport('), /return applyBudgetFallback\(this\.resolveStageTransportAsQueued\(item, stage\), item\.budgetFallback\);/);
+        const resolve = body(queue, 'private resolveStageTransportAsQueued(');
         assert.match(resolve, /stage\.anthropicProfileId \?\? item\.anthropicProfileId \?\? sessionProfile \?\? this\._defaultAnthropicProfileId/);
         assert.match(resolve, /item\.anthropicProfileId \?\? sessionProfile \?\? this\._defaultAnthropicProfileId/);
         assert.match(resolve, /anthropicProfileId: sessionProfile \?\? this\._defaultAnthropicProfileId/);

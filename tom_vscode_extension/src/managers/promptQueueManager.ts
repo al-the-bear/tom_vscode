@@ -41,6 +41,7 @@ import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { canSendNow, pausesBeforeNextDispatch, resetItemRunState } from '../utils/queueSendNow';
+import { applyBudgetFallback, decideOutOfBudget, isOutOfBudgetFailure, outOfBudgetPrompt, type BudgetFallback, type OutOfBudgetMark } from '../utils/outOfBudget';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, isUnretryableRequestError, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
 import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
@@ -325,6 +326,19 @@ export interface QueuedPrompt {
      * resend.
      */
     warning?: QueueItemWarning;
+    /**
+     * A stage stopped because the API credit balance is too low: which
+     * profile, in which session. The queue editor offers "Continue on
+     * profile" and "Resend"; cleared when either starts (src/utils/outOfBudget.ts).
+     */
+    outOfBudget?: OutOfBudgetMark;
+    /**
+     * The item continues on another profile after running out of credit:
+     * every later stage that would run on `fromProfileId` runs on
+     * `toProfileId` instead (and in `session` when the original one cannot
+     * take that profile).
+     */
+    budgetFallback?: BudgetFallback;
     /**
      * When `status === 'waiting'`: the ISO instant at which the item
      * should auto-retry. Set to the reset time parsed from a
@@ -3239,7 +3253,7 @@ export class PromptQueueManager {
      * recorded `lastDispatched` (never sent) or when another item is
      * currently `sending` (serialisation invariant — see sendNext).
      */
-    async resendLastPrompt(id: string): Promise<void> {
+    async resendLastPrompt(id: string, override?: { text: string; anthropicProfileId: string; session: string }): Promise<void> {
         const item = this._items.find(i => i.id === id);
         if (!item) {
             throw new Error(`Queue item ${id} not found`);
@@ -3257,6 +3271,7 @@ export class PromptQueueManager {
         // Clear prior failure markers so the UI reflects the in-flight resend.
         item.error = undefined;
         item.warning = undefined;
+        item.outOfBudget = undefined;
         // A resend is a fresh dispatch attempt that advances no counter, so any
         // snapshot still hanging off the item belongs to an earlier dispatch and
         // is moot — same rule as the top of `dispatchNextStageForSendingItem`.
@@ -3285,9 +3300,10 @@ export class PromptQueueManager {
         const resolved = {
             ...this.resolveStageTransport(item),
             transport: last.transport,
-            anthropicProfileId: last.anthropicProfileId,
-            anthropicConfigId: last.anthropicConfigId,
+            anthropicProfileId: override?.anthropicProfileId ?? last.anthropicProfileId,
+            anthropicConfigId: override ? undefined : last.anthropicConfigId,
             iterationKey: last.iterationKey,
+            ...(override ? { session: override.session } : {}),
             item,
         };
 
@@ -3300,7 +3316,7 @@ export class PromptQueueManager {
             // the main stage — cancel / correct / resend is a workflow the
             // queue invites, and replaying the snapshot there sent the very
             // text the user had just cancelled. See `resolveResendText`.
-            const resendText = resolveResendText(last, item.expandedText);
+            const resendText = override?.text ?? resolveResendText(last, item.expandedText);
             const dispatchResult = await this.dispatchStage(resendText, resolved, container);
             if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
@@ -3312,6 +3328,7 @@ export class PromptQueueManager {
             item.lastDispatched = {
                 ...last,
                 expandedText: resendText,
+                ...(override ? { anthropicProfileId: override.anthropicProfileId, anthropicConfigId: undefined } : {}),
                 dispatchedAt: new Date().toISOString(),
             };
             this._onPromptSent.fire(item);
@@ -3441,6 +3458,14 @@ export class PromptQueueManager {
             return;
         }
 
+        // Out of credit (400 "Your credit balance is too low"): no retry can
+        // help. The profile's policy continues on another profile; else the
+        // item waits for the user — continue on a profile, or resend.
+        if (isOutOfBudgetFailure(searchText)) {
+            this._handleOutOfBudget(item, err, scope, searchText);
+            return;
+        }
+
         // A request the API refused as malformed (400 invalid_request_error):
         // every retry would send the same messages and be refused the same way.
         // Fails like an exhausted retry schedule: error, auto-send off.
@@ -3533,6 +3558,105 @@ export class PromptQueueManager {
             const { notifyUserLive } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
             void notifyUserLive({ title: 'Queue item not sent: no API key', message: text, urgency: 'error' }).catch(() => undefined);
         } catch { /* the notice is best-effort; the item carries the reason */ }
+    }
+
+    /**
+     * A stage stopped for a too-low credit balance: record where (profile,
+     * session), then switch to the profile's fallback when it switches by
+     * itself, else stop the item and auto-send so the user decides — the
+     * queue editor offers "Continue on profile" and "Resend".
+     */
+    private _handleOutOfBudget(item: QueuedPrompt, err: unknown, scope: string, searchText: string): void {
+        clearRetryBookkeeping(item);
+        const section = loadSendToChatConfig()?.anthropic;
+        const profiles = (section?.profiles ?? []) as Array<{ id: string; name?: string; configurationId?: string; outOfBudget?: { fallbackProfileId?: string; autoSwitch?: boolean } }>;
+        const resolved = this.resolveStageTransport(item);
+        const profileId = item.lastDispatched?.anthropicProfileId ?? resolved.anthropicProfileId ?? '';
+        const profile = profiles.find((p) => p?.id === profileId);
+        const model = (section?.configurations ?? []).find((c) => c?.id === profile?.configurationId)?.model;
+        let decision = decideOutOfBudget(profileId, profiles);
+        // Switch by itself once per item: a fallback out of credit too asks,
+        // so two profiles naming each other cannot pass the item back and forth.
+        if (decision.kind === 'switch' && item.budgetFallback) {
+            decision = { kind: 'ask', suggestedProfileId: decision.profileId };
+        }
+        const message = /Your credit balance is too low[^"\n]*/.exec(searchText)?.[0] ?? 'The API credit balance is too low.';
+        item.outOfBudget = {
+            profileId,
+            ...(profile?.name ? { profileName: profile.name } : {}),
+            ...(model ? { model } : {}),
+            session: resolved.session ?? 'default',
+            message,
+            at: new Date().toISOString(),
+            ...(decision.kind === 'ask' && decision.suggestedProfileId ? { suggestedProfileId: decision.suggestedProfileId } : {}),
+        };
+        applyErrorTransition(item, err, { interruption: { kind: 'quota_exceeded', message } });
+        logQueueError(scope, err);
+        if (decision.kind === 'switch') {
+            logQueue(`Item ${item.id} ran out of credit on profile ${profileId} (${scope}); continuing on ${decision.profileId}`);
+            this.persist();
+            this._onDidChange.fire();
+            void this.continueOnProfile(item.id, decision.profileId, { automatic: true })
+                .catch((e) => logQueueError(`continueOnProfile(${item.id})`, e));
+            return;
+        }
+        logQueue(`Item ${item.id} ran out of credit on profile ${profileId} (${scope}); waiting for the user (continue on a profile, or resend)`);
+        if (this._autoSendEnabled) {
+            this._autoSendEnabled = false;
+            this.persistSettings();
+            logQueue(`Auto-send disabled: out of credit on item ${item.id}`);
+        }
+        this.persist();
+        this._onDidChange.fire();
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { notifyUserLive } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
+            void notifyUserLive({
+                title: 'Queue stopped: credit balance too low',
+                message: `Profile "${profile?.name ?? profileId}" ran out of credit in session "${item.outOfBudget.session}". Continue on another profile or resend from the queue editor.`,
+                urgency: 'warning',
+            }).catch(() => undefined);
+        } catch { /* the notice is best-effort; the item carries the reason */ }
+    }
+
+    /**
+     * Send the stage an item stopped at (out of credit) again on another
+     * profile, as the out-of-budget prompt: what stopped where, the session's
+     * live trail, and the original prompt. Later stages of the item run on
+     * that profile too. The session stays the item's unless its conversation
+     * is kept where the profile cannot continue it; then `default`.
+     */
+    async continueOnProfile(id: string, profileId: string, opts: { automatic?: boolean } = {}): Promise<void> {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { throw new Error(`Queue item ${id} not found`); }
+        const last = item.lastDispatched;
+        if (!last) { throw new Error(`Queue item ${id} has no previously-dispatched prompt to continue`); }
+        const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+        const target = (section?.profiles ?? []).find((p) => p?.id === profileId) as { id?: string; name?: string } | undefined;
+        if (!target) { throw new Error(`There is no Anthropic profile "${profileId}"`); }
+        const resolved = this.resolveStageTransport(item);
+        const mark: OutOfBudgetMark = item.outOfBudget ?? {
+            profileId: last.anthropicProfileId ?? resolved.anthropicProfileId ?? '',
+            session: resolved.session ?? 'default',
+            message: item.error ?? 'The API credit balance is too low.',
+            at: last.dispatchedAt,
+        };
+        const session = mark.session;
+        const runsInSession = sessionTransportMismatch(this.sessionsFolder(), session, lookupProfile(section, profileId)) ? 'default' : session;
+        const quest = await_import_ChatVariablesStore()?.quest || undefined;
+        const text = outOfBudgetPrompt(mark, {
+            quest,
+            toProfileName: target.name || profileId,
+            runsInSession,
+            originalPrompt: resolveResendText(last, item.expandedText),
+        });
+        item.budgetFallback = {
+            fromProfileId: mark.profileId,
+            toProfileId: profileId,
+            ...(runsInSession !== session ? { session: runsInSession } : {}),
+        };
+        logQueue(`${opts.automatic ? 'Automatically continuing' : 'Continuing'} item ${id} on profile ${profileId} (out of credit on ${mark.profileId}, session ${session}${runsInSession !== session ? ` → ${runsInSession}` : ''})`);
+        await this.resendLastPrompt(id, { text, anthropicProfileId: profileId, session: runsInSession });
     }
 
     /**
@@ -3801,6 +3925,15 @@ export class PromptQueueManager {
      * §4.10 adds the queue-default tier between item and hardcoded.
      */
     private resolveStageTransport(
+        item: QueuedPrompt,
+        stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
+    ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {
+        // After running out of credit the item continues on another profile.
+        return applyBudgetFallback(this.resolveStageTransportAsQueued(item, stage), item.budgetFallback);
+    }
+
+    /** The stage's transport, profile and session as the item and the queue defaults name them. */
+    private resolveStageTransportAsQueued(
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
     ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {

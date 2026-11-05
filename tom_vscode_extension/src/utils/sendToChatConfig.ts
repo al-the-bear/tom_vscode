@@ -293,6 +293,8 @@ export interface SendToChatConfig {
             allowInteractiveQuestions?: boolean;
             /** Selected fallback template id (from `anthropic.interactiveQuestionsTemplates`). Empty = built-in default. */
             interactiveQuestionsTemplateId?: string;
+            /** Out of credit on this profile: continue on `fallbackProfileId`, by itself when `autoSwitch` (src/utils/outOfBudget.ts). */
+            outOfBudget?: { fallbackProfileId?: string; autoSwitch?: boolean };
             isDefault?: boolean;
         }>;
         userMessageTemplates?: Array<{

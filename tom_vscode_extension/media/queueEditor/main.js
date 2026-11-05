@@ -455,6 +455,17 @@ function moveToFront(id) { vscode.postMessage({ type: 'moveToFront', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
+function continueOnProfile(id, profileId) { vscode.postMessage({ type: 'continueOnProfile', id, profileId }); }
+// The out-of-budget panel's buttons (renderOutOfBudget): one delegated listener.
+document.addEventListener('click', function(ev) {
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-oob-action]') : null;
+  if (!btn || btn.disabled) return;
+  var id = btn.getAttribute('data-oob-id');
+  if (btn.getAttribute('data-oob-action') === 'resend') { resendLastPrompt(id); return; }
+  var panel = btn.closest('.out-of-budget');
+  var select = panel ? panel.querySelector('select[data-oob-profile]') : null;
+  if (select && select.value) { continueOnProfile(id, select.value); }
+});
 function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }

@@ -451,6 +451,8 @@ function renderEntry(item, idx) {
     // The chips come first, under the header: they say why the item will
     // not be sent, or why its last send did not complete — easy to miss below
     // the prompt, its stages and its answer.
+    // A stage stopped for a too-low credit balance: continue on a profile, or resend.
+    renderOutOfBudget(item, safeId) +
     // A stage on a direct-API profile whose key is not in this VS Code's environment: every send would fail.
     (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0
       ? item.apiKeyWarnings.map(function(line) {
@@ -504,6 +506,33 @@ function renderDoneNotification(item, safeId, safeStatus) {
     + '<summary>Done notification' + toggle + '</summary>'
     + body
     + '</details>';
+}
+
+/**
+ * The out-of-budget panel (src/utils/outOfBudget.ts): why the item stopped,
+ * a picker of the other profiles (preset to the stopped profile's fallback)
+ * and two buttons — continue there with the out-of-budget prompt, or resend
+ * the last request as it was. The buttons carry data-oob-action; the editor
+ * script handles them with one delegated listener.
+ */
+function renderOutOfBudget(item, safeId) {
+  var mark = item.outOfBudget;
+  if (!mark || !mark.profileId) return '';
+  var profiles = (typeof anthropicProfiles !== 'undefined' && Array.isArray(anthropicProfiles)) ? anthropicProfiles : [];
+  var others = profiles.filter(function(p) { return p && p.id !== mark.profileId; });
+  var preset = others.some(function(p) { return p.id === mark.suggestedProfileId; }) ? mark.suggestedProfileId : (others[0] ? others[0].id : '');
+  var options = others.map(function(p) {
+    var label = (p.name ? (p.name + ' (' + p.id + ')') : p.id) + (p.noApiKey ? ' (no API key)' : '');
+    return '<option value="' + escapeHtml(p.id) + '"' + (p.id === preset ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }).join('');
+  return '<div class="warning-chip out-of-budget" title="' + escapeHtml(mark.at || '') + '">'
+    + '<span class="codicon codicon-credit-card"></span>'
+    + '<span><strong>Out of budget:</strong> profile "' + escapeHtml(mark.profileName || mark.profileId) + '" in session "' + escapeHtml(mark.session || 'default') + '" — '
+    + escapeHtml(mark.message || '') + '</span>'
+    + '<select data-oob-profile="' + safeId + '"' + (others.length === 0 ? ' disabled' : '') + '>' + options + '</select>'
+    + '<button class="btn-secondary" data-oob-action="continue" data-oob-id="' + safeId + '"' + (others.length === 0 ? ' disabled' : '') + ' title="Send the stopped stage on the picked profile, with a note naming the stopped profile, its session and its live trail">Continue on profile</button>'
+    + '<button class="btn-secondary" data-oob-action="resend" data-oob-id="' + safeId + '" title="Send the very last request again as it was (once there is credit again)">Resend</button>'
+    + '</div>';
 }
 
 function warningKindLabel(kind) {

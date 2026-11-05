@@ -421,6 +421,15 @@
             "type": "object",
             "required": ["id", "name", "systemPrompt"],
             "properties": {
+                "outOfBudget": {
+                    "type": "object",
+                    "description": "When a queued prompt on this profile stops because the API credit balance is too low: continue on fallbackProfileId (the stopped stage is sent there with a note naming this profile, its session and the session's live trail), without asking when autoSwitch is true. Absent: the queue item stops and offers a profile picker, Continue on profile and Resend.",
+                    "properties": {
+                        "fallbackProfileId": { "type": "string", "description": "The Anthropic profile the work continues on." },
+                        "autoSwitch": { "type": "boolean", "default": false, "description": "Continue on fallbackProfileId by itself, so the prompt is not interrupted." }
+                    },
+                    "additionalProperties": false
+                },
                 "id": { "type": "string" },
                 "name": { "type": "string" },
                 "description": { "type": "string" },
