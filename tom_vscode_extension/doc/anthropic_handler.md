@@ -1,6 +1,6 @@
 # Anthropic Handler — Quick Start
 
-The Anthropic handler exposes Claude models as a third LLM provider in the bottom panel, alongside the existing Local LLM (Ollama) and Tom AI Chat (VS Code LM API) handlers. Full design is in `_ai/quests/vscode_extension/anthropic_sdk_integration.md`.
+The Anthropic handler drives the Anthropic subpanel of the bottom panel: Claude models on the direct API or the Agent SDK, VS Code LM models, and Local LLM configurations (Ollama or OpenAI-compatible), each chosen through a profile. Full design is in `_ai/quests/vscode_extension/anthropic_sdk_integration.md`.
 
 ## 1. Set the API key
 
@@ -254,7 +254,7 @@ The aggregate `usage` arrives in the wire format's snake_case while `modelUsage`
 
 ### The same block on `direct` and Local LLM
 
-The **direct** transport sums `response.usage` over the rounds of a send (cache reads and writes included) and writes the same block: the totals, one line for the configuration's model and its cost from the price table `anthropic.modelPrices` (USD per million tokens; a model matches its exact entry, else the longest entry its id starts with; cache prices default to 0.1x read and 1.25x write of the input price). A model without an entry shows its tokens and no cost: prices are configured, never guessed (`src/utils/usageCost.ts`). A **Local LLM** send (through a profile or the Local LLM panel) sums each round's prompt and completion tokens and writes tokens only. VS Code LM reports no usage, so its sends have no block.
+The **direct** transport sums `response.usage` over the rounds of a send (cache reads and writes included) and writes the same block: the totals, one line for the configuration's model and its cost from the price table `anthropic.modelPrices` (USD per million tokens; a model matches its exact entry, else the longest entry its id starts with; cache prices default to 0.1x read and 1.25x write of the input price). A model without an entry shows its tokens and no cost: prices are configured, never guessed (`src/utils/usageCost.ts`). A **Local LLM** send (an Anthropic profile on a Local LLM configuration) sums each round's prompt and completion tokens and writes tokens only. VS Code LM reports no usage, so its sends have no block.
 
 Every `usage` event, from any transport, is also added to this window's usage ledger (`src/services/usageLedgerService.ts`, kept in the workspace state, per day and model, 62 days), which the Status Page shows as today's and the since-reset totals. Rendering is `formatLiveTrailUsage` — a pure function in `live-trail.ts`, unit-tested — and a usage object with nothing to report renders nothing rather than an empty heading. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
 

@@ -116,3 +116,30 @@ export function removedPanelPaths(aiRoot: string, quests: string[]): string[] {
     }
     return out;
 }
+
+/**
+ * The config without the removed panels' sections: `tomAiChat`,
+ * `aiConversation` but its `telegram` block, `localLlm.expansionProfile`.
+ * Answers the keys removed ([] when there were none).
+ */
+export function dropRemovedPanelSections(cfg: Record<string, unknown>): string[] {
+    const removed: string[] = [];
+    if ('tomAiChat' in cfg) { delete cfg.tomAiChat; removed.push('tomAiChat'); }
+    const conv = cfg.aiConversation;
+    if (conv && typeof conv === 'object') {
+        const telegram = (conv as { telegram?: unknown }).telegram;
+        const others = Object.keys(conv).filter((k) => k !== 'telegram');
+        if (others.length > 0) {
+            if (telegram !== undefined) { cfg.aiConversation = { telegram }; } else { delete cfg.aiConversation; }
+            removed.push(...others.map((k) => `aiConversation.${k}`));
+        }
+    } else if ('aiConversation' in cfg) {
+        delete cfg.aiConversation; removed.push('aiConversation');
+    }
+    const local = cfg.localLlm;
+    if (local && typeof local === 'object' && 'expansionProfile' in local) {
+        delete (local as Record<string, unknown>).expansionProfile;
+        removed.push('localLlm.expansionProfile');
+    }
+    return removed;
+}

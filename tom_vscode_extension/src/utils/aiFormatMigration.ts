@@ -70,7 +70,7 @@ import {
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { renameExplainTemplate } from './explainTodoTemplate';
-import { defaultLocalLlmConfigId, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
+import { defaultLocalLlmConfigId, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -385,6 +385,27 @@ class Run {
         }
         delete cfg.localLlm!.profiles;
         this.change('(workspace)', 'local-llm-profiles', 'remove the localLlm.profiles block');
+        this.write(cfgPath, raw, cfg);
+    }
+
+    /** The removed panels' config sections: tomAiChat, aiConversation (but telegram), localLlm.expansionProfile. */
+    removedPanelConfig(): void {
+        const cfgPath = this.opts.workspaceConfigPath;
+        if (!cfgPath || !fs.existsSync(cfgPath)) { return; }
+        const raw = fs.readFileSync(cfgPath, 'utf8');
+        let cfg: Record<string, unknown>;
+        try { cfg = JSON.parse(raw); } catch {
+            this.problem('(workspace)', 'removed-panels', `${cfgPath} is not readable JSON`);
+            return;
+        }
+        const removed = dropRemovedPanelSections(cfg);
+        if (removed.length === 0) { return; }
+        this.change('(workspace)', 'removed-panels', `remove the removed panels' config: ${removed.join(', ')}`);
+        this.write(cfgPath, raw, cfg);
+    }
+
+    /** Write `cfg` over the JSON file `cfgPath` held `raw`, in its indent (when applying). */
+    write(cfgPath: string, raw: string, cfg: unknown): void {
         if (this.opts.apply) {
             const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? '    ';
             fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
@@ -541,6 +562,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.profiles();
     run.templates();
     run.localLlmProfiles();
+    run.removedPanelConfig();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
     stampFormatVersion(opts, run);

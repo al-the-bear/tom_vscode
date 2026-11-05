@@ -33,7 +33,7 @@ A long agent session has two sources of context growth that need separate
 treatment:
 
 1. **History.** Each turn appends one user/assistant pair to
-   `conversationHistory` (Local LLM) or to `rawTurns` (Anthropic). Across many
+   `rawTurns`. Across many
    turns this can drift into hundreds of KB.
 2. **Tool trail.** Each *tool round* inside a single turn appends one
    `assistant{tool_calls}` message and one `tool_result` (or `tool`) message
@@ -118,10 +118,9 @@ actually destroyed.
 
 ### Implementation
 
-- Local LLM: [`applyLocalLlmToolTrailPolicy`](../src/handlers/localLlm-handler.ts) runs after every tool round in `ollamaGenerateWithTools`.
-- Anthropic: [`applyToolTrailRetentionPolicy`](../src/handlers/anthropic-handler.ts) runs after each `messages.push({ role:'user', content: toolResults })` in the direct-SDK tool loop.
+- [`applyToolTrailRetentionPolicy`](../src/handlers/anthropic-handler.ts) runs after each `messages.push({ role:'user', content: toolResults })` in the direct-SDK tool loop and in the Local LLM transport's tool loop.
 
-Both paths share [`ToolTrail.truncateInline`](../src/services/tool-trail.ts) and
+Both use [`ToolTrail.truncateInline`](../src/services/tool-trail.ts) and
 [`ToolTrail.renderStub`](../src/services/tool-trail.ts) so the markers/stubs
 are byte-identical.
 
@@ -186,8 +185,7 @@ Per-configuration overrides live directly on the configuration entry:
 If a configuration omits a field, the compaction-level value (or the schema
 default) applies. Resolution helpers:
 
-- Anthropic: [`resolveEffectiveCaps`](../src/handlers/anthropic-handler.ts)
-- Local LLM: [`resolveEffectiveLocalLlmCaps`](../src/handlers/localLlm-handler.ts)
+- [`resolveEffectiveCaps`](../src/handlers/anthropic-handler.ts)
 
 ---
 
@@ -318,19 +316,21 @@ direct-SDK alike), the placeholders `${compactedSummary}`, `${rawTurns}`, and
 | `answerFolder`, `logFolder` | Trail layout | Folder overrides for per-config trail output. |
 | `isDefault` | Picker | One configuration may be flagged default. |
 
-### 5.2 `profiles[…]` — system prompt overlays
+### 5.2 Anthropic profiles on a Local LLM configuration
 
-A profile binds a system prompt (with optional template overrides) on top of a
-`modelConfig`. Fields are unchanged from before — `label`, `systemPrompt`,
-`resultTemplate`, `temperature`, `modelConfig`, `toolsEnabled`, `enabledTools`,
-`maxRounds`, `historyMode`, `stripThinkingTags`, `isDefault`.
-
+A Local LLM configuration is used through an **Anthropic profile** whose
+`configurationId` names it (`transport: 'localLlm'`): the Anthropic handler
+runs its tool loop, approval gate, templates and trails, and each model call
+goes to the configuration's endpoint through
+[`LocalLlmManager.callLocalLlmOnce`](../src/handlers/localLlm-handler.ts).
 The profile's `systemPrompt` does NOT receive history placeholders. History
 arrives as conversation messages, not template variables (see §4).
 
-### 5.3 Top-level `localLlm.historyMode`
+### 5.3 Compaction on a Local LLM configuration
 
-Read as a default for profiles that don't override it. Same enum as §3.
+`compactionModel: "localLlm:<configuration id>"` runs history compaction on a
+Local LLM configuration, also through `callLocalLlmOnce`, with the
+configuration's `apiStyle` and `apiKeyEnv` (see §5.4).
 
 ### 5.4 Backends (`apiStyle`) and Bearer auth (`apiKeyEnv`)
 
@@ -362,31 +362,23 @@ holding the token (never the secret itself, mirroring the Anthropic
   miss is logged**, so a typo'd env name fails loud-ish instead of silently
   sending `Bearer undefined`.
 
-`apiKeyEnv` lives on each `localLlm.configurations[i]` **and** on
-`localLlm.profiles[…]`, and is threaded through to the synthesised Anthropic
-profile path (`resolveAnthropicTargets`) so a Local LLM configuration that backs
+`apiKeyEnv` lives on each `localLlm.configurations[i]` and is threaded through
+to the synthesised Anthropic profile path (`resolveAnthropicTargets`) so a Local LLM configuration that backs
 an Anthropic profile authenticates the same way. The history compactor honours
 `apiStyle` too — see `services/history-compaction.ts` — so a vLLM/llama.cpp
 configuration used as the compaction backend hits the OpenAI path as well.
 
-The Status Page Local LLM card surfaces both fields: an **API style** dropdown
+The Status Page LLM Configurations section surfaces both fields: an **API style** dropdown
 (Ollama / OpenAI) and an **API Key Env** input.
 
 ---
 
 ### 5.5 Where the Local LLM keeps its files
 
-The Local LLM has no sessions (the Anthropic transports have them): its files
-are per profile and per quest.
-
-| What | Where |
-| --- | --- |
-| History snapshot | `_ai/quests/<quest>/history/history-<suffix>.{json,md}` — the profile's `historySuffix`; a profile without one shares `history-localLLM.{json,md}` with the other unsuffixed profiles (`src/utils/localLlmHistory.ts`). The plain `history.{json,md}` is not written: it was the Anthropic history before every session kept its own |
-| Summary trail | `_ai/quests/<quest>/history/<quest>.localllm-<config>.{prompts,answers}.md` |
-| Raw trail | `_ai/trail/localllm/<quest>-<config>/` |
-| Tool results | `_ai/trail/localllm/<quest>/tool_results/` |
-| Live trail | `_ai/quests/<quest>/live-trail-localLLM.md` |
-| Memory | `${memory}` reads shared memory and the `default` session's quest memory (`_ai/memory/<quest>/default/`); `memorySuffix` narrows it to `facts-<suffix>.md` |
+An Anthropic profile on a Local LLM configuration keeps its files like every
+Anthropic profile: in its session (history, summary trail, live trail, tool
+results, memory). The last assembled request is dumped to the `localllm` raw
+trail bucket, since the wire endpoint is the local model.
 
 Copilot has no sessions either: `_ai/quests/<quest>/history/<quest>.copilot.{prompts,answers}.md`
 and `_ai/trail/copilot/<quest>/`, one set per quest.
@@ -479,6 +471,7 @@ the Local LLM handler show and use the workspace setting.
 
 ## 8. Example walk-through — a Local LLM on macpro2023 with the new defaults
 
+An Anthropic profile on this Local LLM configuration drives the conversation.
 Config (relevant excerpt):
 
 ```json
@@ -544,9 +537,9 @@ the Haiku 5.5 Agent SDK configuration, whatever the conversation runs on.
   Round 2's result `t2` is truncated to 1000 chars; round 1's `t1` becomes a
   one-line stub `[Past tool call t1 — tomAi_findTextInFiles(...) — 61823
   chars. Use tomAi_readPastToolResult({"key":"t1"})…]`.
-- Both full bodies were written to
-  `_ai/trail/localllm/<quest>/tool_results/t1.json` and `t2.json` on tool
-  execution.
+- Both full bodies were written to the session's
+  `history/sessions/<session>/trail/tool_results/t1.json` and `t2.json` on
+  tool execution.
 
 **Post-turn 1.** `rawTurns = [P1, A1]` (one pair). No compaction yet because
 `1 ≤ rawTurnsKept * 2 = 8`. `compactedSummary` remains empty.
@@ -564,19 +557,12 @@ as in turn 1.
 
 ### Diagnostic
 
-The Tom AI Local Log channel now prints per-round summaries with the assigned
-ToolTrail key:
-
-```text
-[Round 4] Tool #5 key=t12: tomAi_findTextInFiles
-  Args: {"query":"foo"}
-  Result (61823 chars): …
-[history] compactedSummary updated → 9143 chars
-[process] Passing 11 history message(s) to Ollama (mode=trim_and_summary, summaryChars=9143, rawTurns=8)
-```
-
-The keys (`t12` here) match the names that will appear in stub lines and in
-`tomAi_readPastToolResult({"key":"t12"})`.
+Every round's payload is in the session's raw trail
+(`history/sessions/<session>/trail/*_payload_*.payload.md`), with the tool-trail
+keys (`t12`, …) in its stub lines; the same keys name the files in
+`trail/tool_results/` and are what `tomAi_readPastToolResult({"key":"t12"})`
+takes. The Tom AI Local Log channel logs each request to the endpoint, with its
+timing and any busy-backend retry.
 
 ---
 
@@ -584,16 +570,16 @@ The keys (`t12` here) match the names that will appear in stub lines and in
 
 When a Local LLM call still hits the context limit:
 
-1. **Check the log channel** for a high `summaryChars` or a high
-   `Result (NNNN chars)` line. The summary grows up to `historyMaxChars`; if
-   yours is set very high (e.g. 60k) you can tighten it.
+1. **Check the payload** in the session's raw trail for a long compacted
+   summary or a large tool result. The summary grows up to `historyMaxChars`;
+   if yours is set very high (e.g. 60k) you can tighten it.
 2. **Lower `toolTrailKeepRounds`** to `1` (or `0` — older rounds become stubs
    immediately). The first inline round is still truncated to
    `toolTrailMaxResultChars` so even one round can't blow the window.
 3. **Lower `toolTrailMaxResultChars`** to e.g. 500.
 4. **Lower `rawTurnsKept`** so older turns roll into the summary faster.
-5. **Inspect the disk store** at
-   `_ai/trail/localllm/<quest>/tool_results/` (or `anthropic/...`) to
+5. **Inspect the disk store** at the session's
+   `history/sessions/<session>/trail/tool_results/` to
    confirm full bodies are being persisted. If they are missing,
    `tomAi_readPastToolResult` falls back to "no key" and the model loses
    recovery — but the in-message stub still contains enough context

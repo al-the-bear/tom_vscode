@@ -141,9 +141,8 @@ flowchart TD
     S --> T["Auto-start CLI Server (if configured)"]
     T --> U["Auto-start Telegram (if configured)"]
     U --> V["Init CopilotTemplatesManager"]
-    V --> W["Init LocalLlmManager<br/>Register Local LLM context menu cmds"]
-    W --> X["Init AIConversationManager"]
-    X --> Y["Init ChatVariablesStore<br/>Init WindowSessionTodoStore"]
+    V --> W["Init LocalLlmManager"]
+    W --> Y["Init ChatVariablesStore<br/>Init WindowSessionTodoStore"]
     Y --> Z["Init PromptQueueManager<br/>Init TimerEngine<br/>Init ReminderSystem"]
     Z --> AA["Register LM Tools (47)<br/>Initialize Tool Descriptions"]
     AA --> AB["Register Chat Variable Resolvers (5)"]
@@ -175,12 +174,10 @@ flowchart TD
 | `questTodoPanel-handler.ts` | 3797 | Quest/session todo panel (embeddable) |
 | `sidebarNotes-handler.ts` | 3375 | 8 sidebar webview providers |
 | `statusPage-handler.ts` | 2754 | Status page + embedded status HTML |
-| `aiConversation-handler.ts` | 2223 | Multi-turn AI conversation orchestrator |
-| `localLlm-handler.ts` | 1916 | Local LLM prompt expansion |
+| `localLlm-handler.ts` | 1133 | `LocalLlmManager`: Local LLM client (`callLocalLlmOnce`) |
 | `trailEditor-handler.ts` | 1766 | Trail custom editor for consolidated files |
 | `issuesPanel-handler.ts` | 1636 | GitHub issues panel (embeddable) |
 | `trailViewer-handler.ts` | 1417 | Trail viewer commands & exchange parser |
-| `tomAiChat-handler.ts` | 1233 | Tom AI Chat (VS Code LM API) |
 | `timedRequestsEditor-handler.ts` | 1259 | Timed requests webview editor |
 | `queueEditor-handler.ts` | 1230 | Prompt queue webview editor |
 | `tomScriptingBridge-handler.ts` | 1160 | Bridge scripting handlers |
@@ -231,10 +228,8 @@ Handler: `chatPanel-handler.ts`
 
 | Section | Icon | Purpose |
 |---------|------|---------|
-| Local LLM | `robot` | Send prompts to local Ollama model |
-| AI Conversation | `comment-discussion` | Multi-turn AI conversation |
+| Anthropic | `hubot` | Anthropic profiles (direct, Agent SDK, VS Code LM, Local LLM configuration) |
 | Copilot | `copilot` | Copilot integration with templates |
-| Tom AI Chat | `comment-discussion-sparkle` | Tom AI chat interface |
 
 ### @WS Panel (`tomAi.wsPanel`)
 
@@ -291,11 +286,6 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | `tomAi.sendToCopilot` | Send to Copilot |
 | `tomAi.sendToCopilot.standard` | Send with default template |
 | `tomAi.sendToCopilot.template` | Send with template picker |
-| `tomAi.sendToLocalLlm` | Send to Local LLM |
-| `tomAi.sendToLocalLlm.template` | Send to Local LLM with template |
-| `tomAi.tomAiChat.start` | Start Tom AI Chat |
-| `tomAi.tomAiChat.send` | Send Tom AI Chat prompt |
-| `tomAi.tomAiChat.interrupt` | Interrupt Tom AI Chat |
 
 ### Panels & Editors
 
@@ -328,9 +318,6 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | Key | Command | Menu |
 |-----|---------|------|
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot operations |
-| `Ctrl+Shift+L` | `tomAi.chordMenu.localLlm` | Local LLM operations |
-| `Ctrl+Shift+A` | `tomAi.chordMenu.aiConversation` | AI Conversation |
-| `Ctrl+Shift+T` | `tomAi.chordMenu.tomAiChat` | Tom AI Chat |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execution commands |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites |
 
@@ -385,7 +372,7 @@ Tools are registered with `tomAi_` prefix.
 | Workspace | `tomAi_getWorkspaceInfo`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_listDirectory` |
 | File Operations | `tomAi_readFile`, `tomAi_createFile`, `tomAi_editFile`, `tomAi_multiEditFile` |
 | Diagnostics | `tomAi_getErrors`, `tomAi_runCommand`, `tomAi_runVscodeCommand` |
-| Todos | `tomAi_createTodo`, `tomAi_updateTodo`, `tomAi_deleteTodo`, `tomAi_getTodo`, `tomAi_getAllTodos`, `tomAi_listTodos`, `tomAi_manageTodo`, `tomAi_moveTodo` |
+| Todos | `tomAi_createTodo`, `tomAi_updateTodo`, `tomAi_deleteTodo`, `tomAi_getTodo`, `tomAi_getAllTodos`, `tomAi_listTodos`, `tomAi_moveTodo` |
 | Session Todos | `tomAi_sessionTodo_add`, `tomAi_sessionTodo_update`, `tomAi_sessionTodo_delete`, `tomAi_sessionTodo_list`, `tomAi_sessionTodo_getAll` |
 | Queue | `tomAi_queue_list`, `tomAi_queue_update_item`, `tomAi_queue_remove_item`, `tomAi_queue_update_followup`, `tomAi_queue_remove_followup`, `tomAi_queue_send_now`, `tomAi_queue_set_status` |
 | Timed | `tomAi_timed_list`, `tomAi_timed_update_entry`, `tomAi_timed_remove_entry`, `tomAi_timed_set_engine_state` |
@@ -450,8 +437,7 @@ Tools are registered with `tomAi_` prefix.
 
 - `templates` — Prompt templates for various AI paths
 - `defaultTemplates` — Default template selection per panel
-- `localLlm` — Ollama configuration
-- `aiConversation` — AI conversation settings
+- `localLlm` — Local LLM configurations (Ollama / OpenAI-compatible)
 - `trail` — Trail logging configuration
 - `bridge` — Dart bridge settings
 - `telegram` — Telegram bot configuration

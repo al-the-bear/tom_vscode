@@ -64,8 +64,6 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_runVscodeCommand',
     // Git (read-only, structured)
     'tomAi_gitRead',
-    // Todo / task management
-    'tomAi_manageTodo',
     // Chat variables
     'tomAi_readChatVariable',
     'tomAi_writeChatVariable',
@@ -179,9 +177,6 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_addTestComment',
     'tomAi_setTestStatus',
     'tomAi_toggleTestLabel',
-    // AI Conversation — result document (the only mutation exposed there)
-    'tomAi_readConversationResult',
-    'tomAi_writeConversationResult',
     // Prompt + reminder templates (split from manage-style)
     'tomAi_listPromptTemplates',
     'tomAi_createPromptTemplate',

@@ -7,12 +7,9 @@
  * auto-execute the matching command.
  *
  * Groups:
- *   Ctrl+Shift+C → Conversation Control
- *   Ctrl+Shift+L → Local LLM
- *   Ctrl+Shift+A → Send to Copilot Chat
- *   Ctrl+Shift+T → Tom AI Chat
+ *   Ctrl+Shift+C → Send to Copilot Chat
  *   Ctrl+Shift+E → Execute Commandline
- *   Ctrl+Shift+V → Favorites (configurable via tom_vscode_extension.json)
+ *   Ctrl+Shift+X → Favorites (configurable via tom_vscode_extension.json)
  *
  * All groups include a "?" item that opens the Quick Reference document.
  */
@@ -92,29 +89,6 @@ const HELP_ITEM: ChordMenuItem = {
 // ============================================================================
 
 const CHORD_GROUPS: Record<string, ChordGroup> = {
-    conversation: {
-        title: 'AI Conversation',
-        prefix: 'Ctrl+Shift+A',
-        items: [
-            { key: 'b', label: 'Start Conversation', commandId: 'tomAi.aiConversation.start' },
-            { key: 's', label: 'Stop Conversation', commandId: 'tomAi.aiConversation.stop' },
-            { key: 'h', label: 'Halt Conversation', commandId: 'tomAi.aiConversation.halt' },
-            { key: 'c', label: 'Continue Conversation', commandId: 'tomAi.aiConversation.continue' },
-            { key: 'a', label: 'Add Info to Conversation', commandId: 'tomAi.aiConversation.add' },
-            HELP_ITEM,
-        ]
-    },
-    llm: {
-        title: 'Local LLM (Ollama)',
-        prefix: 'Ctrl+Shift+L',
-        items: [
-            { key: 'x', label: 'Expand Prompt', commandId: 'tomAi.sendToLocalLlm' },
-            { key: 'c', label: 'Change Ollama Model', commandId: 'tomAi.localLlm.switchModel' },
-            { key: 's', label: 'Send to LLM (Standard)', commandId: 'tomAi.sendToLocalLlm.standard' },
-            { key: 't', label: 'Send to LLM (Template)', commandId: 'tomAi.sendToLocalLlm.template' },
-            HELP_ITEM,
-        ]
-    },
     chat: {
         title: 'Send to Copilot Chat',
         prefix: 'Ctrl+Shift+C',
@@ -123,16 +97,6 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
             { key: 's', label: 'Send to Chat (Standard)', commandId: 'tomAi.sendToCopilot.standard' },
             { key: 't', label: 'Send to Chat (Template)', commandId: 'tomAi.sendToCopilot.template' },
             { key: 'r', label: 'Reload Chat Config', commandId: 'tomAi.reloadConfig' },
-            HELP_ITEM,
-        ]
-    },
-    tomAiChat: {
-        title: 'Tom AI Chat',
-        prefix: 'Ctrl+Shift+T',
-        items: [
-            { key: 'n', label: 'Start Chat', commandId: 'tomAi.tomAiChat.start' },
-            { key: 's', label: 'Send Chat Prompt', commandId: 'tomAi.tomAiChat.send' },
-            { key: 'i', label: 'Interrupt Chat', commandId: 'tomAi.tomAiChat.interrupt' },
             HELP_ITEM,
         ]
     },
@@ -309,20 +273,8 @@ async function showChordMenu(groupId: string): Promise<void> {
 // Command Handlers (exported for extension.ts)
 // ============================================================================
 
-export function chordMenuConversationHandler(): void {
-    showChordMenu('conversation');
-}
-
-export function chordMenuLlmHandler(): void {
-    showChordMenu('llm');
-}
-
 export function chordMenuChatHandler(): void {
     showChordMenu('chat');
-}
-
-export function chordMenuTomAiChatHandler(): void {
-    showChordMenu('tomAiChat');
 }
 
 export function chordMenuExecuteHandler(): void {
@@ -357,10 +309,7 @@ export async function chordMenuFavoritesHandler(): Promise<void> {
  */
 export function registerChordMenuCommands(context: vscode.ExtensionContext): void {
     const cmds = [
-        vscode.commands.registerCommand('tomAi.chordMenu.aiConversation', chordMenuConversationHandler),
-        vscode.commands.registerCommand('tomAi.chordMenu.localLlm', chordMenuLlmHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.copilot', chordMenuChatHandler),
-        vscode.commands.registerCommand('tomAi.chordMenu.tomAiChat', chordMenuTomAiChatHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.execute', chordMenuExecuteHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.favorites', chordMenuFavoritesHandler),
         vscode.commands.registerCommand(QUICK_REFERENCE_COMMAND, openQuickReference),

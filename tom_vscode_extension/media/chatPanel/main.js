@@ -30,16 +30,11 @@ var vscode = acquireVsCodeApi();
 // e.g. completion.js) reuse it — acquireVsCodeApi() may be called only once.
 window.__tomVscodeApi = vscode;
 var sectionsConfig = [
-    { id: 'localLlm', icon: '<span class="codicon codicon-robot"></span>', title: 'Local LLM' },
-    { id: 'conversation', icon: '<span class="codicon codicon-comment-discussion"></span>', title: 'AI Conversation' },
     { id: 'copilot', icon: '<span class="codicon codicon-copilot"></span>', title: 'Copilot' },
-    { id: 'tomAiChat', icon: '<span class="codicon codicon-comment-discussion-sparkle"></span>', title: 'Tom AI Chat' },
     { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic' }
 ];
-var state = { expanded: ['localLlm'], pinned: [] };
-var profiles = { localLlm: [], conversation: [], copilot: [], tomAiChat: [], anthropic: [] };
-var configurations = [];
-var setups = [];
+var state = { expanded: ['anthropic'], pinned: [] };
+var profiles = { copilot: [], anthropic: [] };
 var anthropicConfigurations = [];
 var anthropicProfileEntries = [];
 var anthropicUserMessageTemplates = [];
@@ -60,7 +55,7 @@ var reusablePreferredScanId = '';
 var reusablePromptState = {};
 var copilotHasAnswer = false;
 var copilotAnswerSlot = 0;
-var slotEnabledSections = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
+var slotEnabledSections = ['copilot', 'anthropic'];
 var sectionSlotState = {};
 var delegatedUiHandlersAttached = false;
 
@@ -239,91 +234,6 @@ function getPromptEditorComponent(options) {
 
 function getSectionContent(id) {
     var contents = {
-        localLlm: getPromptEditorComponent({
-            sectionId: 'localLlm',
-            selectorKind: 'profile',
-            selectorLabel: 'Profile',
-            selectorOptions: '<option value="">(None)</option>',
-            // Inline edit-profile pencil sits right after the profile
-            // dropdown, mirroring the Anthropic panel layout. Routes
-            // through the same editProfile action as the existing
-            // pencil in manageButtons (_handleEditProfile resolves
-            // section=localLlm to the localLlm template category and
-            // opens the Global Template Editor on the selected item).
-            // (Comments deliberately backtick-free: this whole function
-            // is embedded inside the _getScript() template literal.)
-            secondarySelectorHtml:
-                '<button class="icon-btn" data-action="editProfile" data-id="localLlm" title="Edit Local LLM profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
-                '<label>LLM Config:</label><select id="localLlm-llmConfig" style="width:70%"></select>',
-            manageButtons:
-                '<button class="icon-btn" data-action="addProfile" data-id="localLlm" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
-                '<button class="icon-btn" data-action="editProfile" data-id="localLlm" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
-                '<button class="icon-btn danger" data-action="deleteProfile" data-id="localLlm" title="Delete Profile"><span class="codicon codicon-trash"></span></button>',
-            actionButtons:
-                '<button data-action="preview" data-id="localLlm" title="Preview expanded prompt">Preview</button>' +
-                '<button class="primary" data-action="send" data-id="localLlm" title="Send prompt to Local LLM">Send to LLM</button>' +
-                '<button class="icon-btn" data-action="cancel" data-id="localLlm" title="Stop current Local LLM turn"><span class="codicon codicon-debug-stop"></span></button>' +
-                // Mirrors the Anthropic panels Raw Trail + Summary
-                // viewer buttons. The Raw viewer (history icon) shows
-                // every prompt/payload/tool-request/tool-answer file in
-                // the localllm trail bucket; the Summary viewer
-                // (list-flat icon) opens the consolidated
-                // <quest>-<profile>.prompts.md / .answers.md pair for
-                // the profile of the most recent LocalLLM send.
-                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="localLlm" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="localLlm" title="Open Trail Summary Viewer (last-used Local LLM profile)"><span class="codicon codicon-list-flat"></span></button>' +
-                // Mirror of the Anthropic panels live-trail button.
-                // Opens the per-quest live-trail-localLLM.md (parallel
-                // to Anthropics live-trail.md) in the MD Browser so the
-                // user can watch thinking + tool calls + the final
-                // answer stream into the file as the LocalLLM turn
-                // runs. The MD Browser file-watcher re-renders on every
-                // write (debounced 200 ms).
-                '<button class="icon-btn" data-action="openLiveTrail" data-id="localLlm" title="Open live trail — continuously-updating MD of the current + last 4 LocalLLM prompts (thinking, tool calls + results, assistant text); opens in the MD Browser which auto-reloads as the turn runs"><span class="codicon codicon-pulse"></span></button>' +
-                '<button class="icon-btn" data-action="clearText" data-id="localLlm" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
-            infoId: 'localLlm-profileInfo',
-            placeholder: 'Enter your prompt for the local LLM...',
-            helpTitle: '',
-            // Live status line below the textarea. Mirrors the
-            // anthropic-status span and is updated via the
-            // localLlmStatus webview message. Empty by default; shows
-            // phase strings like "Sending to <model>...", "Round 3 -
-            // tool <name> done", "Done - 4 rounds, 2 tool calls (1.2s)",
-            // or "Error: ...". (Comment deliberately backtick-free:
-            // this whole function lives inside the _getScript() template
-            // literal.)
-            afterEditorHtml: '<div class="status-bar"><span id="localLlm-status" class="context-summary"></span>' +
-                '<span class="status-bar-actions">' +
-                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
-                '<button class="icon-btn" data-action="runQuestRefresh" data-id="localLlm" title="Run Quest Refresh now — dispatch the configured Local LLM refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
-                '</span></div>',
-        }),
-        conversation: getPromptEditorComponent({
-            sectionId: 'conversation',
-            selectorKind: 'profile',
-            selectorLabel: 'Profile',
-            selectorOptions: '<option value="">(None)</option>',
-            secondarySelectorHtml: '<label>AI Setup:</label><select id="conversation-aiSetup" style="width:70%"></select>',
-            manageButtons:
-                '<button class="icon-btn" data-action="addProfile" data-id="conversation" title="Add Profile"><span class="codicon codicon-add"></span></button>' +
-                '<button class="icon-btn" data-action="editProfile" data-id="conversation" title="Edit Profile"><span class="codicon codicon-edit"></span></button>' +
-                '<button class="icon-btn danger" data-action="deleteProfile" data-id="conversation" title="Delete Profile"><span class="codicon codicon-trash"></span></button>',
-            actionButtons:
-                '<button data-action="preview" data-id="conversation" title="Preview expanded prompt">Preview</button>' +
-                '<button class="primary" data-action="send" data-id="conversation" title="Start AI Conversation">Start</button>' +
-                '<button class="icon-btn" data-action="cancel" data-id="conversation" title="Halt AI conversation"><span class="codicon codicon-debug-stop"></span></button>' +
-                '<button class="icon-btn" data-action="clearText" data-id="conversation" title="Clear text"><span class="codicon codicon-clear-all"></span></button>' +
-                '<button class="icon-btn" data-action="openConversationTrailViewer" data-id="conversation" title="Open AI conversation trail viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<button class="icon-btn" data-action="openConversationMarkdown" data-id="conversation" title="Open latest AI conversation markdown"><span class="codicon codicon-file"></span></button>' +
-                '<button class="icon-btn" data-action="openConversationCompactTrail" data-id="conversation" title="Open AI conversation compact trail"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openConversationTurnFilesEditor" data-id="conversation" title="Open AI conversation per-turn files"><span class="codicon codicon-files"></span></button>',
-            infoId: 'conversation-profileInfo',
-            placeholder: 'Enter your goal/description for the conversation...',
-            helpTitle: 'Tip: Describe the goal clearly. The bot will orchestrate a multi-turn conversation with Copilot.',
-            afterEditorHtml: '<div class="status-bar"><span class="context-summary"></span><span class="status-bar-actions">' +
-                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
-                '</span></div>',
-        }),
         copilot: getPromptEditorComponent({
             sectionId: 'copilot',
             selectorKind: 'template',
@@ -372,28 +282,6 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="copilot" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
-                '</span></div>',
-        }),
-        tomAiChat: getPromptEditorComponent({
-            sectionId: 'tomAiChat',
-            selectorKind: 'template',
-            selectorLabel: 'Template',
-            selectorOptions: '<option value="">(None)</option>',
-            manageButtons:
-                '<button class="icon-btn" data-action="addTemplate" data-id="tomAiChat" title="Add Template"><span class="codicon codicon-add"></span></button>' +
-                '<button class="icon-btn" data-action="editTemplate" data-id="tomAiChat" title="Edit Template"><span class="codicon codicon-edit"></span></button>' +
-                '<button class="icon-btn danger" data-action="deleteTemplate" data-id="tomAiChat" title="Delete Template"><span class="codicon codicon-trash"></span></button>',
-            actionButtons:
-                '<button data-action="openChatFile" data-id="tomAiChat" title="Open or create .chat.md file">Open</button>' +
-                '<button data-action="preview" data-id="tomAiChat" title="Preview expanded prompt">Preview</button>' +
-                '<button class="icon-btn" data-action="cancel" data-id="tomAiChat" title="Interrupt Tom AI Chat turn"><span class="codicon codicon-debug-stop"></span></button>' +
-                '<button class="primary" data-action="insertToChatFile" data-id="tomAiChat" title="Insert into .chat.md file">Insert</button>' +
-                '<button class="icon-btn" data-action="clearText" data-id="tomAiChat" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
-            infoId: 'tomAiChat-templateInfo',
-            placeholder: 'Enter your prompt for Tom AI Chat...',
-            helpTitle: 'Show Placeholder Help',
-            afterEditorHtml: '<div class="status-bar"><span class="context-summary"></span><span class="status-bar-actions">' +
-                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
                 '</span></div>',
         }),
         anthropic: getPromptEditorComponent({
@@ -672,7 +560,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var llmConfig = document.getElementById('localLlm-llmConfig'); llmConfig = llmConfig ? llmConfig.value : ''; var aiSetup = document.getElementById('conversation-aiSetup'); aiSetup = aiSetup ? aiSetup.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, llmConfig: llmConfig, aiSetup: aiSetup, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) {break;}
@@ -687,7 +575,6 @@ function handleAction(action, id, slot) {
             break;
         }
         case 'switchSlot': { var slotNo = parseInt(slot || '1', 10); if (slotNo >= 1 && slotNo <= 9) {switchPanelSlot(id, slotNo);} break; }
-        case 'trail': vscode.postMessage({ type: 'showTrail', section: id }); break;
         case 'reload': vscode.postMessage({ type: 'reload', section: id }); break;
         case 'open': vscode.postMessage({ type: 'openInEditor', section: id }); break;
         case 'addNote': vscode.postMessage({ type: 'addNote' }); break;
@@ -697,8 +584,6 @@ function handleAction(action, id, slot) {
         case 'editTemplate': { var etSel = document.getElementById(id + '-template'); var etVal = etSel ? etSel.value : ''; vscode.postMessage({ type: 'editTemplate', section: id, name: etVal }); break; }
         case 'deleteProfile': confirmDelete('profile', id); break;
         case 'deleteTemplate': { var dtSel = document.getElementById(id + '-template'); var dtVal = dtSel ? dtSel.value : ''; if (dtVal === '__answer_file__') { vscode.postMessage({ type: 'showMessage', message: 'The Answer File template is built-in and cannot be deleted.' }); return; } confirmDelete('template', id); break; }
-        case 'openChatFile': vscode.postMessage({ type: 'openChatFile' }); break;
-        case 'insertToChatFile': { var insertText = document.getElementById(id + '-text'); insertText = insertText ? insertText.value : ''; if (!insertText.trim()) {return;} var insertTemplate = document.getElementById(id + '-template'); insertTemplate = insertTemplate ? insertTemplate.value : ''; vscode.postMessage({ type: 'insertToChatFile', text: insertText, template: insertTemplate }); break; }
         case 'editAnthropicProfile': {
             var epaSel = document.getElementById('anthropic-profile');
             vscode.postMessage({ type: 'editAnthropicProfile', name: epaSel ? epaSel.value : '' });
@@ -782,17 +667,13 @@ function handleAction(action, id, slot) {
         case 'openSessionHistory': vscode.postMessage({ type: 'openSessionHistory', section: id || '' }); break;
         case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
         case 'openLiveTrail': vscode.postMessage({ type: 'openLiveTrail', section: id || '' }); break;
-        case 'openConversationTrailViewer': vscode.postMessage({ type: 'openConversationTrailViewer' }); break;
-        case 'openConversationMarkdown': vscode.postMessage({ type: 'openConversationMarkdown' }); break;
-        case 'openConversationCompactTrail': vscode.postMessage({ type: 'openConversationCompactTrail' }); break;
-        case 'openConversationTurnFilesEditor': vscode.postMessage({ type: 'openConversationTurnFilesEditor' }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
         case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
-        case 'runQuestRefresh': { var qrProfile = document.getElementById(id + '-profile'); qrProfile = qrProfile ? qrProfile.value : ''; var qrLlmConfig = document.getElementById('localLlm-llmConfig'); qrLlmConfig = qrLlmConfig ? qrLlmConfig.value : ''; vscode.postMessage({ type: 'runQuestRefresh', section: id || '', profile: qrProfile, llmConfig: qrLlmConfig }); break; }
+        case 'runQuestRefresh': { var qrProfile = document.getElementById(id + '-profile'); qrProfile = qrProfile ? qrProfile.value : ''; vscode.postMessage({ type: 'runQuestRefresh', section: id || '', profile: qrProfile }); break; }
         case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
         case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;
@@ -864,10 +745,7 @@ function confirmDelete(itemType, sectionId) {
 }
 
 function populateDropdowns() {
-    populateSelect('localLlm-profile', profiles.localLlm);
-    populateSelect('conversation-profile', profiles.conversation);
     populateSelect('copilot-template', profiles.copilot);
-    populateSelect('tomAiChat-template', profiles.tomAiChat);
     // Use populateEntitySelect for anthropic profiles so the entry marked
     // isDefault is preselected; the label shown is the human-readable name.
     if (anthropicProfileEntries && anthropicProfileEntries.length > 0) {
@@ -876,8 +754,6 @@ function populateDropdowns() {
         populateSelect('anthropic-profile', profiles.anthropic);
     }
     populateSelect('anthropic-userMessage', anthropicUserMessageTemplates);
-    populateEntitySelect('localLlm-llmConfig', configurations, '(Select LLM Config)');
-    populateEntitySelect('conversation-aiSetup', setups, '(Select AI Setup)');
     populateAnthropicModels();
     updateAnthropicApiKeyDot();
     // Profile dropdown: configuration is resolved from the profile on
@@ -907,7 +783,7 @@ function populateDropdowns() {
         window._anthropicVsCodeLmBooted = true;
         vscode.postMessage({ type: 'refreshVsCodeLmModels' });
     }
-    ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
+    ['copilot', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
 }
@@ -978,11 +854,6 @@ function updateAnthropicSendButton() {
 
 function setAnthropicStatus(text) {
     var el = document.getElementById('anthropic-status');
-    if (el) {el.textContent = text || '';}
-}
-
-function setLocalLlmStatus(text) {
-    var el = document.getElementById('localLlm-status');
     if (el) {el.textContent = text || '';}
 }
 
@@ -1164,9 +1035,7 @@ window.addEventListener('message', function(e) {
     // `insertCompletion` is handled by the shared media/shared/completion.js
     // component (its own message listener), not here.
     if (msg.type === 'profiles') {
-        profiles = { localLlm: msg.localLlm || [], conversation: msg.conversation || [], copilot: msg.copilot || [], tomAiChat: msg.tomAiChat || [], anthropic: msg.anthropic || [] };
-        configurations = msg.configurations || [];
-        setups = msg.setups || [];
+        profiles = { copilot: msg.copilot || [], anthropic: msg.anthropic || [] };
         anthropicConfigurations = msg.anthropicConfigurations || [];
         anthropicProfileEntries = msg.anthropicProfileEntries || [];
         anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
@@ -1251,15 +1120,6 @@ window.addEventListener('message', function(e) {
         if (anthropicSending && typeof msg.text === 'string' && msg.text.length > 0) {
             setAnthropicStatus(msg.text);
         }
-    } else if (msg.type === 'localLlmStatus') {
-        // Live status line for the Local LLM panel. Mirrors the
-        // anthropicStatus channel. Unlike that one we always apply —
-        // there is no parallel "result already drew its own line"
-        // race because _handleSendLocalLlm only emits this from
-        // discrete phase changes (start / tool round / done / error).
-        if (typeof msg.text === 'string') {
-            setLocalLlmStatus(msg.text);
-        }
     } else if (msg.type === 'anthropicResult') {
         anthropicSending = false;
         updateAnthropicSendButton();
@@ -1277,7 +1137,7 @@ window.addEventListener('message', function(e) {
         reusablePreferredQuestId = msg.preferredQuestId || '';
         reusablePreferredProjectId = msg.preferredProjectId || '';
         reusablePreferredScanId = msg.preferredScanId || '';
-        ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
+        ['copilot', 'anthropic'].forEach(function(sectionId) {
             populateReusablePromptSelectors(sectionId);
         });
     } else if (msg.type === 'reusablePromptContent') {
@@ -1359,7 +1219,7 @@ window.addEventListener('message', function(e) {
         }
     } else if (msg.type === 'draftsLoaded') {
         var secs = msg.sections || {};
-        ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(s) {
+        ['copilot'].forEach(function(s) {
             var d = secs[s];
             if (!d) {return;}
             var sectionState = ensureSlotState(s);
@@ -1374,21 +1234,9 @@ window.addEventListener('message', function(e) {
                 var slotText = getSlotText(s, sectionState.activeSlot);
                 ta.value = slotText || d.text || '';
             }
-            var profileId = s === 'copilot' || s === 'tomAiChat' ? s + '-template' : s + '-profile';
+            var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
             var sel = document.getElementById(profileId);
             if (sel && d.profile) {sel.value = d.profile;}
-            if (s === 'localLlm') {
-                var llmSel = document.getElementById('localLlm-llmConfig');
-                if (llmSel && d.llmConfig) {
-                    llmSel.value = d.llmConfig;
-                }
-            }
-            if (s === 'conversation') {
-                var aiSel = document.getElementById('conversation-aiSetup');
-                if (aiSel && d.aiSetup) {
-                    aiSel.value = d.aiSetup;
-                }
-            }
             updateSlotButtonsUI(s);
         });
         // Restore Anthropic-specific state
@@ -1595,7 +1443,7 @@ function initCopilotSection() {
 }
 
 function initReusablePromptSelectors() {
-    ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'].forEach(function(sectionId) {
+    ['copilot', 'anthropic'].forEach(function(sectionId) {
         var typeSel = document.getElementById(sectionId + '-reusable-type');
         if (typeSel) {
             typeSel.addEventListener('change', function() {
@@ -1651,21 +1499,17 @@ function saveDrafts() {
     clearTimeout(_draftSaveTimer);
     _draftSaveTimer = setTimeout(function() {
         var drafts = {};
-        ['localLlm', 'conversation', 'copilot', 'tomAiChat'].forEach(function(s) {
+        ['copilot'].forEach(function(s) {
             var ta = document.getElementById(s + '-text');
-            var profileId = s === 'copilot' || s === 'tomAiChat' ? s + '-template' : s + '-profile';
+            var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
             var sel = document.getElementById(profileId);
             var sectionState = ensureSlotState(s);
-            var llmSel = document.getElementById('localLlm-llmConfig');
-            var aiSel = document.getElementById('conversation-aiSetup');
             if (ta) {
                 setSlotText(s, sectionState.activeSlot, ta.value || '');
             }
             drafts[s] = {
                 text: ta ? ta.value : '',
                 profile: sel ? sel.value : '',
-                llmConfig: s === 'localLlm' && llmSel ? llmSel.value : '',
-                aiSetup: s === 'conversation' && aiSel ? aiSel.value : '',
                 activeSlot: sectionState.activeSlot,
                 slots: sectionState.slots,
             };
@@ -1687,15 +1531,15 @@ function saveDrafts() {
     }, 1000);
 }
 // Attach save to all textareas and dropdowns
-['localLlm-text', 'conversation-text', 'copilot-text', 'tomAiChat-text', 'anthropic-text'].forEach(function(id) {
+['copilot-text', 'anthropic-text'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('input', saveDrafts);}
 });
-['localLlm-profile', 'conversation-profile', 'copilot-template', 'tomAiChat-template', 'anthropic-profile'].forEach(function(id) {
+['copilot-template', 'anthropic-profile'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
 });
-['localLlm-llmConfig', 'conversation-aiSetup', 'anthropic-userMessage'].forEach(function(id) {
+['anthropic-userMessage'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
 });

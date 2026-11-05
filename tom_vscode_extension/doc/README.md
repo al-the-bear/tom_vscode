@@ -13,7 +13,7 @@ User-facing documentation for the `tom_vscode_extension` plugin. Implementation 
 - [mcp_server.md](mcp_server.md) — standalone MCP server: config, auth + read-only floor, lifecycle, security, observability.
 - [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) — Agent SDK 1:1 Dart mirror for scripting: type surface, `query()` streaming, reverse-RPC tools + `canUseTool`, workspace discovery, security boundary.
 - [copilot_chat_tools.md](copilot_chat_tools.md) — Copilot chat tooling reference.
-- [llm_tools.md](llm_tools.md) — Local LLM toolchain.
+- [llm_tools.md](llm_tools.md) — the LLM tool surface, per transport.
 - [chat_log_custom_editor.md](chat_log_custom_editor.md) — Markdown Browser + live-trail follow-tail behavior.
 - [multi_transport_prompt_queue_revised.md](multi_transport_prompt_queue_revised.md) — prompt queue model across transports.
 
@@ -30,6 +30,6 @@ User-facing documentation for the `tom_vscode_extension` plugin. Implementation 
 
 ## Panel naming (current)
 
-- Bottom panel **@CHAT** hosts the chat webview (`tomAi.chatPanel`) with five subpanels: Anthropic, Tom AI Chat, AI Conversation, Copilot, Local LLM.
+- Bottom panel **@CHAT** hosts the chat webview (`tomAi.chatPanel`) with two subpanels: Anthropic and Copilot.
 - Bottom panel **@WS** hosts the workspace webview (`tomAi.wsPanel`).
 - Sidebar **@TOM** hosts the quest's views (process, quest notes, quest and session todos); sidebar **@TOM WS** the workspace's (VS Code and workspace notes, workspace todos, the todo log, window status).

@@ -4,7 +4,7 @@
 > Licensed BSD-3-Clause. See [LICENSE](LICENSE).
 
 The **`@Tom`** VS Code extension — an AI-assisted development cockpit. It adds
-multi-model chat panels (Anthropic, Local LLM, Copilot), a multi-transport prompt
+multi-model chat panels (Anthropic, Copilot), a multi-transport prompt
 queue, timed requests, a shared tool registry, a standalone MCP server, the
 status page, and the **CLI Integration Server** that lets out-of-process Dart
 clients drive the live window. This is the product of the Tom VS Code repo.
@@ -15,8 +15,9 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 
 `@Tom` turns a normal VS Code window into a unified AI workspace:
 
-- **Multi-model chat** — Anthropic (direct SDK + Agent SDK), the VS Code language
-  model (Copilot), and a local LLM, in dedicated bottom-panel subpanels.
+- **Multi-model chat** — Anthropic (direct SDK, Agent SDK, VS Code LM, or a local
+  LLM through an Anthropic profile on a Local LLM configuration) and Copilot, in
+  dedicated bottom-panel subpanels.
 - **Prompt queue orchestration** — queue work across transports with follow-ups,
   reminders, repeat support, and automation toggles.
 - **Timed requests** — interval / scheduled prompts that enqueue automatically.
@@ -199,15 +200,12 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 
 ### Chat panels
 
-The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts five subpanels:
+The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts two subpanels:
 
 | Subpanel | Transport |
 | --- | --- |
-| Anthropic | Direct Anthropic SDK + Agent SDK (`anthropic-handler`, `agent-sdk-transport`). |
-| Tom AI Chat | The extension's own chat surface. |
-| AI Conversation | Multi-turn bot-conversation loop (not queue-compatible). |
-| Copilot | VS Code language model (`vscodeLm`). |
-| Local LLM | Locally hosted models (`localLlm-handler`). |
+| Anthropic | Per profile: direct Anthropic SDK, Agent SDK, VS Code LM, or a Local LLM configuration (`anthropic-handler`, `agent-sdk-transport`, `localLlm-handler`). |
+| Copilot | VS Code Copilot Chat via answer files. |
 
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos)
@@ -228,10 +226,10 @@ workspace todos, the todo log, window status).
 
 ### Output channels
 
-`Tom Prompt Queue` · `Tom Timed Requests` · `Tom Debug` · `Tom Tests` ·
-`Tom Dartbridge Log` · `Tom Conversation Log` · `Tom AI Chat Log` ·
-`Tom Tool Log` · `Tom AI Chat Responses` · `Tom AI Local LLM` ·
-`Tom AI Local Log`.
+`Tom Prompt Queue` · `Tom Timed Requests` · `Tom Extension Debug Log` · `Tom Tests` ·
+`Tom Dartbridge Log` · `Tom Tool Log` · `Tom AI Anthropic Chat` ·
+`Tom AI Anthropic Chat Responses` · `Tom AI Compaction and Memory Extraction` ·
+`Tom AI: MCP Server` · `Tom AI Local Log`.
 
 ---
 
@@ -241,7 +239,7 @@ Open the command palette and type `@T:` to discover commands.
 
 | Group | Commands |
 | --- | --- |
-| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) · Send to Local LLM · Change Local LLM Model… · Start AI Conversation · Start Tom AI Chat |
+| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) |
 | Queue & timer | Open Prompt Queue · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
 | Workspace & runtime | Open in Markdown Browser · Extension Status Page · Restart Bridge · Start / Stop Tom CLI Integration Server · Start Process Monitor |
 
@@ -269,7 +267,7 @@ handlers own webview wiring, services own side-effects, utils are pure.
 | --- | --- |
 | `config/` | Configuration schemas + defaults (`sendToChatConfig.ts`, `tom_vscode_extension.schema.json`). |
 | `extension.ts` | Activation entry point. |
-| `handlers/` | Per-subsystem handlers — chatPanel, anthropic, agent-sdk-transport, localLlm, tomAiChat, queueEditor, statusPage, mcpServer, … |
+| `handlers/` | Per-subsystem handlers — chatPanel, anthropic, agent-sdk-transport, localLlm, queueEditor, statusPage, mcpServer, … |
 | `managers/` | Long-lived state managers (e.g. `promptQueueManager`, `reminderSystem`). |
 | `services/` | Pure side-effect services — trail, tool-result store, history compaction, memory, drafts, answer files. |
 | `storage/` | Disk-backed stores (`panelYamlStore`, notepad stores). |
@@ -374,7 +372,7 @@ source tree; they are not part of this documentation.
 | [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md) | The current prompt-queue model. |
 | [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
 | [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |
-| [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot / Tom AI Chat tooling. |
+| [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot tooling. |
 
 ---
 

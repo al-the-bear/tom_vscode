@@ -2,7 +2,7 @@
  * Shared tool executors + SharedToolDefinition instances.
  *
  * Each tool is defined *once* here and consumed by:
- *   - tomAiChat-tools.ts  → VS Code LM registration
+ *   - vscodeLmTools.ts    → VS Code LM registration
  *   - localLlm-handler.ts → Ollama tool-call loop
  *
  * All executors return a plain string result.
@@ -18,7 +18,6 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolvePathVariables } from '../handlers/handler_shared.js';
 import { SharedToolDefinition } from './shared-tool-registry';
-import { ChatTodoSessionManager, TodoOperationResult } from '../managers/chatTodoSessionManager';
 import {
     loadLocalLlmToolsConfig,
     buildAskBigBrotherDescription,
@@ -270,69 +269,6 @@ export const DELETE_FILE_TOOL: SharedToolDefinition<DeleteFileInput> = {
 export const MOVE_FILE_TOOL: SharedToolDefinition<MoveFileInput> = {
     ...MOVE_FILE_DEF,
     execute: (input) => moveFileImpl(getWorkspaceRoot(), input),
-};
-
-// ============================================================================
-// Todo tool — needs special wiring for the active chat todo session manager
-// ============================================================================
-
-let activeTodoManager: ChatTodoSessionManager | null = null;
-
-export function setActiveTodoManager(manager: ChatTodoSessionManager | null): void {
-    activeTodoManager = manager;
-}
-
-export function getActiveTodoManager(): ChatTodoSessionManager | null {
-    return activeTodoManager;
-}
-
-// manageTodo bridged to cross-cutting-todo-tools.ts (the legacy chat-session
-// todo manager — kept for back-compat with prompts that depend on it).
-
-import {
-    MANAGE_TODO_TOOL as MANAGE_TODO_DEF,
-    ManageTodoInput,
-    type ChatTodoSession,
-    type ChatTodoSessionResolver,
-    type LegacyChatTodoItem,
-    type LegacyTodoResult,
-    manageTodoImpl,
-} from './cross-cutting-todo-tools';
-
-export type { ManageTodoInput };
-
-const liveChatTodoSessionResolver: ChatTodoSessionResolver = {
-    current(): ChatTodoSession | null {
-        if (!activeTodoManager) { return null; }
-        const mgr = activeTodoManager;
-        return {
-            async list(filter): Promise<LegacyTodoResult> {
-                const r = await mgr.list(filter);
-                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
-            },
-            async add(title, description): Promise<LegacyTodoResult> {
-                const r = await mgr.add(title, description);
-                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
-            },
-            async update(id, updates): Promise<LegacyTodoResult> {
-                const r = await mgr.update(id, updates);
-                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
-            },
-            async remove(id): Promise<LegacyTodoResult> {
-                const r = await mgr.remove(id);
-                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
-            },
-            async clear(): Promise<LegacyTodoResult> {
-                const r = await mgr.clear();
-                return { message: r.message, todos: r.todos as LegacyChatTodoItem[] | undefined };
-            },
-        };
-    },
-};
-
-export const MANAGE_TODO_TOOL: SharedToolDefinition<ManageTodoInput> = {
-    ...MANAGE_TODO_DEF,
-    execute: (input) => manageTodoImpl(liveChatTodoSessionResolver, input),
 };
 
 // ============================================================================
@@ -1590,7 +1526,6 @@ import { NOTEBOOK_TOOLS } from './notebook-tools';
 import { PATTERN_PROMPTS_TOOLS } from './pattern-prompts-tools';
 import { ISSUE_TOOLS } from './issue-tools';
 import { TEST_TOOLS } from './test-tools';
-import { CONVERSATION_RESULT_TOOLS } from './conversation-result-tools';
 import { PAST_TOOL_ACCESS_TOOLS } from './past-tool-access-tools';
 import { PROMPT_HISTORY_TOOLS } from './prompt-history-tools';
 import { ID_PREFIX_TOOLS } from './id-prefix-tools';
@@ -1647,7 +1582,6 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ASK_BIG_BROTHER_TOOL,
     ASK_COPILOT_TOOL,
     // Chat todo (in-session)
-    MANAGE_TODO_TOOL,
     // Chat variables
     CHATVAR_READ_TOOL,
     CHATVAR_WRITE_TOOL,
@@ -1677,7 +1611,6 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...PATTERN_PROMPTS_TOOLS,   // listPatternPrompts, readPatternPrompt
     ...ISSUE_TOOLS,             // Issues subpanel: list/get/createIssue, addComment, setStatus, toggleLabel
     ...TEST_TOOLS,              // Tests subpanel (testkit): parallel to ISSUE_TOOLS against testkit repos
-    ...CONVERSATION_RESULT_TOOLS, // AI Conversation outcome document — read/write result file
     ...PAST_TOOL_ACCESS_TOOLS,    // listPastToolCalls, searchPastToolResults, readPastToolResult
     ...PROMPT_HISTORY_TOOLS,      // listPromptPairs, getPromptPair — read past prompt+answer pairs from summary trail
     ...OUTPUT_CHANNEL_TOOLS,      // readOutputChannel — this window's output channels, read from the files VS Code writes

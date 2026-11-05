@@ -22,7 +22,6 @@
  *     questRefresh:
  *       panels:
  *         anthropic: { active: true,  count: 3, lastRefreshAt: '2026-10-27T09:12:00.000Z' }
- *         localLlm:  { active: false, count: 0 }
  *         copilot:   { active: false, count: 0 }
  *
  * Design: quest_refresh_implementation_plan.md §2.
@@ -58,7 +57,7 @@ interface QuestRefreshFile {
     panels: Record<QuestRefreshPanel, QuestRefreshPanelState>;
 }
 
-const PANELS: readonly QuestRefreshPanel[] = ['anthropic', 'localLlm', 'copilot'];
+const PANELS: readonly QuestRefreshPanel[] = ['anthropic', 'copilot'];
 
 function emptyState(): QuestRefreshPanelState {
     return { active: false, count: 0 };

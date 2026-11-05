@@ -17,10 +17,6 @@
  * surface it in the profile editor.
  */
 export const CATEGORY_MAP: Record<string, string[]> = {
-    'AI Conversation': [
-        'tomAi_readConversationResult',
-        'tomAi_writeConversationResult',
-    ],
     'Ask AI': [
         'tomAi_askBigBrother',
         'tomAi_askCopilot',
@@ -263,9 +259,6 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSetHeadline',
         'tomAi_specSetItemSectionId',
         'tomAi_specWriteAnswers',
-    ],
-    'Todos (chat)': [
-        'tomAi_manageTodo',
     ],
     'User Interaction': [
         'tomAi_askUser',

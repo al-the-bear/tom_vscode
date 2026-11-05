@@ -9,12 +9,13 @@
 
 ## 1. Overview
 
-The extension currently supports two LLM providers:
+The bottom panel's @CHAT has two subpanels: **Anthropic** and **Copilot**. The Anthropic subpanel is driven by the Anthropic handler, which reaches a model through one of four transports chosen by the profile's configuration:
 
-- **VS Code LM API** — used by the Tom AI Chat handler (`.chat.md` file flow)
-- **Ollama** — used by the Local LLM handler and bottom panel
+- **Anthropic SDK** (`@anthropic-ai/sdk`, `transport: 'direct'`) and the **Claude Agent SDK** (`agentSdk`), with a model dropdown populated live from the Anthropic API (empty if the API is unreachable — no fallback)
+- **VS Code LM API** (`vscodeLm`)
+- **Local LLM** (`localLlm`: an Ollama or OpenAI-compatible endpoint of a Local LLM configuration, called through `LocalLlmManager.callLocalLlmOnce`)
 
-This specification adds a third provider: **Anthropic SDK** (`@anthropic-ai/sdk`), wired into the same tool registry and trail system as the existing providers, with a new **ANTHROPIC** section in the bottom panel and a model dropdown populated live from the Anthropic API (empty if the API is unreachable — no fallback).
+All four share the tool registry and the trail system.
 
 This specification also covers:
 
@@ -30,117 +31,94 @@ This specification also covers:
 
 ---
 
-## 2. Current Architecture
+## 2. Panels and handlers
 
 ```mermaid
 graph TD
     subgraph Panel["Bottom Panel (chatPanel-handler.ts)"]
-        PL[LOCAL LLM section]
+        PA[ANTHROPIC section]
         PC[Copilot section]
-        PAC[AI Conversation section]
-        PT[Tom AI Chat section]
     end
 
     subgraph Handlers
-        LH[localLlm-handler.ts\nOllama HTTP]
-        TH[tomAiChat-handler.ts\nvscode.lm API]
+        AH[anthropic-handler.ts\nshared agent loop]
+        SDK[agent-sdk-transport.ts]
+        LH[localLlm-handler.ts\nLocalLlmManager.callLocalLlmOnce]
     end
 
-    subgraph ToolLayer["Tool Layer"]
-        TR[shared-tool-registry.ts]
-        TR -->|toOllamaTools| LH
-        TR -->|toVsCodeTool| TH
-        TR -->|executeToolCall| LH
-    end
+    PA -->|sendAnthropic| AH
+    AH -->|agentSdk| SDK
+    AH -->|localLlm| LH
+    PC -.->|answer file| COPILOT[(Copilot Chat)]
 
-    subgraph TrailLayer["Trail Layer — two tiers"]
-        RAW["Raw trail (debug)\n_ai/trail/{subsystem}/{quest}/\none file per prompt/tool/response\nViewer: Raw Trail Viewer"]
-        COMPACT["Compact trail (history)\n_ai/quests/{quest}/history/\nquest.localllm-configname.prompts.md\nViewer: Summary Trail Editor"]
-    end
-
-    LH --> RAW
-    LH --> COMPACT
-    TH --> COMPACT
-
-    LH -.-> OLLAMA[(Ollama)]
-    TH -.-> VSCODELM[(VS Code LM)]
+    AH -.->|direct| ANTHROPIC[(Anthropic API)]
+    SDK -.-> ANTHROPIC
+    AH -.->|vscodeLm| VSCODELM[(VS Code LM)]
+    LH -.-> OLLAMA[(Ollama / OpenAI-compatible)]
 ```
 
 ---
 
-## 3. Target Architecture
+## 3. Architecture
 
 ```mermaid
 graph TD
     subgraph Panel["Bottom Panel"]
-        PL[LOCAL LLM]
-        PA[ANTHROPIC ✨]
+        PA[ANTHROPIC]
         PC[Copilot]
-        PAC[AI Conversation]
-        PT[Tom AI Chat]
     end
 
     subgraph Handlers
+        AH[anthropic-handler.ts]
         LH[localLlm-handler.ts]
-        AH[anthropic-handler.ts ✨]
-        TH[tomAiChat-handler.ts]
     end
 
     subgraph ToolLayer["Tool Layer"]
         TR[shared-tool-registry.ts]
-        TR -->|toOllamaTools| LH
-        TR -->|toAnthropicTools ✨| AH
-        TR -->|toVsCodeTool| TH
-        TR -->|executeToolCall| LH
+        TR -->|toAnthropicTools| AH
         TR -->|executeToolCall| AH
-        APPR[Approval Gate ✨\nwrite tools]
+        APPR[Approval Gate\nwrite tools]
         TR --> APPR
     end
 
-    subgraph CompactionLayer["Compaction + Memory ✨"]
+    subgraph CompactionLayer["Compaction + Memory"]
         HC[history-compaction.ts]
         MS[memory-service.ts]
-        HC -->|compaction via localLlm| LH
-        HC -.->|or via Anthropic| AH
+        HC -->|compaction via Anthropic| AH
+        HC -.->|or via a Local LLM configuration| LH
     end
 
-    subgraph ToolTrailLayer["Tool Trail ✨"]
+    subgraph ToolTrailLayer["Tool Trail"]
         TT[tool-trail.ts\nlast 2 prompt rounds]
         AH --> TT
-        LH --> TT
     end
 
     subgraph TrailLayer["Trail Layer"]
-        RAWL["_ai/trail/localllm/{quest}/\n(existing subsystem, unchanged)"]
-        RAWA["_ai/trail/anthropic/{quest}/ ✨new\none file per exchange"]
-        COMPACT["_ai/quests/{quest}/history/\nquest.anthropic.prompts.md ✨\nquest.anthropic.answers.md ✨\nquest.compaction.prompts.md ✨\nquest.compaction.answers.md ✨\n(existing localllm compact trails unchanged)"]
+        RAWA["history/sessions/{session}/trail/\none file per exchange"]
+        COMPACT["history/sessions/{session}/\nquest.anthropic.prompts.md\nquest.anthropic.answers.md"]
         RTV["Raw Trail Viewer\ntomAi.editor.rawTrailViewer"]
         STE["Summary Trail Editor\ntomAi.trailViewer"]
     end
     RAWA --> RTV
-    RAWL --> RTV
     COMPACT --> STE
 
-    subgraph MemoryLayer["Memory ✨"]
+    subgraph MemoryLayer["Memory"]
         MEMSH["_ai/memory/shared/\nworkspace-wide facts"]
-        MEMQ["_ai/memory/quest/\nquest-specific facts"]
+        MEMQ["_ai/memory/{quest}/{session}/\nquest-specific facts"]
     end
 
     PA -->|sendAnthropic| AH
-    PL -->|sendLocalLlm| LH
+    AH -->|localLlm transport| LH
     AH --> RAWA
     AH --> COMPACT
-    LH --> RAWL
-    LH --> COMPACT
     AH --> HC
-    LH --> HC
     HC --> MS
     MS --> MEMSH
     MS --> MEMQ
 
-    LH -.-> OLLAMA[(Ollama)]
+    LH -.-> OLLAMA[(Ollama / OpenAI-compatible)]
     AH -.-> ANTHROPIC[(Anthropic API)]
-    TH -.-> VSCODELM[(VS Code LM)]
+    AH -.-> VSCODELM[(VS Code LM)]
 ```
 
 ---
@@ -194,12 +172,10 @@ The path for Anthropic is configured via `tomAi.trail.raw.paths.anthropic` (defa
 
 The compact trail accumulates in the quest's `history/` subfolder, beside the
 other generated trail files and covered by the same gitignore rule. The file
-name encodes the provider and (for Local LLM) the config name:
+name encodes the provider:
 
 ```text
 _ai/quests/vscode_extension/history/
-    vscode_extension.localllm-bomber-qwen3-30b.prompts.md    ← existing, per config
-    vscode_extension.localllm-bomber-qwen3-30b.answers.md
     vscode_extension.copilot.prompts.md                       ← existing
     vscode_extension.copilot.answers.md
 
@@ -475,7 +451,7 @@ There are two separate template editing systems with different storage and purpo
 | Storage | `tom_vscode_extension.json` (config file) | Disk files (`.prompt.md`) in scope-based folders |
 | Format | JSON objects with typed fields per category | Plain markdown files |
 | Scopes | Single (workspace config) | Global / Project / Quest / Scan ancestor |
-| Categories | 7 types: copilot, reminder, tomAiChat, localLlm profiles, AI Conversation profiles, timed requests, self-talk | Single type: reusable prompt fragments |
+| Categories | copilot, reminder, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions | Single type: reusable prompt fragments |
 | Use | Invoked by panel/queue machinery as structured config | Pasted into prompts manually or via editor UI |
 | Examples | "Code Review" copilot template, LLM profiles | Multi-line boilerplate prompt starters |
 
@@ -492,13 +468,13 @@ Four new categories are added to `globalTemplateEditor-handler.ts`:
 | `compaction` | `history-compaction.ts` — LLM compaction pass | Status Page → History Compaction section |
 | `memoryExtraction` | `history-compaction.ts` — background memory write pass | Status Page → History Compaction section |
 
-Wherever a template is selectable, the UI provides **Edit / Create / View / Delete** actions for that category — a mini template manager embedded in the selection control, identical to the pattern already used for Local LLM profiles.
+Wherever a template is selectable, the UI provides **Edit / Create / View / Delete** actions for that category — a mini template manager embedded in the selection control.
 
 #### Category: `anthropicProfiles`
 
-Used by `anthropic-handler.ts`. Selectable in the ANTHROPIC section of the bottom panel (profile dropdown). Defines system prompts and per-profile behaviour overrides for the Anthropic handler — analogous to the existing `localLlm profiles` category.
+Used by `anthropic-handler.ts`. Selectable in the ANTHROPIC section of the bottom panel (profile dropdown). Defines system prompts and per-profile behaviour overrides for the Anthropic handler.
 
-**Storage pattern (follows Local LLM precedent):** Profile entries are stored in `anthropic.profiles[]` in the workspace config JSON. The Global Template Editor is the editing UI for those entries — there is no separate template file on disk. The `anthropicProfiles` category in the Global Template Editor maps directly to `anthropic.profiles[]`.
+**Storage pattern:** Profile entries are stored in `anthropic.profiles[]` in the workspace config JSON. The Global Template Editor is the editing UI for those entries — there is no separate template file on disk. The `anthropicProfiles` category in the Global Template Editor maps directly to `anthropic.profiles[]`.
 
 Fields per template entry:
 
@@ -1078,7 +1054,7 @@ interface AnthropicConfiguration {
 // AnthropicProfile uses the same shape as AnthropicProfileTemplate (§7.2).
 // Profiles are stored in anthropic.profiles[] in the workspace config JSON;
 // the Global Template Editor 'anthropicProfiles' category is the editing UI for them.
-// (Follows Local LLM precedent — no separate template file on disk.)
+// (No separate template file on disk.)
 type AnthropicProfile = AnthropicProfileTemplate;
 ```
 
@@ -1296,7 +1272,7 @@ The following were open during design and have been resolved in this document:
 - **Shared Ollama/Anthropic history** → deferred to a future `ConversationSession` abstraction; not blocking this release.
 - **API key storage** → the API key is read from an environment variable at runtime. The config file stores only the env var name (`apiKeyEnvVar`, default `"ANTHROPIC_API_KEY"`). No key material ever appears in the config file.
 - **Prompt caching** → opt-in `promptCachingEnabled` per `AnthropicConfiguration` (default `false`). When enabled, the handler adds `cache_control` to the last system block (role description, quest description, memory injection), to the last tool definition and to the last cacheable block of the newest turn — three breakpoints, below Anthropic's limit of four — so every round of the tool loop reads the tools and the conversation so far from the cache (`src/utils/anthropicPromptCache.ts`). The breakpoints go on copies; the stored conversation is never marked. The send's summed usage, cache reads and writes included, is written as the live trail's `### 📊 usage` block and returned as `AnthropicSendResult.usage`.
-- **Profile storage pattern** → follows Local LLM precedent. Profiles are stored in `anthropic.profiles[]` in the workspace config JSON. The Global Template Editor `anthropicProfiles` category is the editing UI for those entries — `AnthropicProfile` and `AnthropicProfileTemplate` are the same type (§12.2).
+- **Profile storage pattern** → profiles are stored in `anthropic.profiles[]` in the workspace config JSON. The Global Template Editor `anthropicProfiles` category is the editing UI for those entries — `AnthropicProfile` and `AnthropicProfileTemplate` are the same type (§12.2).
 - **`${userMessage}` scope** → added to `buildVariableMap()` as a universal placeholder. Resolves to the raw user input when the caller provides it; resolves to `""` in all other contexts (system prompts, compaction templates, memory extraction templates).
 - **Transport choice (direct API vs Claude Agent SDK)** → opt-in per `AnthropicConfiguration` via a `transport` field (`'direct'` default, `'agentSdk'` alternative). `'agentSdk'` routes through `@anthropic-ai/claude-agent-sdk`, inherits auth from the host Claude Code installation, and delegates the tool-use loop, prompt caching, and context compaction to the SDK. Trail logging, placeholder resolution, profiles, memory tools, and the approval gate UI remain in-extension regardless of transport. See §18.
 
@@ -1415,7 +1391,7 @@ Delivers: Anthropic subsystem in trail, tool registry ready, basic send loop, to
 **Step 1.8 — [ ] `handlers/anthropic-handler.ts`: basic send loop (no memory, no compaction yet)**
 
 - **Spec:** §12.1 (full sequence diagram), §12.2 (`AnthropicConfiguration`, `AnthropicProfile` interfaces), §11.4 (message protocol — `sendAnthropic`, `anthropicToolApproval`, etc.), §8.1 (approval gate), §9 (tool trail injection point), §14 (`anthropic` config section, `apiKeyEnvVar`)
-- **Read first:** `src/handlers/localLlm-handler.ts` lines 839–994 (`ollamaGenerateWithTools()` — the tool loop pattern to mirror); `src/tools/shared-tool-registry.ts` (`executeToolCall()` signature); `src/services/trailService.ts` (`writeRawPrompt`, `writeRawAnswer`, `writeRawToolRequest`, `writeRawToolResult` signatures); `src/types/webviewMessages.ts` (existing message types to understand the shape before adding new ones)
+- **Read first:** `src/tools/shared-tool-registry.ts` (`executeToolCall()` signature); `src/services/trailService.ts` (`writeRawPrompt`, `writeRawAnswer`, `writeRawToolRequest`, `writeRawToolResult` signatures); `src/types/webviewMessages.ts` (existing message types to understand the shape before adding new ones)
 - Create `src/handlers/anthropic-handler.ts`
 - `AnthropicHandler` singleton:
   - Client: `getClient()` reads `anthropic.apiKeyEnvVar` and `process.env[apiKeyEnvVar]` on every call and makes `new Anthropic({ apiKey })` again when the name or the value changed (`KeyedClientCache`); undefined without a key
@@ -2005,5 +1981,5 @@ Every Anthropic session — `chat` (the ANTHROPIC panel), `default` (the prompt 
 - **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.
 - **Based sessions.** A based session reads its base's history (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never clears its base's accumulator after a compaction.
 - **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and quest memory removed with it (`removeSessionStorage`).
-- **Local LLM.** It has no sessions: its live trail stays `live-trail-localLLM.md` in the quest folder, its raw trail `_ai/trail/localllm/<quest>-<config>/`, and a memory bucket (`facts-<suffix>.md`) reads the `default` session's quest memory.
+- **Local LLM.** An Anthropic profile on a Local LLM configuration is stored like every Anthropic profile, in its session; only its `last_request.json` dump goes to `_ai/trail/localllm/<quest>/`.
 - **Moving to it.** On a quest's first use in a window (`TwoTierMemoryService.ensureSessionStorage`) the files of the per-quest layout — the history files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `current_prompt.*` and `last_request.json`, which the Logs tab reads there) and `_ai/memory/<quest>/*.md` — become the `default` session's. A machine-local marker, `history/sessions/.storage-version`, makes it run once per quest and machine; a file whose target already exists stays where it is, named in the *Tom AI Compaction and Memory Extraction* output channel.

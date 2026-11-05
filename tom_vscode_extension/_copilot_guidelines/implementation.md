@@ -49,10 +49,7 @@ Any change to the config shape must update both `sendToChatConfig.ts` and the JS
 `@CHAT` (`tomAi.chatPanel`):
 
 1. Anthropic
-2. Tom AI Chat
-3. AI Conversation
-4. Copilot
-5. Local LLM
+2. Copilot
 
 `@WS` (`tomAi.wsPanel`):
 

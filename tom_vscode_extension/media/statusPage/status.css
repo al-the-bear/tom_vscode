@@ -51,14 +51,14 @@
 .sp-model-info { color: var(--vscode-descriptionForeground); flex: 1; overflow: hidden; text-overflow: ellipsis; }
 
 /* LLM Configuration cards */
-.sp-llmconfig-card, .sp-aisetup-card {
+.sp-llmconfig-card {
     border: 1px solid var(--vscode-panel-border);
     border-radius: 4px;
     padding: 8px;
     margin-bottom: 8px;
     background: var(--vscode-editor-background);
 }
-.sp-llmconfig-header, .sp-aisetup-header {
+.sp-llmconfig-header {
     display: flex;
     gap: 6px;
     align-items: center;

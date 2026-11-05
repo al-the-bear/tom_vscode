@@ -1,12 +1,12 @@
 # Anthropic Chat Panel
 
-The **Anthropic** subpanel is one of five chat subpanels in `@CHAT` and the primary interactive surface for Anthropic-based AI interactions. It is the **only** subpanel (besides Copilot) that has queue buttons. Source: [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — Anthropic section at approximately `:3300`.
+The **Anthropic** subpanel is one of the two chat subpanels in `@CHAT` (with Copilot) and the primary interactive surface for Anthropic-based AI interactions, Local LLM configurations included. Both subpanels have queue buttons. Source: [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — Anthropic section at approximately `:3300`.
 
 For the underlying handler, see [../doc/anthropic_handler.md](../doc/anthropic_handler.md) and [architecture.md](architecture.md).
 
 ## What makes the Anthropic panel distinctive
 
-Unlike Tom AI Chat (which uses the same Anthropic handler but with a curated tool surface), the Anthropic panel exposes:
+The Anthropic panel exposes:
 
 - full profile + configuration selectors,
 - user-message template picker,
@@ -47,7 +47,7 @@ Stored in `config.anthropic.configurations` ([sendToChatConfig.ts](../src/utils/
 
 A profile's `configId` may also point at a **Local LLM configuration** (`config.localLlm.configurations`). When the Anthropic handler detects this, it synthesises a runtime-only `transport: 'localLlm'` on the resolved configuration and routes to `callLocalLlmOnce` — the extracted Ollama HTTP primitive shared with `LocalLlmManager`.
 
-**Effect:** the Anthropic handler's full loop, tool-approval gate, live trail, user-message templates, and raw trail (the session's `history/sessions/<session>/trail/`) all apply — even though the actual API call goes to Ollama. The Local LLM panel's own flow (`ollamaGenerateWithTools`) is byte-identical to before (writes to `_ai/trail/localllm/<quest>-<config>/`, uses Local LLM's own template store, runs its own approval).
+**Effect:** the Anthropic handler's full loop, tool-approval gate, live trail, user-message templates, and raw trail (the session's `history/sessions/<session>/trail/`) all apply — even though the actual API call goes to Ollama.
 
 The profile config picker in the panel's UI merges both Anthropic configurations and Local LLM configurations, each labelled by backing type (`[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`).
 
@@ -96,7 +96,7 @@ Each `sendMessage()` call creates a `LiveTrailWriter` pointed at the session's l
 - Appends thinking, tool calls, tool results, and assistant text incrementally as the turn runs.
 - Calls `endPrompt()` with round/tool-call count and duration on completion.
 
-The **Open Live Trail** button in the panel header fires `tomAi.openInMdBrowserLive`, which opens the panel's session's `live-trail.md` (the Local LLM panel: the quest's `live-trail-localLLM.md`) in the MD Browser's live-mode singleton (auto-scroll-to-bottom on each file-watcher update).
+The **Open Live Trail** button in the panel header fires `tomAi.openInMdBrowserLive`, which opens the panel's session's `live-trail.md` in the MD Browser's live-mode singleton (auto-scroll-to-bottom on each file-watcher update).
 
 Isolated sub-agent runs (`options.isolated = true`) receive a null writer — their intermediate work does not appear in the quest's live trail.
 
@@ -137,7 +137,7 @@ The panel sends in a named session (`<name>.session.json` in the quest's `histor
 
 The profile's `toolApprovalMode` controls whether tool calls are routed through the in-panel approval bar (`'always'`) or auto-approved silently (`'never'`). Queue runs always use `'never'` regardless of the profile setting.
 
-The approval gate is part of the Anthropic handler's shared loop and applies to all four leaf paths (Direct, Agent SDK, VS Code LM, Local LLM). The Local LLM panel's own `ollamaGenerateWithTools` has its own separate approval handling that is unchanged.
+The approval gate is part of the Anthropic handler's shared loop and applies to all four leaf paths (Direct, Agent SDK, VS Code LM, Local LLM).
 
 ## Output channels
 
@@ -148,7 +148,6 @@ The approval gate is part of the Anthropic handler's shared loop and applies to 
 ## Operational notes for agents
 
 - `resolveAnthropicTargets(profileId, configId)` in `src/utils/resolveAnthropicTargets.ts` is the single resolver for `(profile, configuration)` pairs. Use it instead of duplicating the Anthropic-then-LocalLlm fallback chain.
-- When adding a new Anthropic leaf path, plug it into `AnthropicHandler.sendMessage()` as a fourth leaf primitive (join the shared agent loop, not `ollamaGenerateWithTools`).
+- When adding a new Anthropic leaf path, plug it into `AnthropicHandler.sendMessage()` as a fourth leaf primitive (join the shared agent loop).
 - Both `vscodeLm` and Local-LLM-backed configs are **Anthropic-profile-level** concerns. They write to the session's trail (`history/sessions/<session>/trail/`) and use Anthropic user-message templates — do not create separate subsystems.
 - The VS Code LM model dropdown on the panel is **informational only** — do not wire it to retarget sends.
-- `tomAi.tomAiChat.*` commands route through the same `AnthropicHandler` but via a separate handler ([tomAiChat-handler.ts](../src/handlers/tomAiChat-handler.ts)) with a curated tool set. Changes to the Anthropic handler's shared loop affect both panels.

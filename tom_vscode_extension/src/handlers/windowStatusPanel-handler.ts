@@ -73,8 +73,6 @@ export interface WindowStateFile extends WindowHeartbeat, WindowActivity {
     activeQuest: string;
     /** Per-subsystem statuses */
     status: SubsystemStatus[];
-    /** Whether AI conversation is currently active in this window. */
-    aiConversationActive?: boolean;
 }
 
 // ============================================================================
@@ -375,7 +373,6 @@ export function writeWindowState(
                 workspace,
                 activeQuest,
                 status: [],
-                aiConversationActive: false,
             };
         } else {
             state = {
@@ -383,7 +380,6 @@ export function writeWindowState(
                 workspace,
                 activeQuest,
                 status: [],
-                aiConversationActive: false,
             };
         }
 
@@ -465,7 +461,6 @@ export function setWindowSubsystemActive(
                 workspace,
                 activeQuest,
                 status: [],
-                aiConversationActive: false,
             };
         }
 
@@ -535,7 +530,6 @@ export function ensureWindowStateRegistered(
             workspace,
             activeQuest,
             status: [],
-            aiConversationActive: false,
         };
         const tempPath = filePath + '.tmp';
         fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
@@ -562,7 +556,7 @@ export function writeWindowHeartbeat(
         const filePath = stateFilePath(windowId);
         if (!filePath) { return; }
         const existing = fs.existsSync(filePath) ? readWindowStateFile(filePath) : undefined;
-        const base: WindowStateFile = existing ?? { windowId, workspace, activeQuest, status: [], aiConversationActive: false };
+        const base: WindowStateFile = existing ?? { windowId, workspace, activeQuest, status: [] };
         // What the window says about itself (tomAi_getQuestWindowStatus) replaces what it said before.
         const state = withHeartbeat({ ...base, ...(activity ?? {}), workspace, activeQuest }, beat, new Date());
         const tempPath = filePath + '.tmp';
@@ -585,56 +579,6 @@ export function deleteWindowStateFile(windowId: string): void {
         }
     } catch (error) {
         reportException('windowStatusPanel.deleteWindowStateFile', error, { windowId });
-    }
-}
-
-/**
- * Write AI conversation active/inactive state for a window.
- */
-export function writeWindowConversationState(
-    windowId: string,
-    workspace: string,
-    activeQuest: string,
-    isActive: boolean,
-): void {
-    try {
-        const filePath = stateFilePath(windowId);
-        if (!filePath) {
-            debugLog('[WindowStatus] Cannot write AI conversation state — no local folder', 'WARN', 'windowStatus');
-            return;
-        }
-
-        let state: WindowStateFile;
-        if (fs.existsSync(filePath)) {
-            const existing = readWindowStateFile(filePath);
-            state = existing || {
-                windowId,
-                workspace,
-                activeQuest,
-                status: [],
-                aiConversationActive: false,
-            };
-        } else {
-            state = {
-                windowId,
-                workspace,
-                activeQuest,
-                status: [],
-                aiConversationActive: false,
-            };
-        }
-
-        state.workspace = workspace;
-        state.activeQuest = activeQuest;
-        state.aiConversationActive = isActive;
-
-        const tempPath = filePath + '.tmp';
-        fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
-        fs.renameSync(tempPath, filePath);
-
-        debugLog(`[WindowStatus] Updated AI conversation state: windowId=${windowId} active=${isActive}`, 'INFO', 'windowStatus');
-    } catch (error) {
-        reportException('windowStatusPanel.writeWindowConversationState', error, { windowId, isActive });
     }
 }
 

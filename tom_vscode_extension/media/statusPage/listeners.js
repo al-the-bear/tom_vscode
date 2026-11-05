@@ -3,7 +3,7 @@
 // returned by getStatusPanelListenersScript() in src/handlers/statusPage-handler.ts
 // (Phase B.11 webview restructuring). Defines attachStatusPanelListeners() and the
 // per-section sub-editors (schedule / executables / commandlines / favorites /
-// llmConfigs / aiSetups). Consumed by BOTH the standalone status page
+// llmConfigs). Consumed by BOTH the standalone status page
 // (media/statusPage/index.html) and the @WS accordion panel (wsPanel-handler.ts via
 // getStatusPanelListenersScript() -> readMediaText). Depends on an ambient global
 // 'vscode' provided by the host, and on window.__statusAvailableLlmTools (set by the
@@ -46,21 +46,10 @@ function attachStatusPanelListeners(skipEditorInit) {
                     model: (document.getElementById('sp-llm-model') || {}).value || '',
                     temperature: parseFloat((document.getElementById('sp-llm-temperature') || {}).value || '0.4'),
                     stripThinkingTags: (document.getElementById('sp-llm-stripThinkingTags') || {}).value === 'true',
-                    expansionProfile: (document.getElementById('sp-llm-expansionProfile') || {}).value || '',
                     toolsEnabled: (document.getElementById('sp-llm-toolsEnabled') || {}).value === 'true',
                     trailMaximumTokens: parseInt((document.getElementById('sp-llm-trailMaximumTokens') || {}).value || '8000'),
                     trailSummarizationTemperature: parseFloat((document.getElementById('sp-llm-trailSummarizationTemperature') || {}).value || '0.3'),
                     removePromptTemplateFromTrail: (document.getElementById('sp-llm-removePromptTemplateFromTrail') || {}).value === 'true'
-                };
-            } else if (action === 'updateAiConversation') {
-                msgData.settings = {
-                    maxTurns: parseInt((document.getElementById('sp-conv-maxTurns') || {}).value || '10'),
-                    temperature: parseFloat((document.getElementById('sp-conv-temperature') || {}).value || '0.5'),
-                    historyMode: (document.getElementById('sp-conv-historyMode') || {}).value || 'trim_and_summary',
-                    conversationMode: (document.getElementById('sp-conv-conversationMode') || {}).value || 'ollama-copilot',
-                    trailMaximumTokens: parseInt((document.getElementById('sp-conv-trailMaximumTokens') || {}).value || '8000'),
-                    trailSummarizationTemperature: parseFloat((document.getElementById('sp-conv-trailSummarizationTemperature') || {}).value || '0.3'),
-                    removePromptTemplateFromTrail: (document.getElementById('sp-conv-removePromptTemplateFromTrail') || {}).value === 'true'
                 };
             } else if (action === 'updateTelegram') {
                 msgData.settings = {
@@ -111,10 +100,6 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.commandlines = collectCommandlinesData();
             } else if (action === 'saveFavorites') {
                 msgData.favorites = collectFavoritesData();
-            } else if (action === 'saveLlmProfiles') {
-                msgData.profiles = collectLlmProfilesData();
-            } else if (action === 'saveConvProfiles') {
-                msgData.profiles = collectConvProfilesData();
             } else if (action === 'editModelConfig' || action === 'deleteModelConfig') {
                 msgData.modelKey = el.getAttribute('data-model-key');
             } else if (action === 'deleteLlmConfiguration') {
@@ -123,8 +108,6 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.configId = el.getAttribute('data-config-id');
             } else if (action === 'updateAnthropicApiKeyEnvVar') {
                 msgData.value = (document.getElementById('sp-anthropic-apiKeyEnvVar') || {}).value || 'ANTHROPIC_API_KEY';
-            } else if (action === 'deleteAiConversationSetup') {
-                msgData.setupId = el.getAttribute('data-setup-id');
             } else if (action === 'updateCompactionSettings' || action === 'runCompactionDryRun') {
                 msgData.settings = {
                     disabled: (document.getElementById('sp-comp-disabled') || {}).checked === true,
@@ -301,7 +284,6 @@ function attachStatusPanelListeners(skipEditorInit) {
     initCommandlinesEditor();
     initFavoritesEditor();
     initLlmConfigsEditor();
-    initAiSetupsEditor();
 }
 
 // =========== Schedule Editor JS ===========
@@ -900,31 +882,7 @@ function collectFavoritesData() {
     return result;
 }
 
-function collectLlmProfilesData() {
-    var result = {};
-    document.querySelectorAll('.sp-llm-profile-model').forEach(function(select) {
-        var profile = select.getAttribute('data-profile');
-        if (!profile) return;
-        var toolsEl = document.querySelector('.sp-llm-profile-tools[data-profile="' + profile + '"]');
-        result[profile] = {
-            modelConfig: select.value || null,
-            toolsEnabled: toolsEl ? toolsEl.value === 'true' : true
-        };
-    });
-    return result;
-}
 
-function collectConvProfilesData() {
-    var result = {};
-    document.querySelectorAll('.sp-conv-profile-model').forEach(function(select) {
-        var profile = select.getAttribute('data-profile');
-        if (!profile) return;
-        result[profile] = {
-            modelConfig: select.value || null
-        };
-    });
-    return result;
-}
 
 // =========== LLM Configurations Editor JS ===========
 var __llmConfigs = [];
@@ -1082,92 +1040,3 @@ function collectLlmConfigurationsData() {
     return result;
 }
 
-// =========== AI Conversation Setups Editor JS ===========
-var __aiSetups = [];
-
-function initAiSetupsEditor() {
-    var el = document.getElementById('sp-aisetups-init');
-    if (!el) return;
-    try { __aiSetups = JSON.parse(el.value || '[]'); } catch(e) { __aiSetups = []; }
-    renderAiSetups();
-}
-
-function _getLlmConfigOptions(selected, includeCopilot) {
-    var opts = [];
-    if (includeCopilot) {
-        opts.push('<option value="copilot" ' + (selected === 'copilot' ? 'selected' : '') + '>Copilot</option>');
-    } else {
-        opts.push('<option value="">(None)</option>');
-    }
-    __llmConfigs.forEach(function(cfg) {
-        var id = cfg.id || '';
-        var name = cfg.name || id;
-        if (id) {
-            opts.push('<option value="' + String(id).replace(/"/g, '&quot;') + '" ' + (id === selected ? 'selected' : '') + '>' + String(name).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</option>');
-        }
-    });
-    return opts.join('');
-}
-
-function renderAiSetups() {
-    var list = document.getElementById('sp-aisetups-list');
-    if (!list) return;
-    if (__aiSetups.length === 0) {
-        list.innerHTML = '<div class="sp-info">No AI Conversation setups defined</div>';
-        return;
-    }
-    list.innerHTML = __aiSetups.map(function(setup) {
-        var id = String(setup.id || '').replace(/"/g, '&quot;');
-        var name = String(setup.name || id).replace(/"/g, '&quot;');
-        return '<div class="sp-aisetup-card" data-setup-id="' + id + '">' +
-            '<div class="sp-aisetup-header">' +
-                '<input type="text" class="sp-setup-name" value="' + name + '" data-field="name" placeholder="Name">' +
-                '<input type="text" class="sp-setup-id" value="' + id + '" data-field="id" placeholder="ID" readonly>' +
-                '<button class="sp-btn small danger" data-status-action="deleteAiConversationSetup" data-setup-id="' + id + '">🗑️</button>' +
-            '</div>' +
-            '<div class="sp-settings-row"><label>LLM Config A:</label><select data-field="llmConfigA">' + _getLlmConfigOptions(setup.llmConfigA || '', false) + '</select><label>LLM Config B:</label><select data-field="llmConfigB">' + _getLlmConfigOptions(setup.llmConfigB || '', true) + '</select></div>' +
-            '<div class="sp-settings-row"><label>Max Turns:</label><input type="number" data-field="maxTurns" value="' + (setup.maxTurns ?? 10) + '" min="1" max="50"><label>Pause Between:</label><select data-field="pauseBetweenTurns"><option value="true" ' + (setup.pauseBetweenTurns ? 'selected' : '') + '>Yes</option><option value="false" ' + (!setup.pauseBetweenTurns ? 'selected' : '') + '>No</option></select><label>History:</label><select data-field="historyMode"><option value="full" ' + (setup.historyMode === 'full' ? 'selected' : '') + '>Full</option><option value="last" ' + (setup.historyMode === 'last' ? 'selected' : '') + '>Last</option><option value="summary" ' + (setup.historyMode === 'summary' ? 'selected' : '') + '>Summary</option><option value="trim_and_summary" ' + ((!setup.historyMode || setup.historyMode === 'trim_and_summary') ? 'selected' : '') + '>Trim+Summary</option></select><label>Sum LLM:</label><select data-field="trailSummarizationLlmConfig">' + _getLlmConfigOptions(setup.trailSummarizationLlmConfig || '', false) + '</select></div>' +
-        '</div>';
-    }).join('');
-    attachStatusPanelListeners(true);
-}
-
-function addAiConversationSetup() {
-    var id = 'setup_' + Date.now();
-    var setup = {
-        id: id,
-        name: 'New Setup',
-        llmConfigA: '',
-        llmConfigB: 'copilot',
-        maxTurns: 10,
-        pauseBetweenTurns: false,
-        historyMode: 'trim_and_summary',
-        trailSummarizationLlmConfig: ''
-    };
-    __aiSetups.push(setup);
-    renderAiSetups();
-}
-
-function saveAiConversationSetups() {
-    var setups = collectAiSetupsData();
-    vscode.postMessage({ type: 'statusAction', action: 'saveAiConversationSetups', setups: setups });
-}
-
-function collectAiSetupsData() {
-    var result = [];
-    document.querySelectorAll('.sp-aisetup-card').forEach(function(card) {
-        var setupId = card.getAttribute('data-setup-id');
-        if (!setupId) return;
-        result.push({
-            id: setupId,
-            name: card.querySelector('[data-field="name"]')?.value || '',
-            llmConfigA: card.querySelector('[data-field="llmConfigA"]')?.value || '',
-            llmConfigB: card.querySelector('[data-field="llmConfigB"]')?.value || '',
-            maxTurns: parseInt(card.querySelector('[data-field="maxTurns"]')?.value || 'NaN'),
-            pauseBetweenTurns: card.querySelector('[data-field="pauseBetweenTurns"]')?.value === 'true',
-            historyMode: card.querySelector('[data-field="historyMode"]')?.value || '',
-            trailSummarizationLlmConfig: card.querySelector('[data-field="trailSummarizationLlmConfig"]')?.value || ''
-        });
-    });
-    return result;
-}

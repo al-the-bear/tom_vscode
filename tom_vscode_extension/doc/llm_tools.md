@@ -4,15 +4,14 @@ This document is the source of truth for every tool available to LLM chat surfac
 
 ## 1. Transports
 
-Five chat surfaces call into tools:
+Four transports call into tools. Each is the `transport` of an Anthropic configuration, chosen through an Anthropic profile (the @CHAT Anthropic subpanel and the prompt queue):
 
 - **Anthropic Agent SDK** — `transport: 'agentSdk'` on an Anthropic configuration. Wraps `@anthropic-ai/claude-agent-sdk`. When `profile.useBuiltInTools = true`, Claude Code's built-in preset (`Read`, `Write`, `Edit`, `MultiEdit`, `Glob`, `Grep`, `Bash`/`BashOutput`/`KillBash`, `WebFetch`, `WebSearch`, `NotebookEdit`, `TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList`, `Task`, `AskUserQuestion`, `ExitPlanMode`, `SlashCommand`, …) is exposed; our extension tools that duplicate a built-in (`DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`) are suppressed to avoid confusion. Our own MCP server runs next to the preset and surfaces the rest.
 - **Anthropic API (direct)** — `transport: 'direct'`. `@anthropic-ai/sdk`. No SDK preset — we implement every capability ourselves.
-- **Local LLM (Ollama)** — `localLlm-handler.ts`. OpenAI-compatible tool calling. Because smaller open models call tools less reliably, we default to a trimmed, read-only subset (`READ_ONLY_TOOLS` in `src/tools/tool-executors.ts`).
-- **Tom AI Chat** — the user's single-conversation surface via the **VS Code Language Model API** (`vscode.lm.*`). The VS Code LM API is a programmatic LLM interface comparable to the Anthropic API: the extension hands over messages + tools and receives the model's response. Tom AI Chat is a **user-facing** single-turn-or-multi-turn chat with a `.md` conversation format. A human is present, so user-interaction tools (`tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_notifyUser`) apply.
-- **AI Conversation** — two LLM agents converse with each other via the same VS Code LM API, orchestrated by the extension. There is **no human** in the loop — interactive prompting tools don't apply. Used for bot-to-bot review / critique / planning.
+- **Local LLM (Ollama / OpenAI-compatible)** — `transport: 'localLlm'`, an Anthropic profile on a Local LLM configuration; the Anthropic handler runs the tool loop and `LocalLlmManager.callLocalLlmOnce` (`localLlm-handler.ts`) makes each call. Ollama or OpenAI-compatible tool calling. Because smaller open models call tools less reliably, we default to a trimmed, read-only subset (`READ_ONLY_TOOLS` in `src/tools/tool-executors.ts`).
+- **VS Code LM** — `transport: 'vscodeLm'`, the **VS Code Language Model API** (`vscode.lm.*`). The VS Code LM API is a programmatic LLM interface comparable to the Anthropic API: the extension hands over messages + tools and receives the model's response. A human is present, so user-interaction tools (`tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_notifyUser`) apply. The same tools are registered as VS Code language-model tools (`registerVsCodeLmTools`, `src/tools/vscodeLmTools.ts`).
 
-A sixth surface — **Copilot Chat (the user-facing VS Code chat panel)** — is *not* one of the transports above. Our extension drives it indirectly via the **prompt-queue / timed-request / template family** (§4.20): those tools stage prompts, orchestrate follow-ups, and manage reminders in the Copilot Chat window. They are called *from* any of the five transports above when the user's workflow needs to send prompts into Copilot Chat.
+A fifth surface — **Copilot Chat (the user-facing VS Code chat panel)** — is *not* one of the transports above. Our extension drives it indirectly via the **prompt-queue / timed-request / template family** (§4.20): those tools stage prompts, orchestrate follow-ups, and manage reminders in the Copilot Chat window. They are called *from* any of the four transports above when the user's workflow needs to send prompts into Copilot Chat.
 
 Every transport reads tool enablement from the active configuration / profile — the recommendations below are *defaults*, not hard-coded behaviour. Flip a tool on or off per-profile via the Global Template Editor.
 
@@ -34,9 +33,8 @@ A Dart **script** can also reach the exact same tool registry over the bridge (`
 | --- | :-: | :-: | :-: | :-: | :-: | :-: |
 | Anthropic Agent SDK | ✅ | ✅ | ✅ | available but unused | ❌ not surfaced | ✅ Claude Code preset (opt-in) |
 | Anthropic API (direct) | ✅ | ✅ | ✅ | available but unused | ❌ not surfaced | ❌ |
-| Local LLM (Ollama) | ✅ | ❌ | ❌ | model-dependent | ❌ | ❌ |
-| Tom AI Chat (VS Code LM) | ✅ | provider-managed | provider-managed | model-dependent | ❌ | Copilot-side tools invisible to us |
-| AI Conversation (VS Code LM) | ✅ | provider-managed | provider-managed | model-dependent | ❌ | Copilot-side tools invisible to us |
+| Local LLM (Ollama / OpenAI-compatible) | ✅ | ❌ | ❌ | model-dependent | ❌ | ❌ |
+| VS Code LM | ✅ | provider-managed | provider-managed | model-dependent | ❌ | Copilot-side tools invisible to us |
 
 We deliberately **do not** surface Anthropic's server-side `code_execution`, `computer_use`, or `text_editor_20250429` — they run outside the workspace and bypass our approval gate.
 
@@ -46,18 +44,18 @@ Each table lists every tool in the family with a per-transport default.
 
 ### 4.1 Files (read / write / search)
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_createFile` | Create a file (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_editFile` | Find-replace edit (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_multiEditFile` | Batched find-replace (approval). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_deleteFile` | Delete a file (approval). | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_moveFile` | Rename / move a file (approval). | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listDirectory` | List directory entries. | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_findFiles` | Glob file search. | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, 20 s budget. | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_applyEdit` | Transactional multi-file WorkspaceEdit (atomic undo). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_createFile` | Create a file (approval). | 🔁 | ✅ | ⚪ | ✅ |
+| `tomAi_editFile` | Find-replace edit (approval). | 🔁 | ✅ | ⚪ | ✅ |
+| `tomAi_multiEditFile` | Batched find-replace (approval). | 🔁 | ✅ | ⚪ | ✅ |
+| `tomAi_deleteFile` | Delete a file (approval). | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_moveFile` | Rename / move a file (approval). | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_listDirectory` | List directory entries. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_findFiles` | Glob file search. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, 20 s budget. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_applyEdit` | Transactional multi-file WorkspaceEdit (atomic undo). | ✅ | ✅ | ⚪ | ✅ |
 
 On the direct API these tools, with the shell and git tools of §4.2 and §4.8,
 are what a todo walk has in place of Claude Code's built-ins: Read →
@@ -74,80 +72,80 @@ early (`src/tools/__tests__/direct-tool-coverage.test.ts`, DT-1 – DT-9).
 
 ### 4.2 Shell and tasks
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_runCommand` | Shell command; returns at most 30 000 characters per stream (head and tail). | 🔁 | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_runCommandStream` | Spawn, return handle + initial output. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_readCommandOutput` | Poll stdout / stderr / exit. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_killCommand` | Signal a running handle. | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_runTask` | Execute a task from `tasks.json`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_runDebugConfig` | Launch a `launch.json` debug config. | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_runCommand` | Shell command; returns at most 30 000 characters per stream (head and tail). | 🔁 | ✅ | ⚪ | ✅ |
+| `tomAi_runCommandStream` | Spawn, return handle + initial output. | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_readCommandOutput` | Poll stdout / stderr / exit. | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_killCommand` | Signal a running handle. | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_runTask` | Execute a task from `tasks.json`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_runDebugConfig` | Launch a `launch.json` debug config. | ✅ | ✅ | ⚪ | ⚪ |
 
 ### 4.3 Web
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_fetchWebpage` | HTTP GET + return text. | 🔁 | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_webSearch` | Web search via local backend. | 🔁 | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_fetchWebpage` | HTTP GET + return text. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_webSearch` | Web search via local backend. | 🔁 | ✅ | ✅ | ✅ |
 
 ### 4.4 VS Code commands and IDE navigation
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_runVscodeCommand` | Execute command ID (string args). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_runVscodeCommandTyped` | Execute command ID (typed args, safe-list hints). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_listCommands` | Discover command IDs (filtered). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_openFile` | `showTextDocument` with optional selection. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_closeEditor` | Close every text / diff tab of a file (every group, or the active one) without focusing anything; a tab with unsaved changes is kept and reported, or saved first with `save: true` — never discarded. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_runVscodeCommand` | Execute command ID (string args). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_runVscodeCommandTyped` | Execute command ID (typed args, safe-list hints). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listCommands` | Discover command IDs (filtered). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_openFile` | `showTextDocument` with optional selection. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_closeEditor` | Close every text / diff tab of a file (every group, or the active one) without focusing anything; a tab with unsaved changes is kept and reported, or saved first with `save: true` — never discarded. Approval. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.5 Editor and workspace context
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`). | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_openInMdBrowser` | Open a `.md` file in the MD Browser; `reuse` (default) brings a panel already showing it to the front and renders it again; `live`, `viewColumn`, `preserveFocus`. Answers the panel id. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_closeMdBrowser` | Close MD Browser panels by `panelId`, `filePath`, or `under` a folder except `exceptFilePath`; a panel with unsaved in-place edits is kept unless `force`. Approval. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_openInMdBrowser` | Open a `.md` file in the MD Browser; `reuse` (default) brings a panel already showing it to the front and renders it again; `live`, `viewColumn`, `preserveFocus`. Answers the panel id. Approval. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_closeMdBrowser` | Close MD Browser panels by `panelId`, `filePath`, or `under` a folder except `exceptFilePath`; a panel with unsaved in-place edits is kept unless `force`. Approval. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getActiveQuest` | Resolve the active quest ID. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.6 Diagnostics
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_getErrors` | Snapshot the Problems panel (legacy, flat). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_getProblems` | Structured Problems panel with filters. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_readOutputChannel` | Read this window's output channels (the queue's sends, retries and errors; Anthropic turns; the compaction log's `history scope:` lines; every other extension's channels) from the files VS Code writes. Without `channel`: the channels and the extension-host runs. With it: the last `maxLines` lines, filtered by `grep` (text or `regex`), with `context`; `run: 1` reads the run before the last window reload. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_getErrors` | Snapshot the Problems panel (legacy, flat). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_getProblems` | Structured Problems panel with filters. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readOutputChannel` | Read this window's output channels (the queue's sends, retries and errors; Anthropic turns; the compaction log's `history scope:` lines; every other extension's channels) from the files VS Code writes. Without `channel`: the channels and the extension-host runs. With it: the last `maxLines` lines, filtered by `grep` (text or `regex`), with `context`; `run: 1` reads the run before the last window reload. | ✅ | ✅ | ✅ | ✅ |
 
 > VS Code has no API to read an output channel, but it writes every channel of an extension host to disk as it goes — `<logs>/<launch>/window<N>/exthost/output_logging_<YYYYMMDDTHHMMSS>/<n>-<channel name>.log`, one `output_logging_*` folder per extension-host run (a window reload starts a new one). `tomAi_readOutputChannel` finds its own window's `exthost` folder from `context.logUri` (`src/utils/outputChannelLogs.ts`), so no path is platform-specific. Channels do not share a timestamp format, so it filters by text, not by time. A file name cannot hold a `:`, so VS Code writes `Tom AI: MCP Server` to `…-Tom AI MCP Server.log`; names are compared without such characters, so either spelling finds it, and the extension's own channels are listed under the name they were created with (`OWN_CHANNEL_NAMES`). Terminal scrollback stays out of reach: for captured command output use `tomAi_runCommand` (one-shot) or `tomAi_runCommandStream` + `tomAi_readCommandOutput`.
 
 ### 4.7 Language server (symbols, refactor, rename)
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_findSymbol` | Workspace symbol search. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_gotoDefinition` | Resolve definition at a position. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_findReferences` | References to a symbol. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_getCodeActions` | List quick-fixes / refactors (preview only). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_getCodeActionsCached` | Same, but returns cacheable `actionId`s. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_applyCodeAction` | Apply a cached `actionId` (approval). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_rename` | LSP-safe workspace rename (approval). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_findSymbol` | Workspace symbol search. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_gotoDefinition` | Resolve definition at a position. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_findReferences` | References to a symbol. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_getCodeActions` | List quick-fixes / refactors (preview only). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_getCodeActionsCached` | Same, but returns cacheable `actionId`s. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_applyCodeAction` | Apply a cached `actionId` (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_rename` | LSP-safe workspace rename (approval). | ✅ | ✅ | ⚪ | ✅ |
 
 ### 4.8 Git
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_gitRead` | Read-only (status, diff, log, blame). | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_gitShow` | `git show <ref>[:path]`. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_gitWrite` | Allow-listed git writes (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_gitRead` | Read-only (status, diff, log, blame). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_gitShow` | `git show <ref>[:path]`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_gitWrite` | Allow-listed git writes (approval). | ⚪ | ✅ | ⚪ | ✅ |
 
 ### 4.9 Notebook
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_notebookEdit` | Insert / replace / delete cells (approval). | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_notebookRun` | Execute cells or the whole notebook. | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_notebookEdit` | Insert / replace / delete cells (approval). | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_notebookRun` | Execute cells or the whole notebook. | ✅ | ✅ | ⚪ | ⚪ |
 
 ### 4.10 Guidelines and pattern prompts
 
@@ -158,33 +156,33 @@ Guidelines split into two scopes:
 
 The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer supported.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readGlobalGuideline` | Read a single global guideline (workspace root `_copilot_guidelines/`). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_listGlobalGuidelines` | List all global guidelines recursively. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_searchGlobalGuidelines` | Grep inside global `_copilot_guidelines/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_readProjectGuideline` | Read a single project guideline. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_listProjectGuidelines` | List a project's guidelines recursively. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_searchProjectGuidelines` | Grep inside one project's `_copilot_guidelines/`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_listPatternPrompts` | List workspace `!<name>` pattern prompts. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_readPatternPrompt` | Read a `!<name>` prompt body. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_readGlobalGuideline` | Read a single global guideline (workspace root `_copilot_guidelines/`). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listGlobalGuidelines` | List all global guidelines recursively. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_searchGlobalGuidelines` | Grep inside global `_copilot_guidelines/`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readProjectGuideline` | Read a single project guideline. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listProjectGuidelines` | List a project's guidelines recursively. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_searchProjectGuidelines` | Grep inside one project's `_copilot_guidelines/`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listPatternPrompts` | List workspace `!<name>` pattern prompts. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readPatternPrompt` | Read a `!<name>` prompt body. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.11 Quest todos (YAML-backed)
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listQuestTodos` | List quest todos (filterable by status / file / tags). | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getQuestTodo` | Fetch a single quest todo by id. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_createQuestTodo` | Create a new quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_updateQuestTodo` | Patch fields on a quest todo. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_transferTodos` | Move todos into a quest's own todo file (the same or another quest) or into `workspace.todo.yaml`, from any todo file of a quest (session and topic files included) or from the workspace file. Per-id refusals in `skipped`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_deleteQuestTodo` | HARD-delete a quest todo (not recoverable — prefer `tomAi_deleteQuestTodos`). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_archiveQuestTodos` | Move completed todos to the `-archived` sibling file (`todoIds` or `allCompleted`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_deleteQuestTodos` | Move non-completed todos to the `-deleted` sibling file (recoverable; `todoIds` or `allCancelled`). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_listWorkspaceQuestTodos` | All `*.todo.yaml` across the workspace. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getCombinedTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listQuests` | Enumerate quest folders under `_ai/quests/`. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listQuestTodos` | List quest todos (filterable by status / file / tags). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getQuestTodo` | Fetch a single quest todo by id. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_createQuestTodo` | Create a new quest todo. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_updateQuestTodo` | Patch fields on a quest todo. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_transferTodos` | Move todos into a quest's own todo file (the same or another quest) or into `workspace.todo.yaml`, from any todo file of a quest (session and topic files included) or from the workspace file. Per-id refusals in `skipped`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_deleteQuestTodo` | HARD-delete a quest todo (not recoverable — prefer `tomAi_deleteQuestTodos`). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_archiveQuestTodos` | Move completed todos to the `-archived` sibling file (`todoIds` or `allCompleted`). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_deleteQuestTodos` | Move non-completed todos to the `-deleted` sibling file (recoverable; `todoIds` or `allCancelled`). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listWorkspaceQuestTodos` | All `*.todo.yaml` across the workspace. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getCombinedTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listQuests` | Enumerate quest folders under `_ai/quests/`. | ✅ | ✅ | ✅ | ✅ |
 
 Archive/delete naming rule: the sibling file is derived by suffixing the
 **first dot-segment** of the source name (`todos.myquest.todo.yaml` →
@@ -230,9 +228,9 @@ reader could ever find it met. The queue's unblock reads it too: a todo with a
 
 ### 4.11a Id generation
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_generateIdPrefix` | Date-based, letters-only code that makes hand-authored ids collision-free. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_generateIdPrefix` | Date-based, letters-only code that makes hand-authored ids collision-free. | ✅ | ✅ | ✅ | ✅ |
 
 Hand-authored ids used to collide: two sessions — or two machines — inventing
 `vex1` on different days produced the same id for unrelated work, and because
@@ -271,78 +269,77 @@ Session todos live in one stable, git-tracked file per host+quest:
 `_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml`. They persist
 across window reloads (legacy per-window files are migrated on first access).
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_addSessionTodo` | Add a session self-reminder (persistent per-host file). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_listSessionTodos` | List session todos. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getAllSessionTodos` | Counts + all items. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_updateSessionTodo` | Patch fields. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_deleteSessionTodo` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_manageTodo` | Chat-session todo manager — separate from quest / window todos. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_addSessionTodo` | Add a session self-reminder (persistent per-host file). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listSessionTodos` | List session todos. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getAllSessionTodos` | Counts + all items. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_updateSessionTodo` | Patch fields. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_deleteSessionTodo` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ |
 
 ### 4.13 Workspace metadata
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listProjects` | Projects from `tom_master.yaml`. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listProjects` | Projects from `tom_master.yaml`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)
 
 Bugs / feature requests / work items tracked via the Issues subpanel.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listIssueRepos` | Discover repos configured for Issues. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listIssues` | List with state / label / substring filters. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getIssue` | Fetch one + optional comments. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listIssueComments` | Comments only. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_createIssue` | Open a new issue (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_addIssueComment` | Comment on an issue (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_setIssueStatus` | Change status — uses statuses from the Issues panel config (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_toggleIssueLabel` | Toggle a label; key=value labels replace prior value (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listIssueRepos` | Discover repos configured for Issues. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listIssues` | List with state / label / substring filters. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getIssue` | Fetch one + optional comments. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listIssueComments` | Comments only. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_createIssue` | Open a new issue (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_addIssueComment` | Comment on an issue (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_setIssueStatus` | Change status — uses statuses from the Issues panel config (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_toggleIssueLabel` | Toggle a label; key=value labels replace prior value (approval). | ⚪ | ✅ | ⚪ | ✅ |
 
 ### 4.15 Tests (bottom-panel WS tab, Tests subpanel — testkit)
 
 Parallel to §4.14 but scoped to the **Tests** subpanel (test reports, flaky-test tickets). Same `IssueProvider` transport, different repos + different semantics.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listTestRepos` | Discover repos configured for Tests. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listTests` | List test-kit items with filters. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getTest` | Fetch one + optional comments. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listTestComments` | Comments only. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_createTest` | File a new test report (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_addTestComment` | Comment on a test-kit item (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_setTestStatus` | Change status (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_toggleTestLabel` | Toggle a label (approval). | ⚪ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listTestRepos` | Discover repos configured for Tests. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listTests` | List test-kit items with filters. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getTest` | Fetch one + optional comments. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listTestComments` | Comments only. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_createTest` | File a new test report (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_addTestComment` | Comment on a test-kit item (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_setTestStatus` | Change status (approval). | ⚪ | ✅ | ⚪ | ✅ |
+| `tomAi_toggleTestLabel` | Toggle a label (approval). | ⚪ | ✅ | ⚪ | ✅ |
 
 ### 4.16 Chat variables
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readChatVariable` | Read a chat variable. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_writeChatVariable` | Write a chat variable (own change log — no approval). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_readChatVariable` | Read a chat variable. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_writeChatVariable` | Write a chat variable (own change log — no approval). | ✅ | ✅ | ⚪ | ✅ |
 
 ### 4.17 Memory (`_ai/memory/`)
 
 Two-tier: `shared/` (cross-quest, one set of files) and the quest scope, which is per session: `{quest}/{session}/`, the session the running prompt belongs to (`default` the queue's, `chat` the ANTHROPIC panel's, or a named session). The tools, `${memory}` and background memory extraction all use the running session's quest memory; a Local LLM memory bucket (`facts-<suffix>.md`) reads the `default` session's.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readMemory` | Read a memory file. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listMemory` | List memory files. | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_saveMemory` | Save new memory (approval). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_updateMemory` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_forgetMemory` | Delete memory (approval). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_readMemory` | Read a memory file. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listMemory` | List memory files. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_saveMemory` | Save new memory (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_updateMemory` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_forgetMemory` | Delete memory (approval). | ⚪ | ⚪ | ⚪ | ⚪ |
 
 ### 4.18 User interaction
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_notifyUser` | Notification (Telegram if configured, else VS Code). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_notifyUser` | Notification (Telegram if configured, else VS Code). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. | ✅ | ✅ | ⚪ | ✅ |
 
 **The picker always allows a free-text answer.** An **"Other…"** entry is appended to `items` automatically (`src/services/free-text-picker.ts`); taking it opens an input box and the typed text becomes the selection, with `label` and `value` both set to it. The entry is pinned (`alwaysShow`), so typing an answer that matches no item cannot filter it away. Pressing Enter then submits the typed text directly. That holds even though the pinned "Other…" row is the highlighted one at that point: a selection made only of pinned rows, with text in the box, counts as the text. The input box only opens for a user who picks "Other…" with nothing typed. A list of options is a guess about what the answer might be, and the real answer is regularly none of them — so `selected.value` may be text that was never among the offered items, and callers must not assume otherwise. The Agent SDK's built-in `AskUserQuestion` interceptor uses the same affordance.
 
@@ -350,13 +347,13 @@ Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → L
 
 ### 4.19 Planning and delegation
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_enterPlanMode` | Signal planning; disables mutations (host-enforced). | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_exitPlanMode` | Leave plan mode, attach final plan. | 🔁 | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_spawnSubagent` | Run a nested conversation with a narrower tool set. | 🔁 | 🔌 | ⚪ | ❌ | ⚪ |
-| `tomAi_askBigBrother` | Delegate to a larger model via the VS Code LM API. | ⚪ | ⚪ | ✅ | ❌ | ⚪ |
-| `tomAi_askCopilot` | Bounce a question off the **Copilot Chat panel** (via bridge). | ⚪ | ⚪ | ✅ | ❌ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_enterPlanMode` | Signal planning; disables mutations (host-enforced). | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_exitPlanMode` | Leave plan mode, attach final plan. | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_spawnSubagent` | Run a nested conversation with a narrower tool set. | 🔁 | 🔌 | ⚪ | ❌ |
+| `tomAi_askBigBrother` | Delegate to a larger model via the VS Code LM API. | ⚪ | ⚪ | ✅ | ❌ |
+| `tomAi_askCopilot` | Bounce a question off the **Copilot Chat panel** (via bridge). | ⚪ | ⚪ | ✅ | ❌ |
 
 ### 4.20 Copilot Chat orchestration — prompt queue, pre-prompts, timed requests, templates
 
@@ -370,50 +367,41 @@ These tools drive the **Copilot Chat user-facing panel** via a bridge. They are 
 
 Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sendMaximum` (auto-pause after N sends), and `answerWaitMinutes`; `scheduledTimes` now takes the manager's native `{time:"HH:MM", date?:"YYYY-MM-DD"}` shape.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_addQueueItem` | Stage a prompt; accepts prePrompts, per-item repeat/answer-wait, full follow-up / reminder fields, `session` (the named session it runs in) and `doneNotificationPrompt`. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_addQueueFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_addQueuePrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_removeQueuePrePrompt` | Remove a pre-prompt by index. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_sendQueuedPrompt` | Send one staged prompt. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listQueue` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder / `session` (`''` = the queue default); `doneNotificationPrompt` and `doneNotificationDisabled` also while the item is sending. |
-| `tomAi_listSessions` | The quest's named sessions: mode, base, whether they have a conversation, how the next prompt in each starts. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_createSession` | Create a session, fresh or based on another, with a lifetime (`continue`, `per-prompt`, `per-iteration`) and optionally a `profile` (stored with its model). No approval prompt. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_setQueueItemStatus` | Toggle staged / pending. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_getQuestWindowStatus` | The windows on this machine (alive, servers, role, process position, panel profile and session, queue summary with the item being sent), each quest's sessions with their profiles, and the Anthropic profiles. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_sendItemToQuest` | Queue a prompt in another quest's window on this machine (inbox file), optionally with a profile, an existing or new session of that quest, a done-notification prompt and pause-after; answers `targetRunning`. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_removeQueueItem` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateQueueFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_removeQueueFollowUp` | Remove a follow-up. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_addTimedRequest` | Create a timed entry (interval) with repeat / sendMaximum / answerWait / reminder. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listTimedRequests` | List timed entries. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateTimedRequest` | Patch timed entry; schedule slots use `{time:"HH:MM", date?:...}`. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_removeTimedRequest` | Remove a timed entry. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_setTimerEngineState` | Enable / disable the timer engine. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listPromptTemplates` | List prompt templates. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_createPromptTemplate` | Create a new prompt template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updatePromptTemplate` | Patch (optionally rename) a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_deletePromptTemplate` | Delete a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listReminderTemplates` | List reminder templates. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_createReminderTemplate` | Create a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_updateReminderTemplate` | Patch a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_deleteReminderTemplate` | Delete a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_addQueueItem` | Stage a prompt; accepts prePrompts, per-item repeat/answer-wait, full follow-up / reminder fields, `session` (the named session it runs in) and `doneNotificationPrompt`. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_addQueueFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_addQueuePrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_removeQueuePrePrompt` | Remove a pre-prompt by index. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_sendQueuedPrompt` | Send one staged prompt. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listQueue` | List queue items. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateQueueItem` | Patch item fields incl. repeat / answerWait / reminder / `session` (`''` = the queue default); `doneNotificationPrompt` and `doneNotificationDisabled` also while the item is sending. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listSessions` | The quest's named sessions: mode, base, whether they have a conversation, how the next prompt in each starts. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createSession` | Create a session, fresh or based on another, with a lifetime (`continue`, `per-prompt`, `per-iteration`) and optionally a `profile` (stored with its model). No approval prompt. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_setQueueItemStatus` | Toggle staged / pending. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_getQuestWindowStatus` | The windows on this machine (alive, servers, role, process position, panel profile and session, queue summary with the item being sent), each quest's sessions with their profiles, and the Anthropic profiles. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_sendItemToQuest` | Queue a prompt in another quest's window on this machine (inbox file), optionally with a profile, an existing or new session of that quest, a done-notification prompt and pause-after; answers `targetRunning`. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_removeQueueItem` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateQueueFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_removeQueueFollowUp` | Remove a follow-up. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_addTimedRequest` | Create a timed entry (interval) with repeat / sendMaximum / answerWait / reminder. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listTimedRequests` | List timed entries. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateTimedRequest` | Patch timed entry; schedule slots use `{time:"HH:MM", date?:...}`. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_removeTimedRequest` | Remove a timed entry. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_setTimerEngineState` | Enable / disable the timer engine. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listPromptTemplates` | List prompt templates. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createPromptTemplate` | Create a new prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updatePromptTemplate` | Patch (optionally rename) a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_deletePromptTemplate` | Delete a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listReminderTemplates` | List reminder templates. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_createReminderTemplate` | Create a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_updateReminderTemplate` | Patch a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_deleteReminderTemplate` | Delete a reminder template. | ⚪ | ⚪ | ⚪ | ⚪ |
 
 **Missing API key.** The tools that queue, change or send an item answer a `warning` when a stage of it runs on an Anthropic profile whose configuration uses the direct API and whose key variable (`anthropic.apiKeyEnvVar`) is not in this VS Code's environment — one line per cause, naming the stages. The item is queued all the same. See `multi_transport_prompt_queue_revised.md` §4.17a.
 
 **Remaining gaps** (manager features still with no tool): engine-wide `TimerScheduleSlot` (awake/asleep windows with weekday / first-weekday / last-weekday / day-of-month patterns) and reminder-system config (`ReminderSystem.config.enabled`, `defaultTimeoutMinutes`). Add if a workflow needs LLM-driven control of those.
-
-### 4.21 AI Conversation result document
-
-A shared markdown document per conversation that both participants read + write so the bot-to-bot exchange can produce a durable outcome. Stored at `_ai/ai_conversation/{conversationId}.result.md` (default id: `"current"`). This is the **only mutation tool** enabled for AI Conversation in the default seed config — every other mutating tool is off.
-
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_readConversationResult` | Read current content of the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
-| `tomAi_writeConversationResult` | Write (replace) or append to the conversation's result document. | ⚪ | ⚪ | ⚪ | ⚪ | ✅ |
 
 ### 4.22 Past tool access (session-scoped history lookup)
 
@@ -421,11 +409,11 @@ Session-scoped pull access to earlier tool calls + their full results. Backed by
 
 The buffer is **session-scoped** (cleared on `Clear session history`) and **Anthropic-only** — the Local LLM handler maintains its own unrelated conversation state, so these tools return an informative message there instead of wrong data. Read-only; never prompt for approval.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
-| `tomAi_readPastToolResult` | Return the full body of a past tool call by its replay key (e.g. `t14`). | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ |
+| `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ |
+| `tomAi_readPastToolResult` | Return the full body of a past tool call by its replay key (e.g. `t14`). | ✅ | ✅ | ⚪ | ⚪ |
 
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
@@ -461,18 +449,18 @@ not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind,
 children}}`, the nearest node that does, so the agent can correct itself. In a
 document, a list item resolves only when the list holds it.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specListDocuments` | The model's document roots, and the SOM documents under a folder (default the workspace) with their root, model-version stamp and editability. Searched with VS Code's file search (`search: "findFiles"`, 1–1.5 s for the whole workspace in the extension host on mbp), else by walking the folders; `timeBudgetMs` (default 10 s, max 120 s) bounds it and `stoppedBy` says why a list is truncated. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specOutline` | The instance tree under a path: kind, section id, headline, codeSpec, filled, item counts; depth-limited and paged. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specGetSection` | One node with its values: a leaf's value, a form's typed fields with enum domains, a list's items, a section's values, forms and children. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specValidate` | Is it valid now? The three tiers of tom_specs' `validate_spec` CLI (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; `withoutAnnotations` renders it as it reads once reviewed (every inline mark accepted, every comment and question removed). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specAnnotations` | The review annotations (SOM §11.9) of the document or a subtree: comments (id, author, text, the paragraph they follow), questions (topic, options, recommended, answer, open), inline marks (`M-<n>`, old / new text), with counts, the `marksRevision` and the runtime's annotation findings. With `dir` instead of `file`: every SOM document under the folder with its counts and number of findings, and the totals — no lists (`maxResults`, `timeBudgetMs`, `truncated` as for `tomAi_specListDocuments`). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specExtractAnswers` | A review round's `answers.md` (SOM §11.9.7) from one or more documents: the answered questions and the comments, each with its section-id chain and rendition line; the open questions (`includeOpen`) and inline marks (`includeMarks`) on request; counts per document and in total. The text tom_specs' `extract_answers` CLI writes; writes nothing. | ✅ | ✅ | ⚪ | ✅ | ✅ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_specListDocuments` | The model's document roots, and the SOM documents under a folder (default the workspace) with their root, model-version stamp and editability. Searched with VS Code's file search (`search: "findFiles"`, 1–1.5 s for the whole workspace in the extension host on mbp), else by walking the folders; `timeBudgetMs` (default 10 s, max 120 s) bounds it and `stoppedBy` says why a list is truncated. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specOutline` | The instance tree under a path: kind, section id, headline, codeSpec, filled, item counts; depth-limited and paged. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specGetSection` | One node with its values: a leaf's value, a form's typed fields with enum domains, a list's items, a section's values, forms and children. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specReflect` | The model at a path or class: kinds, types, form fields, annotations, doc comments; with a file, the children `checkAddNode` accepts there now. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specValidate` | Is it valid now? The three tiers of tom_specs' `validate_spec` CLI (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; `withoutAnnotations` renders it as it reads once reviewed (every inline mark accepted, every comment and question removed). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specAnnotations` | The review annotations (SOM §11.9) of the document or a subtree: comments (id, author, text, the paragraph they follow), questions (topic, options, recommended, answer, open), inline marks (`M-<n>`, old / new text), with counts, the `marksRevision` and the runtime's annotation findings. With `dir` instead of `file`: every SOM document under the folder with its counts and number of findings, and the totals — no lists (`maxResults`, `timeBudgetMs`, `truncated` as for `tomAi_specListDocuments`). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specExtractAnswers` | A review round's `answers.md` (SOM §11.9.7) from one or more documents: the answered questions and the comments, each with its section-id chain and rendition line; the open questions (`includeOpen`) and inline marks (`includeMarks`) on request; counts per document and in total. The text tom_specs' `extract_answers` CLI writes; writes nothing. | ✅ | ✅ | ⚪ | ✅ |
 
 **Validation.** `tomAi_specValidate` answers in the report shape of tom_specs'
 `validate_spec --json` (`spec-validation`/1): `{passed, summary, root {type,
@@ -495,20 +483,20 @@ nothing. Each call loads, edits and saves the file in its own format. It takes
 `expectedRevision` (refused when the file changed since it was read) and
 `dryRun` (returns a `diff`, writes nothing).
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. `marked: true` on a String field writes the new text as a marked change. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. One line: a line break is refused (`invalidHeadline`), since it would end the Markdown heading. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content`, form `fields` and its `headline` in the same call (a refused value or headline refuses the whole add). A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetItemSectionId` | Rename a list item's section id; the pattern prefix and list uniqueness are checked. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specConvert` | Write the other format (`*.docspecs.yaml` ↔ `*.md`) beside or over the source. Refuses unfaithful Markdown; a YAML source's review entries need `dropReview`, since Markdown has none. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specApplyEdits` | **The preferred way to make more than one change:** up to 200 of the edits above (`{op, …}`), in order, on one document. One approval, one write, one undo step, all or nothing. `addNode` can bind `as: "req"` for later `$req/…` paths; a move re-points bound names and refuses a stale literal path. The approval prompt shows the op counts and paths. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. `marked: true` on a String field writes the new text as a marked change. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. One line: a line break is refused (`invalidHeadline`), since it would end the Markdown heading. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specAddNode` | A child or a list item (id generated from the pattern, or given), optionally populated with `content`, form `fields` and its `headline` in the same call (a refused value or headline refuses the whole add). A refusal lists the legal children. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetItemSectionId` | Rename a list item's section id; the pattern prefix and list uniqueness are checked. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specMoveListItem` | Reorder within a list or move to a list of the same element class; returns the `renamed` map, and YAML review entries follow their items. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRemoveListItem` | Remove a list item and everything under it. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specClearSection` | Remove every value under a path. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specConvert` | Write the other format (`*.docspecs.yaml` ↔ `*.md`) beside or over the source. Refuses unfaithful Markdown; a YAML source's review entries need `dropReview`, since Markdown has none. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specApplyEdits` | **The preferred way to make more than one change:** up to 200 of the edits above (`{op, …}`), in order, on one document. One approval, one write, one undo step, all or nothing. `addNode` can bind `as: "req"` for later `$req/…` paths; a move re-points bound names and refuses a stale literal path. The approval prompt shows the op counts and paths. | ✅ | ✅ | ⚪ | ✅ |
 
 **Review annotations.** Questions, reviewer comments and inline marks live in
 content and form-field values (SOM §11.9): `> ⬆️ **C-12** (author): text`,
@@ -532,17 +520,17 @@ text takes marks — a typed or enum value is refused as `notText`. The answer
 carries `exact`: false when a difference sat in fenced code or the text holds
 mark delimiters, and the new text was written unmarked.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specInsertComment` | A comment block after a paragraph of a value — by number (`afterParagraph`) or by its text (`afterTextStart` / `afterTextContains`, refused when no or several paragraphs match); the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph (by number or by its text, as insertComment); the recommended option bold. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specEditComment` | Replace a comment's text; id and author stay. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every comment and question removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before). | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specWriteAnswers` | Write `tomAi_specExtractAnswers`' text to a step folder's `answers.md` (`output`): `status` new / changed / unchanged; other text is refused without `overwrite`; annotations the runtime cannot read are refused (`annotationsMalformed`); `dryRun` returns the diff. Not a batch op. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_specInsertComment` | A comment block after a paragraph of a value — by number (`afterParagraph`) or by its text (`afterTextStart` / `afterTextContains`, refused when no or several paragraphs match); the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph (by number or by its text, as insertComment); the recommended option bold. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specEditComment` | Replace a comment's text; id and author stay. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every comment and question removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specWriteAnswers` | Write `tomAi_specExtractAnswers`' text to a step folder's `answers.md` (`output`): `status` new / changed / unchanged; other text is refused without `overwrite`; annotations the runtime cannot read are refused (`annotationsMalformed`); `dryRun` returns the diff. Not a batch op. | ✅ | ✅ | ⚪ | ✅ |
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
 the runtime's `validateDocument` before and after the edit across the whole
@@ -609,12 +597,12 @@ validation and the section replace are the runtime's (`DocSpecsDocument`,
 spec tools, so the text is read from an open editor's buffer, and a write is
 refused when the file is dirty or has changed since it was read.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_docspecsValidate` | Check the document against its declared schema. A declared schema found nowhere (`unknownSchema`), a declaration below the title (`headerNotFirst`) and a missing header (`noSchemaDeclared`) are findings. Schema keys the runtime ignores are listed (`ignoredByRuntime`): their constraints are not checked. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_docspecsOutline` | The section tree with line ranges; with a schema, the required sections and those missing. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_docspecsGetSection` | One section's own body (up to its first subsection), by id. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_docspecsReplaceSection` | Replace one section's own body (approval). Every other byte is kept, and fenced blocks are respected. A body that would add a heading or leave a fence open is refused. Answers the validation it introduced or resolved; `dryRun` returns a diff. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_docspecsValidate` | Check the document against its declared schema. A declared schema found nowhere (`unknownSchema`), a declaration below the title (`headerNotFirst`) and a missing header (`noSchemaDeclared`) are findings. Schema keys the runtime ignores are listed (`ignoredByRuntime`): their constraints are not checked. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_docspecsOutline` | The section tree with line ranges; with a schema, the required sections and those missing. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_docspecsGetSection` | One section's own body (up to its first subsection), by id. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_docspecsReplaceSection` | Replace one section's own body (approval). Every other byte is kept, and fenced blocks are respected. A body that would add a heading or leave a fence open is refused. Answers the validation it introduced or resolved; `dryRun` returns a diff. | ✅ | ✅ | ⚪ | ✅ |
 
 The schema is looked up in this order:
 1. an explicit `schema` argument (`<id>/<version>` or a schema file);
@@ -671,22 +659,22 @@ The CodeSpecs projection document (a root with `@CodeSpecsProjection`: D13,
 CGP) defines what generation reaches. It is not filled and not extracted, so
 these tools refuse it rather than return 27 empty extracts.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_specCodeSpecsAreas` | The catalogue: areas, slices, authoring steps; one area (projects, citable areas, steps) or one slice in detail. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsRouting` | Gate A3, readable: every class node's verdict, with the unrouted ones and their fix; filter by verdict or path. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsExtract` | One area's extract as Markdown with each entry's provenance, or a per-area summary. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsGate` | The Stage-A gate in one report (runtime `CodeSpecsGate`): A1 schema completeness, A2 valid values, A3 routing, A4 required marker sources, A5 carriers the model still offers. Per check: passed, findings with the document path to fix (A5 findings are model-level), and the fix; plus `gateOpen`. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsVerdicts` | The Stage-B gate record (`gate.verdicts.yaml` beside the extracts): each area's verdict, resolution and note, the active areas still missing, and whether record and extracts agree. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specCodeSpecsQueryExtracts` | Entries of a written run (by this tool or the Dart CLI), filtered by area, token, path or text, each with its provenance and verbatim value. An extract in an unknown format is listed as unreadable, never misread. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsValidate` | The 41 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. tom_code_specs' vocabulary — the hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need — ships with the extension and is passed by default; `csVocabulary` overrides it. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsStatus` | Where a document is in Phase 4, in one call: every stage in order — `gate` (Stage A), `extraction` (are the extracts current?), `verdicts` (Stage B), `todoTree` (Stage C, in `questId`, default the active quest), `authoring` (the tree's todos done, and the next), `validation` (with `shared`) — each `done`, `notStarted`, `outdated`, `incomplete`, `failing`, `blocked` or `notChecked`, with a summary, its tool and details; and `next`. Built from each stage tool's own dry run. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsGuide` | The workflow guides packaged with the extension — `prompt` (codespecs_prompt.md) and `mapping` (codespecs_mapping.md) — as an overview, an outline, or one numbered section with its subsections; and the stage runbooks (`runbook`, with `file` / `questId` / `step` / `shared` filled in). The MCP server serves the same as resources and prompts. | ✅ | ✅ | ⚪ | ✅ | ✅ |
-| `tomAi_specCodeSpecsPlanTodos` | Stage C: propose (`dryRun`) or create the todo tree from the gate record (approval). `csopen<n>` (decision-needed) per insufficient area not descoped, carrying its gate note; `csproj1`, the trio scaffolding (decision-needed without `appName`); `csgen1`–`csgen31`, one per authoring step, each naming its areas and verdicts, extracts, output project and the step-context call. Refused without a verdict for every active area, or, with `file`, when Stage A fails. Idempotent per item. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
-| `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_specCodeSpecsAreas` | The catalogue: areas, slices, authoring steps; one area (projects, citable areas, steps) or one slice in detail. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsRouting` | Gate A3, readable: every class node's verdict, with the unrouted ones and their fix; filter by verdict or path. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsExtract` | One area's extract as Markdown with each entry's provenance, or a per-area summary. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsGate` | The Stage-A gate in one report (runtime `CodeSpecsGate`): A1 schema completeness, A2 valid values, A3 routing, A4 required marker sources, A5 carriers the model still offers. Per check: passed, findings with the document path to fix (A5 findings are model-level), and the fix; plus `gateOpen`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsVerdicts` | The Stage-B gate record (`gate.verdicts.yaml` beside the extracts): each area's verdict, resolution and note, the active areas still missing, and whether record and extracts agree. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsQueryExtracts` | Entries of a written run (by this tool or the Dart CLI), filtered by area, token, path or text, each with its provenance and verbatim value. An extract in an unknown format is listed as unreadable, never misread. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsValidate` | The 41 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. tom_code_specs' vocabulary — the hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need — ships with the extension and is passed by default; `csVocabulary` overrides it. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsStatus` | Where a document is in Phase 4, in one call: every stage in order — `gate` (Stage A), `extraction` (are the extracts current?), `verdicts` (Stage B), `todoTree` (Stage C, in `questId`, default the active quest), `authoring` (the tree's todos done, and the next), `validation` (with `shared`) — each `done`, `notStarted`, `outdated`, `incomplete`, `failing`, `blocked` or `notChecked`, with a summary, its tool and details; and `next`. Built from each stage tool's own dry run. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsGuide` | The workflow guides packaged with the extension — `prompt` (codespecs_prompt.md) and `mapping` (codespecs_mapping.md) — as an overview, an outline, or one numbered section with its subsections; and the stage runbooks (`runbook`, with `file` / `questId` / `step` / `shared` filled in). The MCP server serves the same as resources and prompts. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsPlanTodos` | Stage C: propose (`dryRun`) or create the todo tree from the gate record (approval). `csopen<n>` (decision-needed) per insufficient area not descoped, carrying its gate note; `csproj1`, the trio scaffolding (decision-needed without `appName`); `csgen1`–`csgen31`, one per authoring step, each naming its areas and verdicts, extracts, output project and the step-context call. Refused without a verdict for every active area, or, with `file`, when Stage A fails. Idempotent per item. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ |
 
 **Tracing.** The back-links come from the generated trio itself (`codeDirs`),
 read by the bundled `validate_codespecs --backlinks`, or from a JSON index that
@@ -764,12 +752,12 @@ prompt, Proceed asks the user to confirm it is done instead of queuing
 anything, and the *Current process* section tells the agent not to do its work
 and not to move past it.
 
-| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | Tom AI | AI Conv. |
-| --- | --- | :-: | :-: | :-: | :-: | :-: |
-| `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ |
 
 ## 5. Transport-specific recommendations
 
@@ -792,37 +780,15 @@ and not to move past it.
 - Keep `tomAi_askBigBrother` and `tomAi_askCopilot` on: delegating hard questions out of Ollama to a stronger model or to the Copilot Chat panel is the whole point.
 - LSP-heavy tools (`findSymbol`, `gotoDefinition`, `findReferences`, `getCodeActions`) work but consume a lot of tokens for small models — leave off by default.
 
-### 5.4 Tom AI Chat (VS Code LM)
+### 5.4 VS Code LM (`transport: 'vscodeLm'`)
 
-The user's single-conversation surface. Structurally similar to Anthropic API direct — same "hand the model messages + tools, get a response" loop — but via `vscode.lm.*` so the model selection flows from a VS Code LM configuration rather than an Anthropic API key. Enable roughly the same tool set as Anthropic API direct.
+Structurally similar to Anthropic API direct — same "hand the model messages + tools, get a response" loop — but via `vscode.lm.*` so the model selection flows from a VS Code LM configuration rather than an Anthropic API key. Enable roughly the same tool set as Anthropic API direct.
 
 - All user-interaction tools are on by default — a human is present, `askUser` / `askUserPicker` / `notifyUser` make sense.
 - LSP + editor-context + files + git + tasks + memory + chat vars — all ✅ by default.
-- Copilot Chat orchestration tools (§4.20) are ⚪ — useful if the user wants to stage prompts into Copilot Chat from inside Tom AI Chat, off otherwise.
-- `tomAi_askBigBrother` is ❌ — Tom AI Chat *is* the VS Code LM surface, so delegating out is circular.
+- Copilot Chat orchestration tools (§4.20) are ⚪ — useful if the user wants to stage prompts into Copilot Chat from a VS Code LM profile, off otherwise.
+- `tomAi_askBigBrother` is ❌ — the profile *is* on the VS Code LM surface, so delegating out is circular.
 - `tomAi_askCopilot` is ⚪ — the user can reasonably bounce a specific question to the Copilot Chat panel.
-
-### 5.5 AI Conversation (VS Code LM)
-
-Two agents converse via the VS Code LM API, orchestrated without a human in the loop. **This mode is experimental.** Until it is proven reliable, the default seed config restricts AI Conversation to a **read-only tool subset** plus the two `tomAi_{read,write}ConversationResult` tools that let the bots produce an outcome document.
-
-Default enabled tools (seed config `default-conversation-llm`):
-
-- **Read-only file / workspace**: `readFile`, `listDirectory`, `findFiles`, `findTextInFiles`, `getWorkspaceInfo`, `getActiveEditor`, `getOpenEditors`.
-- **Diagnostics**: `getErrors`, `getProblems`.
-- **Git read**: `git`, `gitShow`.
-- **Web research**: `fetchWebpage`, `webSearch`.
-- **Guidelines + pattern prompts**: `readGuideline`, `readLocalGuideline`, `listGuidelines`, `searchGuidelines`, `listPatternPrompts`, `readPatternPrompt`.
-- **Result document**: `readConversationResult`, `writeConversationResult` (the only mutation allowed).
-
-Explicitly off (even though they'd technically work):
-
-- **No human** — `askUser` / `askUserPicker` are ❌ (no one to ask). `notifyUser` is ⚪ (informational only).
-- `tomAi_askCopilot` is ❌ — the conversation has no way to read Copilot's answer back.
-- `tomAi_askBigBrother` is ❌ — same VS Code LM surface; delegation is circular.
-- `tomAi_spawnSubagent` is ❌ — use the VS Code LM primitives to spawn another conversation participant instead.
-- **All file writes, shell, VS Code command execution, git writes, queue orchestration** — deliberately excluded while the mode is experimental. Enable per-profile only when you have a specific reason.
-- `tomAi_enterPlanMode` / `tomAi_exitPlanMode` are ⚪ — less useful for a bounded two-party exchange, but harmless.
 
 ## 6. Stubs pending host integration
 
@@ -908,7 +874,7 @@ holds them can enqueue and dispatch its own prompts and switch the timer engine
 
 ## 9. Scripting-API access and gating
 
-The five chat surfaces in §1 are not the only way to reach the registry above. A
+The four transports in §1 are not the only way to reach the registry above. A
 Dart **script** running over the CLI bridge can invoke the same tools through
 `TomToolsApi` (in `tom_vscode_scripting_api`):
 

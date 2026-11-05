@@ -13,20 +13,15 @@
 > The Anthropic handler owns a shared loop over four leaf primitives —
 > Direct, Agent SDK, VS Code LM, Local LLM — each a one-round API call
 > (or the full SDK stream for Agent SDK). The queue sees only
-> `anthropic`. Tom AI Chat and Local LLM panels are untouched: no
-> queueing buttons, no queue targets, byte-identical behaviour. The
-> Local LLM leaf is an additive extraction from
-> `ollamaGenerateWithTools` via a new public `callLocalLlmOnce` entry
-> point on `LocalLlmManager`; `ollamaGenerateWithTools` itself is the
-> unchanged panel-public API and now delegates to the primitive
-> internally.
+> `anthropic`. @CHAT has exactly these two subpanels, Anthropic and
+> Copilot, both with queue buttons. The Local LLM leaf calls the
+> public `callLocalLlmOnce` entry point on `LocalLlmManager`, the
+> single-round HTTP primitive.
 >
 > **Implementation status — complete.** Landed in 31 commits on
 > `main` through commit `13cbca8` (2026-04-20). Six verification passes
 > confirmed all §8 acceptance items plus the per-stage §4.10 override
-> subrequirement. Previous §4.2.1 (Tom AI Chat dispatcher refactor) and
-> the entire Phase 2 panel-consolidation plan (§9) were removed as
-> obsolete during v2 and stay removed. The original four-transport
+> subrequirement. The original four-transport
 > spec at `multi_transport_prompt_queue.md` has been retired. Sections
 > below note implementation choices where they differ slightly from
 > the literal reading of the design (e.g. gear-icon QuickPick flow in
@@ -39,11 +34,9 @@ Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with
 - **Direct** — `@anthropic-ai/sdk` (existing).
 - **Agent SDK** — `@anthropic-ai/claude-agent-sdk` (existing).
 - **VS Code LM** — `vscode.lm.selectChatModels` + `model.sendRequest` (new configuration type).
-- **Local LLM (Ollama)** — `LocalLlmManager.instance.ollamaGenerateWithTools` (existing Local LLM configuration, referenced from the Anthropic profile's config picker).
+- **Local LLM (Ollama / OpenAI-compatible)** — `LocalLlmManager.callLocalLlmOnce` (a Local LLM configuration, referenced from the Anthropic profile's config picker).
 
 From the queue's perspective there are **two transports**: `copilot` and `anthropic`. The four-way fork happens inside `AnthropicHandler.sendMessage()` based on `configuration.transport` (plus the synthesised `transport: 'localLlm'` shim when the profile's `configurationId` resolves to a Local LLM config); the queue does not care which leaf path ran.
-
-**What stays out.** The Tom AI Chat panel and the Local LLM panel are **not** queue targets and do **not** gain queueing buttons. The AI Conversation panel is also excluded — it orchestrates bot-to-bot exchanges and runs its own multi-turn loop.
 
 **No parallel execution across transports** — a single ordered queue is sufficient.
 
@@ -58,7 +51,7 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 7. **Queue-dispatched anthropic items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value. The field's only legal values are `'always' | 'never'` — see [sendToChatConfig.ts:200](../src/utils/sendToChatConfig.ts#L200). The UI must surface this (see §4.10).
 8. **Shared prompt composition, APIs that don't separate system/user get concatenated.** The Anthropic panel's rules apply to every leaf path: profile system prompt + user-message template + user prompt = final composed prompt. When the leaf API (VS Code LM, Local LLM) doesn't take a separate `system` field, the handler concatenates `{systemPrompt}\n\n{userText}` before the call. Direct and Agent SDK keep using the structured fields they already take.
 9. **Two template stores, full stop.** Copilot keeps `config.copilot.templates`; all Anthropic profiles — no matter which configuration type — share `config.anthropic.userMessageTemplates`. No new "shared" store, no per-configuration-type templates.
-10. **Only the Anthropic and Copilot panels carry queue buttons.** Copilot already has them. **This phase adds the same two buttons to the Anthropic panel.** Tom AI Chat, Local LLM, and AI Conversation panels are untouched.
+10. **The Anthropic and Copilot panels carry queue buttons** — the same two buttons on each, the only two @CHAT subpanels.
 
 ## 3. Current state reference
 
@@ -91,15 +84,14 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 | Local LLM branch (synthesised shim) | [anthropic-handler.ts:1542](../src/handlers/anthropic-handler.ts#L1542) (calls `callLocalLlmOnce` at [:1627](../src/handlers/anthropic-handler.ts#L1627)) |
 | Trail writes (`writeSummaryPrompt` / `writeSummaryAnswer`) | [anthropic-handler.ts:1122-1124](../src/handlers/anthropic-handler.ts#L1122), [:1796-1798](../src/handlers/anthropic-handler.ts#L1796) |
 | `ANTHROPIC_SUBSYSTEM` literal | [services/trailSubsystems.ts:16](../src/services/trailSubsystems.ts#L16) (imported at [anthropic-handler.ts:21](../src/handlers/anthropic-handler.ts#L21)) |
-| `callLocalLlmOnce()` — new single-round HTTP primitive | [localLlm-handler.ts:843](../src/handlers/localLlm-handler.ts#L843) |
-| `ollamaGenerateWithTools()` — panel entry point (delegates to `callLocalLlmOnce`) | [localLlm-handler.ts:~960](../src/handlers/localLlm-handler.ts) |
+| `callLocalLlmOnce()` — single-round HTTP primitive | [localLlm-handler.ts](../src/handlers/localLlm-handler.ts) |
 | `resolveAnthropicTargets()` — shared profile + config resolver | [utils/resolveAnthropicTargets.ts:49](../src/utils/resolveAnthropicTargets.ts#L49) |
 | Local LLM configurations (`sendToChatConfig`) | [sendToChatConfig.ts:59-76](../src/utils/sendToChatConfig.ts#L59-L76) |
 | Anthropic configurations (`transport` enum + `vscodeLm` block) | [sendToChatConfig.ts:138-175](../src/utils/sendToChatConfig.ts#L138-L175) |
 | Anthropic profiles (`toolApprovalMode`) | [sendToChatConfig.ts:176-203](../src/utils/sendToChatConfig.ts#L176-L203) |
 | Anthropic user-message templates | [sendToChatConfig.ts:204-212](../src/utils/sendToChatConfig.ts#L204-L212) |
 | `getPromptEditorComponent` factory (per-section panel toolbar) | [chatPanel-handler.ts:2995](../src/handlers/chatPanel-handler.ts#L2995) |
-| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): localLlm [:3024](../src/handlers/chatPanel-handler.ts#L3024), conversation (AI Conv) [:3044](../src/handlers/chatPanel-handler.ts#L3044), copilot [:3067](../src/handlers/chatPanel-handler.ts#L3067), tomAiChat [:3116](../src/handlers/chatPanel-handler.ts#L3116), anthropic [:3135](../src/handlers/chatPanel-handler.ts#L3135) |
+| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): the `anthropic` and `copilot` sections |
 | Copilot queue buttons | [chatPanel-handler.ts:3086-3087](../src/handlers/chatPanel-handler.ts#L3086) |
 | Anthropic queue buttons **(implemented)** | [chatPanel-handler.ts:3166-3167](../src/handlers/chatPanel-handler.ts#L3166) |
 | `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:503, 516](../src/handlers/chatPanel-handler.ts#L503) |
@@ -182,7 +174,7 @@ runAgentSdkQuery(...): AgentSdkResult   // unchanged
 // VS Code LM — NEW.
 callVsCodeLmOnce(messages, tools, config): Promise<ResponseBlocks>
 
-// Local LLM — extracted from ollamaGenerateWithTools (see below).
+// Local LLM — LocalLlmManager's single-round primitive (see below).
 callLocalLlmOnce(messages, tools, config): Promise<ResponseBlocks>
 ```
 
@@ -209,33 +201,15 @@ const request = await model.sendRequest(chatMessages, { tools: toLMTools(tools) 
 // Collect text + tool-call fragments from request.stream, return as Anthropic-shaped blocks.
 ```
 
-**Local LLM branch.** When `configuration` resolves to a Local LLM config, `callLocalLlmOnce` is a *new extracted primitive* from the existing `ollamaGenerateWithTools` implementation — see §4.4a.
+**Local LLM branch.** When `configuration` resolves to a Local LLM config, `callLocalLlmOnce` is the HTTP primitive of `LocalLlmManager` — see §4.4a.
 
 All three self-looped leaves (Direct / VS Code LM / Local LLM) share the same tool-approval bridge, live-trail writer, and built-in-tool-persistence hooks already wired for the Direct branch. `AnthropicSendResult`'s shape is unchanged for callers (queue and chat panel).
 
-### 4.4a Local LLM extraction — additive, panel behaviour unchanged
+### 4.4a Local LLM primitive — `callLocalLlmOnce`
 
-Today `LocalLlmManager.instance.ollamaGenerateWithTools` (panel entry point, ~line 960) bakes everything into one call: prompt composition, tool loop, approval, logging, the Ollama HTTP call. The Anthropic handler's Local LLM leaf needs only the **HTTP call** part. The extracted primitive `callLocalLlmOnce` lives at [localLlm-handler.ts:843](../src/handlers/localLlm-handler.ts#L843).
+`LocalLlmManager` ([localLlm-handler.ts](../src/handlers/localLlm-handler.ts)) offers one primitive, `callLocalLlmOnce(messages, tools, config)`: one HTTP call to the configuration's endpoint (Ollama `/api/chat` or OpenAI-compatible `/v1/chat/completions`, by `apiStyle`), returning one response. It has no tool loop, approval or template handling.
 
-**Refactor:**
-
-```text
-ollamaGenerateWithTools(opts, userPrompt)            ← existing public entry point
-  ├─ composes prompt / handles templates / …
-  ├─ runs its own tool loop
-  └─ calls NEW: callLocalLlmOnce(messages, tools)    ← extracted primitive
-                  └─ HTTP POST to Ollama, returns one response
-```
-
-`ollamaGenerateWithTools`'s public surface, return type, and behaviour are **unchanged**. The **Local LLM panel** continues to call it exactly as today — same template handling, same tool approval, same trail writes to the Local LLM subsystem. The extraction is purely internal: we expose `callLocalLlmOnce(messages, tools, config)` as an additional entry point on the Local LLM manager and make the existing `ollamaGenerateWithTools` delegate to it internally for the actual HTTP call.
-
-The Anthropic handler's Local LLM leaf then calls `callLocalLlmOnce` directly and participates in the Anthropic handler's shared loop — inheriting Anthropic's approval gate, trail directory (`_ai/trail/anthropic/*`), live trail, and user-message templates.
-
-**Net effect:**
-
-- Local LLM panel flow: byte-identical. Still hits `ollamaGenerateWithTools`, still logs to `_ai/trail/local/*`, still uses Local LLM's own template store, still owns its approval flow.
-- Local-LLM-backed Anthropic profile flow: runs through the Anthropic handler's loop, writes to `_ai/trail/anthropic/*`, uses Anthropic user-message templates, uses Anthropic's approval gate (coerced to `'never'` by the queue dispatcher).
-- Shared piece between the two flows: the `callLocalLlmOnce` HTTP primitive and the Local LLM *configurations* (how they're stored and loaded).
+The Anthropic handler's Local LLM leaf calls `callLocalLlmOnce` directly and participates in the Anthropic handler's shared loop — inheriting Anthropic's approval gate (coerced to `'never'` by the queue dispatcher), the session's trails, live trail, and user-message templates. History compaction on a Local LLM configuration (`compactionModel: "localLlm:<id>"`) calls the same primitive. The Local LLM *configurations* (how they're stored and loaded) are shared by both.
 
 ### 4.5 Transport dispatcher
 
@@ -381,7 +355,7 @@ The Copilot section already carries the queue buttons at [chatPanel-handler.ts:3
 <button data-action="openQueueEditor"  data-id="copilot" …>
 ```
 
-**Change:** the same two buttons have been added to the **Anthropic** section at [:3166-3167](../src/handlers/chatPanel-handler.ts#L3166), with `data-id="anthropic"`. That is the entire per-panel scope of this phase. Tom AI Chat ([:3116](../src/handlers/chatPanel-handler.ts#L3116)), Local LLM ([:3024](../src/handlers/chatPanel-handler.ts#L3024)), and AI Conversation ([:3044](../src/handlers/chatPanel-handler.ts#L3044)) sections are unchanged.
+**Change:** the same two buttons are in the **Anthropic** section, with `data-id="anthropic"`.
 
 In the `addToQueue` handler (`addCopilotToQueue()` at [:4086](../src/handlers/chatPanel-handler.ts#L4086), `addAnthropicToQueue()` at [:4101](../src/handlers/chatPanel-handler.ts#L4101), wired from the webview dispatcher at [:3486-3488](../src/handlers/chatPanel-handler.ts#L3486)), dispatch by `data-id`. The staged queue item carries the target metadata read from that panel's own dropdowns:
 
@@ -890,7 +864,7 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
 - **Pre-prompts with anthropic transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.
 - **Pre-prompt context carries automatically** (anthropic transport). The Anthropic handler already preserves turn history across calls: Direct / VS Code LM / Local LLM leaves use `rawTurns` + `compactedSummary` (appended on every non-isolated `sendMessage`), and the Agent SDK leaf uses its own session continuity via `default.session.json`. A pre-prompt's answer is therefore visible to the main prompt without any queue-level chaining or placeholder machinery — the user just writes pre-prompt and main prompt naturally, and the handler stitches them into one conversation. This is symmetric with how Copilot pre-prompts behave (Copilot carries session state via `workbench.action.chat.open`). No action needed at the queue layer.
 - **Template reference invalidated when transport changes.** Template names are meaningful only within one transport's store. Switching a queue item's transport in the editor clears its template selection and repopulates from the new transport's store. Do **not** auto-copy templates across stores — the two shapes overlap but aren't identical, and silent conversion is too magical.
-- **`toolApprovalMode` coercion covers every Anthropic leaf path.** Direct, Agent SDK, VS Code LM, Local LLM — all honour `'never'` when called from the queue. The coercion happens *before* `AnthropicHandler.sendMessage` dispatches into a leaf primitive, so the shared loop receives the already-coerced value. Each leaf primitive participates in the Anthropic handler's own approval gate rather than its own — which is why the Local LLM extraction (§4.4a) is necessary: `callLocalLlmOnce` is the pure HTTP call with no approval inside it.
+- **`toolApprovalMode` coercion covers every Anthropic leaf path.** Direct, Agent SDK, VS Code LM, Local LLM — all honour `'never'` when called from the queue. The coercion happens *before* `AnthropicHandler.sendMessage` dispatches into a leaf primitive, so the shared loop receives the already-coerced value. Each leaf primitive participates in the Anthropic handler's own approval gate rather than its own — which is why the Local LLM leaf uses `callLocalLlmOnce` (§4.4a): the pure HTTP call with no approval inside it.
 - **Concurrency**: the queue is strictly sequential (one `sending` item at a time). Anthropic transport doesn't change this.
 - **Failure modes** (full pause/resume + error semantics in §4.18):
   - Anthropic API error (any leaf) → item status `'error'`, error message surfaced, **auto-send flipped off** (anti-cascade), item held at the front for "Resend" / "Set to Pending" (§4.18).
@@ -902,7 +876,7 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
 
 1. **Data model** — add the four optional fields (§4.1). One commit; no behaviour change yet.
 2. **New `vscodeLm` configuration type** (§4.2) — schema + JSON-schema + `SendToChatConfig` + Extension State Page editor with a configure-time model picker. No dispatch wiring yet.
-3. **Local LLM extraction** (§4.4a) — extract `callLocalLlmOnce(messages, tools, config)` from `ollamaGenerateWithTools`. Existing `ollamaGenerateWithTools` delegates to it internally; **panel behaviour must be byte-identical** before and after this commit. Verify by exercising the Local LLM panel end-to-end.
+3. **Local LLM primitive** (§4.4a) — `callLocalLlmOnce(messages, tools, config)` on `LocalLlmManager`.
 4. **AnthropicHandler shared loop + leaf primitives** (§4.4) — generalise the Direct branch's agent loop to call a leaf primitive; plug in `callVsCodeLmOnce` and `callLocalLlmOnce`. Leaf primitives must feed the same live-trail / tool-approval / built-in-tool-persistence hooks the Direct branch already uses.
 5. **Anthropic profile config picker widens** (§4.3) — lists Anthropic + Local LLM configs with type labels. Resolver falls back across both stores.
 6. **Transport dispatcher + `sendItem()` branch** (§4.5, §4.6) — two-way. Default `'copilot'` preserves byte-identical behaviour.
@@ -916,12 +890,11 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
 14. **Extend the four prompt-template tools with `transport`** (§4.16) — default `'copilot'` for backward compat.
 15. **Documentation** — update `llm_tools.md`, `copilot_chat_integration.md` if it exists, and this doc's "current state" once implemented.
 
-Rough effort: **4–5 days** end-to-end. The two largest chunks are the Local LLM extraction + AnthropicHandler shared loop (steps 3–4) and the queue editor UI (step 10).
+Rough effort: **4–5 days** end-to-end. The two largest chunks are the Local LLM primitive + AnthropicHandler shared loop (steps 3–4) and the queue editor UI (step 10).
 
 ## 7. Out of scope
 
-- **Queueing for Tom AI Chat, Local LLM, and AI Conversation panels.** These panels stay exactly as they are. If a future phase wants to integrate them, it should go through the Anthropic profile layer (e.g. surface the panel's configuration as an Anthropic config reference) rather than introducing parallel transport paths.
-- **Panel consolidation.** The new two-transport model already achieves consolidation at the profile layer — no merged "LLM" panel, no twin pickers on AI Conversation. Previous §9 (Phase 2) is removed.
+- **Further chat surfaces.** Any further model backend goes through the Anthropic profile layer (as a configuration an Anthropic profile references) rather than a parallel transport path; the two-transport model achieves consolidation at the profile layer.
 - **Parallel execution across transports** (a single ordered queue is sufficient).
 - **Cross-transport shared `ChatTransport` interface** — a two-way dispatcher plus an internal Anthropic fork is simpler and has no other reuse target.
 - **Streaming chunks to the queue** — each leaf primitive returns the full text of one round once done. If needed later, add `onChunk` callbacks inside the shared loop without touching the queue.
@@ -931,19 +904,17 @@ Rough effort: **4–5 days** end-to-end. The two largest chunks are the Local LL
 
 All items below are satisfied by the shipped implementation (six verification passes + typecheck clean).
 
-- [x] `QueuedPrompt.transport` accepts only `'copilot' | 'anthropic'`; no `tomAiChat` or `localLlm` values in the queue schema.
+- [x] `QueuedPrompt.transport` accepts only `'copilot' | 'anthropic'`; no other values in the queue schema (`localLlm` is an Anthropic configuration transport, not a queue transport).
 - [x] Anthropic queue item with a `direct` config hits the existing Direct path.
 - [x] Anthropic queue item with an `agentSdk` config hits the existing Agent SDK path.
 - [x] Anthropic queue item with a `vscodeLm` config routes through `sendViaVsCodeLm` (full tool-use loop) and concatenates `{systemPrompt}\n\n{userText}`.
 - [x] Anthropic queue item whose `anthropicConfigId` points at a Local LLM config runs through `callLocalLlmOnce` under the Anthropic handler's shared loop (same concatenation rule, same approval gate, same live trail).
-- [x] Local LLM panel behaviour is **byte-identical** before and after the `callLocalLlmOnce` extraction — still hits `ollamaGenerateWithTools`, still logs to `_ai/trail/local/*`, still owns its own template / approval / tool loop.
 - [x] All four Anthropic leaf paths write to `_ai/trail/anthropic/*` (single subsystem).
 - [x] All four Anthropic leaf paths honour the Anthropic panel's live trail, tool approval (coerced to `'never'` for queue runs), and user-message template rules.
 - [x] Anthropic handler carries pre-prompt context into the main prompt automatically via `rawTurns` / Agent SDK session — no queue-level chaining code needed.
 - [x] VS Code LM model is resolved at configure-time (stored as `{vendor, family, modelId}` on the configuration); sends do NOT enumerate available models.
 - [x] Anthropic panel has "Add to Queue" + "Open Queue Editor" buttons matching the Copilot section.
 - [x] Anthropic panel surfaces an informational VS Code LM model dropdown + Refresh button when the active configuration is of type `vscodeLm`, and hides it otherwise. The dropdown does NOT retarget sends.
-- [x] Tom AI Chat, Local LLM, and AI Conversation panels are byte-identical to before this change (no new buttons, no new pickers).
 - [x] Queue-dispatched anthropic items run with `toolApprovalMode = 'never'`.
 - [x] Queue editor's default-transport dropdown has two entries: Copilot and Anthropic.
 - [x] Queue editor's Anthropic config dropdown lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.

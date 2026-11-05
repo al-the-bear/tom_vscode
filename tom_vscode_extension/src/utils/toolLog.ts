@@ -1,11 +1,10 @@
 /**
  * Tom Tool Log — shared "Tom Tool Log" output channel.
  *
- * Historically the "Tom Tool Log" channel was created privately inside
- * `tomAiChat-handler.ts`. Several other subsystems also need to write to
- * it (notably config-path resolution diagnostics), and calling
- * `vscode.window.createOutputChannel('Tom Tool Log')` a second time would
- * produce a confusing *duplicate* channel in the Output dropdown.
+ * Several subsystems write to it (tool calls, config-path resolution
+ * diagnostics), and calling `vscode.window.createOutputChannel('Tom Tool
+ * Log')` a second time would produce a duplicate channel in the Output
+ * dropdown.
  *
  * This module owns the single channel instance behind a lazy accessor so
  * every caller shares one channel.

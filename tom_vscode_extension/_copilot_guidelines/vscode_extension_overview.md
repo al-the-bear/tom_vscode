@@ -10,7 +10,7 @@ Activated on VS Code startup. Contributes:
 - Bottom-panel webviews: `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`).
 - `@TOM` sidebar (the quest: process, quest notes, quest and session todos) and `@TOM WS` sidebar (the workspace: VS Code and workspace notes, workspace todos, todo log, window status).
 - Custom editors: `questTodo.editor`, trail viewer, Markdown Browser, and several specialised editors (trail, templates, context, queue, timed requests, raw/summary trails, etc.).
-- AI toolchain: five chat subsystems (Anthropic direct SDK, Agent SDK, Copilot, Local LLM, AI Conversation) plus a shared MCP/tool registry.
+- AI toolchain: chat subsystems Anthropic (direct SDK, Agent SDK, VS Code LM, Local LLM configurations) and Copilot, plus a shared MCP/tool registry.
 - Bridge/CLI/process-monitor integrations (optional; fail-soft).
 
 ## 2. Source layout
@@ -19,12 +19,10 @@ Activated on VS Code startup. Contributes:
 src/
   extension.ts                  activation, command registration
   handlers/                     UI entry points + webview providers
-    chatPanel-handler.ts          @CHAT webview with 5 subpanels
+    chatPanel-handler.ts          @CHAT webview with 2 subpanels
     anthropic-handler.ts          direct-SDK Anthropic loop, profiles, live trail
     agent-sdk-transport.ts        @anthropic-ai/claude-agent-sdk bridge
-    tomAiChat-handler.ts          Tom AI Chat subpanel routing
-    aiConversation-handler.ts     AI Conversation subpanel
-    localLlm-handler.ts           Local LLM (Ollama-compatible)
+    localLlm-handler.ts           LocalLlmManager: Local LLM client (Ollama / OpenAI-compatible)
     markdownBrowser-handler.ts    MD Browser custom editor
     statusPage-handler.ts         @Tom configuration / health page
     questTodoPanel-handler.ts     quest todo custom editor + panel
@@ -54,19 +52,16 @@ Layer rule: handlers talk to services/managers; services own persistence; tools 
 
 ### `@CHAT` (`tomAi.chatPanel`)
 
-One webview, accordion layout, five chat subpanels. See [tom_ai_chat.md](tom_ai_chat.md) for routing details.
+One webview, accordion layout, two chat subpanels. See [anthropic_chat.md](anthropic_chat.md) for routing details.
 
 | Subpanel | Transport | Config key | Backing handler |
 | --- | --- | --- | --- |
-| Anthropic | Direct Anthropic SDK **or** Agent SDK (per-profile) | `anthropic` | `anthropic-handler.ts` (+ `agent-sdk-transport.ts`) |
-| Tom AI Chat | Anthropic handler | `tomAiChat` | `tomAiChat-handler.ts` |
-| AI Conversation | Anthropic SDK or `vscode.lm` | `conversation` | `aiConversation-handler.ts` |
+| Anthropic | Direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration (per profile) | `anthropic` (+ `localLlm.configurations`) | `anthropic-handler.ts` (+ `agent-sdk-transport.ts`, `localLlm-handler.ts`) |
 | Copilot | VS Code Copilot Chat (via answer file) | `copilot` | `chatPanel-handler.ts` + copilot helpers |
-| Local LLM | Ollama-compatible HTTP | `localLlm` | `localLlm-handler.ts` |
 
 Shared features: document picker, prompt-queue side panel, live trail button (Anthropic subpanel), session-history button, memory/config buttons, shortcut chords (see [keybindings_and_commands.md](keybindings_and_commands.md)). Accordion/pin/rotate behavior lives in [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).
 
-Note: AI Conversation is **not queue-compatible** (each turn is a fresh chat); the other four subpanels are.
+Both subpanels are queue-compatible.
 
 ### `@WS` (`tomAi.wsPanel`)
 
@@ -156,7 +151,8 @@ Bridge commands cover restart / profile switching / debug logging. CLI server an
 
 - [architecture.md](architecture.md) — layering + dependency rules.
 - [implementation.md](implementation.md) — per-subsystem implementation notes.
-- [tom_ai_chat.md](tom_ai_chat.md) — Tom AI Chat subpanel + Anthropic routing.
+- [anthropic_chat.md](anthropic_chat.md) — Anthropic subpanel + profile routing.
+- [local_llm.md](local_llm.md) — Local LLM client and the `localLlm` transport.
 - [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md) — @CHAT webview mechanics.
 - [tom_status_page.md](tom_status_page.md) — @Tom configuration panel.
 - [extension_bridge.md](extension_bridge.md) — bridge subsystem.

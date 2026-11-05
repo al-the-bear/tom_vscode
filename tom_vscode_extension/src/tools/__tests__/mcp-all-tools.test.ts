@@ -182,8 +182,6 @@ import { buildToolMcpServer, resolveEffectiveMcpTools, type McpToolTrailSink } f
 import { registerIssueProvider, type IssueComment, type IssueItem, type IssueProvider } from '../../handlers/issueProvider.js';
 import { ToolTrail, setActiveToolTrail } from '../../services/tool-trail.js';
 import { registerSubagentSpawner } from '../planning-tools.js';
-import { setActiveTodoManager } from '../tool-executors.js';
-import { ChatTodoSessionManager } from '../../managers/chatTodoSessionManager.js';
 import { ALL_SHARED_TOOLS } from '../tool-executors.js';
 import type { ResolvedMcpServerSettings } from '../../utils/sendToChatConfig.js';
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
@@ -306,7 +304,6 @@ function inputs(): Record<string, Input> {
         tomAi_fetchWebpage: { url: 'https://example.invalid/' },
         tomAi_webSearch: { query: 'sandbox' },
         tomAi_spawnSubagent: { prompt: 'Summarise the sandbox.', maxRounds: 1 },
-        tomAi_manageTodo: { operation: 'add', title: 'A chat todo from the MCP test' },
         tomAi_listIssues: { repoId: ISSUE_REPO },
         tomAi_getIssue: { repoId: ISSUE_REPO, issueNumber: 1 },
         tomAi_listIssueComments: { repoId: ISSUE_REPO, issueNumber: 1 },
@@ -344,7 +341,6 @@ function inputs(): Record<string, Input> {
         tomAi_updateMemory: { file: 'facts.md', heading: 'Test', content: 'updated' },
         tomAi_forgetMemory: { file: 'facts.md', heading: 'Test' },
         tomAi_writeChatVariable: { variables: { mcpTest: 'yes' } },
-        tomAi_writeConversationResult: { content: 'result', conversationId: 'mcp-test' },
         tomAi_setTimerEngineState: { activated: false },
         tomAi_readChatVariable: { key: 'mcpTest' },
         tomAi_setProcessState: { process: 'flow' },
@@ -553,7 +549,6 @@ function startWorkbench(): void {
     registerIssueProvider(new SandboxIssueProvider());
     setActiveToolTrail(toolTrail);
     registerSubagentSpawner(async (o) => { spawned.push(o.prompt); return { summary: `Summary of: ${o.prompt}`, rounds: 1, toolCalls: 0, stopReason: 'end_turn' }; });
-    setActiveTodoManager(new ChatTodoSessionManager('mcp-test', path.join(SANDBOX, 'chat-todos')));
     // The window's output channels as VS Code writes them: exthost/output_logging_<start>/<n>-<channel>.log.
     const outputRun = path.join(SANDBOX, 'exthost', 'output_logging_20261021T000000');
     fs.mkdirSync(outputRun, { recursive: true });
@@ -754,10 +749,8 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(answerOf('tomAi_searchPastToolResults'), /"hitCount": ?[1-9]/);
         // The window's output channels, read from the files VS Code writes.
         assert.match(answerOf('tomAi_readOutputChannel'), /"text": ?"2: sent a prompt in the sandbox"/);
-        // Sub-agent and chat todos.
+        // Sub-agent.
         assert.deepEqual(spawned, ['Summarise the sandbox.']);
-        assert.match(answerOf('tomAi_manageTodo'), /A chat todo from the MCP test/);
-        assert.match(fs.readFileSync(path.join(SANDBOX, 'chat-todos', 'mcp-test.todo.yaml'), 'utf8'), /A chat todo from the MCP test/);
         // Tasks and debug: started, waited for, ended.
         assert.match(answerOf('tomAi_runTask'), /"exitCode": ?0/);
         assert.match(answerOf('tomAi_runDebugConfig'), /"sessionName": ?"Launch sandbox"/);

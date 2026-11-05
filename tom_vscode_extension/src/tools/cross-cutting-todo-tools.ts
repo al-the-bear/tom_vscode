@@ -1,27 +1,20 @@
 /**
- * Cross-cutting todo views — `tomAi_getCombinedTodos`,
- * `tomAi_listWorkspaceQuestTodos`, `tomAi_manageTodo`.
+ * Cross-cutting todo views — `tomAi_getCombinedTodos` and
+ * `tomAi_listWorkspaceQuestTodos`.
  *
- * Carved out for coverage entry #17. These three tools cross the
- * boundaries between the three different todo stores
- * (`SessionTodoStore`, `questTodoManager`, `ChatTodoSessionManager`):
+ * Carved out for coverage entry #17. These tools cross the boundaries
+ * between the todo stores (`SessionTodoStore`, `questTodoManager`):
  *
  *   - **`getCombinedTodos`**: one quest's YAML todos + the current
  *     window's session todos in a single response.
  *   - **`listWorkspaceQuestTodos`**: every `*.todo.yaml` across the
  *     workspace, regardless of quest.
- *   - **`manageTodo`**: the legacy unified API. Operates on a
- *     **third** store (`ChatTodoSessionManager`) that only exists
- *     inside Tom AI Chat panel sessions. New code should use the
- *     session-todo or quest-todo families — this one is kept for
- *     back-compat with prompts that depend on it.
  *
  * Changes vs the previous impl:
  *
- *   - **vscode-free at runtime.** Three narrow dep interfaces
- *     (`CombinedTodosSource`, `WorkspaceTodosSource`,
- *     `ChatTodoSession`); production wires the real stores in the
- *     bridge.
+ *   - **vscode-free at runtime.** Narrow dep interfaces
+ *     (`CombinedTodosSource`, `WorkspaceTodosSource`); production
+ *     wires the real stores in the bridge.
  *
  *   - **Deterministic sort order.** Both list-style tools now sort
  *     by `(quest, sourceFile, id)` so output is stable across runs.
@@ -42,17 +35,11 @@
  *     re-fetch every todo to see what it was. Now both quest +
  *     session items include their description.
  *
- *   - **`manageTodo` description marked LEGACY** with a clear
- *     pointer at the session-todo + quest-todo families. The
- *     "No active todo manager" error now explains *why* and
- *     suggests the alternative tools, not just states the failure.
- *
  *   - **`listWorkspaceQuestTodos` status filter** now has a proper
  *     enum + correct values (`completed` not `done`).
  *
- *   - **JSON envelopes** on all three. `manageTodo` previously
- *     returned emoji-decorated markdown text; now `{ok, message,
- *     todos, ...}` so the model can react programmatically.
+ *   - **JSON envelopes** on both, so the model can react
+ *     programmatically.
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -100,33 +87,6 @@ export interface CombinedTodosSource {
 export interface WorkspaceTodosSource {
     /** Every `*.todo.yaml` todo across every quest in the workspace, with `questId` populated. */
     listAll(): WorkspaceQuestTodo[];
-}
-
-export type LegacyTodoStatus = 'not-started' | 'in-progress' | 'completed';
-
-export interface LegacyChatTodoItem {
-    id: number;
-    title: string;
-    description?: string;
-    status: LegacyTodoStatus;
-}
-
-export interface LegacyTodoResult {
-    message: string;
-    todos?: LegacyChatTodoItem[];
-}
-
-export interface ChatTodoSession {
-    list(filter?: LegacyTodoStatus): Promise<LegacyTodoResult>;
-    add(title: string, description: string): Promise<LegacyTodoResult>;
-    update(id: number, updates: { title?: string; description?: string; status?: LegacyTodoStatus }): Promise<LegacyTodoResult>;
-    remove(id: number): Promise<LegacyTodoResult>;
-    clear(): Promise<LegacyTodoResult>;
-}
-
-export interface ChatTodoSessionResolver {
-    /** Returns the active session, or null when not inside a Tom AI Chat panel. */
-    current(): ChatTodoSession | null;
 }
 
 // ===========================================================================
@@ -306,109 +266,6 @@ export const LIST_WORKSPACE_QUEST_TODOS_TOOL: SharedToolDefinition<ListWorkspace
 };
 
 // ===========================================================================
-// tomAi_manageTodo — LEGACY chat-session todo manager
-// ===========================================================================
-
-export interface ManageTodoInput {
-    operation: 'list' | 'add' | 'update' | 'remove' | 'clear';
-    id?: number;
-    title?: string;
-    description?: string;
-    status?: LegacyTodoStatus;
-    filterStatus?: LegacyTodoStatus;
-}
-
-export async function manageTodoImpl(deps: ChatTodoSessionResolver, input: ManageTodoInput): Promise<string> {
-    try {
-        const session = deps.current();
-        if (!session) {
-            return JSON.stringify({
-                ok: false,
-                error: 'No active Tom AI Chat session. `tomAi_manageTodo` is the legacy chat-session todo manager; it only works when called from inside a Tom AI Chat panel. For window-session todos use `tomAi_addSessionTodo`/etc.; for persistent quest todos use `tomAi_createQuestTodo`/etc.',
-            });
-        }
-        let result: LegacyTodoResult;
-        switch (input.operation) {
-            case 'list':
-                result = await session.list(input.filterStatus);
-                break;
-            case 'add':
-                if (!input.title) {
-                    return JSON.stringify({ ok: false, error: '`title` is required for `operation: "add"`.' });
-                }
-                result = await session.add(input.title, input.description || '');
-                break;
-            case 'update':
-                if (input.id === undefined) {
-                    return JSON.stringify({ ok: false, error: '`id` is required for `operation: "update"`.' });
-                }
-                result = await session.update(input.id, {
-                    title: input.title,
-                    description: input.description,
-                    status: input.status,
-                });
-                break;
-            case 'remove':
-                if (input.id === undefined) {
-                    return JSON.stringify({ ok: false, error: '`id` is required for `operation: "remove"`.' });
-                }
-                result = await session.remove(input.id);
-                break;
-            case 'clear':
-                result = await session.clear();
-                break;
-            default:
-                return JSON.stringify({
-                    ok: false,
-                    error: `Unknown operation: ${input.operation}. Use one of: list, add, update, remove, clear.`,
-                });
-        }
-        return JSON.stringify({
-            ok: true,
-            operation: input.operation,
-            message: result.message,
-            todos: result.todos ?? [],
-        }, null, 2);
-    } catch (err) {
-        return JSON.stringify({ ok: false, error: (err as Error).message });
-    }
-}
-
-export const MANAGE_TODO_DESCRIPTION =
-    '**LEGACY**: chat-session-scoped todo manager — only works inside Tom AI ' +
-    'Chat panel sessions (errors clearly if called from anywhere else). ' +
-    '**Prefer the newer tool families for new code**: `tomAi_addSessionTodo` ' +
-    'family for per-window-session todos with string ids and rich metadata; ' +
-    '`tomAi_createQuestTodo` family for persistent per-quest YAML todos with ' +
-    'full schema. **This tool uses numeric ids, a 3-value status enum** ' +
-    '(`not-started` / `in-progress` / `completed` — no `blocked` / ' +
-    '`cancelled`), and a separate in-memory store from both others. ' +
-    'Operations: `list` (with optional `filterStatus`), `add` (requires ' +
-    '`title`), `update` (requires `id`), `remove` (requires `id`), `clear`. ' +
-    'Response is JSON `{ok, operation, message, todos[]}`.';
-
-export const MANAGE_TODO_TOOL: SharedToolDefinition<ManageTodoInput> = {
-    name: 'tomAi_manageTodo',
-    displayName: 'Manage Todo List (Legacy)',
-    description: MANAGE_TODO_DESCRIPTION,
-    tags: ['todo', 'task-management', 'tom-ai-chat'],
-    readOnly: false,
-    inputSchema: {
-        type: 'object',
-        required: ['operation'],
-        properties: {
-            operation: { type: 'string', enum: ['list', 'add', 'update', 'remove', 'clear'] },
-            id: { type: 'number', description: 'Numeric id. Required for `update` and `remove`.' },
-            title: { type: 'string', description: 'Required for `add`, optional for `update`.' },
-            description: { type: 'string' },
-            status: { type: 'string', enum: ['not-started', 'in-progress', 'completed'] },
-            filterStatus: { type: 'string', enum: ['not-started', 'in-progress', 'completed'], description: 'Used with `operation: "list"`.' },
-        },
-    },
-    execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
-};
-
-// ===========================================================================
 // Master list
 // ===========================================================================
 
@@ -416,5 +273,4 @@ export const MANAGE_TODO_TOOL: SharedToolDefinition<ManageTodoInput> = {
 export const CROSS_CUTTING_TODO_TOOLS: SharedToolDefinition<any>[] = [
     GET_COMBINED_TODOS_TOOL,
     LIST_WORKSPACE_QUEST_TODOS_TOOL,
-    MANAGE_TODO_TOOL,
 ];

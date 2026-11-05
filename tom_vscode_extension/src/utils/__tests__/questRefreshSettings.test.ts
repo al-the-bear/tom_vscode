@@ -24,7 +24,7 @@ import type { SendToChatConfig, QuestRefreshPanel } from '../sendToChatConfig.js
 const cfgWith = (questRefresh: unknown): SendToChatConfig =>
     ({ questRefresh } as unknown as SendToChatConfig);
 
-const PANELS: QuestRefreshPanel[] = ['anthropic', 'localLlm', 'copilot'];
+const PANELS: QuestRefreshPanel[] = ['anthropic', 'copilot'];
 
 describe('getQuestRefreshSettings — defaults', () => {
     const expectedDefaults = { promptInterval: 0, refreshPrompt: '' };
@@ -45,7 +45,7 @@ describe('getQuestRefreshSettings — defaults', () => {
 
     test('missing panel within the block → defaults', () => {
         assert.deepEqual(
-            getQuestRefreshSettings(cfgWith({ anthropic: { promptInterval: 5, refreshPrompt: 'x' } }), 'localLlm'),
+            getQuestRefreshSettings(cfgWith({ anthropic: { promptInterval: 5, refreshPrompt: 'x' } }), 'copilot'),
             expectedDefaults,
         );
     });
@@ -55,15 +55,15 @@ describe('getQuestRefreshSettings — overrides honoured', () => {
     test('interval + prompt are read from config when present', () => {
         const cfg = cfgWith({
             anthropic: { promptInterval: 10, refreshPrompt: 'refresh me' },
-            localLlm: { promptInterval: 3, refreshPrompt: 'llm refresh' },
+            copilot: { promptInterval: 3, refreshPrompt: 'copilot refresh' },
         });
         assert.deepEqual(getQuestRefreshSettings(cfg, 'anthropic'), {
             promptInterval: 10,
             refreshPrompt: 'refresh me',
         });
-        assert.deepEqual(getQuestRefreshSettings(cfg, 'localLlm'), {
+        assert.deepEqual(getQuestRefreshSettings(cfg, 'copilot'), {
             promptInterval: 3,
-            refreshPrompt: 'llm refresh',
+            refreshPrompt: 'copilot refresh',
         });
     });
 });

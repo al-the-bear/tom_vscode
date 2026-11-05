@@ -22,7 +22,7 @@ import { chatProviders, ChatDraftState, ChatSection } from '../handlers/chat/cha
  * handler) so draft persistence stays the one place that iterates
  * across every section when adding or removing one.
  */
-export const CHAT_SECTIONS: ChatSection[] = ['localLlm', 'conversation', 'copilot', 'tomAiChat', 'anthropic'];
+export const CHAT_SECTIONS: ChatSection[] = ['copilot', 'anthropic'];
 
 /**
  * Persist a per-section draft map to the prompt-panel YAML files.

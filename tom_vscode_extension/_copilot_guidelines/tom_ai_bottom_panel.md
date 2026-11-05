@@ -9,13 +9,10 @@
 
 ## Current subpanels
 
-Accordion layout with five chat subpanels (see [tom_ai_chat.md](tom_ai_chat.md)):
+Accordion layout with two chat subpanels (see [anthropic_chat.md](anthropic_chat.md)):
 
-1. **Anthropic** — direct Anthropic SDK or Agent SDK per selected profile.
-2. **Tom AI Chat** — Anthropic handler with a tuned tool surface.
-3. **AI Conversation** — multi-turn chat via Anthropic SDK or `vscode.lm`. Not queue-compatible.
-4. **Copilot** — VS Code Copilot via answer-file mechanism.
-5. **Local LLM** — Ollama-compatible HTTP backend.
+1. **Anthropic** — direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration, per selected profile.
+2. **Copilot** — VS Code Copilot via answer-file mechanism.
 
 ## Responsibilities
 

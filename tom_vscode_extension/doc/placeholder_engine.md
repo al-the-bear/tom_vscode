@@ -48,7 +48,7 @@ Every placeholder context falls into one of four levels. Adding a new context me
 
 ### 2.1 `full-template` (broadest)
 
-**Used by:** prompt bodies, user-message templates, system prompts, template wrappers, tool arguments (Copilot / Local LLM / AI Conversation / Tom AI Chat / Anthropic).
+**Used by:** prompt bodies, user-message templates, system prompts, template wrappers, tool arguments (Copilot / Anthropic, on every transport including Local LLM configurations).
 
 **Engine:** `expandTemplate()`.
 

@@ -13,7 +13,6 @@
 
 import { ChatChannel, ChannelMessage, ChannelResult } from './chat';
 import { bridgeLog } from './handler_shared';
-import { escapeMarkdownV2 } from './telegram-markdown';
 
 // ============================================================================
 // Interfaces
@@ -89,12 +88,10 @@ export const TELEGRAM_DEFAULTS: TelegramConfig = {
 
 export class TelegramNotifier {
     private channel: ChatChannel;
-    private config: TelegramConfig;
     private commandCallback: TelegramCommandCallback | null = null;
 
-    constructor(channel: ChatChannel, config: TelegramConfig) {
+    constructor(channel: ChatChannel, _config: TelegramConfig) {
         this.channel = channel;
-        this.config = config;
 
         // Subscribe to channel messages and parse into TelegramCommands
         this.channel.onMessage((msg: ChannelMessage) => this.handleChannelMessage(msg));
@@ -103,11 +100,6 @@ export class TelegramNotifier {
     /** Whether this notifier is properly configured and enabled. */
     get isEnabled(): boolean {
         return this.channel.isEnabled;
-    }
-
-    /** Update config (notification settings). */
-    updateConfig(config: TelegramConfig): void {
-        this.config = config;
     }
 
     // -----------------------------------------------------------------------
@@ -123,68 +115,6 @@ export class TelegramNotifier {
     /** Send a text message and return detailed result (including error message). */
     async sendMessageWithDetails(text: string, chatId?: number): Promise<TelegramApiResult> {
         return this.channel.sendMessage(text, chatId);
-    }
-
-    /** Send a conversation start notification. */
-    async notifyStart(conversationId: string, goal: string, profile: string): Promise<void> {
-        if (!this.config.notifyOnStart) { return; }
-        const msg = `🤖 *Bot Conversation Started*\n\n` +
-            `*ID:* \`${conversationId}\`\n` +
-            `*Profile:* ${profile}\n` +
-            `*Goal:* ${this.escapeMarkdown(goal)}\n\n` +
-            `Commands: stop halt continue status\n` +
-            `Send info: info <your message>`;
-        await this.sendMessage(msg);
-    }
-
-    /** Send a turn completion notification. */
-    async notifyTurn(
-        turn: number,
-        maxTurns: number,
-        promptPreview: string,
-        responsePreview: string,
-        stats?: { promptTokens: number; completionTokens: number; totalDurationMs: number },
-    ): Promise<void> {
-        if (!this.config.notifyOnTurn) { return; }
-
-        let msg = `📝 *Turn ${turn}/${maxTurns}*\n\n`;
-        msg += `*Prompt:* ${this.escapeMarkdown(this.truncate(promptPreview, 200))}\n\n`;
-
-        if (this.config.includeResponseText) {
-            msg += `*Response:* ${this.escapeMarkdown(this.truncate(responsePreview, this.config.maxResponseChars))}\n`;
-        }
-
-        if (stats) {
-            msg += `\n_${stats.promptTokens}+${stats.completionTokens} tokens, ${(stats.totalDurationMs / 1000).toFixed(1)}s_`;
-        }
-
-        await this.sendMessage(msg);
-    }
-
-    /** Send a conversation end notification. */
-    async notifyEnd(conversationId: string, turns: number, goalReached: boolean, reason?: string): Promise<void> {
-        if (!this.config.notifyOnEnd) { return; }
-        const status = goalReached ? '✅ Goal Reached' : reason ? `⏹ ${reason}` : '⏹ Ended';
-        const msg = `🏁 *Bot Conversation Ended*\n\n` +
-            `*ID:* \`${conversationId}\`\n` +
-            `*Turns:* ${turns}\n` +
-            `*Status:* ${status}`;
-        await this.sendMessage(msg);
-    }
-
-    /** Send a halt notification. */
-    async notifyHalted(turn: number): Promise<void> {
-        await this.sendMessage(`⏸ *Conversation halted* after turn ${turn}\.
-Send continue to resume or info <text> to add context\.`);
-    }
-
-    /** Send a continue notification. */
-    async notifyContinued(additionalInfo?: string): Promise<void> {
-        let msg = `▶️ *Conversation resumed*`;
-        if (additionalInfo) {
-            msg += `\nAdditional info will be included in next prompt.`;
-        }
-        await this.sendMessage(msg);
     }
 
     // -----------------------------------------------------------------------
@@ -267,17 +197,6 @@ Send continue to resume or info <text> to add context\.`);
     // -----------------------------------------------------------------------
     // Utilities
     // -----------------------------------------------------------------------
-
-    /** Escape MarkdownV2 special characters for Telegram. */
-    private escapeMarkdown(text: string): string {
-        return escapeMarkdownV2(text);
-    }
-
-    /** Truncate text to a maximum length, appending '...' if truncated. */
-    private truncate(text: string, maxLen: number): string {
-        if (text.length <= maxLen) { return text; }
-        return text.substring(0, maxLen - 3) + '...';
-    }
 
     /** Dispose/cleanup. Does NOT dispose the channel (managed by creator). */
     dispose(): void {

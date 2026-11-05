@@ -396,7 +396,7 @@ export { temperatureField };
  * profile opts into `useBuiltInTools`, we suppress these so the agent sees
  * only the SDK's native versions (same capability, single source of truth).
  * Extension-only tools (memory_*, chatvar_*, git, askBigBrother, askCopilot,
- * getErrors, manageTodo, readGuideline) are kept.
+ * getErrors, readGuideline) are kept.
  */
 export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
     'tomAi_readFile',

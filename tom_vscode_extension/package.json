@@ -99,81 +99,6 @@
         "category": "@Tom"
       },
       {
-        "command": "tomAi.sendToLocalLlm",
-        "title": "@T: Send to Local LLM",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.localLlm.switchModel",
-        "title": "@T: Change Local LLM Model...",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.sendToLocalLlm.standard",
-        "title": "@T: Send to Local LLM (Default Template)",
-        "category": "@Tom",
-        "shortTitle": "Send to Local LLM (Default Template)"
-      },
-      {
-        "command": "tomAi.sendToLocalLlm.template",
-        "title": "@T: Send to Local LLM (Pick Template)",
-        "category": "@Tom",
-        "shortTitle": "Send to Local LLM (Pick Template)"
-      },
-      {
-        "command": "tomAi.sendToLocalLlm.default",
-        "title": "@T: Send to Local LLM (Default)",
-        "category": "@Tom",
-        "shortTitle": "Send to Local LLM (Default)"
-      },
-      {
-        "command": "tomAi.aiConversation.start",
-        "title": "@T: Start AI Conversation",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.aiConversation.stop",
-        "title": "@T: Stop AI Conversation",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.aiConversation.halt",
-        "title": "@T: Halt AI Conversation",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.aiConversation.continue",
-        "title": "@T: Continue AI Conversation",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.aiConversation.add",
-        "title": "@T: Add to AI Conversation",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.aiConversation.status",
-        "title": "@T: Show AI Conversation Status",
-        "category": "@Tom"
-      },
-      {
-        "command": "tomAi.tomAiChat.start",
-        "title": "@T: Start Tom AI Chat",
-        "category": "@Tom",
-        "shortTitle": "Start Tom AI Chat"
-      },
-      {
-        "command": "tomAi.tomAiChat.send",
-        "title": "@T: Send Tom AI Chat Prompt",
-        "category": "@Tom",
-        "shortTitle": "Send Tom AI Chat Prompt"
-      },
-      {
-        "command": "tomAi.tomAiChat.interrupt",
-        "title": "@T: Interrupt Tom AI Chat",
-        "category": "@Tom"
-      },
-      {
         "command": "tomAi.executeFile",
         "title": "@T: Execute File",
         "category": "@Tom",
@@ -611,21 +536,6 @@
         "when": "!tomAi.chordMenuOpen"
       },
       {
-        "command": "tomAi.chordMenu.localLlm",
-        "key": "ctrl+shift+l",
-        "when": "!tomAi.chordMenuOpen"
-      },
-      {
-        "command": "tomAi.chordMenu.aiConversation",
-        "key": "ctrl+shift+a",
-        "when": "!tomAi.chordMenuOpen"
-      },
-      {
-        "command": "tomAi.chordMenu.tomAiChat",
-        "key": "ctrl+shift+t",
-        "when": "!tomAi.chordMenuOpen"
-      },
-      {
         "command": "tomAi.chordMenu.execute",
         "key": "ctrl+shift+e",
         "when": "!tomAi.chordMenuOpen"
@@ -730,19 +640,6 @@
           "group": "copilot@3"
         },
         {
-          "command": "tomAi.sendToLocalLlm.standard",
-          "group": "localLlm@1"
-        },
-        {
-          "command": "tomAi.sendToLocalLlm.template",
-          "group": "localLlm@2"
-        },
-        {
-          "command": "tomAi.sendToLocalLlm.default",
-          "when": "editorHasSelection",
-          "group": "localLlm@3"
-        },
-        {
           "command": "tomAi.executeFile",
           "when": "editorLangId == dart",
           "group": "tomAi@2"
@@ -751,16 +648,6 @@
           "command": "tomAi.executeScript",
           "when": "editorLangId == dart",
           "group": "tomAi@3"
-        },
-        {
-          "command": "tomAi.tomAiChat.start",
-          "when": "resourceExtname == .chat.md",
-          "group": "tomAi@4"
-        },
-        {
-          "command": "tomAi.tomAiChat.send",
-          "when": "resourceExtname == .chat.md",
-          "group": "tomAi@5"
         },
         {
           "command": "tomAi.openInMdViewer",
@@ -1300,68 +1187,6 @@
           ]
         },
         "toolReferenceName": "tom_webSearch"
-      },
-      {
-        "name": "tomAi_manageTodo",
-        "tags": [
-          "todo",
-          "task-management",
-          "tom-ai-chat"
-        ],
-        "displayName": "Manage Scratch Todo List",
-        "userDescription": "Manage temporary scratch todos (not quest todos)",
-        "modelDescription": "Optional: Manage a temporary scratch todo list for this prompt run. This is NOT the quest todo system. Operations: 'list' (view todos), 'add' (create with title/description), 'update' (change status/title/description by id), 'remove' (delete by id), 'clear' (remove all). Status values: not-started, in-progress, completed. Use when you have 3+ distinct steps to track.",
-        "canBeReferencedInPrompt": true,
-        "inputSchema": {
-          "type": "object",
-          "required": [
-            "operation"
-          ],
-          "properties": {
-            "operation": {
-              "type": "string",
-              "enum": [
-                "list",
-                "add",
-                "update",
-                "remove",
-                "clear"
-              ],
-              "description": "The operation to perform: list (view todos), add (create new), update (modify existing), remove (delete), clear (remove all)."
-            },
-            "id": {
-              "type": "number",
-              "description": "Todo ID. Required for 'update' and 'remove' operations."
-            },
-            "title": {
-              "type": "string",
-              "description": "Short headline for the todo (3-7 words). Required for 'add', optional for 'update'."
-            },
-            "description": {
-              "type": "string",
-              "description": "Detailed description of the task. Optional for 'add' and 'update'."
-            },
-            "status": {
-              "type": "string",
-              "enum": [
-                "not-started",
-                "in-progress",
-                "completed"
-              ],
-              "description": "Todo status. Used with 'update' operation."
-            },
-            "filterStatus": {
-              "type": "string",
-              "enum": [
-                "not-started",
-                "in-progress",
-                "completed"
-              ],
-              "description": "Filter by status when using 'list' operation."
-            }
-          }
-        },
-        "toolReferenceName": "manageScratchTodos"
       },
       {
         "name": "tomAi_notifyUser",
@@ -3038,47 +2863,6 @@
           "type": "string",
           "default": "_ai/chat_replies",
           "description": "Folder path for chat answer files (relative to workspace root)"
-        },
-        "tomAi.tomAiChat.modelId": {
-          "type": "string",
-          "description": "Model ID for Tom AI chat"
-        },
-        "tomAi.tomAiChat.tokenModelId": {
-          "type": "string",
-          "description": "Model ID used for token count estimates"
-        },
-        "tomAi.tomAiChat.responsesTokenLimit": {
-          "type": "number",
-          "default": 50000,
-          "description": "Token limit for <chat-id>.responses.md"
-        },
-        "tomAi.tomAiChat.responseSummaryTokenLimit": {
-          "type": "number",
-          "default": 8000,
-          "description": "Token limit for <chat-id>.response-summary.md"
-        },
-        "tomAi.tomAiChat.preProcessingModelId": {
-          "type": "string",
-          "description": "Model ID for pre-processing step (cheap model to gather context before main processing)"
-        },
-        "tomAi.tomAiChat.enablePromptOptimization": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable pre-processing step with cheap model to gather context before main processing"
-        },
-        "tomAi.tomAiChat.retryMaxTotalWaitMinutes": {
-          "type": "number",
-          "default": 10,
-          "description": "Maximum cumulative minutes to keep retrying a VS Code language-model request when the backend is busy (HTTP 429 / 503 / 529 / rate-limit). Uses exponential backoff. Set to 0 to disable retries."
-        },
-        "tomAi.localLlm.ollamaUrl": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "description": "Ollama server URL (fallback; prefer localLlm section in send_to_chat.json)"
-        },
-        "tomAi.localLlm.ollamaModel": {
-          "type": "string",
-          "description": "Ollama model name"
         },
         "tomAi.todo.workspaceTodoFile": {
           "type": "string",

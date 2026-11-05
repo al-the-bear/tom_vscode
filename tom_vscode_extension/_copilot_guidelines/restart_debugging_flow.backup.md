@@ -19,7 +19,7 @@ Backup reference for extension runtime troubleshooting. Use when a reload alone 
 
 ## Panel-specific checks
 
-- **`@CHAT`** — focus the panel, confirm all five subpanels render, confirm profile picker populates on the Anthropic subpanel, confirm the "Open Live Trail" button opens the MD Browser in live mode.
+- **`@CHAT`** — focus the panel, confirm both subpanels (Anthropic, Copilot) render, confirm profile picker populates on the Anthropic subpanel, confirm the "Open Live Trail" button opens the MD Browser in live mode.
 - **`@WS`** — focus, verify embedded issue / test / quest-todo rendering and link navigation.
 - **`@TOM` sidebar** — note and todo views refresh correctly after external file edits (file watcher is active).
 - **Markdown Browser** — test link navigation, back/forward, file-watcher auto-reload, live-mode follow-tail.

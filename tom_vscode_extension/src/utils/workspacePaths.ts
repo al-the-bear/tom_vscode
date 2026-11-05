@@ -86,9 +86,7 @@ const AI_SUBPATHS: Record<string, string> = {
     local:               'local',
     schemas:             'schemas/yaml',
     copilot:             'copilot',
-    tomAiChat:           'tom_ai_chat',
     chatReplies:         'chat_replies',
-    aiConversations:    'bot_conversations',
     attachments:         'attachments',
     answersCopilot:      'answers/copilot',
     queue:               'queue',
@@ -96,9 +94,6 @@ const AI_SUBPATHS: Record<string, string> = {
     memory:              'memory',
     trail:               'trail',
     // Trail sub-folders (inside local/ etc.)
-    trailLocal:          'local/trail',
-    trailConversation:   'conversation/trail',
-    trailTomai:          'tomai/trail',
     trailCopilot:        'copilot/trail',
 };
 
@@ -107,8 +102,6 @@ const HOME_SUBPATHS: Record<string, string> = {
     vscodeConfig:               'vscode/tom_vscode_extension.json',
     copilotChatAnswers:         'copilot-chat-answers',
     chatReplies:                'chat_replies',
-    aiConversations:           'bot_conversations',
-    aiConversationAnswers:     'bot-conversation-answers',
     copilotAnswers:             'copilot-answers',
     copilotPrompts:             'copilot-prompts',
 };

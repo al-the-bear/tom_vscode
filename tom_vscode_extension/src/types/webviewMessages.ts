@@ -5,7 +5,7 @@ export interface WebviewMessage {
 
 export interface ChatPanelSendMessage extends WebviewMessage {
     type: 'send';
-    panelId: 'localLlm' | 'aiConversation' | 'copilot' | 'tomAiChat';
+    panelId: 'anthropic' | 'copilot';
     text: string;
     templateId?: string;
 }

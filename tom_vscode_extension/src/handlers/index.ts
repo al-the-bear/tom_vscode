@@ -42,27 +42,12 @@ export { toggleBridgeDebugLoggingHandler } from './debugLogging-handler';
 export { printConfigurationHandler } from './printConfiguration-handler';
 export { showHelpHandler } from './showHelp-handler';
 export { showApiInfoHandler } from './showApiInfo-handler';
-export { startTomAiChatHandler, sendToTomAiChatHandler, interruptTomAiChatHandler } from './tomAiChat-handler';
 export {
-    expandPromptHandler,
-    createProfileHandler,
-    switchModelHandler,
     LocalLlmManager,
     setLocalLlmManager,
     getLocalLlmManager,
     ensureLocalLlmManager,
 } from './localLlm-handler';
-export {
-    startAiConversationHandler,
-    stopAiConversationHandler,
-    haltAiConversationHandler,
-    continueAiConversationHandler,
-    addToAiConversationHandler,
-    showAiConversationStatusHandler,
-    AiConversationManager,
-    setAiConversationManager,
-    getAiConversationManager,
-} from './aiConversation-handler';
 export { registerChordMenuCommands } from './chordMenu-handler';
 export { registerCommandlineCommands } from './commandline-handler';
 export { registerCombinedCommands } from './combinedCommand-handler';

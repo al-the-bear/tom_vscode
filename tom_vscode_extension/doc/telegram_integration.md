@@ -2,10 +2,9 @@
 
 The extension can drive a Telegram bot as a **remote control + notification
 channel** for a workspace window: run prompts from your phone, watch the live
-conversation stream, manage the prompt queue, and receive start/turn/end
-notifications. Everything is **per quest** — each workspace/quest resolves its
-own bot token, and the window that polls a bot is the one that acts on its
-commands.
+conversation stream and manage the prompt queue. Everything is **per quest** —
+each workspace/quest resolves its own bot token, and the window that polls a bot
+is the one that acts on its commands.
 
 > **One receiver per bot token.** Telegram allows exactly one `getUpdates`
 > consumer per bot token. If a second consumer starts on the same token — another
@@ -34,18 +33,16 @@ to verify the token + chat ID before enabling polling.
 ## 2. Commands
 
 Send these as chat messages to the bot. Unknown text is treated as free-form
-`info` (added to the active conversation). Commands are only honoured for users
+`info` (shown as a notification in the VS Code window). Commands are only honoured for users
 in `allowedUserIds`.
 
-### Conversation control
+### Polling control
 
 | Command | Aliases | Effect |
 | --- | --- | --- |
 | `/stop`, `stop` | | Stop the poller for this window. |
-| `/halt` | `/pause` | Halt the active AI Conversation (pausable). |
-| `/continue` | `/resume` | Resume a halted conversation. |
 | `/status`, `status` | | Report workspace / polling status. |
-| `/info <text>` | `/add <text>` | Add input to the active conversation. |
+| `/info <text>` | `/add <text>` | Show the text as a notification in the VS Code window. |
 
 ### Live conversation (Anthropic panel)
 
@@ -137,7 +134,8 @@ channel stays disabled. This keeps secrets out of the git-tracked `_ai` clone.
 
 When the per-quest sections are absent, config is sourced (once) from, in order:
 the merged per-quest sections (authoritative when present) → the shared
-`tom_vscode_extension.json` `aiConversation.telegram` block → the legacy
+`tom_vscode_extension.json` `aiConversation.telegram` block (read only as this
+seed) → the legacy
 `telegram.{hostSlug}.{quest}.yaml` file (auto-migrated on first save). The legacy
 single-purpose `telegram.{questId}.json` is superseded.
 
@@ -189,13 +187,11 @@ Two independent switches control it:
 `chat_status` reports the current running prompt(s), each with the session it
 runs in, plus both switch states.
 
-### Notifications (`TelegramNotifier`)
+### The channel (`TelegramNotifier`)
 
-Separate from the live stream, `TelegramNotifier` (`telegram-notifier.ts`) sends
-lifecycle notifications gated by the `notifyOn*` config flags:
-`notifyStart` (goal + profile), `notifyTurn` (turn N/max + prompt/response
-previews, capped by `maxResponseChars`), `notifyEnd` (turns, goal-reached,
-reason), plus `notifyHalted` / `notifyContinued`. Outbound text uses
+`TelegramNotifier` (`telegram-notifier.ts`) is the window's poller and send
+channel: it polls `getUpdates`, parses each message into a command (`stop`,
+`status`, `info`, or a registry command) and sends outbound text with
 `sendMessage` / `sendMessageWithDetails`.
 
 ## 7. One receiver per bot token — how it's enforced
@@ -204,10 +200,7 @@ The 409 constraint is enforced in-process by `PollClaimRegistry`
 (`src/utils/telegramPollClaim.ts`). `TelegramChannel` holds one shared static
 instance; `startListening` calls `tryClaim(token)` and only starts a poll loop
 when it wins the claim — a second channel resolving the same token gets `false`
-and defers (send-only), releasing on `stopListening`. This is why the send-only
-**AI Conversation** channel does not poll: it registers a command **sink**
-(`setTelegramConversationSink` in `aiConversation-handler.ts`) so the single
-standalone poller routes conversation-control commands to it. Across separate
+and defers (send-only), releasing on `stopListening`. Across separate
 windows/hosts the registry cannot help — the token is genuinely shared — so give
 each quest its own bot.
 

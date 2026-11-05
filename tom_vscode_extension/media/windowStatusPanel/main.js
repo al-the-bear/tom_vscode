@@ -95,8 +95,6 @@
         for (var i = 0; i < states.length; i++) {
             var s = states[i];
             var questLabel = s.activeQuest || s.workspace || 'unknown';
-            var aiConversationActive = s.aiConversationActive === true;
-            var aiConversationHtml = '<div class="ai-conversation-line ' + (aiConversationActive ? 'active' : 'inactive') + '">AI conversation: ' + (aiConversationActive ? 'active' : 'inactive') + '</div>';
             var goneHtml = s.gone ? ' <span class="window-gone" title="No heartbeat since ' + escapeHtml(timeAgo(s.heartbeat)) + ': the window is gone">gone</span>' : '';
             // `reload`: the window runs an older build than the one installed (computed by the extension).
             var reloadHtml = s.reload ? ' <span class="window-reload" title="Runs ' + escapeHtml(s.reload.running) + '; installed is '
@@ -108,7 +106,6 @@
                 + '<span class="codicon codicon-trash"></span></button>'
                 + '</div>'
                 + statusLineHtml(s.status, serversHtml(s))
-                + aiConversationHtml
                 + '</div>';
         }
         windowList.innerHTML = html;

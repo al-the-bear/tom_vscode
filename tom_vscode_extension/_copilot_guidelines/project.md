@@ -4,7 +4,7 @@
 
 `tom_vscode_extension` provides VS Code integration for Tom workflows:
 
-- multi-transport AI prompt tooling (Anthropic direct SDK, Claude Agent SDK, VS Code Copilot, Local LLM, AI Conversation),
+- multi-transport AI prompt tooling (Anthropic direct SDK, Claude Agent SDK, VS Code Copilot, Local LLM through Anthropic profiles),
 - bridge-based automation for Dart / shell / workspace operations,
 - panel-based productivity UX (chat, workspace, sidebar notes, todos),
 - quest todo, markdown browser, and trail viewer custom editors,
@@ -42,7 +42,7 @@ Maintainer (`_copilot_guidelines/`):
 - [vscode_extension_overview.md](vscode_extension_overview.md) — canonical map.
 - [architecture.md](architecture.md) — layering + data flow.
 - [implementation.md](implementation.md) — code layout + patterns.
-- [tom_ai_chat.md](tom_ai_chat.md), [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md), [local_llm.md](local_llm.md), [bottom_panel_accordion.md](bottom_panel_accordion.md), [tab_navigation.md](tab_navigation.md) — chat + panel subsystems.
+- [anthropic_chat.md](anthropic_chat.md), [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md), [local_llm.md](local_llm.md), [bottom_panel_accordion.md](bottom_panel_accordion.md), [tab_navigation.md](tab_navigation.md) — chat + panel subsystems.
 - [extension_bridge.md](extension_bridge.md), [bridge_scripting_guide.md](bridge_scripting_guide.md) — bridge subsystem.
 - [keybindings_and_commands.md](keybindings_and_commands.md), [reinstall_extension.md](reinstall_extension.md) — operations.
 - [tom_status_page.md](tom_status_page.md), [explorer_notes.md](explorer_notes.md) — status + sidebar.

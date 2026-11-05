@@ -1,33 +1,27 @@
 /**
- * Tool-impl tests for `cross-cutting-todo-tools.ts` — the three
- * cross-cutting todo views (`tomAi_getCombinedTodos`,
- * `tomAi_listWorkspaceQuestTodos`, `tomAi_manageTodo`).
+ * Tool-impl tests for `cross-cutting-todo-tools.ts` — the cross-cutting
+ * todo views (`tomAi_getCombinedTodos`, `tomAi_listWorkspaceQuestTodos`).
  *
- * Strategy: three small in-memory fakes — one per dep interface.
+ * Strategy: small in-memory fakes — one per dep interface.
  *
  *   - `CombinedTodosSource`: hand-crafted quest items + session items
  *   - `WorkspaceTodosSource`: list of items spanning multiple quests
  *     (so the `byQuest` grouping + cross-quest sort can be asserted)
- *   - `ChatTodoSessionResolver`: returns `null` for the "legacy tool
- *     needs an active chat session" path; returns a recording fake
- *     for the operation tests
  *
  * Coverage entry #17 four-row checklist:
  *
  *   a) Description clarity — verified in the impl file; `getCombinedTodos`
  *      spells out single-quest scope; `listWorkspaceQuestTodos` says
- *      "every quest"; `manageTodo` is marked **LEGACY** with pointers.
+ *      "every quest".
  *   b) Ambiguities — covered:
  *        - sort order is deterministic (sourceFile, id) / (quest,
  *          sourceFile, id) — pinned by tests
  *        - pagination: maxResults cap + truncated flag tested
- *        - status filter shape: enum on workspace-list, 3-enum on
- *          manageTodo, no-filter on getCombined (intentionally)
- *        - missing-session error path on manageTodo carries a
- *          pointer at the alternative tool families
+ *        - status filter shape: enum on workspace-list, no filter on
+ *          getCombined (intentionally)
  *   c) Tests cover a multi-quest fixture (3 quests, 5 todos) for
  *      the workspace lister; multi-file fixture for getCombined.
- *   d) Timing — all three typical cases via `withTiming`.
+ *   d) Timing — both typical cases via `withTiming`.
  */
 
 import test, { describe } from 'node:test';
@@ -37,16 +31,9 @@ import { withTiming } from './_timing.js';
 import {
     getCombinedTodosImpl,
     listWorkspaceQuestTodosImpl,
-    manageTodoImpl,
-    type ChatTodoSession,
-    type ChatTodoSessionResolver,
     type CombinedQuestTodo,
     type CombinedSessionTodo,
     type CombinedTodosSource,
-    type LegacyChatTodoItem,
-    type LegacyTodoResult,
-    type LegacyTodoStatus,
-    type ManageTodoInput,
     type WorkspaceQuestTodo,
     type WorkspaceTodosSource,
 } from '../cross-cutting-todo-tools.js';
@@ -241,147 +228,5 @@ describe('listWorkspaceQuestTodosImpl', () => {
         assert.equal(r.count, 0);
         assert.deepEqual(r.byQuest, {});
         assert.deepEqual(r.items, []);
-    });
-});
-
-// ===========================================================================
-// manageTodo — legacy chat-session todo manager
-// ===========================================================================
-
-function makeSessionFake(initial: LegacyChatTodoItem[] = []): ChatTodoSession & { items: LegacyChatTodoItem[] } {
-    let items = [...initial];
-    let nextId = items.reduce((m, t) => Math.max(m, t.id), 0) + 1;
-    return {
-        get items() { return items; },
-        async list(filter): Promise<LegacyTodoResult> {
-            const filtered = filter ? items.filter((t) => t.status === filter) : items;
-            return { message: `${filtered.length} todo(s)`, todos: filtered };
-        },
-        async add(title, description): Promise<LegacyTodoResult> {
-            const item: LegacyChatTodoItem = { id: nextId++, title, description, status: 'not-started' };
-            items.push(item);
-            return { message: 'added', todos: items };
-        },
-        async update(id, updates): Promise<LegacyTodoResult> {
-            const idx = items.findIndex((t) => t.id === id);
-            if (idx === -1) { return { message: `id ${id} not found`, todos: items }; }
-            items[idx] = {
-                ...items[idx],
-                title: updates.title ?? items[idx].title,
-                description: updates.description ?? items[idx].description,
-                status: updates.status ?? items[idx].status,
-            };
-            return { message: 'updated', todos: items };
-        },
-        async remove(id): Promise<LegacyTodoResult> {
-            const before = items.length;
-            items = items.filter((t) => t.id !== id);
-            return { message: items.length < before ? 'removed' : `id ${id} not found`, todos: items };
-        },
-        async clear(): Promise<LegacyTodoResult> {
-            items = [];
-            return { message: 'cleared', todos: items };
-        },
-    };
-}
-
-function makeResolver(session: ChatTodoSession | null): ChatTodoSessionResolver {
-    return { current: () => session };
-}
-
-describe('manageTodoImpl', () => {
-
-    test('NO ACTIVE SESSION: returns clear error with pointers to alternative tool families', async () => {
-        const raw = await withTiming('tomAi_manageTodo:typical', () =>
-            manageTodoImpl(makeResolver(null), { operation: 'list' }));
-        const r = JSON.parse(raw);
-        assert.equal(r.ok, false);
-        assert.match(r.error, /No active Tom AI Chat session/);
-        // CRITICAL: error suggests both alternatives explicitly
-        assert.match(r.error, /tomAi_addSessionTodo/);
-        assert.match(r.error, /tomAi_createQuestTodo/);
-    });
-
-    test('add → list → update → remove → clear walks the legacy lifecycle', async () => {
-        const session = makeSessionFake();
-        const resolver = makeResolver(session);
-
-        // add
-        let r = JSON.parse(await manageTodoImpl(resolver, { operation: 'add', title: 'first' }));
-        assert.equal(r.ok, true);
-        assert.equal(r.operation, 'add');
-        assert.equal(r.todos.length, 1);
-
-        // add another
-        await manageTodoImpl(resolver, { operation: 'add', title: 'second', description: 'with desc' });
-
-        // list
-        r = JSON.parse(await manageTodoImpl(resolver, { operation: 'list' }));
-        assert.equal(r.todos.length, 2);
-
-        // update (status flip)
-        const id = (r.todos[0] as LegacyChatTodoItem).id;
-        r = JSON.parse(await manageTodoImpl(resolver, { operation: 'update', id, status: 'completed' }));
-        assert.equal(r.todos.find((t: LegacyChatTodoItem) => t.id === id)!.status, 'completed');
-
-        // filterStatus on list
-        r = JSON.parse(await manageTodoImpl(resolver, { operation: 'list', filterStatus: 'completed' }));
-        assert.equal(r.todos.length, 1);
-
-        // remove
-        r = JSON.parse(await manageTodoImpl(resolver, { operation: 'remove', id }));
-        assert.equal(r.todos.length, 1);
-
-        // clear
-        r = JSON.parse(await manageTodoImpl(resolver, { operation: 'clear' }));
-        assert.equal(r.todos.length, 0);
-    });
-
-    test('add without title → instructive error', async () => {
-        const session = makeSessionFake();
-        const r = JSON.parse(await manageTodoImpl(makeResolver(session), { operation: 'add' }));
-        assert.match(r.error, /`title` is required for `operation: "add"`/);
-    });
-
-    test('update without id → instructive error', async () => {
-        const session = makeSessionFake();
-        const r = JSON.parse(await manageTodoImpl(makeResolver(session), { operation: 'update', status: 'completed' }));
-        assert.match(r.error, /`id` is required for `operation: "update"`/);
-    });
-
-    test('remove without id → instructive error', async () => {
-        const session = makeSessionFake();
-        const r = JSON.parse(await manageTodoImpl(makeResolver(session), { operation: 'remove' }));
-        assert.match(r.error, /`id` is required for `operation: "remove"`/);
-    });
-
-    test('unknown operation → instructive error with allowed list', async () => {
-        const session = makeSessionFake();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const r = JSON.parse(await manageTodoImpl(makeResolver(session), { operation: 'nope' as any }));
-        assert.match(r.error, /Unknown operation: nope/);
-        assert.match(r.error, /list, add, update, remove, clear/);
-    });
-
-    test('JSON envelope (not the legacy emoji text)', async () => {
-        const session = makeSessionFake();
-        const r = JSON.parse(await manageTodoImpl(makeResolver(session), { operation: 'list' }));
-        // Old impl returned text like "0 todos\n\n**Current Todos:**\n..."
-        // New impl returns JSON; check keys.
-        for (const key of ['ok', 'operation', 'message', 'todos']) {
-            assert.ok(key in r, `missing key: ${key}`);
-        }
-    });
-
-    test('legacy 3-status enum honoured (no `blocked` / `cancelled`)', async () => {
-        const session = makeSessionFake([{ id: 1, title: 'x', status: 'not-started' }]);
-        // The TS type only allows the 3-status enum; this is the documented behaviour
-        const valid: LegacyTodoStatus[] = ['not-started', 'in-progress', 'completed'];
-        for (const status of valid) {
-            const r = JSON.parse(await manageTodoImpl(makeResolver(session), {
-                operation: 'update', id: 1, status,
-            } as ManageTodoInput));
-            assert.equal(r.ok, true);
-        }
     });
 });

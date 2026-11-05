@@ -205,7 +205,6 @@ Placed between "Open session history" and "Memory Panel". Action routes to a new
 
 **Deferred (original full-spec scope):**
 - Per-transport tabs in a single custom editor. The MD Browser isn't a tabbed surface; one file per quest is the unit here.
-- Local LLM + Tom AI Chat + AI Conversation live trails. Same pattern would work but requires distinct event hooks in each handler — separable follow-up.
 - Auto-scroll-to-bottom + "pause auto-scroll when user scrolled up" behaviour. The MD Browser re-renders from the top; for long blocks the user scrolls manually. A small improvement is to anchor the scroll position to the nearest `<a id="…">` anchor the writer inserts at block boundaries — left for v2 if the flashing on re-render becomes annoying.
 - Live streaming of text blocks *character-by-character* for the direct Anthropic path. The current plan appends in chunks at the granularity of what the non-streaming API returns (one text block per loop iteration); that's already ~100 ms granularity in practice.
 

@@ -51,25 +51,6 @@ let responseFormatter: TelegramResponseFormatter | null = null;
 let liveConversationForwarder: TelegramLiveConversationForwarder | null = null;
 
 /**
- * Optional sink for AI-Conversation control commands. When an AI Conversation
- * is active in this window it registers a sink here so the **single** standalone
- * poller can route conversation-control commands (`stop`/`halt`/`continue`/
- * `status`/`info`) to it. This eliminates the AI Conversation panel's own poller
- * — two pollers on the same bot token guarantee a 409 Conflict. The sink returns
- * `true` when the command was consumed by an active conversation; `false` lets
- * the standalone command registry handle it normally (e.g. `stop` → stop
- * polling when no conversation is running).
- */
-let conversationSink: ((cmd: TelegramCommand) => boolean) | null = null;
-
-/** Register (or clear with `null`) the AI-Conversation control-command sink. */
-export function setTelegramConversationSink(
-    sink: ((cmd: TelegramCommand) => boolean) | null,
-): void {
-    conversationSink = sink;
-}
-
-/**
  * Extension context, captured at activation. Needed to build the command
  * registry's `send_prompt` dependencies (Anthropic send path). Stored at module
  * scope because the toggle handler that builds the registry is a parameterless
@@ -375,24 +356,6 @@ function handleStandaloneCommand(cmd: TelegramCommand): void {
         if (pending && AskUserRegistry.instance.submit(pending.requestId, cmd.text, 'telegram')) {
             standaloneTelegram?.sendMessage('✅ Answer received\\. The assistant will continue\\.');
             return;
-        }
-    }
-
-    // Route conversation-control commands to an active AI Conversation first.
-    // When the sink consumes the command (a conversation is running in this
-    // window), the standalone registry must not also act on it — otherwise
-    // `stop` would stop polling instead of the conversation, and `status` would
-    // report workspace state instead of the conversation's. When no conversation
-    // is active the sink returns false and the command falls through normally.
-    if (
-        conversationSink &&
-        (cmd.type === 'stop' || cmd.type === 'halt' || cmd.type === 'continue' ||
-            cmd.type === 'status' || cmd.type === 'info')
-    ) {
-        try {
-            if (conversationSink(cmd)) { return; }
-        } catch (err) {
-            bridgeLog(`[Telegram] Conversation sink error: ${(err as Error).message}`, 'ERROR');
         }
     }
 

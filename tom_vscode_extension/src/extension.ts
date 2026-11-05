@@ -40,23 +40,9 @@ import {
     printConfigurationHandler,
     showHelpHandler,
     showApiInfoHandler,
-    startTomAiChatHandler,
-    sendToTomAiChatHandler,
-    interruptTomAiChatHandler,
-    expandPromptHandler,
     LocalLlmManager,
     setLocalLlmManager,
     getLocalLlmManager,
-    createProfileHandler,
-    switchModelHandler,
-    startAiConversationHandler,
-    stopAiConversationHandler,
-    haltAiConversationHandler,
-    continueAiConversationHandler,
-    addToAiConversationHandler,
-    showAiConversationStatusHandler,
-    AiConversationManager,
-    setAiConversationManager,
     registerChordMenuCommands,
     registerCommandlineCommands,
     registerCombinedCommands,
@@ -117,7 +103,7 @@ import { TrailService } from './services/trailService';
 import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/queueFileStorage';
 
 // Tom AI Chat tools
-import { registerTomAiChatTools } from './tools/tomAiChat-tools';
+import { registerVsCodeLmTools } from './tools/vscodeLmTools';
 import { setBacklinkProvider } from './tools/codespecs-trace-tools';
 import { backlinkIndexJson } from './services/codespecs-validator';
 import { initializeToolDescriptions } from './tools/guideline-tools';
@@ -153,7 +139,6 @@ let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
 let localLlmManager: LocalLlmManager | undefined;
 
 // Global manager instance for AI Conversation
-let aiConversationManager: AiConversationManager | undefined;
 
 // Lifecycle controller for the standalone MCP server (plan §7.5, todo #19).
 // Owns the single running server; pushes the live bound port to the Status Page
@@ -712,16 +697,8 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     localLlmManager = new LocalLlmManager(context);
     setLocalLlmManager(localLlmManager);
-    registerLocalLlmContextMenuCommands(context);
     context.subscriptions.push({ dispose: () => localLlmManager?.dispose() });
     timeStep('localLlmManager', stepStart);
-
-    // Initialize AI Conversation manager
-    stepStart = performance.now();
-    aiConversationManager = new AiConversationManager(context);
-    setAiConversationManager(aiConversationManager);
-    context.subscriptions.push({ dispose: () => aiConversationManager?.dispose() });
-    timeStep('aiConversationManager', stepStart);
 
     // Initialize Tom Scripting Bridge handler
     stepStart = performance.now();
@@ -766,18 +743,18 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Tom AI Chat tools
     stepStart = performance.now();
     initializeToolDescriptions();
-    timeStep('tomAiChatTools.initToolDescriptions', stepStart);
+    timeStep('vscodeLmTools.initToolDescriptions', stepStart);
     // Local-LLM bridge tools (Ask Big Brother, Ask Copilot) are lazy-initialized
     // on first use — selectChatModels() takes 20–30s during activation rush
     // but <1s when the event loop is idle.
     stepStart = performance.now();
-    registerTomAiChatTools(context);
+    registerVsCodeLmTools(context);
     // The CodeSpecs trace reads a generated trio's back-links through the
     // validate_codespecs binary bundled in bin/<platform>/; a missing binary is
     // reported by the tool call, naming the build step.
     setBacklinkProvider((dirs) => backlinkIndexJson(dirs));
     context.subscriptions.push({ dispose: () => setBacklinkProvider(null) });
-    timeStep('tomAiChatTools.registerTools', stepStart);
+    timeStep('vscodeLmTools.registerTools', stepStart);
 
     // Register chat variable resolvers (#quest, #role, etc.)
     stepStart = performance.now();
@@ -1050,92 +1027,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // Tom AI Chat commands
-    const startTomAiChatCmd = vscode.commands.registerCommand(
-        'tomAi.tomAiChat.start',
-        async () => {
-            await startTomAiChatHandler();
-        }
-    );
-
-    const sendToTomAiChatCmd = vscode.commands.registerCommand(
-        'tomAi.tomAiChat.send',
-        async () => {
-            await sendToTomAiChatHandler();
-        }
-    );
-
-    const interruptTomAiChatCmd = vscode.commands.registerCommand(
-        'tomAi.tomAiChat.interrupt',
-        () => {
-            interruptTomAiChatHandler();
-        }
-    );
-
-    // Expand Prompt with local Ollama model
-    const expandPromptCmd = vscode.commands.registerCommand(
-        'tomAi.sendToLocalLlm',
-        async () => {
-            await expandPromptHandler();
-        }
-    );
-
-    // Switch local Ollama model
-    const switchLocalModelCmd = vscode.commands.registerCommand(
-        'tomAi.localLlm.switchModel',
-        async () => {
-            await switchModelHandler();
-        }
-    );
-
-    // Start AI Conversation
-    const startAiConversationCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.start',
-        async () => {
-            await startAiConversationHandler();
-        }
-    );
-
-    // Stop AI Conversation
-    const stopAiConversationCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.stop',
-        async () => {
-            await stopAiConversationHandler();
-        }
-    );
-
-    // Halt AI Conversation
-    const haltAiConversationCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.halt',
-        async () => {
-            await haltAiConversationHandler();
-        }
-    );
-
-    // Continue AI Conversation
-    const continueAiConversationCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.continue',
-        async () => {
-            await continueAiConversationHandler();
-        }
-    );
-
-    // Add to AI Conversation
-    const addToAiConversationCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.add',
-        async () => {
-            await addToAiConversationHandler();
-        }
-    );
-
-    // Show AI Conversation Status
-    const showAiConversationStatusCmd = vscode.commands.registerCommand(
-        'tomAi.aiConversation.status',
-        async () => {
-            await showAiConversationStatusHandler();
-        }
-    );
-
     // Capture the extension context for the Telegram command registry so the
     // `send_prompt` command can drive the Anthropic chat panel.
     initTelegramCommands(context);
@@ -1309,17 +1200,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         printConfigurationCmd,
         showHelpCmd,
         showApiInfoCmd,
-        startTomAiChatCmd,
-        sendToTomAiChatCmd,
-        interruptTomAiChatCmd,
-        expandPromptCmd,
-        switchLocalModelCmd,
-        startAiConversationCmd,
-        stopAiConversationCmd,
-        haltAiConversationCmd,
-        continueAiConversationCmd,
-        addToAiConversationCmd,
-        showAiConversationStatusCmd,
         telegramTestCmd,
         telegramToggleCmd,
         telegramConfigureCmd,
@@ -1331,92 +1211,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         openExtensionSettingsCmd,
         migrateCompactionFormatCmd
     );
-}
-
-// ============================================================================
-// Local LLM Context Menu Registration
-// ============================================================================
-
-/**
- * Dynamically register context menu commands for each profile defined in
- * the Prompt Expander config. Also registers the three base commands:
- *  - tomAi.sendToLocalLlm.default   (uses default profile, no picker)
- *  - tomAi.sendToLocalLlm.standard  (uses default profile)
- *  - tomAi.sendToLocalLlm.template  (shows profile picker)
- */
-function registerLocalLlmContextMenuCommands(context: vscode.ExtensionContext): void {
-    if (!localLlmManager) { return; }
-
-    // Base command — uses default profile (direct send, no picker)
-    const sendToLocalLlm = vscode.commands.registerCommand(
-        'tomAi.sendToLocalLlm.default',
-        async () => {
-            bridgeLog('sendToLocalLlm command invoked');
-            try {
-                if (!localLlmManager) { return; }
-                const config = localLlmManager.loadConfig();
-                const defaultKey = Object.entries(config.profiles)
-                    .find(([_, p]) => p.isDefault)?.[0]
-                    ?? Object.keys(config.profiles)[0]
-                    ?? undefined;
-                await localLlmManager.expandPromptCommand(defaultKey);
-            } catch (error) {
-                bridgeLog(`sendToLocalLlm FAILED: ${error}`, 'ERROR');
-                vscode.window.showErrorMessage(`Send to Local LLM failed: ${error}`);
-            }
-        }
-    );
-
-    // Standard — same as base (uses default profile without asking)
-    const sendToLocalLlmStandard = vscode.commands.registerCommand(
-        'tomAi.sendToLocalLlm.standard',
-        async () => {
-            bridgeLog('sendToLocalLlmStandard command invoked');
-            try {
-                if (!localLlmManager) { return; }
-                const config = localLlmManager.loadConfig();
-                const defaultKey = Object.entries(config.profiles)
-                    .find(([_, p]) => p.isDefault)?.[0]
-                    ?? Object.keys(config.profiles)[0]
-                    ?? undefined;
-                await localLlmManager.expandPromptCommand(defaultKey);
-            } catch (error) {
-                bridgeLog(`sendToLocalLlmStandard FAILED: ${error}`, 'ERROR');
-                vscode.window.showErrorMessage(`Send to Local LLM (Standard) failed: ${error}`);
-            }
-        }
-    );
-
-    // Advanced — shows profile picker (for expand/rewrite/detailed etc.)
-    const sendToLocalLlmAdvanced = vscode.commands.registerCommand(
-        'tomAi.sendToLocalLlm.template',
-        async () => {
-            bridgeLog('sendToLocalLlmAdvanced command invoked');
-            try {
-                await localLlmManager?.expandPromptCommand();
-            } catch (error) {
-                bridgeLog(`sendToLocalLlmAdvanced FAILED: ${error}`, 'ERROR');
-                vscode.window.showErrorMessage(`Send to Local LLM (Advanced) failed: ${error}`);
-            }
-        }
-    );
-
-    context.subscriptions.push(sendToLocalLlm, sendToLocalLlmStandard, sendToLocalLlmAdvanced);
-
-    // Dynamic per-profile commands (tomAi.sendToLocalLlm.<profileKey>)
-    try {
-        const config = localLlmManager.loadConfig();
-        for (const profileKey of Object.keys(config.profiles)) {
-            const cmd = vscode.commands.registerCommand(
-                `tomAi.sendToLocalLlm.${profileKey}`,
-                createProfileHandler(profileKey)
-            );
-            context.subscriptions.push(cmd);
-            localLlmManager['registeredCommands'].push(cmd);
-        }
-    } catch (e) {
-        bridgeLog(`Failed to register local LLM profile commands: ${e}`, 'ERROR');
-    }
 }
 
 // ============================================================================

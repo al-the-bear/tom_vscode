@@ -24,7 +24,7 @@
  */
 
 /** Subpanel id as it appears on webview messages. Stable. */
-export type ChatSection = 'anthropic' | 'tomAiChat' | 'conversation' | 'copilot' | 'localLlm';
+export type ChatSection = 'anthropic' | 'copilot';
 
 /**
  * Shape of the persisted prompt-panel draft for a section. Sections

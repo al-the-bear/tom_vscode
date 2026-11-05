@@ -42,11 +42,7 @@ import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 export type TemplateCategory =
     | 'copilot'
     | 'reminder'
-    | 'tomAiChat'
-    | 'conversation'
-    | 'localLlm'
     | 'timedRequests'
-    | 'selfTalk'
     | 'anthropicProfiles'
     | 'anthropicUserMessage'
     | 'compaction'
@@ -57,11 +53,7 @@ export type TemplateCategory =
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilot: 'Copilot',
     reminder: 'Reminder',
-    tomAiChat: 'Tom AI Chat',
-    conversation: 'AI Conversation',
-    localLlm: 'Local LLM',
     timedRequests: 'Timed Requests',
-    selfTalk: 'Self-Talk',
     anthropicProfiles: 'Anthropic — Profiles',
     anthropicUserMessage: 'Anthropic — User Message',
     compaction: 'Compaction',
@@ -238,26 +230,11 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
         case 'reminder':
             return ((config as any).reminders?.templates || [])
                 .map((t: any) => ({ id: t.id, label: t.name || t.id }));
-        case 'tomAiChat':
-            return Object.keys(config.tomAiChat?.templates || {})
-                .map(k => ({ id: k, label: (config.tomAiChat!.templates![k] as any).label || k }));
-        case 'conversation':
-            return Object.keys((config as any).aiConversation?.profiles || {})
-                .map(k => ({ id: k, label: ((config as any).aiConversation.profiles[k] as any).label || k }));
-        case 'localLlm':
-            return Object.keys((config as any).localLlm?.profiles || {})
-                .map(k => ({ id: k, label: ((config as any).localLlm.profiles[k] as any).label || k }));
         case 'timedRequests':
             return ((config as any).timedRequests || [])
                 .map((t: any, i: number) => ({
                     id: t.id || String(i),
                     label: t.originalText?.substring(0, 40) || `Timed Request ${i + 1}`,
-                }));
-        case 'selfTalk':
-            return Object.keys((config as any).aiConversation?.selfTalk || {})
-                .map(k => ({
-                    id: k,
-                    label: k === 'personA' ? 'Person A (Creative)' : k === 'personB' ? 'Person B (Critical)' : k,
                 }));
         case 'anthropicProfiles':
             return (config.anthropic?.profiles || [])
@@ -306,97 +283,6 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             );
             break;
         }
-        case 'tomAiChat': {
-            const tpl = (config.tomAiChat?.templates as any)?.[itemId];
-            if (!tpl) break;
-            const tcToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
-            const tcEnabledTools = Array.isArray(tpl.enabledTools) ? (tpl.enabledTools as string[]) : [];
-            const tcAllToolsEnabled = tpl.toolsEnabled !== false && tcEnabledTools.length === 0;
-            fields.push(
-                { name: 'name', label: 'Template Key', type: 'text', value: itemId },
-                { name: 'label', label: 'Display Label', type: 'text', value: tpl.label || '' },
-                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
-                { name: 'contextInstructions', label: 'Context Instructions', type: 'textarea', value: tpl.contextInstructions || '', help: PLACEHOLDER_HELP },
-                { name: 'systemPromptOverride', label: 'System Prompt Override', type: 'textarea', value: tpl.systemPromptOverride || '' },
-                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(tcAllToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a template-specific subset below.' },
-                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(tcEnabledTools), options: tcToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Template-level tool subset. Active only when "All Tools Enabled" is off.' },
-            );
-            break;
-        }
-        case 'conversation': {
-            const profile = (config as any).aiConversation?.profiles?.[itemId];
-            if (!profile) break;
-            const st = profile.selfTalk || {};
-            const stA = st.personA || {};
-            const stB = st.personB || {};
-            const convToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
-            // Self-Talk Model dropdown options come from the user's local LLM
-            // configurations (the same list used elsewhere). "(default)" =
-            // inherit the conversation-level modelConfig.
-            const llmModelOptions = [
-                { value: '', label: '(default — inherit conversation modelConfig)' },
-                ...(((config as any).localLlm?.configurations ?? [])
-                    .filter((c: any) => c && typeof c.id === 'string')
-                    .map((c: any) => ({ value: c.id as string, label: c.name ? `${c.name} (${c.id})` : c.id }))),
-            ];
-            const stAEnabled = Array.isArray(stA.enabledTools) ? (stA.enabledTools as string[]) : [];
-            const stAAll = stA.toolsEnabled !== false && stAEnabled.length === 0;
-            const stBEnabled = Array.isArray(stB.enabledTools) ? (stB.enabledTools as string[]) : [];
-            const stBAll = stB.toolsEnabled !== false && stBEnabled.length === 0;
-            fields.push(
-                { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
-                { name: 'label', label: 'Display Label', type: 'text', value: profile.label || '' },
-                { name: 'description', label: 'Description', type: 'text', value: profile.description || '' },
-                { name: 'goal', label: 'Goal', type: 'text', value: profile.goal || '' },
-                { name: 'maxTurns', label: 'Max Turns', type: 'number', value: String(profile.maxTurns || 10) },
-                { name: 'initialPromptTemplate', label: 'Initial Prompt Template', type: 'textarea', value: profile.initialPromptTemplate || '', help: PLACEHOLDER_HELP },
-                { name: 'followUpTemplate', label: 'Follow-Up Template', type: 'textarea', value: profile.followUpTemplate || '', help: PLACEHOLDER_HELP },
-                { name: 'temperature', label: 'Temperature', type: 'number', value: String(profile.temperature ?? '') },
-                // ---- Person A ----
-                { name: 'selfTalkPersonASystemPrompt', label: 'Self-Talk A Prompt', type: 'textarea', value: stA.systemPrompt || '' },
-                { name: 'selfTalkPersonAModelConfig', label: 'Self-Talk A Model', type: 'select', value: stA.modelConfig || '', options: llmModelOptions, help: 'Local LLM configuration for Person A. "(default)" inherits the conversation-level <code>modelConfig</code>.' },
-                { name: 'selfTalkPersonATemperature', label: 'Self-Talk A Temp', type: 'number', value: String(stA.temperature ?? '') },
-                { name: 'selfTalkPersonAAllToolsEnabled', label: 'Self-Talk A — All Tools Enabled', type: 'checkbox', value: String(stAAll), help: 'When checked, Person A sees every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a Person A subset below.' },
-                { name: 'selfTalkPersonAEnabledTools', label: 'Self-Talk A — Tools', type: 'multi-checkbox', value: JSON.stringify(stAEnabled), options: convToolOptions, disabledWhen: { field: 'selfTalkPersonAAllToolsEnabled', equals: 'true' }, help: 'Person-A-only tool subset. Active only when "All Tools Enabled" is off.' },
-                // ---- Person B ----
-                { name: 'selfTalkPersonBSystemPrompt', label: 'Self-Talk B Prompt', type: 'textarea', value: stB.systemPrompt || '' },
-                { name: 'selfTalkPersonBModelConfig', label: 'Self-Talk B Model', type: 'select', value: stB.modelConfig || '', options: llmModelOptions, help: 'Local LLM configuration for Person B.' },
-                { name: 'selfTalkPersonBTemperature', label: 'Self-Talk B Temp', type: 'number', value: String(stB.temperature ?? '') },
-                { name: 'selfTalkPersonBAllToolsEnabled', label: 'Self-Talk B — All Tools Enabled', type: 'checkbox', value: String(stBAll), help: 'When checked, Person B sees every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a Person B subset below.' },
-                { name: 'selfTalkPersonBEnabledTools', label: 'Self-Talk B — Tools', type: 'multi-checkbox', value: JSON.stringify(stBEnabled), options: convToolOptions, disabledWhen: { field: 'selfTalkPersonBAllToolsEnabled', equals: 'true' }, help: 'Person-B-only tool subset. Active only when "All Tools Enabled" is off.' },
-            );
-            break;
-        }
-        case 'localLlm': {
-            const profile = (config as any).localLlm?.profiles?.[itemId];
-            if (!profile) break;
-            const llmToolOptions = AVAILABLE_LLM_TOOLS.map((tool) => ({ value: tool, label: tool }));
-            const llmProfileEnabledTools = Array.isArray(profile.enabledTools)
-                ? (profile.enabledTools as string[])
-                : [];
-            const llmAllToolsEnabled = profile.toolsEnabled !== false && llmProfileEnabledTools.length === 0;
-            const llmExtras = profile as {
-                historySuffix?: string;
-                memorySuffix?: string;
-                autoInjectMemory?: boolean;
-            };
-            fields.push(
-                { name: 'name', label: 'Profile Key', type: 'text', value: itemId },
-                { name: 'label', label: 'Display Label', type: 'text', value: profile.label || '' },
-                { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: profile.systemPrompt || '', help: PLACEHOLDER_HELP },
-                { name: 'resultTemplate', label: 'Result Template', type: 'textarea', value: profile.resultTemplate || '' },
-                { name: 'temperature', label: 'Temperature', type: 'number', value: String(profile.temperature ?? '') },
-                { name: 'modelConfig', label: 'Model Config', type: 'text', value: profile.modelConfig || '' },
-                { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(llmAllToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below — empty subset then means no tools.' },
-                { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(llmProfileEnabledTools), options: llmToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off.' },
-                { name: 'historySuffix', label: 'History Suffix', type: 'text', value: llmExtras.historySuffix || '', help: 'Optional suffix for the per-profile history snapshot. When set, the manager reads/writes <code>history-&lt;suffix&gt;.{json,md}</code> in <code>_ai/quests/&lt;quest&gt;/history/</code>. Leave empty to share <code>history-localLLM.{json,md}</code> with the other Local LLM profiles without a suffix (the Anthropic sessions keep their own histories).' },
-                { name: 'memorySuffix', label: 'Memory Suffix', type: 'text', value: llmExtras.memorySuffix || '', help: 'Optional suffix for per-profile memory. When set, the <code>${memory}</code> placeholder injects only <code>facts-&lt;suffix&gt;.md</code> from each scope (shared + current quest). Leave empty to inject every memory file in the scope, matching the Anthropic-side default.' },
-                { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(llmExtras.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the System Prompt or Result Template explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code>.' },
-                { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(profile.isDefault === true) },
-                { name: 'stripThinkingTags', label: 'Strip Thinking Tags', type: 'checkbox', value: String(profile.stripThinkingTags === true) },
-            );
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             const req = requests.find((r: any) => (r.id || '') === itemId);
@@ -409,17 +295,6 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'scheduleMode', label: 'Schedule Mode', type: 'text', value: req.scheduleMode || 'interval' },
                 { name: 'intervalMinutes', label: 'Interval (minutes)', type: 'number', value: String(req.intervalMinutes ?? 30) },
                 { name: 'status', label: 'Status', type: 'text', value: req.status || 'active' },
-            );
-            break;
-        }
-        case 'selfTalk': {
-            const st = (config as any).aiConversation?.selfTalk?.[itemId];
-            if (!st) break;
-            fields.push(
-                { name: 'name', label: 'Profile Key', type: 'text', value: itemId, readonly: true },
-                { name: 'systemPrompt', label: 'System Prompt', type: 'textarea', value: st.systemPrompt || '', help: PLACEHOLDER_HELP },
-                { name: 'modelConfig', label: 'Model Config', type: 'text', value: st.modelConfig || '' },
-                { name: 'temperature', label: 'Temperature', type: 'number', value: String(st.temperature ?? '') },
             );
             break;
         }
@@ -730,109 +605,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             }
             break;
         }
-        case 'tomAiChat': {
-            if (!config.tomAiChat) config.tomAiChat = { templates: {} };
-            if (!config.tomAiChat.templates) config.tomAiChat.templates = {};
-            const newName = values.name || itemId;
-            if (newName !== itemId) delete config.tomAiChat.templates[itemId];
-            const tcAll = values.allToolsEnabled === 'true';
-            let tcEnabled: string[] | undefined;
-            try {
-                const parsed = JSON.parse(values.enabledTools || '[]');
-                if (Array.isArray(parsed)) {
-                    tcEnabled = parsed.filter((t): t is string => typeof t === 'string');
-                }
-            } catch { tcEnabled = undefined; }
-            config.tomAiChat.templates[newName] = {
-                label: values.label || newName,
-                description: values.description || '',
-                contextInstructions: values.contextInstructions || '',
-                systemPromptOverride: values.systemPromptOverride || null,
-                toolsEnabled: tcAll,
-                enabledTools: tcAll ? undefined : (tcEnabled ?? []),
-            } as any;
-            break;
-        }
-        case 'conversation': {
-            const profiles = (config as any).aiConversation?.profiles;
-            if (!profiles) break;
-            const newName = values.name || itemId;
-            if (newName !== itemId) delete profiles[itemId];
-            const parseTools = (json: string): string[] | undefined => {
-                try {
-                    const parsed = JSON.parse(json || '[]');
-                    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : undefined;
-                } catch { return undefined; }
-            };
-            const personAAll = values.selfTalkPersonAAllToolsEnabled === 'true';
-            const personBAll = values.selfTalkPersonBAllToolsEnabled === 'true';
-            const personAEnabled = parseTools(values.selfTalkPersonAEnabledTools || '');
-            const personBEnabled = parseTools(values.selfTalkPersonBEnabledTools || '');
-            profiles[newName] = {
-                ...(profiles[itemId] || profiles[newName] || {}),
-                label: values.label || newName,
-                description: values.description || '',
-                goal: values.goal || '',
-                maxTurns: parseInt(values.maxTurns) || 10,
-                initialPromptTemplate: values.initialPromptTemplate || null,
-                followUpTemplate: values.followUpTemplate || null,
-                temperature: values.temperature ? parseFloat(values.temperature) : undefined,
-                selfTalk: {
-                    personA: {
-                        systemPrompt: values.selfTalkPersonASystemPrompt || '',
-                        modelConfig: values.selfTalkPersonAModelConfig || null,
-                        temperature: values.selfTalkPersonATemperature ? parseFloat(values.selfTalkPersonATemperature) : undefined,
-                        toolsEnabled: personAAll,
-                        enabledTools: personAAll ? undefined : (personAEnabled ?? []),
-                    },
-                    personB: {
-                        systemPrompt: values.selfTalkPersonBSystemPrompt || '',
-                        modelConfig: values.selfTalkPersonBModelConfig || null,
-                        temperature: values.selfTalkPersonBTemperature ? parseFloat(values.selfTalkPersonBTemperature) : undefined,
-                        toolsEnabled: personBAll,
-                        enabledTools: personBAll ? undefined : (personBEnabled ?? []),
-                    },
-                },
-            };
-            break;
-        }
-        case 'localLlm': {
-            const profiles = (config as any).localLlm?.profiles;
-            if (!profiles) break;
-            const newName = values.name || itemId;
-            if (newName !== itemId) delete profiles[itemId];
-            const llmAll = values.allToolsEnabled === 'true';
-            let llmEnabled: string[] | undefined;
-            try {
-                const parsed = JSON.parse(values.enabledTools || '[]');
-                if (Array.isArray(parsed)) {
-                    llmEnabled = parsed.filter((t): t is string => typeof t === 'string');
-                }
-            } catch { llmEnabled = undefined; }
-            const trimOrUndef = (s: string | undefined): string | undefined => {
-                const v = (s ?? '').trim();
-                return v.length > 0 ? v : undefined;
-            };
-            profiles[newName] = {
-                ...(profiles[itemId] || profiles[newName] || {}),
-                label: values.label || newName,
-                systemPrompt: values.systemPrompt || null,
-                resultTemplate: values.resultTemplate || null,
-                temperature: values.temperature ? parseFloat(values.temperature) : null,
-                modelConfig: values.modelConfig || null,
-                toolsEnabled: llmAll,
-                enabledTools: llmAll ? undefined : (llmEnabled ?? []),
-                isDefault: values.isDefault === 'true',
-                stripThinkingTags: values.stripThinkingTags === 'true',
-                // Persist as `undefined` when empty so the JSON stays
-                // clean (no "historySuffix": "" noise) and downstream
-                // reads with `?? defaults` keep behaving correctly.
-                historySuffix: trimOrUndef(values.historySuffix),
-                memorySuffix: trimOrUndef(values.memorySuffix),
-                autoInjectMemory: values.autoInjectMemory === 'true',
-            };
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             const idx = requests.findIndex((r: any) => r.id === itemId);
@@ -1065,17 +837,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             config.anthropic.interactiveQuestionsTemplates = templates;
             break;
         }
-        case 'selfTalk': {
-            const selfTalk = (config as any).aiConversation?.selfTalk;
-            if (!selfTalk) break;
-            selfTalk[itemId] = {
-                ...selfTalk[itemId],
-                systemPrompt: values.systemPrompt || '',
-                modelConfig: values.modelConfig || null,
-                temperature: values.temperature ? parseFloat(values.temperature) : undefined,
-            };
-            break;
-        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1085,11 +846,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
 }
 
 async function _addItem(category: TemplateCategory): Promise<void> {
-    if (category === 'selfTalk') {
-        vscode.window.showWarningMessage('Self-Talk profiles are fixed (Person A / Person B).');
-        return;
-    }
-
     const name = await vscode.window.showInputBox({
         prompt: `New ${CATEGORY_LABELS[category]} name`,
         placeHolder: 'my_template',
@@ -1110,33 +866,6 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             const templates: any[] = (config as any).reminders.templates || [];
             templates.push({ id: name, name, prompt: '', isDefault: false });
             (config as any).reminders.templates = templates;
-            break;
-        }
-        case 'tomAiChat':
-            if (!config.tomAiChat) config.tomAiChat = { templates: {} };
-            if (!config.tomAiChat.templates) config.tomAiChat.templates = {};
-            config.tomAiChat.templates[name] = { label: name, description: '', contextInstructions: '' } as any;
-            break;
-        case 'conversation': {
-            if (!(config as any).aiConversation) (config as any).aiConversation = { profiles: {} };
-            if (!(config as any).aiConversation.profiles) (config as any).aiConversation.profiles = {};
-            (config as any).aiConversation.profiles[name] = {
-                label: name, description: '', goal: '', maxTurns: 10,
-                initialPromptTemplate: null, followUpTemplate: null,
-                selfTalk: {
-                    personA: { systemPrompt: '', modelConfig: null },
-                    personB: { systemPrompt: '', modelConfig: null },
-                },
-            };
-            break;
-        }
-        case 'localLlm': {
-            if (!(config as any).localLlm) (config as any).localLlm = { profiles: {} };
-            if (!(config as any).localLlm.profiles) (config as any).localLlm.profiles = {};
-            (config as any).localLlm.profiles[name] = {
-                label: name, systemPrompt: null, resultTemplate: null,
-                temperature: null, toolsEnabled: true,
-            };
             break;
         }
         case 'timedRequests': {
@@ -1257,9 +986,6 @@ function _uniqueIdFromBase(base: string, existingIds: Set<string>): string {
 function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, category: TemplateCategory): Set<string> {
     switch (category) {
         case 'copilot':               return new Set(Object.keys(config.copilot?.templates ?? {}));
-        case 'tomAiChat':             return new Set(Object.keys(config.tomAiChat?.templates ?? {}));
-        case 'conversation':          return new Set(Object.keys((config as any).aiConversation?.profiles ?? {}));
-        case 'localLlm':              return new Set(Object.keys((config as any).localLlm?.profiles ?? {}));
         case 'reminder':              return new Set(((config as any).reminders?.templates ?? []).map((t: any) => t.id));
         case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
         case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
@@ -1280,10 +1006,6 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
  * every category except `selfTalk` (fixed-slot Person A / Person B).
  */
 async function _copyItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'selfTalk') {
-        vscode.window.showWarningMessage('Self-Talk profiles are fixed slots — nothing to copy.');
-        return;
-    }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1308,25 +1030,6 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
             const src = config.copilot?.templates?.[itemId];
             if (!src) return;
             config.copilot!.templates![targetId] = JSON.parse(JSON.stringify(src));
-            break;
-        }
-        case 'tomAiChat': {
-            const src = config.tomAiChat?.templates?.[itemId];
-            if (!src) return;
-            config.tomAiChat!.templates![targetId] = JSON.parse(JSON.stringify(src));
-            break;
-        }
-        case 'conversation': {
-            const src = (config as any).aiConversation?.profiles?.[itemId];
-            if (!src) return;
-            (config as any).aiConversation.profiles[targetId] = JSON.parse(JSON.stringify(src));
-            break;
-        }
-        case 'localLlm': {
-            const src = (config as any).localLlm?.profiles?.[itemId];
-            if (!src) return;
-            const clone = JSON.parse(JSON.stringify(src));
-            (config as any).localLlm.profiles[targetId] = { ...clone, label: clone.label || targetId };
             break;
         }
         case 'reminder': {
@@ -1418,10 +1121,6 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
  * display label follows the rename) unless it was already distinct.
  */
 async function _renameItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'selfTalk') {
-        vscode.window.showWarningMessage('Self-Talk profiles cannot be renamed.');
-        return;
-    }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1446,27 +1145,6 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
             if (!tpls || !tpls[itemId]) return;
             tpls[targetId] = tpls[itemId];
             delete tpls[itemId];
-            break;
-        }
-        case 'tomAiChat': {
-            const tpls = config.tomAiChat?.templates;
-            if (!tpls || !tpls[itemId]) return;
-            tpls[targetId] = tpls[itemId];
-            delete tpls[itemId];
-            break;
-        }
-        case 'conversation': {
-            const profs = (config as any).aiConversation?.profiles;
-            if (!profs || !profs[itemId]) return;
-            profs[targetId] = profs[itemId];
-            delete profs[itemId];
-            break;
-        }
-        case 'localLlm': {
-            const profs = (config as any).localLlm?.profiles;
-            if (!profs || !profs[itemId]) return;
-            profs[targetId] = profs[itemId];
-            delete profs[itemId];
             break;
         }
         case 'reminder': {
@@ -1541,11 +1219,6 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
 }
 
 async function _deleteItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'selfTalk') {
-        vscode.window.showWarningMessage('Self-Talk profiles cannot be deleted.');
-        return;
-    }
-
     const confirm = await vscode.window.showWarningMessage(
         `Delete "${itemId}"?`, { modal: true }, 'Delete',
     );
@@ -1564,15 +1237,6 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
             (config as any).reminders.templates = templates.filter((t: any) => t.id !== itemId);
             break;
         }
-        case 'tomAiChat':
-            if (config.tomAiChat?.templates) delete config.tomAiChat.templates[itemId];
-            break;
-        case 'conversation':
-            if ((config as any).aiConversation?.profiles) delete (config as any).aiConversation.profiles[itemId];
-            break;
-        case 'localLlm':
-            if ((config as any).localLlm?.profiles) delete (config as any).localLlm.profiles[itemId];
-            break;
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             (config as any).timedRequests = requests.filter((r: any) => r.id !== itemId);

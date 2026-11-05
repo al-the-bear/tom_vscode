@@ -25,48 +25,6 @@ import { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
 
 export interface SendToChatConfig {
     localLlm: {
-        profiles: { [key: string]: {
-            label: string;
-            systemPrompt?: string | null;
-            resultTemplate?: string | null;
-            temperature?: number | null;
-            modelConfig?: string | null;
-            /** When true (default), expose every tool in ALL_SHARED_TOOLS. When false, use enabledTools (or fall back to no tools). */
-            toolsEnabled?: boolean;
-            /** Profile-level tool subset; honored when toolsEnabled === false. */
-            enabledTools?: string[];
-            /** Optional override for the model-level history/turn cap. */
-            maxRounds?: number;
-            historyMode?: string;
-            stripThinkingTags?: boolean | null;
-            isDefault?: boolean;
-            /**
-             * Suffix for the per-profile history snapshot files in
-             * `_ai/quests/<quest>/history/`: the manager reads/writes
-             * `history-<historySuffix>.{json,md}`; unset, the shared
-             * `history-localLLM.{json,md}` (src/utils/localLlmHistory.ts).
-             * The Anthropic sessions keep their own histories.
-             */
-            historySuffix?: string;
-            /**
-             * Suffix for the per-profile memory file. When set, the
-             * `${memory}` placeholder injects only `facts-<memorySuffix>.md`
-             * from each scope (shared + current quest). Default
-             * (omitted): inject every file in the scope, matching the
-             * legacy Anthropic-side behaviour.
-             */
-            memorySuffix?: string;
-            /**
-             * When true, append `\n\n## Memory\n\n${memory}` to the
-             * resolved system prompt automatically so the profile
-             * doesn't have to spell out the placeholder. Mirrors
-             * `AnthropicProfile.autoInjectMemory`. When false / unset,
-             * memory is only injected when the profile references
-             * `${memory}` / `${memory-shared}` / `${memory-quest}`
-             * explicitly.
-             */
-            autoInjectMemory?: boolean;
-        } };
         /** Default Ollama URL for LLM calls */
         ollamaUrl?: string;
         /** Default model name for LLM calls */
@@ -129,44 +87,15 @@ export interface SendToChatConfig {
         }>;
         defaultTemplate?: string;
     };
-    aiConversation: {
-        profiles: { [key: string]: {
-            label: string;
-            description?: string;
-            goal?: string;
-            maxTurns?: number;
-            initialPromptTemplate?: string | null;
-            followUpTemplate?: string | null;
-            temperature?: number | null;
-        } };
+    /**
+     * Only `telegram` is left of the AI Conversation section (the panel was
+     * removed): the shared Telegram settings, read as the seed for a quest's
+     * own Telegram configuration.
+     */
+    aiConversation?: {
         telegram?: {
             autostart?: boolean;
         };
-        setups?: Array<{
-            id: string;
-            name: string;
-            llmConfigA?: string;
-            llmConfigB?: string;
-            maxTurns?: number;
-            pauseBetweenTurns?: boolean;
-            historyMode?: string;
-            trailSummarizationLlmConfig?: string;
-            isDefault?: boolean;
-        }>;
-        defaultTemplate?: string;
-    };
-    tomAiChat?: {
-        defaultTemplate?: string;
-        templates?: { [key: string]: {
-            label: string;
-            description?: string;
-            contextInstructions?: string;
-            systemPromptOverride?: string | null;
-            /** When true (default), expose every tool in ALL_SHARED_TOOLS. When false, use enabledTools. */
-            toolsEnabled?: boolean;
-            /** Template-level tool subset; honored when toolsEnabled === false. */
-            enabledTools?: string[];
-        } };
     };
     copilot?: {
         templates?: { [key: string]: { template: string; showInMenu?: boolean } };
@@ -553,7 +482,6 @@ export interface SendToChatConfig {
  */
 export interface QuestRefreshConfig {
     anthropic?: QuestRefreshPanelConfig;
-    localLlm?: QuestRefreshPanelConfig;
     copilot?: QuestRefreshPanelConfig;
 }
 
@@ -668,7 +596,7 @@ export function getMcpServerSettings(
 }
 
 /** Panel keys for Quest Refresh — one per chat transport. */
-export type QuestRefreshPanel = 'anthropic' | 'localLlm' | 'copilot';
+export type QuestRefreshPanel = 'anthropic' | 'copilot';
 
 /** Fully-resolved per-panel Quest Refresh settings with defaults applied. */
 export interface ResolvedQuestRefreshPanel {
@@ -717,14 +645,12 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
         errors.push('Missing configurations: at least one LLM configuration is required.');
     }
 
-    const llmIds = new Set<string>();
     for (const entry of llmConfigs) {
         const id = (entry?.id || '').trim();
         if (!id) {
             errors.push('Each configurations entry must define a non-empty id.');
             continue;
         }
-        llmIds.add(id);
         if (!(entry?.name || '').trim()) { errors.push(`configurations.${id}.name is required.`); }
         if (!(entry?.ollamaUrl || '').trim()) { errors.push(`configurations.${id}.ollamaUrl is required.`); }
         if (!(entry?.model || '').trim()) { errors.push(`configurations.${id}.model is required.`); }
@@ -736,32 +662,6 @@ export function validateStrictAiConfiguration(config: SendToChatConfig | null | 
         if (!(entry?.answerFolder || '').trim()) { errors.push(`configurations.${id}.answerFolder is required.`); }
         if (!(entry?.logFolder || '').trim()) { errors.push(`configurations.${id}.logFolder is required.`); }
         if (!(entry?.historyMode || '').trim()) { errors.push(`configurations.${id}.historyMode is required.`); }
-    }
-
-    const setups = Array.isArray(config.aiConversation?.setups) ? config.aiConversation.setups : [];
-    if (setups.length === 0) {
-        errors.push('Missing setups: at least one AI conversation setup is required.');
-    }
-
-    for (const setup of setups) {
-        const id = (setup?.id || '').trim() || '(unknown-setup)';
-        if (!(setup?.id || '').trim()) { errors.push('Each setups entry must define a non-empty id.'); }
-        if (!(setup?.name || '').trim()) { errors.push(`setups.${id}.name is required.`); }
-        if (!(setup?.llmConfigA || '').trim()) { errors.push(`setups.${id}.llmConfigA is required.`); }
-        if (typeof setup?.maxTurns !== 'number') { errors.push(`setups.${id}.maxTurns must be a number.`); }
-        if (typeof setup?.pauseBetweenTurns !== 'boolean') { errors.push(`setups.${id}.pauseBetweenTurns must be boolean.`); }
-        if (!(setup?.historyMode || '').trim()) { errors.push(`setups.${id}.historyMode is required.`); }
-        if (!(setup?.trailSummarizationLlmConfig || '').trim()) { errors.push(`setups.${id}.trailSummarizationLlmConfig is required.`); }
-
-        if ((setup?.llmConfigA || '').trim() && !llmIds.has((setup!.llmConfigA || '').trim())) {
-            errors.push(`setups.${id}.llmConfigA references unknown configurations id "${setup!.llmConfigA}".`);
-        }
-        if ((setup?.llmConfigB || '').trim() && setup!.llmConfigB !== 'copilot' && !llmIds.has((setup!.llmConfigB || '').trim())) {
-            errors.push(`setups.${id}.llmConfigB references unknown configurations id "${setup!.llmConfigB}".`);
-        }
-        if ((setup?.trailSummarizationLlmConfig || '').trim() && !llmIds.has((setup!.trailSummarizationLlmConfig || '').trim())) {
-            errors.push(`setups.${id}.trailSummarizationLlmConfig references unknown configurations id "${setup!.trailSummarizationLlmConfig}".`);
-        }
     }
 
     return errors;

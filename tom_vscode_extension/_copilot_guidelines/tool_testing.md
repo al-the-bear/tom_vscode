@@ -331,8 +331,7 @@ What a window provides around the tools is stood in at VS Code's boundary, so
 the tools' own code runs (`startWorkbench`, MA-8): an issue tracker kept in a
 file of the sandbox (`registerIssueProvider` — the issue and test tools), the
 tool trail of the run fed by the server's trail sink (`setActiveToolTrail` —
-the past-tool access tools), a sub-agent spawner (`registerSubagentSpawner`), a
-Tom AI Chat todo session (`setActiveTodoManager`), a task and a launch
+the past-tool access tools), a sub-agent spawner (`registerSubagentSpawner`), a task and a launch
 configuration that end at once, the fixture notebook, and a language server's
 answers for `src/greeting.ts` (a symbol, a definition, references, a code
 action with an edit, a rename). No tool answers only "not available"; a new

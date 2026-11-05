@@ -685,18 +685,6 @@ export function applyDefaultTemplate(text: string, panel: string): string {
             templateKey = config.copilot?.defaultTemplate;
             templates = config.copilot?.templates;
             break;
-        case 'localLlm':
-            templateKey = (config.localLlm as any)?.defaultTemplate;
-            templates = (config.localLlm as any)?.templates || config.copilot?.templates;
-            break;
-        case 'conversation':
-            templateKey = (config.aiConversation as any)?.defaultTemplate;
-            templates = (config.aiConversation as any)?.templates || config.copilot?.templates;
-            break;
-        case 'tomAiChat':
-            templateKey = config.tomAiChat?.defaultTemplate;
-            templates = (config.tomAiChat as any)?.templates || config.copilot?.templates;
-            break;
         default:
             return text;
     }
@@ -731,7 +719,7 @@ export interface TemplateEditorField {
 }
 
 export interface TemplateEditorConfig {
-    type: 'copilot' | 'conversation' | 'tomAiChat' | 'localLlm';
+    type: 'copilot';
     title: string;
     fields: TemplateEditorField[];
 }

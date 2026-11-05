@@ -29,9 +29,6 @@
 | Key | Command | Description |
 | --- | --- | --- |
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot menu |
-| `Ctrl+Shift+L` | `tomAi.chordMenu.localLlm` | Local LLM menu |
-| `Ctrl+Shift+A` | `tomAi.chordMenu.aiConversation` | AI Conversation menu |
-| `Ctrl+Shift+T` | `tomAi.chordMenu.tomAiChat` | Tom AI chat menu |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute menu |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites menu |
 
@@ -83,9 +80,6 @@
 ## Core AI Commands
 
 - `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`
-- `tomAi.tomAiChat.start`, `tomAi.tomAiChat.send`, `tomAi.tomAiChat.interrupt`
-- `tomAi.sendToLocalLlm`, `tomAi.sendToLocalLlm.template`
-- `tomAi.aiConversation.start`, `tomAi.aiConversation.stop`, `tomAi.aiConversation.continue`, `tomAi.aiConversation.add`, `tomAi.aiConversation.status`
 - `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (follow-tail mode for the live trail)
 
 ## Bridge and Runtime Commands
@@ -137,11 +131,8 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| Anthropic | `codicon-hubot` | Anthropic SDK / Agent SDK with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
-| Tom AI Chat | `codicon-comment-discussion-sparkle` | Tom AI chat interface (shares Anthropic handler) |
-| AI Conversation | `codicon-comment-discussion` | Multi-turn AI conversation (not queue-compatible) |
+| Anthropic | `codicon-hubot` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
-| Local LLM | `codicon-robot` | Send prompts to local Ollama model |
 
 #### Copilot Action Bar Fields
 
@@ -291,15 +282,15 @@ Open: `Ctrl+Shift+7` or `@T: Open Timed Requests`
 | --- | --- |
 | Tom Prompt Queue | Queue state, sends, answer detection, watchdog |
 | Tom Timed Requests | Ticks, fire decisions, schedule evaluation |
-| Tom Debug | General debug across all categories |
+| Tom Extension Debug Log | General debug across all categories |
 | Tom Tests | Test output |
 | Tom Dartbridge Log | Bridge communication |
-| Tom Conversation Log | AI conversation turns |
-| Tom AI Chat Log | Chat interactions |
 | Tom Tool Log | Tool invocations |
-| Tom AI Chat Responses | Chat response content |
-| Tom AI Local LLM | Local LLM interactions |
-| Tom AI Local Log | Local LLM debug |
+| Tom AI Anthropic Chat | Anthropic turns |
+| Tom AI Anthropic Chat Responses | Anthropic response content |
+| Tom AI Compaction and Memory Extraction | Compaction and memory-extraction passes |
+| Tom AI: MCP Server | MCP server requests |
+| Tom AI Local Log | Local LLM debug (endpoint, timing, retries) |
 
 ## Window Status Panel
 
@@ -314,9 +305,9 @@ View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem sta
 | Surface | Path | Written by | Notes |
 | --- | --- | --- | --- |
 | Session storage (Anthropic) | `_ai/quests/<quest>/history/sessions/<session>/` — one per session, `chat` (the ANTHROPIC panel) and `default` (the queue) included | Anthropic handler, `TrailService`, `LiveTrailWriter` | `compacted_history.md`, `history.json` / `history.md` (snapshot) and `live-trail.md` are tracked; `rawTurns.json`, `compaction_rounds.json`, `iteration.json`, the pair `<quest>.anthropic.prompts.md` / `.answers.md` and `trail/` are ignored. `trail/` holds the raw per-call files (`*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_tool_request_*.json`, `*_tool_answer_*.json`), `compaction/` and `memory/`, `tool_results/t<n>.json` (keys continue past what is stored) and `current_prompt.*.md` |
-| Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` (Local LLM: `_ai/trail/localllm/<quest>-<config>/`) | `TrailService` | Copilot, Local LLM, LM API, MCP; the quest-level `_ai/trail/anthropic/<quest>/last_request.json` stays there |
-| Live trail | `history/sessions/<session>/live-trail.md` (Anthropic); `_ai/quests/<quest>/live-trail-localLLM.md` (Local LLM) | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
-| Quest memory | `_ai/memory/<quest>/<session>/` per session; `_ai/memory/shared/` one set | memory service, memory tools, background extraction | `${memory}` injects the running session's quest memory plus shared; a Local LLM memory bucket (`facts-<suffix>.md`) reads the `default` session's |
+| Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` | `TrailService`, `lastRequestDump` | Copilot, LM API, MCP; the quest-level `last_request.json` of `_ai/trail/anthropic/<quest>/` and, for Anthropic profiles on Local LLM configurations, of `_ai/trail/localllm/<quest>/` |
+| Live trail | `history/sessions/<session>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
+| Quest memory | `_ai/memory/<quest>/<session>/` per session; `_ai/memory/shared/` one set | memory service, memory tools, background extraction | `${memory}` injects the running session's quest memory plus shared |
 | Sessions | `_ai/quests/<quest>/history/<name>.session.json` (`chat` panel, `default` queue, named sessions) | Anthropic handler, session pickers, `tomAi_createSession` | `chat.session.json` and `default.session.json` are gitignored, a named session's file is tracked. Holds the Agent SDK session id (SDK-managed mode) and, for a named session, `basedOn`, `mode` (`continue` / `per-prompt` / `per-iteration`; `fork-from-base` = `per-prompt`), `profileId` and `model`, and a per-iteration session's current `iteration` |
 | Moving to per-session storage | `history/sessions/.storage-version` (ignored) | memory service, on a quest's first use | The per-quest layout's files (history, the Anthropic pair, `live-trail.md`, the raw Anthropic trail, quest memory) become the `default` session's, once per quest and machine; a file whose target exists stays (named in the *Tom AI Compaction and Memory Extraction* output channel) |
 | History of a session | its storage root | Anthropic handler | A based `continue` session is seeded from its base once; a `per-prompt` session reads its base and writes nothing; a `per-iteration` session's folder holds the current iteration (`iteration.json`). A temporary session's storage is deleted with it |

@@ -42,7 +42,7 @@ Both are covered by `src/handlers/__tests__/notepadFileStorage.test.ts`, where t
 Shows one card per open `@Tom` window:
 
 - workspace name + active quest,
-- per-subsystem indicators (Anthropic / Tom AI Chat / Copilot / Local LLM / AI Conversation) colored **orange** (prompt sent, awaiting answer) / **green** (answer received),
+- per-subsystem indicators (Queue / Anthropic / Copilot) colored **orange** (prompt sent, awaiting answer) / **green** (answer received),
 - relative timestamps for the most recent state change,
 - delete action to remove stale window entries.
 

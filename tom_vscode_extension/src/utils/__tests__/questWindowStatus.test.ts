@@ -49,7 +49,7 @@ const STATES: WindowStateInput[] = [
         },
     },
     // This window: a heartbeat, no host field (machine half of the id).
-    { windowId: 'bbbb2222_mach0001', workspace: 'tom_uam', activeQuest: 'tom_uam', heartbeat: ago(5), aiConversationActive: true },
+    { windowId: 'bbbb2222_mach0001', workspace: 'tom_uam', activeQuest: 'tom_uam', heartbeat: ago(5) },
     // Stale.
     { windowId: 'cccc3333_mach0001', workspace: 'd4rt', activeQuest: 'd4rt', host: 'mbp', heartbeat: ago(600) },
     // Another host's file (by host, and by machine id).
@@ -114,7 +114,7 @@ describe('quest window status', () => {
             },
         });
         const me = buildQuestWindowStatus(input()).windows[1];
-        assert.deepEqual([me.aiConversationActive, me.role, me.panel, me.queue], [true, undefined, undefined, undefined], 'an older build writes none of it');
+        assert.deepEqual([me.role, me.panel, me.queue], [undefined, undefined, undefined], 'an older build writes none of it');
     });
 
     test('QS-3: profiles', () => {

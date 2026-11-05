@@ -2,16 +2,16 @@
 
 ## 1) What the extension provides
 
-The extension combines VS Code automation, bridge-based scripting, Copilot workflows, Tom AI chat tools, local LLM integration, a prompt queue with timed requests, and dedicated output channels for observability.
+The extension combines VS Code automation, bridge-based scripting, Copilot workflows, Anthropic chat with tools, local LLMs through Anthropic profiles, a prompt queue with timed requests, and dedicated output channels for observability.
 
 ## 2) Panels and layout
 
 Current bottom panel layout:
 
-- `@CHAT` (`tomAi.chatPanel`): five subpanels — **Anthropic**, **Tom AI Chat**, **AI Conversation**, **Copilot**, **Local LLM**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
+- `@CHAT` (`tomAi.chatPanel`): two subpanels — **Anthropic** and **Copilot**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
 - `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section shows one session's live trail, prompts, answers and running prompt, with a session switch — see [Logs Panel](#logs-panel); the Documentation section's sub-tabs hold the document editor and the quest's own documents — see [Documentation Panel](#documentation-panel).
 
-AI Conversation is the only subpanel that is **not** queue-compatible — each AI Conversation turn runs as an ad-hoc chat.
+Both subpanels are queue-compatible.
 
 ### Guidelines Panel
 
@@ -160,7 +160,7 @@ Processes live in `_ai/processes/<id>/`: `<id>.process.yaml` is the structure an
 The Window Status panel is an Explorer sidebar view showing the state of all open @Tom windows:
 
 - **Multi-window overview**: One card per open window displaying workspace name and active quest
-- **Subsystem status**: Per-subsystem indicators (Copilot, Local LLM, AI Conversation, etc.) with color coding:
+- **Subsystem status**: Per-subsystem indicators (Queue, Anthropic, Copilot) with color coding:
   - **Orange**: Prompt sent, awaiting answer
   - **Green**: Answer received
 - **Relative timestamps**: Shows how long ago each state change occurred
@@ -295,25 +295,11 @@ The Copilot section in `@CHAT` includes an action bar with:
 - **Template picker**: Select a prompt template
 - **Queue button**: Add the current prompt to the queue with the configured repeat count and wait time
 
-### Tom AI Chat
+### Local LLM (Ollama / OpenAI-compatible)
 
-Use:
+A local model is used through an **Anthropic profile** whose configuration is a Local LLM configuration (`localLlm.configurations`, edited in the Status Page's **LLM Configurations** section). Pick that profile in the Anthropic subpanel or name it on a queue item: the Anthropic handler's tool loop, approval gate, templates, sessions and trails apply, and each model call goes to the configured Ollama or OpenAI-compatible endpoint. See [llm_configuration.md §5](llm_configuration.md#5-local-llm-configuration-localllm-section).
 
-- `@T: Start Tom AI Chat`
-- `@T: Send Tom AI Chat Prompt`
-- `@T: Interrupt Tom AI Chat`
-
-Tom AI Chat shares the Anthropic handler (profiles, tool trail, approval gate, raw trail) but has its own subpanel UI and tool-surface tuning. The tool trail's past-tool-access tools (`tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult`) let the model recall prior tool output by replay key (`t1`, `t2`, …) across turns.
-
-### Local LLM (Ollama)
-
-Use:
-
-- `@T: Send to Local LLM`
-- `@T: Send to Local LLM (Default Template)`
-- `@T: Send to Local LLM (Pick Template)`
-
-Switch model with `@T: Change Local LLM Model...`.
+The tool trail's past-tool-access tools (`tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult`) let the model recall prior tool output by replay key (`t1`, `t2`, …) across turns, on every Anthropic profile.
 
 ## 4) Prompt Queue
 
@@ -563,15 +549,15 @@ The extension provides dedicated output channels for observability:
 | --- | --- | --- |
 | Tom Prompt Queue | `promptQueueManager.ts` | Queue state changes, send events (each naming where the prompt goes: `via copilot`, or `via anthropic (profile …, session …)`), answer detection, watchdog health checks |
 | Tom Timed Requests | `timerEngine.ts` | Tick heartbeats, fire decisions, schedule evaluation, entry lifecycle |
-| Tom Debug | `debugLogger.ts` | General debug logging across all categories |
+| Tom Extension Debug Log | `debugLogger.ts` | General debug logging across all categories |
 | Tom Tests | `tests.ts` | Test execution output |
 | Tom Dartbridge Log | `vscode-bridge.ts` | Bridge communication logs |
-| Tom Conversation Log | `aiConversation-handler.ts` | AI conversation turns |
-| Tom AI Chat Log | `tomAiChat-handler.ts` | Tom AI Chat interactions |
-| Tom Tool Log | `tomAiChat-handler.ts` | Tool invocation logs |
-| Tom AI Chat Responses | `tomAiChat-handler.ts` | Chat response content |
-| Tom AI Local LLM | `localLlm-handler.ts` | Local LLM interactions |
-| Tom AI Local Log | `localLlm-handler.ts` | Local LLM debug output |
+| Tom Tool Log | `toolLog.ts` | Tool invocation logs (one line per agent tool call) |
+| Tom AI Anthropic Chat | `anthropic-output-channels.ts` | Anthropic turns |
+| Tom AI Anthropic Chat Responses | `anthropic-output-channels.ts` | Anthropic response content |
+| Tom AI Compaction and Memory Extraction | `compaction-log.ts` | History compaction and memory extraction passes |
+| Tom AI: MCP Server | `mcpServerLog.ts` | MCP server requests |
+| Tom AI Local Log | `localLlm-handler.ts` | Local LLM debug output (endpoint, timing, retries) |
 
 Queue and timed request channels include ISO timestamps on every log line and can be enabled/disabled at runtime.
 

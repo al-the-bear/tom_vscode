@@ -16,9 +16,7 @@ import {
 } from './constants';
 
 export type LocalLlmConfig = Record<string, unknown>;
-export type AiConversationConfig = Record<string, unknown>;
 export type CopilotConfig = Record<string, unknown>;
-export type TomAiChatConfig = Record<string, unknown>;
 export type TrailConfig = Record<string, unknown>;
 export type BridgeConfig = Record<string, unknown>;
 export type TodoConfig = Record<string, unknown>;
@@ -28,9 +26,7 @@ export type FavoriteEntry = Record<string, unknown>;
 export interface TomAiConfigDefaults {
     userName: string;
     localLlm: LocalLlmConfig;
-    aiConversation: AiConversationConfig;
     copilot: CopilotConfig;
-    tomAiChat: TomAiChatConfig;
     trail: TrailConfig;
     bridge: BridgeConfig;
     todo: TodoConfig;
@@ -116,16 +112,10 @@ export class TomAiConfiguration {
             localLlm: {
                 ollamaUrl: 'http://localhost:11434',
             },
-            aiConversation: {
-                profiles: [],
-                setups: [],
-                selfTalk: [],
-            },
             copilot: {
                 answerFolder: '${ai}/chat_replies',
                 showNotifications: true,
             },
-            tomAiChat: {},
             trail: {
                 raw: {
                     enabled: true,
@@ -225,9 +215,7 @@ export class TomAiConfiguration {
     }
 
     getLocalLlm(): LocalLlmConfig { return this.getSection<LocalLlmConfig>('localLlm') ?? {}; }
-    getAiConversation(): AiConversationConfig { return this.getSection<AiConversationConfig>('aiConversation') ?? {}; }
     getCopilot(): CopilotConfig { return this.getSection<CopilotConfig>('copilot') ?? {}; }
-    getTomAiChat(): TomAiChatConfig { return this.getSection<TomAiChatConfig>('tomAiChat') ?? {}; }
     getTrail(): TrailConfig { return this.getSection<TrailConfig>('trail') ?? {}; }
     getBridge(): BridgeConfig { return this.getSection<BridgeConfig>('bridge') ?? {}; }
     getTodo(): TodoConfig { return this.getSection<TodoConfig>('todo') ?? {}; }
@@ -235,9 +223,7 @@ export class TomAiConfiguration {
     getFavorites(): FavoriteEntry[] { return this.getSection<FavoriteEntry[]>('favorites') ?? []; }
 
     async saveLocalLlm(config: LocalLlmConfig): Promise<void> { await this.updateSection('localLlm', config); }
-    async saveAiConversation(config: AiConversationConfig): Promise<void> { await this.updateSection('aiConversation', config); }
     async saveCopilot(config: CopilotConfig): Promise<void> { await this.updateSection('copilot', config); }
-    async saveTomAiChat(config: TomAiChatConfig): Promise<void> { await this.updateSection('tomAiChat', config); }
     async saveTrail(config: TrailConfig): Promise<void> { await this.updateSection('trail', config); }
     async saveBridge(config: BridgeConfig): Promise<void> { await this.updateSection('bridge', config); }
     async saveTodo(config: TodoConfig): Promise<void> { await this.updateSection('todo', config); }

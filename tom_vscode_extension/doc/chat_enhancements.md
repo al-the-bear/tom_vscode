@@ -30,7 +30,7 @@
 
 ## 1. LLM Tools
 
-These are tools callable by local LLM (Ollama), Copilot (via `@dartscript` chat participant tools), and the Tom AI Chat LLM. They are registered as VS Code language model tools and exposed through the bridge protocol.
+These are tools callable by every Anthropic profile (local LLMs included, through Local LLM configurations) and Copilot (via `@dartscript` chat participant tools). They are registered as VS Code language model tools and exposed through the bridge protocol.
 
 ### 1.1 Notify User (Telegram)
 
@@ -173,7 +173,7 @@ interface WindowTodoItem {
   status: 'pending' | 'done';
   createdAt: string; // ISO timestamp
   updatedAt: string;
-  source: 'copilot' | 'localLlm' | 'tomAiChat'; // Which LLM created it
+  source: 'user' | 'localLlm' | 'copilot' | 'anthropic' | 'mcp'; // Which surface created it
 }
 ```
 
@@ -204,7 +204,7 @@ interface WindowTodoItem {
 - Persists state to workspace storage (`context.workspaceState`)
 - Tracks current values for quest, activeProjects, todo, role
 - Emits change events so panels can react
-- Records a change log (last 100 entries) with timestamp, key, old value, new value, and source (`user` | `localLlm` | `copilot` | `tomAiChat`)
+- Records a change log (last 100 entries) with timestamp, key, old value, new value, and source (`user` | `localLlm` | `copilot` | `anthropic` | `mcp`)
 - Is accessible from all handlers, the bridge protocol, and LLM tools
 
 ---
@@ -724,7 +724,7 @@ interface QueuedPrompt {
 **Change log:**
 - Scrollable log at the bottom of the editor
 - Each entry: `{HH:MM:SS} {variableName} = "{newValue}" ({source})`
-- Source is one of: `user`, `localLlm`, `copilot`, `tomAiChat`
+- Source is one of: `user`, `localLlm`, `copilot`, `anthropic`, `mcp`
 - Stored in `ChatVariablesStore` (in-memory ring buffer, max 100 entries)
 - Persisted to workspace state for session continuity
 

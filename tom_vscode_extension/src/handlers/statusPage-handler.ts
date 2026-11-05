@@ -198,22 +198,6 @@ export interface LlmConfiguration {
     toolTrailKeepRounds?: number;
 }
 
-/**
- * AI Conversation Setup entity - complete settings for an AI conversation session.
- * Used by AI Conversation @CHAT panel dropdown.
- */
-export interface AiConversationSetup {
-    id: string;
-    name: string;
-    /** Reference to LlmConfiguration id for Person A */
-    llmConfigA: string;
-    /** Reference to LlmConfiguration id for Person B (ollama-ollama mode only) */
-    llmConfigB?: string;
-    maxTurns: number;
-    pauseBetweenTurns: boolean;
-    historyMode: 'full' | 'last' | 'summary' | 'trim_and_summary';
-    trailSummarizationLlmConfig?: string;
-}
 
 // Re-exported for the few callers that import from this module.
 // The canonical definition lives in utils/constants.ts.
@@ -223,8 +207,7 @@ let statusPanel: vscode.WebviewPanel | undefined;
 
 function createEmptySendToChatConfig(): SendToChatConfig {
     return {
-        localLlm: { profiles: {}, configurations: [] },
-        aiConversation: { profiles: {}, setups: [] },
+        localLlm: { configurations: [] },
         trail: {},
         bridge: { profiles: {} },
         copilot: { templates: {} },
@@ -272,7 +255,6 @@ async function updateLocalLlmSettings(settings: any): Promise<void> {
         model: settings.model,
         temperature: settings.temperature,
         stripThinkingTags: settings.stripThinkingTags,
-        expansionProfile: settings.expansionProfile,
         toolsEnabled: settings.toolsEnabled,
         trailMaximumTokens: settings.trailMaximumTokens,
         trailSummarizationTemperature: settings.trailSummarizationTemperature,
@@ -281,29 +263,6 @@ async function updateLocalLlmSettings(settings: any): Promise<void> {
     
     if (saveConfig(config)) {
         vscode.window.showInformationMessage('Local LLM settings updated');
-    }
-}
-
-async function updateAiConversationSettings(settings: any): Promise<void> {
-    const config = loadConfig();
-    if (!config) { return; }
-    
-    if (!config.aiConversation) {
-        config.aiConversation = {};
-    }
-    
-    Object.assign(config.aiConversation, {
-        maxTurns: settings.maxTurns,
-        temperature: settings.temperature,
-        historyMode: settings.historyMode,
-        conversationMode: settings.conversationMode,
-        trailMaximumTokens: settings.trailMaximumTokens,
-        trailSummarizationTemperature: settings.trailSummarizationTemperature,
-        removePromptTemplateFromTrail: settings.removePromptTemplateFromTrail
-    });
-    
-    if (saveConfig(config)) {
-        vscode.window.showInformationMessage('AI Conversation settings updated');
     }
 }
 
@@ -1264,7 +1223,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             const incoming = (message.settings ?? {}) as Record<string, { promptInterval?: unknown; refreshPrompt?: unknown }>;
             const questRefresh = stcConfig.questRefresh ?? {};
-            for (const panel of ['anthropic', 'localLlm', 'copilot'] as const) {
+            for (const panel of ['anthropic', 'copilot'] as const) {
                 const src = incoming[panel] ?? {};
                 const rawInterval = typeof src.promptInterval === 'number' ? src.promptInterval : 0;
                 questRefresh[panel] = {
@@ -1280,7 +1239,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Quest Refresh — per-quest activation checkbox for one panel.
         case 'setQuestRefreshActive': {
             const panel = message.panel as QuestRefreshPanel;
-            if (panel === 'anthropic' || panel === 'localLlm' || panel === 'copilot') {
+            if (panel === 'anthropic' || panel === 'copilot') {
                 QuestRefreshStore.instance.setActive(panel, !!message.active);
             }
             break;
@@ -1396,9 +1355,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Settings updates
         case 'updateLocalLlm':
             await updateLocalLlmSettings(message.settings || {});
-            break;
-        case 'updateAiConversation':
-            await updateAiConversationSettings(message.settings || {});
             break;
         case 'updateTelegram':
             await updateTelegramSettings(message.settings || {});
@@ -1675,37 +1631,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         }
         // LLM Profile model settings
-        case 'saveLlmProfiles': {
-            const cfg = loadConfig() || {};
-            if (!cfg.localLlm) { cfg.localLlm = {}; }
-            if (!cfg.localLlm.profiles) { cfg.localLlm.profiles = {}; }
-            const profileSettings = message.profiles || {};
-            for (const [name, settings] of Object.entries(profileSettings) as [string, any][]) {
-                if (cfg.localLlm.profiles[name]) {
-                    cfg.localLlm.profiles[name].modelConfig = settings.modelConfig || null;
-                    cfg.localLlm.profiles[name].toolsEnabled = settings.toolsEnabled ?? true;
-                }
-            }
-            saveConfig(cfg);
-            vscode.window.showInformationMessage('LLM profile settings saved');
-            break;
-        }
-        // AI Conversation profile model settings
-        case 'saveConvProfiles': {
-            const cfg = loadConfig() || {};
-            if (!cfg.aiConversation) { cfg.aiConversation = {}; }
-            if (!cfg.aiConversation.profiles) { cfg.aiConversation.profiles = {}; }
-            const profileSettings = message.profiles || {};
-            for (const [name, settings] of Object.entries(profileSettings) as [string, any][]) {
-                if (cfg.aiConversation.profiles[name]) {
-                    cfg.aiConversation.profiles[name].modelConfig = settings.modelConfig || null;
-                }
-            }
-            saveConfig(cfg);
-            vscode.window.showInformationMessage('AI Conversation profile settings saved');
-            break;
-        }
-        // Model configuration management
         case 'addModelConfig': {
             const modelKey = await vscode.window.showInputBox({
                 prompt: 'Enter a unique name for this model configuration',
@@ -1831,42 +1756,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         }
         // AI Conversation Setup management
-        case 'saveAiConversationSetups': {
-            const cfg = loadConfig() || {};
-            cfg.aiConversation = cfg.aiConversation || {};
-            cfg.aiConversation.setups = (message.setups || []).map((setup: AiConversationSetup) => ({
-                id: setup.id,
-                name: setup.name,
-                llmConfigA: setup.llmConfigA,
-                llmConfigB: setup.llmConfigB,
-                maxTurns: setup.maxTurns,
-                pauseBetweenTurns: setup.pauseBetweenTurns,
-                historyMode: setup.historyMode,
-                trailSummarizationLlmConfig: setup.trailSummarizationLlmConfig,
-            }));
-            saveConfig(cfg);
-            vscode.window.showInformationMessage('AI Conversation Setups saved');
-            break;
-        }
-        case 'deleteAiConversationSetup': {
-            const setupId = message.setupId;
-            if (setupId) {
-                const confirm = await vscode.window.showWarningMessage(
-                    `Delete AI Conversation Setup "${setupId}"?`,
-                    'Delete'
-                );
-                if (confirm === 'Delete') {
-                    const cfg = loadConfig() || {};
-                    cfg.aiConversation = cfg.aiConversation || {};
-                    const arr = Array.isArray(cfg.aiConversation.setups) ? cfg.aiConversation.setups : [];
-                    cfg.aiConversation.setups = arr.filter((s: any) => s?.id !== setupId);
-                    saveConfig(cfg);
-                    vscode.window.showInformationMessage(`AI Conversation Setup "${setupId}" deleted`);
-                    await refreshStatusPage();
-                }
-            }
-            break;
-        }
     }
 }
 
@@ -1901,7 +1790,6 @@ export interface StatusData {
     questRefresh: {
         scopeLabel: string;
         anthropic: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
-        localLlm: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
         copilot: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
     };
     bridge: {
@@ -1941,27 +1829,12 @@ export interface StatusData {
         model: string;
         temperature: number;
         stripThinkingTags: boolean;
-        expansionProfile: string;
         trailMaximumTokens: number;
         trailSummarizationTemperature: number;
         removePromptTemplateFromTrail: boolean;
         toolsEnabled: boolean;
-        profiles: string[];
         models: string[];
-        profileDetails: { [name: string]: { modelConfig: string | null; toolsEnabled?: boolean } };
         modelDetails: { [name: string]: { ollamaUrl: string; model: string; temperature: number; stripThinkingTags: boolean; description: string; isDefault: boolean; keepAlive: string } };
-    };
-    aiConversation: {
-        maxTurns: number;
-        temperature: number;
-        historyMode: string;
-        conversationMode: string;
-        trailMaximumTokens: number;
-        trailSummarizationTemperature: number;
-        removePromptTemplateFromTrail: boolean;
-        toolsEnabled: boolean;
-        profiles: string[];
-        profileDetails: { [name: string]: { modelConfig: string | null } };
     };
     askCopilot: AskCopilotConfig;
     copilotAnswerFolder: string;
@@ -1972,10 +1845,8 @@ export interface StatusData {
     binaryPath: { [platform: string]: string };
     commandlines: CommandlineEntry[];
     favorites: FavoriteEntry[];
-    /** Named LLM configurations for Local LLM @CHAT panel */
+    /** Local LLM configurations (an Anthropic profile can name one; compaction can run on one) */
     configurations: LlmConfiguration[];
-    /** Named AI Conversation setups for AI Conversation @CHAT panel */
-    setups: AiConversationSetup[];
     /** Strict configuration validation errors shown in UI/output */
     configErrors: string[];
     /** The extension build this window runs and the one installed (undefined before activation). */
@@ -2118,21 +1989,13 @@ export async function gatherStatusData(): Promise<StatusData> {
         console.error(msg);
     }
     const localLlm = config?.localLlm || {};
-    const aiConversation = config?.aiConversation || {};
-    // Telegram settings are per-quest (see telegram-commands), not part of the
-    // shared aiConversation.telegram section the rest of this snapshot reads.
+    // Telegram settings are per-quest (see telegram-commands).
     const telegram = readEffectiveTelegramRaw();
     const questId = WsPaths.getWorkspaceQuestId();
 
     const configurations = Array.isArray(config?.localLlm?.configurations)
         ? config.localLlm.configurations
         : [];
-    const setups = Array.isArray(config?.aiConversation?.setups)
-        ? config.aiConversation.setups
-        : [];
-    const primarySetup = setups[0] as any;
-    const primaryLlm = configurations.find((l: any) => l?.id === primarySetup?.llmConfigA) as any;
-
     // Queue and timer state
     let queueAutoSend = true;
     let queueAutoStart = false;
@@ -2199,7 +2062,6 @@ export async function gatherStatusData(): Promise<StatusData> {
             return {
                 scopeLabel: questId ? `quest: ${questId}` : 'workspace',
                 anthropic: buildPanel('anthropic'),
-                localLlm: buildPanel('localLlm'),
                 copilot: buildPanel('copilot'),
             };
         })(),
@@ -2248,18 +2110,11 @@ export async function gatherStatusData(): Promise<StatusData> {
             model: localLlm.model ?? 'qwen3:8b',
             temperature: localLlm.temperature ?? 0.4,
             stripThinkingTags: localLlm.stripThinkingTags ?? true,
-            expansionProfile: localLlm.expansionProfile ?? 'expand',
             trailMaximumTokens: localLlm.trailMaximumTokens ?? 8000,
             trailSummarizationTemperature: localLlm.trailSummarizationTemperature ?? 0.3,
             removePromptTemplateFromTrail: localLlm.removePromptTemplateFromTrail ?? true,
             toolsEnabled: localLlm.toolsEnabled ?? true,
-            profiles: localLlm.profiles ? Object.keys(localLlm.profiles) : [],
             models: localLlm.models ? Object.keys(localLlm.models) : [],
-            profileDetails: Object.fromEntries(
-                Object.entries(localLlm.profiles || {}).map(([k, v]: [string, any]) => [
-                    k, { modelConfig: v?.modelConfig ?? null, toolsEnabled: v?.toolsEnabled ?? true }
-                ])
-            ),
             modelDetails: Object.fromEntries(
                 Object.entries(localLlm.models || {}).map(([k, v]: [string, any]) => [
                     k, {
@@ -2271,22 +2126,6 @@ export async function gatherStatusData(): Promise<StatusData> {
                         isDefault: v?.isDefault ?? false,
                         keepAlive: v?.keepAlive ?? '5m',
                     }
-                ])
-            ),
-        },
-        aiConversation: {
-            maxTurns: primarySetup?.maxTurns ?? 0,
-            temperature: primaryLlm?.temperature ?? 0,
-            historyMode: primarySetup?.historyMode ?? 'trim_and_summary',
-            conversationMode: aiConversation.conversationMode ?? 'ollama-copilot',
-            trailMaximumTokens: primaryLlm?.trailMaximumTokens ?? 0,
-            trailSummarizationTemperature: primaryLlm?.trailSummarizationTemperature ?? 0,
-            removePromptTemplateFromTrail: primaryLlm?.removePromptTemplateFromTrail ?? false,
-            toolsEnabled: Array.isArray(primaryLlm?.enabledTools) ? primaryLlm.enabledTools.length > 0 : false,
-            profiles: aiConversation.profiles ? Object.keys(aiConversation.profiles) : [],
-            profileDetails: Object.fromEntries(
-                Object.entries(aiConversation.profiles || {}).map(([k, v]: [string, any]) => [
-                    k, { modelConfig: v?.modelConfig ?? null }
                 ])
             ),
         },
@@ -2319,16 +2158,6 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxRounds: typeof v?.maxRounds === 'number' ? v.maxRounds : 10,
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
-        })),
-        setups: setups.map((v: any) => ({
-            id: v?.id || '',
-            name: v?.name || v?.id || '',
-            llmConfigA: v?.llmConfigA || '',
-            llmConfigB: typeof v?.llmConfigB === 'string' ? v.llmConfigB : '',
-            maxTurns: typeof v?.maxTurns === 'number' ? v.maxTurns : 0,
-            pauseBetweenTurns: v?.pauseBetweenTurns === true,
-            historyMode: typeof v?.historyMode === 'string' ? v.historyMode : '',
-            trailSummarizationLlmConfig: typeof v?.trailSummarizationLlmConfig === 'string' ? v.trailSummarizationLlmConfig : '',
         })),
         configErrors: strictErrors,
         build: checkBuildStatus(),
@@ -2506,35 +2335,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     const profileOptions = status.bridge.profiles.map(p => 
         `<option value="${p}" ${p === status.bridge.currentProfile ? 'selected' : ''}>${p}</option>`
     ).join('');
-    const llmProfileOptions = status.localLlm.profiles.map(p => 
-        `<option value="${p}" ${p === status.localLlm.expansionProfile ? 'selected' : ''}>${p}</option>`
-    ).join('');
-    // Generate model options for profile editor dropdowns
-    const modelOptionsHtml = (selectedModel: string | null) => 
-        `<option value="">(Default)</option>` + 
-        status.localLlm.models.map(m => 
-            `<option value="${m}" ${m === selectedModel ? 'selected' : ''}>${m}</option>`
-        ).join('');
-    // Generate LLM profile rows with model selection
-    const llmProfileRowsHtml = status.localLlm.profiles.map(p => {
-        const detail = status.localLlm.profileDetails[p] || { modelConfig: null, toolsEnabled: true };
-        return `<div class="sp-settings-row" data-llm-profile="${p}">
-            <label>${p}:</label>
-            <select class="sp-llm-profile-model" data-profile="${p}">${modelOptionsHtml(detail.modelConfig)}</select>
-            <select class="sp-llm-profile-tools" data-profile="${p}">
-                <option value="true" ${detail.toolsEnabled !== false ? 'selected' : ''}>Tools On</option>
-                <option value="false" ${detail.toolsEnabled === false ? 'selected' : ''}>Tools Off</option>
-            </select>
-        </div>`;
-    }).join('');
-    // Generate AI Conversation profile rows with model selection
-    const convProfileRowsHtml = status.aiConversation.profiles.map(p => {
-        const detail = status.aiConversation.profileDetails[p] || { modelConfig: null };
-        return `<div class="sp-settings-row" data-conv-profile="${p}">
-            <label>${p}:</label>
-            <select class="sp-conv-profile-model" data-profile="${p}">${modelOptionsHtml(detail.modelConfig)}</select>
-        </div>`;
-    }).join('');
     // Generate model configuration rows for the model configs subsection
     const modelConfigsRowsHtml = status.localLlm.models.map(m => {
         const detail = (status.localLlm as any).modelDetails?.[m] || {};
@@ -2548,16 +2348,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     }).join('');
     
     // Generate LLM Configuration options for dropdown
-    const llmConfigOptions = (selectedId: string) => 
-        `<option value="">(None)</option>` + 
-        status.configurations.map(c => 
-            `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
-        ).join('');
-    const llmConfigBOptions = (selectedId: string) =>
-        `<option value="copilot" ${selectedId === 'copilot' || !selectedId ? 'selected' : ''}>Copilot</option>` +
-        status.configurations.map(c =>
-            `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
-        ).join('');
     
     // Generate tool checkboxes HTML for a configuration
     const toolCheckboxesHtml = (enabledTools: string[], configId: string) => 
@@ -2673,40 +2463,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         </div>`;
     }).join('');
     
-    // Generate AI Conversation Setups rows
-    const aiConversationSetupsHtml = status.setups.map(setup => {
-        return `<div class="sp-aisetup-card" data-setup-id="${setup.id}">
-            <div class="sp-aisetup-header">
-                <input type="text" class="sp-setup-name" value="${setup.name}" data-field="name" placeholder="Name">
-                <input type="text" class="sp-setup-id" value="${setup.id}" data-field="id" placeholder="ID" readonly>
-                <button class="sp-btn small danger" data-status-action="deleteAiConversationSetup" data-setup-id="${setup.id}">🗑️</button>
-            </div>
-            <div class="sp-settings-row">
-                <label>LLM Config A:</label>
-                <select data-field="llmConfigA">${llmConfigOptions(setup.llmConfigA)}</select>
-                <label>LLM Config B:</label>
-                <select data-field="llmConfigB">${llmConfigBOptions(setup.llmConfigB || 'copilot')}</select>
-            </div>
-            <div class="sp-settings-row">
-                <label>Max Turns:</label>
-                <input type="number" data-field="maxTurns" value="${setup.maxTurns}" min="1" max="50">
-                <label>Pause Between:</label>
-                <select data-field="pauseBetweenTurns">
-                    <option value="true" ${setup.pauseBetweenTurns ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!setup.pauseBetweenTurns ? 'selected' : ''}>No</option>
-                </select>
-                <label>History:</label>
-                <select data-field="historyMode">
-                    <option value="full" ${setup.historyMode === 'full' ? 'selected' : ''}>Full</option>
-                    <option value="last" ${setup.historyMode === 'last' ? 'selected' : ''}>Last</option>
-                    <option value="summary" ${setup.historyMode === 'summary' ? 'selected' : ''}>Summary</option>
-                    <option value="trim_and_summary" ${setup.historyMode === 'trim_and_summary' ? 'selected' : ''}>Trim+Summary</option>
-                </select>
-                <label>Sum LLM:</label>
-                <select data-field="trailSummarizationLlmConfig">${llmConfigOptions(setup.trailSummarizationLlmConfig || '')}</select>
-            </div>
-        </div>`;
-    }).join('');
     const strictErrorsHtml = status.configErrors.length > 0
         ? `<div class="sp-section" style="border-color: var(--vscode-inputValidation-errorBorder); background: var(--vscode-inputValidation-errorBackground);">
             <div class="sp-section-header"><span class="sp-section-title">⚠️ Configuration Errors</span></div>
@@ -2848,7 +2604,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 (${escapeHtmlContent(status.questRefresh.scopeLabel)}). Interval 0 = never.
             </p>
             ${renderQuestRefreshPanel('anthropic', 'Anthropic', status.questRefresh.anthropic)}
-            ${renderQuestRefreshPanel('localLlm', 'Local LLM', status.questRefresh.localLlm)}
             ${renderQuestRefreshPanel('copilot', 'Copilot', status.questRefresh.copilot)}
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateQuestRefresh">Save Quest Refresh Settings</button>
@@ -3060,8 +2815,8 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-configurations-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
-                Complete LLM configurations with all settings and per-config tool selection. 
-                Used by Local LLM @CHAT panel dropdown.
+                Local LLM configurations with all settings and per-config tool selection.
+                An Anthropic profile can name one as its configuration; compaction can run on one.
             </p>
             <textarea id="sp-llmconfigs-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.configurations || []))}</textarea>
             <div id="sp-llmconfigs-list">
@@ -3070,28 +2825,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <div class="sp-settings-row">
                 <button class="sp-btn" onclick="addLlmConfiguration()">+ Add LLM Configuration</button>
                 <button class="sp-btn primary" onclick="saveLlmConfigurations()">Save All LLM Configs</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- AI Conversation Setups Section -->
-    <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="setups">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🎭 AI Conversation Setups</span>
-            <span class="sp-badge">${status.setups.length}</span>
-        </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-setups-content">
-            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
-                Named conversation setups that reference LLM Configurations.
-                Used by AI Conversation @CHAT panel dropdown.
-            </p>
-            <textarea id="sp-aisetups-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.setups || []))}</textarea>
-            <div id="sp-aisetups-list">
-                ${aiConversationSetupsHtml || '<div class="sp-info">No AI Conversation setups defined</div>'}
-            </div>
-            <div class="sp-settings-row">
-                <button class="sp-btn" onclick="addAiConversationSetup()">+ Add Setup</button>
-                <button class="sp-btn primary" onclick="saveAiConversationSetups()">Save All Setups</button>
             </div>
         </div>
     </div>

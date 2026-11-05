@@ -87,7 +87,6 @@ export interface WindowStateInput extends HeartbeatState, WindowActivity {
     workspace: string;
     activeQuest: string;
     status?: Array<{ subsystem: string; status: string }>;
-    aiConversationActive?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,9 +146,8 @@ export interface WindowStatusEntry {
     mcpServer?: { running: boolean; host?: string; port?: number };
     /** The extension build the window runs and the one installed; `reloadNeeded`: a newer build is installed. */
     build?: BuildStatus;
-    /** queue / anthropic / copilot / … whose prompt is out, and the AI conversation. */
+    /** queue / anthropic / copilot / … whose prompt is out. */
     activeSubsystems: string[];
-    aiConversationActive: boolean;
     role?: string;
     process?: WindowProcessPosition | null;
     panel?: { profile?: ResolvedProfile; session?: string };
@@ -242,7 +240,6 @@ export function buildQuestWindowStatus(input: QuestWindowStatusInput): QuestWind
                 ...(s.build ? { build: s.build } : {}),
                 ...(s.mcpServer ? { mcpServer: s.mcpServer } : {}),
                 activeSubsystems: (s.status ?? []).filter((x) => x.status === 'prompt-sent').map((x) => x.subsystem),
-                aiConversationActive: s.aiConversationActive === true,
                 ...(s.role ? { role: s.role } : {}),
                 ...(s.process !== undefined ? { process: s.process } : {}),
                 ...(s.panel ? {

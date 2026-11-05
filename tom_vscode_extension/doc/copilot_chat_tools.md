@@ -4,15 +4,12 @@ Reference for the tooling surface exposed by the extension. For the full per-sub
 
 ## Scope
 
-The extension integrates **five** chat subsystems, all accessible from the `@CHAT` panel:
+The extension integrates **two** chat subsystems, both accessible from the `@CHAT` panel:
 
-- **Anthropic** — direct Anthropic SDK or Agent SDK ([anthropic_handler.md](anthropic_handler.md)).
-- **Tom AI Chat** — Anthropic handler with a narrower UI, same profile + tool surface.
-- **AI Conversation** — multi-turn chat (not queue-compatible).
+- **Anthropic** — per profile, the direct Anthropic SDK, the Agent SDK, VS Code LM, or a Local LLM configuration (Ollama or OpenAI-compatible HTTP backend) ([anthropic_handler.md](anthropic_handler.md), [llm_configuration.md](llm_configuration.md)).
 - **Copilot** — VS Code Copilot Chat via the answer-file mechanism.
-- **Local LLM** — Ollama or OpenAI-compatible HTTP backend ([llm_configuration.md](llm_configuration.md)).
 
-This page covers the Copilot-facing commands + tooling. For Anthropic / Tom AI Chat specifics, see [anthropic_handler.md](anthropic_handler.md).
+This page covers the Copilot-facing commands + tooling. For Anthropic specifics, see [anthropic_handler.md](anthropic_handler.md).
 
 ## Copilot Chat Workflows
 
@@ -69,13 +66,9 @@ The timer engine fires prompts on schedule:
 
 See [user_guide.md](user_guide.md#5-timed-requests) for full timer documentation.
 
-## Tom AI Chat + Anthropic Tool Surface
+## Anthropic Tool Surface
 
-Both subpanels share the Anthropic handler's tool registry. Command surface (Tom AI Chat):
-
-- `tomAi.tomAiChat.start`
-- `tomAi.tomAiChat.send`
-- `tomAi.tomAiChat.interrupt`
+Every Anthropic profile uses the Anthropic handler's tool registry; the same tools are registered as VS Code language-model tools (`registerVsCodeLmTools` in `src/tools/vscodeLmTools.ts`).
 
 Tool categories (all live under `src/tools/`):
 

@@ -16,7 +16,7 @@ g) the prompt queue and the timed requests must be persistent across window relo
 
 h) Add "show file" icon to the two views, so I can open the yaml files.
 
-i) The COPILOT, TOM AI CHAT, AI CONVERSION and LOCAL LLM panel state must survive window reloads, also store in yaml files with their own schema for each. Add a reload button to the panel to refresh from the file, but no automatic update. It should only load on window reload or vs code restart. 
+i) The COPILOT and ANTHROPIC panel state must survive window reloads, also store in yaml files with their own schema for each. Add a reload button to the panel to refresh from the file, but no automatic update. It should only load on window reload or vs code restart. 
 
 j) In the "Context & Settings" editor the "Select..." button for projects doesn't show any projects. this should use the reusable project scanning logic you just created. Where is this stored? Create a schema for this information and store it in *.context.yaml" files. Link the *.content.yaml extension to this editor
 

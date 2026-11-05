@@ -12,6 +12,8 @@
  *        logs — and the Anthropic history, sessions and trails stay; a dry run deletes nothing
  *   LP-4 from format version 5 on nothing is deleted (the Anthropic profiles on Local LLM configurations write
  *        `_ai/trail/localllm` again)
+ *   LP-5 the removed panels' config goes: `tomAiChat`, `aiConversation` but its `telegram` block,
+ *        `localLlm.expansionProfile`; the Local LLM configurations stay
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- config keys as they are written */
@@ -21,7 +23,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { localLlmProfileToAnthropic, localProfileId } from '../localLlmProfileMigration.js';
+import { dropRemovedPanelSections, localLlmProfileToAnthropic, localProfileId } from '../localLlmProfileMigration.js';
 import { migrateAiFormats } from '../aiFormatMigration.js';
 import { AI_FORMAT_VERSION, readAiFormatStamp, writeAiFormatStamp } from '../aiFormatVersion.js';
 
@@ -114,5 +116,25 @@ describe('removed panels: Local LLM profiles and files', () => {
         writeAiFormatStamp(s.ai, { version: 5, date: '2026-11-05' });
         assert.deepEqual(s.run(true).changes, []);
         assert.ok(s.exists('trail/localllm/qa/last_request.json'));
+    });
+
+    test('LP-5: the removed panels\' config sections', () => {
+        const cfg: Record<string, unknown> = {
+            tomAiChat: { templates: {} },
+            aiConversation: { maxTurns: 10, setups: [], profiles: {}, telegram: { autostart: true } },
+            localLlm: { expansionProfile: 'expand', configurations: [{ id: 'mac' }] },
+            copilot: {},
+        };
+        assert.deepEqual(dropRemovedPanelSections(cfg), ['tomAiChat', 'aiConversation.maxTurns', 'aiConversation.setups', 'aiConversation.profiles', 'localLlm.expansionProfile']);
+        assert.deepEqual(cfg, { aiConversation: { telegram: { autostart: true } }, localLlm: { configurations: [{ id: 'mac' }] }, copilot: {} });
+        assert.deepEqual(dropRemovedPanelSections(cfg), [], 'nothing left to remove');
+        const noTelegram: Record<string, unknown> = { aiConversation: { setups: [] } };
+        dropRemovedPanelSections(noTelegram);
+        assert.deepEqual(noTelegram, {});
+        const s = sandbox();
+        fs.writeFileSync(s.cfg, JSON.stringify({ tomAiChat: {}, localLlm: { configurations: [{ id: 'mac' }] } }, null, 2) + '\n');
+        assert.ok(s.run(false).changes.some((c) => c.step === 'removed-panels' && /tomAiChat/.test(c.detail)));
+        s.run(true);
+        assert.deepEqual(JSON.parse(fs.readFileSync(s.cfg, 'utf8')), { localLlm: { configurations: [{ id: 'mac' }] } });
     });
 });

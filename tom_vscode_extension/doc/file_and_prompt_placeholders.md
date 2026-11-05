@@ -148,7 +148,7 @@ Quick setups:
 
 ### Available in every template context
 
-All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, Local LLM / Tom AI Chat / Copilot prompt templates, and the AI Conversation orchestrator prompts. They resolve the same way everywhere.
+All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, and Copilot prompt templates. They resolve the same way everywhere.
 
 ### Conditional injection via JS expressions
 

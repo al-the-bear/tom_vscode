@@ -19,11 +19,7 @@ import { TwoTierMemoryService } from './memory-service';
 import { sessionLiveTrailsSince, sessionsWithStorage } from './sessionStorage';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import {
-    LiveTrailWriter,
-    ANTHROPIC_LIVE_TRAIL_FILENAME,
-    LOCAL_LLM_LIVE_TRAIL_FILENAME,
-} from './live-trail';
+import { LiveTrailWriter } from './live-trail';
 import { WsPaths } from '../utils/workspacePaths';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import type { QuestRefreshPanel } from '../utils/sendToChatConfig';
@@ -34,10 +30,6 @@ import {
     formatRefreshSessionTrails,
 } from '../utils/refreshSessionTrails';
 
-/** Live-trail filename for each refreshable panel. */
-function trailFileName(panel: QuestRefreshPanel): string {
-    return panel === 'localLlm' ? LOCAL_LLM_LIVE_TRAIL_FILENAME : ANTHROPIC_LIVE_TRAIL_FILENAME;
-}
 
 export class QuestRefreshService {
     private static _instance: QuestRefreshService | undefined;
@@ -183,12 +175,8 @@ export class QuestRefreshService {
             // Anthropic: every session keeps its own live trail, and the
             // refresh runs in the session of the send that triggered it, so
             // each session's is trimmed.
-            if (panel === 'localLlm') {
-                new LiveTrailWriter(quest, trailFileName(panel)).truncateToBase();
-            } else {
-                for (const session of sessionsWithStorage(TwoTierMemoryService.instance.historyFolder(quest))) {
-                    new LiveTrailWriter(quest, undefined, session).truncateToBase();
-                }
+            for (const session of sessionsWithStorage(TwoTierMemoryService.instance.historyFolder(quest))) {
+                new LiveTrailWriter(quest, undefined, session).truncateToBase();
             }
         } catch {
             // Trail truncation is best-effort; never break the cycle on it.

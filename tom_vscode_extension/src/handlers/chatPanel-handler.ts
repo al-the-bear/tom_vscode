@@ -7,10 +7,8 @@
  * - Rotate: collapsed sections show as vertical tabs
  * 
  * Sections:
- * - Local LLM
- * - AI Conversation  
+ * - Anthropic
  * - Copilot
- * - Tom AI Chat
  */
 
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
@@ -20,21 +18,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getConfigPath, SendToChatConfig, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication, resolvePathVariables } from './handler_shared';
+import { getConfigPath, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
 import { expandTemplate, PLACEHOLDER_HELP } from './promptTemplate';
-import { getLocalLlmManager, ensureLocalLlmManager } from './localLlm-handler';
-import { getAiConversationManager } from './aiConversation-handler';
-import { interruptTomAiChatHandler } from './tomAiChat-handler';
-import { setMetadataValue } from './tomAiChat-utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
 import { sanitizeQuestSegment } from '../utils/questPaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { validateStrictAiConfiguration } from '../utils/sendToChatConfig';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
@@ -142,28 +135,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * Only one entry per section (the panels are strictly sequential).
      */
     private _activeCts: Map<string, vscode.CancellationTokenSource> = new Map();
-    /**
-     * Profile key of the most recent LocalLLM send. Recorded by
-     * `_handleSendLocalLlm` so the Trail Summary Viewer button can
-     * resolve the right per-profile trail folder. The LocalLLM trail
-     * subsystem is sharded by profile (`_ai/trail/localllm/<quest>-<profile>/`),
-     * so "open the summary trail" needs to know which profile.
-     * `undefined` when the user has not sent anything in this window.
-     */
-    private _lastLocalLlmProfileKey: string | undefined = undefined;
-    /**
-     * One-shot guard for the LocalLLM status-update subscription. We
-     * subscribe lazily on first send rather than in the panel
-     * constructor because `_registerChatProviders` runs **before**
-     * `extension.ts` finishes initialising the LocalLlmManager
-     * singleton. Calling `ensureLocalLlmManager` from the constructor
-     * auto-creates a transient instance, which extension.ts then
-     * stomps via `setLocalLlmManager(...)`, leaving the transient
-     * instance's output channels orphaned in the Output dropdown
-     * (the user's "two of each channel" complaint).
-     */
-    private _localLlmStatusSubscribed: boolean = false;
-
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
         this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
@@ -240,68 +211,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 const before = config.anthropic!.profiles!.length;
                 config.anthropic!.profiles = config.anthropic!.profiles!.filter((p: any) => p?.id !== profileId);
                 if (config.anthropic!.profiles!.length === before) { return false; }
-                return !!saveSendToChatConfig(config);
-            },
-        });
-
-        // Local LLM — cancel + summary-trail opener (the summary-viewer
-        // dispatcher in the `openTrailSummaryViewer` message branch
-        // routes here when section='localLlm'; otherwise it falls
-        // through to the Copilot default which would open the wrong
-        // trail).
-        chatProviders.register('localLlm', {
-            cancelInFlight: () => {
-                const cts = this._activeCts.get('localLlm');
-                if (!cts) {
-                    // Nothing in flight — surface this so the click
-                    // doesn't look like a no-op. The status reverts
-                    // when the user next sends.
-                    this._view?.webview.postMessage({ type: 'localLlmStatus', text: 'Nothing to cancel' });
-                    return;
-                }
-                // Immediate UI feedback. The actual cancellation
-                // propagates through the cancellation token to
-                // `openaiChat`/`ollamaChat`, which destroy the socket
-                // and reject with "Cancelled". `_handleSendLocalLlm`'s
-                // catch block then writes the final "Cancelled" status
-                // (or "Error: …" if the cancellation happened too late
-                // to interrupt a tool-execution step).
-                this._view?.webview.postMessage({ type: 'localLlmStatus', text: 'Cancelling…' });
-                cts.cancel();
-            },
-            openTrailSummary: () => this._openLocalLlmSummaryTrail(),
-            deleteProfile: async (profileId) => {
-                const config = loadSendToChatConfig();
-                if (!config?.localLlm?.profiles?.[profileId]) { return false; }
-                delete config.localLlm.profiles[profileId];
-                return !!saveSendToChatConfig(config);
-            },
-        });
-        // NB: subscription to `localLlmManager.onStatusUpdate` happens
-        // lazily inside `_handleSendLocalLlm` (guarded by
-        // `_localLlmStatusSubscribed`). Subscribing here would force
-        // `ensureLocalLlmManager` to auto-create a transient instance
-        // before extension.ts finished setting the singleton — that
-        // transient instance's output channels would then be orphaned
-        // in the Output dropdown (the "two of each channel" complaint).
-
-        // Tom AI Chat — handler owns its own CTS internally; cancel
-        // hook calls the module-level interrupt.
-        chatProviders.register('tomAiChat', {
-            cancelInFlight: () => {
-                interruptTomAiChatHandler();
-            },
-        });
-
-        // AI Conversation — halt through the conversation manager.
-        chatProviders.register('conversation', {
-            cancelInFlight: () => {
-                getAiConversationManager()?.haltConversation('Halted via chat panel stop button');
-            },
-            deleteProfile: async (profileId) => {
-                const config = loadSendToChatConfig();
-                if (!config?.aiConversation?.profiles?.[profileId]) { return false; }
-                delete config.aiConversation.profiles[profileId];
                 return !!saveSendToChatConfig(config);
             },
         });
@@ -445,17 +354,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'togglePin':
                         // Pin state is handled client-side via localStorage
                         break;
-                    case 'sendLocalLlm':
-                        await this._handleSendLocalLlm(message.text, message.profile, message.llmConfig);
-                        break;
-                    case 'sendConversation':
-                        await this._handleSendConversation(message.text, message.profile, message.aiSetup);
-                        break;
                     case 'sendCopilot':
                         await this._handleSendCopilot(message.text, message.template, message.slot);
-                        break;
-                    case 'sendTomAiChat':
-                        await this._handleSendTomAiChat(message.text, message.template);
                         break;
                     case 'sendAnthropic':
                         await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate);
@@ -576,19 +476,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'deleteTemplate':
                         await this._handleDeleteTemplate(message.section, message.name);
                         break;
-                    case 'openChatFile':
-                        await this._handleOpenChatFile();
-                        break;
-                    case 'insertToChatFile':
-                        await this._handleInsertToChatFile(message.text, message.template);
-                        break;
                     case 'preview':
                         await this._handlePreview(message.section, message.text, message.profile || message.template);
                         break;
-                    case 'showTrail':
-                        await this._showTrail();
-                        break;
-                    // Copilot answer file handlers
                     case 'setAutoHideDelay':
                         this._autoHideDelay = message.value;
                         this._context.workspaceState.update('tomAi.copilot.autoHideDelay', message.value);
@@ -686,21 +576,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             message.section || undefined,
                         );
                         break;
-                    case 'openConversationTrailViewer':
-                        await this._openConversationTrailViewer();
-                        break;
-                    case 'openConversationMarkdown':
-                        await this._openConversationMarkdown();
-                        break;
-                    case 'openConversationCompactTrail':
-                        await this._openConversationCompactTrail();
-                        break;
-                    case 'openConversationTurnFilesEditor':
-                        await this._openConversationTurnFilesEditor();
-                        break;
-                    // openTrailSummaryViewer = Trail Summary Viewer (the per-file
-                    // TrailEditorProvider custom editor over the concatenated
-                    // *.prompts.md / *.answers.md files in _ai/quests/).
                     case 'openTrailSummaryViewer': {
                         // Wave 3.3 — route through the chat-provider
                         // registry. Anthropic registers its own trail
@@ -728,14 +603,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // button. The MD Browser auto-reloads on every
                         // write (debounced 200 ms).
                         //
-                        //   anthropic → `_ai/quests/<quest>/live-trail.md`
-                        //   localLlm  → `_ai/quests/<quest>/live-trail-localLLM.md`
-                        //
-                        // Both files are appended to during the
-                        // respective transport's turn.
-                        if (String(message.section || '') === 'localLlm') {
-                            await this._openLiveTrailMarkdown('localLlm');
-                        } else {
+                        // (each chosen Anthropic session's live trail).
+                        {
                             const names = await this._pickPanelSessions('Open live trail');
                             for (const name of names ?? []) { await this._openLiveTrailMarkdown('anthropic', name); }
                         }
@@ -788,13 +657,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                                 await this._handleSendAnthropic(refreshText, profileId, '', '', undefined, true);
                             });
                             vscode.window.showInformationMessage('Quest Refresh run (Anthropic).');
-                        } else if (section === 'localLlm') {
-                            const profileId = String(message.profile || '');
-                            const llmConfig = String(message.llmConfig || '');
-                            await QuestRefreshService.instance.runRefresh('localLlm', async (refreshText) => {
-                                await this._handleSendLocalLlm(refreshText, profileId, llmConfig, true);
-                            });
-                            vscode.window.showInformationMessage('Quest Refresh run (Local LLM).');
                         }
                         break;
                     }
@@ -840,26 +702,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             undefined,
             this._context.subscriptions
         );
-    }
-
-    private _getEffectiveLlmConfigurations(config: SendToChatConfig | null): Array<{ id: string; name: string; isDefault?: boolean }> {
-        const explicit = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
-        if (explicit.length > 0) {
-            return explicit
-                .filter((c: any) => c && typeof c.id === 'string' && c.id.trim().length > 0)
-                .map((c: any) => ({ id: c.id, name: c.name || c.id, isDefault: c.isDefault === true }));
-        }
-        return [];
-    }
-
-    private _getEffectiveAiConversationSetups(config: SendToChatConfig | null): Array<{ id: string; name: string; isDefault?: boolean }> {
-        const explicit = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
-        if (explicit.length > 0) {
-            return explicit
-                .filter((s: any) => s && typeof s.id === 'string' && s.id.trim().length > 0)
-                .map((s: any) => ({ id: s.id, name: s.name || s.id, isDefault: s.isDefault === true }));
-        }
-        return [];
     }
 
     /**
@@ -990,14 +832,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         this._view?.webview.postMessage({
             type: 'profiles',
-            localLlm: config?.localLlm?.profiles ? Object.keys(config.localLlm.profiles) : [],
-            conversation: config?.aiConversation?.profiles ? Object.keys(config.aiConversation.profiles) : [],
             // Filter out __answer_file__ since it's hardcoded in the dropdown as "Answer Wrapper"
             copilot: config?.copilot?.templates ? Object.keys(config.copilot.templates).filter(k => k !== '__answer_file__') : [],
-            tomAiChat: config?.tomAiChat?.templates ? Object.keys(config.tomAiChat.templates) : [],
             anthropic: anthropicProfiles,
-            configurations: this._getEffectiveLlmConfigurations(config),
-            setups: this._getEffectiveAiConversationSetups(config),
             anthropicConfigurations,
             anthropicProfileEntries,
             anthropicUserMessageTemplates,
@@ -1499,233 +1336,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._sendReusablePrompts();
     }
 
-    private async _handleSendLocalLlm(text: string, profile: string, llmConfig?: string, skipQuestRefresh = false): Promise<void> {
-        const manager = ensureLocalLlmManager(this._context);
-        if (!manager) {
-            vscode.window.showErrorMessage('Local LLM not available - extension not fully initialized. Please try again.');
-            return;
-        }
-        // Lazy one-shot subscription to background-status events.
-        // By now `extension.ts` has finished initialising the
-        // singleton, so the manager we get here is the canonical one
-        // and its output channels are the ones the user sees.
-        if (!this._localLlmStatusSubscribed) {
-            this._localLlmStatusSubscribed = true;
-            this._context.subscriptions.push(
-                manager.onStatusUpdate((text: string) => {
-                    this._view?.webview.postMessage({ type: 'localLlmStatus', text });
-                }),
-            );
-        }
-
-        const config = loadSendToChatConfig();
-        const strictErrors = validateStrictAiConfiguration(config);
-        if (strictErrors.length > 0) {
-            const msg = `Invalid AI configuration:\n- ${strictErrors.join('\n- ')}`;
-            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage('Invalid AI configuration. Open Status Page for details.');
-            return;
-        }
-        
-        const defaultWrapped = applyDefaultTemplate(text, 'localLlm');
-        const expanded = await expandTemplate(defaultWrapped);
-        const profileKey = profile === '__none__' ? null : profile;
-        // Remember the profile this send used so the per-panel Trail
-        // Summary Viewer button can resolve the matching folder
-        // (`_ai/trail/localllm/<quest>-<profile>/`). Falls back to a
-        // sentinel so we can still try a sensible default when the
-        // user never picked a profile.
-        this._lastLocalLlmProfileKey = profileKey ?? 'default';
-        let llmConfigKey = llmConfig && llmConfig !== '__default__' ? llmConfig : null;
-        const profileLabel = profile === '__none__' ? 'None' : profile;
-        debugLog(`[ChatPanel] _handleSendLocalLlm: llmConfig from webview='${llmConfig}' → llmConfigKey='${llmConfigKey}'`, 'INFO', 'extension');
-        // Fall back to default configuration if none explicitly selected
-        if (!llmConfigKey) {
-            const configs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
-            const defaultCfg = configs.find((c: any) => c?.isDefault === true) || (configs.length > 0 ? configs[0] : null);
-            llmConfigKey = defaultCfg?.id || null;
-        }
-        if (!llmConfigKey) {
-            const msg = 'Missing required Local LLM configuration selection. Add at least one configuration in the Status Page.';
-            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage(msg);
-            return;
-        }
-        
-        // Resolve model name for status messages (pass llmConfigKey so it resolves the right model)
-        const modelName = manager.getResolvedModelName(llmConfigKey ?? undefined);
-        
-        // Register a CTS so the panel's stop button can cancel the turn, not
-        // only the progress notification's X.
-        this._activeCts.get('localLlm')?.dispose();
-        const externalCts = new vscode.CancellationTokenSource();
-        this._activeCts.set('localLlm', externalCts);
-
-        // Helper for the live panel status line. Cheap and centralised
-        // so every phase update reads the same way.
-        const setStatus = (text: string): void => {
-            this._view?.webview.postMessage({ type: 'localLlmStatus', text });
-        };
-
-        const sendStart = Date.now();
-        let roundsSeen = 0;
-        let toolCallsSeen = 0;
-        try {
-            setStatus(`Checking ${modelName}…`);
-            // Check if model needs loading (use the resolved model
-            // name + the same config key so checkModelLoaded probes the
-            // correct endpoint for the configuration's apiStyle —
-            // /v1/models for vLLM, /api/ps for Ollama. Without the key
-            // the probe always fell back to /api/ps and 404'd on
-            // OpenAI-compat servers.)
-            const modelLoaded = await manager.checkModelLoaded(modelName, llmConfigKey ?? undefined);
-            setStatus(modelLoaded ? `Sending to ${modelName}…` : `Loading ${modelName}…`);
-
-            const result = await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: modelLoaded ? `Sending to local ${modelName}...` : `Loading ${modelName}...`,
-                    cancellable: true,
-                },
-                async (progress, token) => {
-                    // Forward progress-notification cancellation into our external CTS so
-                    // the handler only observes one token (externalCts.token).
-                    token.onCancellationRequested(() => externalCts.cancel());
-                    if (!modelLoaded) {
-                        // Model is loading as part of generate — update status once process starts
-                        // The loading happens at the start of the Ollama call
-                        const checkInterval = setInterval(async () => {
-                            const loaded = await manager.checkModelLoaded(modelName, llmConfigKey ?? undefined);
-                            if (loaded) {
-                                progress.report({ message: `Processing prompt with ${modelName}...` });
-                                setStatus(`Processing with ${modelName}…`);
-                                clearInterval(checkInterval);
-                            }
-                        }, 2000);
-                        externalCts.token.onCancellationRequested(() => clearInterval(checkInterval));
-                    } else {
-                        // Model already loaded, go straight to processing
-                        progress.report({ message: `Processing prompt with ${modelName}...` });
-                        setStatus(`Processing with ${modelName}…`);
-                    }
-                    // Per-tool-call callback drives the live status line
-                    // so the panel reflects each round the model triggers.
-                    // `manager.process()` calls this AFTER the tool
-                    // returns, so the format is "Round R - <tool>: ok"
-                    // (the model is about to start round R+1).
-                    const onToolCall = (toolName: string, _args: Record<string, unknown>, _result: string): void => {
-                        toolCallsSeen += 1;
-                        roundsSeen += 1;
-                        setStatus(`Round ${roundsSeen} — tool ${toolName} done (calls so far: ${toolCallsSeen})`);
-                    };
-                    return manager.process(expanded, profileKey, llmConfigKey, undefined, externalCts.token, onToolCall, skipQuestRefresh);
-                }
-            );
-
-            if (result.success) {
-                const durSec = ((Date.now() - sendStart) / 1000).toFixed(1);
-                const turns = (result as { turnsUsed?: number }).turnsUsed ?? roundsSeen;
-                const toolCount = (result as { toolCallCount?: number }).toolCallCount ?? toolCallsSeen;
-                setStatus(`Done — ${turns} round${turns === 1 ? '' : 's'}, ${toolCount} tool call${toolCount === 1 ? '' : 's'} (${durSec}s)`);
-                await this._appendToTrail(expanded, result.result, profileLabel, llmConfigKey);
-                await this._showTrail(llmConfigKey);
-            } else {
-                const errorMsg = result.error || 'Unknown error';
-                setStatus(`Error: ${errorMsg}`);
-                debugLog(`[ChatPanel] Local LLM error (config=${llmConfigKey}, model=${modelName}): ${errorMsg}`, 'ERROR', 'extension');
-                vscode.window.showErrorMessage(`Local LLM error: ${errorMsg}`);
-            }
-        } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            // Treat user-initiated cancellation distinctly so the
-            // status line doesn't read like a crash.
-            if (externalCts.token.isCancellationRequested) {
-                setStatus('Cancelled');
-            } else {
-                setStatus(`Error: ${message}`);
-            }
-            debugLog(`[ChatPanel] Local LLM failed (config=${llmConfigKey}, model=${modelName}): ${e}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage(`Local LLM failed: ${message}`);
-        } finally {
-            if (this._activeCts.get('localLlm') === externalCts) {
-                this._activeCts.delete('localLlm');
-            }
-            externalCts.dispose();
-        }
-    }
-
-    private async _handleSendConversation(text: string, profile: string, aiSetupId?: string): Promise<void> {
-        const defaultWrapped = applyDefaultTemplate(text, 'conversation');
-        const expanded = await expandTemplate(defaultWrapped);
-        const profileKey = profile === '__none__' ? null : profile;
-        const config = loadSendToChatConfig();
-        const strictErrors = validateStrictAiConfiguration(config);
-        if (strictErrors.length > 0) {
-            const msg = `Invalid AI configuration:\n- ${strictErrors.join('\n- ')}`;
-            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage('Invalid AI configuration. Open Status Page for details.');
-            return;
-        }
-
-        const setups = Array.isArray(config?.aiConversation?.setups) ? config!.aiConversation!.setups : [];
-        // Fall back to default setup if none explicitly selected
-        let effectiveSetupId = aiSetupId;
-        if (!effectiveSetupId) {
-            const defaultSetup = setups.find((s: any) => s?.isDefault === true) || (setups.length > 0 ? setups[0] : null);
-            effectiveSetupId = defaultSetup?.id;
-        }
-        const selectedSetup = setups.find((s: any) => s?.id === effectiveSetupId);
-        if (!selectedSetup) {
-            const msg = `Missing required AI conversation setup: ${effectiveSetupId || '(none selected)'}. Add at least one setup in the Status Page.`;
-            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage(msg);
-            return;
-        }
-        const llmConfigA = selectedSetup?.llmConfigA || null;
-        const llmConfigB = selectedSetup?.llmConfigB || null;
-        const summarizationModelConfig = selectedSetup?.trailSummarizationLlmConfig || null;
-        const pauseBetweenTurns = selectedSetup?.pauseBetweenTurns === true;
-        const maxTurns = typeof selectedSetup?.maxTurns === 'number' ? selectedSetup.maxTurns : null;
-        const historyMode = typeof selectedSetup?.historyMode === 'string' ? selectedSetup.historyMode : null;
-
-        if (!llmConfigA || !summarizationModelConfig || !maxTurns || !historyMode) {
-            const msg = `AI setup "${selectedSetup?.id || '(unknown)'}" is incomplete: requires llmConfigA, trailSummarizationLlmConfig, maxTurns, and historyMode.`;
-            debugLog(`[ChatPanel] ${msg}`, 'ERROR', 'extension');
-            vscode.window.showErrorMessage(msg);
-            return;
-        }
-
-        const isCopilotMode = !llmConfigB || llmConfigB === 'copilot';
-        
-        try {
-            const params: Record<string, any> = {
-                goal: expanded,
-                profileKey,
-                pauseBetweenTurns,
-                maxTurns,
-                historyMode,
-            };
-
-            if (isCopilotMode) {
-                if (llmConfigA) {
-                    params.modelConfig = llmConfigA;
-                }
-                if (summarizationModelConfig) {
-                    params.trailSummarizationLlmConfig = summarizationModelConfig;
-                }
-            } else {
-                params.selfTalkOverrides = {
-                    personA: llmConfigA ? { modelConfig: llmConfigA } : undefined,
-                    personB: llmConfigB ? { modelConfig: llmConfigB } : undefined,
-                };
-            }
-
-            await vscode.commands.executeCommand('tomAi.aiConversation.start', params);
-        } catch {
-            vscode.window.showInformationMessage(`Start conversation (profile: ${profileKey || 'None'}): ${expanded.substring(0, 50)}...`);
-        }
-    }
-
     private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
         const regexes = [
             /"requestId"\s*:\s*"([^"]+)"/,
@@ -1816,20 +1426,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _handleCancel(section: string): void {
         debugLog(`[ChatPanel] cancel requested for section=${section}`, 'INFO', 'extension');
         chatProviders.get(section)?.cancelInFlight?.();
-    }
-
-    private async _handleSendTomAiChat(text: string, template: string): Promise<void> {
-        const config = loadSendToChatConfig();
-        const templateObj = template && template !== '__none__' ? config?.tomAiChat?.templates?.[template] : null;
-        let content = applyDefaultTemplate(text, 'tomAiChat');
-        if (templateObj?.contextInstructions) {
-            content = templateObj.contextInstructions + '\n\n' + content;
-        }
-        const expanded = await expandTemplate(content);
-        const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
-        writePromptTrail(text, template || '__none__', false, expanded, requestId);
-        const templateId = templateObj ? (template || '') : '';
-        await this._insertExpandedToChatFile(expanded, templateId);
     }
 
     // --- Anthropic: send, model fetch, trail -------------------------------
@@ -2133,41 +1729,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the Trail Summary Viewer for the most-recently-used Local
-     * LLM profile. Mirrors `_openAnthropicSummaryTrail`, but the
-     * LocalLLM subsystem is sharded by profile name — there's one
-     * summary trail per profile — so we use `_lastLocalLlmProfileKey`
-     * (recorded by `_handleSendLocalLlm`) to pick the right one. When
-     * the user hasn't sent anything yet this session, we surface that
-     * fact in the info message rather than silently opening nothing.
-     */
-    private async _openLocalLlmSummaryTrail(): Promise<void> {
-        const questId = WsPaths.getWorkspaceQuestId();
-        const profileKey = this._lastLocalLlmProfileKey;
-        if (!profileKey) {
-            vscode.window.showInformationMessage(
-                'No Local LLM summary trail yet — send a prompt first. The trail is sharded by profile; the viewer opens the trail for the profile you last sent with.',
-            );
-            return;
-        }
-        // Subsystem `configName` is the profile name run through the
-        // same sanitizer the trail logger uses (see
-        // `mapTypeToSubsystem` in trailLogging). Keep the two in sync
-        // or the lookup misses.
-        const configName = profileKey.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
-        const subsystem = { type: 'localLlm' as const, configName };
-        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', subsystem, questId);
-        if (!summaryPath || !fs.existsSync(summaryPath)) {
-            vscode.window.showInformationMessage(
-                `No Local LLM summary trail yet for profile "${profileKey}". Send a prompt with this profile first, or use the Raw Trail Files Viewer to browse other profiles.`,
-            );
-            return;
-        }
-        const uri = vscode.Uri.file(summaryPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-    }
-
-    /**
      * Open the rolling session history (the markdown version written next
      * to history.json on every turn by TwoTierMemoryService.persistHistorySnapshot)
      * in the MD Browser custom editor. When the file is missing we
@@ -2212,17 +1773,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the section's live-trail markdown in the MD Browser. The
-     * MD Browser's file watcher (debounced 200 ms) re-renders the
-     * webview as the handler appends new events, so the user watches
-     * each thinking / tool_use / assistant chunk arrive.
-     *
-     *   section='anthropic' → `live-trail.md`         (default)
-     *   section='localLlm'  → `live-trail-localLLM.md`
-     *
-     * The file is created on the first send of the session — we
-     * tolerate it not existing yet with an info message that names
-     * the relevant transport.
+     * Open a session's live-trail markdown in the MD Browser, in its live
+     * variant: the file watcher (debounced 200 ms) re-renders it as the
+     * handler appends events. The file is created on the session's first
+     * send; before that an info message names it.
      */
     private async _openLiveTrailMarkdown(section: string = 'anthropic', session: string = this._chatSessionKey()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
@@ -2230,11 +1784,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
-        const transportLabel = section === 'localLlm' ? 'Local LLM' : 'Anthropic';
-        // Anthropic: the panel's session's own live trail; Local LLM keeps one per quest.
-        const target = section === 'localLlm'
-            ? path.join(questsRoot, safeQuest, 'live-trail-localLLM.md')
-            : sessionLiveTrailFile(path.join(questsRoot, safeQuest, 'history'), session);
+        const transportLabel = section === 'anthropic' ? 'Anthropic' : section;
+        const target = sessionLiveTrailFile(path.join(questsRoot, safeQuest, 'history'), session);
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
                 `No ${transportLabel} live trail yet for quest "${questId || 'default'}". The file is created on the first ${transportLabel} send (${target}).`,
@@ -2245,122 +1796,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Use the live variant so the MD Browser auto-scrolls to the
         // bottom on each re-render as events stream in.
         await vscode.commands.executeCommand('tomAi.openInMdBrowserLive', uri);
-    }
-
-    private async _insertExpandedToChatFile(expanded: string, templateId: string = ''): Promise<void> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor || !editor.document.fileName.endsWith('.chat.md')) {
-            vscode.window.showWarningMessage('Please open a .chat.md file first');
-            return;
-        }
-
-        const doc = editor.document;
-        const text = doc.getText();
-        const chatHeaderMatch = text.match(/_{3,}\s*CHAT\s+\w+\s*_{3,}/);
-
-        if (chatHeaderMatch) {
-            // Persist the template id in the metadata block so
-            // sendToTomAiChatHandler can apply its tool settings. We do this
-            // by rewriting the whole file content (metadata block is small
-            // and the header is always preserved).
-            const withTemplate = setMetadataValue(text, 'template', templateId);
-            const headerMatchAfter = withTemplate.match(/_{3,}\s*CHAT\s+\w+\s*_{3,}/);
-            const headerIndex = withTemplate.indexOf(headerMatchAfter ? headerMatchAfter[0] : chatHeaderMatch[0]);
-            const headerEnd = headerIndex + (headerMatchAfter ? headerMatchAfter[0].length : chatHeaderMatch[0].length);
-            const insertedOffset = headerEnd;
-            const newContent = withTemplate.slice(0, insertedOffset) + '\n\n' + expanded + withTemplate.slice(insertedOffset);
-            const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(text.length));
-            await editor.edit(editBuilder => {
-                editBuilder.replace(fullRange, newContent);
-            });
-        } else {
-            await editor.edit(editBuilder => {
-                editBuilder.insert(editor.selection.active, expanded);
-            });
-        }
-    }
-
-    private _getLocalTrailFolderPath(llmConfigKey?: string | null): string | null {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return null; }
-
-        if (llmConfigKey) {
-            const config = loadSendToChatConfig();
-            const llmConfigs = Array.isArray(config?.localLlm?.configurations) ? config!.localLlm!.configurations : [];
-            const selected = llmConfigs.find((c: any) => c?.id === llmConfigKey);
-            if (selected?.logFolder && typeof selected.logFolder === 'string' && selected.logFolder.trim().length > 0) {
-                return path.join(workspaceFolder.uri.fsPath, selected.logFolder);
-            }
-        }
-
-        return WsPaths.ai('trail', 'local_llm') || path.join(workspaceFolder.uri.fsPath, '_ai', 'trail', 'local_llm');
-    }
-
-    private _getLocalTrailPaths(llmConfigKey?: string | null): { prompts: string; answers: string; compact: string } | null {
-        const folder = this._getLocalTrailFolderPath(llmConfigKey);
-        if (!folder) {
-            return null;
-        }
-        const workspaceName = getWorkspaceName();
-        return {
-            prompts: path.join(folder, `${workspaceName}.prompts.md`),
-            answers: path.join(folder, `${workspaceName}.answers.md`),
-            compact: path.join(folder, `${workspaceName}.trail.md`),
-        };
-    }
-
-    private _getLocalTrailFileTimestamp(): string {
-        const now = new Date();
-        const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-        const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`;
-        return `${date}_${time}`;
-    }
-
-    private async _appendToTrail(prompt: string, response: string, profile: string, llmConfigKey?: string | null): Promise<void> {
-        const trailService = TrailService.instance;
-        const questId = WsPaths.getWorkspaceQuestId();
-        const subsystem = {
-            type: 'localLlm' as const,
-            configName: (llmConfigKey || profile || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-')
-        };
-
-        await trailService.writeSummaryPrompt(subsystem, prompt, questId);
-        await trailService.writeSummaryAnswer(subsystem, response, { profile, llmConfigKey: llmConfigKey ?? undefined }, questId);
-        await trailService.writeRawPrompt(subsystem, prompt, getWindowId(), undefined, questId);
-        await trailService.writeRawAnswer(subsystem, response, getWindowId(), undefined, questId);
-    }
-
-    private async _showTrail(llmConfigKey?: string | null): Promise<void> {
-        // Try to open the summary prompts file from the quest folder
-        const questId = WsPaths.getWorkspaceQuestId();
-        const configName = (llmConfigKey || 'default').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
-        const subsystem = { type: 'localLlm' as const, configName };
-        const trailService = TrailService.instance;
-        const summaryPath = trailService.getSummaryFilePath('prompts', subsystem, questId);
-
-        if (summaryPath && fs.existsSync(summaryPath)) {
-            const uri = vscode.Uri.file(summaryPath);
-            await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-            return;
-        }
-
-        // Fallback: open the old compact trail file
-        const paths = this._getLocalTrailPaths();
-        if (!paths) {
-            vscode.window.showWarningMessage('No workspace folder');
-            return;
-        }
-
-        if (!fs.existsSync(paths.compact)) {
-            const dir = path.dirname(paths.compact);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-            fs.writeFileSync(paths.compact, '# Local LLM Trail\n\nCompact conversation history with local LLM.\n', 'utf-8');
-        }
-
-        const doc = await vscode.workspace.openTextDocument(paths.compact);
-        await vscode.window.showTextDocument(doc, { preview: false });
     }
 
     // =========================================================================
@@ -2504,125 +1939,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         const uri = vscode.Uri.file(summaryPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-    }
-
-    private _getAiConversationLogDir(): string | null {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) {
-            return null;
-        }
-
-        const configured = (loadSendToChatConfig()?.aiConversation as any)?.conversationLogPath as string | undefined;
-        const fallback = `${WsPaths.aiRelative('trail')}/ai_conversation`;
-        const rawPath = (typeof configured === 'string' && configured.trim().length > 0) ? configured.trim() : fallback;
-        const resolved = resolvePathVariables(rawPath, { silent: true }) ?? rawPath;
-        return path.isAbsolute(resolved) ? resolved : path.join(wsRoot, resolved);
-    }
-
-    private _getLatestAiConversationMarkdown(logDir: string): string | null {
-        if (!fs.existsSync(logDir) || !fs.statSync(logDir).isDirectory()) {
-            return null;
-        }
-
-        const files = fs.readdirSync(logDir)
-            .filter((file) => file.startsWith('bot_') && file.endsWith('.md'))
-            .map((file) => {
-                const fullPath = path.join(logDir, file);
-                const mtime = fs.statSync(fullPath).mtimeMs;
-                return { fullPath, mtime };
-            })
-            .sort((a, b) => b.mtime - a.mtime);
-
-        return files.length > 0 ? files[0].fullPath : null;
-    }
-
-    private async _openConversationTrailViewer(): Promise<void> {
-        const logDir = this._getAiConversationLogDir();
-        if (!logDir) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-        if (!fs.existsSync(logDir)) {
-            vscode.window.showInformationMessage('No AI conversation trail folder exists yet. Start a conversation first.');
-            return;
-        }
-        await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer', vscode.Uri.file(logDir));
-    }
-
-    private async _openConversationMarkdown(): Promise<void> {
-        const logDir = this._getAiConversationLogDir();
-        if (!logDir) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-
-        const latestLog = this._getLatestAiConversationMarkdown(logDir);
-        if (!latestLog) {
-            const isActive = getAiConversationManager()?.isActive === true;
-            vscode.window.showInformationMessage(
-                isActive
-                    ? 'AI conversation is active, but no conversation markdown exists yet. It is written when the conversation ends.'
-                    : 'No AI conversation markdown file found yet.',
-            );
-            return;
-        }
-
-        const doc = await vscode.workspace.openTextDocument(latestLog);
-        await vscode.window.showTextDocument(doc, { preview: false });
-    }
-
-    private async _openConversationCompactTrail(): Promise<void> {
-        const logDir = this._getAiConversationLogDir();
-        if (!logDir) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-
-        const compactPath = path.join(logDir, `${getWorkspaceName()}.trail.md`);
-        if (!fs.existsSync(compactPath)) {
-            vscode.window.showInformationMessage('No compact AI conversation trail exists yet. Start and complete a conversation first.');
-            return;
-        }
-
-        const doc = await vscode.workspace.openTextDocument(compactPath);
-        await vscode.window.showTextDocument(doc, { preview: false });
-    }
-
-    private async _openConversationTurnFilesEditor(): Promise<void> {
-        const logDir = this._getAiConversationLogDir();
-        if (!logDir) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-        if (!fs.existsSync(logDir) || !fs.statSync(logDir).isDirectory()) {
-            vscode.window.showInformationMessage('No AI conversation turn files exist yet.');
-            return;
-        }
-
-        const turnFiles = fs.readdirSync(logDir)
-            .filter((file) => /_(prompt|answer)_/.test(file) && (file.endsWith('.userprompt.md') || file.endsWith('.answer.json')))
-            .sort((a, b) => b.localeCompare(a));
-
-        if (turnFiles.length === 0) {
-            vscode.window.showInformationMessage('No AI conversation turn files found yet.');
-            return;
-        }
-
-        const picked = await vscode.window.showQuickPick(
-            turnFiles.map((file) => ({
-                label: file,
-                description: file.includes('_prompt_') ? 'Turn prompt file' : 'Turn answer file',
-                filePath: path.join(logDir, file),
-            })),
-            { placeHolder: 'Select AI conversation per-turn file to open' },
-        );
-
-        if (!picked) {
-            return;
-        }
-
-        const doc = await vscode.workspace.openTextDocument(picked.filePath);
-        await vscode.window.showTextDocument(doc, { preview: false });
     }
 
     // ========================================================================
@@ -2955,25 +2271,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         let onSend: ((t: string) => Promise<void>) | undefined;
         
         switch (section) {
-            case 'localLlm': {
-                title = 'Local LLM';
-                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.localLlm?.profiles?.[profileOrTemplate] : null;
-                if (profile?.systemPrompt) {
-                    previewContent = `=== SYSTEM PROMPT ===\n${profile.systemPrompt}\n\n=== USER PROMPT ===\n${text}`;
-                }
-                onSend = async (t) => await this._handleSendLocalLlm(t, profileOrTemplate);
-                break;
-            }
-            case 'conversation': {
-                title = 'AI Conversation';
-                const profile = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.aiConversation?.profiles?.[profileOrTemplate] : null;
-                if (profile?.initialPromptTemplate) {
-                    // Use expandTemplate with goal as a value
-                    previewContent = await expandTemplate(profile.initialPromptTemplate, { values: { goal: text } });
-                }
-                onSend = async (t) => await this._handleSendConversation(t, profileOrTemplate);
-                break;
-            }
             case 'copilot': {
                 title = 'Copilot';
                 // Get answer file template
@@ -3001,15 +2298,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 };
                 break;
             }
-            case 'tomAiChat': {
-                title = 'Tom AI Chat';
-                const template = profileOrTemplate && profileOrTemplate !== '__none__' ? config?.tomAiChat?.templates?.[profileOrTemplate] : null;
-                if (template?.contextInstructions) {
-                    previewContent = `${template.contextInstructions}\n\n${text}`;
-                }
-                onSend = async (t) => await this._handleSendTomAiChat(t, profileOrTemplate);
-                break;
-            }
         }
         
         // Final expansion for any remaining placeholders
@@ -3017,12 +2305,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         await showPreviewPanel(title, expanded, onSend);
     }
 
-    // --- Profile CRUD (localLlm, conversation) ---
+    // --- Profile CRUD (anthropic) ---
 
     private async _handleAddProfile(section: string): Promise<void> {
         const categoryMap: Record<string, TemplateCategory> = {
-            localLlm: 'localLlm',
-            conversation: 'conversation',
             anthropic: 'anthropicProfiles',
         };
         const category = categoryMap[section];
@@ -3033,8 +2319,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private async _handleEditProfile(section: string, name?: string): Promise<void> {
         const categoryMap: Record<string, TemplateCategory> = {
-            localLlm: 'localLlm',
-            conversation: 'conversation',
             anthropic: 'anthropicProfiles',
         };
         const category = categoryMap[section];
@@ -3058,10 +2342,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         );
         if (confirm !== 'Delete') { return; }
 
-        // Each section knows how to delete its own profile — the
-        // provider registry dispatches to the right shape (object
-        // map for localLlm / conversation, array for anthropic).
-        // Sections without a deleteProfile hook are a no-op here.
+        // The section's provider deletes its own profile (anthropic);
+        // sections without a deleteProfile hook are a no-op here.
         const provider = chatProviders.get(section);
         if (!provider?.deleteProfile) { return; }
         const deleted = await provider.deleteProfile(name);
@@ -3071,12 +2353,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // --- Template CRUD (copilot, tomAiChat) ---
+    // --- Template CRUD (copilot) ---
 
     private async _handleAddTemplate(section: string): Promise<void> {
         const categoryMap: Record<string, TemplateCategory> = {
             copilot: 'copilot',
-            tomAiChat: 'tomAiChat',
         };
         const category = categoryMap[section];
         if (category) {
@@ -3088,7 +2369,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         if (!name) { return; }
         const categoryMap: Record<string, TemplateCategory> = {
             copilot: 'copilot',
-            tomAiChat: 'tomAiChat',
         };
         const category = categoryMap[section];
         if (category) {
@@ -3108,8 +2388,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         if (section === 'copilot' && config.copilot?.templates?.[name]) {
             delete config.copilot.templates[name];
-        } else if (section === 'tomAiChat' && config.tomAiChat?.templates?.[name]) {
-            delete config.tomAiChat.templates[name];
         } else { return; }
 
         if (saveSendToChatConfig(config)) {
@@ -3118,84 +2396,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // --- Tom AI Chat file operations ---
-
-    private async _handleOpenChatFile(): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            vscode.window.showErrorMessage('No workspace folder open');
-            return;
-        }
-
-        const chatDir = WsPaths.ai('tomAiChat') || path.join(workspaceFolder.uri.fsPath, '_ai', 'tom_ai_chat');
-        if (!fs.existsSync(chatDir)) {
-            fs.mkdirSync(chatDir, { recursive: true });
-        }
-
-        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const chatFile = path.join(chatDir, `chat_${timestamp}.chat.md`);
-
-        if (!fs.existsSync(chatFile)) {
-            const content = `toolInvocationToken:
-modelId: claude-sonnet-4-20250514
-tokenModelId: gpt-4.1-mini
-preProcessingModelId: 
-enablePromptOptimization: false
-responsesTokenLimit: 16000
-responseSummaryTokenLimit: 4000
-maxIterations: 100
-maxContextChars: 50000
-maxToolResultChars: 50000
-maxDraftChars: 8000
-contextFilePath:
-
-_________ CHAT chat_${timestamp} ____________
-
-`;
-            fs.writeFileSync(chatFile, content, 'utf-8');
-        }
-
-        const doc = await vscode.workspace.openTextDocument(chatFile);
-        await vscode.window.showTextDocument(doc);
-    }
-
-    private async _handleInsertToChatFile(text: string, template: string): Promise<void> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showWarningMessage('No active editor. Open a .chat.md file first.');
-            return;
-        }
-        if (!editor.document.fileName.endsWith('.chat.md')) {
-            vscode.window.showWarningMessage('Active file is not a .chat.md file.');
-            return;
-        }
-
-        let expanded = text;
-        // Prepend contextInstructions from template if available
-        if (template) {
-            const config = loadSendToChatConfig();
-            const tpl = config?.tomAiChat?.templates?.[template];
-            if (tpl?.contextInstructions) {
-                expanded = tpl.contextInstructions + '\n\n' + expanded;
-            }
-        }
-
-        // Look for the CHAT header to insert after
-        const docText = editor.document.getText();
-        const headerMatch = docText.match(/_{3,}\s*CHAT\s+\w+\s*_{3,}/);
-        if (headerMatch && headerMatch.index !== undefined) {
-            const headerEnd = headerMatch.index + headerMatch[0].length;
-            const pos = editor.document.positionAt(headerEnd);
-            await editor.edit(editBuilder => {
-                editBuilder.insert(pos, '\n\n' + expanded);
-            });
-        } else {
-            // Insert at cursor
-            await editor.edit(editBuilder => {
-                editBuilder.insert(editor.selection.active, expanded);
-            });
-        }
-    }
 }
 
 let _provider: ChatPanelViewProvider | undefined;

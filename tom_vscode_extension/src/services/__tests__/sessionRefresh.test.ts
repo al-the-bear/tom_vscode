@@ -143,12 +143,12 @@ describe('session live trails', () => {
     test('SR-5: other panels get no list', async () => {
         const quest = newQuest();
         const config = {
-            questRefresh: { localLlm: { promptInterval: 3, refreshPrompt: 'Refresh.\n\n${refreshSessions}' } },
+            questRefresh: { copilot: { promptInterval: 3, refreshPrompt: 'Refresh.\n\n${refreshSessions}' } },
         } as unknown as SendToChatConfig;
         QuestRefreshStore.setInstanceForTest(new QuestRefreshStore(() => config));
         try {
             const sent: string[] = [];
-            await QuestRefreshService.instance.runRefresh('localLlm', async (t) => { sent.push(t); }, quest);
+            await QuestRefreshService.instance.runRefresh('copilot', async (t) => { sent.push(t); }, quest);
             assert.deepEqual(sent, ['Refresh.']);
         } finally {
             QuestRefreshStore.setInstanceForTest(undefined);
