@@ -205,7 +205,7 @@ The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts two subpanels:
 | Subpanel | Transport |
 | --- | --- |
 | Anthropic | Per profile: direct Anthropic SDK, Agent SDK, VS Code LM, or a Local LLM configuration (`anthropic-handler`, `agent-sdk-transport`, `localLlm-handler`). |
-| Copilot | VS Code Copilot Chat via answer files. |
+| Copilot | VS Code Copilot Chat; the answer comes back through an answer file Copilot writes (the Copilot Queue Wrapper). |
 
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos)

@@ -284,7 +284,9 @@ Use command palette or editor context menu:
 - `@T: Send to Copilot (Default Template)`
 - `@T: Send to Copilot (Pick Template)`
 
-In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications, and response-value extraction.
+The templates are the one template store, the user-message templates (template editor: **Anthropic — User Message**); **Default Template** uses the one marked default. In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications, and response-value extraction.
+
+The **Copilot Queue Wrapper** (template editor: **Copilot — Queue Wrapper**, config `copilot.queueWrapper`; a built-in default when not set) goes around every Copilot send that waits for an answer — queue items, the todo panel's buttons, `tomAi_askCopilot` — and makes Copilot write the answer file the queue waits for. The subpanel's own **Send** wraps only when its **Wrap** checkbox is ticked (off by default); Preview shows the prompt as Send would send it.
 
 #### CHAT Action Bar
 
@@ -292,7 +294,8 @@ The Copilot section in `@CHAT` includes an action bar with:
 
 - **R** (Repeat count): Number of times to repeat the prompt (text input, 24px wide). Accepts a plain integer, a chat-variable name (resolved at dispatch), or a `prefix*` pattern (see [Repeat and Affix Support](#repeat-and-affix-support))
 - **W** (Answer wait minutes): Minutes to wait before auto-advancing without an answer file. When set to 0, uses classic answer-file detection. When > 0, the queue auto-advances after the specified time (text input, 24px wide)
-- **Template picker**: Select a prompt template
+- **Template picker**: Select a prompt template (the user-message templates)
+- **Wrap** (beside Send): send the prompt inside the Copilot Queue Wrapper, so Copilot writes an answer file
 - **Queue button**: Add the current prompt to the queue with the configured repeat count and wait time
 
 ### Local LLM (Ollama / OpenAI-compatible)
