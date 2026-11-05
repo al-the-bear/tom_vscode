@@ -59,7 +59,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import {
     EMPTY_PROCESS_STATE,
@@ -411,7 +411,9 @@ describe('process definitions', () => {
         assert.equal(decision.decision, true);
         assert.deepEqual(parseProcessState(stringifyProcessState(decision, 'x')), decision, 'written and read back');
         assert.match(stringifyProcessState(decision, 'x'), /decision: true/);
-        assert.deepEqual(parseProcessState(stringifyProcessState(gate, 'x').replace('updated:', 'ran: true\nupdated:')), decision, 'an older file\'s ran reads as a decision');
+        // An older file: the one position at the top of the file, flagged `ran`.
+        const olderFile = stringify({ ...(parse(stringifyProcessState(gate, 'x')) as { levels: object[] }).levels[0], ran: true, updated: 'x' });
+        assert.deepEqual(parseProcessState(olderFile), decision, 'an older file\'s ran reads as a decision');
         assert.doesNotMatch(stringifyProcessState(gate, 'x'), /decision/, 'only a decision writes the flag');
         for (const m of availableMoves(def, decision).filter((x) => x.kind !== 'proceed')) {
             assert.equal(m.target.decision, undefined, `${m.kind} leads to a position`);

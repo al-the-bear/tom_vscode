@@ -21,6 +21,9 @@
  *     fold into that host's `extension_config.<host>.<quest>.yaml`
  *     (`questRefresh`, when absent) and are removed.
  *   - todos: `user_action: true` where the tag `user-action` says so.
+ *   - process state: a `process-state.<quest>.yaml` holding one position at
+ *     its top becomes a stack of that one level (processDefinition.ts,
+ *     ProcessStateStack); its `updated` time stays. Format version 2.
  * And once for the workspace:
  *   - the legacy `mcpServer` block of `.tom/tom_vscode_extension.json` folds
  *     into each quest's existing `extension_config.<quest>.yaml` that has no
@@ -53,6 +56,7 @@ import {
     sessionMemoryFolder,
     sessionRoot,
 } from '../services/sessionStorage';
+import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
@@ -82,7 +86,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'format-version';
     detail: string;
 }
 
@@ -358,6 +362,19 @@ class Run {
     }
 }
 
+/** A quest's flat process-state file as a stack of its one level. */
+function processStateStack(opts: FormatMigrationOptions, run: Run, quest: string): void {
+    const file = path.join(opts.aiRoot, 'quests', quest, `process-state.${quest}.yaml`);
+    if (!fs.existsSync(file)) { return; }
+    const text = fs.readFileSync(file, 'utf8');
+    if (!isFlatProcessStateText(text)) { return; }
+    run.change(quest, 'process-state', `process-state.${quest}.yaml: the position as the one level of a stack`);
+    if (opts.apply) {
+        const updated = processStateUpdated(text) || new Date().toISOString();
+        fs.writeFileSync(file, stringifyProcessStateStack(parseProcessStateStack(text), updated), 'utf8');
+    }
+}
+
 /**
  * The format-version stamp, written last and only when every step could be
  * done: the stamp says the files ARE in that format. A stamp of a newer build
@@ -389,6 +406,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
         run.storage(quest);
         run.sessions(quest);
         run.legacyConfig(quest);
+        processStateStack(opts, run, quest);
     }
     run.mcpServer(all);
     run.todos(quests);

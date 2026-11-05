@@ -1112,29 +1112,43 @@ function parseStepIterations(raw: unknown): { stepIterations?: StepIterationReco
     return { stepIterations: { phase: raw.phase, phaseIteration, steps } };
 }
 
-/** Read a state file's text; anything unreadable is the empty state. */
-export function parseProcessState(text: string): ProcessState {
-    try {
-        const raw = parse(text);
-        if (!isObject(raw)) { return { ...EMPTY_PROCESS_STATE }; }
-        const str = (k: string): string => (typeof raw[k] === 'string' ? raw[k] as string : '');
-        const num = (k: string): number => (Number.isInteger(raw[k]) && (raw[k] as number) >= 1 ? raw[k] as number : 1);
-        return {
-            process: str('process'), phase: str('phase'), phaseIteration: num('phaseIteration'),
-            step: str('step'), stepIteration: num('stepIteration'),
-            substep: str('substep'), substepIteration: num('substepIteration'),
-            completed: raw.completed === true,
-            ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
-            ...parseStepIterations(raw.stepIterations),
-        };
-    } catch {
-        return { ...EMPTY_PROCESS_STATE };
-    }
+/**
+ * The state file is a stack of levels, bottom first: each level is a process
+ * position with its own iterations, and the top one (the last) is where the
+ * quest is. Today a quest runs one process, so the stack holds one level;
+ * nested processes push more. Every reader and writer of the position works
+ * on the top level (parseProcessState, ProcessRepository.writeState).
+ *
+ *   levels:
+ *     - process: tom_specs
+ *       phase: phase2
+ *       ...
+ *   updated: 2026-11-05T16:08:44.593Z
+ *
+ * Older files held the one position at the top of the file (no `levels`);
+ * they are read as a stack of that one level, and `npm run migrate:ai-formats`
+ * rewrites them (isFlatProcessStateText).
+ */
+export interface ProcessStateStack {
+    /** Bottom first; never empty — the top is the quest's position. */
+    levels: ProcessState[];
 }
 
-/** The text of a state file. */
-export function stringifyProcessState(state: ProcessState, updated: string): string {
-    return stringify({
+function parseLevel(raw: Record<string, unknown>): ProcessState {
+    const str = (k: string): string => (typeof raw[k] === 'string' ? raw[k] as string : '');
+    const num = (k: string): number => (Number.isInteger(raw[k]) && (raw[k] as number) >= 1 ? raw[k] as number : 1);
+    return {
+        process: str('process'), phase: str('phase'), phaseIteration: num('phaseIteration'),
+        step: str('step'), stepIteration: num('stepIteration'),
+        substep: str('substep'), substepIteration: num('substepIteration'),
+        completed: raw.completed === true,
+        ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
+        ...parseStepIterations(raw.stepIterations),
+    };
+}
+
+function levelRecord(state: ProcessState): Record<string, unknown> {
+    return {
         process: state.process,
         phase: state.phase,
         phaseIteration: state.phaseIteration,
@@ -1145,6 +1159,57 @@ export function stringifyProcessState(state: ProcessState, updated: string): str
         ...(state.completed ? { completed: true } : {}),
         ...(state.decision ? { decision: true } : {}),
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
-        updated,
-    });
+    };
+}
+
+/** Read a state file's text as its stack; anything unreadable is one empty level. */
+export function parseProcessStateStack(text: string): ProcessStateStack {
+    try {
+        const raw = parse(text);
+        if (!isObject(raw)) { return { levels: [{ ...EMPTY_PROCESS_STATE }] }; }
+        if (Array.isArray(raw.levels)) {
+            const levels = raw.levels.filter(isObject).map((l) => parseLevel(l as Record<string, unknown>));
+            return { levels: levels.length ? levels : [{ ...EMPTY_PROCESS_STATE }] };
+        }
+        return { levels: [parseLevel(raw)] };
+    } catch {
+        return { levels: [{ ...EMPTY_PROCESS_STATE }] };
+    }
+}
+
+/** Is this a state file of the older form, one position without `levels`? */
+export function isFlatProcessStateText(text: string): boolean {
+    try {
+        const raw = parse(text);
+        return isObject(raw) && !Array.isArray(raw.levels);
+    } catch {
+        return false;
+    }
+}
+
+/** The `updated` time a state file records, '' when none. */
+export function processStateUpdated(text: string): string {
+    try {
+        const raw = parse(text);
+        return isObject(raw) && typeof raw.updated === 'string' ? raw.updated : '';
+    } catch {
+        return '';
+    }
+}
+
+/** Read a state file's text: the top level's position; anything unreadable is the empty state. */
+export function parseProcessState(text: string): ProcessState {
+    const { levels } = parseProcessStateStack(text);
+    return levels[levels.length - 1];
+}
+
+/** The text of a state file holding `stack`. */
+export function stringifyProcessStateStack(stack: ProcessStateStack, updated: string): string {
+    const levels = stack.levels.length ? stack.levels : [{ ...EMPTY_PROCESS_STATE }];
+    return stringify({ levels: levels.map(levelRecord), updated });
+}
+
+/** The text of a state file whose top level is `state`, over the levels `below` (bottom first). */
+export function stringifyProcessState(state: ProcessState, updated: string, below: ProcessState[] = []): string {
+    return stringifyProcessStateStack({ levels: [...below, state] }, updated);
 }

@@ -4,7 +4,8 @@
  *
  *   <processes>/<id>/<id>.process.yaml   the structure (processDefinition.ts)
  *   <processes>/<id>/<id>.md             the description
- *   <quests>/<quest>/process-state.<quest>.yaml   where that quest is
+ *   <quests>/<quest>/process-state.<quest>.yaml   where that quest is: a stack of
+ *                                                 levels, the top one its position
  *
  * `<processes>` is `_ai/processes`, `<quests>` is `_ai/quests`; both live in
  * the one shared `_ai` clone, so a quest's process state is the same on every
@@ -17,7 +18,7 @@ import { parse } from 'yaml';
 
 import {
     EMPTY_PROCESS_STATE,
-    parseProcessState,
+    parseProcessStateStack,
     parseProcessYaml,
     stringifyProcessDefinition,
     stringifyProcessState,
@@ -25,6 +26,7 @@ import {
     type ProcessDefinition,
     type ProcessProblem,
     type ProcessState,
+    type ProcessStateStack,
 } from './processDefinition';
 
 export interface ProcessEntry {
@@ -167,16 +169,24 @@ export class ProcessRepository {
         return path.join(this.questsDir, quest, `process-state.${quest}.yaml`);
     }
 
-    /** Where `quest` is; the empty state when it has no state file. */
+    /** Where `quest` is: the top level of its stack; the empty state when it has no state file. */
     readState(quest: string): ProcessState {
-        if (!quest) { return { ...EMPTY_PROCESS_STATE }; }
-        const text = readText(this.stateFile(quest));
-        return text ? parseProcessState(text) : { ...EMPTY_PROCESS_STATE };
+        const { levels } = this.readStateStack(quest);
+        return levels[levels.length - 1];
     }
 
+    /** The quest's whole stack, bottom first; one empty level when it has no state file. */
+    readStateStack(quest: string): ProcessStateStack {
+        if (!quest) { return { levels: [{ ...EMPTY_PROCESS_STATE }] }; }
+        const text = readText(this.stateFile(quest));
+        return text ? parseProcessStateStack(text) : { levels: [{ ...EMPTY_PROCESS_STATE }] };
+    }
+
+    /** Write `state` as the top level; the levels below it stay as they are. */
     writeState(quest: string, state: ProcessState): void {
+        const below = this.readStateStack(quest).levels.slice(0, -1);
         const file = this.stateFile(quest);
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, stringifyProcessState(state, new Date().toISOString()), 'utf-8');
+        fs.writeFileSync(file, stringifyProcessState(state, new Date().toISOString(), below), 'utf-8');
     }
 }
