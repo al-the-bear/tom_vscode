@@ -1,9 +1,10 @@
 /**
  * TODO Log Panel - Explorer sidebar panel showing trail exchanges that reference TODOs.
  * 
- * Displays a list of Copilot answer entries from the combined *.answers.md trail
- * files that contain TODO variable references. Auto-refreshes when .answers.md
- * files change via a file system watcher on the quest/trail folder.
+ * Displays a list of answer entries from the summary *.answers.md trail files
+ * that contain TODO variable references: the quest's history folder and each
+ * Anthropic session's folder under it (history/sessions/<session>/,
+ * todoLogTrailSets.ts). Auto-refreshes when .answers.md files change there.
  * 
  * Uses the same *.prompts.md / *.answers.md files as the trail custom editor
  * (trailEditor-handler.ts).
@@ -22,6 +23,7 @@ import { gotoWorkspaceTodo } from './trailViewer-handler.js';
 import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { parseTodoRef, dedupeTodoRefs } from '../utils/todoLogRefs.js';
+import { todoLogTrailSets } from '../utils/todoLogTrailSets.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 
 // ============================================================================
@@ -104,8 +106,8 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         const folder = getTrailFolder();
         if (!folder || !fs.existsSync(folder)) { return; }
 
-        // Watch for changes to combined *.answers.md trail files
-        const pattern = new vscode.RelativePattern(folder, '*.answers.md');
+        // Watch the summary *.answers.md files, the sessions' included
+        const pattern = new vscode.RelativePattern(folder, '**/*.answers.md');
         this._watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
         const scheduleRefresh = debounce(() => this.refresh(), 800);
@@ -185,15 +187,14 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const trailSets = discoverTrailSets(trailFolder);
-        const set = trailSets.get(session);
+        const set = todoLogTrailSets(trailFolder, discoverTrailSets).get(session);
         const answersFile = set?.answers;
         if (!answersFile) {
             vscode.window.showWarningMessage('No answers file found for session: ' + session);
             return;
         }
 
-        const answersPath = path.join(trailFolder, answersFile);
+        const answersPath = path.join(set.directory || trailFolder, answersFile);
         if (!fs.existsSync(answersPath)) {
             vscode.window.showWarningMessage('Answers file not found: ' + answersFile);
             return;
@@ -223,10 +224,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         const folder = getTrailFolder();
         if (!folder || !fs.existsSync(folder)) { return []; }
 
-        const trailSets = discoverTrailSets(folder);
-        for (const set of trailSets.values()) {
-            set.directory = folder;
-        }
+        const trailSets = todoLogTrailSets(folder, discoverTrailSets);
 
         // First pass: collect entries with their deduped refs.
         const staged: { entry: TodoLogEntry; refs: string[] }[] = [];
