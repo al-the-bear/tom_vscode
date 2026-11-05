@@ -13,8 +13,10 @@ import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngin
 import { applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { loadSendToChatConfig } from './handler_shared';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
+import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
+import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -343,57 +345,15 @@ async function deleteReminderTemplate(id?: string): Promise<void> {
 }
 
 async function addPromptTemplate(): Promise<void> {
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'copilot' });
-  }
+  addUserMessageTemplate(_ctx);
 }
 
 async function editPromptTemplate(currentName?: string): Promise<void> {
-  if (!_ctx) return;
-  if (currentName) {
-    openGlobalTemplateEditor(_ctx, { category: 'copilot', itemId: currentName });
-  } else {
-    openGlobalTemplateEditor(_ctx, { category: 'copilot' });
-  }
+  await editUserMessageTemplate(_ctx, currentName);
 }
 
 async function deletePromptTemplate(currentName?: string): Promise<void> {
-  const config = loadSendToChatConfig();
-  if (!config) {
-    vscode.window.showWarningMessage('Send-to-chat config is not available.');
-    return;
-  }
-  const templateNames = Object.keys(config.copilot?.templates || {});
-  if (templateNames.length === 0) {
-    vscode.window.showWarningMessage('No prompt templates available.');
-    return;
-  }
-
-  const templates = config.copilot?.templates;
-  let name = currentName;
-  if (!name || !templates?.[name]) {
-    const picked = await vscode.window.showQuickPick(templateNames, { placeHolder: 'Select template to delete' });
-    if (!picked) {
-      return;
-    }
-    name = picked;
-  }
-
-  if (!name) {
-    return;
-  }
-
-  const answer = await vscode.window.showWarningMessage(
-    `Delete prompt template "${name}"?`,
-    { modal: true },
-    'Delete',
-  );
-  if (answer !== 'Delete') {
-    return;
-  }
-
-  delete templates?.[name];
-  saveSendToChatConfig(config);
+  await deleteUserMessageTemplate(currentName);
 }
 
 // ============================================================================
@@ -427,13 +387,13 @@ function buildState(): Record<string, unknown> {
         activeProjects = store.activeProjects || [];
     } catch { /* */ }
 
+    // The template dropdown: the one template store, by id; the labels by name.
     let promptTemplates: string[] = [];
+    let promptTemplateLabels: Record<string, string> = {};
     try {
-        const config = loadSendToChatConfig();
-      const templates = config?.copilot?.templates;
-      if (templates) {
-        promptTemplates = Object.keys(templates).filter(k => templates[k].showInMenu !== false);
-        }
+        const options = userMessageTemplateOptions(loadSendToChatConfig());
+        promptTemplates = options.map((t) => t.id);
+        promptTemplateLabels = Object.fromEntries(options.map((t) => [t.id, t.label]));
     } catch { /* */ }
 
     return {
@@ -442,6 +402,7 @@ function buildState(): Record<string, unknown> {
         timerActivated,
         reminderTemplates,
         promptTemplates,
+        promptTemplateLabels,
       collapsedIds: Array.from(_collapsedEntryIds),
         context: { quest, role, activeProjects },
     };

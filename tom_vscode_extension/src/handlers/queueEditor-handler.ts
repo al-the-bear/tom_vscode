@@ -17,9 +17,11 @@ import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { loadSendToChatConfig } from './handler_shared';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
+import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
+import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -930,80 +932,15 @@ async function deleteReminderTemplate(id?: string): Promise<void> {
 }
 
 async function addPromptTemplate(): Promise<void> {
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'copilot' });
-  }
+  addUserMessageTemplate(_ctx);
 }
 
 async function editPromptTemplate(currentName?: string): Promise<void> {
-  const config = loadSendToChatConfig();
-  if (!config) {
-    vscode.window.showWarningMessage('Send-to-chat config is not available.');
-    return;
-  }
-  const templateNames = Object.keys(config.copilot?.templates || {});
-  if (templateNames.length === 0) {
-    vscode.window.showWarningMessage('No prompt templates available.');
-    return;
-  }
-
-  const templates = config.copilot?.templates;
-  let name = currentName;
-  if (!name || !templates?.[name]) {
-    const picked = await vscode.window.showQuickPick(templateNames, { placeHolder: 'Select template to edit' });
-    if (!picked) {
-      return;
-    }
-    name = picked;
-  }
-
-  const existing = templates?.[name];
-  if (!existing) {
-    return;
-  }
-
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'copilot', itemId: name });
-  }
+  await editUserMessageTemplate(_ctx, currentName);
 }
 
 async function deletePromptTemplate(currentName?: string): Promise<void> {
-  const config = loadSendToChatConfig();
-  if (!config) {
-    vscode.window.showWarningMessage('Send-to-chat config is not available.');
-    return;
-  }
-  const templateNames = Object.keys(config.copilot?.templates || {});
-  if (templateNames.length === 0) {
-    vscode.window.showWarningMessage('No prompt templates available.');
-    return;
-  }
-
-  const templates = config.copilot?.templates;
-  let name = currentName;
-  if (!name || !templates?.[name]) {
-    const picked = await vscode.window.showQuickPick(templateNames, { placeHolder: 'Select template to delete' });
-    if (!picked) {
-      return;
-    }
-    name = picked;
-  }
-
-  if (!name) {
-    return;
-  }
-
-  const answer = await vscode.window.showWarningMessage(
-    `Delete prompt template "${name}"?`,
-    { modal: true },
-    'Delete',
-  );
-  if (answer !== 'Delete') {
-    return;
-  }
-
-  delete templates?.[name];
-  saveSendToChatConfig(config);
+  await deleteUserMessageTemplate(currentName);
 }
 
 // ============================================================================
@@ -1082,10 +1019,8 @@ function buildState(): Record<string, unknown> {
     let anthropicConfigs: Array<{ id: string; name?: string; transport?: string }> = [];
     try {
         const config = loadSendToChatConfig();
-        const templates = config?.copilot?.templates;
-        if (templates) {
-            promptTemplates = Object.keys(templates).filter(k => templates[k].showInMenu !== false);
-        }
+        // The Copilot template dropdowns: the one template store, by id.
+        promptTemplates = userMessageTemplateOptions(config).map((t) => t.id);
         // Anthropic profiles + configurations (spec §4.10). Also
         // surface Local LLM configurations per §4.3 so the queue
         // editor's config dropdown shows every option a profile

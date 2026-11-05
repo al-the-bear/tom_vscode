@@ -71,7 +71,7 @@ Two transports per item (and per pre-prompt / follow-up stage):
 
 #### Copilot transport
 
-1. `_buildExpandedText()` applies the named template and wraps the text with the answer-file template (`__answer_file__`).
+1. `_buildExpandedText()` applies the named template (from the one store, `anthropic.userMessageTemplates`) and wraps the text in the Copilot Queue Wrapper (`copilot.queueWrapper`, default built in), unless the item sets `answerWrapper: false`.
 2. `dispatchStage()` extracts `expectedRequestId`, calls `workbench.action.chat.open`, returns `{ mode: 'polled', expectedRequestId }`.
 3. `pollForExpectedAnswer()` watches `_ai/answers/copilot/` for a file whose `requestId` matches. Polling interval: 30 s. Background watchdog: 60 s.
 4. Additional Copilot-only features: `reminderEnabled` (ReminderSystem generates follow-up prompts after a timeout), `answerWaitMinutes` (auto-advance after N minutes without an answer).
@@ -144,7 +144,7 @@ The queue editor webview (opened via "Open Queue Editor") provides:
 
 > ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored. The queue cannot pause for the approval bar.
 
-**Template dropdown.** Filters to Copilot templates or Anthropic user-message templates based on the effective transport. Changing transport clears the template selection and repopulates from the new store.
+**Template dropdown.** Lists the one template store (the user-message templates) for either transport. Changing transport clears the template selection.
 
 **Add form.** New items inherit transport from the queue default unless the user overrides in the form's own transport picker.
 
@@ -195,7 +195,7 @@ The **Timed Requests** panel (in `@WS`) manages `TimedRequest` entries that fire
 interface TimedRequest {
     id: string;
     originalText: string;        // the prompt text to send
-    templateId?: string;         // expand via a Copilot template before sending
+    templateId?: string;         // expand via a template (the one store) before sending
     questId?: string;            // target quest context
     scheduleMode: 'interval' | 'scheduled';
     intervalMinutes?: number;    // used when mode === 'interval'
@@ -215,7 +215,7 @@ interface TimedRequest {
 
 ### Dispatch
 
-Timed requests currently dispatch via the **Copilot** path (`workbench.action.chat.open`) — they are not yet transport-aware. The `originalText` is optionally expanded through a named Copilot template (`config.copilot.templates`) before dispatch.
+Timed requests currently dispatch via the **Copilot** path (`workbench.action.chat.open`) — they are not yet transport-aware. The `originalText` is optionally expanded through a named template (the one store, `config.anthropic.userMessageTemplates`) before dispatch.
 
 ### Persistence
 

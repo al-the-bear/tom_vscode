@@ -30,6 +30,7 @@ import {
 import { loadSendToChatConfig } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { ReminderSystem } from '../managers/reminderSystem';
+import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 
 // ============================================================================
 // State
@@ -242,13 +243,14 @@ function buildState(selectedId?: string): Record<string, unknown> {
     reminderTemplates = rs.templates.map(t => ({ id: t.id, name: t.name }));
   } catch { /* not ready */ }
 
+  // The template dropdowns: the one template store (ids; the webview labels
+  // them by name from anthropicUserMessageTemplates).
   let promptTemplates: string[] = [];
+  let anthropicUserMessageTemplates: Array<{ id: string; name: string }> = [];
   try {
-    const config = loadSendToChatConfig();
-    const tpls = config?.copilot?.templates;
-    if (tpls) {
-      promptTemplates = Object.keys(tpls).filter(k => tpls[k].showInMenu !== false);
-    }
+    const options = userMessageTemplateOptions(loadSendToChatConfig());
+    promptTemplates = options.map((o) => o.id);
+    anthropicUserMessageTemplates = options.map((o) => ({ id: o.id, name: o.label }));
   } catch { /* */ }
 
   // Build display info: { id, displayName }
@@ -267,6 +269,7 @@ function buildState(selectedId?: string): Record<string, unknown> {
     currentItem,
     reminderTemplates,
     promptTemplates,
+    anthropicUserMessageTemplates,
   };
 }
 

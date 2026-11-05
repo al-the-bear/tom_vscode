@@ -127,35 +127,14 @@ function renderFields(fields) {
         return;
     }
 
-    // Separate name + showInMenu for inline row, and find the textarea field
+    // The name field first, then the others
     var nameField = fields.find(function(f) { return f.name === 'name'; });
-    var showInMenuField = fields.find(function(f) { return f.name === 'showInMenu'; });
-    var otherFields = fields.filter(function(f) { return f.name !== 'name' && f.name !== 'showInMenu'; });
+    var otherFields = fields.filter(function(f) { return f.name !== 'name'; });
 
     var html = '';
-
-    // Render name + showInMenu inline if both exist
-    if (nameField && showInMenuField) {
-        html += '<div class="field-inline-row">';
+    if (nameField) {
         html += '<div class="field"><label for="field_' + nameField.name + '">' + escapeText(nameField.label) + '</label>' +
             '<input type="text" id="field_' + nameField.name + '" value="' + escapeAttr(nameField.value || '') + '"' + (nameField.readonly ? ' readonly disabled' : '') + '></div>';
-        html += '<div class="field checkbox-field">' +
-            '<input type="checkbox" id="field_' + showInMenuField.name + '"' + (showInMenuField.value === 'true' ? ' checked' : '') +
-            (showInMenuField.readonly ? ' disabled' : '') + '>' +
-            '<label for="field_' + showInMenuField.name + '">' + escapeText(showInMenuField.label) + '</label></div>';
-        html += '</div>';
-    } else {
-        // Render them normally if only one exists
-        if (nameField) {
-            html += '<div class="field"><label for="field_' + nameField.name + '">' + escapeText(nameField.label) + '</label>' +
-                '<input type="text" id="field_' + nameField.name + '" value="' + escapeAttr(nameField.value || '') + '"' + (nameField.readonly ? ' readonly disabled' : '') + '></div>';
-        }
-        if (showInMenuField) {
-            html += '<div class="field checkbox-field">' +
-                '<input type="checkbox" id="field_' + showInMenuField.name + '"' + (showInMenuField.value === 'true' ? ' checked' : '') +
-                (showInMenuField.readonly ? ' disabled' : '') + '>' +
-                '<label for="field_' + showInMenuField.name + '">' + escapeText(showInMenuField.label) + '</label></div>';
-        }
     }
 
     // Render remaining fields

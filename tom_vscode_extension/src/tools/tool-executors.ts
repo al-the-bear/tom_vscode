@@ -8,6 +8,7 @@
  * All executors return a plain string result.
  */
 
+import { copilotQueueWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import { checkBuildStatus } from '../services/buildStatusService';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -24,7 +25,7 @@ import {
     buildAskCopilotDescription,
     generateModelList,
 } from './local-llm-tools-config';
-import { updateChatResponseValues, loadSendToChatConfig, DEFAULT_ANSWER_FILE_TEMPLATE } from '../handlers/handler_shared';
+import { updateChatResponseValues, loadSendToChatConfig } from '../handlers/handler_shared';
 import { expandTemplate } from '../handlers/promptTemplate';
 import { debugLog } from '../utils/debugLogger.js';
 import { logPrompt, logResponse } from '../services/trailLogging';
@@ -489,12 +490,10 @@ export type { AskCopilotInput };
 function liveCopilotConfig(): CopilotConfigSnapshot {
     const config = loadLocalLlmToolsConfig();
     const sendToChatConfig = loadSendToChatConfig();
-    const copilotTemplates = sendToChatConfig?.copilot?.templates;
-    const answerFileTpl = copilotTemplates?.['__answer_file__'];
+    // The selected template comes from the one template store; the wrapper is
+    // the Copilot Queue Wrapper (src/utils/copilotTemplates.ts).
     const selectedId = config.askCopilot.promptTemplate;
-    const selectedBody = selectedId && selectedId !== '__none__' && selectedId !== '__answer_file__'
-        ? copilotTemplates?.[selectedId]?.template
-        : undefined;
+    const selectedBody = userMessageTemplateBody(sendToChatConfig, selectedId);
     return {
         enabled: config.askCopilot.enabled,
         answerFileTimeoutMs: config.askCopilot.answerFileTimeout,
@@ -503,7 +502,7 @@ function liveCopilotConfig(): CopilotConfigSnapshot {
         answerFilename: `${vscode.env.sessionId}_${vscode.env.machineId}_answer.json`,
         selectedTemplateId: selectedId || '__none__',
         selectedTemplateBody: selectedBody,
-        answerFileTemplate: answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE,
+        answerFileTemplate: copilotQueueWrapper(sendToChatConfig),
     };
 }
 

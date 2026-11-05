@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -26,10 +27,10 @@ import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
-import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables, applyDefaultTemplate, DEFAULT_ANSWER_FILE_TEMPLATE } from './handler_shared';
+import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
-import { BUILTIN_TODO_TEMPLATES, buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
+import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 // Module-level state
@@ -1288,7 +1289,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
-            const wrappedText = applyDefaultTemplate(todoYaml, 'copilot');
+            const wrappedText = todoYaml;
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
             try {
                 const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
@@ -1345,7 +1346,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     continue;
                 }
                 const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
-                prepared.push(applyDefaultTemplate(todoYaml, 'copilot'));
+                prepared.push(todoYaml);
             }
             if (!prepared.length) {
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
@@ -1971,23 +1972,11 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
         return;
     }
 
-    const wrappedText = applyDefaultTemplate(todoPrompt, 'copilot');
-    const answerFileTemplate = config?.copilot?.templates?.['__answer_file__']?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-
-    let expanded: string;
-    if (!selectedTemplate || selectedTemplate === '__none__') {
-        expanded = await expandTemplate(wrappedText);
-    } else if (selectedTemplate === '__answer_file__') {
-        expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: wrappedText } });
-    } else {
-        const selectedTemplateText = config?.copilot?.templates?.[selectedTemplate]?.template || BUILTIN_TODO_TEMPLATES[selectedTemplate];
-        if (selectedTemplateText) {
-            const templateExpanded = await expandTemplate(selectedTemplateText, { values: { originalPrompt: wrappedText } });
-            expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-        } else {
-            expanded = await expandTemplate(wrappedText);
-        }
-    }
+    // A todo button waits for the answer: the template (one store) inside the
+    // Copilot Queue Wrapper (src/utils/copilotTemplates.ts).
+    const body = userMessageTemplateBody(config, selectedTemplate);
+    const inner = body ? await expandTemplate(fillTemplate(body, todoPrompt)) : todoPrompt;
+    const expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner));
 
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
 }

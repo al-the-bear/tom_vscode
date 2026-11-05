@@ -82,11 +82,11 @@ interface AnthropicConfiguration {
 
 ## User-message templates
 
-The Anthropic panel (and all Anthropic leaf paths including VS Code LM and Local-LLM-backed profiles) share **one template store**: `config.anthropic.userMessageTemplates` — an array of `{ id, name, description?, template, isDefault? }`. This is separate from the Copilot template store (`config.copilot.templates`).
+There is **one template store**: `config.anthropic.userMessageTemplates` — an array of `{ id, name, description?, template, isDefault? }`. The Anthropic panel, every Anthropic leaf path (VS Code LM and Local-LLM-backed profiles included) and Copilot sends all read it.
 
 - `isDefault: true` marks the template auto-applied on every send (profile-scoped default).
 - Templates support placeholder expansion: `${tomAi.quest}`, `${tomAi.role}`, chat variables, `${memory}`, etc.
-- The Global Template Editor's **Category** dropdown routes to the Anthropic — User Message store when selected. The template tools (`tomAi_createPromptTemplate`, etc.) accept `transport: 'anthropic'`.
+- The Global Template Editor's **Category** dropdown routes to the Anthropic — User Message store when selected. The template tools (`tomAi_createPromptTemplate`, etc.) work on it, keyed by `id`.
 
 ## Live trail
 

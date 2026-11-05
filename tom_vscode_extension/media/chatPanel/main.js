@@ -34,7 +34,7 @@ var sectionsConfig = [
     { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic' }
 ];
 var state = { expanded: ['anthropic'], pinned: [] };
-var profiles = { copilot: [], anthropic: [] };
+var profiles = { anthropic: [] };
 var anthropicConfigurations = [];
 var anthropicProfileEntries = [];
 var anthropicUserMessageTemplates = [];
@@ -46,7 +46,7 @@ var anthropicSending = false;
 var anthropicSessionTurns = 0;
 var anthropicLastToolCalls = 0;
 var pendingAnthropicApprovals = {};
-var defaultCopilotTemplate = '';
+var copilotTemplateEntries = [];
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
 var reusablePreferredQuestId = '';
@@ -238,7 +238,7 @@ function getSectionContent(id) {
             sectionId: 'copilot',
             selectorKind: 'template',
             selectorLabel: 'Template',
-            selectorOptions: '<option value="">(None)</option><option value="__answer_file__">Answer Wrapper</option>',
+            selectorOptions: '<option value="">(None)</option>',
             selectorClass: 'compact-select',
             selectorTitle: 'Template',
             toolbarClass: 'copilot-compact-toolbar',
@@ -251,6 +251,7 @@ function getSectionContent(id) {
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
+                '<label class="checkbox-label compact-keep" title="Wrap the send in the Copilot Queue Wrapper, so Copilot writes an answer file"><input type="checkbox" id="copilot-wrap"> Wrap</label>' +
                 '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="text" id="copilot-repeat-count" value="1" style="width:24px"></label>' +
                 '<label class="checkbox-label compact-keep" title="Answer wait minutes (0 = wait for answer file)"><span style="opacity:0.8;">W</span><input type="text" id="copilot-answer-wait" value="0" style="width:24px"></label>' +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
@@ -561,7 +562,7 @@ function stopResize() { /* legacy */ }
 function handleAction(action, id, slot) {
     switch(action) {
         case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
-        case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
+        case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
         case 'clearText': {
             if (!id) {break;}
             var clearTextArea = document.getElementById(id + '-text');
@@ -583,7 +584,7 @@ function handleAction(action, id, slot) {
         case 'addTemplate': vscode.postMessage({ type: 'addTemplate', section: id }); break;
         case 'editTemplate': { var etSel = document.getElementById(id + '-template'); var etVal = etSel ? etSel.value : ''; vscode.postMessage({ type: 'editTemplate', section: id, name: etVal }); break; }
         case 'deleteProfile': confirmDelete('profile', id); break;
-        case 'deleteTemplate': { var dtSel = document.getElementById(id + '-template'); var dtVal = dtSel ? dtSel.value : ''; if (dtVal === '__answer_file__') { vscode.postMessage({ type: 'showMessage', message: 'The Answer File template is built-in and cannot be deleted.' }); return; } confirmDelete('template', id); break; }
+        case 'deleteTemplate': { var dtSel = document.getElementById(id + '-template'); var dtVal = dtSel ? dtSel.value : ''; if (!dtVal) { vscode.postMessage({ type: 'showMessage', message: 'Please select a template to delete.' }); return; } confirmDelete('template', id); break; }
         case 'editAnthropicProfile': {
             var epaSel = document.getElementById('anthropic-profile');
             vscode.postMessage({ type: 'editAnthropicProfile', name: epaSel ? epaSel.value : '' });
@@ -745,7 +746,7 @@ function confirmDelete(itemType, sectionId) {
 }
 
 function populateDropdowns() {
-    populateSelect('copilot-template', profiles.copilot);
+    populateCopilotTemplates();
     // Use populateEntitySelect for anthropic profiles so the entry marked
     // isDefault is preselected; the label shown is the human-readable name.
     if (anthropicProfileEntries && anthropicProfileEntries.length > 0) {
@@ -1006,9 +1007,24 @@ function populateSelect(id, options) {
     if (!sel) {return;}
     var cur = sel.value;
     var baseOptions = '<option value="">(None)</option>';
-    if (id === 'copilot-template') {baseOptions += '<option value="__answer_file__">Answer Wrapper</option>';}
     sel.innerHTML = baseOptions + (options || []).map(function(o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
-    if (cur && (options && options.includes(cur) || cur === '__answer_file__')) {sel.value = cur;}
+    if (cur && options && options.includes(cur)) {sel.value = cur;}
+}
+
+function escapeAttr(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// The Copilot template dropdown: (None) and the user-message templates, the
+// one template store. A saved selection that is gone falls back to (None).
+function populateCopilotTemplates() {
+    var sel = document.getElementById('copilot-template');
+    if (!sel) {return;}
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">(None)</option>' + copilotTemplateEntries.map(function(t) {
+        return '<option value="' + escapeAttr(t.id) + '">' + escapeAttr(t.name || t.id) + '</option>';
+    }).join('');
+    sel.value = copilotTemplateEntries.some(function(t) { return t.id === cur; }) ? cur : '';
 }
 
 function populateEntitySelect(id, options, defaultLabel) {
@@ -1035,16 +1051,15 @@ window.addEventListener('message', function(e) {
     // `insertCompletion` is handled by the shared media/shared/completion.js
     // component (its own message listener), not here.
     if (msg.type === 'profiles') {
-        profiles = { copilot: msg.copilot || [], anthropic: msg.anthropic || [] };
+        profiles = { anthropic: msg.anthropic || [] };
+        copilotTemplateEntries = Array.isArray(msg.copilotTemplates) ? msg.copilotTemplates : [];
         anthropicConfigurations = msg.anthropicConfigurations || [];
         anthropicProfileEntries = msg.anthropicProfileEntries || [];
         anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
         anthropicApiKeyOk = !!msg.anthropicApiKeyOk;
         claudeCliVisible = !!msg.claudeCliVisible;
         claudeCliOk = (msg.claudeCliOk === true || msg.claudeCliOk === false) ? msg.claudeCliOk : null;
-        defaultCopilotTemplate = msg.defaultCopilotTemplate || '';
         populateDropdowns();
-        updateDefaultTemplateIndicator();
         updateAnthropicApiKeyDot();
         updateClaudeCliDot();
     } else if (msg.type === 'anthropicSession') {
@@ -1259,24 +1274,15 @@ window.addEventListener('message', function(e) {
     }
 });
 
-function updateDefaultTemplateIndicator() {
-    var tplInfo = document.getElementById('copilot-templateInfo');
-    if (tplInfo && defaultCopilotTemplate) {
-        tplInfo.textContent = 'Default template: ' + defaultCopilotTemplate;
-        tplInfo.style.display = 'block';
-    } else if (tplInfo) {
-        tplInfo.style.display = 'none';
-    }
-}
-
 function sendCopilotPrompt() {
     var text = document.getElementById('copilot-text');
     text = text ? text.value : '';
     if (!text.trim()) {return;}
     var template = document.getElementById('copilot-template');
     template = template ? template.value : '';
+    var wrapEl = document.getElementById('copilot-wrap');
     var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'sendCopilot', text: text, template: template, slot: slot });
+    vscode.postMessage({ type: 'sendCopilot', text: text, template: template, slot: slot, wrap: !!(wrapEl && wrapEl.checked) });
 }
 
 // Normalize a repeat-count input value for the queue. Purely-numeric input

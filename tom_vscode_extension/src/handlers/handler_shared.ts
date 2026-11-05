@@ -517,25 +517,6 @@ export async function showAnalysisResult(analysis: string): Promise<void> {
 }
 
 // ============================================================================
-// Answer Wrapper Default Template
-// ============================================================================
-
-/**
- * Default template for the `__answer_file__` wrapper.
- *
- * This is the **single source of truth** used as fallback when the config
- * `templates.__answer_file__` entry does not exist.  Both
- * `chatPanel-handler` and `promptQueueManager` reference this constant.
- *
- * Placeholders resolved at expansion time:
- *   ${originalPrompt}  – the user's (already-expanded) prompt text
- *   ${copilotAnswerFile} – absolute path to the answer JSON file
- *   ${requestId}       – timestamp-based request identifier
- */
-export const DEFAULT_ANSWER_FILE_TEMPLATE =
-    `\${originalPrompt}\n\n---\nAFTER completing your response, create a JSON answer file at exactly this path:\n\${copilotAnswerFile}\n\nThe file must contain valid JSON matching this schema:\n\`\`\`json\n{\n  "requestId": "\${requestId}",\n  "generatedMarkdown": "<your full response as a JSON-escaped string>",\n  "comments": "<short summary of what you did (optional)>",\n  "references": ["<workspace-relative paths of files you referenced (optional)>"],\n  "requestedAttachments": ["<workspace-relative paths the user asked you to provide (optional)>"],\n  "responseValues": { "<key>": "<value>" }\n}\n\`\`\`\nRules:\n- generatedMarkdown: REQUIRED — your complete response text, JSON-escaped (newlines as \\n, quotes as \\\")\n- responseValues: key-value pairs accessible in later prompts via \\\${chat.<key>}\n- The user may request specific responseValues using #key=description notation in the prompt (e.g. #errorCount=number of errors). For each such marker, include the key with the computed value in responseValues.\n- Create the file using your file-creation tool — do NOT ask for confirmation\n- Request ID for this prompt: \${requestId}\n`;
-
-// ============================================================================
 // Executable Resolution Functions
 // ============================================================================
 
@@ -665,34 +646,6 @@ export function listConfiguredExecutables(): Array<{
     }
     
     return result;
-}
-
-/**
- * Apply the Copilot default template wrapping (if configured).
- * Default template is defined in `config.copilot.defaultTemplate`
- * and references a key in `config.copilot.templates`.
- * They wrap the text using the template's ${originalPrompt} placeholder.
- */
-export function applyDefaultTemplate(text: string, panel: string): string {
-    const config = loadSendToChatConfig();
-    if (!config) return text;
-
-    let templateKey: string | undefined;
-    let templates: Record<string, { template?: string }> | undefined;
-
-    switch (panel) {
-        case 'copilot':
-            templateKey = config.copilot?.defaultTemplate;
-            templates = config.copilot?.templates;
-            break;
-        default:
-            return text;
-    }
-
-    if (!templateKey) return text;
-    const tpl = templates?.[templateKey];
-    if (!tpl?.template) return text;
-    return tpl.template.replace(/\$\{originalPrompt\}/g, text);
 }
 
 export function escapeHtml(text: string): string {

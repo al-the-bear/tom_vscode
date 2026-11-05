@@ -42,6 +42,10 @@
  *     its Local LLM configuration and the block goes; and, when the files come
  *     from a format version below 5, what only those panels wrote is deleted.
  *     Format version 5;
+ *   - `copilot.templates` and `copilot.defaultTemplate` are removed from that
+ *     config and the user overlay, nothing of them copied; only an own Answer
+ *     Wrapper becomes `copilot.queueWrapper` (copilotTemplates.ts). Format
+ *     version 6;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -70,6 +74,7 @@ import {
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { renameExplainTemplate } from './explainTodoTemplate';
+import { dropCopilotTemplates } from './copilotTemplates';
 import { defaultLocalLlmConfigId, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
@@ -103,7 +108,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'local-llm-profiles' | 'removed-panels' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'format-version';
     detail: string;
 }
 
@@ -427,20 +432,24 @@ class Run {
         return parts[0] === 'quests' && parts[1] ? parts[1] : '(workspace)';
     }
 
-    /** The Explain-then-ask template as Explain TODO, in the workspace config and the user overlay. */
-    templates(): void {
+    /**
+     * Run `edit` over the workspace config and the user overlay (JSON or
+     * YAML); a file `edit` changed (answering what it did, and the config to
+     * write) is written back.
+     */
+    editConfigFiles(step: FormatChange['step'], edit: (config: unknown) => { config: unknown; done: string[] }): void {
         for (const file of [this.opts.workspaceConfigPath, this.opts.userConfigPath]) {
             if (!file || !fs.existsSync(file)) { continue; }
             const raw = fs.readFileSync(file, 'utf8');
             const isYaml = /\.ya?ml$/i.test(file);
             let parsed: unknown;
             try { parsed = isYaml ? parseDocument(raw).toJS() : JSON.parse(raw); } catch {
-                this.problem('(workspace)', 'templates', `${file} is not readable`);
+                this.problem('(workspace)', step, `${file} is not readable`);
                 continue;
             }
-            const { config, changed } = renameExplainTemplate(parsed);
-            if (changed === 0) { continue; }
-            this.change('(workspace)', 'templates', `${file}: explain-and-ask as explain-todo (Explain TODO), ${changed} place(s)`);
+            const { config, done } = edit(parsed);
+            if (done.length === 0) { continue; }
+            for (const d of done) { this.change('(workspace)', step, `${file}: ${d}`); }
             if (!this.opts.apply) { continue; }
             if (isYaml) {
                 fs.writeFileSync(file, new Document(config).toString(), 'utf8');
@@ -449,6 +458,19 @@ class Run {
                 fs.writeFileSync(file, JSON.stringify(config, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
             }
         }
+    }
+
+    /** The Explain-then-ask template as Explain TODO, in the workspace config and the user overlay. */
+    templates(): void {
+        this.editConfigFiles('templates', (parsed) => {
+            const { config, changed } = renameExplainTemplate(parsed);
+            return { config, done: changed === 0 ? [] : [`explain-and-ask as explain-todo (Explain TODO), ${changed} place(s)`] };
+        });
+    }
+
+    /** `copilot.templates` and `copilot.defaultTemplate` removed; an own Answer Wrapper kept as `copilot.queueWrapper`. */
+    copilotTemplates(): void {
+        this.editConfigFiles('copilot-templates', (parsed) => ({ config: parsed, done: dropCopilotTemplates(parsed) }));
     }
 
     /** The workspace config's Anthropic profiles in the current thinking keys. */
@@ -561,6 +583,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.mcpServer(all);
     run.profiles();
     run.templates();
+    run.copilotTemplates();
     run.localLlmProfiles();
     run.removedPanelConfig();
     if (deletePanelFiles) { run.removedPanels(all); }

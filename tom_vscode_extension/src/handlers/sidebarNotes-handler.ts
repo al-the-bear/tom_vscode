@@ -29,6 +29,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { fillTemplate } from '../utils/copilotTemplates';
 
 // View IDs
 const VIEW_IDS = {
@@ -286,9 +287,11 @@ Task:
     for (const item of defaults) {
         keyToTemplate.set(item.key, item.template);
     }
-    if (config?.copilot?.templates) {
-        for (const [key, value] of Object.entries(config.copilot.templates)) {
-            keyToTemplate.set(key, value.template || '${originalPrompt}');
+    // The prompt templates of the one store, after the notes' own.
+    for (const t of config?.anthropic?.userMessageTemplates ?? []) {
+        if (t && typeof t.id === 'string' && t.id) {
+            keyToTemplate.set(t.id, t.template || '${userMessage}');
+            if (t.name) { displayNames[t.id] = t.name; }
         }
     }
 
@@ -298,7 +301,7 @@ Task:
     for (const [key, template] of keyToTemplate.entries()) {
         templates.push({
             key,
-            label: key === '__answer_file__' ? 'Answer Wrapper' : (displayNames[key] || key),
+            label: displayNames[key] || key,
             template,
         });
     }
@@ -319,7 +322,7 @@ async function applyCopilotTemplateToNotes(
 ): Promise<string> {
     const templates = getCopilotTemplateOptions();
     const selected = templates.find(t => t.key === selectedTemplateKey) || templates[0];
-    const merged = selected.template.replace(/\$\{originalPrompt\}/g, rawNotes);
+    const merged = fillTemplate(selected.template, rawNotes);
     return expandPlaceholders(merged, {
         values: {
             notesFile: notesFilePath,

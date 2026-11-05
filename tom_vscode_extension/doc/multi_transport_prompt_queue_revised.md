@@ -50,7 +50,7 @@ From the queue's perspective there are **two transports**: `copilot` and `anthro
 6. **Anthropic-only features dropped for direct transport**: answer-wrapper template, reminders, `answerWaitMinutes`, `expectedRequestId`, polling loop. All Copilot-specific.
 7. **Queue-dispatched anthropic items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value. The field's only legal values are `'always' | 'never'` — see [sendToChatConfig.ts:200](../src/utils/sendToChatConfig.ts#L200). The UI must surface this (see §4.10).
 8. **Shared prompt composition, APIs that don't separate system/user get concatenated.** The Anthropic panel's rules apply to every leaf path: profile system prompt + user-message template + user prompt = final composed prompt. When the leaf API (VS Code LM, Local LLM) doesn't take a separate `system` field, the handler concatenates `{systemPrompt}\n\n{userText}` before the call. Direct and Agent SDK keep using the structured fields they already take.
-9. **Two template stores, full stop.** Copilot keeps `config.copilot.templates`; all Anthropic profiles — no matter which configuration type — share `config.anthropic.userMessageTemplates`. No new "shared" store, no per-configuration-type templates.
+9. **One template store.** Every send — Copilot, and every Anthropic profile whatever its configuration type — takes its template from `config.anthropic.userMessageTemplates`. No per-transport and no per-configuration-type templates. A Copilot send that waits for an answer goes into the **Copilot Queue Wrapper** (`config.copilot.queueWrapper`, default built in), which makes Copilot write the answer file; it is a setting, not a template.
 10. **The Anthropic and Copilot panels carry queue buttons** — the same two buttons on each, the only two @CHAT subpanels.
 
 ## 3. Current state reference
@@ -248,8 +248,8 @@ return { mode: 'direct', answerText: result.text };
 ### 4.6 `sendItem()` refactor
 
 - Before calling `dispatchStage()`, **conditionally expand** the text. `_buildExpandedText()` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) already handles the Copilot answer-wrapper case — split its behaviour:
-  - Copilot: current behaviour (apply template + answer wrapper → `expandedText`).
-  - Anthropic: apply the named template if any, **skip** `__answer_file__` wrapping and skip the `answerWrapper` boolean (both are Copilot-only constructs).
+  - Copilot: apply the named template, then the Copilot Queue Wrapper (unless the item sets `answerWrapper: false` and waits a fixed time instead) → `expandedText`. The template id `__answer_file__` means no template, wrapped.
+  - Anthropic: apply the named template if any; **skip** the Copilot Queue Wrapper and the `answerWrapper` boolean (both are Copilot-only).
 - After `dispatchStage()`:
   - `{ mode: 'polled' }`: record `expectedRequestId` and let the existing poll loop drive `continueSending()` at [:1933](../src/managers/promptQueueManager.ts#L1933).
   - `{ mode: 'direct' }`: store `answerText` on the item/stage (reuse the existing `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), then call `continueSending()` synchronously.
@@ -262,7 +262,7 @@ When `transport === 'anthropic'`, the queue bypasses:
 
 | Feature | Copilot behaviour | Anthropic behaviour |
 | --- | --- | --- |
-| `answerWrapper` + `__answer_file__` template | applied at `_buildExpandedText` ([:434](../src/managers/promptQueueManager.ts#L434)) | **not applied** |
+| Copilot Queue Wrapper (`answerWrapper`) | applied at `_buildExpandedText` ([:434](../src/managers/promptQueueManager.ts#L434)) | **not applied** |
 | `expectedRequestId` extraction | required | skipped |
 | Answer-file polling | `pollForExpectedAnswer()` ([:727](../src/managers/promptQueueManager.ts#L727)) watches directory | **not started** for this item |
 | Reminders (`reminderEnabled`, `reminderTemplateId`, …) | enqueue reminder prompts on timeout | **ignored** (UI warns) |
@@ -474,46 +474,42 @@ renderTransportPicker(options: {
 
 The picker emits `{ type: onChangeEvent, transport, anthropicProfileId?, anthropicConfigId? }` on any change, plus toggles the internal targets-row + auto-approve-warning visibility from its own script snippet.
 
-### 4.16 Prompt template editor — per-transport templates
+### 4.16 Prompt template editor — the one template store
 
-Two template stores, each retaining its existing shape:
-
-| Transport | Config key | Shape |
+| Store | Config key | Shape |
 | --- | --- | --- |
-| Copilot | `config.copilot.templates` ([:118-122](../src/utils/sendToChatConfig.ts#L118-L122)) | map `{ [name]: { template, showInMenu? } }` |
-| Anthropic | `config.anthropic.userMessageTemplates` ([:204-212](../src/utils/sendToChatConfig.ts#L204-L212)) | array `[{ id, name, description?, template, isDefault? }]` |
+| Templates (both transports) | `config.anthropic.userMessageTemplates` | array `[{ id, name, description?, template, isDefault? }]` |
+| Copilot Queue Wrapper (a setting) | `config.copilot.queueWrapper` | string; not set = the built-in default |
 
-All Anthropic profiles — regardless of the selected configuration's leaf type — share the Anthropic store. VS Code LM and Local-LLM-backed configurations **do not get their own template stores**; they reuse the Anthropic ones.
+Every send reads the one store: Copilot, and every Anthropic profile regardless of its configuration's leaf type (VS Code LM and Local-LLM-backed configurations included). The helpers are in `src/utils/copilotTemplates.ts`.
 
-**Template editor changes:**
+**Template editor:**
 
-1. The Global Template Editor's existing **Category** dropdown already covers the two required stores (`Copilot` → `config.copilot.templates`; `Anthropic — User Message` → `config.anthropic.userMessageTemplates`) among eight total categories. Users switch transports by picking the matching category. Adding a second dedicated `renderTransportPicker` at the top would duplicate this; implementation chose not to wire the helper here.
-2. The edit form is the same shape as today's Copilot form for both stores — name + body — because both stores store body-only templates (the Anthropic array entries carry an id + description but the editable surface is still `template`).
-3. The four template tools (`tomAi_listPromptTemplates` at [:1920](../src/tools/chat-enhancement-tools.ts#L1920), `tomAi_createPromptTemplate` at [:1959](../src/tools/chat-enhancement-tools.ts#L1959), `tomAi_updatePromptTemplate` at [:2009](../src/tools/chat-enhancement-tools.ts#L2009), `tomAi_deletePromptTemplate` at [:2075](../src/tools/chat-enhancement-tools.ts#L2075)) accept a `transport?: 'copilot' | 'anthropic'` field, default `'copilot'` for backward compatibility. Each tool routes to the matching store and, for Anthropic, understands the id-keyed array shape (`name`, `id`, `description`, `template`, `isDefault`).
+1. The Global Template Editor's **Category** dropdown has `Anthropic — User Message` (the one store, its default category) and `Copilot — Queue Wrapper` (one item, the wrapper: saving it empty or Delete returns it to the default).
+2. The four template tools (`tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate`, in `src/tools/prompt-template-tools.ts`) work on the one store, keyed by `id` (`name`, `description`, `template`, `isDefault`); they take no transport.
 
 **Queue editor — template dropdown:**
 
-- When a queue item's effective transport is known, the template dropdown filters its contents to that transport's store. All three template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) branch on the effective transport (stage > item > queue default).
-- Changing a queue item's transport **blanks** the template selection (see §5 edge case). The dropdown repopulates with templates for the new transport. This also fires when the user changes a pending/sending item's transport via a stage-level gear, since a template name rarely survives a store-change meaningfully.
+- The three template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) list the one store whatever the effective transport (stage > item > queue default).
+- Changing a queue item's transport **blanks** the template selection (see §5 edge case).
 
 **Quest TODO panel — send button follows the queue transport:**
 
 - The Quest TODO panel's send button (`qt-btn-send-copilot`) and its template
   dropdown follow the prompt queue's currently selected transport
   (`PromptQueueManager.defaultTransport`), instead of being hardcoded to
-  Copilot. When the queue is set to **Copilot** the dropdown lists the Copilot
-  todo templates (built-ins + `config.copilot.templates`) and the button opens
-  Copilot chat; when set to **Anthropic** it lists `config.anthropic.userMessageTemplates`
-  and routes the todo through the Anthropic transport via
-  `runAnthropicSend(context, prompt, { userMessageTemplate })`.
+  Copilot. The dropdown lists the one template store
+  (`config.anthropic.userMessageTemplates`) for either transport. On
+  **Copilot** the button opens Copilot chat with the todo in its template and
+  the Copilot Queue Wrapper; on **Anthropic** it routes the todo through the
+  Anthropic transport via `runAnthropicSend(context, prompt, { userMessageTemplate })`.
 - The pure decision — which templates to offer and which is pre-selected for a
   transport — lives in `src/utils/todoSendTargets.ts` (`buildTodoSendTemplateChoices`),
-  unit-tested without the panel. `BUILTIN_TODO_TEMPLATES` also lives there.
+  unit-tested without the panel.
 - Selection precedence: the queue's default template id
   (`PromptQueueManager.defaultMessageTemplateId`, transport-scoped) wins when it
-  names an offered option; otherwise the transport's own default (Copilot:
-  `copilot.defaultTemplate`; Anthropic: the `isDefault` template, else the
-  seeded **Execute TODO** template — see below); otherwise a safe fallback.
+  names an offered option; otherwise the `isDefault` template, else the
+  seeded **Execute TODO** template (see below); otherwise (None).
 - The dropdown re-requests templates on todo selection so it tracks a transport
   change without a panel reload, while preserving a still-valid manual pick.
 
@@ -918,7 +914,7 @@ All items below are satisfied by the shipped implementation (six verification pa
 - [x] Queue-dispatched anthropic items run with `toolApprovalMode = 'never'`.
 - [x] Queue editor's default-transport dropdown has two entries: Copilot and Anthropic.
 - [x] Queue editor's Anthropic config dropdown lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.
-- [x] Template editor swaps stores (Copilot templates ↔ Anthropic user-message templates) via the existing Category dropdown; four template tools honour the same `transport` field.
+- [x] Both transports take their templates from the one store (Anthropic — User Message in the template editor; the four template tools work on it); the Copilot Queue Wrapper is its own template-editor category.
 - [x] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
 - [x] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
 - [x] Selecting Anthropic transport shows the auto-approve-all warning.

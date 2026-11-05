@@ -96,6 +96,7 @@ let entries = __INITIAL__.entries || [];
 let timerActivated = __INITIAL__.timerActivated !== undefined ? __INITIAL__.timerActivated : true;
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
+let promptTemplateLabels = __INITIAL__.promptTemplateLabels || {};
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 let detailsExpanded = {};
 if (Array.isArray(__INITIAL__.collapsedIds)) {
@@ -146,8 +147,8 @@ function showFatalError(context, err) {
 
 function formatPromptTemplateName(name) {
   if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return 'Answer Wrapper';
-  return name;
+  if (name === '__answer_file__') return 'Answer Wrapper (no template)';
+  return promptTemplateLabels[name] || name;
 }
 
 /* Render immediately from embedded state */
@@ -174,6 +175,7 @@ window.addEventListener('message', e => {
       timerActivated = msg.timerActivated !== undefined ? msg.timerActivated : true;
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
+      promptTemplateLabels = msg.promptTemplateLabels || {};
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
       normalizeState();
       render();
@@ -383,7 +385,7 @@ function render() {
     const disabledAttr = isEditable ? '' : ' disabled';
     const lastSent = entry.lastSentAt ? new Date(entry.lastSentAt).toLocaleString() : 'Never';
     const hasAnswerWrapper = entry.answerWrapper || entry.template === '__answer_file__';
-    const displayTemplate = (entry.template === '__answer_file__' || !entry.template || entry.template === '(None)') ? '' : entry.template;
+    const displayTemplate = (entry.template === '__answer_file__' || !entry.template || entry.template === '(None)') ? '' : formatPromptTemplateName(entry.template);
 
     let scheduledTimesHtml = '';
     if (!isInterval && entry.scheduledTimes) {

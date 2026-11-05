@@ -7,9 +7,9 @@
  * `showTargets` is true — a secondary pair below:
  *
  *   - Profile dropdown (Anthropic only; lists anthropic.profiles[])
- *   - Template dropdown (per transport):
- *       * Anthropic  → anthropic.userMessageTemplates[]  (wraps user msg)
- *       * Copilot    → copilot.templates (keyed by name)  (wraps entire prompt)
+ *   - Template dropdown: the one template store,
+ *     anthropic.userMessageTemplates[], for either transport (a Copilot
+ *     send then goes into the Copilot Queue Wrapper, copilotTemplates.ts)
  *
  * The old "Config" dropdown is gone: the configuration is derived from
  * the profile (anthropic.profiles[i].defaultConfigurationId), so picking
@@ -26,6 +26,7 @@
 
 import { loadSendToChatConfig } from '../handlers/handler_shared';
 import { readMediaText } from './webviewLoader';
+import { userMessageTemplateOptions } from './copilotTemplates';
 import { missingDirectApiKey, NO_API_KEY_LABEL, profileKeyStates } from './anthropicApiKeyCheck';
 
 export type TransportPickerContext =
@@ -38,10 +39,8 @@ export interface TransportPickerValue {
     transport?: 'copilot' | 'anthropic' | '';  // '' = inherit (when context supports it)
     anthropicProfileId?: string;
     /**
-     * Id (anthropic) or name (copilot) of the message-wrapping template.
-     * Semantics depend on the current `transport`:
-     *   - transport='anthropic' → an anthropic.userMessageTemplates[].id
-     *   - transport='copilot'   → a key into copilot.templates
+     * Id of the message-wrapping template, an
+     * anthropic.userMessageTemplates[].id (the one store, both transports).
      */
     messageTemplateId?: string;
 }
@@ -134,23 +133,19 @@ function anthropicTemplateOptions(selectedId: string | undefined): string {
 }
 
 /**
- * Message-template options for the COPILOT transport — pulls keys from
- * copilot.templates (spec §4.16). Mirrors the "Template:" dropdown in
+ * Message-template options for the COPILOT transport: the one template
+ * store, as for Anthropic (spec §4.16). Mirrors the "Template:" dropdown in
  * the queue template editor so users can pick the same template at
  * queue level and have it stamp onto each main prompt.
  */
-function copilotTemplateOptions(selectedName: string | undefined): string {
-    const config = loadSendToChatConfig();
-    const tpls = ((config as { copilot?: { templates?: Record<string, unknown> } })?.copilot?.templates ?? {}) as Record<string, unknown>;
+function copilotTemplateOptions(selectedId: string | undefined): string {
     const entries: Array<{ value: string; label: string }> = [
         { value: '', label: '(none)' },
+        ...userMessageTemplateOptions(loadSendToChatConfig()).map((t) => ({ value: t.id, label: t.label })),
     ];
-    for (const name of Object.keys(tpls).sort()) {
-        entries.push({ value: name, label: name });
-    }
     return entries
         .map((e) => {
-            const sel = (selectedName ?? '') === e.value ? ' selected' : '';
+            const sel = (selectedId ?? '') === e.value ? ' selected' : '';
             return `<option value="${escapeHtml(e.value)}"${sel}>${escapeHtml(e.label)}</option>`;
         })
         .join('');

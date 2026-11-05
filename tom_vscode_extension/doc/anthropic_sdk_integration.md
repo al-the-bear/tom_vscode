@@ -451,9 +451,9 @@ There are two separate template editing systems with different storage and purpo
 | Storage | `tom_vscode_extension.json` (config file) | Disk files (`.prompt.md`) in scope-based folders |
 | Format | JSON objects with typed fields per category | Plain markdown files |
 | Scopes | Single (workspace config) | Global / Project / Quest / Scan ancestor |
-| Categories | copilot, reminder, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions | Single type: reusable prompt fragments |
+| Categories | Copilot queue wrapper, reminder, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions | Single type: reusable prompt fragments |
 | Use | Invoked by panel/queue machinery as structured config | Pasted into prompts manually or via editor UI |
-| Examples | "Code Review" copilot template, LLM profiles | Multi-line boilerplate prompt starters |
+| Examples | "Execute TODO" user-message template, Anthropic profiles | Multi-line boilerplate prompt starters |
 
 **All new machine-invoked templates belong in the Global Template Editor** — they have typed fields and are selected by configuration, not pasted manually. Four new categories are added.
 

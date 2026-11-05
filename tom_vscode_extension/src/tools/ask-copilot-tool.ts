@@ -79,7 +79,7 @@ export interface AnswerFileSink {
 }
 
 export interface TemplateExpander {
-    expand(template: string, values: { originalPrompt: string }): Promise<string>;
+    expand(template: string, values: { originalPrompt: string; userMessage?: string }): Promise<string>;
 }
 
 /** Optional callback for `responseValues` extracted from JSON answer payloads. */
@@ -147,7 +147,8 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
             || config.selectedTemplateId === '__answer_file__'
             || config.selectedTemplateId === '__none__';
         if (!wrapperOnly && config.selectedTemplateBody) {
-            const inner = await deps.expander.expand(config.selectedTemplateBody, { originalPrompt: input.prompt });
+            // A user-message template's body holds ${userMessage}; ${originalPrompt} is filled the same way.
+            const inner = await deps.expander.expand(config.selectedTemplateBody, { originalPrompt: input.prompt, userMessage: input.prompt });
             expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: inner });
         } else {
             expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: input.prompt });

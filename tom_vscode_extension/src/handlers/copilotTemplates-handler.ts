@@ -1,8 +1,10 @@
 /**
  * Send to Chat Advanced - Configuration and dynamic menu management
- * 
- * Provides configurable prompt templates for sending text to Copilot Chat
- * using template strings.
+ *
+ * Sends the editor's text to Copilot Chat through a prompt template. The
+ * templates are the one template store, the user-message templates
+ * (`anthropic.userMessageTemplates`, src/utils/copilotTemplates.ts); the
+ * Standard Template command uses the one marked `isDefault`.
  */
 
 import * as vscode from 'vscode';
@@ -15,28 +17,15 @@ import {
     formatDateTime,
 } from './promptTemplate';
 import { currentSendToChatTarget, dispatchSendToChat } from './sendToChatRouter';
+import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 /**
- * Configuration entry for a send-to-chat template.
- *
- * A single `template` string containing `${originalPrompt}`
- * where the user's content will be inserted.
+ * A send-to-chat template: a user-message template's body
+ * (`${userMessage}` or `${originalPrompt}` takes the editor's text) and label.
  */
 export interface SendToChatTemplate {
-    /** Single template with ${originalPrompt} placeholder. */
-    template?: string;
-    /** If true, this template gets its own static menu entry (requires extension reload) */
-    showInMenu?: boolean;
-}
-
-/**
- * Full configuration file structure with optional default
- */
-export interface SendToChatFullConfig {
-    /** Name of the default template to use for Standard Template command */
-    default?: string;
-    /** Template definitions */
-    templates: { [menuLabel: string]: SendToChatTemplate };
+    template: string;
+    label: string;
 }
 
 /**
@@ -107,22 +96,16 @@ export class SendToChatAdvancedManager {
             const oldTemplates = JSON.stringify(this.templates);
             const oldDefault = this.defaultTemplateName;
             
-            if (!parsed.copilot?.templates || typeof parsed.copilot.templates !== 'object') {
-                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Expected "copilot.templates" object.');
-                this.templates = {};
-                this.defaultTemplateName = undefined;
-                return;
+            const list: unknown = parsed.anthropic?.userMessageTemplates;
+            const templates: { [id: string]: SendToChatTemplate } = {};
+            let defaultId: string | undefined;
+            for (const t of Array.isArray(list) ? list : []) {
+                if (!t || typeof t.id !== 'string' || !t.id || typeof t.template !== 'string') { continue; }
+                templates[t.id] = { template: t.template, label: typeof t.name === 'string' && t.name ? t.name : t.id };
+                if (t.isDefault === true && defaultId === undefined) { defaultId = t.id; }
             }
-
-            if (!this.validateTemplates(parsed.copilot.templates)) {
-                vscode.window.showErrorMessage('Invalid tom_vscode_extension.json format. Each template entry must define a string "template" field.');
-                this.templates = {};
-                this.defaultTemplateName = undefined;
-                return;
-            }
-
-            this.templates = parsed.copilot.templates;
-            this.defaultTemplateName = typeof parsed.copilot.defaultTemplate === 'string' ? parsed.copilot.defaultTemplate : undefined;
+            this.templates = templates;
+            this.defaultTemplateName = defaultId;
 
             // Only log and re-register if something actually changed
             const newTemplates = JSON.stringify(this.templates);
@@ -138,30 +121,6 @@ export class SendToChatAdvancedManager {
             vscode.window.showErrorMessage(`Error loading tom_vscode_extension.json: ${error.message}`);
             this.templates = {};
         }
-    }
-
-    /**
-     * Validate templates structure.
-     */
-    private validateTemplates(templates: any): templates is { [key: string]: SendToChatTemplate } {
-        if (typeof templates !== 'object' || templates === null) {
-            return false;
-        }
-
-        for (const key of Object.keys(templates)) {
-            const entry = templates[key];
-            if (typeof entry !== 'object' || entry === null) {
-                return false;
-            }
-            if (typeof entry.template !== 'string') {
-                return false;
-            }
-            if (entry.showInMenu !== undefined && typeof entry.showInMenu !== 'boolean') {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**
@@ -219,8 +178,7 @@ export class SendToChatAdvancedManager {
         this.registeredCommands.push(mainCmd);
         this.context.subscriptions.push(mainCmd);
 
-        // Register static commands for templates with showInMenu: true
-        // These correspond to commands defined in package.json
+        // The static commands behind package.json's menu entries
         this.registerStaticMenuCommands();
 
         // Update menu contributions dynamically
@@ -233,9 +191,7 @@ export class SendToChatAdvancedManager {
      * (trailReminder / todoExecution / codeReview / explain / addToTodo
      * / fixMarkdown) were removed in Wave 2.2 — the template picker at
      * `tomAi.sendToCopilot.template` handles all of them by name and
-     * keeps the command palette clutter-free. Templates with
-     * `showInMenu: true` are advertised through the quick-pick, not
-     * through dedicated command IDs.
+     * keeps the command palette clutter-free.
      */
     private registerStaticMenuCommands(): void {
         const standardTemplateCmd = vscode.commands.registerCommand('tomAi.sendToCopilot.standard', async () => {
@@ -286,7 +242,7 @@ export class SendToChatAdvancedManager {
         await this.loadConfig();
 
         if (!this.defaultTemplateName) {
-            vscode.window.showWarningMessage('No default template configured. Add "default": "Template Name" to your tom_vscode_extension.json');
+            vscode.window.showWarningMessage('No default prompt template: mark one as default in the template editor (Anthropic — User Message).');
             return;
         }
 
@@ -296,7 +252,7 @@ export class SendToChatAdvancedManager {
             return;
         }
 
-        await this.sendToChat(this.defaultTemplateName, template);
+        await this.sendToChat(template.label, template);
     }
 
     /**
@@ -307,20 +263,19 @@ export class SendToChatAdvancedManager {
         
         if (templateEntries.length === 0) {
             const action = await vscode.window.showWarningMessage(
-                'No send-to-chat templates configured. Would you like to create a default configuration?',
-                'Create Config',
+                'No prompt templates configured. Open the template editor to add one?',
+                'Open Template Editor',
                 'Cancel'
             );
-            if (action === 'Create Config') {
-                await this.createDefaultConfig();
+            if (action === 'Open Template Editor') {
+                openGlobalTemplateEditor(this.context, { category: 'anthropicUserMessage' });
             }
             return;
         }
 
-        const items: vscode.QuickPickItem[] = templateEntries.map(([label, template]) => {
-            const tmpl = template as SendToChatTemplate;
-            const preview = (tmpl.template || '').substring(0, 50).replace(/\n/g, ' ') + '...';
-            return { label, description: preview };
+        const items: Array<vscode.QuickPickItem & { id: string }> = templateEntries.map(([id, tmpl]) => {
+            const preview = tmpl.template.substring(0, 50).replace(/\n/g, ' ') + '...';
+            return { label: tmpl.label, description: preview, id };
         });
 
         const selected = await vscode.window.showQuickPick(items, {
@@ -329,9 +284,9 @@ export class SendToChatAdvancedManager {
         });
 
         if (selected) {
-            const template = this.templates[selected.label];
+            const template = this.templates[selected.id];
             if (template) {
-                await this.sendToChat(selected.label, template);
+                await this.sendToChat(template.label, template);
             }
         }
     }
@@ -413,8 +368,9 @@ export class SendToChatAdvancedManager {
             values['preamble'] = parsed.preamble;
         }
 
-        // Add the original prompt content
+        // The editor's text, under both prompt placeholders
         values['originalPrompt'] = content;
+        values['userMessage'] = content;
 
         // Add built-in system values (datetime, windowId, machineId, etc.)
         const now = new Date();
@@ -431,10 +387,6 @@ export class SendToChatAdvancedManager {
             values[`chat.${k}`] = str;
         }
 
-        // Get the effective template string
-        if (!template.template) {
-            throw new Error('Template entry is missing required "template" field.');
-        }
         const tmpl = template.template;
 
         // Resolve placeholders recursively (up to 10 levels)
@@ -589,61 +541,6 @@ export class SendToChatAdvancedManager {
      */
     getTemplates(): Map<string, SendToChatTemplate> {
         return new Map(Object.entries(this.templates));
-    }
-
-    /**
-     * Create default configuration file
-     */
-    async createDefaultConfig(): Promise<void> {
-        const configPath = this.getConfigPath();
-        if (!configPath) {
-            vscode.window.showErrorMessage('No workspace folder found');
-            return;
-        }
-
-        const copilotTemplates: { [key: string]: SendToChatTemplate } = {};
-        
-        // Use bracket notation to avoid lint errors for property names with spaces
-        copilotTemplates["Explain Code"] = {
-            template: "Please explain the following code in detail:\n\n${originalPrompt}\n\nInclude:\n- What it does\n- Key algorithms or patterns\n- Potential issues or improvements"
-        };
-        copilotTemplates["Review for Bugs"] = {
-            template: "Review this code for bugs and security issues:\n\n${originalPrompt}\n\nFocus on:\n- Security vulnerabilities\n- Edge cases\n- Error handling\n- Performance issues"
-        };
-        copilotTemplates["Add Unit Tests"] = {
-            template: "Generate comprehensive unit tests for:\n\n${originalPrompt}\n\nRequirements:\n- High coverage\n- Test edge cases\n- Test error conditions\n- Use appropriate testing framework"
-        };
-        copilotTemplates["Add Documentation"] = {
-            template: "Add complete documentation for:\n\n${originalPrompt}\n\nInclude:\n- API documentation\n- Usage examples\n- Parameter descriptions\n- Return value descriptions"
-        };
-        copilotTemplates["Refactor"] = {
-            template: "Refactor this code for better quality:\n\n${originalPrompt}\n\nFocus on:\n- Readability\n- Maintainability\n- Performance\n- Best practices"
-        };
-
-        const defaultConfig = {
-            copilot: {
-                defaultTemplate: 'Explain Code',
-                templates: copilotTemplates,
-            },
-        };
-
-        try {
-            // Ensure directory exists
-            const configDir = path.dirname(configPath);
-            if (!fs.existsSync(configDir)) {
-                fs.mkdirSync(configDir, { recursive: true });
-            }
-
-            fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
-            vscode.window.showInformationMessage(`Created default config: ${configPath}`);
-            
-            // Open the file for editing
-            const doc = await vscode.workspace.openTextDocument(configPath);
-            await vscode.window.showTextDocument(doc);
-
-        } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to create config: ${error.message}`);
-        }
     }
 
     /**

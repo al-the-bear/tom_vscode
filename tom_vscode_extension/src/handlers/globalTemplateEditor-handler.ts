@@ -6,7 +6,7 @@
  * left column with template list, right column with multi-field editor.
  *
  * Categories:
- *   1. Copilot Templates             — config.copilot.templates
+ *   1. Copilot — Queue Wrapper       — config.copilot.queueWrapper (one item)
  *   2. Reminder Templates            — config.reminders.templates
  *   3. Tom AI Chat Templates         — config.tomAiChat.templates
  *   4. AI Conversation Profiles      — config.aiConversation.profiles
@@ -18,9 +18,9 @@
  *
  * The category dropdown at the top of the editor is the user-facing
  * per-transport switcher mandated by multi_transport_prompt_queue_revised.md
- * §4.16 — `Copilot` + `Anthropic — User Message` are the two template
- * stores the queue reads from (routed through the `transport` field on
- * the prompt-template tools). No separate `renderTransportPicker`
+ * §4.16. `Anthropic — User Message` is the one template store both
+ * transports read from; `Copilot — Queue Wrapper` is the wrapper that goes
+ * around the Copilot sends waiting for an answer (src/utils/copilotTemplates.ts). No separate `renderTransportPicker`
  * control is mounted here because this dropdown already does the job
  * and covers the larger set of stores the editor manages.
  */
@@ -34,13 +34,17 @@ import { escapeHtml } from './handler_shared';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { categorizeTools } from '../utils/toolCategories';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
+import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copilotTemplates';
+
+/** The one item of the Copilot — Queue Wrapper category. */
+const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export type TemplateCategory =
-    | 'copilot'
+    | 'copilotQueueWrapper'
     | 'reminder'
     | 'timedRequests'
     | 'anthropicProfiles'
@@ -51,7 +55,7 @@ export type TemplateCategory =
     | 'interactiveQuestions';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
-    copilot: 'Copilot',
+    copilotQueueWrapper: 'Copilot — Queue Wrapper',
     reminder: 'Reminder',
     timedRequests: 'Timed Requests',
     anthropicProfiles: 'Anthropic — Profiles',
@@ -223,10 +227,8 @@ export function registerGlobalTemplateEditorCommand(ctx: vscode.ExtensionContext
 
 function _getItemsForCategory(config: SendToChatConfig, category: TemplateCategory): TemplateItem[] {
     switch (category) {
-        case 'copilot':
-            return Object.keys(config.copilot?.templates || {})
-                .filter(k => k !== '__answer_file__')
-                .map(k => ({ id: k, label: k }));
+        case 'copilotQueueWrapper':
+            return [{ id: QUEUE_WRAPPER_ITEM_ID, label: 'Copilot Queue Wrapper' }];
         case 'reminder':
             return ((config as any).reminders?.templates || [])
                 .map((t: any) => ({ id: t.id, label: t.name || t.id }));
@@ -261,13 +263,10 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
     const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string; readOnly?: boolean }>; optionGroups?: Array<{ category: string; tools: Array<{ value: string; label: string; readOnly?: boolean }> }>; disabledWhen?: { field: string; equals: string } }> = [];
 
     switch (category) {
-        case 'copilot': {
-            const tpl = config.copilot?.templates?.[itemId];
-            if (!tpl) break;
+        case 'copilotQueueWrapper': {
+            if (itemId !== QUEUE_WRAPPER_ITEM_ID) break;
             fields.push(
-                { name: 'name', label: 'Template Name', type: 'text', value: itemId },
-                { name: 'template', label: 'Template', type: 'textarea', value: (tpl as any).template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Use ${originalPrompt}</strong> where your prompt text should be inserted.' },
-                { name: 'showInMenu', label: 'Show in Menu', type: 'checkbox', value: String((tpl as any).showInMenu !== false) },
+                { name: 'template', label: 'Wrapper', type: 'textarea', value: copilotQueueWrapper(config), help: PLACEHOLDER_HELP + '<br><br>Goes around every Copilot send that waits for an answer: queue items, the todo buttons, <code>tomAi_askCopilot</code>, and the Copilot panel\'s Send when its Wrap box is on. <strong>Use ${originalPrompt}</strong> for the prompt (after its template), <code>${copilotAnswerFile}</code> and <code>${requestId}</code> for the answer file Copilot writes. Saving it empty, or Delete, returns it to the default.' },
             );
             break;
         }
@@ -552,7 +551,7 @@ function _sendAllData(initialCategory?: string, initialItemId?: string): void {
     _panel?.webview.postMessage({
         type: 'allData',
         categories,
-        initialCategory: initialCategory || 'copilot',
+        initialCategory: initialCategory || 'anthropicUserMessage',
         initialItemId: initialItemId || '',
     });
 }
@@ -576,15 +575,13 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
     if (!config) return;
 
     switch (category) {
-        case 'copilot': {
-            if (!config.copilot) config.copilot = {};
-            if (!config.copilot.templates) config.copilot.templates = {};
-            const newName = values.name || itemId;
-            if (newName !== itemId) delete config.copilot.templates[itemId];
-            config.copilot.templates[newName] = {
-                template: values.template || '${originalPrompt}',
-                showInMenu: values.showInMenu === 'true',
-            };
+        case 'copilotQueueWrapper': {
+            const body = values.template ?? '';
+            if (!body.trim() || body === DEFAULT_ANSWER_FILE_TEMPLATE) {
+                if (config.copilot) { delete config.copilot.queueWrapper; }
+            } else {
+                config.copilot = { ...(config.copilot ?? {}), queueWrapper: body };
+            }
             break;
         }
         case 'reminder': {
@@ -846,6 +843,10 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
 }
 
 async function _addItem(category: TemplateCategory): Promise<void> {
+    if (category === 'copilotQueueWrapper') {
+        vscode.window.showInformationMessage('There is one Copilot Queue Wrapper: edit it. Templates are added under Anthropic — User Message.');
+        return;
+    }
     const name = await vscode.window.showInputBox({
         prompt: `New ${CATEGORY_LABELS[category]} name`,
         placeHolder: 'my_template',
@@ -856,11 +857,6 @@ async function _addItem(category: TemplateCategory): Promise<void> {
     if (!config) return;
 
     switch (category) {
-        case 'copilot':
-            if (!config.copilot) config.copilot = {};
-            if (!config.copilot.templates) config.copilot.templates = {};
-            config.copilot.templates[name] = { template: '${originalPrompt}', showInMenu: true };
-            break;
         case 'reminder': {
             if (!(config as any).reminders) (config as any).reminders = {};
             const templates: any[] = (config as any).reminders.templates || [];
@@ -985,7 +981,7 @@ function _uniqueIdFromBase(base: string, existingIds: Set<string>): string {
  */
 function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, category: TemplateCategory): Set<string> {
     switch (category) {
-        case 'copilot':               return new Set(Object.keys(config.copilot?.templates ?? {}));
+        case 'copilotQueueWrapper':   return new Set([QUEUE_WRAPPER_ITEM_ID]);
         case 'reminder':              return new Set(((config as any).reminders?.templates ?? []).map((t: any) => t.id));
         case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
         case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
@@ -1006,6 +1002,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
  * every category except `selfTalk` (fixed-slot Person A / Person B).
  */
 async function _copyItem(category: TemplateCategory, itemId: string): Promise<void> {
+    if (category === 'copilotQueueWrapper') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1026,12 +1023,6 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
     const targetId = newId.trim();
 
     switch (category) {
-        case 'copilot': {
-            const src = config.copilot?.templates?.[itemId];
-            if (!src) return;
-            config.copilot!.templates![targetId] = JSON.parse(JSON.stringify(src));
-            break;
-        }
         case 'reminder': {
             const templates: any[] = (config as any).reminders?.templates || [];
             const src = templates.find((t: any) => t.id === itemId);
@@ -1114,13 +1105,14 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
 
 /**
  * Change an item's id. All category shapes support it — for keyed
- * maps (`copilot.templates`, `tomAiChat.templates`, …) we re-key the
+ * maps we re-key the
  * object; for arrays (`anthropic.profiles`, `compaction.templates`,
  * …) we update the `id` field on the matching entry. The `name`
  * field is also updated when it previously equalled the id (so the
  * display label follows the rename) unless it was already distinct.
  */
 async function _renameItem(category: TemplateCategory, itemId: string): Promise<void> {
+    if (category === 'copilotQueueWrapper') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1140,13 +1132,6 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
     const targetId = newId.trim();
 
     switch (category) {
-        case 'copilot': {
-            const tpls = config.copilot?.templates;
-            if (!tpls || !tpls[itemId]) return;
-            tpls[targetId] = tpls[itemId];
-            delete tpls[itemId];
-            break;
-        }
         case 'reminder': {
             const tpls: any[] = (config as any).reminders?.templates || [];
             const entry = tpls.find((t: any) => t.id === itemId);
@@ -1228,8 +1213,8 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
     if (!config) return;
 
     switch (category) {
-        case 'copilot':
-            delete config.copilot?.templates?.[itemId];
+        case 'copilotQueueWrapper':
+            if (config.copilot) { delete config.copilot.queueWrapper; }
             break;
         case 'reminder': {
             const templates: any[] = (config as any).reminders?.templates || [];

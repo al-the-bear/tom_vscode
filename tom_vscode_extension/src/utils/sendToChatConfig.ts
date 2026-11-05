@@ -98,8 +98,12 @@ export interface SendToChatConfig {
         };
     };
     copilot?: {
-        templates?: { [key: string]: { template: string; showInMenu?: boolean } };
-        defaultTemplate?: string;
+        /**
+         * The Copilot Queue Wrapper: the body (`${originalPrompt}`) put around
+         * every Copilot send that waits for an answer, making Copilot write the
+         * answer file (src/utils/copilotTemplates.ts). Unset: the default.
+         */
+        queueWrapper?: string;
         answerFolder?: string;
     };
 

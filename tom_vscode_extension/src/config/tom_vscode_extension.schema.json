@@ -29,6 +29,21 @@
             },
             "additionalProperties": false
         },
+        "copilot": {
+            "type": "object",
+            "description": "GitHub Copilot sends. Their templates are the user-message templates (anthropic.userMessageTemplates), the one template store.",
+            "properties": {
+                "queueWrapper": {
+                    "type": "string",
+                    "description": "The Copilot Queue Wrapper: goes around every Copilot send that waits for an answer (queue items, the todo buttons, tomAi_askCopilot, the Copilot panel's Send when Wrap is on) and makes Copilot write an answer file. ${originalPrompt} is the prompt after its template; ${copilotAnswerFile} and ${requestId} name the answer file. Not set: the built-in default. Edited in the template editor (Copilot — Queue Wrapper)."
+                },
+                "answerFolder": {
+                    "type": "string",
+                    "description": "Folder (workspace-relative) Copilot writes its answer files to."
+                }
+            },
+            "additionalProperties": false
+        },
         "anthropic": {
             "type": "object",
             "description": "Anthropic SDK integration (anthropic_sdk_integration.md §14).",
@@ -66,7 +81,7 @@
                 },
                 "userMessageTemplates": {
                     "type": "array",
-                    "description": "Optional user-message templates (anthropicUserMessage category).",
+                    "description": "The prompt templates, the one template store: Anthropic and Copilot sends both take their templates from here (template editor category Anthropic — User Message).",
                     "items": { "$ref": "#/definitions/userMessageTemplate" }
                 },
                 "memory": { "$ref": "#/definitions/anthropicMemory" },

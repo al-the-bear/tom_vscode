@@ -24,10 +24,14 @@ function escapeJsSingleQuoted(s) {
   return out;
 }
 
+// A template id's label: the user-message template's name (the one template
+// store; `anthropicUserMessageTemplates` is the editor's global list).
 function formatPromptTemplateName(name) {
   if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return 'Answer Wrapper';
-  return name;
+  if (name === '__answer_file__') return 'Answer Wrapper (no template)';
+  var list = typeof anthropicUserMessageTemplates !== 'undefined' ? anthropicUserMessageTemplates : [];
+  var match = (list || []).find(function(t) { return t && t.id === name; });
+  return match && match.name ? match.name : name;
 }
 
 function reminderTimeoutOptions(selectedMinutes) {

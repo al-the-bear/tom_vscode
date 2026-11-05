@@ -24,7 +24,7 @@ import { sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../service
 import { load as loadRawTurns } from '../services/raw-turns-store';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getBridgeClient, getConfigPath, getExtensionPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { escapeHtml, getBridgeClient, getConfigPath, getExtensionPath, loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { notifyAnthropicConfigChanged } from './chatPanel-handler';
 import { AnthropicHandler } from './anthropic-handler';
@@ -75,6 +75,7 @@ function getMcpReadOnlyToolNames(): ReadonlySet<string> {
     return _mcpReadOnlyToolNames;
 }
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
+import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 /**
@@ -210,7 +211,7 @@ function createEmptySendToChatConfig(): SendToChatConfig {
         localLlm: { configurations: [] },
         trail: {},
         bridge: { profiles: {} },
-        copilot: { templates: {} },
+        copilot: {},
     };
 }
 
@@ -1839,7 +1840,8 @@ export interface StatusData {
     askCopilot: AskCopilotConfig;
     copilotAnswerFolder: string;
     askBigBrother: AskBigBrotherConfig;
-    templateNames: string[];
+    /** The prompt templates (the one store) for the template dropdowns. */
+    templateOptions: Array<{ id: string; label: string }>;
     schedule: TimerScheduleSlot[];
     executables: { [name: string]: { [platform: string]: string } };
     binaryPath: { [platform: string]: string };
@@ -2131,7 +2133,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         ...loadLocalLlmToolsConfig(),
         copilotAnswerFolder: loadSendToChatConfig()?.copilot?.answerFolder ?? WsPaths.aiRelative('copilot'),
-        templateNames: Object.keys(sendToChatConfig?.copilot?.templates || {}),
+        templateOptions: userMessageTemplateOptions(sendToChatConfig),
         schedule,
         executables: sendToChatConfig?.bridge?.executables || {},
         binaryPath: sendToChatConfig?.bridge?.binaryPath || {},
@@ -3137,7 +3139,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 <label>Template:</label>
                 <select id="sp-ac-promptTemplate">
                     <option value="">(None)</option>
-                    ${status.templateNames.map(t => `<option value="${t}" ${t === status.askCopilot.promptTemplate ? 'selected' : ''}>${t}</option>`).join('')}
+                    ${status.templateOptions.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === status.askCopilot.promptTemplate ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
                 </select>
             </div>
             <div class="sp-settings-row">
@@ -3191,7 +3193,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 <label>Template:</label>
                 <select id="sp-abb-promptTemplate">
                     <option value="">(None)</option>
-                    ${status.templateNames.map(t => `<option value="${t}" ${t === status.askBigBrother.promptTemplate ? 'selected' : ''}>${t}</option>`).join('')}
+                    ${status.templateOptions.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === status.askBigBrother.promptTemplate ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
                 </select>
             </div>
             <div class="sp-settings-row">

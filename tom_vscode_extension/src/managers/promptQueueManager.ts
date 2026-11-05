@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { expandTemplate } from '../handlers/promptTemplate';
-import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, getConfigPath } from '../handlers/handler_shared';
+import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute, getConfigPath } from '../handlers/handler_shared';
 import {
     readAllEntries,
     writeEntry,
@@ -62,7 +62,7 @@ import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
-import { BUILTIN_TODO_TEMPLATES } from '../utils/todoSendTargets';
+import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage, stageKeyRefusal } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 import { createSession, deleteSession, ensureSession, readSession } from '../services/agentSdkSessionStore';
@@ -451,52 +451,39 @@ const RESET_RETRY_BUFFER_MS = 5 * 60_000;
 const MISSING_KEY_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
- * Resolve a template name to its template string.
- * Handles __answer_file__ (built-in default) and config-defined templates.
- * Exported so preview panels can use the exact same logic.
+ * Resolve a template name to its body: a user-message template of the one
+ * store (`anthropic.userMessageTemplates`, by id or name), whatever the
+ * transport; `__answer_file__` is the Copilot Queue Wrapper
+ * (src/utils/copilotTemplates.ts). Exported so preview panels can use the
+ * exact same logic.
  */
 export function resolveTemplateString(
     templateName: string,
-    transport: QueuedTransport = 'copilot',
+    _transport: QueuedTransport = 'copilot',
 ): string | undefined {
     if (!templateName || templateName === '(None)') { return undefined; }
-    try {
-        const config = loadSendToChatConfig();
-        if (transport === 'anthropic') {
-            // Spec §4.16: anthropic items look up templates in the
-            // Anthropic user-message templates store (array keyed by
-            // id). The map has a single `template` field holding the
-            // body — same conceptually as copilot.templates[name].template.
-            const arr = (config?.anthropic?.userMessageTemplates ?? []) as Array<{ id?: string; name?: string; template?: string }>;
-            const match = arr.find((t) => t && (t.id === templateName || t.name === templateName));
-            if (match?.template) { return match.template; }
-        } else {
-            const tpl = config?.copilot?.templates?.[templateName];
-            if (tpl?.template) { return tpl.template; }
-            // Built-in copilot TODO templates (e.g. "TODO Execution", "Refactor")
-            // are NOT stored in config.copilot.templates — they are the dropdown
-            // options offered by the Quest TODO panel. Without this fallback a
-            // queued todo keeps only the built-in template NAME and its body
-            // (the ${originalPrompt} wrapper) never expands.
-            const builtIn = BUILTIN_TODO_TEMPLATES[templateName];
-            if (builtIn) { return builtIn; }
-        }
-    } catch { /* config not available */ }
-    // Built-in default for __answer_file__ when not in config. This is
-    // a Copilot-only construct; anthropic items skip the answer-wrapper
-    // entirely (spec §4.7), so the built-in fallback is intentionally
-    // Copilot-only.
-    if (templateName === '__answer_file__') {
-        return DEFAULT_ANSWER_FILE_TEMPLATE;
-    }
-    return undefined;
+    let config: ReturnType<typeof loadSendToChatConfig> | undefined;
+    try { config = loadSendToChatConfig(); } catch { config = undefined; }
+    if (templateName === ANSWER_WRAPPER_ID) { return copilotQueueWrapper(config); }
+    return userMessageTemplateBody(config, templateName);
+}
+
+/**
+ * Whether a main prompt carries the Copilot Queue Wrapper: on Copilot unless
+ * the item sets `answerWrapper: false` (it waits a fixed time instead of for
+ * the answer file); never on Anthropic.
+ */
+export function copilotWrapFor(transport: QueuedTransport | undefined, answerWrapper: boolean | undefined): boolean {
+    return transport === 'copilot' && answerWrapper !== false;
 }
 
 /** Apply template wrapping to expanded text.
  *  Expands placeholders after each template application so that
  *  placeholders introduced by the named template are resolved before
- *  the result becomes ${originalPrompt} for the answer wrapper.
- *  Exported so preview panels can use the exact same logic.
+ *  the result becomes ${originalPrompt} for the Copilot Queue Wrapper.
+ *  `answerWrapper` puts the wrapper around the result (Copilot only; the
+ *  dispatcher passes false for Anthropic items). Exported so preview panels
+ *  can use the exact same logic.
  */
 export async function applyTemplateWrapping(
     expanded: string,
@@ -504,32 +491,15 @@ export async function applyTemplateWrapping(
     answerWrapper?: boolean,
     transport: QueuedTransport = 'copilot',
 ): Promise<string> {
-    // First: apply the named template (if any, and not __answer_file__ itself when answerWrapper handles it)
-    if (templateName && templateName !== '(None)' && templateName !== '__answer_file__') {
-        // Anthropic user-message templates use ${userMessage} as the
-        // canonical body placeholder; Copilot templates use
-        // ${originalPrompt}. Expand both to be forgiving — the
-        // template author picks whichever they prefer.
-        const tplStr = resolveTemplateString(templateName, transport);
-        if (tplStr) {
-            expanded = tplStr
-                .replace(/\$\{originalPrompt\}/g, expanded)
-                .replace(/\$\{userMessage\}/g, expanded);
-        }
-        // Expand placeholders introduced by the named template
-        expanded = await expandTemplate(expanded, { includeEditorContext: false });
+    const body = resolveTemplateString(templateName, transport);
+    if (body !== undefined && templateName !== ANSWER_WRAPPER_ID) {
+        expanded = await expandTemplate(fillTemplate(body, expanded), { includeEditorContext: false });
     }
-    // If template IS __answer_file__ (legacy) or answerWrapper is true, apply answer wrapper on top
-    if (answerWrapper || templateName === '__answer_file__') {
-        // The answer-wrapper is Copilot-only; anthropic items never
-        // reach this branch because the dispatcher passes
-        // answerWrapper=false for them (spec §4.7).
-        const awStr = resolveTemplateString('__answer_file__', 'copilot');
-        if (awStr) {
-            expanded = awStr.replace(/\$\{originalPrompt\}/g, expanded);
-        }
-        // Expand placeholders introduced by the answer wrapper
-        expanded = await expandTemplate(expanded, { includeEditorContext: false });
+    // `__answer_file__` as the template means "no template, wrapped".
+    if (answerWrapper || templateName === ANSWER_WRAPPER_ID) {
+        let config: ReturnType<typeof loadSendToChatConfig> | undefined;
+        try { config = loadSendToChatConfig(); } catch { config = undefined; }
+        expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), expanded), { includeEditorContext: false });
     }
     return expanded;
 }
@@ -625,11 +595,8 @@ export class PromptQueueManager {
      *     batch share the same wrapping.
      *   - items that lack an explicit `template`: `resolveTemplateString`
      *     falls back to this before giving up.
-     * Semantics depend on the current transport:
-     *   - copilot   → a key into config.copilot.templates
-     *   - anthropic → an anthropic.userMessageTemplates[].id
-     * Stored as a single string; the caller disambiguates based on
-     * the item's or queue's transport at use time.
+     * An anthropic.userMessageTemplates[].id — the one template store,
+     * read by both transports.
      */
     private _defaultMessageTemplateId: string | undefined;
     private _autoContinueTimer?: ReturnType<typeof setTimeout>;
@@ -2015,7 +1982,7 @@ export class PromptQueueManager {
         const expanded = await this._buildExpandedText(
             opts.originalText,
             opts.template,
-            opts.answerWrapper,
+            copilotWrapFor(resolveInitialTransport, opts.answerWrapper),
             {
                 repeatCount: resolvedRepeatCount,
                 repeatIndex: opts.repeatIndex,
@@ -2038,7 +2005,7 @@ export class PromptQueueManager {
         const item: QueuedPrompt = {
             id: randomUUID(),
             template: opts.template ?? '(None)',
-            answerWrapper: opts.answerWrapper || false,
+            ...(opts.answerWrapper !== undefined ? { answerWrapper: !!opts.answerWrapper } : {}),
             originalText: opts.originalText,
             expandedText: expanded,
             status: opts.initialStatus ?? 'pending',
@@ -2198,7 +2165,7 @@ export class PromptQueueManager {
         // the right store (spec §4.16). Falls back to the queue default
         // when the item has no explicit transport set.
         const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
-        item.expandedText = await this._buildExpandedText(newText, item.template, item.answerWrapper, {
+        item.expandedText = await this._buildExpandedText(newText, item.template, copilotWrapFor(item.transport ?? this._defaultTransport ?? 'copilot', item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -2228,7 +2195,7 @@ export class PromptQueueManager {
         if (!changed) { return false; }
 
         const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
-        item.expandedText = await this._buildExpandedText(item.originalText, item.template, item.answerWrapper, {
+        item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(item.transport ?? this._defaultTransport ?? 'copilot', item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -4579,8 +4546,9 @@ export class PromptQueueManager {
         if (hasMainToSend) {
             // The main prompt starts the next iteration.
             const resolved = { ...this.resolveStageTransport(item), iterationKey: iterationKeyFor(item, 'main'), item };
-            // Anthropic path skips the answerWrapper (Copilot-only).
-            const effectiveWrap = resolved.transport === 'copilot' ? item.answerWrapper : false;
+            // Every Copilot stage that waits for an answer carries the Copilot Queue
+            // Wrapper; an item opts out with answerWrapper: false (it waits a fixed time).
+            const effectiveWrap = copilotWrapFor(resolved.transport, item.answerWrapper);
             item.expandedText = await this._buildExpandedText(
                 item.originalText,
                 item.template,

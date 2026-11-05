@@ -141,16 +141,6 @@ body {
 }
 .field textarea { min-height: 180px; resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus { border-color: var(--vscode-focusBorder); outline: none; }
-/* Inline row: name + checkbox on same line */
-.field-inline-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 16px;
-    margin-bottom: 16px;
-    flex-shrink: 0;
-}
-.field-inline-row .field { margin-bottom: 0; flex: 1; }
-.field-inline-row .field.checkbox-field { flex: 0 0 auto; padding-bottom: 6px; }
 /* Help overlay triggered by ? icon */
 .label-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .label-row label { margin-bottom: 0; }

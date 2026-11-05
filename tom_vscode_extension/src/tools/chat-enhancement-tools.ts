@@ -970,7 +970,6 @@ import {
     UpdatePromptTemplateInput,
     DeletePromptTemplateInput,
     type AnthropicTemplateEntry,
-    type CopilotTemplateEntry,
     type PromptTemplateStore,
     createPromptTemplateImpl,
     deletePromptTemplateImpl,
@@ -981,48 +980,21 @@ import {
 interface TemplateStoreSession {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     config: any;
-    copilotMap: Record<string, CopilotTemplateEntry>;
     anthropicList: AnthropicTemplateEntry[];
 }
 
 function openTemplateSession(): TemplateStoreSession | null {
     const config = loadSendToChatConfig();
     if (!config) { return null; }
-    if (!config.copilot) { config.copilot = {}; }
-    if (!config.copilot.templates) { config.copilot.templates = {}; }
     if (!config.anthropic) { config.anthropic = {}; }
     if (!Array.isArray(config.anthropic.userMessageTemplates)) { config.anthropic.userMessageTemplates = []; }
     return {
         config,
-        copilotMap: config.copilot.templates as Record<string, CopilotTemplateEntry>,
         anthropicList: config.anthropic.userMessageTemplates as AnthropicTemplateEntry[],
     };
 }
 
 const livePromptTemplateStore: PromptTemplateStore = {
-    copilot: {
-        list() {
-            const s = openTemplateSession();
-            return s ? s.copilotMap : {};
-        },
-        has(name) {
-            const s = openTemplateSession();
-            return !!(s && Object.prototype.hasOwnProperty.call(s.copilotMap, name));
-        },
-        set(name, entry) {
-            const s = openTemplateSession();
-            if (!s) { throw new Error('Send-to-chat config is not available.'); }
-            s.copilotMap[name] = entry;
-            saveSendToChatConfig(s.config);
-        },
-        delete(name) {
-            const s = openTemplateSession();
-            if (!s || !Object.prototype.hasOwnProperty.call(s.copilotMap, name)) { return false; }
-            delete s.copilotMap[name];
-            saveSendToChatConfig(s.config);
-            return true;
-        },
-    },
     anthropic: {
         list() {
             const s = openTemplateSession();

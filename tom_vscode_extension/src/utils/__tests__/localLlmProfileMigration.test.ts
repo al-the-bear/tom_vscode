@@ -114,8 +114,9 @@ describe('removed panels: Local LLM profiles and files', () => {
         s.write('trail/localllm/qa/last_request.json', 'x');
         s.write('quests/qa/history/history-gemma4.json', 'x');
         writeAiFormatStamp(s.ai, { version: 5, date: '2026-11-05' });
-        assert.deepEqual(s.run(true).changes, []);
+        assert.deepEqual(s.run(true).changes.filter((c) => c.step === 'removed-panels'), []);
         assert.ok(s.exists('trail/localllm/qa/last_request.json'));
+        assert.ok(s.exists('quests/qa/history/history-gemma4.json'));
     });
 
     test('LP-5: the removed panels\' config sections', () => {

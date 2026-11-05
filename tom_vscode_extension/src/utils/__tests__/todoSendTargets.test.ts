@@ -1,8 +1,8 @@
 /**
- * Bug 3: the Quest TODO "Send to Chat" button and its template dropdown must
- * follow the prompt queue's selected transport (Copilot vs Anthropic), instead
- * of being hardcoded to Copilot. `buildTodoSendTemplateChoices` is the pure
- * decision: which templates to offer, and which is pre-selected, per transport.
+ * The Quest TODO "Send to Chat" button follows the prompt queue's selected
+ * transport (Copilot vs Anthropic); both offer the one template store.
+ * `buildTodoSendTemplateChoices` is the pure decision: which templates to offer,
+ * and which is pre-selected.
  */
 
 import { describe, it } from 'node:test';
@@ -13,23 +13,15 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 installVscodeStub({ workspaceFolders: [process.cwd()] });
 
 describe('buildTodoSendTemplateChoices', () => {
-    it('copilot: offers built-in + configured templates, defaults to TODO Execution', async () => {
+    it('copilot: offers the one template store, the user-message templates, and no wrapper option', async () => {
         const { buildTodoSendTemplateChoices } = await import('../todoSendTargets.js');
         const choices = buildTodoSendTemplateChoices('copilot', {
-            copilot: { templates: { 'My Custom': { template: 'x' }, __answer_file__: { template: 'y' } } },
+            anthropic: { userMessageTemplates: [{ id: 'execute-todo', name: 'Execute TODO' }, { id: 'explain-todo', name: 'Explain TODO' }] },
         });
         assert.equal(choices.transport, 'copilot');
-        const ids = choices.templates.map((t) => t.id);
-        assert.deepEqual(ids.slice(0, 5), ['__none__', 'TODO Execution', 'Code Review', 'Add Unit Tests', 'Refactor']);
-        assert.ok(ids.includes('My Custom'), 'configured template surfaces');
-        assert.ok(ids.includes('__answer_file__'), 'answer wrapper offered for copilot');
-        assert.equal(choices.selected, 'TODO Execution');
-    });
-
-    it('copilot: honours copilot.defaultTemplate when present', async () => {
-        const { buildTodoSendTemplateChoices } = await import('../todoSendTargets.js');
-        const choices = buildTodoSendTemplateChoices('copilot', { copilot: { defaultTemplate: 'Refactor' } });
-        assert.equal(choices.selected, 'Refactor');
+        assert.deepEqual(choices.templates.map((t) => t.id), ['__none__', 'execute-todo', 'explain-todo']);
+        assert.ok(!choices.templates.some((t) => t.id === '__answer_file__'), 'the wrapper is not a template choice');
+        assert.equal(choices.selected, 'execute-todo');
     });
 
     it('anthropic: offers the user-message templates, no copilot-only options', async () => {
@@ -71,8 +63,8 @@ describe('buildTodoSendTemplateChoices', () => {
         );
         assert.equal(anth.selected, 'execute-todo', 'queue pick overrides isDefault');
 
-        const cop = buildTodoSendTemplateChoices('copilot', { copilot: { defaultTemplate: 'TODO Execution' } }, 'Refactor');
-        assert.equal(cop.selected, 'Refactor', 'queue pick overrides copilot default');
+        const cop = buildTodoSendTemplateChoices('copilot', { anthropic: { userMessageTemplates: [{ id: 'fast', name: 'Fast', isDefault: true }, { id: 'execute-todo', name: 'Execute TODO' }] } }, 'execute-todo');
+        assert.equal(cop.selected, 'execute-todo', 'queue pick overrides isDefault on copilot too');
     });
 
     it('an unmatched queue default template id is ignored', async () => {

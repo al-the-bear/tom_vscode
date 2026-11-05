@@ -42,6 +42,7 @@ var selectedId = __INITIAL__.selectedId || '';
 var currentItems = __INITIAL__.currentItem ? [__INITIAL__.currentItem] : [];
 var reminderTemplates = __INITIAL__.reminderTemplates || [];
 var promptTemplates = __INITIAL__.promptTemplates || [];
+var anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
 var responseTimeoutMinutes = 60;
 var detailsExpanded = {};
 var editorMode = 'template';
@@ -65,6 +66,7 @@ window.addEventListener('message', function(e) {
     currentItems = msg.currentItem ? [msg.currentItem] : [];
     reminderTemplates = msg.reminderTemplates || [];
     promptTemplates = msg.promptTemplates || [];
+    anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
     renderSidebar();
     renderEditor();
   } else if (msg.type === 'queueSuccess') {

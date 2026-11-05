@@ -491,7 +491,6 @@ function addPrompt() {
   const msg = { type: 'addPrompt', text };
   if (selTemplate && selTemplate.value) {
     msg.template = selTemplate.value;
-    msg.answerWrapper = true; // All templates get Answer Wrapper applied
   }
   // Handle 'No reminder' option
   if (selTpl && selTpl.value === '__none__') {
@@ -775,9 +774,9 @@ function populateAddForm() {
 
 function populateAddFormTemplateList() {
   // Spec §4.16: queue-editor add-form template dropdown filters by
-  // the effective transport. Copilot → config.copilot.templates
-  // (via promptTemplates state), Anthropic →
-  // config.anthropic.userMessageTemplates. Selection is blanked on
+  // the effective transport; both read the one template store,
+  // config.anthropic.userMessageTemplates (Copilot via the
+  // promptTemplates ids). Selection is blanked on
   // every repopulate so the user sees a clean picker matching the
   // transport they just picked (spec §5 edge case).
   var tplSel = document.getElementById('addTemplate');

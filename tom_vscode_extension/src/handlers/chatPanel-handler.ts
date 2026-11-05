@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody, userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
@@ -18,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getConfigPath, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, applyDefaultTemplate, getCopilotChatAnswerFolderAbsolute, DEFAULT_ANSWER_FILE_TEMPLATE, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { getConfigPath, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, getCopilotChatAnswerFolderAbsolute, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
@@ -355,7 +356,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // Pin state is handled client-side via localStorage
                         break;
                     case 'sendCopilot':
-                        await this._handleSendCopilot(message.text, message.template, message.slot);
+                        await this._handleSendCopilot(message.text, message.template, message.slot, message.wrap === true);
                         break;
                     case 'sendAnthropic':
                         await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate);
@@ -477,7 +478,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._handleDeleteTemplate(message.section, message.name);
                         break;
                     case 'preview':
-                        await this._handlePreview(message.section, message.text, message.profile || message.template);
+                        await this._handlePreview(message.section, message.text, message.profile || message.template, message.wrap === true);
                         break;
                     case 'setAutoHideDelay':
                         this._autoHideDelay = message.value;
@@ -832,8 +833,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         this._view?.webview.postMessage({
             type: 'profiles',
-            // Filter out __answer_file__ since it's hardcoded in the dropdown as "Answer Wrapper"
-            copilot: config?.copilot?.templates ? Object.keys(config.copilot.templates).filter(k => k !== '__answer_file__') : [],
+            // The Copilot template dropdown: the one template store.
+            copilotTemplates: userMessageTemplateOptions(config).map((t) => ({ id: t.id, name: t.label })),
             anthropic: anthropicProfiles,
             anthropicConfigurations,
             anthropicProfileEntries,
@@ -841,7 +842,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             anthropicApiKeyOk,
             claudeCliOk,
             claudeCliVisible: anyAgentSdkConfig,
-            defaultCopilotTemplate: config?.copilot?.defaultTemplate || '',
         });
         // §11.4: dedicated anthropicProfiles message for downstream consumers
         // that subscribe to the typed Anthropic message stream.
@@ -1350,48 +1350,30 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return undefined;
     }
 
-    private async _handleSendCopilot(text: string, template: string, slot?: number): Promise<void> {
+    /**
+     * Send to Copilot Chat: the text in the chosen template (one store, the
+     * Anthropic user-message templates), put into the Copilot Queue Wrapper when
+     * `wrap` is on (the panel's Wrap checkbox; `__answer_file__` as the template
+     * means "no template, wrapped").
+     */
+    private async _handleSendCopilot(text: string, template: string, slot?: number, wrap?: boolean): Promise<void> {
         const config = loadSendToChatConfig();
-        const isAnswerFileTemplate = template === '__answer_file__';
+        const isAnswerFileTemplate = wrap === true || template === ANSWER_WRAPPER_ID;
         const panelSlot = Number.isInteger(slot) && (slot as number) >= 1 && (slot as number) <= 9 ? (slot as number) : 1;
         this._lastSentCopilotSlot = panelSlot;
-        
+
         // Always log the prompt (before expansion)
         logCopilotPrompt(text, template);
 
-        // Apply panel default template first (wraps all requests from this panel)
-        const defaultWrapped = applyDefaultTemplate(text, 'copilot');
-        
-        // Get answer file template
-        const answerFileTpl = config?.copilot?.templates?.['__answer_file__'];
-        const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-        
-        let expanded: string;
-        if (isAnswerFileTemplate || !template || template === '__none__') {
-            // Answer Wrapper or no template
-            if (isAnswerFileTemplate) {
-                // Delete existing answer file before sending
-                deleteAnswerFile();
-                this._notifyAnswerFileStatus();
-                // Expand answer file template with originalPrompt
-                expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: defaultWrapped } });
-            } else {
-                // No template: just expand placeholders in the text
-                expanded = await expandTemplate(defaultWrapped);
-            }
-        } else {
-            // Other template: first expand the template, then wrap with answer file
-            const templateObj = config?.copilot?.templates?.[template];
-            if (templateObj?.template) {
-                // Step 1: Expand selected template with user text as originalPrompt
-                const templateExpanded = await expandTemplate(templateObj.template, { values: { originalPrompt: defaultWrapped } });
-                // Step 2: Wrap the result with answer file template
-                expanded = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-            } else {
-                expanded = await expandTemplate(defaultWrapped);
-            }
+        const body = userMessageTemplateBody(config, template);
+        let expanded = body ? await expandTemplate(fillTemplate(body, text)) : await expandTemplate(text);
+        if (isAnswerFileTemplate) {
+            // Delete the existing answer file before sending, so a stale one is not read as the answer.
+            deleteAnswerFile();
+            this._notifyAnswerFileStatus();
+            expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), expanded));
         }
-        
+
         // Extract requestId from expanded prompt so trail and answer share the same ID
         const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
 
@@ -2108,14 +2090,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             const queue = PromptQueueManager.instance;
             if (queue) {
                 const transport = transportOpts?.transport ?? 'copilot';
-                // Apply panel default template wrapping for Copilot; the
-                // Anthropic path uses its own profile + user-message
-                // template, so no wrapping here.
-                const wrappedText = transport === 'copilot'
-                    ? applyDefaultTemplate(text, 'copilot')
-                    : text;
                 await queue.enqueue({
-                    originalText: wrappedText,
+                    originalText: text,
                     template: template || undefined,
                     // Preserve non-numeric strings (chat variables, `prefix*`
                     // patterns like `tod*`) verbatim so they resolve when the
@@ -2264,7 +2240,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             .replace(/'/g, '&#039;');
     }
 
-    private async _handlePreview(section: string, text: string, profileOrTemplate: string): Promise<void> {
+    private async _handlePreview(section: string, text: string, profileOrTemplate: string, wrap = false): Promise<void> {
         const config = loadSendToChatConfig();
         let title = section;
         let previewContent = text;
@@ -2273,26 +2249,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         switch (section) {
             case 'copilot': {
                 title = 'Copilot';
-                // Get answer file template
-                const answerFileTpl = config?.copilot?.templates?.['__answer_file__'];
-                const answerFileTemplate = answerFileTpl?.template || DEFAULT_ANSWER_FILE_TEMPLATE;
-                
-                if (profileOrTemplate === '__answer_file__' || !profileOrTemplate || profileOrTemplate === '__none__') {
-                    // Answer Wrapper or no template: just expand answer file template
-                    if (profileOrTemplate === '__answer_file__') {
-                        previewContent = await expandTemplate(answerFileTemplate, { values: { originalPrompt: text } });
-                    }
-                    // else: no template, previewContent stays as text (will be expanded below)
-                } else {
-                    // Other template: first expand the template, then wrap with answer file
-                    const template = config?.copilot?.templates?.[profileOrTemplate];
-                    if (template?.template) {
-                        // Step 1: Expand selected template with user text as originalPrompt
-                        const templateExpanded = await expandTemplate(template.template, { values: { originalPrompt: text } });
-                        // Step 2: Wrap the result with answer file template
-                        previewContent = await expandTemplate(answerFileTemplate, { values: { originalPrompt: templateExpanded } });
-                    }
-                }
+                // As _handleSendCopilot sends it: the template, then the
+                // Copilot Queue Wrapper when Wrap is on.
+                const body = userMessageTemplateBody(config, profileOrTemplate);
+                const inner = body ? await expandTemplate(fillTemplate(body, text)) : text;
+                previewContent = wrap || profileOrTemplate === ANSWER_WRAPPER_ID
+                    ? await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner))
+                    : inner;
                 onSend = async (t) => {
                     await vscode.commands.executeCommand('workbench.action.chat.open', { query: t });
                 };
@@ -2353,11 +2316,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // --- Template CRUD (copilot) ---
+    // --- Template CRUD (the Copilot dropdown: user-message templates) ---
 
     private async _handleAddTemplate(section: string): Promise<void> {
         const categoryMap: Record<string, TemplateCategory> = {
-            copilot: 'copilot',
+            copilot: 'anthropicUserMessage',
         };
         const category = categoryMap[section];
         if (category) {
@@ -2368,7 +2331,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _handleEditTemplate(section: string, name?: string): Promise<void> {
         if (!name) { return; }
         const categoryMap: Record<string, TemplateCategory> = {
-            copilot: 'copilot',
+            copilot: 'anthropicUserMessage',
         };
         const category = categoryMap[section];
         if (category) {
@@ -2386,9 +2349,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const config = loadSendToChatConfig();
         if (!config) { return; }
 
-        if (section === 'copilot' && config.copilot?.templates?.[name]) {
-            delete config.copilot.templates[name];
-        } else { return; }
+        // The Copilot dropdown lists the user-message templates (the one store).
+        const templates = config.anthropic?.userMessageTemplates;
+        if (section !== 'copilot' || !templates?.some((t) => t.id === name)) { return; }
+        config.anthropic!.userMessageTemplates = templates.filter((t) => t.id !== name);
 
         if (saveSendToChatConfig(config)) {
             this._sendProfiles();
