@@ -37,6 +37,11 @@
  *     (`explain-todo`, explainTodoTemplate.ts), and every setting naming the
  *     old id names the new one — in that config and in the user-global
  *     overlay (`userConfigPath`). Format version 4;
+ *   - the removed panels (localLlmProfileMigration.ts): every
+ *     `localLlm.profiles` entry becomes an Anthropic profile `local-<key>` on
+ *     its Local LLM configuration and the block goes; and, when the files come
+ *     from a format version below 5, what only those panels wrote is deleted.
+ *     Format version 5;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -65,6 +70,7 @@ import {
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { renameExplainTemplate } from './explainTodoTemplate';
+import { defaultLocalLlmConfigId, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -97,7 +103,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'local-llm-profiles' | 'removed-panels' | 'format-version';
     detail: string;
 }
 
@@ -343,6 +349,63 @@ class Run {
 
     // ---- workspace config -------------------------------------------------
 
+    /** Every `localLlm.profiles` entry as an Anthropic profile on its Local LLM configuration; the block removed. */
+    localLlmProfiles(): void {
+        const cfgPath = this.opts.workspaceConfigPath;
+        if (!cfgPath || !fs.existsSync(cfgPath)) { return; }
+        const raw = fs.readFileSync(cfgPath, 'utf8');
+        let cfg: { anthropic?: { profiles?: Array<Record<string, unknown>> }; localLlm?: { profiles?: Record<string, LocalLlmProfileEntry>; configurations?: unknown } };
+        try { cfg = JSON.parse(raw); } catch {
+            this.problem('(workspace)', 'local-llm-profiles', `${cfgPath} is not readable JSON`);
+            return;
+        }
+        const locals = cfg.localLlm?.profiles;
+        if (!locals || typeof locals !== 'object') { return; }
+        const configIds = new Set(Array.isArray(cfg.localLlm?.configurations) ? (cfg.localLlm!.configurations as Array<{ id?: unknown }>).map((c) => c?.id) : []);
+        const fallback = defaultLocalLlmConfigId(cfg.localLlm?.configurations);
+        const anthropic = (cfg.anthropic ??= {});
+        const profiles = (anthropic.profiles ??= []);
+        const taken = new Set(profiles.map((p) => p.id));
+        for (const [key, entry] of Object.entries(locals)) {
+            const named = typeof entry?.modelConfig === 'string' && entry.modelConfig ? entry.modelConfig : undefined;
+            const configId = named && configIds.has(named) ? named : fallback;
+            if (!configId) {
+                this.problem('(workspace)', 'local-llm-profiles', `Local LLM profile ${key}: no Local LLM configuration to put it on`);
+                return;
+            }
+            const { profile, dropped } = localLlmProfileToAnthropic(key, entry ?? {}, configId);
+            if (taken.has(profile.id)) {
+                this.change('(workspace)', 'local-llm-profiles', `Local LLM profile ${key}: Anthropic profile ${String(profile.id)} already there, kept`);
+                continue;
+            }
+            taken.add(profile.id);
+            profiles.push(profile);
+            const note = named && named !== configId ? ` (its configuration ${named} no longer exists)` : '';
+            this.change('(workspace)', 'local-llm-profiles', `Local LLM profile ${key} -> Anthropic profile ${String(profile.id)} on ${configId}${note}${dropped.length ? `; dropped: ${dropped.join(', ')}` : ''}`);
+        }
+        delete cfg.localLlm!.profiles;
+        this.change('(workspace)', 'local-llm-profiles', 'remove the localLlm.profiles block');
+        if (this.opts.apply) {
+            const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? '    ';
+            fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
+        }
+    }
+
+    /** Delete what only the removed panels wrote (format version < 5 only). */
+    removedPanels(quests: string[]): void {
+        for (const p of removedPanelPaths(this.opts.aiRoot, quests)) {
+            const dir = fs.statSync(p).isDirectory();
+            this.change(dir ? '(workspace)' : this.questOf(p), 'removed-panels', `delete ${this.rel(p)}${dir ? '/' : ''}`);
+            if (this.opts.apply) { fs.rmSync(p, { recursive: true, force: true }); }
+        }
+    }
+
+    /** The quest a path under `quests/<quest>/` belongs to, else `(workspace)`. */
+    questOf(p: string): string {
+        const parts = this.rel(p).split('/');
+        return parts[0] === 'quests' && parts[1] ? parts[1] : '(workspace)';
+    }
+
     /** The Explain-then-ask template as Explain TODO, in the workspace config and the user overlay. */
     templates(): void {
         for (const file of [this.opts.workspaceConfigPath, this.opts.userConfigPath]) {
@@ -461,6 +524,10 @@ function stampFormatVersion(opts: FormatMigrationOptions, run: Run): void {
 /** Run the migration (or, with `apply: false`, list it). */
 export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationResult {
     const run = new Run(opts);
+    // Read before anything is written: the stamp decides whether the removed
+    // panels' files are still to be deleted (below version 5 only).
+    const prior = readAiFormatStamp(opts.aiRoot);
+    const deletePanelFiles = !prior || prior.version < REMOVED_PANELS_FORMAT_VERSION;
     const questsRoot = path.join(opts.aiRoot, 'quests');
     const all = list(questsRoot).filter((e) => e.isDirectory()).map((e) => e.name).sort();
     const quests = opts.quests ? all.filter((q) => opts.quests!.includes(q)) : all;
@@ -473,6 +540,8 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.mcpServer(all);
     run.profiles();
     run.templates();
+    run.localLlmProfiles();
+    if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
     stampFormatVersion(opts, run);
     return run.result;

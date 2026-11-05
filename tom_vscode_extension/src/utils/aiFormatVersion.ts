@@ -28,8 +28,9 @@ import { parse, stringify } from 'yaml';
  *   2  process state as a stack of levels
  *   3  profile thinking keys: thinking / effort / legacyThinkingBudgetTokens
  *   4  the explain-and-ask template renamed explain-todo (Explain TODO)
+ *   5  Local LLM profiles as Anthropic profiles; the removed panels' files deleted
  */
-export const AI_FORMAT_VERSION = 4;
+export const AI_FORMAT_VERSION = 5;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';
