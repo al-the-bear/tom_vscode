@@ -9,6 +9,7 @@
  * rather than the full variable resolver.
  */
 
+import { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID as EXPLAIN_TODO_ID, explainTodoTemplateEntry } from './explainTodoTemplate';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -991,6 +992,25 @@ export function ensureExecuteTodoUserMessageTemplate(config: SendToChatConfig): 
         description: 'Wraps a TODO routed to the Anthropic transport with execution instructions, mirroring the Copilot "TODO Execution" template.',
         template: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY,
     });
+    return true;
+}
+
+// ============================================================================
+// Explain TODO User-Message Template (Anthropic)
+// ============================================================================
+
+export { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID } from './explainTodoTemplate';
+
+/**
+ * Ensure the config carries the "Explain TODO" Anthropic user-message template
+ * (src/utils/explainTodoTemplate.ts) as a pickable option. Idempotent, never
+ * marks it `isDefault`. Returns `true` when it changed `config`.
+ */
+export function ensureExplainTodoUserMessageTemplate(config: SendToChatConfig): boolean {
+    const anthropic = (config.anthropic ??= {});
+    const templates = (anthropic.userMessageTemplates ??= []);
+    if (templates.some((t) => t.id === EXPLAIN_TODO_ID)) { return false; }
+    templates.push(explainTodoTemplateEntry() as typeof templates[number]);
     return true;
 }
 

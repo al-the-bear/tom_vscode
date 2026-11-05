@@ -552,6 +552,19 @@ All Anthropic profiles — regardless of the selected configuration's leaf type 
   It is a pickable option only — **not** forced as the default user-message
   template — and the seed is idempotent.
 
+**Seeded "Explain TODO" Anthropic user-message template:**
+
+- `ensureExplainTodoUserMessageTemplate` seeds `explain-todo` the same way
+  (body in `src/utils/explainTodoTemplate.ts`). A todo sent with it is
+  explained, not done: what it changes, why, its open decisions with their
+  options and a recommendation. The open points are asked through
+  `tomAi_askUser`, and the todo is changed from the answers with
+  `tomAi_updateQuestTodo` (decisions, description, a dated note; `not-started`
+  once every decision is answered). It took the place of the
+  "Explain-then-ask scaffold" (`explain-and-ask`); `npm run migrate:ai-formats`
+  renames that id in the workspace config and the user overlay (format
+  version 4).
+
 ### 4.17 Shared resolver: `resolveAnthropicTargets`
 
 `src/utils/resolveAnthropicTargets.ts` is the single source of truth for `(profileId, configId) → (profile, AnthropicConfiguration)` resolution. Used by:

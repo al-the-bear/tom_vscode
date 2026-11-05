@@ -118,6 +118,7 @@ const result = migrateAiFormats({
     apply: args.apply,
     merge: makeMerger(scratch),
     workspaceConfigPath: path.join(workspace, '.tom', 'tom_vscode_extension.json'),
+    userConfigPath: path.join(require('os').homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml'),
     quests: args.quests.length ? args.quests : undefined,
 });
 fs.rmSync(scratch, { recursive: true, force: true });

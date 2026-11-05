@@ -83,6 +83,19 @@ describe('buildTodoSendTemplateChoices', () => {
         assert.equal(choices.selected, 'fast');
     });
 
+    it('anthropic: Explain TODO is offered beside Execute TODO, which stays the fallback', async () => {
+        const { buildTodoSendTemplateChoices } = await import('../todoSendTargets.js');
+        const choices = buildTodoSendTemplateChoices('anthropic', {
+            anthropic: { userMessageTemplates: [{ id: 'explain-todo', name: 'Explain TODO' }, { id: 'execute-todo', name: 'Execute TODO' }] },
+        });
+        assert.deepEqual(choices.templates.map((t) => t.label), ['(None)', 'Explain TODO', 'Execute TODO']);
+        assert.equal(choices.selected, 'execute-todo');
+        const picked = buildTodoSendTemplateChoices('anthropic', {
+            anthropic: { userMessageTemplates: [{ id: 'explain-todo', name: 'Explain TODO' }, { id: 'execute-todo', name: 'Execute TODO' }] },
+        }, 'explain-todo');
+        assert.equal(picked.selected, 'explain-todo');
+    });
+
     it('anthropic with no templates falls back to __none__', async () => {
         const { buildTodoSendTemplateChoices } = await import('../todoSendTargets.js');
         const choices = buildTodoSendTemplateChoices('anthropic', {});

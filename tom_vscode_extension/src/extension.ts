@@ -577,13 +577,14 @@ export async function activate(context: vscode.ExtensionContext) {
             saveSendToChatConfig,
             ensureDefaultTransportRetryTemplate,
             ensureExecuteTodoUserMessageTemplate,
+            ensureExplainTodoUserMessageTemplate,
         } = await import('./utils/sendToChatConfig.js');
         const stcConfig = loadSendToChatConfig();
         // One-shot seed: migrate the in-code transport-retry default into an
         // on-disk "Default Retry" template (marked isDefault) so "use default"
         // resolves to an editable, pickable entry. No-op once it exists.
         // Same pass also seeds the "Execute TODO" Anthropic user-message
-        // template (an option only — not forced default).
+        // template and the "Explain TODO" one (options only — not forced default).
         if (stcConfig) {
             try {
                 let stcDirty = false;
@@ -594,6 +595,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (ensureExecuteTodoUserMessageTemplate(stcConfig)) {
                     stcDirty = true;
                     bridgeLog('Seeded "Execute TODO" Anthropic user-message template', 'INFO');
+                }
+                if (ensureExplainTodoUserMessageTemplate(stcConfig)) {
+                    stcDirty = true;
+                    bridgeLog('Seeded "Explain TODO" Anthropic user-message template', 'INFO');
                 }
                 if (stcDirty) {
                     saveSendToChatConfig(stcConfig);

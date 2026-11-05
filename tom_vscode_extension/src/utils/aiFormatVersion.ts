@@ -27,8 +27,9 @@ import { parse, stringify } from 'yaml';
  *   1  the stamp itself
  *   2  process state as a stack of levels
  *   3  profile thinking keys: thinking / effort / legacyThinkingBudgetTokens
+ *   4  the explain-and-ask template renamed explain-todo (Explain TODO)
  */
-export const AI_FORMAT_VERSION = 3;
+export const AI_FORMAT_VERSION = 4;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

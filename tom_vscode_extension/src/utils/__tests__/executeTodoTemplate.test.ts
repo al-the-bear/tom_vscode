@@ -69,3 +69,28 @@ describe('ensureExecuteTodoUserMessageTemplate', () => {
         );
     });
 });
+
+describe('ensureExplainTodoUserMessageTemplate', () => {
+    it('seeds Explain TODO once, as an option, wrapping ${userMessage}', async () => {
+        const mod = await import('../sendToChatConfig.js');
+        const config = { anthropic: { userMessageTemplates: [{ id: 'mine', name: 'Mine', template: '${userMessage}', isDefault: true }] } } as import('../sendToChatConfig.js').SendToChatConfig;
+        assert.equal(mod.ensureExplainTodoUserMessageTemplate(config), true);
+        assert.equal(mod.ensureExplainTodoUserMessageTemplate(config), false, 'second pass is a no-op');
+        const entry = config.anthropic!.userMessageTemplates!.find((t) => t.id === mod.EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID)!;
+        assert.equal(mod.EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID, 'explain-todo');
+        assert.equal(entry.name, 'Explain TODO');
+        assert.notEqual(entry.isDefault, true);
+        assert.equal(config.anthropic!.userMessageTemplates!.find((t) => t.id === 'mine')?.isDefault, true);
+        assert.match(entry.template, /\$\{userMessage\}/);
+        assert.doesNotMatch(entry.template, /\$\{originalPrompt\}/);
+    });
+
+    it('explains, asks through tomAi_askUser and changes only the todo', async () => {
+        const { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY: body } = await import('../explainTodoTemplate.js');
+        for (const part of [/what it changes/, /why/, /open decisions/, /tomAi_askUser/, /tomAi_updateQuestTodo/, /decisions\[\]\.decision/, /notes/, /Do not start the work/, /not-started/]) {
+            assert.match(body, part);
+        }
+        assert.match(body, /do not report its TODO response value/, 'the todo is not done by explaining it');
+    });
+});
+

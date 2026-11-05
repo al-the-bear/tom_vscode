@@ -33,6 +33,10 @@
  *   - the Anthropic profiles of that config: `thinkingEnabled` /
  *     `thinkingBudgetTokens` become `thinking` / `legacyThinkingBudgetTokens`
  *     (thinkingAndEffort.ts). Format version 3;
+ *   - the user-message template `explain-and-ask` becomes Explain TODO
+ *     (`explain-todo`, explainTodoTemplate.ts), and every setting naming the
+ *     old id names the new one — in that config and in the user-global
+ *     overlay (`userConfigPath`). Format version 4;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -60,6 +64,7 @@ import {
     sessionRoot,
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
+import { renameExplainTemplate } from './explainTodoTemplate';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -81,6 +86,8 @@ export interface FormatMigrationOptions {
     workspaceConfigPath?: string;
     /** Only these quests (default: every folder under `quests/`). The workspace-wide steps still run. */
     quests?: string[];
+    /** The user-global overlay (`~/.tom/vscode/tom_vscode_extension.user.yaml`), when it exists. */
+    userConfigPath?: string;
     /** The format version to stamp (default AI_FORMAT_VERSION; tests). */
     formatVersion?: number;
     /** Today, for the stamp (default the local date; tests). */
@@ -90,7 +97,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'format-version';
     detail: string;
 }
 
@@ -336,6 +343,30 @@ class Run {
 
     // ---- workspace config -------------------------------------------------
 
+    /** The Explain-then-ask template as Explain TODO, in the workspace config and the user overlay. */
+    templates(): void {
+        for (const file of [this.opts.workspaceConfigPath, this.opts.userConfigPath]) {
+            if (!file || !fs.existsSync(file)) { continue; }
+            const raw = fs.readFileSync(file, 'utf8');
+            const isYaml = /\.ya?ml$/i.test(file);
+            let parsed: unknown;
+            try { parsed = isYaml ? parseDocument(raw).toJS() : JSON.parse(raw); } catch {
+                this.problem('(workspace)', 'templates', `${file} is not readable`);
+                continue;
+            }
+            const { config, changed } = renameExplainTemplate(parsed);
+            if (changed === 0) { continue; }
+            this.change('(workspace)', 'templates', `${file}: explain-and-ask as explain-todo (Explain TODO), ${changed} place(s)`);
+            if (!this.opts.apply) { continue; }
+            if (isYaml) {
+                fs.writeFileSync(file, new Document(config).toString(), 'utf8');
+            } else {
+                const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? '    ';
+                fs.writeFileSync(file, JSON.stringify(config, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
+            }
+        }
+    }
+
     /** The workspace config's Anthropic profiles in the current thinking keys. */
     profiles(): void {
         const cfgPath = this.opts.workspaceConfigPath;
@@ -441,6 +472,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     }
     run.mcpServer(all);
     run.profiles();
+    run.templates();
     run.todos(quests);
     stampFormatVersion(opts, run);
     return run.result;
