@@ -8,7 +8,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
 import { DartBridgeClient } from '../vscode-bridge';
 import {
@@ -19,12 +18,8 @@ import {
     resolveNamedExecutable,
     findExternalApplication,
     resolveApplicationExecutable,
-    getCurrentPlatform,
     expandHomePath,
     buildConfigContext,
-    type ExecutablesConfig,
-    type ExternalApplicationsConfig,
-    type ApplicationMapping,
     type ConfigPlaceholderContext,
 } from '../utils/executableResolver';
 import {
@@ -636,7 +631,7 @@ export function listConfiguredExecutables(): Array<{
     const result: Array<{ name: string; path: string | undefined; exists: boolean }> = [];
     
     const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
-    for (const [name, platformConfig] of Object.entries(executables)) {
+    for (const name of Object.keys(executables)) {
         const resolved = resolveNamedExecutable(name, executables, ctx);
         result.push({
             name,

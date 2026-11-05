@@ -40,7 +40,6 @@ import {
     setTimerEngineStateImpl,
     updateTimedRequestImpl,
     type TimedEntrySnapshot,
-    type TimedScheduleSlot,
     type TimerEngineAccess,
 } from '../timed-request-tools.js';
 

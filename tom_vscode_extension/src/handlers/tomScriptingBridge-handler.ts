@@ -15,8 +15,8 @@ import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
 import * as questTodo from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
-import { PromptQueueManager, QueuedPrompt } from '../managers/promptQueueManager';
-import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngine';
+import { PromptQueueManager } from '../managers/promptQueueManager';
+import { TimerEngine, TimedRequest } from '../managers/timerEngine';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 
@@ -25,11 +25,9 @@ import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 // ============================================================================
 
 let _instance: TomScriptingBridgeHandler | undefined;
-let _ctx: vscode.ExtensionContext | undefined;
 
-export function initTomScriptingBridgeHandler(ctx: vscode.ExtensionContext): void {
-    _ctx = ctx;
-    _instance = new TomScriptingBridgeHandler(ctx);
+export function initTomScriptingBridgeHandler(): void {
+    _instance = new TomScriptingBridgeHandler();
 }
 
 export function getTomScriptingBridgeHandler(): TomScriptingBridgeHandler | undefined {
@@ -72,12 +70,6 @@ function deleteResult(result: questTodo.TodoMoveResult, todoId: string): { succe
  *   leaves a field it is not given as it is.
  */
 export class TomScriptingBridgeHandler {
-    private ctx: vscode.ExtensionContext;
-
-    constructor(ctx: vscode.ExtensionContext) {
-        this.ctx = ctx;
-    }
-
     /**
      * Handle bridge requests from Dart scripts.
      * Routes to appropriate handler based on method prefix.
@@ -378,7 +370,7 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'queue.updateStatusVce': {
-                const success = qm.setStatus(params.itemId, params.status);
+                qm.setStatus(params.itemId, params.status);
                 const item = qm.getById(params.itemId);
                 return item || null;
             }
@@ -823,12 +815,12 @@ export class TomScriptingBridgeHandler {
         for (const file of files.slice(0, limit || 100)) {
             const filePath = path.join(trailDir, file);
             try {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                // Parse trail entry (simplified - actual implementation would parse YAML/JSON)
+                const stat = fs.statSync(filePath);
+                if (!stat.isFile()) { continue; }
                 entries.push({
                     id: path.basename(file, path.extname(file)),
                     promptFile: file,
-                    timestamp: fs.statSync(filePath).mtime.toISOString(),
+                    timestamp: stat.mtime.toISOString(),
                 });
             } catch (e) {
                 // Skip invalid files
@@ -1025,7 +1017,6 @@ export class TomScriptingBridgeHandler {
 
     private async listProjects(type?: string, includeSubWorkspaces?: boolean): Promise<any> {
         const projects = await scanWorkspaceProjectsByDetectors();
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
         // DetectedWorkspaceProject has: name, relativePath, absolutePath, attributes, detectorNames
         const mapped = projects
@@ -1056,7 +1047,6 @@ export class TomScriptingBridgeHandler {
 
     private async getProject(projectId: string): Promise<any> {
         const projects = await scanWorkspaceProjectsByDetectors();
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
         const project = projects.find(p => p.name === projectId);
         if (!project) { return null; }
@@ -1075,7 +1065,6 @@ export class TomScriptingBridgeHandler {
 
     private async findProjects(pattern: string): Promise<any> {
         const projects = await scanWorkspaceProjectsByDetectors();
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
 
         const filtered = projects

@@ -29,7 +29,6 @@ import {
     uploadFileToRepo,
     deleteFileFromRepo,
     listRepoDirectory,
-    getFileInfo,
     deleteComment as ghDeleteComment,
     ATTACHMENT_COMMENT_MARKER,
     GitHubIssue,

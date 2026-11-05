@@ -33,7 +33,6 @@
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import { getConfigPath } from './handler_shared';
 import { FsUtils } from '../utils/fsUtils';
 

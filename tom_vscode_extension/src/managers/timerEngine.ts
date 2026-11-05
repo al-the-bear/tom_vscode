@@ -86,14 +86,11 @@ export class TimerEngine {
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
-    private _ctx!: vscode.ExtensionContext;
-
     // ----- lifecycle ---------------------------------------------------------
 
     static init(ctx: vscode.ExtensionContext): void {
         if (TimerEngine._inst) { return; }
         const e = new TimerEngine();
-        e._ctx = ctx;
         e.loadEntries();
         e.start();
         TimerEngine._inst = e;

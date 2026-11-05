@@ -39,7 +39,7 @@ function todoFile(rel: string, todos: Array<Record<string, unknown>>): string {
 }
 const ids = (fp: string): string[] => (fs.existsSync(fp) ? readTodoFile(fp).map((t) => t.id) : []);
 
-const bridge = new TomScriptingBridgeHandler({} as never);
+const bridge = new TomScriptingBridgeHandler();
 const call = (method: string, params: Record<string, unknown>): Promise<any> => bridge.handleBridgeRequest(method, params);
 
 describe('scripting bridge: todo handlers', () => {

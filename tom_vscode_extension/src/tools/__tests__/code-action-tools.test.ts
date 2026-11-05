@@ -34,7 +34,6 @@ import {
     type ApplyActionResult,
     type CodeActionRange0Based,
     type CodeActionService,
-    type CodeActionSnapshot,
     type ListedCodeAction,
 } from '../code-action-tools.js';
 

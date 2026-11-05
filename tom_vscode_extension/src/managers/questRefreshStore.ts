@@ -59,10 +59,6 @@ interface QuestRefreshFile {
 
 const PANELS: readonly QuestRefreshPanel[] = ['anthropic', 'copilot'];
 
-function emptyState(): QuestRefreshPanelState {
-    return { active: false, count: 0 };
-}
-
 // ============================================================================
 // Store
 // ============================================================================

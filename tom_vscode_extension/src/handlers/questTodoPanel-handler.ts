@@ -17,7 +17,6 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem } from '../utils/todoListItem';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
@@ -76,10 +75,6 @@ function _loadPendingSelectState(): QtPendingSelectState {
     return _extensionContext?.workspaceState.get<QtPendingSelectState>(QT_PENDING_SELECT_KEY) ?? {};
 }
 
-async function _savePendingSelectState(state: QtPendingSelectState): Promise<void> {
-    await _extensionContext?.workspaceState.update(QT_PENDING_SELECT_KEY, state);
-}
-
 async function _clearPendingSelectState(): Promise<void> {
     await _extensionContext?.workspaceState.update(QT_PENDING_SELECT_KEY, undefined);
 }
@@ -116,13 +111,7 @@ export function setQuestTodoContext(ctx: vscode.ExtensionContext): void {
 }
 
 // ---- Global provider references for cross-module access ----
-let _questTodosProvider: QuestTodoEmbeddedViewProvider | undefined;
 let _sessionTodosProvider: QuestTodoEmbeddedViewProvider | undefined;
-
-/** Register the quest-todos provider instance for cross-module access. */
-export function setQuestTodosProvider(provider: QuestTodoEmbeddedViewProvider): void {
-    _questTodosProvider = provider;
-}
 
 /** Register the session-todos provider instance for cross-module access. */
 export function setSessionTodosProvider(provider: QuestTodoEmbeddedViewProvider): void {

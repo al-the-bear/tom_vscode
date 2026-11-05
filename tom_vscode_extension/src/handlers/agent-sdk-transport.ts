@@ -206,7 +206,6 @@ import { ToolTrail } from '../services/tool-trail';
 import { wrapToolWithTrail } from '../utils/toolTrailWrapper';
 import type {
     AnthropicConfiguration,
-    AnthropicSendResult,
     AnthropicToolApprovalRequest,
 } from './anthropic-handler';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';

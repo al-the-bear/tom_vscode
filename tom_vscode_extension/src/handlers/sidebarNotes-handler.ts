@@ -21,7 +21,7 @@ import {
     expandTemplate as expandPlaceholders,
 } from './promptTemplate';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
-import { QuestTodoEmbeddedViewProvider, setQuestTodosProvider, setSessionTodosProvider } from './questTodoPanel-handler';
+import { QuestTodoEmbeddedViewProvider, setSessionTodosProvider } from './questTodoPanel-handler';
 import { WsPaths } from '../utils/workspacePaths';
 import { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -501,7 +501,6 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
         hideFileSelect: false,
         disableFileActions: !workspaceQuestId || !questExists,
     });
-    setQuestTodosProvider(questTodosProvider);
     const sessionTodosProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
         mode: 'session',
         fixedFileLabel: 'Session (*.todo.yaml)',

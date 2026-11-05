@@ -22,7 +22,6 @@ import {
     bridgeLog,
     reportException,
     getBridgeClient,
-    setBridgeClient,
     initializeBridgeClient,
     sendToChatHandler,
     SendToChatAdvancedManager,
@@ -42,7 +41,6 @@ import {
     showApiInfoHandler,
     LocalLlmManager,
     setLocalLlmManager,
-    getLocalLlmManager,
     registerChordMenuCommands,
     registerCommandlineCommands,
     registerCombinedCommands,
@@ -385,7 +383,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // This must happen early so bridge output is visible even if later
     // registrations throw and abort activate().
     stepStart = performance.now();
-    const bridgeClient = initializeBridgeClient(context);
+    initializeBridgeClient(context);
     timeStep('bridgeClient', stepStart);
 
     stepStart = performance.now();
@@ -703,7 +701,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize Tom Scripting Bridge handler
     stepStart = performance.now();
-    initTomScriptingBridgeHandler(context);
+    initTomScriptingBridgeHandler();
     timeStep('tomScriptingBridgeHandler', stepStart);
 
     // Dispose standalone Telegram on deactivation

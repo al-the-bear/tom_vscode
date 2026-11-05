@@ -18,7 +18,7 @@ import {
     readEffectiveTelegramRaw,
     writeQuestTelegramRaw,
 } from './telegram-config';
-import { TelegramCommandRegistry, ParsedTelegramCommand } from './telegram-cmd-parser';
+import { TelegramCommandRegistry } from './telegram-cmd-parser';
 import { TelegramResponseFormatter } from './telegram-cmd-response';
 import { createCommandRegistry, type CommandRegistryDeps, type QueueControls } from './telegram-cmd-handlers';
 import { TelegramLiveConversationForwarder } from './telegramTrailForwarder';

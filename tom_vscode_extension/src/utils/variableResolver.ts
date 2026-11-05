@@ -399,7 +399,6 @@ function addEditorValues(values: Record<string, string>): void {
         const fileDir = path.dirname(filePath);
         const fileExt = path.extname(filePath);
         const fileName = path.basename(filePath, fileExt);
-        const fileBaseName = path.basename(filePath);
         const sel = doc.getText(editor.selection);
         const hasSelection = !editor.selection.isEmpty;
 

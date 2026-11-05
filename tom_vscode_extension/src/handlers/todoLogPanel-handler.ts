@@ -16,8 +16,6 @@ import * as path from 'path';
 import {
     discoverTrailSets,
     loadTrailSet,
-    type TrailEntry,
-    type TrailSet,
 } from './trailEditor-handler.js';
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
 import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';

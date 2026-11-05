@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
-import { buildTimedFileName, buildHostPrefixedPanelFileName } from './queueStep5Utils';
+import { buildHostPrefixedPanelFileName } from './queueStep5Utils';
 
 // ============================================================================
 // Workspace helpers

@@ -98,14 +98,11 @@ export class ReminderSystem {
     private readonly _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
-    private _ctx!: vscode.ExtensionContext;
-
     // ----- lifecycle ---------------------------------------------------------
 
     static init(ctx: vscode.ExtensionContext): void {
         if (ReminderSystem._inst) { return; }
         const r = new ReminderSystem();
-        r._ctx = ctx;
         r.loadFromConfig();
         r.startWatching();
         ReminderSystem._inst = r;

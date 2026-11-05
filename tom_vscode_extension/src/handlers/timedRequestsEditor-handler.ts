@@ -9,9 +9,9 @@
  */
 
 import * as vscode from 'vscode';
-import { TimerEngine, TimedRequest, ScheduledTime } from '../managers/timerEngine';
+import { TimerEngine, TimedRequest } from '../managers/timerEngine';
 import { applyTemplateWrapping } from '../managers/promptQueueManager';
-import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
+import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig } from './handler_shared';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
@@ -293,8 +293,6 @@ async function handleMessage(msg: any): Promise<void> {
             break;
     }
 }
-
-const REMINDER_TEMPLATE_HELP = REMINDER_PLACEHOLDER_HELP;
 
 async function addReminderTemplate(): Promise<void> {
   if (_ctx) {

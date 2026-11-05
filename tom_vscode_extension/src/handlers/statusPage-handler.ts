@@ -31,7 +31,7 @@ import { AnthropicHandler } from './anthropic-handler';
 import { compactHistoryDetailed, type ConversationMessage, type HistoryMode, type CompactionLlmProvider } from '../services/history-compaction';
 import { logRunBanner, showCompactionChannel, logError as logCompactionError } from '../services/compaction-log';
 import { getCliServerStatus } from './cliServer-handler';
-import { loadBridgeConfig, BridgeConfig } from './restartBridge-handler';
+import { loadBridgeConfig } from './restartBridge-handler';
 import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '../services/trailLogging';
 import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
@@ -333,107 +333,6 @@ async function updateAskBigBrotherSettings(settings: any): Promise<void> {
         clearLocalLlmToolsConfigCache();
         vscode.window.showInformationMessage('Ask Big Brother settings updated');
     }
-}
-
-/**
- * Show a QuickPick-based editor to create or edit a model configuration.
- */
-async function editOrCreateModelConfig(modelKey: string, existing: any | null): Promise<void> {
-    const model = existing?.model ?? '';
-    const ollamaUrl = existing?.ollamaUrl ?? 'http://localhost:11434';
-    const temperature = existing?.temperature ?? 0.4;
-    const stripThinkingTags = existing?.stripThinkingTags ?? true;
-    const description = existing?.description ?? '';
-    const isDefault = existing?.isDefault ?? false;
-    const keepAlive = existing?.keepAlive ?? '5m';
-    const apiKeyEnv = existing?.apiKeyEnv ?? '';
-
-    // Use multi-step input to gather model config
-    const newModel = await vscode.window.showInputBox({
-        prompt: 'Ollama model name (e.g., qwen3:8b, llama3:70b)',
-        value: model,
-        placeHolder: 'qwen3:8b',
-        validateInput: (v) => v.trim().length === 0 ? 'Model name is required' : null
-    });
-    if (newModel === undefined) { return; }
-    
-    const newUrl = await vscode.window.showInputBox({
-        prompt: 'Ollama URL',
-        value: ollamaUrl,
-        placeHolder: 'http://localhost:11434'
-    });
-    if (newUrl === undefined) { return; }
-    
-    const newTempStr = await vscode.window.showInputBox({
-        prompt: 'Temperature (0.0 - 2.0)',
-        value: String(temperature),
-        validateInput: (v) => {
-            const n = parseFloat(v);
-            if (isNaN(n) || n < 0 || n > 2) { return 'Enter a number between 0 and 2'; }
-            return null;
-        }
-    });
-    if (newTempStr === undefined) { return; }
-    
-    const newDesc = await vscode.window.showInputBox({
-        prompt: 'Description (optional)',
-        value: description,
-        placeHolder: 'e.g., Fast reasoning model'
-    });
-    if (newDesc === undefined) { return; }
-    
-    const stripChoice = await vscode.window.showQuickPick(['Yes', 'No'], {
-        placeHolder: `Strip thinking tags? (current: ${stripThinkingTags ? 'Yes' : 'No'})`
-    });
-    if (stripChoice === undefined) { return; }
-    
-    const defaultChoice = await vscode.window.showQuickPick(['No', 'Yes'], {
-        placeHolder: `Set as default? (current: ${isDefault ? 'Yes' : 'No'})`
-    });
-    if (defaultChoice === undefined) { return; }
-    
-    const newKeepAlive = await vscode.window.showInputBox({
-        prompt: 'Keep alive duration (e.g., 5m, 1h, 0 to unload immediately)',
-        value: keepAlive,
-        placeHolder: '5m'
-    });
-    if (newKeepAlive === undefined) { return; }
-
-    const newApiKeyEnv = await vscode.window.showInputBox({
-        prompt: 'API key environment variable name (optional; for OpenAI-compatible endpoints that require auth). Leave empty for none.',
-        value: apiKeyEnv,
-        placeHolder: 'e.g. OPENAI_API_KEY'
-    });
-    if (newApiKeyEnv === undefined) { return; }
-
-    // Save the model config
-    const cfg = loadConfig() || {};
-    if (!cfg.localLlm) { cfg.localLlm = {}; }
-    if (!cfg.localLlm.models) { cfg.localLlm.models = {}; }
-    
-    // If setting as default, clear isDefault from other models
-    if (defaultChoice === 'Yes') {
-        for (const key of Object.keys(cfg.localLlm.models)) {
-            if (cfg.localLlm.models[key].isDefault) {
-                cfg.localLlm.models[key].isDefault = false;
-            }
-        }
-    }
-    
-    cfg.localLlm.models[modelKey] = {
-        ollamaUrl: newUrl.trim() || 'http://localhost:11434',
-        model: newModel.trim(),
-        temperature: parseFloat(newTempStr),
-        stripThinkingTags: stripChoice === 'Yes',
-        description: newDesc.trim(),
-        isDefault: defaultChoice === 'Yes',
-        keepAlive: newKeepAlive.trim() || '5m',
-        apiKeyEnv: newApiKeyEnv.trim() || undefined
-    };
-    
-    saveConfig(cfg);
-    vscode.window.showInformationMessage(`Model configuration "${modelKey}" saved`);
-    await refreshStatusPage();
 }
 
 /**
@@ -1631,52 +1530,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             vscode.window.showInformationMessage('Favorites saved');
             break;
         }
-        // LLM Profile model settings
-        case 'addModelConfig': {
-            const modelKey = await vscode.window.showInputBox({
-                prompt: 'Enter a unique name for this model configuration',
-                placeHolder: 'e.g., llama3-70b',
-                validateInput: (value) => {
-                    if (!value || value.trim().length === 0) { return 'Name is required'; }
-                    const cfg = loadConfig() || {};
-                    if (cfg.localLlm?.models?.[value.trim()]) { return 'Model configuration already exists'; }
-                    return null;
-                }
-            });
-            if (modelKey) {
-                await editOrCreateModelConfig(modelKey.trim(), null);
-            }
-            break;
-        }
-        case 'editModelConfig': {
-            const modelKey = message.modelKey;
-            if (modelKey) {
-                const cfg = loadConfig() || {};
-                const existing = cfg.localLlm?.models?.[modelKey] || null;
-                await editOrCreateModelConfig(modelKey, existing);
-            }
-            break;
-        }
-        case 'deleteModelConfig': {
-            const modelKey = message.modelKey;
-            if (modelKey) {
-                const confirm = await vscode.window.showWarningMessage(
-                    `Delete model configuration "${modelKey}"?`,
-                    { modal: true },
-                    'Delete'
-                );
-                if (confirm === 'Delete') {
-                    const cfg = loadConfig() || {};
-                    if (cfg.localLlm?.models?.[modelKey]) {
-                        delete cfg.localLlm.models[modelKey];
-                        saveConfig(cfg);
-                        vscode.window.showInformationMessage(`Model configuration "${modelKey}" deleted`);
-                        await refreshStatusPage();
-                    }
-                }
-            }
-            break;
-        }
         // LLM Configuration management
         case 'saveLlmConfigurations': {
             const cfg = loadConfig() || {};
@@ -1824,18 +1677,6 @@ export interface StatusData {
         configFile: string;
         maxWaitMinutes: number;
         fallbackPrompt: string;
-    };
-    localLlm: {
-        ollamaUrl: string;
-        model: string;
-        temperature: number;
-        stripThinkingTags: boolean;
-        trailMaximumTokens: number;
-        trailSummarizationTemperature: number;
-        removePromptTemplateFromTrail: boolean;
-        toolsEnabled: boolean;
-        models: string[];
-        modelDetails: { [name: string]: { ollamaUrl: string; model: string; temperature: number; stripThinkingTags: boolean; description: string; isDefault: boolean; keepAlive: string } };
     };
     askCopilot: AskCopilotConfig;
     copilotAnswerFolder: string;
@@ -1990,7 +1831,6 @@ export async function gatherStatusData(): Promise<StatusData> {
         const msg = `[Status Page] Invalid strict AI configuration:\n- ${strictErrors.join('\n- ')}`;
         console.error(msg);
     }
-    const localLlm = config?.localLlm || {};
     // Telegram settings are per-quest (see telegram-commands).
     const telegram = readEffectiveTelegramRaw();
     const questId = WsPaths.getWorkspaceQuestId();
@@ -2107,30 +1947,6 @@ export async function gatherStatusData(): Promise<StatusData> {
                 fallbackPrompt: cq.fallbackPrompt,
             };
         })(),
-        localLlm: {
-            ollamaUrl: localLlm.ollamaUrl ?? 'http://localhost:11434',
-            model: localLlm.model ?? 'qwen3:8b',
-            temperature: localLlm.temperature ?? 0.4,
-            stripThinkingTags: localLlm.stripThinkingTags ?? true,
-            trailMaximumTokens: localLlm.trailMaximumTokens ?? 8000,
-            trailSummarizationTemperature: localLlm.trailSummarizationTemperature ?? 0.3,
-            removePromptTemplateFromTrail: localLlm.removePromptTemplateFromTrail ?? true,
-            toolsEnabled: localLlm.toolsEnabled ?? true,
-            models: localLlm.models ? Object.keys(localLlm.models) : [],
-            modelDetails: Object.fromEntries(
-                Object.entries(localLlm.models || {}).map(([k, v]: [string, any]) => [
-                    k, {
-                        ollamaUrl: v?.ollamaUrl ?? 'http://localhost:11434',
-                        model: v?.model ?? '',
-                        temperature: v?.temperature ?? 0.4,
-                        stripThinkingTags: v?.stripThinkingTags ?? true,
-                        description: v?.description ?? '',
-                        isDefault: v?.isDefault ?? false,
-                        keepAlive: v?.keepAlive ?? '5m',
-                    }
-                ])
-            ),
-        },
         ...loadLocalLlmToolsConfig(),
         copilotAnswerFolder: loadSendToChatConfig()?.copilot?.answerFolder ?? WsPaths.aiRelative('copilot'),
         templateOptions: userMessageTemplateOptions(sendToChatConfig),
@@ -2337,17 +2153,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     const profileOptions = status.bridge.profiles.map(p => 
         `<option value="${p}" ${p === status.bridge.currentProfile ? 'selected' : ''}>${p}</option>`
     ).join('');
-    // Generate model configuration rows for the model configs subsection
-    const modelConfigsRowsHtml = status.localLlm.models.map(m => {
-        const detail = (status.localLlm as any).modelDetails?.[m] || {};
-        const isDefault = detail.isDefault ? ' ⭐' : '';
-        return `<div class="sp-settings-row sp-model-config-row" data-model-key="${m}">
-            <span class="sp-model-name">${m}${isDefault}</span>
-            <span class="sp-model-info">${detail.model || '?'} @ ${detail.ollamaUrl || '?'}</span>
-            <button class="sp-btn small" data-status-action="editModelConfig" data-model-key="${m}">Edit</button>
-            <button class="sp-btn small danger" data-status-action="deleteModelConfig" data-model-key="${m}">Delete</button>
-        </div>`;
-    }).join('');
     
     // Generate LLM Configuration options for dropdown
     

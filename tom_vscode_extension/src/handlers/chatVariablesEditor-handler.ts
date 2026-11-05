@@ -8,13 +8,11 @@
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
-import { ChatVariablesStore, ChangeSource } from '../managers/chatVariablesStore';
+import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { scanWorkspaceProjects } from '../managers/questTodoManager';
-import { readPanelYaml, writePanelYaml, openPanelFile } from '../utils/panelYamlStore';
+import { writePanelYaml, openPanelFile } from '../utils/panelYamlStore';
 import { WsPaths } from '../utils/workspacePaths';
-import { updateChatResponseValues } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { listRoleNames } from '../utils/roleNames';
 

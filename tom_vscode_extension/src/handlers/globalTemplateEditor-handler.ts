@@ -30,7 +30,6 @@ import * as vscode from 'vscode';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig, DEFAULT_TRANSPORT_RETRY_TEMPLATE_BODY } from '../utils/sendToChatConfig';
 import { PLACEHOLDER_HELP } from './promptTemplate';
-import { escapeHtml } from './handler_shared';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { categorizeTools } from '../utils/toolCategories';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';

@@ -65,7 +65,6 @@ function userGlobalConfigPath(): string {
 
 export class TomAiConfiguration {
     private static _instance: TomAiConfiguration | undefined;
-    private readonly context: vscode.ExtensionContext;
     /** What readers see: defaults < user-global overlay < workspace file. */
     private config: Record<string, unknown> = {};
     /**
@@ -95,7 +94,7 @@ export class TomAiConfiguration {
 
     static init(context: vscode.ExtensionContext): void {
         if (!TomAiConfiguration._instance) {
-            TomAiConfiguration._instance = new TomAiConfiguration(context);
+            TomAiConfiguration._instance = new TomAiConfiguration();
         }
     }
 
@@ -153,8 +152,7 @@ export class TomAiConfiguration {
         };
     }
 
-    private constructor(context: vscode.ExtensionContext) {
-        this.context = context;
+    private constructor() {
         this.reload();
     }
 

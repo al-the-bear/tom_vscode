@@ -15,7 +15,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
-import { ReminderSystem, REMINDER_PLACEHOLDER_HELP } from '../managers/reminderSystem';
+import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig } from './handler_shared';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
@@ -877,8 +877,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           }
     }
 }
-
-const REMINDER_TEMPLATE_HELP = REMINDER_PLACEHOLDER_HELP;
 
 async function addReminderTemplate(): Promise<void> {
   if (_ctx) {

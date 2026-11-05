@@ -12,7 +12,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { debugLog } from '../utils/debugLogger';
 import { readMediaText } from '../utils/webviewLoader.js';

@@ -61,11 +61,10 @@ interface SummaryTrailConfig {
 
 export class TrailService {
     private static _instance: TrailService | undefined;
-    private readonly context: vscode.ExtensionContext;
 
     static init(context: vscode.ExtensionContext): void {
         if (!TrailService._instance) {
-            TrailService._instance = new TrailService(context);
+            TrailService._instance = new TrailService();
         }
     }
 
@@ -76,8 +75,7 @@ export class TrailService {
         return TrailService._instance;
     }
 
-    private constructor(context: vscode.ExtensionContext) {
-        this.context = context;
+    private constructor() {
     }
 
     writeRawPrompt(subsystem: TrailSubsystem, prompt: string, windowId: string, requestId?: string, questId?: string): void {

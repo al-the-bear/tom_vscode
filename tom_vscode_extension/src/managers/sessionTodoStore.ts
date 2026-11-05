@@ -70,14 +70,13 @@ export class SessionTodoStore {
 
     static init(context: vscode.ExtensionContext): SessionTodoStore {
         if (SessionTodoStore._instance) { return SessionTodoStore._instance; }
-        SessionTodoStore._instance = new SessionTodoStore(context);
+        SessionTodoStore._instance = new SessionTodoStore();
         return SessionTodoStore._instance;
     }
 
     // ---- state ----
     private todos: SessionTodoItem[] = [];
     private nextSeq = 1;
-    private readonly context: vscode.ExtensionContext;
     private readonly questId: string;
     private readonly sessionFilePath: string;
 
@@ -87,8 +86,7 @@ export class SessionTodoStore {
     /** The quest ID for this session. */
     get sessionQuestId(): string { return this.questId; }
 
-    private constructor(context: vscode.ExtensionContext) {
-        this.context = context;
+    private constructor() {
         this.questId = WsPaths.getWorkspaceQuestId();
         this.sessionFilePath = this.resolveSessionFilePath();
         // One-time lazy migration of legacy per-window files (TRA04).
@@ -264,10 +262,6 @@ export class SessionTodoStore {
     }
 
     // ---- persistence ----
-
-    private persist(): void {
-        // No-op for YAML backend; file operations persist immediately.
-    }
 
     private restore(): void {
         const raw = readTodoFile(this.sessionFilePath);

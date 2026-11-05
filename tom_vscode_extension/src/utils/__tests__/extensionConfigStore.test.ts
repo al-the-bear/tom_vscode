@@ -76,8 +76,7 @@ describe('extensionConfigStore — path resolution', () => {
 });
 
 describe('extensionConfigStore — section read/write', () => {
-    let root: string;
-    beforeEach(() => { root = freshWorkspace(); });
+    beforeEach(() => { freshWorkspace(); });
 
     test('absent file → section is undefined', () => {
         assert.equal(readQuestSection('telegram', QUEST), undefined);
@@ -113,8 +112,7 @@ describe('extensionConfigStore — section read/write', () => {
 });
 
 describe('extensionConfigStore — CLI/MCP autostart helpers (machine file)', () => {
-    let root: string;
-    beforeEach(() => { root = freshWorkspace(); });
+    beforeEach(() => { freshWorkspace(); });
 
     test('default is false when unset', () => {
         assert.equal(getCliServerAutostart(QUEST), false);
@@ -134,8 +132,7 @@ describe('extensionConfigStore — CLI/MCP autostart helpers (machine file)', ()
 });
 
 describe('extensionConfigStore — telegram split / merge', () => {
-    let root: string;
-    beforeEach(() => { root = freshWorkspace(); });
+    beforeEach(() => { freshWorkspace(); });
 
     test('split routes machine fields to the machine file and the rest to the quest file', () => {
         writeSplitTelegramRaw({

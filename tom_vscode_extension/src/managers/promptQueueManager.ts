@@ -635,7 +635,6 @@ export class PromptQueueManager {
     private _answerPollTimer?: ReturnType<typeof setInterval>;
     private _statusBarItem?: vscode.StatusBarItem;
     private _statusBarChangeDisposable?: vscode.Disposable;
-    private _processing = false;
     private _processingAnswerFile = false;
 
     /**
@@ -675,8 +674,6 @@ export class PromptQueueManager {
 
     private readonly _onAnswerReceived = new vscode.EventEmitter<Record<string, unknown> | undefined>();
     public readonly onAnswerReceived = this._onAnswerReceived.event;
-
-    private _ctx!: vscode.ExtensionContext;
 
     private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
         const lastMatch = (pattern: RegExp): string | undefined => {
@@ -718,16 +715,6 @@ export class PromptQueueManager {
         }
 
         return undefined;
-    }
-
-    private _promptLikelyTargetsRequestId(expanded: string, requestId: string): boolean {
-        if (!expanded || !requestId) {
-            return false;
-        }
-        return expanded.includes(`${requestId}_answer.json`)
-            || expanded.includes(`Request ID: ${requestId}`)
-            || expanded.includes(`Request ID for this prompt: ${requestId}`)
-            || expanded.includes(`"requestId": "${requestId}"`);
     }
 
     /** The quest the queue resolves todos against, or `undefined` when none is set. */
@@ -895,7 +882,6 @@ export class PromptQueueManager {
         if (PromptQueueManager._inst) { return; }
         logQueue('PromptQueueManager initialising');
         const m = new PromptQueueManager();
-        m._ctx = ctx;
         m.restore();
         m.setupAnswerWatcher();
         m.startTimeoutWatcher();
@@ -1928,7 +1914,6 @@ export class PromptQueueManager {
                 resetCount++;
             }
         }
-        this._processing = false;
         this._processingAnswerFile = false;
         if (resetCount > 0) {
             logQueue(`Reset ${resetCount} stuck sending items to pending`);
@@ -3109,8 +3094,7 @@ export class PromptQueueManager {
     }
 
     private async delaySendNext(): Promise<void> {
-        // Note: We don't use _processing guard here anymore because it could cause 
-        // repeat items to get stuck. sendNext() has its own guard against concurrent sending.
+        // No guard here: sendNext() has its own guard against concurrent sending.
         await new Promise(r => setTimeout(r, this._autoSendDelayMs));
         await this.sendNext();
     }

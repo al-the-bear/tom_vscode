@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getConfigPath, loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, getCopilotChatAnswerFolderAbsolute, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
@@ -30,7 +30,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { sanitizeQuestSegment } from '../utils/questPaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
-import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
@@ -68,8 +68,6 @@ import {
     deleteAnswerFile,
     readAnswerFile,
     getCopilotAnswersMdPath,
-    getCopilotPromptsPath,
-    getCopilotAnswersPath,
     logCopilotPrompt,
 } from '../services/copilotAnswerService';
 
@@ -89,11 +87,6 @@ import {
     getWorkspaceName,
     writePromptTrail,
     writeAnswerTrail,
-    getTrailFileTimestamp,
-    getReadableTimestamp,
-    getMaxTrailEntries,
-    parseSequenceFromFile,
-    trimTrailFile,
 } from '../services/copilotTrailService';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
@@ -107,13 +100,6 @@ export {
 };
 
 const VIEW_ID = 'tomAi.chatPanel';
-
-interface Section {
-    id: string;
-    label: string;
-    icon: string;
-    content: string;
-}
 
 /** How often the chat panel checks the answer file when its watcher failed. */
 const ANSWER_POLL_MS = 3000;
@@ -890,18 +876,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return null;
         }
         return WsPaths.ai('quests', questId, 'prompt') || path.join(wsRoot, '_ai', 'quests', questId, 'prompt');
-    }
-
-    private _getProjectPromptsDir(): string | null {
-        const activeFile = vscode.window.activeTextEditor?.document?.uri.fsPath;
-        if (!activeFile) {
-            return null;
-        }
-        const project = findNearestDetectedProject(path.dirname(activeFile));
-        if (!project) {
-            return null;
-        }
-        return path.join(project.absolutePath, 'prompt');
     }
 
     private _getProjectPromptScopes(): { id: string; label: string; dir: string }[] {
@@ -2229,15 +2203,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             }
             await openPromptPanelFile(section);
         } catch { /* not available */ }
-    }
-
-    private _escapeHtml(text: string): string {
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
     }
 
     private async _handlePreview(section: string, text: string, profileOrTemplate: string, wrap = false): Promise<void> {

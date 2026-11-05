@@ -23,7 +23,6 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
-import { ChatVariablesStore, ChangeSource } from '../managers/chatVariablesStore';
 import { SessionTodoStore } from '../managers/sessionTodoStore';
 import * as questTodo from '../managers/questTodoManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';

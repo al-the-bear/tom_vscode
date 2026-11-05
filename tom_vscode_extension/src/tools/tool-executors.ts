@@ -13,17 +13,12 @@ import { checkBuildStatus } from '../services/buildStatusService';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as http from 'http';
-import * as https from 'https';
-import { exec } from 'child_process';
 import { promisify } from 'util';
-import { resolvePathVariables } from '../handlers/handler_shared.js';
 import { SharedToolDefinition } from './shared-tool-registry';
 import {
     loadLocalLlmToolsConfig,
     buildAskBigBrotherDescription,
     buildAskCopilotDescription,
-    generateModelList,
 } from './local-llm-tools-config';
 import { updateChatResponseValues, loadSendToChatConfig } from '../handlers/handler_shared';
 import { expandTemplate } from '../handlers/promptTemplate';
@@ -31,10 +26,8 @@ import { debugLog } from '../utils/debugLogger.js';
 import { logPrompt, logResponse } from '../services/trailLogging';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { getCurrentToolContext } from '../services/tool-execution-context';
-import { TwoTierMemoryService, MemoryScope, MemoryReadScope } from '../services/memory-service';
+import { TwoTierMemoryService } from '../services/memory-service';
 import { WsPaths } from '../utils/workspacePaths';
-
-const execAsync = promisify(exec);
 
 // ============================================================================
 // Helpers
@@ -42,22 +35,6 @@ const execAsync = promisify(exec);
 
 function getWorkspaceRoot(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-}
-
-function resolvePath(filePath: string): string {
-    // Resolve any ${...} variables first
-    const expanded = resolvePathVariables(filePath, { silent: true }) ?? filePath;
-    const root = getWorkspaceRoot();
-    if (path.isAbsolute(expanded)) { return expanded; }
-    return path.join(root, expanded);
-}
-
-/** Guard against path-traversal outside workspace. */
-function isInsideWorkspace(resolvedPath: string): boolean {
-    const root = getWorkspaceRoot();
-    if (!root) { return true; } // no workspace → allow anything
-    const rel = path.relative(root, resolvedPath);
-    return !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
 // ============================================================================
@@ -287,7 +264,6 @@ import {
     type BigBrotherModel as BBModel,
     type BigBrotherToolDef as BBToolDef,
     type BigBrotherConfig as BBConfig,
-    type ChatTurn as BBChatTurn,
     type ResponsePart as BBResponsePart,
     type CancelSignal as BBSignal,
     askBigBrotherImpl,

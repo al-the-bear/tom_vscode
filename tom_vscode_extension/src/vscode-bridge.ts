@@ -51,23 +51,6 @@ function bridgeLog(message: string, outputChannel?: vscode.OutputChannel, level:
 }
 
 /**
- * Helper function for bridge logging with short fallback when debugLogging is off
- */
-function bridgeLogWithFallback(
-    fullMessage: string,
-    shortMessage: string,
-    outputChannel?: vscode.OutputChannel,
-    level: 'INFO' | 'ERROR' = 'INFO'
-): void {
-    if (!outputChannel) { return; }
-    if (BridgeLogging.debugLogging) {
-        outputChannel.appendLine(`[VS Code Extension] ${level} ${fullMessage}`);
-    } else {
-        outputChannel.appendLine(`[VS Code Extension] ${level} ${shortMessage}`);
-    }
-}
-
-/**
  * JSON-RPC message types
  */
 interface JsonRpcRequest {

@@ -100,8 +100,6 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.commandlines = collectCommandlinesData();
             } else if (action === 'saveFavorites') {
                 msgData.favorites = collectFavoritesData();
-            } else if (action === 'editModelConfig' || action === 'deleteModelConfig') {
-                msgData.modelKey = el.getAttribute('data-model-key');
             } else if (action === 'deleteLlmConfiguration') {
                 msgData.configId = el.getAttribute('data-config-id');
             } else if (action === 'editAnthropicConfiguration' || action === 'deleteAnthropicConfiguration') {

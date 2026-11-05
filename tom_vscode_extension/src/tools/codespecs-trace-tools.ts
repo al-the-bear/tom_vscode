@@ -23,7 +23,6 @@ import {
     BacklinkIndex,
     ExtractDirectory,
     declarationAt,
-    declarationLabel,
     declarationView,
     entryView,
     parseBacklinkIndex,

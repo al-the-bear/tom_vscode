@@ -19,7 +19,6 @@ import {
   writeTemplate,
   writeEntry,
   deleteTemplate,
-  QueueTemplateFile,
   QueueFileYaml,
   QueueMetaYaml,
   QueuePromptYaml,
@@ -37,7 +36,6 @@ import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 // ============================================================================
 
 let _panel: vscode.WebviewPanel | undefined;
-let _ctx: vscode.ExtensionContext | undefined;
 
 // ============================================================================
 // Registration
@@ -100,7 +98,6 @@ function openQueueTemplateEditor(ctx: vscode.ExtensionContext): void {
  */
 function bindQueueTemplateEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.WebviewPanel): void {
   _panel = panel;
-  _ctx = ctx;
 
   const codiconsUri = vscode.Uri.joinPath(ctx.extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
   const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);

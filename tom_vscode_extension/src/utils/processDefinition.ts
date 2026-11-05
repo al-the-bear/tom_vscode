@@ -744,8 +744,6 @@ export interface ProcessMove {
     branchOption?: true;
 }
 
-const LEVEL_TITLE: Record<ProcessLevel, string> = { phase: 'phase', step: 'step', substep: 'sub-step' };
-
 interface Position {
     phase: ProcessPhase;
     phaseIndex: number;

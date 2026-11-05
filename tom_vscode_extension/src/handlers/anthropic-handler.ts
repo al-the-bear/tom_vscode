@@ -39,11 +39,7 @@ import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorCla
 import { withRetryBudget, RetryWait } from '../utils/retryWithBudget';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { runWithToolContext } from '../services/tool-execution-context';
-import {
-    compactHistory,
-    ConversationMessage,
-    HistoryMode,
-} from '../services/history-compaction';
+import { ConversationMessage } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
 import {
     loadCompactionRoundsIn,
@@ -3191,7 +3187,6 @@ export class AnthropicHandler {
          */
         liveTrail?: LiveTrailWriter | null,
     ): AnthropicSendResult {
-        const userTextForSummary = rawUserText ?? userContent;
         this.rememberAssistantText(text);
         // Never write a truly empty answer body to the trail — either
         // the text the model produced, or a short diagnostic line so
@@ -3468,11 +3463,6 @@ export class AnthropicHandler {
 
     private getAnthropicSection(): AnthropicSection {
         return TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};
-    }
-
-    private buildSystemPrompt(profile: AnthropicProfile, questId?: string): string {
-        const segments = this.buildSystemSegments(profile, questId);
-        return segments.filter((s) => s).join('\n\n');
     }
 
     /**

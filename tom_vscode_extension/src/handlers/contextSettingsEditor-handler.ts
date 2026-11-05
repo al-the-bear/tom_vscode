@@ -15,7 +15,6 @@ import * as path from 'path';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { WsPaths } from '../utils/workspacePaths';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
-import { PLACEHOLDER_HELP } from './promptTemplate';
 
 // ============================================================================
 // Panel management

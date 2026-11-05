@@ -17,7 +17,6 @@
  */
 
 import * as vscode from 'vscode';
-import { WsPaths } from '../utils/workspacePaths';
 
 /**
  * Lazy loader for getChatResponseValues to break circular dependency.
@@ -33,7 +32,6 @@ function _getChatResponseValues(): Record<string, unknown> {
     }
 }
 import {
-    resolveVariablesAsync,
     buildVariableMap,
     formatDateTime as formatDateTimeShared,
     resolveDynamicKey,

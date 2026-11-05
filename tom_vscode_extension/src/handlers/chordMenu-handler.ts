@@ -16,7 +16,6 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
 import { getConfigPath } from './handler_shared';
 import { FsUtils } from '../utils/fsUtils';
 
@@ -159,12 +158,6 @@ function loadFavorites(): ChordMenuItem[] {
 // Active Menu State
 // ============================================================================
 
-/** The currently open chord group ID, or null if no menu is showing */
-let activeGroupId: string | null = null;
-
-/** Reference to the active QuickPick so we can dismiss it from keybindings */
-let activeQuickPick: vscode.QuickPick<vscode.QuickPickItem & { _chordItem?: ChordMenuItem }> | null = null;
-
 /** Timestamp when the menu was opened (for diagnostic logging) */
 let menuOpenTimestamp: number = 0;
 
@@ -188,17 +181,14 @@ async function showChordMenu(groupId: string): Promise<void> {
     const activeItems = group.items.filter(item => !item.when || item.when());
 
     // Set context for keybinding dispatch
-    activeGroupId = groupId;
     menuOpenTimestamp = Date.now();
     console.log(`[ChordMenu] === OPEN group '${groupId}' (${group.prefix}) at ${menuOpenTimestamp} ===`);
 
-    await vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', true);
     await vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', true);
     console.log(`[ChordMenu] setContext complete (+${Date.now() - menuOpenTimestamp}ms)`);
 
     // Build QuickPick items
     const quickPick = vscode.window.createQuickPick<vscode.QuickPickItem & { _chordItem?: ChordMenuItem }>();
-    activeQuickPick = quickPick;
     quickPick.title = `${group.title}  (${group.prefix} → ...)`;
     quickPick.placeholder = 'Type a letter to execute, or select with arrow keys';
     quickPick.matchOnDescription = true;
@@ -257,8 +247,6 @@ async function showChordMenu(groupId: string): Promise<void> {
     // Clean up on hide
     quickPick.onDidHide(() => {
         console.log(`[ChordMenu] === HIDE group '${groupId}' (was open ${Date.now() - menuOpenTimestamp}ms, executed=${executed}) ===`);
-        activeGroupId = null;
-        activeQuickPick = null;
         menuOpenTimestamp = 0;
         vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', false);
         vscode.commands.executeCommand('setContext', 'tomAi.chordMenuOpen', false);

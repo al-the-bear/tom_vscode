@@ -34,8 +34,6 @@ let questFolder: string;
 let trailFolder: string;
 const QUEST_ID = 'demo_quest';
 
-function w(rel: string): string { return path.join(tmp, rel); }
-
 /**
  * Build a summary entry. Real entries are PREPENDED newest-first, so
  * the caller passes them in chronological order and we reverse.

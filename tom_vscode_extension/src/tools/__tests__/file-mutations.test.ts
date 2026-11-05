@@ -25,7 +25,7 @@
  * copy+unlink fallback path runs. Same coverage, no privilege escalation.
  */
 
-import test, { after, before, beforeEach, describe } from 'node:test';
+import test, { after, beforeEach, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';

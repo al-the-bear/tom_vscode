@@ -251,10 +251,6 @@ function record(name: string, ms: number, ceilingMs: number, options: WithTiming
     accumulator.set(name, { name, ms, ceilingMs, category: options.category, note: options.note });
 }
 
-function renderReport(): string {
-    return renderReportFromMap(accumulator);
-}
-
 function renderReportFromMap(map: Map<string, TimingEntry>): string {
     const entries = Array.from(map.values()).sort((a, b) => b.ms - a.ms);
     const flagged = entries.filter((e) => e.ms > DEFAULT_TIMING_CEILING_MS);

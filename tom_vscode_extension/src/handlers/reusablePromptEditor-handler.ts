@@ -17,7 +17,7 @@ import * as path from 'path';
 import { getWorkspaceRoot } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { getWorkspaceName } from '../utils/panelYamlStore';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { loadWebviewHtml } from '../utils/webviewLoader';

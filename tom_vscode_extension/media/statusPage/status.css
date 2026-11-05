@@ -46,9 +46,6 @@
 .sp-btn.danger:hover { filter: brightness(1.1); }
 
 /* Model config row */
-.sp-model-config-row { justify-content: flex-start; }
-.sp-model-name { font-weight: bold; min-width: 80px; }
-.sp-model-info { color: var(--vscode-descriptionForeground); flex: 1; overflow: hidden; text-overflow: ellipsis; }
 
 /* LLM Configuration cards */
 .sp-llmconfig-card {
