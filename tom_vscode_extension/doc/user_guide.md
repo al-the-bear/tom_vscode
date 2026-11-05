@@ -177,6 +177,10 @@ A window loads the extension once, when it starts; a build installed later reach
 
 The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Sessions, Session Todos); @TOM WS the workspace's (VS Code Notes, Workspace Notes, Workspace Todos, TODO Log, Window Status).
 
+#### Notes views
+
+VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application, MarkText unless configured otherwise); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
+
 ### Quest TODO Panel
 
 The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.

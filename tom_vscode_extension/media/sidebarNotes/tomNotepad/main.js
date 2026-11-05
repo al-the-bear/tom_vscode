@@ -14,7 +14,6 @@
     const init = window.__INIT__ || {};
     const contentEl = document.getElementById('content');
     const charCount = document.getElementById('charCount');
-    const templateSelect = document.getElementById('templateSelect');
     const notesFileName = document.getElementById('notesFileName');
     const notesPath = document.getElementById('notesPath');
 
@@ -31,29 +30,20 @@
         charCount.textContent = contentEl.value.length + ' chars';
     });
 
-    function selectedText() {
-        const start = typeof contentEl.selectionStart === 'number' ? contentEl.selectionStart : 0;
-        const end = typeof contentEl.selectionEnd === 'number' ? contentEl.selectionEnd : 0;
-        return start !== end ? contentEl.value.slice(start, end) : '';
-    }
-
-    templateSelect.addEventListener('change', () => {
-        vscode.postMessage({ type: 'selectTemplate', key: templateSelect.value });
-    });
-    document.getElementById('previewPromptBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'previewPrompt', selectedText: selectedText() });
-    });
     document.getElementById('previewMarkdownBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'previewMarkdown' });
-    });
-    document.getElementById('sendBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'sendToCopilot', selectedText: selectedText() });
     });
     document.getElementById('copyBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'copy' });
     });
     document.getElementById('openBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'openInEditor' });
+    });
+    document.getElementById('openMdBrowserBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdBrowser' });
+    });
+    document.getElementById('openMdViewerBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdViewer' });
     });
     document.getElementById('clearBtn').addEventListener('click', () => {
         if (confirm('Clear notepad?')) {
@@ -65,10 +55,6 @@
         if (e.data.type !== 'state') { return; }
         contentEl.value = e.data.content || '';
         charCount.textContent = (e.data.content || '').length + ' chars';
-        const templates = e.data.templates || [];
-        templateSelect.innerHTML = templates
-            .map((t) => '<option value="' + t.key + '"' + (t.key === e.data.selectedTemplate ? ' selected' : '') + '>' + t.label + '</option>')
-            .join('');
         const fp = e.data.notesFilePath || '';
         const name = fp.split('/').pop() || fp.split('\\').pop() || fp;
         notesFileName.textContent = name || 'global_notes.md';

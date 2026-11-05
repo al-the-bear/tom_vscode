@@ -18,7 +18,6 @@
     const status = document.getElementById('status');
     const charCount = document.getElementById('charCount');
     const fileName = document.getElementById('fileName');
-    const templateSelect = document.getElementById('templateSelect');
 
     let saveTimeout;
     contentEl.addEventListener('input', () => {
@@ -29,26 +28,17 @@
         charCount.textContent = contentEl.value.length + ' chars';
     });
 
-    function selectedText() {
-        const start = typeof contentEl.selectionStart === 'number' ? contentEl.selectionStart : 0;
-        const end = typeof contentEl.selectionEnd === 'number' ? contentEl.selectionEnd : 0;
-        return start !== end ? contentEl.value.slice(start, end) : '';
-    }
-
-    templateSelect.addEventListener('change', () => {
-        vscode.postMessage({ type: 'selectTemplate', key: templateSelect.value });
-    });
-    document.getElementById('previewPromptBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'previewPrompt', selectedText: selectedText() });
-    });
     document.getElementById('previewMarkdownBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'previewMarkdown' });
     });
-    document.getElementById('sendBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'sendToCopilot', selectedText: selectedText() });
-    });
     document.getElementById('openBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'openInEditor' });
+    });
+    document.getElementById('openMdBrowserBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdBrowser' });
+    });
+    document.getElementById('openMdViewerBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdViewer' });
     });
 
     window.addEventListener('message', (e) => {
@@ -65,10 +55,6 @@
         const fn = fp.split('/').pop() || fp.split('\\').pop() || fp;
         fileName.textContent = fn || '-';
         fileName.title = fp || '';
-        const templates = e.data.templates || [];
-        templateSelect.innerHTML = templates
-            .map((t) => '<option value="' + t.key + '"' + (t.key === e.data.selectedTemplate ? ' selected' : '') + '>' + t.label + '</option>')
-            .join('');
     });
 
     vscode.postMessage({ type: 'ready' });

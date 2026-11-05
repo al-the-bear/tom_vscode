@@ -37,15 +37,15 @@
 **@TOM** (the quest; `tomAi.tomSidebar.focus`):
 
 - PROCESS (the active quest's process: phase, step, sub-step, iterations)
-- QUEST NOTES
+- QUEST NOTES (toolbar: Preview Markdown, Open in Editor, Open in MD Browser, Open in MD Viewer)
 - QUEST TODOS
 - SESSIONS (the quest's named sessions: + new, per row Reset and Delete)
 - SESSION TODOS
 
 **@TOM WS** (the workspace; `tomAi.tomWsSidebar.focus`):
 
-- VS CODE NOTES
-- WORKSPACE NOTES
+- VS CODE NOTES (as QUEST NOTES, plus Copy and Clear)
+- WORKSPACE NOTES (as QUEST NOTES, plus Change file)
 - WORKSPACE TODOS
 - TODO LOG
 - WINDOW STATUS

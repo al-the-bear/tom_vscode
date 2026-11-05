@@ -3,7 +3,7 @@
 //
 // Migrated from the inline <script> of _getHtml in
 // src/handlers/sidebarNotes-handler.ts (Phase B.4). No first-paint init: all
-// data (workspace presence, file presence, content, templates) flows via
+// data (workspace presence, file presence, content) flows via
 // postMessage ('ready' → 'state'). Publishes window.__tomVscodeApi so the
 // shared completion.js reuses the single acquireVsCodeApi() handle.
 
@@ -18,7 +18,6 @@
     const statusBar = document.getElementById('statusBar');
     const wsHeader = document.getElementById('wsHeader');
     const fileName = document.getElementById('fileName');
-    const templateSelect = document.getElementById('templateSelect');
     const charCount = document.getElementById('charCount');
 
     let saveTimeout;
@@ -30,26 +29,17 @@
         charCount.textContent = contentEl.value.length + ' chars';
     });
 
-    function selectedText() {
-        const start = typeof contentEl.selectionStart === 'number' ? contentEl.selectionStart : 0;
-        const end = typeof contentEl.selectionEnd === 'number' ? contentEl.selectionEnd : 0;
-        return start !== end ? contentEl.value.slice(start, end) : '';
-    }
-
-    templateSelect.addEventListener('change', () => {
-        vscode.postMessage({ type: 'selectTemplate', key: templateSelect.value });
-    });
-    document.getElementById('sendBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'sendToCopilot', selectedText: selectedText() });
-    });
-    document.getElementById('previewPromptBtn').addEventListener('click', () => {
-        vscode.postMessage({ type: 'previewPrompt', selectedText: selectedText() });
-    });
     document.getElementById('previewMarkdownBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'previewMarkdown' });
     });
     document.getElementById('openBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'openInEditor' });
+    });
+    document.getElementById('openMdBrowserBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdBrowser' });
+    });
+    document.getElementById('openMdViewerBtn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openInMdViewer' });
     });
     document.getElementById('changeFileBtn').addEventListener('click', () => {
         vscode.postMessage({ type: 'changeFile' });
@@ -83,10 +73,6 @@
         contentEl.style.display = '';
         statusBar.style.display = '';
         wsHeader.textContent = 'Workspace Notes — ' + (data.workspaceName || 'Workspace');
-        const templates = data.templates || [];
-        templateSelect.innerHTML = templates
-            .map((t) => '<option value="' + t.key + '"' + (t.key === data.selectedTemplate ? ' selected' : '') + '>' + t.label + '</option>')
-            .join('');
         const fp = data.filePath || 'notes.md';
         fileName.textContent = fp.split('/').pop() || fp.split('\\').pop() || fp;
         fileName.title = fp;

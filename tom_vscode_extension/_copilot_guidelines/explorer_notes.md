@@ -28,6 +28,10 @@ Two Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) fo
 
 Keep workspace context navigable without leaving Explorer / Activity Bar. Notes and todos are markdown / YAML files — the tree views are thin navigation shells with file-watcher refresh; the actual editor is VS Code's built-in markdown / YAML, or the custom [quest todo editor](../src/handlers/questTodoPanel-handler.ts) for `*.todo.yaml` files.
 
+## Notes views — toolbar
+
+Each notes view edits one Markdown file; none of them sends to a model (that is the @CHAT panels' job). Preview Markdown stays per view; the three open buttons — Open in Editor, Open in MD Browser (`openMarkdownBrowser`), Open in MD Viewer (`openInExternalApplication`, the configured external application) — go through one helper, [`handleNotesFileMessage`](../src/handlers/notepad/notesFileActions.ts), which creates the file first when it is missing and warns when the view has no file. Tests: `src/handlers/__tests__/sidebarNotesOpenButtons.test.ts` (SNB-1..4, the providers under the vscode stub) and `src/utils/__tests__/notesPanelsButtons.dom.test.ts` (NPB-1..3, the toolbars).
+
 ## Notes views — picking up edits made elsewhere
 
 The three notes views (VS CODE NOTES, WORKSPACE NOTES, QUEST NOTES) share one store, [`NotepadFileStorage`](../src/handlers/notepad/notepadFileStorage.ts), and each hands it an `onExternalChange` callback that re-renders the view. Two things about it are load-bearing:
