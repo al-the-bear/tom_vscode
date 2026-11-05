@@ -66,10 +66,18 @@ const _ownedPrefix = 'tom_';
 /// than report a meaningless pass. Same floor as the d4rt guard.
 const int _minimumCachedPackages = 5;
 
-/// Packages exempted from F-VSC-LOCK-2, each naming the todo that owns the
-/// unfreeze. Empty, and F-VSC-LOCK-3 keeps it honest: an entry for a package
-/// that is no longer frozen fails the suite.
-const Map<String, String> _frozenLockExceptions = <String, String>{};
+/// Resolutions exempted from F-VSC-LOCK-2, keyed `<package>/<dependency>` —
+/// one pair, never a whole package, so a second freeze in the same package is
+/// still reported. Each names the todo that owns the unfreeze, and
+/// F-VSC-LOCK-3 keeps the list honest: an entry for a pair that is no longer
+/// frozen fails the suite.
+const Map<String, String> _frozenLockExceptions = <String, String>{
+  // tom_d4rt_generator 1.52.0 declares tom_analyzer_shared ^0.7.6 (analyzer
+  // 10); 0.8.0 is the analyzer-14 line. Held by the constraint, not by the
+  // lock: it moves with the d4rt quest's analyzer-14 migration (d4rt vstdm2).
+  'tom_vscode_bridge/tom_analyzer_shared':
+      'd4rt vstdm2_akev-publish-generator-1-52 (analyzer-14 migration)',
+};
 
 /// The library a sample demonstrates. F-VSC-LOCK-4 holds every copy surface's
 /// floor on it to the current release; tool dependencies are left out, as in
@@ -390,9 +398,9 @@ void main() {
       final offenders = <String>[];
       for (final package in packages) {
         final rel = _relativeTo(root, package);
-        if (_frozenLockExceptions.containsKey(rel.split('/').first)) continue;
         for (final res in _lockedTomPackages(package)) {
           if (res.source != 'hosted') continue;
+          if (_frozenLockExceptions.containsKey('${rel.split('/').first}/${res.name}')) continue;
           final newest = _newestCachedVersion(res.name);
           if (newest != null && _compareVersions(res.version, newest) < 0) {
             offenders.add(
@@ -425,7 +433,7 @@ void main() {
           if (res.source != 'hosted') continue;
           final newest = _newestCachedVersion(res.name);
           if (newest != null && _compareVersions(res.version, newest) < 0) {
-            stillFrozen.add(_relativeTo(root, package).split('/').first);
+            stillFrozen.add('${_relativeTo(root, package).split('/').first}/${res.name}');
           }
         }
       }
