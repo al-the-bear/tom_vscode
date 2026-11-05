@@ -1723,7 +1723,30 @@ function qtRenderDatesSection(todo) {
         '<div class="qt-inline-row">' +
         qtFormRow('Completed', '<input type="date" id="qt-d-completed-date" value="' + qtEsc(todo.completed_date || '') + '">') +
         qtFormRow('By', '<input id="qt-d-completed-by" value="' + qtEsc(todo.completed_by || '') + '">') +
-        '</div></div>';
+        '</div>' + qtAnswerRow(todo) + '</div>';
+}
+
+/**
+ * The answer of the queue run that completed the todo (`last_answer`, written
+ * by the prompt queue): a label and a button that shows it in the popup.
+ * Only for completed todos, and never editable.
+ */
+function qtAnswerRow(todo) {
+    if (!todo || todo.status !== 'completed' || !todo.last_answer) return '';
+    return '<div class="qt-inline-row qt-answer-row">' +
+        qtFormRow('Answer', '<button class="icon-btn" id="qt-d-show-answer" type="button" title="Show the answer of the queue run that completed this todo">' +
+            '<span class="codicon codicon-comment-discussion"></span></button>') +
+        '</div>';
+}
+
+/** Show a rendered answer (HTML from the host, safe for innerHTML) in the popup. */
+function qtShowAnswerPopup(title, html) {
+    qtShowPopup('<div class="qt-answer-popup">' +
+        '<div class="qt-answer-head"><h4>Answer \u2014 ' + qtEsc(title || '') + '</h4>' +
+        '<button class="icon-btn" id="qt-answer-close" type="button" title="Close"><span class="codicon codicon-close"></span></button></div>' +
+        '<div class="qt-answer-body">' + (html || '') + '</div></div>');
+    var close = document.getElementById('qt-answer-close');
+    if (close) close.addEventListener('click', qtClosePopup);
 }
 
 // Wire autosave on date fields (called after section rendered)
@@ -1734,6 +1757,11 @@ function qtAttachDateAutoSave() {
     if (crEl) crEl.addEventListener('change', qtAutoSave);
     if (cdEl) cdEl.addEventListener('change', qtAutoSave);
     if (cbEl) cbEl.addEventListener('input', qtAutoSave);
+    var answerBtn = document.getElementById('qt-d-show-answer');
+    if (answerBtn) answerBtn.addEventListener('click', function() {
+        if (!qtDetailTodo || !qtDetailTodo.last_answer) return;
+        vscode.postMessage({ type: 'qtRenderAnswer', title: qtDetailTodo.id, markdown: qtDetailTodo.last_answer });
+    });
 }
 
 // ── Tag helpers ──
@@ -2410,6 +2438,9 @@ function qtHandleMessage(msg) {
             if (qtDetailTodo) qtDetailTodo.status = pending.status;
             qtAutoSave();
             qtUpdateArchiveButtons();
+            break;
+        case 'qtAnswerHtml':
+            qtShowAnswerPopup(msg.title, msg.html);
             break;
         case 'qtState':
             if (msg.state) {

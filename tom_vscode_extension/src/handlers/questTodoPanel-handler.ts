@@ -192,6 +192,7 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
  *  stays in-handler because it prepends the one config-dependent line. */
 import { getQuestTodoCss, getQuestTodoHtmlFragment } from './questTodo/questTodoAssets';
 import { readMediaText } from '../utils/webviewLoader';
+import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { todayLocalDate } from '../utils/todoDates';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
@@ -1102,6 +1103,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             vscode.window.showInformationMessage(`Deleted ${deletedFiles} session todo file(s) for quest ${sessionQuestId}.`);
             return true;
         }
+        case 'qtRenderAnswer':
+            // A todo's last_answer as safe HTML for the panel's popup.
+            post({ type: 'qtAnswerHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+            return true;
         case 'qtOpenYaml':
             if (isSessionMode) {
                 try {

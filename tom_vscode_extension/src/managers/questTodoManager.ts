@@ -129,6 +129,13 @@ export interface QuestTodoItem {
      */
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     user_action?: boolean;
+    /**
+     * The final answer (Markdown) of the queue run that executed and completed
+     * the todo; only the last run's is kept. Written by the prompt queue
+     * (todoLastAnswer.ts), stripped on archive, not edited by hand.
+     */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    last_answer?: string;
     /** Runtime: which file this item was loaded from (not persisted). */
     _sourceFile?: string;
 }
@@ -403,7 +410,7 @@ function assertTodoFieldsPersisted(
  */
 const VERIFIED_TODO_FIELDS = new Set<string>([
     'title', 'description', 'status', 'priority', 'notes',
-    'completed_date', 'completed_by',
+    'completed_date', 'completed_by', 'last_answer',
     'tags', 'dependencies', 'blocked_by', 'blocked_until', 'references',
     'decisions', 'scope', 'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
@@ -526,6 +533,8 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (completedDate) { item.completed_date = completedDate; }
     const completedBy = getStr('completed_by');
     if (completedBy) { item.completed_by = completedBy; }
+    const lastAnswer = getStr('last_answer');
+    if (lastAnswer) { item.last_answer = lastAnswer; }
     for (const field of TODO_ORCHESTRATION_FIELDS) {
         const value = getStr(field);
         if (value) { item[field] = value; }
@@ -700,7 +709,7 @@ export function createTodoInFile(
 const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
     'dependencies', 'blocked_by', 'blocking', 'blocked_until', 'references', 'completed_date',
-    'completed_by', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
+    'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
@@ -752,6 +761,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     }
     if (todo.completed_date) { plain.completed_date = toTodoDate('completed_date', todo.completed_date); }
     if (todo.completed_by) { plain.completed_by = todo.completed_by; }
+    if (todo.last_answer) { plain.last_answer = todo.last_answer; }
     for (const field of TODO_ORCHESTRATION_FIELDS) {
         if (todo[field]) { plain[field] = todo[field]; }
     }
@@ -813,6 +823,16 @@ function applyTodoUpdates(
     if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
     if (completedDate !== undefined) { setOrDelete(item, 'completed_date', completedDate); applied.completed_date = completedDate; }
     if (updates.completed_by !== undefined) { setOrDelete(item, 'completed_by', updates.completed_by); applied.completed_by = updates.completed_by; }
+    if (updates.last_answer !== undefined) {
+        // A multi-line answer as a block literal, so the todo file stays readable.
+        const answer = updates.last_answer || undefined;
+        if (answer === undefined) { item.delete('last_answer'); } else {
+            const node = doc.createNode(answer) as Scalar;
+            if (answer.includes('\n')) { node.type = Scalar.BLOCK_LITERAL; }
+            item.set('last_answer', node);
+        }
+        applied.last_answer = answer;
+    }
     for (const field of TODO_ORCHESTRATION_FIELDS as readonly TodoOrchestrationField[]) {
         if (updates[field] !== undefined) { setOrDelete(item, field, updates[field]); applied[field] = updates[field]; }
     }

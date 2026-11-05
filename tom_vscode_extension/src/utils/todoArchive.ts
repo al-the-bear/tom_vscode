@@ -4,7 +4,8 @@
  * Moves todos between a source *.todo.yaml file and its derived sibling
  * (see todoArchiveNames.ts for the naming rule):
  *
- *   - archiveTodos:        only status=completed todos, stamped `archived:`
+ *   - archiveTodos:        only status=completed todos, stamped `archived:`,
+ *                          without `last_answer` (the queue run's answer)
  *   - deleteTodos:         only NON-completed todos (completed can only be
  *                          archived), stamped `deleted:`
  *   - archiveAllCompleted: bulk archive over the whole file
@@ -56,6 +57,12 @@ import { writeTodoFileText } from './todoBlockingSync';
 // ============================================================================
 // Result types
 // ============================================================================
+
+/**
+ * The todo field holding the final answer of the queue run that completed it
+ * (todo schema `last_answer`). Archiving strips it.
+ */
+export const TODO_LAST_ANSWER_FIELD = 'last_answer';
 
 export interface TodoMoveSkip {
     id: string;
@@ -336,6 +343,9 @@ function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResul
         }
         const plain = item.toJSON() as Record<string, unknown>;
         plain[spec.stamp] = isoDate();
+        // The queue run's answer is for reading from the live todo; the
+        // archive keeps the todo, not the answer (TODO_LAST_ANSWER_FIELD).
+        if (spec.stamp === 'archived') { delete plain[TODO_LAST_ANSWER_FIELD]; }
         movedPlain.push(plain);
         moved.push(id);
         removeIdx.push(idx);

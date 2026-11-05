@@ -495,6 +495,25 @@ describe('createQuestTodoImpl', () => {
 
 describe('updateQuestTodoImpl', () => {
 
+    test('LAST_ANSWER: an agent cannot set last_answer (the queue writes it)', async () => {
+        await seedTwo();
+        const update = JSON.parse(await updateQuestTodoImpl(deps, {
+            questId: 'q1', todoId: 'first-thing',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+            updates: { last_answer: 'made up' } as never,
+        }));
+        assert.equal(update.ok, false);
+        assert.match(update.error, /`last_answer` is written by the prompt queue/);
+        assert.equal(deps.spy.mutateCalls, 0, 'nothing written');
+        const create = JSON.parse(await createQuestTodoImpl(deps, {
+            questId: 'q1',
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+            todo: { id: 'with-answer', description: 'x', last_answer: 'made up' } as never,
+        }));
+        assert.equal(create.ok, false);
+        assert.match(create.error, /`last_answer` is written by the prompt queue/);
+    });
+
     test('typical call: status flip, fires onMutate', async () => {
         await seedTwo();
         const raw = await withTiming('tomAi_updateQuestTodo:typical', () =>

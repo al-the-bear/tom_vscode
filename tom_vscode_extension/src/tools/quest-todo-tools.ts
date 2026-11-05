@@ -207,6 +207,19 @@ export function validateNoBlocking(record: unknown): string | undefined {
     return undefined;
 }
 
+/**
+ * `last_answer` is the final answer of the queue run that completed the todo,
+ * written by the prompt queue (todoLastAnswer.ts) and stripped on archive; it
+ * is not set by hand.
+ */
+export function validateNoLastAnswer(record: unknown): string | undefined {
+    if (record && typeof record === 'object' && 'last_answer' in (record as Record<string, unknown>)) {
+        return '`last_answer` is written by the prompt queue when a walked todo is completed (the final answer of that run); it cannot be set. '
+            + 'Put notes about the result in `notes`.';
+    }
+    return undefined;
+}
+
 export function validateBlockedUntil(blockedUntil: unknown): string | undefined {
     if (blockedUntil === undefined) { return undefined; }
     if (!Array.isArray(blockedUntil)) {
@@ -557,7 +570,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
         }
-        const referencesError = validateNoBlocking(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
+        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -736,7 +749,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -763,7 +776,7 @@ export const UPDATE_QUEST_TODO_DESCRIPTION =
     'overwritten, never appended to: to add a paragraph, read the todo with ' +
     '`tomAi_getQuestTodo` and send the old text plus the new. `tags`, `dependencies`, ' +
     '`blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list. `blocking` (the todos this one ' +
-    'blocks, the reverse of their `blocked_by`) is derived and kept in step by every write; passing it is refused. `scope` replaces ' +
+    'blocks, the reverse of their `blocked_by`) is derived and kept in step by every write; passing it is refused, and so is `last_answer` (the queue run\'s answer, written by the queue). `scope` replaces ' +
     'the whole object, so keys you leave out are dropped. An empty string or empty list ' +
     'removes the field. **Fields you do NOT pass are kept verbatim**, including `scope`, ' +
     '`references`, `created` timestamps, `_sourceFile` and unknown fields an earlier ' +

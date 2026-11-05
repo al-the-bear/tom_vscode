@@ -48,6 +48,7 @@ import { parseResetClause } from '../utils/queueResetClause';
 import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
+import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
@@ -1574,6 +1575,13 @@ export class PromptQueueManager {
                 debugLog(`[PromptQueueManager] Failed to write fallback trail answer: ${trailErr}`, 'WARN', 'queue');
             }
         }
+
+        // The stage's answer, as the Anthropic transport records it (a walked
+        // todo keeps the main prompt's answer when it is settled).
+        const answerMarkdown = answer && typeof answer === 'object' && typeof (answer as { generatedMarkdown?: unknown }).generatedMarkdown === 'string'
+            ? String((answer as { generatedMarkdown: string }).generatedMarkdown) : '';
+        const answerStage = resolveAnswerContainer(sending);
+        if (answerStage && answerMarkdown.trim()) { answerStage.answerText = answerMarkdown; }
 
         // At this point the answer is relevant for the active sending item.
         this.propagateAnswerResponseValues(answer);
@@ -4467,8 +4475,16 @@ export class PromptQueueManager {
     private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<DispatchOutcome> {
         // Re-entering the dispatcher means the previous dispatch concluded
         // (its answer arrived, or the user advanced past it), so a todo claim
-        // it made is settled: the todo keeps whatever status it now has.
-        if (item.todoClaim) { item.todoClaim = undefined; }
+        // it made is settled: the todo keeps whatever status it now has, and
+        // when it is completed it keeps the main prompt's answer (todoLastAnswer.ts).
+        if (item.todoClaim) {
+            const answer = item.lastDispatched?.kind === 'main' ? item.answerText : undefined;
+            const outcome = recordTodoAnswer(QUEST_TODO_ANSWER_PORT, item.todoClaim, answer);
+            if (outcome === 'written' || outcome === 'write-failed') {
+                logQueue(`Todo answer ${outcome === 'written' ? 'kept on' : 'could not be written to'} ${item.todoClaim.questId}/${item.todoClaim.todoId} (${answer?.length ?? 0} chars)`);
+            }
+            item.todoClaim = undefined;
+        }
         // The pause gate (auto-send off) is checked in each stage just before
         // a further prompt would go out (`_pauseBeforeNextDispatch`), not
         // here: an item with nothing left falls through to 'done' and becomes
@@ -5769,6 +5785,22 @@ function readQuestTodoStatus(questId: string, todoId: string): string | undefine
 const QUEST_TODO_STATUS_PORT: TodoStatusPort = {
     readStatus: readQuestTodoStatus,
     writeStatus: writeQuestTodoStatus,
+};
+
+/** Where a settled claim's answer goes: the todo's `last_answer`. */
+const QUEST_TODO_ANSWER_PORT: TodoAnswerPort = {
+    readStatus: readQuestTodoStatus,
+    writeLastAnswer: (questId, todoId, answer) => {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { updateTodo } = require('../managers/questTodoManager');
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+            return updateTodo(questId, todoId, { last_answer: answer }) !== undefined;
+        } catch (err) {
+            logQueueError(`Failed to write the answer onto todo '${todoId}'`, err);
+            return false;
+        }
+    },
 };
 
 function getWindowStatusWindowId(): string {

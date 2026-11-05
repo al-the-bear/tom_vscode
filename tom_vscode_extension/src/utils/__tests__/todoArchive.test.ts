@@ -54,6 +54,8 @@ todos:
     description: Second completed todo
     status: completed
     created: 2026-01-04
+    last_answer: |
+      Done — the queue run's final answer.
   - id: t5
     description: Untouched todo
     status: not-started
@@ -110,6 +112,15 @@ describe('archiveTodos', () => {
         assert.equal(t1.priority, 'high');
         assert.equal(t1.notes, 'keep these notes');
         assert.match(String(t1.archived), /^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    test('strips last_answer (the queue run\'s answer) from an archived todo', () => {
+        const res = archiveTodos(sourceFile, ['t4']);
+        assert.deepEqual(res.moved, ['t4']);
+        const t4 = readTodoMap(res.targetFile)['t4'];
+        assert.ok(t4, 'archived');
+        assert.equal('last_answer' in t4, false, 'the answer stays out of the archive');
+        assert.equal(t4.description, 'Second completed todo', 'the rest is kept');
     });
 
     test('rejects non-completed todos with a per-todo skip', () => {

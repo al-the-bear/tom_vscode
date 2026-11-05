@@ -599,6 +599,7 @@ interface QueuedPrompt {
   - `notes` — textarea
   - `created`, `updated` — read-only date display
   - `completed_date`, `completed_by` — shown when status is completed
+  - `last_answer` — when a queue walk completed the todo: an **Answer** label and button (read-only) that open the run's final answer as Markdown
 - **💾 Save** button — writes changes using YAML CST/AST preservation
 - **↩️ Revert** button — discards unsaved changes
 - **🗑️ Delete** button — removes the todo (with confirmation)

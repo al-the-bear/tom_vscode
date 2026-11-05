@@ -132,3 +132,16 @@ describe('clearing an optional field omits the key', () => {
         assert.equal(keys.includes('notes'), true);
     });
 });
+
+describe('last_answer (the queue run\'s answer, cc_parity_a_start-18)', () => {
+    test('a multi-line answer is written as a block literal and reads back unchanged', () => {
+        const answer = '# Done\n\n- the field is written\n- `code` and "quotes" survive';
+        const updated = updateTodoInFile(todoFile, 'o1', { last_answer: answer });
+        assert.equal(updated?.last_answer, answer);
+        assert.match(rawFile(), /\n {4}last_answer: \|/, 'a block literal, readable in the file');
+        const again = updateTodoInFile(todoFile, 'o1', { last_answer: 'second run' });
+        assert.equal(again?.last_answer, 'second run', 'a second run replaces it');
+        updateTodoInFile(todoFile, 'o1', { last_answer: '' });
+        assert.equal(keysOnDisk().includes('last_answer'), false, 'an empty answer removes the key');
+    });
+});
