@@ -8,6 +8,7 @@
 
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
+import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -114,6 +115,18 @@ import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
  */
 export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
+
+/** The error a held process-move marker shows. */
+export const PROCESS_MARKER_HELD_ERROR = 'held: an item of this process step failed — repeat the step or move on (PROCESS view, Proceed)';
+
+/** A process-move marker's move as stored in the queue file; undefined when it is not one. */
+export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
+    if (typeof raw !== 'object' || raw === null) { return undefined; }
+    const r = raw as Record<string, unknown>;
+    if (typeof r.kind !== 'string' || typeof r.label !== 'string' || typeof r.to !== 'string') { return undefined; }
+    const level = r.level === 'phase' || r.level === 'step' || r.level === 'substep' ? r.level : undefined;
+    return { kind: r.kind as ProcessMoveSpec['kind'], ...(level ? { level } : {}), label: r.label, to: r.to };
+}
 
 /**
  * Outcome of one `dispatchNextStageForSendingItem` invocation. Drives
@@ -312,6 +325,13 @@ export interface QueuedPrompt {
      * quest has moved since (src/services/processRunContext.ts).
      */
     processRun?: ProcessRun;
+    /**
+     * Set on a process-move marker (src/utils/processMoveMarker.ts): the item
+     * is never sent to a model; when the queue reaches it and every earlier
+     * item of its Proceed run is sent, it moves the process (`processRun` is
+     * the position it moves from).
+     */
+    processMove?: ProcessMoveSpec;
     answerText?: string;
     /**
      * Snapshot of the last prompt actually dispatched for this item —
@@ -1956,6 +1976,8 @@ export class PromptQueueManager {
         session?: string | Record<string, unknown>;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
+        /** Make the item a process-move marker (with `processRun`, the position it moves from). */
+        processMove?: ProcessMoveSpec;
         /** "Pause after this". */
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
@@ -2060,6 +2082,7 @@ export class PromptQueueManager {
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
+            ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
             ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
@@ -2073,7 +2096,9 @@ export class PromptQueueManager {
 
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
 
-        const pos = opts.position ?? -1;
+        // An item of a running Proceed goes before that run's process-move
+        // marker, so the process moves on only once it is done too.
+        const pos = opts.position ?? (item.processMove ? -1 : markerInsertIndex(this._items, item.processRun));
         if (pos >= 0 && pos < this._items.length) {
             this._items.splice(pos, 0, item);
         } else {
@@ -3106,8 +3131,72 @@ export class PromptQueueManager {
         return Date.now() < startMs;
     }
 
+    // ----- process-move markers (src/utils/processMoveMarker.ts) ------------
+
+    private _processMoveHandler?: (marker: QueuedPrompt) => Promise<{ ok: true } | { ok: false; error: string }>;
+
+    /** Install what a process-move marker does when it moves (processActionService: the process state store). */
+    setProcessMoveHandler(handler: (marker: QueuedPrompt) => Promise<{ ok: true } | { ok: false; error: string }>): void {
+        this._processMoveHandler = handler;
+    }
+
+    /** The running step of `quest`: its open marker and how many of its run's items are left. */
+    stepRunProgress(quest: string): StepRunProgress | undefined {
+        return stepRunProgress(this._items, quest);
+    }
+
+    /** Remove the open process-move markers of `quest` (Skip, Back, a state set by hand). Answers how many. */
+    dropProcessMoveMarkers(quest: string, why: string): number {
+        const ids = new Set(openMarkerIds(this._items, quest));
+        if (ids.size === 0) { return 0; }
+        this._items = this._items.filter((i) => !ids.has(i.id));
+        logQueue(`Process-move marker(s) of ${quest} removed (${why}): ${[...ids].join(', ')}`);
+        this.persist();
+        this._onDidChange.fire();
+        return ids.size;
+    }
+
+    /**
+     * The queue reached a process-move marker: move the process when every
+     * earlier item of its Proceed run is sent; hold it (status error) when one
+     * failed; otherwise leave it pending — the queue waits here.
+     */
+    private async _runProcessMoveMarker(item: QueuedPrompt): Promise<void> {
+        const verdict = markerVerdict(this._items, item);
+        if (verdict === 'wait') {
+            logQueue(`Process-move marker ${item.id}: waiting for the items of its step`);
+            return;
+        }
+        if (verdict === 'held') {
+            item.status = 'error';
+            item.error = PROCESS_MARKER_HELD_ERROR;
+            logQueue(`Process-move marker ${item.id}: held — an item of its step failed`);
+        } else {
+            const result = this._processMoveHandler
+                ? await this._processMoveHandler(item)
+                : { ok: false as const, error: 'the process state is not ready' };
+            if (result.ok) {
+                item.status = 'sent';
+                item.sentAt = new Date().toISOString();
+                item.error = undefined;
+                logQueue(`Process-move marker ${item.id}: ${item.originalText}`);
+            } else {
+                item.status = 'error';
+                item.error = `the process could not move: ${result.error}`;
+                logQueue(`Process-move marker ${item.id}: ${item.error}`);
+            }
+        }
+        this.persist();
+        this._onDidChange.fire();
+        if (this._shouldAdvanceQueueAfter(item)) { void this.sendNext(); }
+    }
+
     private async sendItem(item: QueuedPrompt): Promise<void> {
         if (item.status === 'sending') { return; }
+        if (item.processMove) {
+            await this._runProcessMoveMarker(item);
+            return;
+        }
 
         // **Resume vs fresh-start gate.** Items that carry prior
         // dispatch counters (paused mid-flight, reset from error
@@ -5266,6 +5355,7 @@ export class PromptQueueManager {
                 runId: typeof main.execution?.['run-id'] === 'string' ? main.execution['run-id'] : undefined,
                 iterationSeq: typeof main.execution?.['iteration-seq'] === 'number' ? main.execution['iteration-seq'] : undefined,
                 processRun: parseProcessRun(main['process-run']),
+                ...(parseProcessMove(main['process-move']) ? { processMove: parseProcessMove(main['process-move']) } : {}),
                 answerText: main['answer-text'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
@@ -5404,6 +5494,7 @@ export class PromptQueueManager {
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
             ...(item.session ? { session: item.sessionCreate ? { name: item.session, ...item.sessionCreate } : item.session } : {}),
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
+            ...(item.processMove ? { 'process-move': item.processMove } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
         };

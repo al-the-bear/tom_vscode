@@ -269,6 +269,11 @@ describe('process definitions', () => {
         const none = processVariableValues(null, EMPTY_PROCESS_STATE, '');
         assert.ok(Object.values(none).every((x) => x === ''), 'no process: every value empty');
         assert.equal(processContextBlock(null, EMPTY_PROCESS_STATE, ''), '');
+        // A prompt of a step a Proceed started: the step moves on by itself.
+        const inRun = processContextBlock(def, s, '', true);
+        assert.match(inRun, /moves on by itself once this prompt and every queue item it queues are done/);
+        assert.doesNotMatch(inRun, /record it with `tomAi_setProcessState`/);
+        assert.match(block, /record it with `tomAi_setProcessState`/, 'otherwise the agent records its moves');
     });
 
     test('PD-8: applying a change request', () => {

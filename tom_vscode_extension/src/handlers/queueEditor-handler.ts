@@ -26,6 +26,17 @@ import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { QuestRefreshService } from '../services/quest-refresh-service';
+import { ProcessStateStore } from '../managers/processStateStore';
+import { positionText } from '../utils/processActionPrompt';
+
+/** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
+function processPositionOf(item: QueuedPrompt): string | undefined {
+    const run = item.processRun;
+    if (!run) { return undefined; }
+    const def = ProcessStateStore.instance?.entry(run.state.process)?.definition;
+    const where = def ? positionText(def, run.state) : `${run.state.process} › ${run.state.phase} › ${run.state.step}`;
+    return `${run.quest}: ${where}`;
+}
 
 // ============================================================================
 // State
@@ -1044,7 +1055,15 @@ function buildState(): Record<string, unknown> {
     return {
         type: 'state',
         // A plain array for serialisation; an item a missing API key would make fail carries the reason.
-        items: items.map((item) => apiKeyWarnings.has(item.id) ? { ...item, apiKeyWarnings: apiKeyWarnings.get(item.id) } : item),
+        // The process position an item belongs to is shown on it, as text.
+        items: items.map((item) => {
+            const processPosition = processPositionOf(item);
+            const extra = {
+                ...(apiKeyWarnings.has(item.id) ? { apiKeyWarnings: apiKeyWarnings.get(item.id) } : {}),
+                ...(processPosition ? { processPosition } : {}),
+            };
+            return Object.keys(extra).length ? { ...item, ...extra } : item;
+        }),
         autoSend,
         autoStart,
         autoPause,

@@ -167,6 +167,35 @@ describe('PROCESS view', () => {
     });
 });
 
+describe('PROCESS view — a running step', () => {
+    test('PW-15: running, then failed', () => {
+        const { w, posted } = setup('processPanel');
+        send(w, panelState({ stepRun: { left: 3, held: false, to: 'Build #2 › Gate #1', label: 'Proceed' } }));
+        const banner = w.document.querySelector('.step-run');
+        assert.ok(banner, 'a banner');
+        assert.match(banner.textContent, /⏳ running — 3 items left/);
+        assert.match(banner.textContent, /Then the process moves to Build #2 › Gate #1/, 'the next step named');
+        const proceed = w.document.querySelector('[data-move="proceed"]');
+        assert.equal(proceed.disabled, true, 'Proceed waits for the queue');
+        assert.match(proceed.title, /running — 3 item/);
+        assert.equal(w.document.querySelector('[data-move="skip"]').disabled, false, 'Skip still moves');
+        proceed.click();
+        assert.equal(posted.filter((m) => m.type === 'action').length, 0, 'a disabled Proceed posts nothing');
+
+        send(w, panelState({ stepRun: { left: 1, held: false, to: 'Build #2 › Gate #1', label: 'Proceed' } }));
+        assert.match(w.document.querySelector('.step-run').textContent, /1 item left/);
+
+        send(w, panelState({ stepRun: { left: 1, held: true, to: 'Build #2 › Gate #1', label: 'Proceed' } }));
+        const held = w.document.querySelector('.step-run.held');
+        assert.match(held.textContent, /failed — see the queue/);
+        assert.match(held.textContent, /repeat the step, or move on to Build #2 › Gate #1/);
+        assert.equal(w.document.querySelector('[data-move="proceed"]').disabled, false, 'Proceed offers the choice');
+
+        send(w, panelState({ stepRun: null }));
+        assert.equal(w.document.querySelector('.step-run'), null, 'done: no banner');
+    });
+});
+
 describe('PROCESS view — user actions', () => {
     test('PW-12: a user action', () => {
         const { w } = setup('processPanel');

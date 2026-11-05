@@ -112,6 +112,7 @@ import { initializeToolDescriptions } from './tools/guideline-tools';
 import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { ProcessStateStore } from './managers/processStateStore';
 import { registerProcessView } from './handlers/processPanel-handler';
+import { installProcessMoveMarkers } from './services/processActionService';
 import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
@@ -730,6 +731,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();
     PromptQueueManager.init(context);
+    // A process step ends with its queue: the queue's process-move markers move the process.
+    installProcessMoveMarkers();
     // The window state file follows the role, the process position and the queue as they change.
     watchWindowActivity(context);
     TimerEngine.init(context);

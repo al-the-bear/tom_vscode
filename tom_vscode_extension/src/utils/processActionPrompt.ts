@@ -3,8 +3,9 @@
  * no `vscode`, no IO).
  *
  * Proceed is the only move that runs anything: it queues the prompt of the
- * CURRENT position, then the state moves on (or, at a decision point, stays,
- * marked as run). Every other move only moves the state. The prompt comes
+ * CURRENT position; the state moves on (or, at a decision point, stays,
+ * marked as run) when the queue reaches the process-move marker queued after
+ * it, that is once the prompt and everything it queued are done. Every other move only moves the state. The prompt comes
  * from ONE template, global for all processes, kept in the extension config
  * under `processActionTemplates.proceed` and edited in the process template
  * editor. What is specific to a step comes from the definition's `prompt`
@@ -69,7 +70,7 @@ export const PROCESS_ACTION_VARIABLES: ReadonlyArray<{ name: string; description
     { name: 'action-prompt', description: 'The `prompt` fields of what runs here: the phase (at its first step), the step (at its first sub-step), the sub-step' },
     { name: 'action-note', description: 'A note for a repeated run: another iteration, or a gate run again' },
     { name: 'action-position', description: 'The position being run, e.g. "Phase 2 › 03 Iteration #1 › 01 Questions Round"' },
-    { name: 'action-after', description: 'What the PROCESS view does after queuing: where it moved on to, or that it stays for the user\'s decision' },
+    { name: 'action-after', description: 'What the PROCESS view does once this prompt and what it queues are done: where it moves on to, or that it stops at the user\'s decision' },
     { name: 'action', description: 'The move kind (proceed)' },
     { name: 'action-label', description: 'The button label: "Proceed" or "Run again"' },
     { name: 'action-target', description: 'Where the state goes after queuing, e.g. "phase2 / 03-iteration / 02-structural-requirements-pass"' },
@@ -126,11 +127,13 @@ export function runNote(def: ProcessDefinition, state: ProcessState): string {
 /** What happens after the prompt is queued, for the prompt itself. */
 function afterText(def: ProcessDefinition, state: ProcessState, move: ProcessMove): string {
     const t = move.target;
+    const when = 'when this prompt and every queue item it queues are done (they run before the queue\'s '
+        + 'process-move marker)';
     if (t.decision) {
-        return 'The PROCESS view has moved to the decision after this position: the user decides there how the process '
-            + 'goes on (repeat, go on, gate passed or failed). Do not move the process state yourself.';
+        return `The PROCESS view moves to the decision after this position ${when}: the user decides there how the `
+            + 'process goes on (repeat, go on, gate passed or failed). Do not move the process state yourself.';
     }
-    return `The PROCESS view has moved on to ${positionText(def, t)}; that runs only when the user proceeds again. `
+    return `The PROCESS view moves on to ${positionText(def, t)} ${when}; that runs only when the user proceeds again. `
         + `This prompt belongs to ${positionText(def, state)} — work in it, and do not move the process state yourself.`;
 }
 

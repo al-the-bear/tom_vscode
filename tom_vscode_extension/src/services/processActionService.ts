@@ -1,10 +1,14 @@
 /**
  * Process actions — what happens when the user uses the PROCESS view's action
  * bar. Proceed: the Proceed template (processActionPrompt.ts) is resolved for
- * the CURRENT position, the prompt is added to the prompt queue (which sends
- * it) carrying that position, and then the state moves on — or, at a decision
- * point, stays marked as run. Every other move only moves the state, and so
- * does Proceed at a user action (confirmed by the user in the PROCESS view).
+ * the CURRENT position and the prompt is added to the prompt queue carrying
+ * that position and a fresh Proceed run id, followed by a process-move marker
+ * (src/utils/processMoveMarker.ts). Everything the step's prompts queue goes
+ * in before the marker; when the queue reaches it with all of them sent, the
+ * state moves on — or, at a decision point, stays marked as run. Until then
+ * the step is running. Every other move only moves the state (and removes an
+ * open marker), and so does Proceed at a user action (confirmed by the user in
+ * the PROCESS view).
  *
  * The preview on the action page and the queued text come from the same
  * {@link buildProcessActionPrompt}, so what the page shows is what is queued.
@@ -28,7 +32,10 @@ import {
     processActionValues,
     type ProcessActionTemplates,
 } from '../utils/processActionPrompt';
-import { decisionAt, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
+import { decisionAt, samePosition, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
+import { positionText } from '../utils/processActionPrompt';
+import { markerText, newProceedId, type ProcessMoveSpec } from '../utils/processMoveMarker';
+import type { QueuedPrompt } from '../managers/promptQueueManager';
 
 const templatesChanged = new vscode.EventEmitter<void>();
 /** Fires after the templates were saved, so an open action page refreshes its preview. */
@@ -95,9 +102,12 @@ export type ProcessActionResult =
 
 /**
  * Confirm a move. Proceed: build the prompt of the current position, queue it
- * (carrying that position, so it runs as that step however far the quest has
- * moved by then), then move the state. Any other move only moves the state.
- * Nothing changes when the move is no longer possible.
+ * (carrying that position and a fresh Proceed run id, so it runs as that step)
+ * and after it the process-move marker that moves the state once the step's
+ * queued items are done. A step that queues no prompt (a user action) moves at
+ * once. Any other move removes an open marker of the quest and moves the
+ * state. Nothing changes when the move is no longer possible, and Proceed is
+ * refused while the step still runs.
  */
 export async function confirmProcessAction(
     kind: ProcessMoveKind,
@@ -109,9 +119,17 @@ export async function confirmProcessAction(
     const move = store.findMove(kind, level);
     const def = store.currentDefinition();
     if (!move || !def) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
+    const queue = PromptQueueManager.instance;
     if (move.kind !== 'proceed') {
         const moved = store.move(kind, level, 'user');
+        if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`); }
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
+    }
+    const running = queue.stepRunProgress(store.activeQuest);
+    if (running) {
+        return { ok: false, error: running.held
+            ? 'an item of the running step failed: repeat the step or move on (Proceed in the PROCESS view)'
+            : `the step is still running — ${running.left} item(s) left in the queue; the process moves to ${running.move.to} when they are done` };
     }
     const here = store.state;
     if (decisionAt(def, here)) {
@@ -120,24 +138,64 @@ export async function confirmProcessAction(
     const session = actionSession(def, here, sessionOverride);
     // A user action is done by the user: confirming it queues nothing.
     const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
-    if (text) {
-        if (session.spec) {
-            const error = ensureProcessSession(store.activeQuest, session.spec);
-            if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
-        }
-        try {
-            await PromptQueueManager.instance.enqueue({
-                originalText: text,
-                ...(session.name ? { session: session.name } : {}),
-                processRun: { quest: store.activeQuest, state: here },
-            });
-        } catch (e) {
-            return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
-        }
+    if (!text) {
+        const moved = store.move(kind, level, 'user');
+        return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
-    const moved = store.move(kind, level, 'user');
-    if (!moved.ok) {
-        return { ok: false, error: text ? `the prompt is in the queue, but the state could not move: ${moved.error}` : moved.error };
+    if (session.spec) {
+        const error = ensureProcessSession(store.activeQuest, session.spec);
+        if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
     }
-    return { ok: true, queued: !!text, label: move.label };
+    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId() };
+    const spec: ProcessMoveSpec = { kind: move.kind, ...(move.level ? { level: move.level } : {}), label: move.label, to: positionText(def, move.target) };
+    try {
+        // Both deferred, then one kick: the prompt's send must not hold this
+        // call (and the marker must be in the queue before anything it queues).
+        await queue.enqueue({ originalText: text, ...(session.name ? { session: session.name } : {}), processRun: run, deferSend: true });
+        await queue.enqueue({ originalText: markerText(spec), processRun: run, processMove: spec, deferSend: true });
+    } catch (e) {
+        return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
+    }
+    if (queue.autoSendEnabled) { void queue.sendNext(); }
+    return { ok: true, queued: true, label: move.label };
+}
+
+/**
+ * What a process-move marker does when the queue reaches it with its step's
+ * items done: make its move from the position it was queued at. When the
+ * state has been moved elsewhere since, the marker has nothing left to do.
+ */
+export async function applyProcessMoveMarker(marker: QueuedPrompt): Promise<{ ok: true } | { ok: false; error: string }> {
+    const store = await ProcessStateStore.ready;
+    const run = marker.processRun;
+    const spec = marker.processMove;
+    if (!run || !spec) { return { ok: false, error: 'the marker names no move' }; }
+    if (store.activeQuest !== run.quest) { return { ok: false, error: `the quest ${run.quest} is not this window's quest` }; }
+    const now = store.state;
+    if (now.decision || !samePosition(now, run.state)) { return { ok: true }; }
+    const moved = store.move(spec.kind, spec.level, 'user');
+    return moved.ok ? { ok: true } : moved;
+}
+
+/** Let the queue's process-move markers move the process (called once at activation). */
+export function installProcessMoveMarkers(): void {
+    PromptQueueManager.instance.setProcessMoveHandler(applyProcessMoveMarker);
+}
+
+/** A held step: repeat it — the marker goes, and the action page queues the step again. */
+export async function dropHeldStep(): Promise<void> {
+    const store = await ProcessStateStore.ready;
+    PromptQueueManager.instance.dropProcessMoveMarkers(store.activeQuest, 'step repeated');
+}
+
+/** A held step: move on — the marker goes and its move is made now. */
+export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
+    const store = await ProcessStateStore.ready;
+    const queue = PromptQueueManager.instance;
+    const running = queue.stepRunProgress(store.activeQuest);
+    if (!running) { return { ok: false, error: 'no step of this quest is running' }; }
+    const marker = queue.items.find((i) => i.id === running.markerId);
+    queue.dropProcessMoveMarkers(store.activeQuest, 'moved on past a failed step');
+    const result = marker ? await applyProcessMoveMarker(marker) : { ok: false as const, error: 'the marker is gone' };
+    return result.ok ? { ok: true, queued: false, label: running.move.label } : result;
 }

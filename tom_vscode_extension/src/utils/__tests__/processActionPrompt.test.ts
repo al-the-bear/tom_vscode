@@ -109,12 +109,12 @@ describe('process action prompts', () => {
         assert.equal(v['action-label'], 'Proceed');
         assert.equal(v['action-position'], 'one #1 › a');
         assert.equal(v['action-target'], 'one / b / b1', 'where the state goes after queuing');
-        assert.match(v['action-after'], /moved on to one #1 › b #1 › b1; that runs only when the user proceeds again/);
+        assert.match(v['action-after'], /moves on to one #1 › b #1 › b1 when this prompt and every queue item it queues are done .*; that runs only when the user proceeds again/);
         assert.equal(v.role, 'author', 'the role of the step being run');
         const b2 = selectSubstep(selectStep(start, d, 'b'), d, 'b2');
         const decide = processActionValues(d, b2, move(d, b2, 'proceed'), '', '');
         assert.equal(decide.role, 'checker');
-        assert.match(decide['action-after'], /moved to the decision after this position: the user decides there/, 'a decision point: on to its decision');
+        assert.match(decide['action-after'], /moves to the decision after this position when this prompt and every queue item it queues are done .*: the user decides there/, 'a decision point: on to its decision');
         assert.equal(move(d, move(d, b2, 'proceed').target, 'proceed').label, 'Decide…', 'at the decision nothing runs again: the user decides');
     });
 

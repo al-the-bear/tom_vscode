@@ -110,9 +110,21 @@
             + '</div>';
     }
 
+    /** The step a Proceed started, while its queue items run (or one failed). */
+    function stepRunBanner(run) {
+        if (run.held) {
+            return '<div class="step-run held"><span class="codicon codicon-error"></span> failed — see the queue'
+                + '<div class="sr-hint">Proceed: repeat the step, or move on to ' + esc(run.to) + '.</div></div>';
+        }
+        return '<div class="step-run"><span class="codicon codicon-loading codicon-modifier-spin"></span> ⏳ running — '
+            + run.left + ' item' + (run.left === 1 ? '' : 's') + ' left'
+            + '<div class="sr-hint">Then the process moves to ' + esc(run.to) + '.</div></div>';
+    }
+
     function actionBar(moves) {
         var byUser = !!userActionHere(current);
         var atDecision = !!decisionHere(current);
+        var running = current && current.stepRun && !current.stepRun.held;
         // A decision's options are chosen in its dialog (Decide…), not here.
         var buttons = (moves || []).filter(function (m) { return !m.branchOption; }).map(function (m) {
             var user = byUser && !atDecision && m.kind === 'proceed';
@@ -121,8 +133,11 @@
                 : decide ? 'repo-forked'
                     : user ? 'person' : MOVE_ICON[m.kind] || 'circle';
             var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
+            // While the step runs, Proceed waits for its queue.
+            var wait = running && m.kind === 'proceed';
+            var title = wait ? 'The step is running — ' + current.stepRun.left + ' item(s) left; then ' + current.stepRun.to : m.label + ' → ' + m.to;
             return '<button class="icon act act-' + m.kind + (user ? ' act-user' : '') + (decide ? ' act-branch' : '') + '" data-move="' + esc(m.kind) + '" data-level="' + esc(m.level || '') + '" title="'
-                + esc(m.label + ' → ' + m.to) + '"><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
+                + esc(title) + '"' + (wait ? ' disabled' : '') + '><span class="codicon codicon-' + icon + '"></span>' + text + '</button>';
         }).join('');
         return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
             + '<span class="spacer"></span><button class="icon" data-templates="1" title="Edit the Proceed prompt template"><span class="codicon codicon-symbol-snippet"></span></button></div>';
@@ -158,7 +173,8 @@
         var html = c.state.process && c.definition ? actionBar(c.moves) : '';
         var action = userActionHere(c);
         var decision = decisionHere(c);
-        if (decision) { html += decisionBanner(decision); }
+        if (c.stepRun) { html += stepRunBanner(c.stepRun); }
+        else if (decision) { html += decisionBanner(decision); }
         else if (action) { html += userActionBanner(action, false); }
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {

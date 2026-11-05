@@ -6,9 +6,11 @@
  * runs, the session, a field for custom instructions and a live preview of
  * the prompt the Proceed template (process template editor) builds from them.
  *
- * "Add to queue" adds the prompt to the prompt queue and then moves the
- * quest's process state (src/services/processActionService.ts); a template
- * that resolves to nothing only moves the state. Cancel changes nothing. The
+ * "Add to queue" adds the prompt to the prompt queue, with a process-move
+ * marker after it that moves the quest's process state when the step's
+ * queued items are done (src/services/processActionService.ts,
+ * src/utils/processMoveMarker.ts); a template that resolves to nothing only
+ * moves the state, at once. Cancel changes nothing. The
  * page follows the state: when the move is no longer possible from the
  * current position, it says so and offers only Cancel.
  *

@@ -740,7 +740,9 @@ against the definition. A move to a step or sub-step that names a role also sets
 the `role` chat variable. The user sees and sets the same state in the @TOM
 **PROCESS** view and edits the definitions in the process editor; the view's
 Proceed button queues the prompt of the current position (built from the
-Proceed template) and moves the state on — after a gate, a phase's end or a
+Proceed template) and a process-move marker after it; when the queue reaches
+the marker with that prompt and everything it queued done, the state moves on
+(a `tomAi_setProcessState` call removes the marker) — after a gate, a phase's end or a
 repeatable level to the decision after it, where the user decides (Repeat,
 Go on, Gate passed / failed; a failed gate goes to the gate's `onFail` step) —
 while its other buttons only move the state. `tomAi_getProcessState` reports a

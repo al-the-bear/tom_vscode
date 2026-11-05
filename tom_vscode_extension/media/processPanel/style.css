@@ -125,3 +125,16 @@ code { font-family: var(--vscode-editor-font-family); }
 .branch-decision .bd-hint { font-size: 0.9em; font-style: italic; }
 .actions .act-branch { border: 1px solid var(--vscode-focusBorder, #007fd4); }
 .actions .act-branch .codicon { color: var(--vscode-textLink-foreground); }
+
+/* A step a Proceed started, while its queue items run (or one failed). */
+.step-run {
+    margin: 2px 0 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--vscode-focusBorder, #007fd4);
+    border-left-width: 6px;
+    border-radius: 3px;
+    display: block;
+}
+.step-run .codicon { vertical-align: text-bottom; }
+.step-run.held { border-color: var(--vscode-errorForeground, #f14c4c); color: var(--vscode-errorForeground, #f14c4c); }
+.step-run .sr-hint { font-size: 0.9em; font-style: italic; margin-top: 2px; color: var(--vscode-descriptionForeground); }

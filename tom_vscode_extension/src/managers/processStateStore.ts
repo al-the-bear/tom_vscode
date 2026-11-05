@@ -170,7 +170,8 @@ export class ProcessStateStore {
     /** The `${process-context}` block for the system prompt; `''` without a process. */
     contextBlock(): string {
         const v = this.viewed();
-        return processContextBlock(v.def, v.state, v.description);
+        const run = currentProcessRun();
+        return processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest);
     }
 
     /** While a queued Proceed prompt is sent: the role its position names (`''` when none); otherwise undefined. */

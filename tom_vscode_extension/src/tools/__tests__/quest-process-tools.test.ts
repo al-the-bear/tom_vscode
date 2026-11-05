@@ -52,6 +52,8 @@ phases:
 
 let deps: ProcessToolDeps;
 let state: ProcessState;
+/** Open process-move markers the fake queue holds; a set state removes them. */
+let openMarkers: number;
 
 beforeEach(() => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'process-tools-'));
@@ -62,6 +64,7 @@ beforeEach(() => {
     fs.writeFileSync(path.join(root, 'processes', 'flow', 'flow.md'), '# Flow\n\nBuild, then wrap up.');
     const repo = new ProcessRepository(path.join(root, 'processes'), path.join(root, 'quests'));
     state = { ...EMPTY_PROCESS_STATE };
+    openMarkers = 0;
     const def = (): ReturnType<ProcessRepository['definitions']> => repo.definitions();
     deps = {
         list: () => repo.list(),
@@ -74,6 +77,7 @@ beforeEach(() => {
             if (r.ok) { state = r.state; }
             return r;
         },
+        dropProcessMoveMarkers: () => { const n = openMarkers; openMarkers = 0; return n; },
     };
 });
 
@@ -108,6 +112,18 @@ describe('process tools', () => {
         assert.equal(state.step, 'review', 'nothing changed');
         const gate = JSON.parse(await setProcessStateImpl(deps, { step: 'gate' }));
         assert.deepEqual([gate.state.step, gate.role, gate.roleChanged], ['gate', '', false]);
+        assert.equal('processMoveMarkersRemoved' in gate, false, 'no marker, nothing named');
+    });
+
+    test('QP-3b: setProcessState removes a running step\'s process-move marker', async () => {
+        await setProcessStateImpl(deps, { process: 'flow' });
+        openMarkers = 1;
+        const refused = JSON.parse(await setProcessStateImpl(deps, { step: 'nope' }));
+        assert.equal(refused.ok, false);
+        assert.equal(openMarkers, 1, 'a refused change keeps the marker');
+        const r = JSON.parse(await setProcessStateImpl(deps, { step: 'review' }));
+        assert.equal(r.processMoveMarkersRemoved, 1);
+        assert.equal(openMarkers, 0);
     });
 
     test('QP-4: getProcessState', async () => {

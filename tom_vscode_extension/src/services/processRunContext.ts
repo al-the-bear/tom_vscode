@@ -11,7 +11,9 @@
  * inside {@link runInProcessPosition}, and ProcessStateStore answers the role,
  * the process variables and the context block for that position while it is
  * active. A queue item added while a run is active (an agent planning a step
- * queues its todo walks) inherits the position (prompt-queue-tools).
+ * queues its todo walks) inherits the position and the Proceed run id, and is
+ * queued before that run's process-move marker (PromptQueueManager.enqueue,
+ * src/utils/processMoveMarker.ts).
  *
  * `AsyncLocalStorage`, unlike the synchronous stack in tool-execution-context,
  * because a send awaits the whole model turn, tool calls included, and other
@@ -28,6 +30,12 @@ import type { ProcessState } from '../utils/processDefinition';
 export interface ProcessRun {
     quest: string;
     state: ProcessState;
+    /**
+     * The Proceed run it belongs to: every item of one Proceed carries the
+     * same id, and the process-move marker of that run waits for them
+     * (src/utils/processMoveMarker.ts).
+     */
+    proceedId?: string;
 }
 
 const storage = new AsyncLocalStorage<ProcessRun>();
@@ -61,6 +69,7 @@ export function parseProcessRun(raw: unknown): ProcessRun | undefined {
     const num = (k: string): number => (Number.isInteger(st[k]) && (st[k] as number) >= 1 ? st[k] as number : 1);
     return {
         quest: r.quest,
+        ...(typeof r.proceedId === 'string' && r.proceedId ? { proceedId: r.proceedId } : {}),
         state: {
             process: str('process'), phase: str('phase'), phaseIteration: num('phaseIteration'),
             step: str('step'), stepIteration: num('stepIteration'),

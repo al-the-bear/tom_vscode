@@ -290,12 +290,21 @@ function renderEntry(item, idx) {
     transportBadge = '  <span style="background:#4a9eff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Queue item dispatches through AnthropicHandler.sendMessage (auto-approve forced). Profile: ' +
       escapeHtml(item.anthropicProfileId || '(default)') + '">[anthropic' + escapeHtml(pid) + ']</span>';
   }
+  /* Process position: the step the item belongs to (a Proceed prompt, what it
+   * queued, or the process-move marker that moves the process on after them). */
+  var processBadge = '';
+  if (item.processMove) {
+    processBadge = '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
+      escapeHtml(item.processPosition || '') + ' → ' + escapeHtml(item.processMove.to) + ').">[⏭ process move]</span>';
+  } else if (item.processPosition) {
+    processBadge = '  <span class="process-badge" style="border:1px solid #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="Runs as this process position">[⚙ ' + escapeHtml(item.processPosition) + ']</span>';
+  }
   if (editorMode === 'queue') {
     headerHtml = '<div class="item-header">' +
       '<div class="status-bar ' + statusBarCls + '">' +
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\'' + safeId + '\')" title="Toggle details"></span>' +
-          statusLabel + repeatProgress + tplRepeatProgress + transportBadge +
+          statusLabel + repeatProgress + tplRepeatProgress + transportBadge + processBadge +
           (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (item.template && item.template !== '(None)' ? '  [AW]' : '') +
           '<span class="status-icons">' +

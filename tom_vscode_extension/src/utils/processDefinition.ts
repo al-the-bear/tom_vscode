@@ -1027,7 +1027,12 @@ function iterationText(node: { repeatable?: boolean; maxIterations?: number }, n
  * and roles), the steps of the phase, the post-gate todos when in that step,
  * and the descriptions. `''` without a process.
  */
-export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string): string {
+/**
+ * `inProceedRun`: the prompt runs for a step a Proceed started — the process
+ * moves on by itself when the step's queued items are done (a process-move
+ * marker), so the agent is told not to record the move.
+ */
+export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
     const head = (node: { id: string; name?: string }, extra: string): string =>
@@ -1086,7 +1091,9 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
     if (decision) {
         lines.push('', `**Decision** — this position has run; the user decides here how the process goes on: ${decision.options.map((o) => o.label).join('; ')}. An agent does not decide it and does not move past it.`);
     }
-    lines.push('', 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
+    lines.push('', inProceedRun
+        ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step.'
+        : 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }
     };

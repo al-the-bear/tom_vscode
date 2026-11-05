@@ -34,6 +34,8 @@ export interface ProcessToolDeps {
     currentRole(): string;
     contextBlock(): string;
     apply(change: ProcessChange): ProcessChangeResult;
+    /** Remove the quest's open process-move markers (a state set by hand ends the running step); answers how many. */
+    dropProcessMoveMarkers(): number;
 }
 
 /** A definition's outline: ids, names, kinds, roles, repeat flags — no descriptions. */
@@ -172,8 +174,13 @@ export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessC
     const roleBefore = deps.currentRole();
     const result = deps.apply(input);
     if (!result.ok) { return JSON.stringify(result); }
+    // The state is set by hand now: a step still running from a Proceed no longer moves it.
+    const markersRemoved = deps.dropProcessMoveMarkers();
     const role = deps.currentRole();
-    return JSON.stringify({ ok: true, state: result.state, role, roleChanged: role !== roleBefore && role !== '' }, null, 2);
+    return JSON.stringify({
+        ok: true, state: result.state, role, roleChanged: role !== roleBefore && role !== '',
+        ...(markersRemoved > 0 ? { processMoveMarkersRemoved: markersRemoved } : {}),
+    }, null, 2);
 }
 
 export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
@@ -190,7 +197,9 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
         'be its phase\'s gate or post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, ' +
         'error}` and changes nothing. On success: `{ok, state, role, roleChanged}` — moving to a step ' +
         'that names a role also sets the `role` chat variable, so the role description in the system ' +
-        'prompt follows the process. Record each move as the work moves on.',
+        'prompt follows the process. Record each move as the work moves on. A step started by the PROCESS ' +
+        'view\'s Proceed moves on by itself when its queued items are done (a process-move marker in the ' +
+        'queue); setting the state removes that marker (`processMoveMarkersRemoved`).',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -232,6 +241,11 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         currentRole: () => store().currentRole(),
         contextBlock: () => store().contextBlock(),
         apply: (change) => store().apply(change, source),
+        dropProcessMoveMarkers: () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const queue = require('../managers/promptQueueManager.js').PromptQueueManager as { instance?: { dropProcessMoveMarkers(q: string, why: string): number } };
+            try { return queue.instance?.dropProcessMoveMarkers(store().activeQuest, 'state set with tomAi_setProcessState') ?? 0; } catch { return 0; }
+        },
     };
 }
 
