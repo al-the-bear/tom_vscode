@@ -292,12 +292,14 @@ function renderEntry(item, idx) {
   }
   /* Process position: the step the item belongs to (a Proceed prompt, what it
    * queued, or the process-move marker that moves the process on after them). */
-  var processBadge = '';
+  var processBadge = item.sendBetween
+    ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
+    : '';
   if (item.processMove) {
-    processBadge = '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
+    processBadge += '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
       escapeHtml(item.processPosition || '') + ' → ' + escapeHtml(item.processMove.to) + ').">[⏭ process move]</span>';
   } else if (item.processPosition) {
-    processBadge = '  <span class="process-badge" style="border:1px solid #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="Runs as this process position">[⚙ ' + escapeHtml(item.processPosition) + ']</span>';
+    processBadge += '  <span class="process-badge" style="border:1px solid #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="Runs as this process position">[⚙ ' + escapeHtml(item.processPosition) + ']</span>';
   }
   if (editorMode === 'queue') {
     headerHtml = '<div class="item-header">' +
@@ -358,7 +360,12 @@ function renderEntry(item, idx) {
             : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move up (closer to queue top — sent sooner)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
-          (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '') +
+          // Directly under a running loop, Send next sends the item between two
+          // of the loop's iterations instead (the host flags it: canSendBetween).
+          (isPending && (item.canSendBetween || item.sendBetween)
+            ? '<span class="codicon codicon-debug-step-into send-between-btn" style="cursor:pointer;color:' + (item.sendBetween ? '#b5179e' : '#000') + ';" onclick="toggleSendBetween(\'' + safeId + '\')" title="' +
+              (item.sendBetween ? 'Marked: sent after the running loop\'s current iteration, before its next one. Click to unmark.' : 'Send between iterations: after the running loop\'s current iteration, before its next one') + '"></span>'
+            : (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '')) +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           // Pause after this — let the item finish its repeat loop, then hold
           // the queue instead of starting the next item. Shown wherever the

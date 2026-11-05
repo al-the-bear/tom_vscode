@@ -28,6 +28,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { positionText } from '../utils/processActionPrompt';
+import { runningLoopAbove } from '../utils/queueSendBetween';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -564,6 +565,9 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'moveToFront':
             qm.move(msg.id, 'front');
             break;
+        case 'toggleSendBetween':
+            qm.toggleSendBetween(msg.id);
+            break;
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
@@ -1061,6 +1065,8 @@ function buildState(): Record<string, unknown> {
             const extra = {
                 ...(apiKeyWarnings.has(item.id) ? { apiKeyWarnings: apiKeyWarnings.get(item.id) } : {}),
                 ...(processPosition ? { processPosition } : {}),
+                // Directly under a running loop: Send next means "send between iterations".
+                ...(runningLoopAbove(items, item.id) ? { canSendBetween: true } : {}),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),

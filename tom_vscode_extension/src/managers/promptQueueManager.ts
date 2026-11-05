@@ -49,6 +49,7 @@ import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeader
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
+import { itemToSendBetween, orderForBetween, toggleSendBetween } from '../utils/queueSendBetween';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
@@ -296,6 +297,12 @@ export interface QueuedPrompt {
      * it again pauses the queue again, which is what the flag says on the tin.
      */
     pauseAfter?: boolean;
+    /**
+     * "Send between iterations" (src/utils/queueSendBetween.ts): this pending
+     * item, directly under a running loop, is sent after the loop's current
+     * iteration and before its next one. At most one item carries it.
+     */
+    sendBetween?: boolean;
     // Multi-transport fields (design doc §4.1). Items without `transport`
     // resolve to 'copilot' at dispatch time — byte-identical to the
     // pre-multi-transport behaviour.
@@ -2331,6 +2338,22 @@ export class PromptQueueManager {
      * want to stop after it. Returns the flag's new value, or `undefined`
      * when the id is unknown.
      */
+    /**
+     * Mark or unmark a pending item to be sent between two iterations of the
+     * running loop directly above it (queueSendBetween.ts); marking it clears
+     * any other mark. Returns its new value, or `undefined` when the id is
+     * unknown or the item is not under a running loop.
+     */
+    toggleSendBetween(id: string): boolean | undefined {
+        const changed = toggleSendBetween(this._items, id);
+        if (changed.length === 0) { return undefined; }
+        this.persist();
+        this._onDidChange.fire();
+        const item = this._items.find(i => i.id === id);
+        logQueue(`Send-between ${item?.sendBetween ? 'set' : 'cleared'} on item ${id}`);
+        return !!item?.sendBetween;
+    }
+
     setPauseAfter(id: string, pauseAfter: boolean): boolean | undefined {
         const item = this._items.find(i => i.id === id);
         if (!item) { return undefined; }
@@ -3201,6 +3224,8 @@ export class PromptQueueManager {
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
         if (item.status === 'sending') { return; }
+        // Its turn has come: a "send between iterations" mark has done its job.
+        if (item.sendBetween) { item.sendBetween = undefined; }
         if (item.processMove) {
             await this._runProcessMoveMarker(item);
             return;
@@ -4634,6 +4659,22 @@ export class PromptQueueManager {
         // Something of the main stage is left to send: hold here when paused,
         // before a todo is claimed for it.
         if (plan.mode !== 'exhausted' && this._pauseBeforeNextDispatch(item)) { return 'paused'; }
+        // An item marked "send between iterations" goes now, before this
+        // loop's next iteration: it moves in front of the loop item, which
+        // steps back to pending with its counters kept and resumes after it.
+        const between = itemToSendBetween(this._items, item, mainSentCount, plan.mode !== 'exhausted');
+        if (between) {
+            this._items = orderForBetween(this._items, item, between);
+            item.status = 'pending';
+            item.awaitingAnswer = false;
+            item.inFlightRepetition = undefined;
+            logQueue(`MP dispatch: item ${item.id} steps aside after iteration ${mainSentCount} — ${between.id} is sent between iterations`);
+            this.persist();
+            this._onDidChange.fire();
+            // After this frame unwinds (its callers leave a 'paused' item alone).
+            setTimeout(() => { void this.sendNext(); }, 0);
+            return 'paused';
+        }
         // The todo that this dispatch will work on, already marked in-progress.
         // Marking happens BEFORE the send: an in-progress todo no longer
         // qualifies, and that is what makes the walk terminate. A write that
@@ -5334,6 +5375,7 @@ export class PromptQueueManager {
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
                 status: (meta.status as QueuedPromptStatus) || 'pending',
                 pauseAfter: meta['pause-after'] === true ? true : undefined,
+                sendBetween: meta['send-between'] === true ? true : undefined,
                 type: 'normal',
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
@@ -5672,6 +5714,7 @@ export class PromptQueueManager {
                 status: item.status,
                 // Omitted when unset so untouched entries round-trip unchanged.
                 ...(item.pauseAfter ? { 'pause-after': true } : {}),
+                ...(item.sendBetween ? { 'send-between': true } : {}),
                 ...doneNotificationMetaToYaml(item),
                 created: item.createdAt,
                 'main-prompt': 'P1',

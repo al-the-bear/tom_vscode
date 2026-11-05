@@ -387,6 +387,19 @@ because that is what they are for: **Send now** on an item, the per-item
 turns auto-send back on for the cascade). The background health check also
 resumes an item whose rate-limit or retry window has just elapsed.
 
+### Send between iterations
+
+A queue item that repeats its main prompt — a repeat count above 1 or a
+`prefix*` todo walk — holds the queue until its loop ends. To send something in
+between, put that prompt directly under the running loop item (Send next does
+that). On that item, Send next turns into **Send between iterations** (the
+step-into icon): click it and the item is marked **[⇄ between iterations]**.
+When the loop has finished its current iteration, it steps aside: the marked
+item is sent, and the loop then goes on with its next iteration. Click the
+icon again to unmark; marking another item moves the mark. If the loop ends
+with its current iteration, the marked item simply runs next. With auto-send
+off the loop holds as usual and the mark stays.
+
 ### Pause after this
 
 Every queue item carries a **pause icon** in its header. Clicking it arms

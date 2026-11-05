@@ -198,6 +198,8 @@ export interface QueueMetaYaml {
     status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
     /** "Pause after this": hold the queue once this item has finished. */
     'pause-after'?: boolean;
+    /** "Send between iterations": sent after the running loop's current iteration (queueSendBetween.ts). */
+    'send-between'?: boolean;
     collapsed?: boolean;
     'template-name'?: string;
     category?: 'prompt' | 'answer' | 'system';

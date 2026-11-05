@@ -671,7 +671,14 @@ actually delivered. Two recovery paths keep this correct:
 
 The editor also exposes a **"Send next"** button (codicon-arrow-circle-up) per
 pending item, backed by `move(id, 'front')` — a `'front'` direction that
-relocates a pending item to the front of the in-progress queue.
+relocates a pending item to the front of the in-progress queue. On the pending
+item directly under a running loop (repeat count above 1 or `prefix*`; the
+host flags it `canSendBetween`) the button is **"Send between iterations"**
+instead: `toggleSendBetween(id)` marks it (`sendBetween`, one mark at a time,
+persisted as `meta.send-between`), and at the loop's next iteration boundary —
+after the pause gate, before a todo is claimed — the loop item steps back to
+pending with its counters kept, the marked item moves in front of it and is
+sent, and the loop resumes after it (`src/utils/queueSendBetween.ts`).
 
 `itemHasInFlightProgress`, `applyErrorTransition`, and `applyResetToPending` are
 all pure (no `vscode` imports) and unit-tested in
