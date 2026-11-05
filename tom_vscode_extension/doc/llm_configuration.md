@@ -172,8 +172,8 @@ Per-configuration overrides live directly on the configuration entry:
 
 ```jsonc
 {
-  "id": "bomber-gemma4-26b-8001",
-  "model": "gemma4-26b-a4b",
+  "id": "macpro2023-gemma4-26b-omlx",
+  "model": "Gemma4:26B",
   "historyMode": "trim_and_summary",
   "rawTurnsKept": 6,
   "maxHistoryTokens": 12000,
@@ -343,7 +343,7 @@ The Local LLM transport speaks two protocols, selected per configuration by
 | `'openai'` | `GET /v1/models` | `POST /v1/chat/completions` | **Any OpenAI-compatible server** — vLLM, LM Studio, llama.cpp (`llama-server`), and similar |
 
 `ollamaUrl` is the base URL for **both** styles (the field name is historical);
-point it at the OpenAI-compatible server's root (e.g. `http://bomber.vpn:8001`)
+point it at the OpenAI-compatible server's root (e.g. `http://macpro2023.vpn:8001`)
 and the handler appends the right path. `keepAlive` is an Ollama parameter and is
 **ignored** for `apiStyle: 'openai'`. Tool-call support varies by backend — set
 `toolsEnabled: false` for a server that lacks a tool-call parser (e.g. a bare
@@ -477,7 +477,7 @@ value of the wrong type is ignored (`src/utils/compactionQuestOverride.ts`).
 The Anthropic handler applies it for the window's quest; the Status Page and
 the Local LLM handler show and use the workspace setting.
 
-## 8. Example walk-through — `Gemma4:26b-bomber` with the new defaults
+## 8. Example walk-through — a Local LLM on macpro2023 with the new defaults
 
 Config (relevant excerpt):
 
@@ -486,11 +486,11 @@ Config (relevant excerpt):
   "localLlm": {
     "configurations": [
       {
-        "id": "bomber-gemma4-26b-8001",
-        "name": "gemma4-26b-a4b on bomber.vpn:8001 (vLLM)",
+        "id": "macpro2023-gemma4-26b-omlx",
+        "name": "Gemma4:26B on macpro2023 (oMLX)",
         "apiStyle": "openai",
-        "ollamaUrl": "http://bomber.vpn:8001",
-        "model": "gemma4-26b-a4b",
+        "ollamaUrl": "http://macpro2023.vpn:8001",
+        "model": "Gemma4:26B",
         "temperature": 1,
         "stripThinkingTags": true,
         "maxRounds": 400,
@@ -507,12 +507,12 @@ Config (relevant excerpt):
     ]
   },
   "compaction": {
-    "compactionModel": "localLlm:bomber-gemma4-26b-8001",
-    "memoryExtractionModel": "localLlm:bomber-gemma4-26b-8001",
+    "compactionModel": "anthropic:haiku-5-5-agent",
+    "memoryExtractionModel": "anthropic:haiku-5-5-agent",
     "compactionTemplateId": "default-compaction",
     "memoryExtractionTemplateId": "default-memory-extraction",
     "compactionMaxRounds": 40,
-    "maxHistoryTokens": 16000,
+    "maxHistoryTokens": 10000,
     "historyMaxChars": 60000,
     "memoryMaxChars": 100000,
     "rawTurnsKept": 4,
@@ -524,6 +524,11 @@ Config (relevant excerpt):
   }
 }
 ```
+
+`compaction.maxHistoryTokens` (10 000) is the history budget of every configuration
+that states none — the Anthropic configurations keep it so; this Local LLM
+configuration states its own 16 000. Compaction and memory extraction run on
+the Haiku 5.5 Agent SDK configuration, whatever the conversation runs on.
 
 ### What happens turn by turn
 
