@@ -300,6 +300,18 @@ export async function handleIssuesPanelMessage(msg: any, webview: vscode.Webview
                 columnLabels: config.columnLabels, growthPriority: config.growthPriority,
                 configError: null, configSection: `issuePanels.${panelName}`, configFilePath,
             });
+            // "My Repos (<account>)": the account's own repos (no forks) among these, when the
+            // provider knows the signed-in account. Sent after the list: it may ask GitHub.
+            if (provider.accountRepos && repos.length > 0) {
+                try {
+                    const mine = await provider.accountRepos(repos.map((r) => r.id));
+                    if (mine) {
+                        webview.postMessage({ type: 'accountRepos', account: mine.account, repoIds: mine.repoIds, panelMode: mode });
+                    }
+                } catch {
+                    // Optional: without an answer the panel simply offers no "My Repos".
+                }
+            }
             break;
         }
 

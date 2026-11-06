@@ -36,6 +36,10 @@
     var visibleColumns = [];
     var manualWidths = {};
     var allReposOption = true;
+    // "My Repos (<account>)": the signed-in account's own repos, no forks (host: accountRepos).
+    var accountName = '';
+    var accountRepoIds = [];
+    var MINE = '__mine__';
     var configErrorMsg = null;
     var configSectionName = '';
     var configFilePathStr = '';
@@ -122,8 +126,14 @@
                 else { renderRepoDropdown(); }
                 break;
 
+            case 'accountRepos':
+                accountName = msg.account || '';
+                accountRepoIds = msg.repoIds || [];
+                addAccountOption();
+                break;
+
             case 'issues':
-                if (currentRepo && currentRepo.id === '__all__') {
+                if (currentRepo && (currentRepo.id === '__all__' || currentRepo.id === MINE)) {
                     var tagged = (msg.issues || []).map(function(iss) { iss._repoId = msg.repoId; return iss; });
                     allIssues = allIssues.concat(tagged);
                 } else {
@@ -255,6 +265,7 @@
     function renderRepoDropdown() {
         var html = '<option value="">-- Select Repo --</option>';
         if (allReposOption) { html += '<option value="__all__">All Repos</option>'; }
+        if (accountName) { html += accountOptionHtml(); }
         for (var i = 0; i < repos.length; i++) {
             html += '<option value="' + escapeHtml(repos[i].id) + '">' + escapeHtml(repos[i].displayName) + '</option>';
         }
@@ -274,7 +285,10 @@
     }
     repoSelect.addEventListener('change', function() {
         var val = repoSelect.value;
-        if (val === '' || val === '__all__') {
+        if (val === MINE) {
+            currentRepo = { id: MINE, displayName: 'My Repos (' + accountName + ')' };
+            loadReposIssues(accountRepoIds);
+        } else if (val === '' || val === '__all__') {
             currentRepo = val === '__all__' ? { id: '__all__', displayName: 'All Repos' } : null;
             if (val === '__all__') { loadAllIssues(); }
             else { allIssues = []; issues = []; renderIssueList(); }
@@ -289,22 +303,40 @@
     });
     refreshBtn.addEventListener('click', function() {
         if (currentRepo && currentRepo.id === '__all__') { loadAllIssues(); }
+        else if (currentRepo && currentRepo.id === MINE) { loadReposIssues(accountRepoIds); }
         else if (currentRepo) { loadIssues(); }
     });
 
     function loadIssues() {
-        if (!currentRepo || currentRepo.id === '__all__') return;
+        if (!currentRepo || currentRepo.id === '__all__' || currentRepo.id === MINE) return;
         allIssues = [];
         issueListEl.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
         vscode.postMessage({ type: 'loadIssues', repoId: currentRepo.id, state: 'all', panelMode: _mode });
     }
     function loadAllIssues() {
+        loadReposIssues(repos.map(function(r) { return r.id; }));
+    }
+    function loadReposIssues(ids) {
         allIssues = [];
         issueListEl.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
-        if (repos.length === 0) { issues = []; renderIssueList(); return; }
-        for (var i = 0; i < repos.length; i++) {
-            vscode.postMessage({ type: 'loadIssues', repoId: repos[i].id, state: 'all', panelMode: _mode });
+        if (ids.length === 0) { issues = []; renderIssueList(); return; }
+        for (var i = 0; i < ids.length; i++) {
+            vscode.postMessage({ type: 'loadIssues', repoId: ids[i], state: 'all', panelMode: _mode });
         }
+    }
+    function accountOptionHtml() {
+        return '<option value="' + MINE + '" title="' + accountRepoIds.length + ' repo(s) of ' + escapeHtml(accountName) + ', no forks">My Repos (' + escapeHtml(accountName) + ')</option>';
+    }
+    // The account's repos arrive after the list: add the option without changing the selection.
+    function addAccountOption() {
+        if (!accountName || repoSelect.querySelector('option[value="' + MINE + '"]')) return;
+        var anchor = repoSelect.querySelector('option[value="__all__"]') || repoSelect.querySelector('option[value=""]');
+        // Why createElement: an option parsed inside a scratch <select> arrives selected and would take the selection.
+        var opt = document.createElement('option');
+        opt.value = MINE;
+        opt.textContent = 'My Repos (' + accountName + ')';
+        opt.title = accountRepoIds.length + ' repo(s) of ' + accountName + ', no forks';
+        if (anchor && anchor.nextSibling) { repoSelect.insertBefore(opt, anchor.nextSibling); } else { repoSelect.appendChild(opt); }
     }
     function loadComments() {
         if (!selectedIssue || !currentRepo) return;
@@ -773,7 +805,7 @@
         if (isNewIssueMode) {
             var title = titleInput.value.trim();
             if (!title) { showError('Please enter a title'); return; }
-            if (!currentRepo || currentRepo.id === '__all__') { showError('Please select a specific repo to create an issue'); return; }
+            if (!currentRepo || currentRepo.id === '__all__' || currentRepo.id === MINE) { showError('Please select a specific repo to create an issue'); return; }
             var body = inputText.value.trim();
             if (attachments.length > 0) {
                 body += '\n\n---\nAttachments:\n';

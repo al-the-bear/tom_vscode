@@ -124,6 +124,15 @@ export interface IssueProvider {
 
     /** Delete an attachment from an issue. */
     deleteAttachment?(repoId: string, issueNumber: number, attachmentId: string): Promise<void>;
+
+    // ---- Optional: the signed-in account's own repos ----
+
+    /**
+     * Of `repoIds`, the ones the signed-in account owns that are not forks
+     * ("My Repos (<account>)" in the panel); undefined when no account is
+     * signed in or the provider has no notion of one.
+     */
+    accountRepos?(repoIds: string[]): Promise<{ account: string; repoIds: string[] } | undefined>;
 }
 
 // ============================================================================

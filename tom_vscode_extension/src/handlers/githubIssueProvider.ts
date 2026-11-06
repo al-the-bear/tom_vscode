@@ -18,8 +18,12 @@ import {
     AttachmentInfo,
 } from './issueProvider';
 
+import { ownAccountRepoIds } from '../utils/accountRepos';
+
 import {
     discoverWorkspaceRepos,
+    getAccountLogin,
+    isForkRepo,
     listIssues as ghListIssues,
     getIssue as ghGetIssue,
     createIssue as ghCreateIssue,
@@ -49,6 +53,16 @@ export class GitHubIssueProvider implements IssueProvider {
             id: r.displayName,       // "owner/repo"
             displayName: r.displayName,
         }));
+    }
+
+    async accountRepos(repoIds: string[]): Promise<{ account: string; repoIds: string[] } | undefined> {
+        const login = await getAccountLogin();
+        if (!login) { return undefined; }
+        const own = await ownAccountRepoIds(repoIds, login, (id) => {
+            const { owner, repo } = this._split(id);
+            return isForkRepo(owner, repo);
+        });
+        return { account: login, repoIds: own };
     }
 
     // ------------------------------------------------------------------

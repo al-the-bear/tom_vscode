@@ -181,6 +181,10 @@ The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Ses
 
 VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application, MarkText unless configured otherwise); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
 
+### Issues Panel
+
+The @WS **Issues** section lists the issues of the repositories it finds in the workspace's git remotes, plus the ones the panel configuration adds (`issuePanels`; **Tests** works the same for test reports). The repository dropdown offers one repository, **All Repos**, or **My Repos (<account>)**: the repositories of the GitHub account VS Code is signed in with, without forks and without clones of other people's repositories. The choice appears once the account's repositories are known (it asks GitHub whether each is a fork) and only when an account is signed in. New issues need one repository chosen.
+
 ### Quest TODO Panel
 
 The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.

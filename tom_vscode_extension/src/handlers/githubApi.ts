@@ -78,6 +78,15 @@ async function getToken(): Promise<string> {
     return _cachedToken;
 }
 
+/**
+ * The login of the GitHub account VS Code is signed in with, without asking
+ * to sign in; undefined when no session exists.
+ */
+export async function getAccountLogin(): Promise<string | undefined> {
+    const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false, silent: true });
+    return session?.account.label || undefined;
+}
+
 /** Clear cached token (e.g. on auth failure) */
 export function clearTokenCache(): void {
     _cachedToken = undefined;
@@ -223,6 +232,18 @@ export async function updateIssue(
 // ============================================================================
 // Repo Discovery
 // ============================================================================
+
+/** Whether `owner/repo` is a fork, from GitHub (cached for the session). */
+const _forkCache = new Map<string, boolean>();
+export async function isForkRepo(owner: string, repo: string): Promise<boolean> {
+    const key = `${owner}/${repo}`.toLowerCase();
+    const cached = _forkCache.get(key);
+    if (cached !== undefined) { return cached; }
+    const info = await apiRequest<{ fork?: boolean }>('GET', `/repos/${owner}/${repo}`);
+    const fork = info?.fork === true;
+    _forkCache.set(key, fork);
+    return fork;
+}
 
 /**
  * Discover GitHub repos from workspace git remotes.
