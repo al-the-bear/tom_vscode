@@ -528,7 +528,9 @@ mark delimiters, and the new text was written unmarked.
 | `tomAi_specEditComment` | Replace a comment's text; id and author stay. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. Deciding a change with a comment keeps the comment and records `accepted` / `rejected` in its quote. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCommentChange` | Comment on a change mark by its `M-<n>` id (SOM §11.9.3): a change comment `{>> [~~ old ~> new ~~] why? <<}` right after the change, quoting it so it stays understandable once the change is decided; answers its `commentId`. One per change; `author` writes an attribution token. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specEditMarkComment` | Replace the comment of an inline mark by id — a `{>> comment <<}`, a change comment (its quote kept) or a commented highlight. Comment blocks (`C-<n>`) are `tomAi_specEditComment`'s. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every comment and question removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before). | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specWriteAnswers` | Write `tomAi_specExtractAnswers`' text to a step folder's `answers.md` (`output`): `status` new / changed / unchanged; other text is refused without `overwrite`; annotations the runtime cannot read are refused (`annotationsMalformed`); `dryRun` returns the diff. Not a batch op. | ✅ | ✅ | ⚪ | ✅ |
 

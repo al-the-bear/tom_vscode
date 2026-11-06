@@ -83,7 +83,11 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
 3. **Apply and close.** Once an answer or a comment has been worked into the
    document, `tomAi_specResolveAnnotation` removes it. Change marks are decided
    with `tomAi_specDecideMarks`: by id at the `marksRevision` from step 1, or
-   `all: "accept"` under a path.
+   `all: "accept"` under a path. To ask about a change rather than decide it,
+   `tomAi_specCommentChange` writes a change comment that quotes it (SOM
+   §11.9.3); it stays when the change is decided, its quote then recording
+   `accepted` or `rejected`. `tomAi_specEditMarkComment` rewrites any inline
+   comment by mark id.
 4. **Read the result.** `tomAi_specRender` with `withoutAnnotations: true`
    shows the document as it reads once every mark is accepted and every comment
    and question removed; the file is not changed.

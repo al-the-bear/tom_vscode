@@ -51,9 +51,13 @@
  *   MD-23 the navigation shows how many targets the ticked kinds have and which one is current (`2/4`,
  *         `–/4` before the first step), following each step, each change of the kinds and a change of the
  *         document (a question answered is no longer a target of Unanswered)
- *   MD-24 an inline comment (alone or a highlight's) is edited in place: the editor opens on its text and
- *         saves the mark's line with the new comment; empty removes the comment (a highlight keeps its text
- *         and offers Add a comment); a comment holding `<<}` is refused in the editor
+ *   MD-24 an inline comment is edited in place: a lone comment through the runtime (a reviewMark `edit`;
+ *         saved empty, `remove`); a highlight's comment emptied is written here, the highlight staying and
+ *         offering Add a comment; a comment holding a mark delimiter is refused in the editor
+ *   MD-25 comments on changes (SOM §11.9.3): a change's own comment is drawn inside it once (no quote shown
+ *         again) with its edit / remove; the change keeps accept / reject; a change without one has Comment,
+ *         which opens an empty editor and posts a reviewMark `comment`; a change comment left by a decided
+ *         change shows the change and its outcome as a label; both count as inline comments
  */
 
 import test, { describe } from 'node:test';
@@ -754,17 +758,26 @@ describe('Markdown Browser editing', () => {
         send(window, content(['# Notes', '', 'Orders {== are archived ==}{>> how long? <<} nightly{>> check <<}.'].join('\n')));
         window.document.getElementById('editModeBtn').click();
         const notes = (): Win[] => $(window, '.mdb-rm[data-kind="note"]');
+        const last = (type: string): Win => [...posted].reverse().find((m) => m.type === type);
         assert.deepEqual(notes().map((n) => n.querySelector('.mdb-rm-edit').title), ['Edit this comment', 'Edit this comment']);
 
-        // The lone comment, in place.
+        // The lone comment: the runtime writes it (editMarkComment).
         notes()[1].querySelector('.mdb-rm-edit').click();
         let area = $(window, '.mdb-editor textarea')[0];
         assert.equal(area.value, 'check', 'opened on the comment text');
         area.value = 'check twice';
         $(window, '.mdb-editor-btn')[0].click();
-        assert.deepEqual((({ startLine, endLine, replacement }) => ({ startLine, endLine, replacement }))(lastEdit(posted)),
-            { startLine: 2, endLine: 3, replacement: 'Orders {== are archived ==}{>> how long? <<} nightly{>> check twice <<}.' });
-        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+        assert.deepEqual((({ startLine, endLine, markup, occurrence, decision, text }) => ({ startLine, endLine, markup, occurrence, decision, text }))(last('reviewMark')),
+            { startLine: 2, endLine: 3, markup: '{>> check <<}', occurrence: 0, decision: 'edit', text: 'check twice' });
+        assert.equal($(window, '.mdb-editor').length, 0, 'the editor closed');
+        send(window, { type: 'actionDone' });
+
+        // Saved empty, a lone comment is removed.
+        notes()[1].querySelector('.mdb-rm-edit').click();
+        $(window, '.mdb-editor textarea')[0].value = '  ';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{>> check <<}', 'remove']);
+        send(window, { type: 'actionDone' });
 
         // The highlight's, emptied: the comment goes, the highlight stays — and offers to add one.
         notes()[0].querySelector('.mdb-rm-edit').click();
@@ -772,16 +785,68 @@ describe('Markdown Browser editing', () => {
         assert.equal(area.value, 'how long?');
         area.value = '';
         $(window, '.mdb-editor-btn')[0].click();
-        assert.equal(lastEdit(posted).replacement, 'Orders {== are archived ==} nightly{>> check twice <<}.');
+        assert.equal(lastEdit(posted).replacement, 'Orders {== are archived ==} nightly{>> check <<}.');
         send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
         assert.equal(notes()[0].querySelector('.mdb-rm-edit').title, 'Add a comment');
 
-        // A comment cannot hold its own end marker: the editor says so and stays.
+        // A comment cannot hold a mark delimiter: the editor says so and keeps the text.
         notes()[1].querySelector('.mdb-rm-edit').click();
         const before = posted.length;
         $(window, '.mdb-editor textarea')[0].value = 'a <<} b';
         $(window, '.mdb-editor-btn')[0].click();
         assert.equal(posted.length, before, 'nothing written');
         assert.match(window.document.querySelector('.mdb-editor-status').textContent, /cannot contain/);
+    });
+
+    test('MD-25: comments on changes', () => {
+        const { window, posted } = setup();
+        send(window, content(['# Notes', '',
+            'Expire after {~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<} minutes{++ on shared devices ++}.', '',
+            'Kept 15{>> [~~ 30 ~> 15 ~~ | accepted] why shorter? <<} days.'].join('\n')));
+        window.document.getElementById('editModeBtn').click();
+        const last = (type: string): Win => [...posted].reverse().find((m) => m.type === type);
+        const changes = $(window, '.mdb-rm[data-kind="change"]');
+        assert.equal(changes.length, 2);
+
+        // The commented change: its comment is drawn inside it, once, with its own buttons; no Comment button.
+        const sub = changes[0];
+        assert.equal(sub.dataset.raw, '{~~ 30 ~> 15 ~~}');
+        assert.equal(sub.querySelector(':scope > .mdb-rm-actions .mdb-rm-comment'), null, 'it has its comment');
+        const own = sub.querySelector('.mdb-rm[data-kind="note"]');
+        assert.equal(own.dataset.raw, '{>> [~~ 30 ~> 15 ~~] why shorter? <<}');
+        assert.equal(own.textContent.trim(), 'why shorter?', 'the quote is not shown a second time');
+        own.querySelector('.mdb-rm-edit').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, 'why shorter?', 'opened on the comment, without the quote');
+        area.value = 'is 15 enough?';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision, last('reviewMark').text],
+            ['{>> [~~ 30 ~> 15 ~~] why shorter? <<}', 'edit', 'is 15 enough?']);
+        send(window, { type: 'actionDone' });
+        sub.querySelector(':scope > .mdb-rm-actions .mdb-rm-accept').click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{~~ 30 ~> 15 ~~}', 'accept'], 'the change is decided on its own');
+        send(window, { type: 'actionDone' });
+
+        // A change without a comment: Comment opens an empty editor; the runtime writes it.
+        const add = changes[1];
+        add.querySelector('.mdb-rm-comment').click();
+        const box = $(window, '.mdb-editor textarea')[0];
+        assert.equal(box.value, '');
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.match(window.document.querySelector('.mdb-editor-status').textContent, /Write the comment first/);
+        box.value = 'needed?';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual((({ markup, occurrence, decision, text }) => ({ markup, occurrence, decision, text }))(last('reviewMark')),
+            { markup: '{++ on shared devices ++}', occurrence: 0, decision: 'comment', text: 'needed?' });
+        send(window, { type: 'actionDone' });
+
+        // A change comment left by a decided change: the change and its outcome as a label, then the comment.
+        const notes = $(window, '.mdb-rm[data-kind="note"]');
+        const decided = notes[notes.length - 1];
+        assert.equal(decided.dataset.raw, '{>> [~~ 30 ~> 15 ~~ | accepted] why shorter? <<}');
+        assert.match(decided.textContent, /30\s*→\s*15\s*\(accepted\):\s*why shorter\?/);
+        decided.querySelector('.mdb-rm-remove').click();
+        assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{>> [~~ 30 ~> 15 ~~ | accepted] why shorter? <<}', 'remove']);
+        assert.equal(notes.length, 2, 'both change comments count as inline comments for the navigation');
     });
 });

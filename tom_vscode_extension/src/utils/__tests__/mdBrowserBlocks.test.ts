@@ -75,6 +75,8 @@ interface BlocksApi {
     mdbCountLabel(index: number, total: number): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
     mdbEditInlineComment(source: string, raw: string, occurrence: number, comment: string): { text: string } | { error: string };
+    mdbChangeQuote(text: string): { kind: string; oldText: string; newText: string; outcome: string | null; comment: string } | null;
+    mdbChangeWithComment(src: string): { mark: { raw: string }; token: string; comment: { raw: string; text: string } | null; raw: string } | null;
 }
 
 function load(): BlocksApi {
@@ -334,6 +336,32 @@ describe('Markdown Browser source mapping', () => {
         assert.match((edit(src, '{>> first <<}', 0, 'a <<} b') as { error: string }).error, /cannot contain/);
         assert.match((edit(src, '{>> first <<}', 2, 'x') as { error: string }).error, /no longer where it was/);
         assert.match((edit(src, '{++ add ++}', 0, 'x') as { error: string }).error, /Not an inline comment/);
+    });
+    test('MB-17c: change comments (SOM §11.9.3)', () => {
+        const json = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
+        assert.deepEqual(json(api.mdbCriticMark('{>> [~~ 30 ~> 15 ~~] why shorter? <<} rest')), {
+            raw: '{>> [~~ 30 ~> 15 ~~] why shorter? <<}', kind: 'comment', text: 'why shorter?',
+            quote: { kind: 'substitution', oldText: '30', newText: '15', outcome: null },
+        });
+        assert.deepEqual(json(api.mdbChangeQuote('[++ on shared devices ++ | accepted ] needed?')),
+            { kind: 'addition', oldText: '', newText: 'on shared devices', outcome: 'accepted', comment: 'needed?' });
+        assert.deepEqual(json(api.mdbChangeQuote(' [-- old --]\tgone?')), { kind: 'deletion', oldText: 'old', newText: '', outcome: null, comment: 'gone?' });
+        for (const plain of ['[see FR-3] x', 'no quote', '[~~ no arrow ~~] x', '[++ never closed']) {
+            assert.equal(api.mdbChangeQuote(plain), null, plain);
+        }
+        assert.equal((json(api.mdbCriticMark('{>> [see FR-3] note <<}')) as { text: string }).text, '[see FR-3] note', 'a plain comment keeps its text');
+
+        // A change with its own comment, its attribution token between; anything else is not attached.
+        const attached = api.mdbChangeWithComment('{~~ 30 ~> 15 ~~}{@bob}{>> [~~ 30 ~> 15 ~~] why? <<} minutes');
+        assert.deepEqual(json(attached && { token: attached.token, comment: attached.comment?.raw, raw: attached.raw }),
+            { token: '{@bob}', comment: '{>> [~~ 30 ~> 15 ~~] why? <<}', raw: '{~~ 30 ~> 15 ~~}{@bob}{>> [~~ 30 ~> 15 ~~] why? <<}' });
+        for (const loose of ['{~~ 30 ~> 15 ~~} {>> [~~ 30 ~> 15 ~~] why? <<}', '{~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 20 ~~] why? <<}',
+            '{~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~ | accepted] why? <<}', '{~~ 30 ~> 15 ~~}{>> plain <<}']) {
+            const parsed = api.mdbChangeWithComment(loose);
+            assert.equal(parsed?.comment, null, loose);
+            assert.equal(parsed?.raw, '{~~ 30 ~> 15 ~~}');
+        }
+        assert.equal(api.mdbChangeWithComment('{>> note <<}'), null, 'not a change');
     });
     test('MB-18: questions and their options', () => {
         const lines = [

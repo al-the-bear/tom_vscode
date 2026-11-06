@@ -41,6 +41,10 @@
  *         it, trimmed, case-sensitive) and `afterTextContains` (anywhere in it) on insertComment, insertQuestion and
  *         their batch ops, matched against the runtime's paragraph listing without the annotation blocks; no match
  *         is refused (`anchorNotFound`), more than one (`anchorAmbiguous`) with the candidates; one anchor only
+ *   SA-19 comments on changes (SOM §11.9.3): tomAi_specCommentChange writes a change comment quoting the change
+ *         and answers its id; the listing links them (commentId / changeId / quotedChange); a second comment, a
+ *         mark that is not a change and an empty text are refused; tomAi_specEditMarkComment keeps the quote;
+ *         deciding the change records the outcome in the quote; both are batch ops of tomAi_specApplyEdits
  */
 
 import test, { before, describe } from 'node:test';
@@ -69,7 +73,7 @@ import {
     specSetAnswerImpl,
 } from '../spec-annotation-tools.js';
 import { specRenderImpl } from '../spec-validate-tools.js';
-import { specRemoveAllAnnotationsImpl } from '../spec-annotation-tools.js';
+import { specCommentChangeImpl, specEditMarkCommentImpl, specRemoveAllAnnotationsImpl } from '../spec-annotation-tools.js';
 import { SPEC_ANSWERS_TOOLS, answersLabel, specExtractAnswersImpl, specWriteAnswersImpl } from '../spec-answers-tools.js';
 import { specSetFormFieldImpl } from '../spec-edit-tools.js';
 import { READ_ONLY_TOOLS } from '../tool-executors.js';
@@ -302,9 +306,9 @@ describe('TomSpecs annotation tools', () => {
         const floor = new Set(READ_ONLY_TOOLS.map((t) => t.name));
         const names = SPEC_ANNOTATION_TOOLS.map((t) => t.name).sort();
         assert.deepEqual(names, [
-            'tomAi_specAnnotations', 'tomAi_specAssignCommentIds', 'tomAi_specDecideMarks', 'tomAi_specEditComment',
-            'tomAi_specInsertComment', 'tomAi_specInsertQuestion', 'tomAi_specRemoveAllAnnotations', 'tomAi_specResolveAnnotation',
-            'tomAi_specSetAnswer',
+            'tomAi_specAnnotations', 'tomAi_specAssignCommentIds', 'tomAi_specCommentChange', 'tomAi_specDecideMarks',
+            'tomAi_specEditComment', 'tomAi_specEditMarkComment', 'tomAi_specInsertComment', 'tomAi_specInsertQuestion',
+            'tomAi_specRemoveAllAnnotations', 'tomAi_specResolveAnnotation', 'tomAi_specSetAnswer',
         ]);
         for (const t of SPEC_ANNOTATION_TOOLS) {
             if (t.name === 'tomAi_specAnnotations') {
@@ -559,4 +563,46 @@ describe('TomSpecs annotation tools', () => {
         assert.equal(batch.ok, true, JSON.stringify(batch));
         assert.equal(await contextOf('In a batch.'), 'Invoices go to finance.');
     });
+
+    // Mark ids are the runtime's `M-<n>`, not camelCase keys.
+    /* eslint-disable @typescript-eslint/naming-convention */
+    test('SA-19: comments on changes', async () => {
+        const file = await annotated();
+        const r = JSON.parse(await withTiming('tomAi_specCommentChange:typical', () =>
+            specCommentChangeImpl(deps, { file, markId: 'M-2', text: 'why longer?' })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.markId, 'M-2');
+        assert.match(String(r.commentId), /^M-\d+$/);
+        assert.match(read(file), /Orders are \{\+\+ always \+\+\} kept \{~~ two ~> three ~~\}\{>> \[~~ two ~> three ~~\] why longer\? <<\} years\./);
+        const marks = (await list(file, { kinds: ['mark'] })).marks as Json[];
+        const change = marks.find((m) => m.markup === '{~~ two ~> three ~~}');
+        const comment = marks.find((m) => m.id === r.commentId);
+        assert.equal(change.commentId, r.commentId);
+        assert.equal(comment.changeId, change.id);
+        assert.deepEqual(comment.quotedChange, { kind: 'substitution', oldText: 'two', newText: 'three', outcome: null });
+
+        assert.equal((await run(specCommentChangeImpl, { file, markId: change.id, text: 'again?' })).code, 'annotationRefused', 'one comment per change');
+        assert.equal((await run(specCommentChangeImpl, { file, markId: r.commentId, text: 'x' })).code, 'annotationRefused', 'not a change');
+        assert.equal((await run(specCommentChangeImpl, { file, markId: 'M-1', text: '' })).ok, false, 'an empty text');
+
+        const edited = JSON.parse(await withTiming('tomAi_specEditMarkComment:typical', () =>
+            specEditMarkCommentImpl(deps, { file, markId: r.commentId, text: 'is three enough?' })));
+        assert.equal(edited.ok, true, JSON.stringify(edited));
+        assert.match(read(file), /\{>> \[~~ two ~> three ~~\] is three enough\? <<\}/, 'the quote stays');
+        assert.equal((await run(specEditMarkCommentImpl, { file, markId: 'M-1', text: 'x' })).code, 'annotationRefused', 'a change holds no comment');
+
+        const decided = await run(specDecideMarksImpl, { file, decisions: { [change.id]: 'accept' } });
+        assert.equal(decided.ok, true, JSON.stringify(decided));
+        assert.match(read(file), /kept three\{>> \[~~ two ~> three ~~ \| accepted\] is three enough\? <<\} years\./, 'the outcome recorded');
+
+        // The same through tomAi_specApplyEdits.
+        const batchFile = await annotated();
+        const batch = await run(specApplyEditsImpl, { file: batchFile, edits: [
+            { op: 'commentChange', markId: 'M-1', text: 'why always?' },
+            { op: 'editMarkComment', markId: 'M-2', text: 'always, really?' },
+        ] });
+        assert.equal(batch.ok, true, JSON.stringify(batch));
+        assert.match(read(batchFile), /\{\+\+ always \+\+\}\{>> \[\+\+ always \+\+\] always, really\? <<\}/);
+    });
+    /* eslint-enable @typescript-eslint/naming-convention */
 });

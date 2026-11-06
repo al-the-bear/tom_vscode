@@ -390,6 +390,8 @@ function inputs(): Record<string, Input> {
         tomAi_specEditComment: (p: Record<string, Json>) => ({ file: SPEC, commentId: find(p.tomAi_specInsertComment, 'id'), text: 'The comment, edited.' }),
         tomAi_specAssignCommentIds: { file: SPEC },
         tomAi_specResolveAnnotation: { file: SPEC, id: 'BQ-9001' },
+        tomAi_specCommentChange: { file: SPEC, markId: 'M-1', text: 'A comment on a change from the MCP test.' },
+        tomAi_specEditMarkComment: { file: SPEC, markId: 'M-1', text: 'An inline comment, edited by the MCP test.' },
         tomAi_specDecideMarks: { file: SPEC, all: 'accept' },
         tomAi_specRemoveAllAnnotations: { file: SPEC },
         tomAi_specCodeSpecsGate: { file: SPEC },

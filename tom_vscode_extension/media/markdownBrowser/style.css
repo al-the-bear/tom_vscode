@@ -468,3 +468,10 @@ body.mdb-edit-mode .mdb-rm-actions { display: inline-flex; gap: 1px; margin-left
     box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
 }
 body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
+/* A change comment (SOM §11.9.3): the change it was about as a label, its
+   outcome once the change is decided; drawn beside its change while attached. */
+.markdown-body .mdb-cm-quote { font-style: normal; opacity: 0.85; margin-right: 3px; }
+.markdown-body .mdb-cm-quote del { text-decoration: line-through; }
+.markdown-body .mdb-cm-outcome { font-style: italic; opacity: 0.8; }
+.markdown-body .mdb-cm-change-comment { margin-left: 2px; }
+.markdown-body .mdb-rm-token { font-size: 0.85em; opacity: 0.7; margin: 0 2px; }

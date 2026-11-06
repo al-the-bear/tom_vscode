@@ -12,12 +12,18 @@
  *   RM-5 a mark that is not in the text is refused, the text unchanged
  *   RM-6 in a file: the block's lines must still be what the browser showed; the decided block replaces
  *        them, `remove` takes a comment out; a changed file is refused
+ *   RM-7 comment a change (SOM §11.9.3): the change comment is written right after it, quoting it; a change
+ *        that has one already, a mark that is not a change and an empty or delimiter text are refused
+ *   RM-8 edit an inline comment: a lone comment, a highlight's, a change comment (its quote kept); a mark
+ *        without a comment is refused
+ *   RM-9 deciding a commented change keeps its comment and records the outcome in the quote; accept all
+ *        leaves change comments; `comment` / `edit` in a file go through the same line check
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideAllChanges, decideMark, reviewMarkEdit } from '../review-marks.js';
+import { commentMark, decideAllChanges, decideMark, reviewMarkEdit } from '../review-marks.js';
 
 const TEXT = 'The system {++ must ++}{-- should --} keep {~~ two ~> three ~~} copies. '
     + '{== Orders ==}{>> how long? <<} are kept{>> check with OPS <<}.';
@@ -76,5 +82,46 @@ describe('review marks', () => {
         const stale = reviewMarkEdit(file, { ...edit, expected: 'something else', markup: '{++ two ++}', occurrence: 0, decision: 'accept' });
         assert.equal(stale.ok, false);
         assert.match(stale.ok ? '' : stale.reason, /changed since/);
+    });
+
+    test('RM-7: comment a change', () => {
+        const text = 'Expire after {~~ 30 ~> 15 ~~} minutes{++ on shared devices ++}.';
+        const done = commentMark(text, { markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, op: 'comment', comment: '  why shorter?  ' });
+        assert.deepEqual(done, { ok: true, text: 'Expire after {~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<} minutes{++ on shared devices ++}.' });
+        const again = commentMark(done.ok ? done.text : '', { markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, op: 'comment', comment: 'and?' });
+        assert.equal(again.ok, false, 'a change has one comment');
+        const added = commentMark(text, { markup: '{++ on shared devices ++}', occurrence: 0, op: 'comment', comment: 'needed?' });
+        assert.match(added.ok ? added.text : '', /\{\+\+ on shared devices \+\+\}\{>> \[\+\+ on shared devices \+\+\] needed\? <<\}/);
+        for (const bad of ['', '   ', 'see {++ x ++}']) {
+            assert.equal(commentMark(text, { markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, op: 'comment', comment: bad }).ok, false, `refused: "${bad}"`);
+        }
+        const notChange = commentMark('A {>> note <<} b.', { markup: '{>> note <<}', occurrence: 0, op: 'comment', comment: 'x' });
+        assert.equal(notChange.ok, false);
+    });
+
+    test('RM-8: edit an inline comment', () => {
+        const lone = commentMark('A {>> note <<} b.', { markup: '{>> note <<}', occurrence: 0, op: 'edit', comment: 'better note' });
+        assert.equal(lone.ok, true);
+        assert.match(lone.ok ? lone.text : '', /^A \{>> ?better note ?<<\} b\.$/);
+        const hl = commentMark('{== x ==}{>> why <<} y', { markup: '{== x ==}{>> why <<}', occurrence: 0, op: 'edit', comment: 'because' });
+        assert.match(hl.ok ? hl.text : '', /^\{== x ==\}\{>> ?because ?<<\} y$/);
+        const withComment = 'after {~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<} minutes';
+        const cc = commentMark(withComment, { markup: '{>> [~~ 30 ~> 15 ~~] why shorter? <<}', occurrence: 0, op: 'edit', comment: 'is 15 enough?' });
+        assert.match(cc.ok ? cc.text : '', /\{>> \[~~ 30 ~> 15 ~~\] is 15 enough\? <<\}/, 'the quote stays');
+        assert.equal(commentMark('{++ x ++} y', { markup: '{++ x ++}', occurrence: 0, op: 'edit', comment: 'z' }).ok, false, 'no comment to edit');
+    });
+
+    test('RM-9: deciding a commented change, and in a file', () => {
+        const withComment = 'after {~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<} minutes';
+        const accepted = decideMark(withComment, { markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, decision: 'accept' });
+        assert.match(accepted.ok ? accepted.text : '', /^after 15\{>> \[~~ 30 ~> 15 ~~ \| accepted\] why shorter\? <<\} minutes$/);
+        const all = decideAllChanges(withComment, 'reject');
+        assert.equal(all.decided, 1, 'the comment is not a change');
+        assert.match(all.text, /^after 30\{>> \[~~ 30 ~> 15 ~~ \| rejected\] why shorter\? <<\} minutes$/);
+        const file = '# T\n\nExpire after {~~ 30 ~> 15 ~~} minutes.\n';
+        const edited = reviewMarkEdit(file, { startLine: 2, endLine: 3, expected: 'Expire after {~~ 30 ~> 15 ~~} minutes.', markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, decision: 'comment', text: 'why?' });
+        assert.deepEqual(edited, { ok: true, text: '# T\n\nExpire after {~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why? <<} minutes.\n' });
+        const stale = reviewMarkEdit(file, { startLine: 2, endLine: 3, expected: 'something else', markup: '{~~ 30 ~> 15 ~~}', occurrence: 0, decision: 'comment', text: 'why?' });
+        assert.equal(stale.ok, false);
     });
 });

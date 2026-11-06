@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbEditInlineComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -664,10 +664,13 @@ var MDB_CRITIC = [
  * The inline review mark at the very start of `src`, or null: `{++ added ++}`,
  * `{-- removed --}`, `{~~ old ~> new ~~}`, `{== text ==}` with an optional
  * `{>> comment <<}` right after it, or a `{>> comment <<}` alone. Texts are
- * trimmed; a mark with no text, or one never closed, is no mark.
+ * trimmed; a mark with no text, or one never closed, is no mark. A comment
+ * that starts with a quote of a change (SOM §11.9.3) carries `quote` (kind,
+ * oldText, newText, outcome) and its `text` is the comment after the quote.
  *
  * @param {string} src
- * @returns {{raw: string, kind: string, text: string, oldText?: string, newText?: string, comment?: string} | null}
+ * @returns {{raw: string, kind: string, text: string, oldText?: string, newText?: string, comment?: string,
+ *   quote?: {kind: string, oldText: string, newText: string, outcome: string | null}} | null}
  */
 function mdbCriticMark(src) {
     if (typeof src !== 'string' || src.charAt(0) !== '{') { return null; }
@@ -683,12 +686,92 @@ function mdbCriticMark(src) {
         }
         var text = m[1].trim();
         if (!text) { return null; }
-        /** @type {{raw: string, kind: string, text: string, comment?: string}} */
+        /** @type {{raw: string, kind: string, text: string, comment?: string, quote?: {kind: string, oldText: string, newText: string, outcome: string | null}}} */
         var out = { raw: m[0], kind: kind, text: text };
         if (kind === 'highlight' && m[2] !== undefined && m[2].trim()) { out.comment = m[2].trim(); }
+        // A comment that starts with a quote of a change is a change comment: its
+        // text is what follows the quote.
+        var quote = kind === 'comment' ? mdbChangeQuote(text) : null;
+        if (quote) {
+            out.quote = { kind: quote.kind, oldText: quote.oldText, newText: quote.newText, outcome: quote.outcome };
+            out.text = quote.comment;
+        }
         return out;
     }
     return null;
+}
+
+/** @type {Record<string, string>} */
+var MDB_QUOTE_KINDS = { '++': 'addition', '--': 'deletion', '~~': 'substitution' };
+
+/**
+ * The quote a change comment starts with (SOM §11.9.3), or null: `[++ added ++]`,
+ * `[-- removed --]`, `[~~ old ~> new ~~]`, after leading whitespace; it ends at
+ * the first later occurrence of the same delimiter followed (after spaces or
+ * tabs) by `]` or by `| accepted ]` / `| rejected ]`. A quote never closed, or
+ * a substitution quote without `~>`, is no quote.
+ *
+ * @param {string} text the comment's text
+ * @returns {{kind: string, oldText: string, newText: string, outcome: string | null, comment: string} | null}
+ */
+function mdbChangeQuote(text) {
+    var m = /^\s*\[(\+\+|--|~~)/.exec(String(text || ''));
+    if (!m) { return null; }
+    var delim = m[1];
+    var body = text.slice(m[0].length);
+    var esc = delim.replace(/[+~-]/g, '\\$&');
+    var close = new RegExp(esc + '[ \\t]*(?:\\|[ \\t]*(accepted|rejected)[ \\t]*)?\\]');
+    var c = close.exec(body);
+    if (!c) { return null; }
+    var inner = body.slice(0, c.index);
+    var kind = MDB_QUOTE_KINDS[delim];
+    var oldText = '';
+    var newText = '';
+    if (kind === 'substitution') {
+        var at = inner.indexOf('~>');
+        if (at < 0) { return null; }
+        oldText = inner.slice(0, at).trim();
+        newText = inner.slice(at + 2).trim();
+    } else if (kind === 'addition') {
+        newText = inner.trim();
+    } else {
+        oldText = inner.trim();
+    }
+    return { kind: kind, oldText: oldText, newText: newText, outcome: c[1] || null, comment: body.slice(c.index + c[0].length).trim() };
+}
+
+/**
+ * Does a change comment's quote name this change mark (its kind and trimmed texts)?
+ *
+ * @param {{kind: string, oldText: string, newText: string} | undefined | null} quote
+ * @param {{kind: string, text: string, oldText?: string, newText?: string} | undefined | null} mark
+ * @returns {boolean}
+ */
+function mdbQuoteMatches(quote, mark) {
+    if (!quote || !mark || quote.kind !== mark.kind) { return false; }
+    if (mark.kind === 'substitution') { return quote.oldText === mark.oldText && quote.newText === mark.newText; }
+    return mark.kind === 'addition' ? quote.newText === mark.text : quote.oldText === mark.text;
+}
+
+/**
+ * A change mark at the start of `src` with what directly follows it: an
+ * attribution token (`{@alice +bob}`, SOM §11.9.8) and the change's own
+ * comment — a change comment whose quote names this change and records no
+ * outcome, with no space between. Null when `src` starts with no change mark.
+ *
+ * @param {string} src
+ * @returns {{mark: object, token: string, comment: object | null, raw: string} | null}
+ */
+function mdbChangeWithComment(src) {
+    var mark = mdbCriticMark(src);
+    if (!mark || (mark.kind !== 'addition' && mark.kind !== 'deletion' && mark.kind !== 'substitution')) { return null; }
+    var rest = src.slice(mark.raw.length);
+    var tokenMatch = /^\{@[^{}\n]*\}/.exec(rest);
+    var token = tokenMatch ? tokenMatch[0] : '';
+    var after = rest.slice(token.length);
+    var next = after.charAt(0) === '{' ? mdbCriticMark(after) : null;
+    var comment = next && next.kind === 'comment' && next.quote && !next.quote.outcome && mdbQuoteMatches(next.quote, mark) ? next : null;
+    return { mark: mark, token: token, comment: comment, raw: mark.raw + (comment ? token + comment.raw : '') };
 }
 
 /**

@@ -49,7 +49,41 @@ export function decideMark(
     return { ok: true, text: doc.content(SCRATCH) ?? '' };
 }
 
-/** `text` with every change mark accepted or rejected; highlights and comments stay for their own decision. */
+/**
+ * `text` with a comment written through the runtime (SOM §11.9.3): `comment`
+ * puts a change comment, quoting the change, right after the
+ * `occurrence`-th change mark whose markup is `markup` (`commentChange`);
+ * `edit` replaces the comment of a comment mark, a change comment (its quote
+ * kept) or a commented highlight (`editMarkComment`). The runtime refuses an
+ * empty text, one holding a mark delimiter or a blank line, a change that has
+ * its comment already and a mark that is not a change (comment) or holds no
+ * comment (edit); its reason is passed on.
+ */
+export function commentMark(
+    text: string,
+    mark: { markup: string; occurrence: number; op: 'comment' | 'edit'; comment: string },
+): MarkDecisionResult {
+    const { doc, notes } = scratch(text);
+    const entry = notes.listMarks().filter((m) => m.markup === mark.markup)[mark.occurrence];
+    if (!entry) {
+        return { ok: false, reason: `The mark ${mark.markup} is not in the text (any more). Reload the document.` };
+    }
+    try {
+        if (mark.op === 'comment') {
+            notes.commentChange(entry.id, mark.comment.trim(), { revision: notes.revision() });
+        } else {
+            notes.editMarkComment(entry.id, mark.comment.trim(), { revision: notes.revision() });
+        }
+    } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+    return { ok: true, text: doc.content(SCRATCH) ?? '' };
+}
+
+/**
+ * `text` with every change mark accepted or rejected; highlights and comments
+ * stay for their own decision, and a change's comment records the outcome.
+ */
 export function decideAllChanges(text: string, decision: 'accept' | 'reject'): { text: string; decided: number } {
     const { doc, notes } = scratch(text);
     const changes = notes.listMarks().filter((m) => CHANGE_KINDS.has(m.markKind));
@@ -63,17 +97,24 @@ export function decideAllChanges(text: string, decision: 'accept' | 'reject'): {
  * `fileText` with one mark of a block decided, for the Markdown Browser: lines
  * `startLine..endLine` must still hold `expected` (what the browser showed);
  * the decided block replaces them. `remove` takes a comment or a highlight's
- * comment out, the text it was on staying.
+ * comment out, the text it was on staying; `comment` and `edit` write `text`
+ * (commentMark).
  */
 export function reviewMarkEdit(
     fileText: string,
-    edit: { startLine: number; endLine: number; expected: string; markup: string; occurrence: number; decision: 'accept' | 'reject' | 'remove' },
+    edit: {
+        startLine: number; endLine: number; expected: string; markup: string; occurrence: number;
+        decision: 'accept' | 'reject' | 'remove' | 'comment' | 'edit';
+        /** For `comment` and `edit`: the comment's text. */
+        text?: string;
+    },
 ): MdLineEditResult {
     const check = applyMdLineEdit(fileText, { startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: edit.expected });
     if (!check.ok) { return check; }
-    const decided = decideMark(edit.expected.replace(/\r\n/g, '\n'), {
-        markup: edit.markup, occurrence: edit.occurrence, decision: edit.decision === 'reject' ? 'reject' : 'accept',
-    });
+    const block = edit.expected.replace(/\r\n/g, '\n');
+    const decided = edit.decision === 'comment' || edit.decision === 'edit'
+        ? commentMark(block, { markup: edit.markup, occurrence: edit.occurrence, op: edit.decision, comment: edit.text ?? '' })
+        : decideMark(block, { markup: edit.markup, occurrence: edit.occurrence, decision: edit.decision === 'reject' ? 'reject' : 'accept' });
     if (!decided.ok) { return decided; }
     return applyMdLineEdit(fileText, { startLine: edit.startLine, endLine: edit.endLine, expected: edit.expected, replacement: decided.text });
 }

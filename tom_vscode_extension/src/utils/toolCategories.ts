@@ -245,6 +245,8 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specConvert',
         'tomAi_specCreateDocument',
         'tomAi_specDecideMarks',
+        'tomAi_specCommentChange',
+        'tomAi_specEditMarkComment',
         'tomAi_specEditComment',
         'tomAi_specInsertComment',
         'tomAi_specInsertQuestion',

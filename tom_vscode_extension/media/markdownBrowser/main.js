@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -305,27 +305,53 @@
                 level: 'inline',
                 start: function(src) { var i = src.search(/\{(\+\+|--|~~|==|>>)/); return i < 0 ? undefined : i; },
                 tokenizer: function(src) {
-                    var m = mdbCriticMark(src);
+                    // A change takes its attribution token and its own comment (SOM
+                    // §11.9.3) with it: they are drawn as one, each keeping its buttons.
+                    var withComment = mdbChangeWithComment(src);
+                    var m = withComment ? withComment.mark : mdbCriticMark(src);
                     if (!m) { return undefined; }
-                    var token = { type: 'reviewMark', raw: m.raw, kind: m.kind, comment: m.comment || '' };
+                    var token = { type: 'reviewMark', raw: withComment ? withComment.raw : m.raw, markRaw: m.raw, kind: m.kind, comment: m.comment || '' };
                     token.textTokens = this.lexer.inlineTokens(m.text);
                     if (m.kind === 'substitution') { token.oldTokens = this.lexer.inlineTokens(m.oldText); }
+                    if (m.quote) { token.quote = m.quote; }
+                    if (withComment && withComment.comment) {
+                        token.token = withComment.token;
+                        token.attached = { raw: withComment.comment.raw, text: withComment.comment.text };
+                    }
                     return token;
                 },
                 renderer: function(token) {
                     // Every mark is wrapped with its markup and the buttons that decide it
-                    // (shown in edit mode): accept / reject for a change, remove for a comment.
+                    // (shown in edit mode): accept / reject (and comment) for a change,
+                    // edit / remove for a comment. A change's own comment is a mark of
+                    // its own inside the change's wrapper, with its own buttons.
                     var change = token.kind === 'addition' || token.kind === 'deletion' || token.kind === 'substitution';
+                    var noteButtons = function(addComment) {
+                        return '<button class="mdb-rm-btn mdb-rm-edit codicon codicon-edit" title="' + (addComment ? 'Add a comment' : 'Edit this comment') + '"></button>'
+                            + '<button class="mdb-rm-btn mdb-rm-remove codicon codicon-trash" title="Remove this comment (the text stays)"></button>';
+                    };
                     var buttons = change
                         ? '<button class="mdb-rm-btn mdb-rm-accept codicon codicon-check" title="Accept this change"></button>'
                             + '<button class="mdb-rm-btn mdb-rm-reject codicon codicon-close" title="Reject this change"></button>'
-                        : '<button class="mdb-rm-btn mdb-rm-edit codicon codicon-edit" title="'
-                            + (token.kind === 'highlight' && !token.comment ? 'Add a comment' : 'Edit this comment') + '"></button>'
-                            + '<button class="mdb-rm-btn mdb-rm-remove codicon codicon-trash" title="Remove this comment (the text stays)"></button>';
-                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.raw) + '">'
-                        + renderMark.call(this, token) + '<span class="mdb-rm-actions">' + buttons + '</span></span>';
+                            + (token.attached ? '' : '<button class="mdb-rm-btn mdb-rm-comment codicon codicon-comment" title="Comment on this change"></button>')
+                        : noteButtons(token.kind === 'highlight' && !token.comment);
+                    var attached = token.attached
+                        ? (token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '')
+                            + '<span class="mdb-rm" data-kind="note" data-raw="' + esc(token.attached.raw) + '">'
+                            + '<span class="mdb-cm mdb-cm-comment mdb-cm-change-comment" title="Comment on this change">' + icon('comment', 'Comment on this change')
+                            + esc(token.attached.text) + '</span><span class="mdb-rm-actions">' + noteButtons(false) + '</span></span>'
+                        : '';
+                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '">'
+                        + renderMark.call(this, token) + '<span class="mdb-rm-actions">' + buttons + '</span>' + attached + '</span>';
                 },
             }] });
+            /** The change a change comment quotes, and its outcome: `30 → 15 (accepted)`. */
+            function quoteLabel(quote) {
+                var change = quote.kind === 'substitution'
+                    ? '<del>' + esc(quote.oldText) + '</del> → <ins>' + esc(quote.newText) + '</ins>'
+                    : quote.kind === 'addition' ? '+ <ins>' + esc(quote.newText) + '</ins>' : '− <del>' + esc(quote.oldText) + '</del>';
+                return change + (quote.outcome ? ' <span class="mdb-cm-outcome">(' + esc(quote.outcome) + ')</span>' : '') + ': ';
+            }
             /** The mark itself: an icon and its text, styled by kind. */
             function renderMark(token) {
                 var inner = this.parser.parseInline(token.textTokens);
@@ -342,6 +368,14 @@
                     case 'highlight':
                         return '<mark class="mdb-cm mdb-cm-mark"' + (token.comment ? ' title="' + esc(token.comment) + '"' : '') + '>'
                             + icon('note', 'Annotated text') + inner + '</mark>' + note;
+                    case 'comment':
+                        if (token.quote) {
+                            // A change comment standing alone (its change decided): the
+                            // change it was about as a label, then the comment.
+                            return '<span class="mdb-cm mdb-cm-comment mdb-cm-change-comment" title="Comment on a change">' + icon('comment', 'Comment on a change')
+                                + '<span class="mdb-cm-quote">' + quoteLabel(token.quote) + '</span>' + inner + '</span>';
+                        }
+                        return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
                     default:
                         return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
                 }
@@ -1033,6 +1067,12 @@
                     if (after) { after(false); }
                     return;
                 }
+                // Written by the host through the runtime (a review mark), not as a line edit.
+                if (edit.run) {
+                    close();
+                    edit.run();
+                    return;
+                }
                 // The edit asks to be confirmed first: say why, and wait for the next Save.
                 if (edit.hold) {
                     status.textContent = edit.hold;
@@ -1333,53 +1373,101 @@
             });
         }
 
-        /** Accept, reject or remove one mark: the host decides it with the TomSpecs runtime (annot4). */
-        function decideReviewMark(btn) {
-            var span = btn.closest('.mdb-rm');
+        /** The mark's markup and its occurrence among the identical marks of its block. */
+        function markAt(span) {
             var wrapper = span && span.closest('.mdb-block');
             var block = wrapper && wrapper.__mdbBlock;
-            var range = block && mapRange(block.startLine, block.endLine);
-            if (!range) { return; }
+            if (!block) { return null; }
             var raw = span.dataset.raw;
             var occurrence = 0;
             var all = wrapper.querySelectorAll('.mdb-rm');
             for (var i = 0; i < all.length && all[i] !== span; i++) { if (all[i].dataset.raw === raw) { occurrence++; } }
-            var decision = btn.classList.contains('mdb-rm-accept') ? 'accept' : btn.classList.contains('mdb-rm-reject') ? 'reject' : 'remove';
+            return { wrapper: wrapper, block: block, raw: raw, occurrence: occurrence };
+        }
+
+        var REVIEW_BUSY = { accept: 'Accepting…', reject: 'Rejecting…', remove: 'Removing…', comment: 'Commenting…', edit: 'Saving the comment…' };
+
+        /**
+         * One mark decided — accepted, rejected or (a comment) removed — or a
+         * comment written on a change or edited (`text`): the host does it with the
+         * TomSpecs runtime (annot4, SOM §11.9.3) on the block's lines.
+         */
+        function postReviewMark(span, decision, text) {
+            var at = markAt(span);
+            var range = at && mapRange(at.block.startLine, at.block.endLine);
+            if (!range) { return; }
             // The mark goes away: the next one takes its place.
             setNavAnchor(navKey(span));
             restoreScrollTop = contentArea.scrollTop;
-            beginBusy(decision === 'reject' ? 'Rejecting…' : decision === 'remove' ? 'Removing…' : 'Accepting…');
-            vscode.postMessage({
+            beginBusy(REVIEW_BUSY[decision] || 'Saving…');
+            var message = {
                 type: 'reviewMark', filePath: currentFilePath,
                 startLine: range.start, endLine: range.end,
-                expected: shownLines().slice(block.startLine, block.endLine).join('\n'),
-                markup: raw, occurrence: occurrence, decision: decision,
+                expected: shownLines().slice(at.block.startLine, at.block.endLine).join('\n'),
+                markup: at.raw, occurrence: at.occurrence, decision: decision,
+            };
+            if (text !== undefined) { message.text = text; }
+            vscode.postMessage(message);
+        }
+
+        /** Accept, reject or remove one mark: the host decides it with the TomSpecs runtime (annot4). */
+        function decideReviewMark(btn) {
+            var decision = btn.classList.contains('mdb-rm-accept') ? 'accept' : btn.classList.contains('mdb-rm-reject') ? 'reject' : 'remove';
+            postReviewMark(btn.closest('.mdb-rm'), decision);
+        }
+
+        /**
+         * Why a comment text cannot be written, or null: the runtime refuses an
+         * empty one, a mark delimiter (it would open or close a mark) and a blank
+         * line (a mark does not span one). Checked here so the editor keeps the text.
+         */
+        function inlineCommentError(text) {
+            if (!text.trim()) { return 'Write the comment first.'; }
+            if (/\{>>|\{==|\{\+\+|\{--|\{~~|<<\}/.test(text)) { return 'A comment cannot contain a mark delimiter ({>> {== {++ {-- {~~ <<}).'; }
+            if (/\n[ \t]*\n/.test(text)) { return 'A comment cannot contain a blank line.'; }
+            return null;
+        }
+
+        /** Comment on a change: the editor opens empty; the runtime writes the change comment, quoting the change. */
+        function commentOnChange(btn) {
+            var span = btn.closest('.mdb-rm');
+            var at = markAt(span);
+            if (!at || !blockEditable(at.block)) { return; }
+            openEditor(btn, at.wrapper, '', function(value) {
+                var error = inlineCommentError(value);
+                if (error) { return { hold: error }; }
+                return { run: function() { postReviewMark(span, 'comment', value.trim()); } };
             });
         }
 
         /**
-         * Edit the comment of an inline mark — a `{>> comment <<}` alone or a
-         * highlight's — in an editor under its block; saving it empty removes the
-         * comment (a highlight keeps its text). mdbEditInlineComment writes it.
+         * Edit the comment of an inline mark — a `{>> comment <<}` alone, a change
+         * comment or a highlight's — in an editor under its block. The runtime
+         * writes it (`editMarkComment`; a change comment keeps its quote); saved
+         * empty, a comment is removed. A highlight's comment emptied, or one added
+         * to a bare highlight, is written here (mdbEditInlineComment): the highlight
+         * stays, which no runtime operation does.
          */
         function editInlineComment(btn) {
             var span = btn.closest('.mdb-rm');
-            var wrapper = span && span.closest('.mdb-block');
-            var block = wrapper && wrapper.__mdbBlock;
-            if (!block || !blockEditable(block)) { return; }
-            var raw = span.dataset.raw;
-            var occurrence = 0;
-            var all = wrapper.querySelectorAll('.mdb-rm');
-            for (var i = 0; i < all.length && all[i] !== span; i++) { if (all[i].dataset.raw === raw) { occurrence++; } }
-            var mark = mdbCriticMark(raw);
+            var at = markAt(span);
+            if (!at || !blockEditable(at.block)) { return; }
+            var mark = mdbCriticMark(at.raw);
             if (!mark) { return; }
             var initial = mark.kind === 'comment' ? mark.text : (mark.comment || '');
-            openEditor(btn, wrapper, initial, function(value) {
+            var highlight = mark.kind === 'highlight';
+            openEditor(btn, at.wrapper, initial, function(value) {
                 if (value.trim() === initial) { return null; }
-                var source = shownLines().slice(block.startLine, block.endLine).join('\n');
-                var edited = mdbEditInlineComment(source, raw, occurrence, value);
-                if (edited.error) { return { hold: edited.error }; }
-                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: edited.text };
+                if (highlight && (!mark.comment || !value.trim())) {
+                    var source = shownLines().slice(at.block.startLine, at.block.endLine).join('\n');
+                    var edited = mdbEditInlineComment(source, at.raw, at.occurrence, value);
+                    if (edited.error) { return { hold: edited.error }; }
+                    return { startLine: at.block.startLine, endLine: at.block.endLine, expected: source, replacement: edited.text };
+                }
+                if (!value.trim()) { return { run: function() { postReviewMark(span, 'remove'); } }; }
+                var error = inlineCommentError(value);
+                if (error) { return { hold: error }; }
+                return { run: function() { postReviewMark(span, 'edit', value.trim()); } };
             });
         }
 
@@ -1853,7 +1941,9 @@
                 var review = t.closest('.mdb-rm-btn');
                 if (review) {
                     e.stopPropagation();
-                    if (review.classList.contains('mdb-rm-edit')) { editInlineComment(review); } else { decideReviewMark(review); }
+                    if (review.classList.contains('mdb-rm-edit')) { editInlineComment(review); }
+                    else if (review.classList.contains('mdb-rm-comment')) { commentOnChange(review); }
+                    else { decideReviewMark(review); }
                     return;
                 }
                 var removeComment = t.closest('.mdb-comment-remove-btn');

@@ -240,6 +240,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specAssignCommentIds',
     'tomAi_specResolveAnnotation',
     'tomAi_specDecideMarks',
+    'tomAi_specCommentChange',
+    'tomAi_specEditMarkComment',
     'tomAi_specRemoveAllAnnotations',
     'tomAi_specWriteAnswers',
     // Queue + timed requests — observation and sessions

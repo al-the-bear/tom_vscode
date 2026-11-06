@@ -853,18 +853,22 @@ class MdBrowserPanel {
                 case 'reviewMark': {
                     // The browser waits (busy) until this answer or the new content.
                     const done = (): void => { void this._panel.webview.postMessage({ type: 'actionDone' }); };
-                    // One inline mark accepted, rejected or (a comment) removed,
-                    // decided by the TomSpecs runtime (annot4) on the block's lines.
+                    // One inline mark accepted, rejected or (a comment) removed, or a
+                    // comment written on a change or edited — by the TomSpecs runtime
+                    // (annot4) on the block's lines.
                     const target = this._editableFile(msg.filePath);
                     if (typeof target !== 'string') {
                         void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`);
                         done();
                         break;
                     }
-                    const decision = msg.decision === 'reject' ? 'reject' : msg.decision === 'remove' ? 'remove' : 'accept';
+                    const decisions = ['accept', 'reject', 'remove', 'comment', 'edit'] as const;
+                    const decision = decisions.find((d) => d === msg.decision) ?? 'accept';
                     const result = reviewMarkEdit(fs.readFileSync(target, 'utf-8'), {
                         startLine: Number(msg.startLine), endLine: Number(msg.endLine), expected: String(msg.expected ?? ''),
                         markup: String(msg.markup ?? ''), occurrence: Number(msg.occurrence) || 0, decision,
+                        // comment / edit: the comment's text (SOM §11.9.3 change comments, inline comments).
+                        ...(typeof msg.text === 'string' ? { text: msg.text } : {}),
                     });
                     if (!result.ok) {
                         void vscode.window.showWarningMessage(`Markdown Browser: ${result.reason}`);

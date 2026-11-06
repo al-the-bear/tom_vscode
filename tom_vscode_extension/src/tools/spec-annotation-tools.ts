@@ -146,6 +146,19 @@ export interface SpecDecideMarksInput extends SpecEditOptions {
 
 export type SpecRemoveAllAnnotationsInput = SpecEditOptions;
 
+export interface SpecCommentChangeInput extends SpecEditOptions {
+    markId: string;
+    text: string;
+    author?: string;
+    marksRevision?: string;
+}
+
+export interface SpecEditMarkCommentInput extends SpecEditOptions {
+    markId: string;
+    text: string;
+    marksRevision?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
@@ -451,6 +464,40 @@ function opDecideMarks(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<Spe
     return { touched: touched.length ? touched : (input.path || ''), result: { ...report.toJson(), marksRevision: notes.revision(), counts: countsOf(notes) } };
 }
 
+/** The path of an inline mark by id, for the edit's `touched`; '' when the id is unknown (the runtime refuses it). */
+function markPath(notes: SpecReviewAnnotations, id: string): string {
+    return notes.listMarks().find((m) => m.id === id)?.path ?? '';
+}
+
+/**
+ * Comment a change (SpecReviewAnnotations.commentChange, SOM §11.9.3): a change
+ * comment, quoting the change, written right after the change mark `markId`.
+ */
+function opCommentChange(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecCommentChangeInput>): OpOutcome {
+    const notes = notesOf(ctx);
+    const id = requireText(input.markId, 'markId');
+    const text = requireText(input.text, 'text');
+    const where = markPath(notes, id);
+    const commentId = notes.commentChange(id, text, {
+        revision: input.marksRevision || notes.revision(),
+        ...(input.author ? { author: input.author } : {}),
+    });
+    return { touched: where, result: { markId: id, commentId, path: where, marksRevision: notes.revision(), counts: countsOf(notes) } };
+}
+
+/**
+ * Replace the comment of an inline comment, a change comment (its quote kept)
+ * or a commented highlight (SpecReviewAnnotations.editMarkComment).
+ */
+function opEditMarkComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecEditMarkCommentInput>): OpOutcome {
+    const notes = notesOf(ctx);
+    const id = requireText(input.markId, 'markId');
+    const text = requireText(input.text, 'text');
+    const where = markPath(notes, id);
+    notes.editMarkComment(id, text, { revision: input.marksRevision || notes.revision() });
+    return { touched: where, result: { markId: id, path: where, marksRevision: notes.revision() } };
+}
+
 /**
  * Remove every annotation of the document (SpecReviewAnnotations.removeAllAnnotations):
  * every inline mark accepted, every comment and question block removed. The
@@ -496,6 +543,8 @@ export const ANNOTATION_BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: Edit
     assignCommentIds: opAssignCommentIds,
     resolveAnnotation: opResolveAnnotation,
     decideMarks: opDecideMarks,
+    commentChange: opCommentChange,
+    editMarkComment: opEditMarkComment,
     removeAllAnnotations: opRemoveAllAnnotations,
 };
 
@@ -520,6 +569,12 @@ export async function specResolveAnnotationImpl(deps: SpecToolDeps, input: SpecR
 export async function specDecideMarksImpl(deps: SpecToolDeps, input: SpecDecideMarksInput): Promise<string> {
     return runEdit(deps, input, (ctx) => opDecideMarks(deps, ctx, input));
 }
+export async function specCommentChangeImpl(deps: SpecToolDeps, input: SpecCommentChangeInput): Promise<string> {
+    return runEdit(deps, input, (ctx) => opCommentChange(deps, ctx, input));
+}
+export async function specEditMarkCommentImpl(deps: SpecToolDeps, input: SpecEditMarkCommentInput): Promise<string> {
+    return runEdit(deps, input, (ctx) => opEditMarkComment(deps, ctx, input));
+}
 export async function specRemoveAllAnnotationsImpl(deps: SpecToolDeps, input: SpecRemoveAllAnnotationsInput): Promise<string> {
     return runEdit(deps, input, (ctx) => opRemoveAllAnnotations(deps, ctx, input));
 }
@@ -532,7 +587,8 @@ const NOTATION =
     ' Annotations (SOM §11.9) live in content values and form-field values: a comment block `> ⬆️ **C-12** (author): text` '
     + '(id and author optional), a question block `> **❓ BQ-81 — topic:** question`, options `> - (a) …` with the '
     + 'recommended one bold `> - **(b)** …`, and `> **Answer:**`; inline marks `{++added++}`, `{--removed--}`, '
-    + '`{~~old~>new~~}`, `{==text==}{>>comment<<}`, `{>>comment<<}`.';
+    + '`{~~old~>new~~}`, `{==text==}{>>comment<<}`, `{>>comment<<}`; a change comment `{~~old~>new~~}{>>[~~old~>new~~] why?<<}` '
+    + 'quotes the change it is about, and records `| accepted` / `| rejected` in its quote when the change is decided.';
 const PARAGRAPHS =
     'Paragraphs are the blank-line separated blocks of the value (an annotation block is one; a blank line inside fenced '
     + 'code does not end one), counted from 0 as tomAi_specGetSection shows the value; -1 is the start. Instead of the '
@@ -706,6 +762,43 @@ export const SPEC_DECIDE_MARKS_TOOL = editTool<SpecDecideMarksInput>(
     specDecideMarksImpl,
 );
 
+export const SPEC_COMMENT_CHANGE_TOOL = editTool<SpecCommentChangeInput>(
+    { name: 'tomAi_specCommentChange', displayName: 'Spec: Comment a Change' },
+    'Comment on a change mark by its `M-<n>` id (SpecReviewAnnotations.commentChange, SOM §11.9.3): a change comment is '
+    + 'written right after the change, quoting it (`{~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<}`), so it stays '
+    + 'understandable once the change is decided — deciding the change keeps the comment and records the outcome in its '
+    + 'quote. Answers the new comment\'s id (`commentId`). Refused, nothing changed: an unknown id or a stale '
+    + '`marksRevision`, a mark that is not a change, a change that has its comment already, an empty text or one holding '
+    + 'a mark delimiter or a blank line, an `author` that is not a member id. Edit it later with tomAi_specEditMarkComment; '
+    + 'remove it with tomAi_specDecideMarks (either decision).' + FIRST_LOOK + RESULT_NOTE,
+    {
+        ...EDIT_PARAMS,
+        markId: { type: 'string', description: 'The change mark\'s id, e.g. `M-3` (from tomAi_specAnnotations).' },
+        text: { type: 'string', description: 'The comment.' },
+        author: { type: 'string', description: 'A review member id, written as an attribution token `{@author}` after the comment (§11.9.8). Optional.' },
+        marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
+    },
+    ['file', 'markId', 'text'],
+    specCommentChangeImpl,
+);
+
+export const SPEC_EDIT_MARK_COMMENT_TOOL = editTool<SpecEditMarkCommentInput>(
+    { name: 'tomAi_specEditMarkComment', displayName: 'Spec: Edit Inline Comment' },
+    'Replace the comment of an inline mark by its `M-<n>` id (SpecReviewAnnotations.editMarkComment): a `{>> comment <<}`, '
+    + 'a change comment (its quote, outcome included, stays as written) or a commented highlight; an attribution token '
+    + 'stays. Refused, nothing changed: an unknown id or a stale `marksRevision`, a mark holding no comment, an empty text '
+    + 'or one holding a mark delimiter or a blank line. Comment blocks (`C-<n>`) are edited with tomAi_specEditComment.'
+    + FIRST_LOOK + RESULT_NOTE,
+    {
+        ...EDIT_PARAMS,
+        markId: { type: 'string', description: 'The mark\'s id, e.g. `M-4` (from tomAi_specAnnotations).' },
+        text: { type: 'string', description: 'The new comment.' },
+        marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
+    },
+    ['file', 'markId', 'text'],
+    specEditMarkCommentImpl,
+);
+
 export const SPEC_REMOVE_ALL_ANNOTATIONS_TOOL = editTool<SpecRemoveAllAnnotationsInput>(
     { name: 'tomAi_specRemoveAllAnnotations', displayName: 'Spec: Remove All Annotations' },
     'Remove every review annotation of the document and write it back (SpecReviewAnnotations.removeAllAnnotations): '
@@ -730,5 +823,7 @@ export const SPEC_ANNOTATION_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_ASSIGN_COMMENT_IDS_TOOL,
     SPEC_RESOLVE_ANNOTATION_TOOL,
     SPEC_DECIDE_MARKS_TOOL,
+    SPEC_COMMENT_CHANGE_TOOL,
+    SPEC_EDIT_MARK_COMMENT_TOOL,
     SPEC_REMOVE_ALL_ANNOTATIONS_TOOL,
 ];
