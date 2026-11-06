@@ -114,6 +114,7 @@ import { installProcessMoveMarkers } from './services/processActionService';
 import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
+import { registerGroupPromptEditor } from './handlers/groupPromptEditor-handler';
 import { AnthropicHandler } from './handlers/anthropic-handler';
 import { TwoTierMemoryService } from './services/memory-service';
 import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
@@ -442,6 +443,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSessionsView(context);
     registerProcessEditor(context);
     registerProcessTemplateEditor(context);
+    registerGroupPromptEditor(context);
     timeStep('processViews', stepStart);
 
     // Register Context & Settings Editor command

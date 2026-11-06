@@ -36,7 +36,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, parseTodoPrefixPattern, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -720,6 +720,42 @@ export class PromptQueueManager {
     /** The quest the queue resolves todos against, or `undefined` when none is set. */
     private activeQuestId(): string | undefined {
         return await_import_ChatVariablesStore()?.quest;
+    }
+
+    /**
+     * Why the item's main prompt, a `prefix*` walk (only the main prompt
+     * walks), would go over nothing (emptyTodoIterationReason); undefined when
+     * it has work or is no walk. An item with pre-prompts is not judged: they
+     * run first and may create the todos the walk goes over.
+     */
+    private emptyIterationReason(item: QueuedPrompt): string | undefined {
+        if (item.processMove || (item.prePrompts?.length ?? 0) > 0) { return undefined; }
+        if (parseTodoPrefixPattern(item.repeatCount) === undefined) { return undefined; }
+        const questId = this.activeQuestId();
+        return emptyTodoIterationReason(item.repeatCount, questId ? readQuestTodoEntries(questId) : [], questId);
+    }
+
+    /** The item is held in `error` because its walk had nothing to walk over. */
+    private isEmptyIterationItem(item: QueuedPrompt): boolean {
+        return item.status === 'error' && isEmptyTodoIterationError(item.error);
+    }
+
+    /** May the item be edited: staged, or held for an empty walk (an edit may give it work). */
+    private isEditableItem(item: QueuedPrompt): boolean {
+        return this.isEditableStatus(item.status) || this.isEmptyIterationItem(item);
+    }
+
+    /**
+     * After an edit of an item held for an empty walk: still nothing to walk
+     * over → the reason is renewed; work now → the item is staged again.
+     */
+    private recheckEmptyIteration(item: QueuedPrompt): void {
+        if (!this.isEmptyIterationItem(item)) { return; }
+        const reason = this.emptyIterationReason(item);
+        if (reason) { item.error = reason; return; }
+        item.error = undefined;
+        item.status = 'staged';
+        logQueue(`Item ${item.id}: its walk has work now — error → staged`);
     }
 
     /**
@@ -2094,6 +2130,15 @@ export class PromptQueueManager {
         const sessionRefusal = this.sessionRefusal(item);
         if (sessionRefusal) { throw new Error(sessionRefusal); }
 
+        // A walk with nothing to walk over is held in error at once, with the
+        // reason, instead of ending later without a single send.
+        const emptyIteration = this.emptyIterationReason(item);
+        if (emptyIteration) {
+            item.status = 'error';
+            item.error = emptyIteration;
+            logQueue(`Item ${item.id} held in error: ${emptyIteration}`);
+        }
+
         logQueue(`Item enqueued: id=${item.id}, type=${item.type}, status=${item.status}, text=${promptPreview(item.originalText)}`);
 
         // An item of a running Proceed goes before that run's process-move
@@ -2107,6 +2152,12 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+
+        if (emptyIteration) {
+            // Its done-notification (if any) reports the error, as for any item that cannot run.
+            await this._itemFinished(item, { kind: 'error', message: emptyIteration });
+            return item;
+        }
 
         // If nothing is sending and auto-send is on, kick off unless explicitly deferred
         if (!opts.deferSend && this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
@@ -2363,7 +2414,7 @@ export class PromptQueueManager {
         assertValidRepeatCount(patch.repeatCount);
         assertValidRepeatCount(patch.templateRepeatCount);
         const item = this._items.find(i => i.id === id);
-        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item || !this.isEditableItem(item)) { return false; }
         if (patch.repeatCount !== undefined) {
             item.repeatCount = patch.repeatCount;
             item.resolvedRepeatCount = undefined;
@@ -2374,6 +2425,7 @@ export class PromptQueueManager {
         if (patch.answerWaitMinutes !== undefined) {
             item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         }
+        this.recheckEmptyIteration(item);
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2548,7 +2600,7 @@ export class PromptQueueManager {
         anthropicConfigId?: string;
     }): boolean {
         const item = this._items.find(i => i.id === itemId);
-        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item || !this.isEditableItem(item)) { return false; }
         if (!item.prePrompts) { item.prePrompts = []; }
         item.prePrompts.push({
             text,
@@ -2558,6 +2610,7 @@ export class PromptQueueManager {
             anthropicProfileId: opts?.anthropicProfileId,
             anthropicConfigId: opts?.anthropicConfigId,
         });
+        this.recheckEmptyIteration(item);
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2579,7 +2632,7 @@ export class PromptQueueManager {
     }): boolean {
         assertValidRepeatCount(patch.repeatCount);
         const item = this._items.find(i => i.id === itemId);
-        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item || !this.isEditableItem(item)) { return false; }
         if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }
         const pp = item.prePrompts[index];
         if (patch.text !== undefined) pp.text = patch.text;
@@ -2597,6 +2650,7 @@ export class PromptQueueManager {
         if ('transport' in patch) { pp.transport = patch.transport; }
         if ('anthropicProfileId' in patch) { pp.anthropicProfileId = patch.anthropicProfileId || undefined; }
         if ('anthropicConfigId' in patch) { pp.anthropicConfigId = patch.anthropicConfigId || undefined; }
+        this.recheckEmptyIteration(item);
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2605,9 +2659,10 @@ export class PromptQueueManager {
     /** Remove a pre-prompt by index. */
     removePrePrompt(itemId: string, index: number): boolean {
         const item = this._items.find(i => i.id === itemId);
-        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item || !this.isEditableItem(item)) { return false; }
         if (!item.prePrompts || index < 0 || index >= item.prePrompts.length) { return false; }
         item.prePrompts.splice(index, 1);
+        this.recheckEmptyIteration(item);
         this.persist();
         this._onDidChange.fire();
         return true;
@@ -2802,8 +2857,20 @@ export class PromptQueueManager {
             this._onDidChange.fire();
             return true;
         }
-        // Allow sent items to be re-staged, but not error items
-        if (item.status === 'error') { return false; }
+        // An item held for an empty walk goes back when its walk has work now.
+        if (this.isEmptyIterationItem(item)) {
+            const reason = this.emptyIterationReason(item);
+            if (reason) {
+                item.error = reason;
+                this.persist();
+                this._onDidChange.fire();
+                return false;
+            }
+            item.error = undefined;
+        } else if (item.status === 'error') {
+            // Allow sent items to be re-staged, but not error items
+            return false;
+        }
         if (item.status === 'sending') { return false; }
         // `interrupted` -> `pending` would re-dispatch with the counter one ahead
         // and skip the interrupted rep; its only exits are resume or staged.
@@ -3773,6 +3840,16 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (!item) {
             throw new Error(`Queue item ${id} not found`);
+        }
+        if (this.isEmptyIterationItem(item)) {
+            // Held because its walk had nothing to walk over: back only when it has work now.
+            const reason = this.emptyIterationReason(item);
+            if (reason) {
+                item.error = reason;
+                this.persist();
+                this._onDidChange.fire();
+                throw new Error(reason);
+            }
         }
         const ok = applyResetToPending(item);
         if (!ok) {

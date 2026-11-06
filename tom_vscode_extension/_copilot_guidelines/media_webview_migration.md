@@ -33,6 +33,7 @@ media/
     completion.js # reusable textarea-completion client (opt-in)
     base.css      # shared base styles
     accordion.css # shared accordion styles
+    templateEditor.css # the template editors' layout (process templates, group prompts)
   types/
     webview.d.ts  # dev-only ambient typings (NOT shipped — see §8)
 ```

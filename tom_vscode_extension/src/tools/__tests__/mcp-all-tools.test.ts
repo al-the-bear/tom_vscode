@@ -37,6 +37,10 @@
  *        of the real manager's item, which once left the field out
  *   MA-11 a send that fails because the direct transport has no key goes to `error` at once — not `retry` —
  *        with the cause and the fix, auto-send stays on, the user is told once; any other failure still retries
+ *   MA-12 an item whose main prompt is a `prefix*` walk with nothing to walk over (no todo of the prefix, or only
+ *        completed / in-progress / the user's own) is held in `error` at once, its reason in `warning`; setting its
+ *        status checks again, a pre-prompt (which may create the todos) stages it again; blocked todos count as work;
+ *        an item queued with pre-prompts is not judged
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -872,6 +876,71 @@ describe('every tool over MCP, in a sandbox', () => {
             for (const id of [a.id, b.id, c.id]) { manager.remove(id); }
         } finally {
             manager.autoSendEnabled = false;
+        }
+    });
+
+    test('MA-12: a walk with nothing to walk over is held in error when it is queued', async () => {
+        const call = async (name: string, args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name, arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        const manager = PromptQueueManager.instance;
+        const created: string[] = [];
+        const todo = async (id: string, status: string): Promise<void> => {
+            const r = await call('tomAi_createQuestTodo', { questId: QUEST, todo: { id, title: id, description: 'by MA-12', status } });
+            assert.equal(r.ok, true, `todo ${id} created: ${JSON.stringify(r)}`);
+            created.push(id);
+        };
+        const items: string[] = [];
+        try {
+            // No todo has the prefix.
+            const none = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-none-*' });
+            items.push(none.id);
+            assert.equal(none.ok, true, 'queued all the same');
+            assert.equal(none.status, 'error');
+            assert.match(none.warning, /^The item is held in error: Nothing to iterate over: no todo of quest "demo" has an id starting with "ma-none-"/);
+            assert.match(manager.getById(none.id)?.error ?? '', /^Nothing to iterate over/);
+            // Only todos the walk passes: completed, in progress, the user's own.
+            await todo('ma-walk-1_aaaa-done', 'completed');
+            await todo('ma-walk-2_aaaa-running', 'in-progress');
+            const passed = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*' });
+            items.push(passed.id);
+            assert.equal(passed.status, 'error');
+            assert.match(passed.warning, /none of the 2 todos of "ma-walk-\*" in quest "demo" is open \(1 completed, 1 in-progress\)/);
+            // Setting the status checks again: still nothing, then work.
+            assert.equal((await call('tomAi_setQueueItemStatus', { queueItemId: passed.id, status: 'staged' })).ok, false, 'still nothing to walk over');
+            assert.equal(manager.getById(passed.id)?.status, 'error');
+            assert.throws(() => manager.resetItemToPending(passed.id), /^Error: Nothing to iterate over/, "the editor's Set to Pending says why");
+            await todo('ma-walk-3_aaaa-open', 'not-started');
+            assert.equal((await call('tomAi_setQueueItemStatus', { queueItemId: passed.id, status: 'staged' })).ok, true);
+            assert.equal(manager.getById(passed.id)?.status, 'staged');
+            assert.equal(manager.getById(passed.id)?.error, undefined);
+            // A walk with work is queued as asked; blocked and decision-needed todos count as work.
+            const open = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*' });
+            items.push(open.id);
+            assert.equal(open.status, 'staged');
+            assert.equal(open.warning, undefined);
+            await todo('ma-blk-1_aaaa-waits', 'blocked');
+            const blocked = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-blk-*' });
+            items.push(blocked.id);
+            assert.equal(blocked.status, 'staged', 'a blocked todo may be released while the walk runs');
+            // A pre-prompt runs first and may create the todos: the item is staged again.
+            const later = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-later-*' });
+            items.push(later.id);
+            assert.equal(later.status, 'error');
+            assert.equal((await call('tomAi_addQueuePrePrompt', { queueItemId: later.id, text: 'create the ma-later todos' })).ok, true);
+            assert.equal(manager.getById(later.id)?.status, 'staged');
+            const withPre = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-later-*', prePrompts: [{ text: 'create them' }] });
+            items.push(withPre.id);
+            assert.equal(withPre.status, 'staged', 'its pre-prompt may create the todos');
+            // A plain repeat count is not checked.
+            const plain = await call('tomAi_addQueueItem', { text: 'three times', repeatCount: 3 });
+            items.push(plain.id);
+            assert.equal(plain.status, 'staged');
+        } finally {
+            for (const id of items) { if (id) { manager.remove(id); } }
+            await call('tomAi_deleteQuestTodos', { questId: QUEST, todoIds: created.filter((id) => !id.endsWith('-done')) });
+            await call('tomAi_archiveQuestTodos', { questId: QUEST, todoIds: created.filter((id) => id.endsWith('-done')) });
         }
     });
 

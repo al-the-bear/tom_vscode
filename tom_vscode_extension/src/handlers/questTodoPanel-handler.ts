@@ -31,6 +31,10 @@ import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { groupPromptDirs } from '../services/groupPromptDirs';
+import { readGroupPrompts } from '../services/groupPromptStore';
+import { groupPromptChoices } from '../utils/groupPrompts';
+import { ChatVariablesStore } from '../managers/chatVariablesStore';
 
 // Module-level state
 let _extensionContext: vscode.ExtensionContext | undefined;
@@ -1319,6 +1323,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'));
             return true;
         }
+        case 'qtQueueGroupPrompt': {
+            await queueGroupWalk(effectiveQuestId(msg.questId), String(msg.prefix || ''));
+            return true;
+        }
         case 'qtQueueStackedTodos': {
             // One prompt PER stacked todo, enqueued in stack order. Each todo is
             // embedded exactly like the single-todo queue add: default-template
@@ -2317,3 +2325,51 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
     }
 }
 
+/**
+ * The todo group headline's "Queue Group Prompt": pick a group prompt (the
+ * default, the default with an addition, or one of the quest's own prompts)
+ * or open the group prompt editor, then queue a walk over `<prefix>*` with the
+ * prompt picked. A walk goes over the todos of the window's quest, so a list
+ * showing another quest is refused. The queue holds a walk with nothing to
+ * walk over in `error` at once; that reason is shown.
+ */
+async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
+    if (!prefix) { return; }
+    let windowQuest = '';
+    try { windowQuest = ChatVariablesStore.instance.quest || ''; } catch { windowQuest = ''; }
+    if (!questId || questId !== windowQuest) {
+        void vscode.window.showWarningMessage(`A group walk goes over the todos of this window's quest${windowQuest ? ` (${windowQuest})` : ''}; `
+            + `this list shows ${questId ? `"${questId}"` : 'no quest'}. Queue it from that quest's window.`);
+        return;
+    }
+    const dirs = groupPromptDirs(questId);
+    const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], questId);
+    type Pick = vscode.QuickPickItem & { text?: string; editor?: boolean };
+    const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? '';
+    const items: Pick[] = [
+        ...choices.map((c) => ({ label: c.label, description: c.description, detail: firstLine(c.text), text: c.text })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        { label: '$(edit) Open Group Prompt Editor…', editor: true },
+    ];
+    const picked = await vscode.window.showQuickPick(items, {
+        title: `Queue Group Prompt: a walk over ${prefix}*`,
+        placeHolder: 'The prompt each todo of the group is sent with',
+        matchOnDescription: true,
+    });
+    if (!picked) { return; }
+    if (picked.editor) {
+        await vscode.commands.executeCommand('tomAi.editor.groupPrompts', questId);
+        return;
+    }
+    try {
+        const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+        const item = await queue.enqueue({ originalText: picked.text ?? '', repeatCount: `${prefix}*`, deferSend: true });
+        if (item.status === 'error') {
+            void vscode.window.showWarningMessage(`Queued, but held in error — ${item.error ?? 'the walk has nothing to walk over'}`);
+        } else {
+            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${picked.label}".`);
+        }
+    } catch (e) {
+        void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
+    }
+}

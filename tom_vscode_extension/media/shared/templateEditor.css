@@ -1,4 +1,4 @@
-/* Process template editor — see main.js. */
+/* Template editors (process templates, group prompts): side list, text, preview, variables. */
 body {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);

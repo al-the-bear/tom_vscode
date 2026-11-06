@@ -639,6 +639,9 @@ function qtRenderGroupHeader(group, expanded) {
         '<span class="codicon codicon-chevron-down"></span>' +
         '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
+        (group.prefix
+            ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
+            : '') +
         (qtGroupOpenTodos(group).length
             ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to quest / workspace / another quest…">⬆️</button>'
             : '') +
@@ -761,6 +764,13 @@ function qtRenderList() {
 
     pane.querySelectorAll('.qt-group-header').forEach(function(hdr) {
         hdr.addEventListener('click', function(e) {
+            var walkBtn = e.target.closest ? e.target.closest('.qt-group-walk-btn') : null;
+            if (walkBtn) {
+                // The host asks which group prompt and queues the walk over `<prefix>*`.
+                e.stopPropagation();
+                vscode.postMessage({ type: 'qtQueueGroupPrompt', questId: qtCurrentQuestId, prefix: walkBtn.getAttribute('data-qt-group-walk') || '' });
+                return;
+            }
             var moveBtn = e.target.closest ? e.target.closest('.qt-group-move-btn') : null;
             if (moveBtn) {
                 // The whole group in one move: one destination, one id decision.

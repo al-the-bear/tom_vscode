@@ -124,6 +124,7 @@
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |
+| Group Prompt Editor | `tomAi.groupPromptEditor` | `tomAi.editor.groupPrompts`, or the last entry of a todo group's Queue Group Prompt picker (🔁) |
 | Process Action Page | `tomAi.processAction` | The Proceed (▶) button of the PROCESS view's action bar (at a user action Proceed asks for a confirmation instead) |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar |
 

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Group prompt editor (src/handlers/groupPromptEditor-handler.ts). No inline
+  handlers: main.js attaches every listener, so the loader's nonce-only CSP
+  applies.
+-->
+<link rel="stylesheet" href="{{sharedUri}}/templateEditor.css">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="layout">
+  <div class="side">
+    <div class="side-head">
+      <span class="side-title">Group prompts</span>
+      <label class="quest-pick">Quest <select id="quest"></select></label>
+    </div>
+    <div id="entries" class="entries"></div>
+    <div class="side-foot muted">A todo group's <b>Queue Group Prompt</b> button offers the default, the default with each addition, and the quest's own prompts. Global prompts are in <code>_ai/group_prompts/</code>, a quest's in <code>_ai/quests/&lt;quest&gt;/group_prompts/</code>.</div>
+  </div>
+  <div class="main">
+    <div class="head">
+      <span id="title" class="title"></span>
+      <span class="spacer"></span>
+      <button id="delete" class="secondary" title="Delete this entry">Delete</button>
+      <button id="revert" class="secondary" title="Discard all unsaved changes">Revert</button>
+      <button id="save" class="primary">Save</button>
+    </div>
+    <div class="editor">
+      <div class="edit">
+        <textarea id="text" spellcheck="false"></textarea>
+        <div class="block-title">What the walk sends <span id="preview-note" class="muted"></span></div>
+        <pre id="preview" class="preview"></pre>
+      </div>
+      <div class="vars">
+        <div class="block-title">Insert a variable</div>
+        <div id="vars"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

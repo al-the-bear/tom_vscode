@@ -332,6 +332,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.editor.groupPrompts",
+        "title": "@T: Open Group Prompt Editor",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.panel.memory",
         "title": "@T: Open Memory Panel",
         "category": "@Tom"

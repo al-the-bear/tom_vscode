@@ -129,6 +129,8 @@ export interface QueueItemSnapshot {
     lastDispatched?: string;
     /** Why the last send did not complete (rate limit, quota, overload, …), as the queue records it. */
     warning?: { kind: string; message: string; at?: string };
+    /** Why the item is in `error` (a failed send, or a `prefix*` walk with nothing to walk over). */
+    error?: string;
     /** Queued right after the item when it is finished (src/utils/doneNotification.ts). */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
@@ -150,7 +152,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
-    'answerText', 'lastDispatched', 'warning', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from',
+    'answerText', 'lastDispatched', 'warning', 'error', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -301,6 +303,19 @@ function apiKeyWarning(access: PromptQueueAccess, itemId: string | undefined): {
     return lines.length > 0 ? { warning: lines.join('\n') } : {};
 }
 
+/**
+ * The warning of a just-queued item: the item held in `error` at once (a
+ * `prefix*` walk with nothing to walk over) and the stages a missing API key
+ * would fail, one line each.
+ */
+function queuedItemWarning(access: PromptQueueAccess, item: { id: string; status?: string; error?: string }): { warning?: string } {
+    const lines = [
+        ...(item.status === 'error' && item.error ? [`The item is held in error: ${item.error}`] : []),
+        ...(access.missingApiKeyWarnings?.(item.id) ?? []),
+    ];
+    return lines.length > 0 ? { warning: lines.join('\n') } : {};
+}
+
 /** What a queue item's `session` is. */
 const SESSION_DOC = 'The named session the item runs in: a `<name>.session.json` of the quest\'s history folder '
     + '(tomAi_listSessions). A name, or a spec `{name, basedOn?, mode?, profile?}`: a session that does not exist when '
@@ -344,7 +359,10 @@ const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: wa
     + '<prefix>, lowest number first (the number is the first digit run after the prefix). The prefix may hold digits '
     + '(`p2s2ss3-*`) but must not end in one (refused with code invalidTodoPrefix). The text names the todo each dispatch '
     + 'picked with `${repeatTodoId}` (its id), `${repeatTodoTitle}` and `${repeatNumber}`, filled in when it is sent; the '
-    + 'picked todo is set in-progress, and a todo the work creates with the next free number joins the walk.';
+    + 'picked todo is set in-progress, and a todo the work creates with the next free number joins the walk. An item whose '
+    + 'main prompt walks over nothing (no todo of the prefix, or none not-started, blocked or decision-needed) and that '
+    + 'has no pre-prompt (which could create the todos) is held in `error` at once, its reason in `warning`; it is staged '
+    + 'again when an edit or a pre-prompt gives it work, or when its status is set once the todos are there.';
 
 /** The refusal of the first repeat count no queue item may carry (a todo prefix ending in a digit), or null. */
 function repeatCountRefusal(...values: unknown[]): string | null {
@@ -475,7 +493,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             queueLength: access.items().length,
             prePromptCount: item.prePrompts?.length ?? 0,
             followUpCount: item.followUps?.length ?? 0,
-            ...apiKeyWarning(access, item.id),
+            ...queuedItemWarning(access, item),
         });
     } catch (e) {
         return err((e as Error).message);

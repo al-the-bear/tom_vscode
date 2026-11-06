@@ -10,7 +10,8 @@
  * group, and that "Collapse all" closes them again.
  *
  * A separator also carries a move button that moves every open todo of its
- * group with one picker — one destination and one id decision for all.
+ * group with one picker — one destination and one id decision for all — and
+ * a walk button that asks the host to queue a group prompt over `<prefix>*`.
  *
  * It loads the real `fragment.html`, `grouping.js` and `main.js` — the files
  * the panel ships — into a jsdom window with a stub `vscode` handle, so a
@@ -196,5 +197,16 @@ describe('Quest TODO list — prefix group rendering', () => {
         assert.deepEqual(visibleTodoIds(window), [], 'the group did not open');
         const old = groupHeaders(window).find((h) => h.querySelector('.qt-group-label').textContent === 'old');
         assert.equal(old.querySelector('.qt-group-move-btn'), null, 'a group with no open todo has no move button');
+    });
+    test('a separator queues a walk over its group without toggling it', () => {
+        const posted: Array<Record<string, unknown>> = [];
+        const window = setupPanel(SAMPLE);
+        window.vscode = { postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) };
+        const qr = groupHeaders(window).find((h: any) => h.getAttribute('data-qt-group') === 'qr');
+        qr.querySelector('.qt-group-walk-btn').click();
+        assert.deepEqual(posted.map((m) => [m.type, m.prefix]), [['qtQueueGroupPrompt', 'qr']]);
+        assert.deepEqual(visibleTodoIds(window), [], 'the group stays collapsed');
+        const unprefixed = groupHeaders(window).find((h: any) => h.getAttribute('data-qt-group') === '');
+        assert.equal(unprefixed.querySelector('.qt-group-walk-btn'), null, 'the Unprefixed group has no prefix to walk');
     });
 });

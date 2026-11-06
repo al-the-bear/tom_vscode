@@ -22,6 +22,8 @@ import {
     collectPrefixTodos,
     pickNextTodoForIteration,
     resolveTodoPrefixRepeatCount,
+    emptyTodoIterationReason,
+    isEmptyTodoIterationError,
 } from '../queueStep3Utils.js';
 
 /** Terse fixture builder: `t('dsa2', 'not-started', 'Fix the thing')`. */
@@ -192,5 +194,40 @@ describe('todoPrefixPatternError', () => {
         const todos = [t('p2s2ss3-1', 'not-started'), t('p2s2ss3-2', 'not-started'), t('p2s2ss4-1', 'not-started')];
         assert.deepEqual(collectPrefixTodos('p2s2ss3-', todos).map((e) => [e.id, e.index]), [['p2s2ss3-1', 1], ['p2s2ss3-2', 2]]);
         assert.equal(pickNextTodoForIteration('p2s2ss3-*', todos)?.id, 'p2s2ss3-1');
+    });
+});
+
+describe('emptyTodoIterationReason — a walk with nothing to walk over', () => {
+    test('no prefix pattern, or a series with work: nothing to say', () => {
+        assert.equal(emptyTodoIterationReason(3, [], 'q'), undefined);
+        assert.equal(emptyTodoIterationReason('count', [], 'q'), undefined);
+        assert.equal(emptyTodoIterationReason('dsa*', [t('dsa1', 'completed'), t('dsa2', 'not-started')], 'q'), undefined);
+    });
+
+    test('blocked and decision-needed todos are work: the walk releases or holds on them', () => {
+        assert.equal(emptyTodoIterationReason('dsa*', [t('dsa1', 'blocked')], 'q'), undefined);
+        assert.equal(emptyTodoIterationReason('dsa*', [t('dsa1', 'decision-needed')], 'q'), undefined);
+    });
+
+    test('no todo of the prefix', () => {
+        const reason = emptyTodoIterationReason('dsa*', [t('xyz1'), t('dsable')], 'q');
+        assert.equal(reason, 'Nothing to iterate over: no todo of quest "q" has an id starting with "dsa" followed by a number.');
+        assert.ok(isEmptyTodoIterationError(reason));
+    });
+
+    test('only todos the walk passes, counted by status; the user\'s own named as such', () => {
+        const todos = [t('dsa1', 'completed'), t('dsa2', 'completed'), t('dsa3', 'in-progress'), { ...t('dsa4', 'not-started'), userAction: true as const }, t('dsa5', 'cancelled')];
+        assert.equal(emptyTodoIterationReason('dsa*', todos, 'q'),
+            'Nothing to iterate over: none of the 5 todos of "dsa*" in quest "q" is open (2 completed, 1 in-progress, 1 yours (user_action), 1 cancelled). '
+            + 'Add or reopen a todo, then set the item to staged or pending.');
+    });
+
+    test('no quest active', () => {
+        assert.match(emptyTodoIterationReason('dsa*', [t('dsa1')], undefined) ?? '', /^Nothing to iterate over: "dsa\*" walks the todos of the window's quest, and no quest is active\.$/);
+    });
+
+    test('isEmptyTodoIterationError tells it from other errors', () => {
+        assert.equal(isEmptyTodoIterationError('Not sent: no API key.'), false);
+        assert.equal(isEmptyTodoIterationError(undefined), false);
     });
 });

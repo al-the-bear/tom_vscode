@@ -47,9 +47,17 @@ const asset = (panel: string, file: string): string => readFileSync(join(ROOT, '
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Win = any;
 
+/** The stylesheets a panel's index.html links: its own style.css and the shared ones ({{sharedUri}}). */
+function styles(panel: string): string {
+    const html = asset(panel, 'index.html');
+    return [...html.matchAll(/href="\{\{(baseUri|sharedUri)\}\}\/([^"]+\.css)"/g)]
+        .map((m) => readFileSync(join(ROOT, 'media', m[1] === 'sharedUri' ? 'shared' : panel, m[2]), 'utf-8'))
+        .join('\n');
+}
+
 function setup(panel: string): { w: Win; posted: Array<Record<string, unknown>> } {
     const body = asset(panel, 'index.html').split('<body>')[1].split('<script')[0].replace(/\{\{[a-zA-Z]+\}\}/g, '');
-    const dom = new JSDOM(`<!DOCTYPE html><head><style>${asset(panel, 'style.css')}</style></head><body>${body}</body>`, { runScripts: 'outside-only', pretendToBeVisual: true });
+    const dom = new JSDOM(`<!DOCTYPE html><head><style>${styles(panel)}</style></head><body>${body}</body>`, { runScripts: 'outside-only', pretendToBeVisual: true });
     const w = dom.window as Win;
     const posted: Array<Record<string, unknown>> = [];
     w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) });

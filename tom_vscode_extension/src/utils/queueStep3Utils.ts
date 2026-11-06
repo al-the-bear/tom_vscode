@@ -346,6 +346,50 @@ export function pickNextTodoForIteration(
     return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED && !e.userAction);
 }
 
+/** How the error of a queue item whose `prefix*` walk has nothing to walk over begins. */
+export const EMPTY_TODO_ITERATION_ERROR = 'Nothing to iterate over';
+
+/** Is this item error the one {@link emptyTodoIterationReason} wrote? */
+export function isEmptyTodoIterationError(error: unknown): boolean {
+    return typeof error === 'string' && error.startsWith(EMPTY_TODO_ITERATION_ERROR);
+}
+
+/**
+ * Why a `prefix*` walk would go over nothing, or `undefined` when it has
+ * something to do (or `value` is no prefix pattern). Something to do is a
+ * todo of the series that is `not-started` and not the user's, `blocked` (it
+ * may be released while the walk runs) or `decision-needed` (the walk holds
+ * there for the user). Everything else — completed, cancelled, in-progress,
+ * the user's own — the walk passes, so a series of only those, or no series
+ * at all, would end the item without a single send.
+ */
+export function emptyTodoIterationReason(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+    questId: string | undefined,
+): string | undefined {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) { return undefined; }
+    if (!questId) {
+        return `${EMPTY_TODO_ITERATION_ERROR}: "${prefix}*" walks the todos of the window's quest, and no quest is active.`;
+    }
+    const series = collectPrefixTodos(prefix, todos);
+    if (series.length === 0) {
+        return `${EMPTY_TODO_ITERATION_ERROR}: no todo of quest "${questId}" has an id starting with "${prefix}" followed by a number.`;
+    }
+    const workable = series.some((e) => (e.status === NOT_STARTED && !e.userAction) || e.status === 'blocked' || e.status === DECISION_NEEDED);
+    if (workable) { return undefined; }
+    const counts = new Map<string, number>();
+    for (const e of series) {
+        const key = e.status === NOT_STARTED && e.userAction ? 'yours (user_action)' : e.status;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const summary = [...counts].map(([status, n]) => `${n} ${status}`).join(', ');
+    const noun = series.length === 1 ? 'todo' : 'todos';
+    return `${EMPTY_TODO_ITERATION_ERROR}: none of the ${series.length} ${noun} of "${prefix}*" in quest "${questId}" is open (${summary}). `
+        + 'Add or reopen a todo, then set the item to staged or pending.';
+}
+
 /**
  * The `not-started` todos of a `prefix*` series that are the user's to do —
  * the ones the walk passes. In series order.
