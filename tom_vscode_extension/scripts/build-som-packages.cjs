@@ -142,6 +142,26 @@ function exportHead(aiBuild) {
     return target;
 }
 
+/**
+ * Why the runtime and the facade cannot be packed together, or null: they
+ * carry the model version and move together. When their manifests have
+ * uncommitted changes (`dirty`: git status lines), the versions are being
+ * raised in ai_build right now — another session releasing the chain, its
+ * second manifest not written yet — and the message says so.
+ */
+function versionMismatchMessage(versions, dirty) {
+    const [runtime, facade] = PACKAGES;
+    if (versions[runtime] === versions[facade]) { return null; }
+    const manifests = dirty.filter((l) => PACKAGES.some((pkg) => l.includes(`${pkg}/package.json`)));
+    const base = `version mismatch: ${runtime} ${versions[runtime]}, ${facade} ${versions[facade]}. `
+        + 'The runtime and the facade carry the model version and move together.';
+    if (!manifests.length) { return `${base} Raise the other one in ai_build.`; }
+    return `${base} Their package.json files have uncommitted changes in ai_build:\n`
+        + manifests.map((l) => `     ${l}`).join('\n')
+        + '\n   The chain is being released there right now. Run the install again once that is committed, '
+        + "or pack ai_build's committed state: npm run som:pack -- --from-head (then the install's later steps).";
+}
+
 function main(aiBuild) {
     if (!fs.existsSync(aiBuild)) {
         fail(`ai_build not found at ${aiBuild}. The SOM packages are built from it; set TOM_SOM_aiBuild to its location.`);
@@ -150,16 +170,23 @@ function main(aiBuild) {
     if (dirty.length > 0) {
         console.warn(`⚠️  ai_build has uncommitted changes in the packed paths; they will be in the extension:\n${dirty.map((l) => `     ${l}`).join('\n')}\n   Use --from-head to pack only what is committed.`);
     }
-    fs.mkdirSync(VENDOR_DIR, { recursive: true });
+    // Both versions before anything is built: a mismatch stops here, with
+    // node_modules and the lockfile still as they were.
     const versions = {};
+    for (const pkg of PACKAGES) {
+        const manifestPath = path.join(aiBuild, pkg, 'package.json');
+        if (!fs.existsSync(manifestPath)) {
+            fail(`${pkg} not found at ${path.dirname(manifestPath)}.`);
+        }
+        versions[pkg] = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).version;
+    }
+    const mismatch = versionMismatchMessage(versions, dirty);
+    if (mismatch) { fail(mismatch); }
+    fs.mkdirSync(VENDOR_DIR, { recursive: true });
 
     for (const pkg of PACKAGES) {
         const dir = path.join(aiBuild, pkg);
-        const manifestPath = path.join(dir, 'package.json');
-        if (!fs.existsSync(manifestPath)) {
-            fail(`${pkg} not found at ${dir}.`);
-        }
-        const version = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).version;
+        const version = versions[pkg];
         console.log(`📦 ${pkg} ${version}: npm install + npm pack ...`);
         try {
             npm(['install', '--no-audit', '--no-fund'], dir);
@@ -174,7 +201,6 @@ function main(aiBuild) {
         } catch (e) {
             fail(`building ${pkg} failed in ${dir}: ${e.message}. Run 'npm install && npm pack' there to see the error.`);
         }
-        versions[pkg] = version;
     }
 
     // The content identity of the packed model (the facade meta's `modelHash`).
@@ -202,9 +228,6 @@ function main(aiBuild) {
         fs.writeFileSync(lockPath, `${JSON.stringify(data, null, 2)}\n`);
     }
     copyCodeSpecsCatalog(aiBuild);
-    if (versions[PACKAGES[0]] !== versions[PACKAGES[1]]) {
-        fail(`version mismatch: ${JSON.stringify(versions)}. The runtime and the facade carry the model version and move together.`);
-    }
     console.log(`✅ TomSpecs SOM packages ${versions[PACKAGES[0]]} ready in ${path.relative(EXT_ROOT, VENDOR_DIR)}/`);
 }
 
@@ -219,4 +242,4 @@ if (require.main === module) {
 
 // The exported names are the constants above, kept in their own case.
 // eslint-disable-next-line @typescript-eslint/naming-convention
-module.exports = { CATALOG_SOURCE, CATALOG_TARGET, CONTRACT_SOURCE, CONTRACT_TARGET, VOCABULARY_SOURCE, VOCABULARY_TARGET };
+module.exports = { CATALOG_SOURCE, CATALOG_TARGET, CONTRACT_SOURCE, CONTRACT_TARGET, VOCABULARY_SOURCE, VOCABULARY_TARGET, versionMismatchMessage };
