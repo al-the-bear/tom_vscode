@@ -5,7 +5,8 @@
  *   GP-1 the picker's choices: the default, the default with each global addition, with each quest
  *        addition, the quest's own prompts — names in natural order; an addition follows the default
  *        after a blank line
- *   GP-2 the default a set uses: the quest's own, else the global one, else the built-in one
+ *   GP-2 the default a set uses: the quest's own, else the global one, else the built-in one; the built-in
+ *        one warns that nothing it starts can call back once it has answered
  *   GP-3 names: what may become `<name>.md`; files of the folders map back to their kind and name, other
  *        files are not entries
  *   GP-4 the preview of an entry: what a walk sends with it, and a note
@@ -67,6 +68,9 @@ describe('group prompts', () => {
         assert.equal(choices[0].description, "q1's default");
         assert.equal(choices[1].text, 'Q\n\nX', 'additions follow the default the quest uses');
         assert.match(BUILTIN_GROUP_PROMPT, /\$\{repeatTodoId\}/);
+        // A walk moves on when the answer arrives: nothing the prompt started can report back afterwards.
+        assert.match(BUILTIN_GROUP_PROMPT, /cannot call (you )?back/);
+        assert.match(BUILTIN_GROUP_PROMPT, /wait actively/i);
     });
 
     test('GP-3: names and files', () => {
