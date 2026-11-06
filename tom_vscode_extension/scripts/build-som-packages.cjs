@@ -227,8 +227,18 @@ function main(aiBuild) {
         }
         fs.writeFileSync(lockPath, `${JSON.stringify(data, null, 2)}\n`);
     }
+    // Install the new tarballs at once: until then node_modules has no SOM
+    // packages, and a build running meanwhile — an install in another
+    // terminal, while a session ran `npm run som:pack` on its own — fails with
+    // "Cannot find module 'tom_som_typescript_runtime'" (2026-11-06).
+    console.log('📦 npm install (the new SOM packages) ...');
+    try {
+        npm(['install', '--no-audit', '--no-fund'], EXT_ROOT);
+    } catch (e) {
+        fail(`npm install failed in ${EXT_ROOT}: ${e.message}. node_modules has no SOM packages until it succeeds; run 'npm install' there.`);
+    }
     copyCodeSpecsCatalog(aiBuild);
-    console.log(`✅ TomSpecs SOM packages ${versions[PACKAGES[0]]} ready in ${path.relative(EXT_ROOT, VENDOR_DIR)}/`);
+    console.log(`✅ TomSpecs SOM packages ${versions[PACKAGES[0]]} ready in ${path.relative(EXT_ROOT, VENDOR_DIR)}/ and installed`);
 }
 
 if (require.main === module) {

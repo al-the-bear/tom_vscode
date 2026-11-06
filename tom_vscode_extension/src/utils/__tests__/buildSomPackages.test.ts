@@ -9,6 +9,9 @@
  *   SP-3 different versions, nothing uncommitted: raise the other one
  *   SP-4 the versions are compared before anything is built, so a mismatch leaves node_modules and the
  *        lockfile as they were
+ *   SP-5 after removing the installed copies and their lockfile entries it installs the new tarballs at
+ *        once, so a build running meanwhile never finds node_modules without the SOM packages for longer
+ *        than that install
  */
 
 import test, { describe } from 'node:test';
@@ -54,5 +57,13 @@ describe('build-som-packages', () => {
         assert.ok(main.indexOf('versionMismatchMessage(versions, dirty)') > 0);
         assert.ok(main.indexOf('versionMismatchMessage(versions, dirty)') < main.indexOf("npm(['install'"), 'before npm install');
         assert.ok(main.indexOf('versionMismatchMessage(versions, dirty)') < main.indexOf('fs.rmSync'), 'before node_modules is touched');
+    });
+
+    test('SP-5: installed at once', () => {
+        const main = readFileSync(SCRIPT, 'utf8');
+        const body = main.slice(main.indexOf('function main('));
+        const removed = body.indexOf("fs.rmSync(path.join(EXT_ROOT, 'node_modules', pkg)");
+        const reinstalled = body.indexOf("npm(['install', '--no-audit', '--no-fund'], EXT_ROOT)");
+        assert.ok(removed > 0 && reinstalled > removed, 'npm install in the extension after the copies are removed');
     });
 });
