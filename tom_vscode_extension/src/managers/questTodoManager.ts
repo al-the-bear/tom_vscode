@@ -342,7 +342,7 @@ function assertTodoPersisted(
  * defect: comparing one representative SCALAR would never have looked at
  * `scope` or `references`, which is where the loss was.
  *
- * THE THREE REAL NORMALISATIONS, each measured, each narrow:
+ * THE FOUR REAL NORMALISATIONS, each measured, each narrow:
  *
  *   1. An empty value is a DELETE. The writers turn `''`, `[]` and an empty
  *      scope into an absent key on purpose, so "wrote empty, read nothing" is
@@ -353,6 +353,8 @@ function assertTodoPersisted(
  *   3. The value compared is what the WRITER computed, not what the caller
  *      passed — `decisions` is normalised on the way in, and comparing against
  *      the raw input would fail on every correct write.
+ *   4. Object keys compare as a set: a reference written `{path, lines,
+ *      description}` reads back `{path, description, lines}`.
  *
  * A value this cannot compare is SKIPPED rather than guessed at. That is the
  * one place the original caution survives: a silent skip loses a check, an
@@ -438,7 +440,19 @@ function todoValuesAgree(key: string, written: unknown, actual: unknown): boolea
             return JSON.stringify(a[k]) === JSON.stringify(b[k]);
         });
     }
-    return JSON.stringify(written) === JSON.stringify(actual);
+    // Objects compare by their keys, not the order the reader emits them in: a
+    // reference written {path, lines, description} reads back {path,
+    // description, lines}.
+    return canonicalJson(written) === canonicalJson(actual);
+}
+
+/** JSON with every object's keys sorted, so key order does not count. */
+function canonicalJson(value: unknown): string {
+    return JSON.stringify(value, (_key, v: unknown) => {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) { return v; }
+        const o = v as Record<string, unknown>;
+        return Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]]));
+    });
 }
 
 /** A short, quotable rendering of a value for a failure message. */

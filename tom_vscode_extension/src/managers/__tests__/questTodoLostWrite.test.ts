@@ -318,6 +318,16 @@ describe('SCD202: a field a mutator claims to have written is readable back', ()
         );
     });
 
+    test('F-SCD202-8: a reference whose keys the reader re-orders is NOT rejected '
+        + '[2026-11-06]', () => {
+        // tomAi_createQuestTodo answered ok: false for a todo it had written whole:
+        // a reference given as {path, lines, description} reads back as
+        // {path, description, lines}, and the check compared serialised shapes.
+        const references = [{ path: 'doc/spec.md', lines: '10-20', description: 'the section' }] as unknown as QuestTodoItem['references'];
+        assert.doesNotThrow(() => createTodo(QUEST, { id: 'ref-order', description: 'references in another order', status: 'not-started', references }));
+        assert.deepEqual(JSON.parse(JSON.stringify(findTodoById(QUEST, 'ref-order')?.references)), references);
+    });
+
     test('F-SCD202-6: a field this cannot compare is skipped, not guessed at '
         + '[2026-09-15]', () => {
         // `created` and `updated` are stamped by the writer rather than taken
