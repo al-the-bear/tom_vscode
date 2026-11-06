@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Before the long build: are the bridge's tom_* resolutions current?
+ * Before the long build: are the tom_* resolutions of the build's locks current?
  *
- *   node scripts/bridge-lock-preflight.cjs --fix  [bridgeDir]   (from source)
- *   node scripts/bridge-lock-preflight.cjs --warn [bridgeDir]   (prebuilt route)
+ *   node scripts/bridge-lock-preflight.cjs --fix  [packageDir]   (from source)
+ *   node scripts/bridge-lock-preflight.cjs --warn [packageDir]   (prebuilt route)
  *   options: --offline (read only the local pub cache)
+ *   Without packageDir: tom_vscode_bridge's lock and, when the checkout is
+ *   there, tom_d4rt_generator's — the build runs the generator with its own.
  *
  * Why: `dart pub get` keeps a pubspec.lock as it is. tom_vscode_bridge's lock
  * is gitignored and per machine, so on a host that last resolved it months ago
@@ -18,7 +20,8 @@
  * pub.dev cannot be reached, the newest version in the local pub cache — which
  * under-reports on a cold cache, so every offline answer is a floor.
  *
- * --fix runs `dart pub upgrade <the frozen packages>` in the bridge (the lock
+ * --fix runs `dart pub upgrade` in the bridge — the whole lock, since a tom_*
+ *       package can be held by what the bridge's own dev dependencies pin (the lock
  *       is machine-local; the from-source build uses the newest sources anyway)
  *       and names what is still behind afterwards — a constraint can cap a
  *       package legitimately, so that is reported, not fatal. Exit 1 only when
@@ -148,58 +151,92 @@ function describe(frozen) {
     return frozen.map((f) => `${f.name} ${f.locked} (newest ${f.newest}, ${f.source})`).join(', ');
 }
 
-function runDartUpgrade(bridgeDir, names) {
+/**
+ * The `dart` arguments that move the frozen packages: the whole lock. Naming
+ * them is not enough, not even with `--unlock-transitive`: tom_d4rt_generator
+ * 1.53.0 needs analyzer 14, and the bridge's own build_runner and test held
+ * analyzer 10 in the lock, so the generator stayed at 1.52.0 — reported as
+ * "held by a version constraint" when no constraint held it. The lock is
+ * machine-local, and the from-source build takes the newest sources anyway.
+ */
+function upgradeArgs() {
+    return ['pub', 'upgrade'];
+}
+
+function runDartUpgrade(bridgeDir) {
     const shell = process.platform === 'win32';
-    const r = spawnSync(shell ? '"dart"' : 'dart', ['pub', 'upgrade', ...names], { cwd: bridgeDir, stdio: 'inherit', shell });
+    const r = spawnSync(shell ? '"dart"' : 'dart', upgradeArgs(), { cwd: bridgeDir, stdio: 'inherit', shell });
     return r.status === 0;
+}
+
+/**
+ * The locks the from-source build uses: the bridge's, and the d4rt
+ * generator checkout's — the build runs the generator from its source with
+ * that checkout's lock (`dart --packages=<generator>/.dart_tool/...`), so a
+ * tom_* package frozen there (tom_analyzer_shared, say) is what generates the
+ * bridges. `extensionDir` is this extension's folder.
+ */
+function defaultDirs(extensionDir) {
+    const bridge = path.resolve(extensionDir, '..', 'tom_vscode_bridge');
+    const generator = path.resolve(extensionDir, '..', '..', 'd4rt', 'tom_d4rt_generator');
+    return fs.existsSync(generator) ? [bridge, generator] : [bridge];
+}
+
+/** Check (and with `fix` upgrade) one package's lock; the exit code. */
+async function checkLock(dir, mode, offline) {
+    const name = path.basename(dir);
+    const lockFile = path.join(dir, 'pubspec.lock');
+    if (!fs.existsSync(lockFile)) {
+        console.log(`  ✔ ${name} has no pubspec.lock yet: the build resolves it fresh`);
+        return 0;
+    }
+    const measured = await measure(fs.readFileSync(lockFile, 'utf8'), { offline });
+    const unknown = measured.filter((m) => m.source === 'unknown').map((m) => m.name);
+    if (unknown.length) {
+        console.log(`  ℹ ${name}, not measured (pub.dev unreachable, not in the pub cache): ${unknown.join(', ')}`);
+    }
+    const frozen = frozenOf(measured);
+    if (!frozen.length) {
+        console.log(`  ✔ ${name}: its ${measured.length} tom_* resolutions are current`);
+        return 0;
+    }
+    const command = `cd ${dir} && dart ${upgradeArgs().join(' ')}`;
+    if (mode === 'warn') {
+        console.log(`  ⚠️  ${name}'s pubspec.lock is behind: ${describe(frozen)}.`);
+        console.log(`     The build and its tests run against these versions. To move them: ${command}`);
+        return 0;
+    }
+    console.log(`  ⟳ ${name}'s pubspec.lock is behind: ${describe(frozen)}. Upgrading the lock...`);
+    if (!runDartUpgrade(dir)) {
+        console.error(`  ❌ dart pub upgrade failed in ${dir}; the build would use the old versions. Run: ${command}`);
+        return 1;
+    }
+    const after = frozenOf(await measure(fs.readFileSync(lockFile, 'utf8'), { offline }));
+    if (after.length) {
+        console.log(`  ℹ ${name}, still behind after the upgrade (held by a version constraint): ${describe(after)}`);
+    } else {
+        console.log(`  ✔ ${name}: its tom_* resolutions are current`);
+    }
+    return 0;
 }
 
 async function main(argv) {
     const mode = argv.includes('--fix') ? 'fix' : argv.includes('--warn') ? 'warn' : null;
     const offline = argv.includes('--offline');
     const positional = argv.filter((a) => !a.startsWith('--'));
-    const bridgeDir = path.resolve(positional[0] || path.join(__dirname, '..', '..', 'tom_vscode_bridge'));
     if (!mode) {
-        console.error('usage: bridge-lock-preflight.cjs --fix|--warn [--offline] [bridgeDir]');
+        console.error('usage: bridge-lock-preflight.cjs --fix|--warn [--offline] [packageDir]');
         return 2;
     }
-    const lockFile = path.join(bridgeDir, 'pubspec.lock');
-    if (!fs.existsSync(lockFile)) {
-        console.log('  ✔ tom_vscode_bridge has no pubspec.lock yet: the build resolves it fresh');
-        return 0;
+    const dirs = positional.length ? [path.resolve(positional[0])] : defaultDirs(path.join(__dirname, '..'));
+    let code = 0;
+    for (const dir of dirs) {
+        code = Math.max(code, await checkLock(dir, mode, offline));
     }
-    const measured = await measure(fs.readFileSync(lockFile, 'utf8'), { offline });
-    const unknown = measured.filter((m) => m.source === 'unknown').map((m) => m.name);
-    if (unknown.length) {
-        console.log(`  ℹ not measured (pub.dev unreachable, not in the pub cache): ${unknown.join(', ')}`);
-    }
-    const frozen = frozenOf(measured);
-    if (!frozen.length) {
-        console.log(`  ✔ the bridge's ${measured.length} tom_* resolutions are current`);
-        return 0;
-    }
-    const names = frozen.map((f) => f.name);
-    const command = `cd ${bridgeDir} && dart pub upgrade ${names.join(' ')}`;
-    if (mode === 'warn') {
-        console.log(`  ⚠️  tom_vscode_bridge's pubspec.lock is behind: ${describe(frozen)}.`);
-        console.log(`     Tests of the bridge run against these versions. To move them: ${command}`);
-        return 0;
-    }
-    console.log(`  ⟳ tom_vscode_bridge's pubspec.lock is behind: ${describe(frozen)}. Upgrading them...`);
-    if (!runDartUpgrade(bridgeDir, names)) {
-        console.error(`  ❌ dart pub upgrade failed in ${bridgeDir}; the bridge would build against the old versions. Run: ${command}`);
-        return 1;
-    }
-    const after = frozenOf(await measure(fs.readFileSync(lockFile, 'utf8'), { offline }));
-    if (after.length) {
-        console.log(`  ℹ still behind after the upgrade (held by a version constraint): ${describe(after)}`);
-    } else {
-        console.log('  ✔ the bridge\'s tom_* resolutions are current');
-    }
-    return 0;
+    return code;
 }
 
-module.exports = { parseHostedLock, parseVersion, compareVersions, pubCacheRoot, newestInCacheListing, newestInCache, measure, frozenOf };
+module.exports = { parseHostedLock, parseVersion, compareVersions, pubCacheRoot, newestInCacheListing, newestInCache, measure, frozenOf, upgradeArgs, defaultDirs };
 
 if (require.main === module) {
     main(process.argv.slice(2)).then((code) => process.exit(code), (err) => { console.error(err); process.exit(1); });

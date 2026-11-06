@@ -12,10 +12,13 @@
  *   BLP-3 the pub cache's newest release of a package: exact name, pre-releases ignored
  *   BLP-4 pub.dev's answer wins; without one the pub cache answers; with neither the package is not measured
  *         (and never counted frozen); frozen = locked older than newest
- *   BLP-5 the command: --warn names the frozen package and the upgrade command and exits 0; no lock is fine;
+ *   BLP-5 the command: --warn names the frozen package and the upgrade command (the whole lock: a tom_*
+ *         package can be held by what the bridge's own dev dependencies pin) and exits 0; no lock is fine;
  *         without a mode it refuses
  *   BLP-6 the installers: from source, `--fix` runs right after the Dart SDK is found, before anything is built,
  *         and stops the install when it fails; the prebuilt route warns; PowerShell through Invoke-Native
+ *   BLP-7 without a folder argument it looks at the bridge's lock and, when the checkout is there, the d4rt
+ *         generator's, which the from-source build runs the generator with
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/naming-convention -- package names and env keys as pub writes them */
@@ -126,7 +129,11 @@ describe('bridge lock preflight', () => {
             const warn = run('--warn', '--offline');
             assert.equal(warn.status, 0, warn.stderr);
             assert.match(warn.stdout, /tom_d4rt 1\.224\.0 \(newest 1\.225\.0, pub cache\)/);
-            assert.match(warn.stdout, /dart pub upgrade tom_d4rt\b/);
+            assert.match(warn.stdout, /cd \S+ && dart pub upgrade$/m);
+            // The whole lock moves: tom_d4rt_generator 1.53.0 needs analyzer 14, and the bridge's own
+            // build_runner and test held analyzer 10 in the lock — an upgrade naming only the tom_*
+            // packages (even with --unlock-transitive) left the generator at 1.52.0.
+            assert.deepEqual(pre.upgradeArgs(), ['pub', 'upgrade']);
             assert.match(warn.stdout, /not measured .*tom_d4rt_ast/);
             assert.equal(run('--offline').status, 2, 'no mode: refused');
         } finally {
@@ -151,5 +158,23 @@ describe('bridge lock preflight', () => {
         assert.ok(fixPs < ps.indexOf('Invoke-Native { node scripts/build-som-packages.cjs }'));
         assert.match(ps.slice(fixPs, fixPs + 200), /if \(\$LASTEXITCODE -ne 0\) \{\s*Write-Error[^\n]*\n\s*exit 1/, '.ps1: stops on failure');
         assert.match(ps, /Invoke-Native \{ node \(Join-Path \$PSScriptRoot 'scripts\/bridge-lock-preflight\.cjs'\) --warn \}/, '.ps1: the prebuilt route warns');
+    });
+    test('BLP-7: the locks it looks at', () => {
+        // The from-source build runs the d4rt generator from its own checkout, with that checkout's
+        // lock: tom_analyzer_shared 0.8.1 (summaries no longer losing a package's analyzer-excluded
+        // files) stayed out of every build while that lock held 0.8.0.
+        const ws = mkdtempSync(join(tmpdir(), 'blp-ws-'));
+        try {
+            const ext = join(ws, 'tom_ai', 'vscode', 'tom_vscode_extension');
+            const bridge = join(ws, 'tom_ai', 'vscode', 'tom_vscode_bridge');
+            const generator = join(ws, 'tom_ai', 'd4rt', 'tom_d4rt_generator');
+            mkdirSync(ext, { recursive: true });
+            mkdirSync(bridge, { recursive: true });
+            assert.deepEqual(pre.defaultDirs(ext), [bridge], 'no generator checkout: the bridge alone');
+            mkdirSync(generator, { recursive: true });
+            assert.deepEqual(pre.defaultDirs(ext), [bridge, generator]);
+        } finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
     });
 });
