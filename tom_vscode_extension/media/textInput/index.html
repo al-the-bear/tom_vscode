@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Multi-line text input (src/handlers/textInput-handler.ts, showMultilineInput):
+  a title, a hint, a textarea and OK / Cancel. The texts arrive in
+  window.__INIT__; OK posts the text, Cancel (or Escape) posts a cancel. No
+  inline handlers: main.js attaches every listener (nonce-only CSP).
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="ti-wrap">
+    <h2 id="tiTitle" class="ti-title"></h2>
+    <p id="tiPrompt" class="ti-prompt"></p>
+    <div id="tiContext" class="ti-context" hidden>
+        <div class="ti-context-label" id="tiContextLabel"></div>
+        <pre id="tiContextText" class="ti-context-text"></pre>
+    </div>
+    <textarea id="tiText" class="ti-text" rows="12" autofocus></textarea>
+    <div class="ti-bar">
+        <span class="ti-keys">Ctrl/Cmd+Enter: OK · Escape: Cancel</span>
+        <div class="spacer"></div>
+        <button class="secondary" id="tiCancel">Cancel</button>
+        <button class="primary" id="tiOk">OK</button>
+    </div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

@@ -34,7 +34,8 @@ import { wireCompletionMessages } from '../utils/completionWiring';
 import { todoFormUnchanged } from '../utils/todoFormSave';
 import { groupPromptDirs } from '../services/groupPromptDirs';
 import { readGroupPrompts } from '../services/groupPromptStore';
-import { groupPromptChoices } from '../utils/groupPrompts';
+import { composeGroupPrompt, groupPromptChoices, type GroupPromptChoice } from '../utils/groupPrompts';
+import { showMultilineInput } from './textInput-handler';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 
 // Module-level state
@@ -2333,32 +2334,73 @@ async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
     }
     const dirs = groupPromptDirs(questId);
     const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], questId);
-    type Pick = vscode.QuickPickItem & { text?: string; editor?: boolean };
-    const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? '';
-    const items: Pick[] = [
-        ...choices.map((c) => ({ label: c.label, description: c.description, detail: firstLine(c.text), text: c.text })),
-        { label: '', kind: vscode.QuickPickItemKind.Separator },
-        { label: '$(edit) Open Group Prompt Editor…', editor: true },
-    ];
-    const picked = await vscode.window.showQuickPick(items, {
-        title: `Queue Group Prompt: a walk over ${prefix}*`,
-        placeHolder: 'The prompt each todo of the group is sent with',
-        matchOnDescription: true,
-    });
+    const picked = await pickGroupPrompt(prefix, choices);
     if (!picked) { return; }
-    if (picked.editor) {
+    if (picked === 'editor') {
         await vscode.commands.executeCommand('tomAi.editor.groupPrompts', questId);
         return;
     }
+    let text = picked.choice.text;
+    let label = picked.choice.label;
+    if (picked.withAddition) {
+        // An addition typed for this walk only, appended like a stored one.
+        const addition = await showMultilineInput({
+            title: `Queue Group Prompt: ${prefix}*`,
+            prompt: `What to add to "${picked.choice.label}" for this walk (not stored). It follows the prompt after a blank line.`,
+            placeholder: 'e.g. Run the tests of every package you touch.',
+            okLabel: 'Queue',
+            contextLabel: `${picked.choice.label} (${picked.choice.description})`,
+            context: picked.choice.text,
+        });
+        if (addition === undefined) { return; }
+        text = composeGroupPrompt(text, addition);
+        if (addition.trim()) { label = `${label} + typed addition`; }
+    }
     try {
         const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-        const item = await queue.enqueue({ originalText: picked.text ?? '', repeatCount: `${prefix}*`, deferSend: true });
+        const item = await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true });
         if (item.status === 'error') {
             void vscode.window.showWarningMessage(`Queued, but held in error — ${item.error ?? 'the walk has nothing to walk over'}`);
         } else {
-            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${picked.label}".`);
+            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${label}".`);
         }
     } catch (e) {
         void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
     }
+}
+
+/**
+ * The Queue Group Prompt picker: the group prompts, each with a ✎ button that
+ * picks it with an addition typed for this walk; "Default + an addition I
+ * type…"; and the group prompt editor.
+ */
+function pickGroupPrompt(prefix: string, choices: GroupPromptChoice[]): Promise<{ choice: GroupPromptChoice; withAddition: boolean } | 'editor' | undefined> {
+    type Item = vscode.QuickPickItem & { choice?: GroupPromptChoice; typed?: boolean; editor?: boolean };
+    const typeButton: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('edit'), tooltip: 'With an addition I type for this walk…' };
+    const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? '';
+    const items: Item[] = [
+        ...choices.map((c) => ({ label: c.label, description: c.description, detail: firstLine(c.text), choice: c, buttons: [typeButton] })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        { label: '$(edit) Default + an addition I type…', description: 'multi-line, for this walk only', choice: choices[0], typed: true },
+        { label: '$(gear) Open Group Prompt Editor…', editor: true },
+    ];
+    const qp = vscode.window.createQuickPick<Item>();
+    qp.title = `Queue Group Prompt: a walk over ${prefix}*`;
+    qp.placeholder = 'The prompt each todo of the group is sent with (✎: add text of your own)';
+    qp.matchOnDescription = true;
+    qp.items = items;
+    return new Promise((resolve) => {
+        let result: { choice: GroupPromptChoice; withAddition: boolean } | 'editor' | undefined;
+        qp.onDidAccept(() => {
+            const item = qp.selectedItems[0];
+            if (item?.editor) { result = 'editor'; } else if (item?.choice) { result = { choice: item.choice, withAddition: !!item.typed }; }
+            qp.hide();
+        });
+        qp.onDidTriggerItemButton((e) => {
+            if (e.item.choice) { result = { choice: e.item.choice, withAddition: true }; }
+            qp.hide();
+        });
+        qp.onDidHide(() => { qp.dispose(); resolve(result); });
+        qp.show();
+    });
 }

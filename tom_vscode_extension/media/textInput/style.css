@@ -1,0 +1,42 @@
+/* Multi-line text input — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    margin: 0;
+}
+.ti-wrap { max-width: 900px; margin: 0 auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.ti-title { margin: 0; font-size: 1.2em; }
+.ti-prompt { margin: 0; color: var(--vscode-descriptionForeground); }
+.ti-context-label { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-bottom: 4px; }
+.ti-context-text {
+    margin: 0;
+    max-height: 30vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    background: var(--vscode-textCodeBlock-background);
+    padding: 8px 10px;
+}
+.ti-text {
+    min-height: 200px;
+    resize: vertical;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    padding: 6px;
+}
+.ti-text:focus { outline: 1px solid var(--vscode-focusBorder); }
+.ti-bar { display: flex; align-items: center; gap: 8px; }
+.ti-keys { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
+.spacer { flex: 1; }
+button { border: none; padding: 4px 14px; cursor: pointer; font-family: inherit; font-size: inherit; }
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button.primary:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button:disabled { opacity: 0.5; cursor: default; }
