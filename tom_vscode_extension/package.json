@@ -94,6 +94,24 @@
         "shortTitle": "Send to Copilot (Default Template)"
       },
       {
+        "command": "tomAi.sendToLlm",
+        "title": "@T: Send to LLM",
+        "category": "@Tom",
+        "shortTitle": "Send to LLM"
+      },
+      {
+        "command": "tomAi.sendToLlm.template",
+        "title": "@T: Send to LLM (Pick Template)",
+        "category": "@Tom",
+        "shortTitle": "Send to LLM (Pick Template)"
+      },
+      {
+        "command": "tomAi.sendToLlm.standard",
+        "title": "@T: Send to LLM (Default Template)",
+        "category": "@Tom",
+        "shortTitle": "Send to LLM (Default Template)"
+      },
+      {
         "command": "tomAi.reloadConfig",
         "title": "@T: Reload Configuration",
         "category": "@Tom"
@@ -541,6 +559,11 @@
         "when": "!tomAi.chordMenuOpen"
       },
       {
+        "command": "tomAi.chordMenu.llm",
+        "key": "ctrl+shift+l",
+        "when": "!tomAi.chordMenuOpen"
+      },
+      {
         "command": "tomAi.chordMenu.execute",
         "key": "ctrl+shift+e",
         "when": "!tomAi.chordMenuOpen"
@@ -643,6 +666,19 @@
           "command": "tomAi.sendToCopilot",
           "when": "editorHasSelection",
           "group": "copilot@3"
+        },
+        {
+          "command": "tomAi.sendToLlm.standard",
+          "group": "llm@1"
+        },
+        {
+          "command": "tomAi.sendToLlm.template",
+          "group": "llm@2"
+        },
+        {
+          "command": "tomAi.sendToLlm",
+          "when": "editorHasSelection",
+          "group": "llm@3"
         },
         {
           "command": "tomAi.executeFile",

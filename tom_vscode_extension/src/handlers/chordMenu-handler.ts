@@ -8,6 +8,7 @@
  *
  * Groups:
  *   Ctrl+Shift+C → Send to Copilot Chat
+ *   Ctrl+Shift+L → Send to LLM (the @CHAT Anthropic panel's profile)
  *   Ctrl+Shift+E → Execute Commandline
  *   Ctrl+Shift+X → Favorites (configurable via tom_vscode_extension.json)
  *
@@ -96,6 +97,16 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
             { key: 's', label: 'Send to Chat (Standard)', commandId: 'tomAi.sendToCopilot.standard' },
             { key: 't', label: 'Send to Chat (Template)', commandId: 'tomAi.sendToCopilot.template' },
             { key: 'r', label: 'Reload Chat Config', commandId: 'tomAi.reloadConfig' },
+            HELP_ITEM,
+        ]
+    },
+    llm: {
+        title: 'Send to LLM',
+        prefix: 'Ctrl+Shift+L',
+        items: [
+            { key: 'l', label: 'Send to LLM', commandId: 'tomAi.sendToLlm' },
+            { key: 's', label: 'Send to LLM (Default Template)', commandId: 'tomAi.sendToLlm.standard' },
+            { key: 't', label: 'Send to LLM (Pick Template)', commandId: 'tomAi.sendToLlm.template' },
             HELP_ITEM,
         ]
     },
@@ -265,6 +276,10 @@ export function chordMenuChatHandler(): void {
     showChordMenu('chat');
 }
 
+export function chordMenuLlmHandler(): void {
+    showChordMenu('llm');
+}
+
 export function chordMenuExecuteHandler(): void {
     showChordMenu('execute');
 }
@@ -298,6 +313,7 @@ export async function chordMenuFavoritesHandler(): Promise<void> {
 export function registerChordMenuCommands(context: vscode.ExtensionContext): void {
     const cmds = [
         vscode.commands.registerCommand('tomAi.chordMenu.copilot', chordMenuChatHandler),
+        vscode.commands.registerCommand('tomAi.chordMenu.llm', chordMenuLlmHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.execute', chordMenuExecuteHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.favorites', chordMenuFavoritesHandler),
         vscode.commands.registerCommand(QUICK_REFERENCE_COMMAND, openQuickReference),

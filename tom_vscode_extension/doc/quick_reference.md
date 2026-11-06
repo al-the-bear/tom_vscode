@@ -29,6 +29,7 @@
 | Key | Command | Description |
 | --- | --- | --- |
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot menu |
+| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to LLM menu (`l` selection, `s` default template, `t` pick template) |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute menu |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites menu |
 
@@ -82,6 +83,7 @@
 ## Core AI Commands
 
 - `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`
+- `tomAi.sendToLlm`, `tomAi.sendToLlm.standard`, `tomAi.sendToLlm.template` (to the @CHAT Anthropic panel's current profile and session)
 - `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (follow-tail mode for the live trail)
 
 ## Bridge and Runtime Commands

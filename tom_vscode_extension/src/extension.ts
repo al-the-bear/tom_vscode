@@ -6,6 +6,7 @@
  * handler files in the handlers/ directory.
  */
 
+import { registerSendToLlmCommands } from './handlers/sendToLlm-handler';
 import { setToolCallLogSink } from './utils/toolCallLog';
 import { getToolLogChannel } from './utils/toolLog';
 import * as vscode from 'vscode';
@@ -833,6 +834,9 @@ export function deactivate() {
  * Register all extension commands
  */
 function registerCommands(context: vscode.ExtensionContext) {
+    // Send to LLM - the @CHAT Anthropic panel's current profile and session
+    registerSendToLlmCommands(context);
+
     // Send to Chat command - sends selected text to Copilot Chat
     const sendToChatCmd = vscode.commands.registerCommand(
         'tomAi.sendToCopilot',

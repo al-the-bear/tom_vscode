@@ -3615,13 +3615,15 @@ export class AnthropicHandler {
         const toolHistory = extras?.toolHistory ?? '';
 
         // Stage 1: expand userMessageTemplate (if any) around the raw
-        // user text via ${userMessage}. When no template is set, the
+        // user text via ${userMessage} (or ${originalPrompt}, the other name
+        // the one template store accepts). When no template is set, the
         // wrapped prompt is the raw text itself.
         const template = options.userMessageTemplate;
         const wrappedPrompt = template
             ? resolveVariables(template, {
                 values: {
                     userMessage: options.userText,
+                    originalPrompt: options.userText,
                     compactedSummary,
                     rawTurns: rawTurnsFormatted,
                     rawTurnCount: String(rawTurns.length),

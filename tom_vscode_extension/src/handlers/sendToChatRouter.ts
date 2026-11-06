@@ -183,13 +183,27 @@ export async function dispatchSendToChat(
         await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
         return;
     }
-    const outcome = await runAnthropicSend(context, prompt);
+    await dispatchToLlm(context, prompt);
+}
+
+/**
+ * Fire-and-forget send to the @CHAT Anthropic panel's current profile and
+ * session (the "Send to LLM" commands, and Send to Chat with the Anthropic
+ * target). `userMessageTemplate` is the template body to wrap the prompt with;
+ * without it the default one. Busy / failure surfaces as a notification.
+ */
+export async function dispatchToLlm(
+    context: vscode.ExtensionContext,
+    prompt: string,
+    userMessageTemplate?: string,
+): Promise<void> {
+    const outcome = await runAnthropicSend(context, prompt, userMessageTemplate ? { userMessageTemplate } : undefined);
     if (outcome.rejected) {
         vscode.window.showWarningMessage(
-            'Anthropic chat is busy — try again once the current request finishes.',
+            'The LLM chat is busy — try again once the current request finishes.',
         );
     } else if (!outcome.ok && outcome.error) {
-        vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+        vscode.window.showErrorMessage(`Send to LLM failed: ${outcome.error}`);
     }
 }
 

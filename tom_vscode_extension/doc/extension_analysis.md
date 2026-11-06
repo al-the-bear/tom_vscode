@@ -45,7 +45,7 @@ graph TB
         
         subgraph "Command Layer"
             CMD["77 Commands"]
-            CHORD["6 Chord Menus"]
+            CHORD["4 Chord Menus"]
             SM["State Machines"]
             COMB["Combined Commands"]
         end
@@ -126,7 +126,7 @@ flowchart TD
     D -->|Yes| E["FULL MODE"]
     E --> F["Initialize Bridge Client"]
     F --> G["Register Commands"]
-    G --> H["Register Chord Menus (6)"]
+    G --> H["Register Chord Menus (4)"]
     H --> I["Register Commandline Commands"]
     I --> J["Register Combined Commands"]
     J --> K["Register State Machine Commands"]
@@ -286,6 +286,9 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | `tomAi.sendToCopilot` | Send to Copilot |
 | `tomAi.sendToCopilot.standard` | Send with default template |
 | `tomAi.sendToCopilot.template` | Send with template picker |
+| `tomAi.sendToLlm` | Send the selection to the @CHAT Anthropic panel's profile |
+| `tomAi.sendToLlm.standard` | Send to LLM with the default template |
+| `tomAi.sendToLlm.template` | Send to LLM with a template picker |
 
 ### Panels & Editors
 
@@ -318,6 +321,7 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | Key | Command | Menu |
 |-----|---------|------|
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot operations |
+| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to LLM |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execution commands |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites |
 
