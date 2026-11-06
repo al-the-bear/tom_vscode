@@ -30,23 +30,30 @@ the bridge files whose content changed since that commit — the stamp and the
 generators' `// Generated:` lines ignored — are named in a warning. The install
 goes on; `compile_and_install` builds a fresh `tom_bs`.
 
-The bridge's tom_* resolutions: `tom_vscode_bridge/pubspec.lock` is
-machine-local (gitignored) and `dart pub get` never moves it, so a host can hold
-a tom_* release that meets every declared lower bound and still lacks an API the
-regenerated bridges call — which used to fail only at `dart compile exe`, after
-the whole build. `scripts/bridge-lock-preflight.cjs` compares each hosted tom_*
-package of that lock with its newest release: pub.dev's latest (`PUB_HOSTED_URL`
+The tom_* resolutions of the build's locks: `tom_vscode_bridge/pubspec.lock`
+and `tom_d4rt_generator/pubspec.lock` (the build runs the d4rt generator from
+its own checkout, with that lock) are machine-local (gitignored) and
+`dart pub get` never moves them, so a host can hold a tom_* release that meets
+every declared lower bound and still lacks an API the regenerated bridges call
+— which used to fail only at `dart compile exe`, after the whole build — or a
+fix the generator needs (`tom_analyzer_shared` 0.8.1, whose summaries no longer
+drop a package's analyzer-excluded files). `scripts/bridge-lock-preflight.cjs`
+compares each hosted tom_* package of both locks (the generator's when that
+checkout is there; a folder argument checks that one package only) with its
+newest release: pub.dev's latest (`PUB_HOSTED_URL`
 when set), or, when pub.dev cannot be reached, the newest version in the local
 pub cache — a floor, since a cold cache under-reports; a package neither can
 answer for is named as not measured and never counted behind. From source
 (`compile_and_install.*`) it runs right after the Dart SDK is found, before
-anything is built, with `--fix`: `dart pub upgrade <the packages behind>` in
-the bridge, then names any package still behind (a version constraint can hold
+anything is built, with `--fix`: `dart pub upgrade` of the whole lock when a
+tom_* package is behind (naming only those packages left them where the lock's
+other packages held them: the bridge's build_runner and test kept analyzer 10
+and with it tom_d4rt_generator 1.52.0), then names any package still behind (a version constraint can hold
 it, which is reported, not fatal); a failing upgrade stops the install. The
 prebuilt route runs it with `--warn` beside `check:bridges`: it names the
 packages and the upgrade command and goes on. By hand:
 `npm run check:bridge-lock` (`node scripts/bridge-lock-preflight.cjs --warn`;
-add `--offline` to read only the cache). Tests: BLP-1 – BLP-6 (`bridgeLockPreflight.test.ts`).
+add `--offline` to read only the cache). Tests: BLP-1 – BLP-7 (`bridgeLockPreflight.test.ts`).
 
 The install scripts (`install_extension.sh` / `.ps1`, `compile_and_install.*`)
 build the TomSpecs SOM packages from the sibling `tom_ai/ai_build/` checkout
