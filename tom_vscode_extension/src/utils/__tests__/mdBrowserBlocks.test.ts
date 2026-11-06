@@ -74,6 +74,7 @@ interface BlocksApi {
     mdbOptionAnswer(letter: string): string;
     mdbCountLabel(index: number, total: number): string;
     mdbCriticMark(src: string): { raw: string; kind: string; text: string; oldText?: string; newText?: string; comment?: string } | null;
+    mdbEditInlineComment(source: string, raw: string, occurrence: number, comment: string): { text: string } | { error: string };
 }
 
 function load(): BlocksApi {
@@ -315,6 +316,24 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(mark('{++ never closed'), null);
         assert.equal(mark('{-- --}'), null, 'an empty mark is no mark');
         assert.equal(mark('{plain}'), null);
+    });
+    test('MB-17b: editing an inline comment', () => {
+        const edit = (source: string, raw: string, occurrence: number, comment: string): unknown =>
+            JSON.parse(JSON.stringify(api.mdbEditInlineComment(source, raw, occurrence, comment)));
+        const src = 'One {>> first <<} and {>> first <<} and {==marked==}{>>why<<} and {== bare ==} end.';
+        assert.deepEqual(edit(src, '{>> first <<}', 1, 'second'),
+            { text: 'One {>> first <<} and {>> second <<} and {==marked==}{>>why<<} and {== bare ==} end.' }, 'the n-th occurrence, spacing kept');
+        assert.deepEqual(edit(src, '{==marked==}{>>why<<}', 0, ' because '),
+            { text: 'One {>> first <<} and {>> first <<} and {==marked==}{>>because<<} and {== bare ==} end.' });
+        assert.deepEqual(edit(src, '{== bare ==}', 0, 'added'),
+            { text: 'One {>> first <<} and {>> first <<} and {==marked==}{>>why<<} and {== bare ==}{>> added <<} end.' }, 'a highlight gets a comment');
+        assert.deepEqual(edit(src, '{>> first <<}', 0, ''),
+            { text: 'One  and {>> first <<} and {==marked==}{>>why<<} and {== bare ==} end.' }, 'empty: the comment goes');
+        assert.deepEqual(edit(src, '{==marked==}{>>why<<}', 0, '  '),
+            { text: 'One {>> first <<} and {>> first <<} and {==marked==} and {== bare ==} end.' }, 'empty: the highlight stays');
+        assert.match((edit(src, '{>> first <<}', 0, 'a <<} b') as { error: string }).error, /cannot contain/);
+        assert.match((edit(src, '{>> first <<}', 2, 'x') as { error: string }).error, /no longer where it was/);
+        assert.match((edit(src, '{++ add ++}', 0, 'x') as { error: string }).error, /Not an inline comment/);
     });
     test('MB-18: questions and their options', () => {
         const lines = [

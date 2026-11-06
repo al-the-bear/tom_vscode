@@ -319,7 +319,9 @@
                     var buttons = change
                         ? '<button class="mdb-rm-btn mdb-rm-accept codicon codicon-check" title="Accept this change"></button>'
                             + '<button class="mdb-rm-btn mdb-rm-reject codicon codicon-close" title="Reject this change"></button>'
-                        : '<button class="mdb-rm-btn mdb-rm-remove codicon codicon-trash" title="Remove this comment (the text stays)"></button>';
+                        : '<button class="mdb-rm-btn mdb-rm-edit codicon codicon-edit" title="'
+                            + (token.kind === 'highlight' && !token.comment ? 'Add a comment' : 'Edit this comment') + '"></button>'
+                            + '<button class="mdb-rm-btn mdb-rm-remove codicon codicon-trash" title="Remove this comment (the text stays)"></button>';
                     return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.raw) + '">'
                         + renderMark.call(this, token) + '<span class="mdb-rm-actions">' + buttons + '</span></span>';
                 },
@@ -1355,6 +1357,32 @@
             });
         }
 
+        /**
+         * Edit the comment of an inline mark — a `{>> comment <<}` alone or a
+         * highlight's — in an editor under its block; saving it empty removes the
+         * comment (a highlight keeps its text). mdbEditInlineComment writes it.
+         */
+        function editInlineComment(btn) {
+            var span = btn.closest('.mdb-rm');
+            var wrapper = span && span.closest('.mdb-block');
+            var block = wrapper && wrapper.__mdbBlock;
+            if (!block || !blockEditable(block)) { return; }
+            var raw = span.dataset.raw;
+            var occurrence = 0;
+            var all = wrapper.querySelectorAll('.mdb-rm');
+            for (var i = 0; i < all.length && all[i] !== span; i++) { if (all[i].dataset.raw === raw) { occurrence++; } }
+            var mark = mdbCriticMark(raw);
+            if (!mark) { return; }
+            var initial = mark.kind === 'comment' ? mark.text : (mark.comment || '');
+            openEditor(btn, wrapper, initial, function(value) {
+                if (value.trim() === initial) { return null; }
+                var source = shownLines().slice(block.startLine, block.endLine).join('\n');
+                var edited = mdbEditInlineComment(source, raw, occurrence, value);
+                if (edited.error) { return { hold: edited.error }; }
+                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: edited.text };
+            });
+        }
+
         /** Remove a comment block, and the blank line around it, with one click. */
         function removeCommentBlock(block) {
             var lines = shownLines();
@@ -1825,7 +1853,7 @@
                 var review = t.closest('.mdb-rm-btn');
                 if (review) {
                     e.stopPropagation();
-                    decideReviewMark(review);
+                    if (review.classList.contains('mdb-rm-edit')) { editInlineComment(review); } else { decideReviewMark(review); }
                     return;
                 }
                 var removeComment = t.closest('.mdb-comment-remove-btn');

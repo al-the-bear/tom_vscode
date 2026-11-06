@@ -51,6 +51,9 @@
  *   MD-23 the navigation shows how many targets the ticked kinds have and which one is current (`2/4`,
  *         `–/4` before the first step), following each step, each change of the kinds and a change of the
  *         document (a question answered is no longer a target of Unanswered)
+ *   MD-24 an inline comment (alone or a highlight's) is edited in place: the editor opens on its text and
+ *         saves the mark's line with the new comment; empty removes the comment (a highlight keeps its text
+ *         and offers Add a comment); a comment holding `<<}` is refused in the editor
  */
 
 import test, { describe } from 'node:test';
@@ -744,5 +747,41 @@ describe('Markdown Browser editing', () => {
         send(window, content(doc.replace('> **Answer:**\n', '> **Answer:** (b)\n').replace(/> \*\*Answer:\*\*$/, '> **Answer:** (b)')));
         await new Promise((r) => setTimeout(r, 150));
         assert.equal(count(), '0/0', 'the document changed: nothing unanswered is left');
+    });
+
+    test('MD-24: editing an inline comment', () => {
+        const { window, posted } = setup();
+        send(window, content(['# Notes', '', 'Orders {== are archived ==}{>> how long? <<} nightly{>> check <<}.'].join('\n')));
+        window.document.getElementById('editModeBtn').click();
+        const notes = (): Win[] => $(window, '.mdb-rm[data-kind="note"]');
+        assert.deepEqual(notes().map((n) => n.querySelector('.mdb-rm-edit').title), ['Edit this comment', 'Edit this comment']);
+
+        // The lone comment, in place.
+        notes()[1].querySelector('.mdb-rm-edit').click();
+        let area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, 'check', 'opened on the comment text');
+        area.value = 'check twice';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.deepEqual((({ startLine, endLine, replacement }) => ({ startLine, endLine, replacement }))(lastEdit(posted)),
+            { startLine: 2, endLine: 3, replacement: 'Orders {== are archived ==}{>> how long? <<} nightly{>> check twice <<}.' });
+        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+
+        // The highlight's, emptied: the comment goes, the highlight stays — and offers to add one.
+        notes()[0].querySelector('.mdb-rm-edit').click();
+        area = $(window, '.mdb-editor textarea')[0];
+        assert.equal(area.value, 'how long?');
+        area.value = '';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.equal(lastEdit(posted).replacement, 'Orders {== are archived ==} nightly{>> check twice <<}.');
+        send(window, { type: 'editResult', ok: true, editId: lastEdit(posted).editId });
+        assert.equal(notes()[0].querySelector('.mdb-rm-edit').title, 'Add a comment');
+
+        // A comment cannot hold its own end marker: the editor says so and stays.
+        notes()[1].querySelector('.mdb-rm-edit').click();
+        const before = posted.length;
+        $(window, '.mdb-editor textarea')[0].value = 'a <<} b';
+        $(window, '.mdb-editor-btn')[0].click();
+        assert.equal(posted.length, before, 'nothing written');
+        assert.match(window.document.querySelector('.mdb-editor-status').textContent, /cannot contain/);
     });
 });

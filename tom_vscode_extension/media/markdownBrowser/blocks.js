@@ -4,7 +4,7 @@
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
 // before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -689,6 +689,39 @@ function mdbCriticMark(src) {
         return out;
     }
     return null;
+}
+
+/**
+ * Write a new comment into the `occurrence`-th (0-based) `raw` inline mark of
+ * `source`: a `{>> comment <<}` alone, or the comment of a `{== text ==}`
+ * highlight (one is added when it has none). An empty comment removes it: the
+ * comment alone goes, a highlight keeps its marked text and loses the comment.
+ * The mark's spacing style (`{>> x <<}` or `{>>x<<}`) is kept. A comment may
+ * not hold `<<}`, which would end it early.
+ *
+ * @param {string} source
+ * @param {string} raw
+ * @param {number} occurrence
+ * @param {string} comment
+ * @returns {{text: string} | {error: string}}
+ */
+function mdbEditInlineComment(source, raw, occurrence, comment) {
+    var mark = mdbCriticMark(raw);
+    if (!mark || mark.raw !== raw || (mark.kind !== 'comment' && mark.kind !== 'highlight')) {
+        return { error: 'Not an inline comment or highlight.' };
+    }
+    var at = -1;
+    for (var n = 0; n <= occurrence; n++) {
+        at = source.indexOf(raw, at + 1);
+        if (at < 0) { return { error: 'The comment is no longer where it was; reload the view.' }; }
+    }
+    var text = String(comment || '').trim();
+    if (text.indexOf('<<}') >= 0) { return { error: 'A comment cannot contain "<<}".' }; }
+    // The comment follows the mark's own style: its comment's, else its highlight's.
+    var spaced = raw.indexOf('{>>') >= 0 ? /\{>>\s/.test(raw) : /^\{==\s/.test(raw);
+    var note = text ? (spaced ? '{>> ' + text + ' <<}' : '{>>' + text + '<<}') : '';
+    var replacement = mark.kind === 'comment' ? note : raw.slice(0, raw.indexOf('==}') + 3) + note;
+    return { text: source.slice(0, at) + replacement + source.slice(at + raw.length) };
 }
 
 // ---- Navigation ----
