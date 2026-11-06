@@ -165,8 +165,9 @@ Read-only viewers over one Anthropic session's files in
 the sub-tabs: one button per session, the most recently used first; with more
 than four sessions a dropdown holding every session comes first and the buttons
 are the four most recently used. The list follows sessions created and deleted
-while the section is open; each sub-tab remembers its session (default:
-`default`, the queue's) and the selected sub-tab survives a window reload. The
+while the section is open. The session is one for every sub-tab (switched on
+any, it switches on all; default: `default`, the queue's), and it and the
+selected sub-tab survive a window reload. The
 content refreshes every 2.5 s. A file larger than 256 KB is read from — and the
 view opens at — the end its newest content is at (the *Opens at* column below).
 Two toolbar buttons act on the selected sub-tab: **Refresh** re-reads from disk,

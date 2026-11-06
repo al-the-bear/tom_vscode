@@ -27,7 +27,7 @@ export interface SessionSwitchPlan {
     buttons: string[];
     /** Whether the dropdown shows (more sessions than buttons). */
     showDropdown: boolean;
-    /** The session the tab shows. */
+    /** The session the Logs tabs show (one for all of them). */
     selected: string;
 }
 

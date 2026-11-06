@@ -34,8 +34,9 @@ the toolbar to edit.
   session comes first, and the buttons are the four most recently used; the
   chosen session shows in the dropdown when it has no button. The list follows
   sessions created and deleted while the section is open, and a session without
-  that file yet shows a line saying so. The choice is remembered per sub-tab;
-  without one the tab shows `default`.
+  that file yet shows a line saying so. The choice is one for the whole Logs
+  section: switching the session on any sub-tab switches it on all of them, and
+  it survives a window reload; without one the tabs show `default`.
 - **Sub-tabs**: **MD Trail** (the session's `live-trail.md`, rendered), **Trail**
   (the same file as highlighted source), **Prompts** / **Answers** (the session's
   `{quest}.anthropic.prompts.md` / `.answers.md`), **Current Prompt** (see below)

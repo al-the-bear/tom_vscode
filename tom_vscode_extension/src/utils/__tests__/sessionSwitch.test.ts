@@ -8,7 +8,7 @@
  *   SW-3 the choice: kept while the session exists; unknown or deleted → `default` when there is one, else the
  *        most recently used
  *   SW-4 the webview: draws the plan's buttons (and the dropdown only with more than four), a click asks for that
- *        session's file and the choice is remembered per tab; a reply for another session is not painted; the
+ *        session's file and the choice is saved, one for the whole viewer; a reply for another session is not painted; the
  *        Documentation viewer shows its Documents pane on that tab and polls nothing there
  */
 
@@ -125,7 +125,7 @@ describe('session switch in the webview', () => {
         assert.doesNotMatch(w.document.getElementById('qlog-body').innerHTML, /late reply/, 'a reply for the previous session is dropped');
         send(w, { type: 'qlogContent', viewer: 'logs', tab: 'mdTrail', session: 'chat', exists: false, fileName: 'sessions/chat/live-trail.md', newestAt: 'end' });
         assert.equal(w.document.getElementById('qlog-body').textContent, 'Session "chat" has no live-trail.md yet', 'an empty state, not an error');
-        assert.deepEqual(JSON.parse(JSON.stringify(w.__saved())).qlog_logs.sessions, { mdTrail: 'chat' }, 'remembered per tab');
+        assert.equal(JSON.parse(JSON.stringify(w.__saved())).qlog_logs.session, 'chat', 'saved, one for every tab');
 
         send(w, { type: 'qlogSessions', viewer: 'logs', tab: 'mdTrail', plan: plan(['a', 'b', 'c', 'd', 'chat', 'default'], 'chat') });
         const select = box.querySelector('select');

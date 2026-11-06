@@ -20,8 +20,9 @@
 //
 // The session switch is drawn from the host's plan (src/utils/sessionSwitch.ts):
 // the sessions most recently used first, one button each for at most four, a
-// dropdown with every session before them when there are more. The choice is
-// remembered per tab.
+// dropdown with every session before them when there are more. One choice for
+// the whole viewer: switching the session on any tab switches it on all of
+// them (MD Trail and Trail render the same live-trail.md).
 
 /** Poll interval. The requirement is "at least every 3 seconds". */
 var QLOG_POLL_MS = 2500;
@@ -42,6 +43,23 @@ function qlogFormatBytes(bytes) {
 }
 
 /**
+ * The session a viewer's saved state chose: `session` (one for the whole
+ * viewer), else — state saved when each tab kept its own (`sessions`, tab →
+ * name) — the active tab's choice, else the first one made; '' when none.
+ */
+function qlogSavedSession(saved) {
+    if (!saved || typeof saved !== 'object') { return ''; }
+    if (typeof saved.session === 'string') { return saved.session; }
+    var byTab = saved.sessions;
+    if (!byTab || typeof byTab !== 'object') { return ''; }
+    if (typeof byTab[saved.tab] === 'string' && byTab[saved.tab]) { return byTab[saved.tab]; }
+    for (var tab in byTab) {
+        if (Object.prototype.hasOwnProperty.call(byTab, tab) && typeof byTab[tab] === 'string' && byTab[tab]) { return byTab[tab]; }
+    }
+    return '';
+}
+
+/**
  * One viewer. `cfg`: `id` (sent with every message), `prefix` (of its element
  * ids), `section` (the accordion section whose visibility gates polling),
  * `tabIds`, `defaultTab`, `paneTabs` (tabs that show a pane of their own
@@ -52,10 +70,10 @@ function qlogCreateViewer(cfg) {
     var v = {
         tab: cfg.defaultTab,
         variant: qlogDefaultVariant,
-        /** The chosen session per tab ('' = the host's default). */
-        sessionByTab: {},
-        /** The plan the host sent last, per tab. */
-        plans: {},
+        /** The chosen session, one for every tab ('' = the host's default). */
+        session: '',
+        /** The session plan the host sent last. */
+        plan: null,
         loadedView: '',
     };
     var paneTabs = cfg.paneTabs || {};
@@ -66,7 +84,7 @@ function qlogCreateViewer(cfg) {
     function isKnownVariant(id) { return typeof id === 'string' && qlogVariantIds.indexOf(id) >= 0; }
     function isPaneTab() { return Object.prototype.hasOwnProperty.call(paneTabs, v.tab); }
     function hasVariants() { return qlogVariantTabs.indexOf(v.tab) >= 0; }
-    function session() { return cfg.sessions ? (v.sessionByTab[v.tab] || '') : ''; }
+    function session() { return cfg.sessions ? v.session : ''; }
 
     /** What is on screen — the identity the host keys its change-detection cache by. */
     function viewKey() {
@@ -83,14 +101,14 @@ function qlogCreateViewer(cfg) {
             if (!s) { return; }
             if (isKnownTab(s.tab)) { v.tab = s.tab; }
             if (isKnownVariant(s.variant)) { v.variant = s.variant; }
-            if (s.sessions && typeof s.sessions === 'object') { v.sessionByTab = s.sessions; }
+            v.session = qlogSavedSession(s);
         } catch (e) { /* first run — keep the defaults */ }
     }
 
     function saveState() {
         try {
             var all = vscode.getState() || {};
-            all[stateKey] = { tab: v.tab, variant: v.variant, sessions: v.sessionByTab };
+            all[stateKey] = { tab: v.tab, variant: v.variant, session: v.session };
             vscode.setState(all);
         } catch (e) { /* state is a convenience, never a correctness requirement */ }
     }
@@ -137,11 +155,11 @@ function qlogCreateViewer(cfg) {
         });
     }
 
-    /** The session switch of the active tab, from the host's plan. */
+    /** The session switch, from the host's plan. */
     function renderSessions() {
         var box = el('sessions');
         if (!box || !cfg.sessions) { return; }
-        var plan = v.plans[v.tab];
+        var plan = v.plan;
         if (!plan) { box.innerHTML = ''; return; }
         var html = '';
         if (plan.showDropdown) {
@@ -187,9 +205,8 @@ function qlogCreateViewer(cfg) {
 
     function selectSession(name) {
         if (!cfg.sessions || typeof name !== 'string' || !name || name === session()) { return; }
-        v.sessionByTab[v.tab] = name;
-        var plan = v.plans[v.tab];
-        if (plan) { plan.selected = name; }
+        v.session = name;
+        if (v.plan) { v.plan.selected = name; }
         showSelection();
     }
 
@@ -249,11 +266,11 @@ function qlogCreateViewer(cfg) {
     function onMessage(msg) {
         if (!msg || msg.viewer !== cfg.id || msg.tab !== v.tab) { return; }
         if (msg.type === 'qlogSessions') {
-            v.plans[msg.tab] = msg.plan;
+            v.plan = msg.plan;
             // The host settles an unknown or deleted choice (the list follows
             // sessions created and deleted while the tab is open).
             if (msg.plan && msg.plan.selected && msg.plan.selected !== session()) {
-                v.sessionByTab[msg.tab] = msg.plan.selected;
+                v.session = msg.plan.selected;
                 saveState();
             }
             renderSessions();
