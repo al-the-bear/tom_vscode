@@ -59,7 +59,7 @@ During activation, the extension:
 
 ## Panel architecture
 
-- **`@CHAT`** (`tomAi.chatPanel`) — two chat subpanels (Anthropic, Copilot) with per-subpanel action bars. See [anthropic_chat.md](anthropic_chat.md) and [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md).
+- **`@CHAT`** (`tomAi.chatPanel`) — two chat subpanels (ANTHROPIC/LLM, Copilot) with per-subpanel action bars. See [anthropic_chat.md](anthropic_chat.md) and [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md).
 - **`@WS`** (`tomAi.wsPanel`) — workspace / ops panel with guidelines, docs, quest, logs, settings, issues, tests.
 - **`@TOM`** sidebar — the quest: process, quest notes, quest todos, sessions, session todos.
 - **`@TOM WS`** sidebar — the workspace: VS Code and workspace notes, workspace todos, todo log, window status.

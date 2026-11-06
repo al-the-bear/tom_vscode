@@ -41,7 +41,7 @@ describe('SESSIONS view', () => {
     test('SV-1: the rows', () => {
         const rows = sessionRows(RECORDS);
         assert.deepEqual(rows.map((r) => [r.name, r.usedBy ?? '', r.hasFile]), [
-            ['default', 'the prompt queue', true], ['chat', 'the ANTHROPIC panel', false],
+            ['default', 'the prompt queue', true], ['chat', 'the ANTHROPIC/LLM panel', false],
             ['prep', '', true], ['solo', '', true], ['walk', '', true],
         ]);
         const by = Object.fromEntries(rows.map((r) => [r.name, r]));

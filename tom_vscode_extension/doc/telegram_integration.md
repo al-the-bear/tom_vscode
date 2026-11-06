@@ -44,7 +44,7 @@ in `allowedUserIds`.
 | `/status`, `status` | | Report workspace / polling status. |
 | `/info <text>` | `/add <text>` | Show the text as a notification in the VS Code window. |
 
-### Live conversation (Anthropic panel)
+### Live conversation (ANTHROPIC/LLM panel)
 
 Registered only while a live-conversation forwarder is active for the window.
 

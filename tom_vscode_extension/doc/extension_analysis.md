@@ -228,7 +228,7 @@ Handler: `chatPanel-handler.ts`
 
 | Section | Icon | Purpose |
 |---------|------|---------|
-| Anthropic | `hubot` | Anthropic profiles (direct, Agent SDK, VS Code LM, Local LLM configuration) |
+| ANTHROPIC/LLM | `sparkle` | Anthropic profiles (direct, Agent SDK, VS Code LM, Local LLM configuration) |
 | Copilot | `copilot` | Copilot integration with templates |
 
 ### @WS Panel (`tomAi.wsPanel`)
@@ -286,7 +286,7 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | `tomAi.sendToCopilot` | Send to Copilot |
 | `tomAi.sendToCopilot.standard` | Send with default template |
 | `tomAi.sendToCopilot.template` | Send with template picker |
-| `tomAi.sendToLlm` | Send the selection to the @CHAT Anthropic panel's profile |
+| `tomAi.sendToLlm` | Send the selection to the @CHAT ANTHROPIC/LLM panel's profile |
 | `tomAi.sendToLlm.standard` | Send to LLM with the default template |
 | `tomAi.sendToLlm.template` | Send to LLM with a template picker |
 

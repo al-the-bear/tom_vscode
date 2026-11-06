@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-The bottom panel's @CHAT has two subpanels: **Anthropic** and **Copilot**. The Anthropic subpanel is driven by the Anthropic handler, which reaches a model through one of four transports chosen by the profile's configuration:
+The bottom panel's @CHAT has two subpanels: **Anthropic** and **Copilot**. The ANTHROPIC/LLM subpanel is driven by the Anthropic handler, which reaches a model through one of four transports chosen by the profile's configuration:
 
 - **Anthropic SDK** (`@anthropic-ai/sdk`, `transport: 'direct'`) and the **Claude Agent SDK** (`agentSdk`), with a model dropdown populated live from the Anthropic API (empty if the API is unreachable — no fallback)
 - **VS Code LM API** (`vscodeLm`)
@@ -242,7 +242,7 @@ Every provider section follows this two-button convention:
 | Trail | `codicon-list-flat` | `tomAi.editor.rawTrailViewer` | Raw Trail Viewer |
 | Trail Files | `codicon-history` | `vscode.openWith(uri, 'tomAi.trailViewer')` | Summary Trail Editor |
 
-The ANTHROPIC panel follows the same pattern (see §11.3).
+The ANTHROPIC/LLM panel follows the same pattern (see §11.3).
 
 ---
 
@@ -463,8 +463,8 @@ Four new categories are added to `globalTemplateEditor-handler.ts`:
 
 | Category | Used by | Selected in |
 | --- | --- | --- |
-| `anthropicProfiles` | Anthropic handler — system prompt per profile | ANTHROPIC panel — Profile dropdown |
-| `anthropicUserMessage` | Anthropic handler — per-message user turn wrapper | ANTHROPIC panel — Message template dropdown |
+| `anthropicProfiles` | Anthropic handler — system prompt per profile | ANTHROPIC/LLM panel — Profile dropdown |
+| `anthropicUserMessage` | Anthropic handler — per-message user turn wrapper | ANTHROPIC/LLM panel — Message template dropdown |
 | `compaction` | `history-compaction.ts` — LLM compaction pass | Status Page → History Compaction section |
 | `memoryExtraction` | `history-compaction.ts` — background memory write pass | Status Page → History Compaction section |
 
@@ -584,8 +584,8 @@ A fourth category handles per-message wrapping of the user's input before it is 
 
 | Category | Sent as | When resolved | Selected in |
 | --- | --- | --- | --- |
-| `anthropicProfiles` | `system` parameter | Session start (cached if possible) | ANTHROPIC panel — Profile dropdown |
-| `anthropicUserMessage` | User turn content | Each outgoing message | ANTHROPIC panel — Message template dropdown |
+| `anthropicProfiles` | `system` parameter | Session start (cached if possible) | ANTHROPIC/LLM panel — Profile dropdown |
+| `anthropicUserMessage` | User turn content | Each outgoing message | ANTHROPIC/LLM panel — Message template dropdown |
 | `compaction` | Compaction LLM user turn | Each compaction pass | Status Page → History Compaction |
 | `memoryExtraction` | Compaction LLM user turn | Each extraction pass | Status Page → History Compaction |
 
@@ -704,7 +704,7 @@ When a write tool is requested, the panel receives an `anthropicToolApproval` me
     [Allow]  [Allow All this session]  [Deny]  [Deny All this session]
 ```
 
-The request is brought in front of you wherever the bottom panel is: the @CHAT view comes to the front (keyboard focus stays where it is; a view never opened is opened) and its Anthropic subpanel expands, so the dialog is seen while the Logs or any other tab was showing. Requests that arrive while one is shown wait their turn and are answered one at a time; one settled elsewhere (Stop, a queue cancel) leaves the dialog. The relay is `src/utils/approvalRelay.ts`; the handler announces settled requests with `onApprovalSettled`.
+The request is brought in front of you wherever the bottom panel is: the @CHAT view comes to the front (keyboard focus stays where it is; a view never opened is opened) and its ANTHROPIC/LLM subpanel expands, so the dialog is seen while the Logs or any other tab was showing. Requests that arrive while one is shown wait their turn and are answered one at a time; one settled elsewhere (Stop, a queue cancel) leaves the dialog. The relay is `src/utils/approvalRelay.ts`; the handler announces settled requests with `onApprovalSettled`.
 
 "Allow All" and "Deny All" set a per-session bypass. Both reset at session end. The `toolApprovalMode` config field controls the default: `'always'` (prompt every time), `'session'` (prompt once per tool per session), `'never'` (auto-allow all — not recommended).
 
@@ -1410,7 +1410,7 @@ Delivers: Anthropic subsystem in trail, tool registry ready, basic send loop, to
     9. Return `{ text, turnsUsed, toolCallCount }`
   - Tool approval awaits a `Promise` that is resolved by a `handleApprovalResponse(toolId, approved)` method, called when the panel sends back `anthropicToolApprovalResponse`
 
-**Phase 1 complete when:** a message typed into the (not-yet-built) ANTHROPIC panel textarea can be sent via `AnthropicHandler.sendMessage()`, tool calls execute and return results, raw trail files appear under `_ai/trail/anthropic/{quest}/`, and opening the extension in a workspace automatically sets `quest` and `role` in the chat variables file.
+**Phase 1 complete when:** a message typed into the (not-yet-built) ANTHROPIC/LLM panel textarea can be sent via `AnthropicHandler.sendMessage()`, tool calls execute and return results, raw trail files appear under `_ai/trail/anthropic/{quest}/`, and opening the extension in a workspace automatically sets `quest` and `role` in the chat variables file.
 
 ---
 
@@ -1716,7 +1716,7 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 
 - **Spec:** §18.6 (auth status)
 - **Read first:** `src/handlers/chatPanel-handler.ts` (the existing 🔑 env-var dot rendering and the panel-ready handshake)
-- Add a 🤖 dot next to the 🔑 dot in the ANTHROPIC panel toolbar, shown only when at least one configuration has `transport: 'agentSdk'`
+- Add a 🤖 dot next to the 🔑 dot in the ANTHROPIC/LLM panel toolbar, shown only when at least one configuration has `transport: 'agentSdk'`
 - Detection: at extension activation, `execFile('claude', ['--version'])` with a 500ms timeout — green dot if exit code 0, red if not found or non-zero
 - Re-check on panel reload and when the user saves a configuration
 
@@ -1750,7 +1750,7 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 
 ## 18. Claude Agent SDK Transport (Alternative Backend)
 
-This chapter describes a second backend behind the Anthropic panel: the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`). The existing direct-API path (Phases 1–5) is the default; Agent SDK is per-configuration opt-in via a `transport` field. Both paths share the same `AnthropicSendOptions` / `AnthropicSendResult` contract so the panel, profiles, tool registry, and trail are transport-agnostic.
+This chapter describes a second backend behind the ANTHROPIC/LLM panel: the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`). The existing direct-API path (Phases 1–5) is the default; Agent SDK is per-configuration opt-in via a `transport` field. Both paths share the same `AnthropicSendOptions` / `AnthropicSendResult` contract so the panel, profiles, tool registry, and trail are transport-agnostic.
 
 > **Distinguish from the Dart-side mirror.** This `agentSdk` *transport* is the in-extension panel backend — profile-gated, trailed, approval-gated, and sharing the contract above. It is **not** the low-level Agent SDK **Dart mirror** (`AgentSdkClient`) in `tom_vscode_scripting_api`, which a CLI-bridge script drives directly: that mirror has *no* profiles, allow-lists, trail, or approval gate — the caller owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. The mirror tracks SDK `^0.3.282`, the version this transport resolves, audited against its `sdk.d.ts`; its full type surface, `query()` streaming, reverse-RPC Dart tools, and `canUseTool` callback are documented in [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) (§8 states the same "security lives in the extension, not the Dart client" boundary).
 
@@ -1850,7 +1850,7 @@ Cancellation and the end of the stream always close the channel. If a `tomAi_*` 
 
 ### 18.6 Auth status indicator
 
-The ANTHROPIC panel toolbar gets a second status dot next to the existing 🔑 (env-var) dot:
+The ANTHROPIC/LLM panel toolbar gets a second status dot next to the existing 🔑 (env-var) dot:
 
 - 🤖 **green** — `claude --version` succeeded at activation time (Agent SDK path is usable).
 - 🤖 **red** — `claude` binary not found on PATH, or `claude --version` exited non-zero.
@@ -1965,7 +1965,7 @@ A **queue iteration** is one round of an item's repeat count or one todo of a `<
 
 ### 18.13 Per-session storage
 
-Every Anthropic session — `chat` (the ANTHROPIC panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder, its storage root (`src/services/sessionStorage.ts`):
+Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder, its storage root (`src/services/sessionStorage.ts`):
 
 | File | What | Git |
 | --- | --- | --- |

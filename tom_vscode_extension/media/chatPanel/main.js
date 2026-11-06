@@ -31,7 +31,7 @@ var vscode = acquireVsCodeApi();
 window.__tomVscodeApi = vscode;
 var sectionsConfig = [
     { id: 'copilot', icon: '<span class="codicon codicon-copilot"></span>', title: 'Copilot' },
-    { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic' }
+    { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic/LLM' }
 ];
 var state = { expanded: ['anthropic'], pinned: [] };
 var profiles = { anthropic: [] };

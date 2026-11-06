@@ -1,12 +1,12 @@
 # Anthropic Chat Panel
 
-The **Anthropic** subpanel is one of the two chat subpanels in `@CHAT` (with Copilot) and the primary interactive surface for Anthropic-based AI interactions, Local LLM configurations included. Both subpanels have queue buttons. Source: [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — Anthropic section at approximately `:3300`.
+The **ANTHROPIC/LLM** subpanel (its section id, config keys, trail subsystem, history file names and tool names keep `anthropic`) is one of the two chat subpanels in `@CHAT` (with Copilot) and the primary interactive surface for Anthropic-based AI interactions, Local LLM configurations included. Both subpanels have queue buttons. Source: [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — Anthropic section at approximately `:3300`.
 
 For the underlying handler, see [../doc/anthropic_handler.md](../doc/anthropic_handler.md) and [architecture.md](architecture.md).
 
-## What makes the Anthropic panel distinctive
+## What makes the ANTHROPIC/LLM panel distinctive
 
-The Anthropic panel exposes:
+The ANTHROPIC/LLM panel exposes:
 
 - full profile + configuration selectors,
 - user-message template picker,
@@ -59,7 +59,7 @@ When a configuration has `transport: 'vscodeLm'`, the handler calls `vscode.lm.s
 
 - **Model is pinned at configure-time**, not per send. When creating or editing a `vscodeLm` configuration, the Extension State Page's model picker calls `vscode.lm.selectChatModels()` once, the user picks a model, and `{vendor, family, modelId}` are stored on the configuration. On subsequent sends the handler filters against VS Code's cached list by `modelId` — no fresh enumeration.
 - **System prompt concatenation.** VS Code LM has no separate system/user fields. The handler prepends `{systemPrompt}\n\n` to the composed user message before calling `model.sendRequest`.
-- **Informational model dropdown on the panel.** When the active configuration is `vscodeLm`, the Anthropic panel's bottom area shows a dropdown listing currently available models from `vscode.lm.selectChatModels()`, plus a **Refresh** button. This is read-only — changing the selection here does NOT retarget sends. To change the target model, edit the configuration.
+- **Informational model dropdown on the panel.** When the active configuration is `vscodeLm`, the ANTHROPIC/LLM panel's bottom area shows a dropdown listing currently available models from `vscode.lm.selectChatModels()`, plus a **Refresh** button. This is read-only — changing the selection here does NOT retarget sends. To change the target model, edit the configuration.
 - **Trail directory** is the same as other Anthropic configs: the session's `history/sessions/<session>/trail/`.
 
 Configuration shape (relevant fields):
@@ -82,7 +82,7 @@ interface AnthropicConfiguration {
 
 ## User-message templates
 
-There is **one template store**: `config.anthropic.userMessageTemplates` — an array of `{ id, name, description?, template, isDefault? }`. The Anthropic panel, every Anthropic leaf path (VS Code LM and Local-LLM-backed profiles included) and Copilot sends all read it.
+There is **one template store**: `config.anthropic.userMessageTemplates` — an array of `{ id, name, description?, template, isDefault? }`. The ANTHROPIC/LLM panel, every Anthropic leaf path (VS Code LM and Local-LLM-backed profiles included) and Copilot sends all read it.
 
 - `isDefault: true` marks the template auto-applied on every send (profile-scoped default).
 - Templates support placeholder expansion: `${tomAi.quest}`, `${tomAi.role}`, chat variables, `${memory}`, etc.
@@ -102,12 +102,12 @@ Isolated sub-agent runs (`options.isolated = true`) receive a null writer — th
 
 ## Queue integration
 
-The Anthropic panel has two queue buttons (matching the Copilot panel):
+The ANTHROPIC/LLM panel has two queue buttons (matching the Copilot panel):
 
 - **Add to Queue** (`data-action="addToQueue" data-id="anthropic"`) — stages a new `QueuedPrompt` with `transport: 'anthropic'`, `anthropicProfileId`, and `anthropicConfigId` pre-filled from the panel's current dropdowns.
 - **Open Queue Editor** (`data-action="openQueueEditor"`) — opens the queue editor webview.
 
-Items staged from the Anthropic panel **always pin their transport** (`transport: 'anthropic'`); they never inherit the queue default. Queue dispatch coerces `toolApprovalMode = 'never'` for all Anthropic items regardless of the profile's stored value.
+Items staged from the ANTHROPIC/LLM panel **always pin their transport** (`transport: 'anthropic'`); they never inherit the queue default. Queue dispatch coerces `toolApprovalMode = 'never'` for all Anthropic items regardless of the profile's stored value.
 
 See [prompt_queue_timed_templates.md](prompt_queue_timed_templates.md) for queue mechanics.
 
@@ -139,11 +139,11 @@ The profile's `toolApprovalMode` controls whether tool calls are routed through 
 
 The approval gate is part of the Anthropic handler's shared loop and applies to all four leaf paths (Direct, Agent SDK, VS Code LM, Local LLM).
 
-A request must be seen: `ChatPanelViewProvider` listens to `onApprovalNeeded` from its construction (not from its first send) and hands each request to an `ApprovalRelay` (`src/utils/approvalRelay.ts`), which reveals the @CHAT view (`view.show(true)`, or `tomAi.chatPanel.focus` when the view was never resolved) and posts the request once the webview reports `approvalUiReady`, re-posting the open ones when the webview restarts. The webview (`media/chatPanel/main.js`) expands the Anthropic subpanel, queues requests and answers them one at a time, and drops one the handler reports settled (`onApprovalSettled` → `anthropicToolApprovalSettled`). Tests: `approvalRelay.test.ts` (AR-1..3), `chatPanelApproval.dom.test.ts` (CA-1..4).
+A request must be seen: `ChatPanelViewProvider` listens to `onApprovalNeeded` from its construction (not from its first send) and hands each request to an `ApprovalRelay` (`src/utils/approvalRelay.ts`), which reveals the @CHAT view (`view.show(true)`, or `tomAi.chatPanel.focus` when the view was never resolved) and posts the request once the webview reports `approvalUiReady`, re-posting the open ones when the webview restarts. The webview (`media/chatPanel/main.js`) expands the ANTHROPIC/LLM subpanel, queues requests and answers them one at a time, and drops one the handler reports settled (`onApprovalSettled` → `anthropicToolApprovalSettled`). Tests: `approvalRelay.test.ts` (AR-1..3), `chatPanelApproval.dom.test.ts` (CA-1..4).
 
 ## Output channels
 
-- **Tom AI** — assistant text + tool summaries for the Anthropic panel's turns.
+- **Tom AI** — assistant text + tool summaries for the ANTHROPIC/LLM panel's turns.
 - **Tom AI Log** — debug / timing details.
 - Raw trail: `_ai/quests/<quest>/history/sessions/<session>/trail/` (gitignored, one per session).
 

@@ -4,7 +4,7 @@ Reusable accordion component for webview section containers. Source: [accordionP
 
 ## Used by
 
-- [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — `@CHAT` webview with 5 chat subpanels.
+- [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts) — `@CHAT` webview with two chat subpanels (ANTHROPIC/LLM, Copilot).
 - [wsPanel-handler.ts](../src/handlers/wsPanel-handler.ts) — `@WS` workspace webview.
 - [questTodoPanel-handler.ts](../src/handlers/questTodoPanel-handler.ts) — quest todo panel.
 - [minimalMode-handler.ts](../src/handlers/minimalMode-handler.ts) — minimal-mode variants.

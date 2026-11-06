@@ -42,7 +42,7 @@ export const GET_QUEST_WINDOW_STATUS_DESCRIPTION =
     'The VS Code windows running on THIS machine and what is active in each, the sessions of each quest, and the '
     + 'Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: per window its workspace, quest, '
     + '`alive` (a heartbeat within 90 s) and the heartbeat\'s age, pid, CLI and MCP server (running, port), the '
-    + 'subsystems with a prompt out, the role, the process position, the ANTHROPIC panel\'s profile and session, the '
+    + 'subsystems with a prompt out, the role, the process position, the ANTHROPIC/LLM panel\'s profile and session, the '
     + 'queue (auto-send, paused, counts per status, default transport / profile / session, the item being sent with its '
     + 'stage, profile and session), `build` (the extension build the window runs and the one installed, each '
     + '`{commit, dirty, builtAt}`; `reloadNeeded: true` when a newer build is installed and the window still runs the '

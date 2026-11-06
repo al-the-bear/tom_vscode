@@ -4,7 +4,7 @@ Three interrelated features for automating and scheduling AI prompts:
 
 | Feature | Handler / Manager | UI entry |
 |---------|-------------------|----------|
-| Prompt Queue | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) + [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) | `@CHAT` Copilot / Anthropic panel → "Add to Queue" / "Open Queue Editor" |
+| Prompt Queue | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) + [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) | `@CHAT` Copilot / ANTHROPIC/LLM panel → "Add to Queue" / "Open Queue Editor" |
 | Timed Requests | [timerEngine.ts](../src/managers/timerEngine.ts) + dedicated panel in `@WS` | Timed Requests tab in `@WS` |
 | Queue Template Editor | [queueTemplateEditor-handler.ts](../src/handlers/queueTemplateEditor-handler.ts) | Command `tomAi.openQueueTemplateEditor` |
 

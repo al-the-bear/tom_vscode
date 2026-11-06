@@ -2750,7 +2750,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
     <!-- Anthropic Transport Retry (anthropic_sdk_integration.md §18) -->
     <div class="sp-section">
         <div class="sp-section-header sp-collapsible" data-collapse="transportRetry">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🔁 Anthropic Transport Retry</span>
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🔁 Anthropic/LLM Transport Retry</span>
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-transportRetry-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
@@ -2783,7 +2783,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
     <!-- Anthropic — Configurations Editor (anthropic_sdk_integration.md §18.8) -->
     <div class="sp-section">
         <div class="sp-section-header sp-collapsible" data-collapse="anthropicConfigs">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Anthropic — Configurations</span>
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Anthropic/LLM — Configurations</span>
         </div>
         <div class="sp-collapse-content sp-collapsed" id="sp-anthropicConfigs-content">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">

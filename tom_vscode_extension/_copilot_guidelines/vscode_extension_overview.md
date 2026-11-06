@@ -59,7 +59,7 @@ One webview, accordion layout, two chat subpanels. See [anthropic_chat.md](anthr
 | Anthropic | Direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration (per profile) | `anthropic` (+ `localLlm.configurations`) | `anthropic-handler.ts` (+ `agent-sdk-transport.ts`, `localLlm-handler.ts`) |
 | Copilot | VS Code Copilot Chat (via answer file) | `copilot` | `chatPanel-handler.ts` + copilot helpers |
 
-Shared features: document picker, prompt-queue side panel, live trail button (Anthropic subpanel), session-history button, memory/config buttons, shortcut chords (see [keybindings_and_commands.md](keybindings_and_commands.md)). Accordion/pin/rotate behavior lives in [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).
+Shared features: document picker, prompt-queue side panel, live trail button (ANTHROPIC/LLM subpanel), session-history button, memory/config buttons, shortcut chords (see [keybindings_and_commands.md](keybindings_and_commands.md)). Accordion/pin/rotate behavior lives in [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).
 
 Both subpanels are queue-compatible.
 
@@ -120,7 +120,7 @@ On the Agent SDK path, tools surface through an MCP server (`mcp__tom-ai__<tool>
 ### Trails on disk
 
 - **Raw trail** — per session, `_ai/quests/<quest>/history/sessions/<session>/trail/` (gitignored; categories `compaction/`, `memory/`, tool results in `tool_results/`): `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus `<ts>_toolrequest_*.json` / `<ts>_toolanswer_*.json` for each tool call. Written by `TrailService`.
-- **Live trail** — per session, `_ai/quests/<quest>/history/sessions/<session>/live-trail.md` (`default` is the queue's, `chat` the ANTHROPIC panel's). Written by `LiveTrailWriter` as events arrive (thinking / tool_use / tool_result / assistant text). Rolling window keeps the most recent 5 prompt blocks. Open via the chat-panel "Open Live Trail" button — the MD Browser launches in live mode and follow-tails the file.
+- **Live trail** — per session, `_ai/quests/<quest>/history/sessions/<session>/live-trail.md` (`default` is the queue's, `chat` the ANTHROPIC/LLM panel's). Written by `LiveTrailWriter` as events arrive (thinking / tool_use / tool_result / assistant text). Rolling window keeps the most recent 5 prompt blocks. Open via the chat-panel "Open Live Trail" button — the MD Browser launches in live mode and follow-tails the file.
 - **In-memory tool trail** — `src/services/tool-trail.ts`. Ring buffer of 40 entries with replay keys `t1`, `t2`, …; summarised into the next user prompt and queryable via the past-tool-access tools.
 
 ### History + compaction
@@ -151,7 +151,7 @@ Bridge commands cover restart / profile switching / debug logging. CLI server an
 
 - [architecture.md](architecture.md) — layering + dependency rules.
 - [implementation.md](implementation.md) — per-subsystem implementation notes.
-- [anthropic_chat.md](anthropic_chat.md) — Anthropic subpanel + profile routing.
+- [anthropic_chat.md](anthropic_chat.md) — ANTHROPIC/LLM subpanel + profile routing.
 - [local_llm.md](local_llm.md) — Local LLM client and the `localLlm` transport.
 - [tom_ai_bottom_panel.md](tom_ai_bottom_panel.md) — @CHAT webview mechanics.
 - [tom_status_page.md](tom_status_page.md) — @Tom configuration panel.

@@ -8,7 +8,7 @@ The extension exposes its tools through two independent MCP surfaces. They share
 
 | Surface | Where it runs | Who reaches it | Built by |
 | --- | --- | --- | --- |
-| **In-SDK MCP** (Anthropic Agent SDK) | In-process, for the ANTHROPIC panel's `agentSdk` transport | The local Claude agent only | `agent-sdk-transport.ts:buildMcpServer` (`createSdkMcpServer`) |
+| **In-SDK MCP** (Anthropic Agent SDK) | In-process, for the ANTHROPIC/LLM panel's `agentSdk` transport | The local Claude agent only | `agent-sdk-transport.ts:buildMcpServer` (`createSdkMcpServer`) |
 | **Standalone MCP server** (this doc) | A Streamable-HTTP listener bound to a TCP port | Any external MCP client on the host / VPN | `mcpServer-handler.ts:buildToolMcpServer` (`@modelcontextprotocol/sdk`) |
 
 The standalone server is also **separate from the scripting-API / CLI bridge**: it has its own tool picker (not a chat profile), its own inbound API key, and its own start/stop lifecycle.

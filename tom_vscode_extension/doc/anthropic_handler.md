@@ -1,6 +1,6 @@
 # Anthropic Handler — Quick Start
 
-The Anthropic handler drives the Anthropic subpanel of the bottom panel: Claude models on the direct API or the Agent SDK, VS Code LM models, and Local LLM configurations (Ollama or OpenAI-compatible), each chosen through a profile. Full design is in `_ai/quests/vscode_extension/anthropic_sdk_integration.md`.
+The Anthropic handler drives the ANTHROPIC/LLM subpanel of the bottom panel: Claude models on the direct API or the Agent SDK, VS Code LM models, and Local LLM configurations (Ollama or OpenAI-compatible), each chosen through a profile. Full design is in `_ai/quests/vscode_extension/anthropic_sdk_integration.md`.
 
 ## 1. Set the API key
 
@@ -10,11 +10,11 @@ The key is read from an environment variable at runtime — never written to the
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-The variable name is configurable via `anthropic.apiKeyEnvVar` in `tom_vscode_extension.json` (default `ANTHROPIC_API_KEY`). The direct client reads the name — from the config file as it is now, the read the key check makes — and its value on every call, and is made again when either changed (`src/utils/anthropicClientCache.ts`), so a hand edit of the setting, or a key that is set or removed, takes effect at the next send without a reload; with no key the send fails at once, as the queue's missing-key warning said, and the queue does not send such a stage at all (`stageKeyRefusal` in `dispatchStage`). The 🔑 dot in the ANTHROPIC panel toolbar is green when the variable is populated, red otherwise.
+The variable name is configurable via `anthropic.apiKeyEnvVar` in `tom_vscode_extension.json` (default `ANTHROPIC_API_KEY`). The direct client reads the name — from the config file as it is now, the read the key check makes — and its value on every call, and is made again when either changed (`src/utils/anthropicClientCache.ts`), so a hand edit of the setting, or a key that is set or removed, takes effect at the next send without a reload; with no key the send fails at once, as the queue's missing-key warning said, and the queue does not send such a stage at all (`stageKeyRefusal` in `dispatchStage`). The 🔑 dot in the ANTHROPIC/LLM panel toolbar is green when the variable is populated, red otherwise.
 
 The variable is read from the extension host's environment, which VS Code takes from the environment it was **launched** with. "Developer: Reload Window" restarts the extension host from the same main process and does not refresh it: after setting the variable (on macOS e.g. `launchctl setenv`, or in the shell VS Code is started from), quit VS Code and start it again. Until then:
 
-- the profile pickers (the ANTHROPIC panel's and the queue's) label every profile on a `direct` configuration `(no API key)`;
+- the profile pickers (the ANTHROPIC/LLM panel's and the queue's) label every profile on a `direct` configuration `(no API key)`;
 - the queue tools answer a `warning` when an item is queued on such a profile, and the queue editor shows a **No API key** chip on it;
 - a send that fails for it ("Anthropic client not available") is not retried: the queue item goes to `error` at once, saying what to do, and the user is told once (`multi_transport_prompt_queue_revised.md` §4.17a).
 
@@ -92,9 +92,9 @@ The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `
 - **Red** — `claude` CLI not found on PATH or exited non-zero. Install Claude Code and run `claude login` or `claude setup-token`, then reload the window.
 - **Hidden** — no configuration uses the Agent SDK transport.
 
-A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic — Configurations** section.
+A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic/LLM — Configurations** section.
 
-> **Not the same as the Dart-side Agent SDK mirror.** Both backends above are the *in-extension* Anthropic panel path: profile-gated, trailed, and approval-gated. The `tom_vscode_scripting_api` package also ships a **low-level 1:1 Dart mirror** of `@anthropic-ai/claude-agent-sdk` (`AgentSdkClient.query({prompt, options})`) reachable over the CLI bridge. That mirror is a *separate* surface — **no profiles, allow-lists, trail, or approval gate**; the script owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. It is **not** the `transport: "agentSdk"` configuration documented here. See [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) and `_copilot_guidelines/bridge_scripting_guide.md`.
+> **Not the same as the Dart-side Agent SDK mirror.** Both backends above are the *in-extension* ANTHROPIC/LLM panel path: profile-gated, trailed, and approval-gated. The `tom_vscode_scripting_api` package also ships a **low-level 1:1 Dart mirror** of `@anthropic-ai/claude-agent-sdk` (`AgentSdkClient.query({prompt, options})`) reachable over the CLI bridge. That mirror is a *separate* surface — **no profiles, allow-lists, trail, or approval gate**; the script owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. It is **not** the `transport: "agentSdk"` configuration documented here. See [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) and `_copilot_guidelines/bridge_scripting_guide.md`.
 
 ## 3. Create a profile
 
@@ -104,7 +104,7 @@ A profile is a system prompt bound to a configuration. Open the **Global Templat
 - `configurationId` — default configuration id this profile uses
 - `isDefault` — whether to preselect on panel load
 
-The profile dropdown in the ANTHROPIC panel is populated from this list.
+The profile dropdown in the ANTHROPIC/LLM panel is populated from this list.
 
 ## 4. Enable memory tools
 

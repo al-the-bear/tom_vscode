@@ -29,7 +29,7 @@ Reference for the shortcut surface. Canonical tables (with descriptions) live in
 ## Command groups
 
 - **Copilot** — send / template / slot / answer-file commands.
-- **Send to LLM** — `tomAi.sendToLlm` (the selection), `tomAi.sendToLlm.standard` (the selection or the file, default template), `tomAi.sendToLlm.template` (picked template): the editor's text goes to the @CHAT Anthropic panel's current profile and session (`src/handlers/sendToLlm-handler.ts`), in the editor context menu and the `Ctrl+Shift+L` chord menu. Profile, session and model selection live on the subpanel action bar (a Local LLM is used through an Anthropic profile on a Local LLM configuration).
+- **Send to LLM** — `tomAi.sendToLlm` (the selection), `tomAi.sendToLlm.standard` (the selection or the file, default template), `tomAi.sendToLlm.template` (picked template): the editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session (`src/handlers/sendToLlm-handler.ts`), in the editor context menu and the `Ctrl+Shift+L` chord menu. Profile, session and model selection live on the subpanel action bar (a Local LLM is used through an Anthropic profile on a Local LLM configuration).
 - **Markdown Browser** — `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (live-mode follow-tail for the live trail).
 - **Bridge + CLI + Telegram + Process Monitor** — lifecycle commands; fail-soft when subsystems aren't available.
 - **Editors** — queue, timed requests, prompt templates, reusable prompts, context settings, chat variables, raw / summary trail viewer.

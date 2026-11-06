@@ -3,7 +3,7 @@
  *
  * Every `<name>.session.json` of the quest's history folder, plus the two
  * sessions that exist without a file: `default` (the prompt queue's) and
- * `chat` (the ANTHROPIC panel's), marked as such and listed first. Per row:
+ * `chat` (the ANTHROPIC/LLM panel's), marked as such and listed first. Per row:
  * base, lifetime (when not `continue`), profile and model, whether it has a
  * conversation yet, when it was last used, and the sessions based on it
  * (which is why it cannot be deleted).
@@ -15,7 +15,7 @@ import { isTemporarySessionName } from './questInbox';
 /** The sessions every quest has, with what uses them. */
 export const IMPLICIT_SESSIONS: ReadonlyArray<{ name: string; usedBy: string }> = [
     { name: 'default', usedBy: 'the prompt queue' },
-    { name: 'chat', usedBy: 'the ANTHROPIC panel' },
+    { name: 'chat', usedBy: 'the ANTHROPIC/LLM panel' },
 ];
 
 export interface SessionRow {

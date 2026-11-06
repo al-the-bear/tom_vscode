@@ -1767,7 +1767,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
-        const transportLabel = section === 'anthropic' ? 'Anthropic' : section;
+        const transportLabel = section === 'anthropic' ? 'Anthropic/LLM' : section;
         const target = sessionLiveTrailFile(path.join(questsRoot, safeQuest, 'history'), session);
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(

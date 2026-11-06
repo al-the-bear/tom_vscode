@@ -23,7 +23,7 @@ Each configuration picks a protocol via `apiStyle` (default `'ollama'`):
 
 ## Anthropic profiles on a Local LLM configuration
 
-An Anthropic profile whose `configurationId` resolves to a Local LLM configuration runs on the `localLlm` transport (`resolveAnthropicTargets` synthesises the payload): the Anthropic handler's tool loop, approval gate, user-message templates, history modes, session trails and live trail all apply, and each round calls `callLocalLlmOnce`. Such a profile is picked in the @CHAT Anthropic subpanel and can be a prompt-queue target like any Anthropic profile. Details: [anthropic_chat.md](anthropic_chat.md).
+An Anthropic profile whose `configurationId` resolves to a Local LLM configuration runs on the `localLlm` transport (`resolveAnthropicTargets` synthesises the payload): the Anthropic handler's tool loop, approval gate, user-message templates, history modes, session trails and live trail all apply, and each round calls `callLocalLlmOnce`. Such a profile is picked in the @CHAT ANTHROPIC/LLM subpanel and can be a prompt-queue target like any Anthropic profile. Details: [anthropic_chat.md](anthropic_chat.md).
 
 ## Compaction on a Local LLM configuration
 

@@ -8,7 +8,7 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 
 Current bottom panel layout:
 
-- `@CHAT` (`tomAi.chatPanel`): two subpanels — **Anthropic** and **Copilot**. Shared features: prompt queue side panel, document picker, live-trail button (Anthropic), session-history button, memory/config buttons, accordion/pin/rotate layout.
+- `@CHAT` (`tomAi.chatPanel`): two subpanels — **ANTHROPIC/LLM** and **Copilot**. Shared features: prompt queue side panel, document picker, live-trail button (ANTHROPIC/LLM), session-history button, memory/config buttons, accordion/pin/rotate layout.
 - `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section shows one session's live trail, prompts, answers and running prompt, with a session switch — see [Logs Panel](#logs-panel); the Documentation section's sub-tabs hold the document editor and the quest's own documents — see [Documentation Panel](#documentation-panel).
 
 Both subpanels are queue-compatible.
@@ -25,7 +25,7 @@ The Guidelines panel in @WS provides a document browser for copilot guidelines. 
 
 The Logs section of @WS shows what one Anthropic session wrote: its live trail,
 its prompts and answers, and the prompt it last sent. Every session — `default`
-(the prompt queue), `chat` (the ANTHROPIC panel) and each named session — keeps
+(the prompt queue), `chat` (the ANTHROPIC/LLM panel) and each named session — keeps
 these in `_ai/quests/{quest}/history/sessions/{session}/`. It is read-only; use
 the toolbar to edit.
 
@@ -121,7 +121,7 @@ The Markdown Browser is a standalone webview panel for reading markdown document
 - **Reload** (the refresh button): renders the file again in any case — also when its text has not changed, and with a text area open (which is closed; the reading position stays)
 - **While a change is saved** — Save, Save and next, a one-click answer, accepting / rejecting / removing a mark or a comment, accept / reject all — the browser shows a *Saving…* indicator with a wait cursor and takes no clicks or typing until the change is done (or refused)
 - **While a text area is open** the search box and the review navigation (↑ / ↓ and the kinds) are disabled, so nothing scrolls or re-renders under the text you are writing; they come back when it is saved or discarded
-- **Live mode (follow-tail)**: Opened via the "Open Live Trail" button in the Anthropic subpanel or the Live command. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
+- **Live mode (follow-tail)**: Opened via the "Open Live Trail" button in the ANTHROPIC/LLM subpanel or the Live command. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
 - **Anchor navigation**: Heading anchors allow direct scrolling to specific sections
 - **Position in the document**: the file bar shows `Line X / N` — the source line at the top of the view and the document's line count. While you drag far into a part not shown yet it reads `≈ Line X / N` until that part is drawn.
 - **Navigation history**: Back/forward buttons with up to 100 entries; going back or forward to a document opens it where you left it (the block that was at the top of the view, at the same height)
@@ -166,7 +166,7 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 - **Relative timestamps**: Shows how long ago each state change occurred
 - **Servers**: behind the indicators, the servers the window runs with their ports, e.g. `CLI :19901 · MCP :19921`
 - **Heartbeat**: every window rewrites its heartbeat (time, process id, servers) every 30 seconds; a window whose heartbeat is older than 90 seconds is shown dimmed and marked *gone*. A window of an older build writes no heartbeat and is not judged.
-- **What each window is doing**: with every heartbeat, and about a second after it changes, a window also writes its host, role, process position, the ANTHROPIC panel's profile and session, and a queue summary (auto-send, paused, items per status, the defaults, the item being sent). An agent or MCP client reads all of it, with each quest's sessions and the Anthropic profiles, through `tomAi_getQuestWindowStatus` — the lookup before `tomAi_sendItemToQuest`.
+- **What each window is doing**: with every heartbeat, and about a second after it changes, a window also writes its host, role, process position, the ANTHROPIC/LLM panel's profile and session, and a queue summary (auto-send, paused, items per status, the defaults, the item being sent). An agent or MCP client reads all of it, with each quest's sessions and the Anthropic profiles, through `tomAi_getQuestWindowStatus` — the lookup before `tomAi_sendItemToQuest`.
 - **Reload needed**: a window that runs an older build of the extension than the one installed is marked *reload needed*; the tooltip names both builds. Reload that window to run the installed build.
 - **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 3 seconds
 - **Cleanup**: Delete button to remove stale window entries
@@ -253,7 +253,7 @@ With a non-empty stack, the send buttons switch to batch mode:
 
 ### Anthropic
 
-The Anthropic subpanel in `@CHAT` is the primary AI chat surface. Every turn picks a **profile** that bundles model + transport + history mode + user-message template.
+The ANTHROPIC/LLM subpanel in `@CHAT` is the primary AI chat surface. Every turn picks a **profile** that bundles model + transport + history mode + user-message template.
 
 Curated profiles (9 total): **Sonnet 4.6**, **Opus 4.7**, and **Opus 4.6**, each in three flavors:
 
@@ -288,7 +288,7 @@ The trails are per session too (§9); **Recreate history from trail** rebuilds e
 
 ### Send to LLM
 
-The editor's text goes to the @CHAT Anthropic panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:
+The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:
 
 - `@T: Send to LLM` (`l`) — the selection, with the default user-message template;
 - `@T: Send to LLM (Default Template)` (`s`) — the selection, or the whole file without one, with the default template;
@@ -320,7 +320,7 @@ The Copilot section in `@CHAT` includes an action bar with:
 
 ### Local LLM (Ollama / OpenAI-compatible)
 
-A local model is used through an **Anthropic profile** whose configuration is a Local LLM configuration (`localLlm.configurations`, edited in the Status Page's **LLM Configurations** section). Pick that profile in the Anthropic subpanel or name it on a queue item: the Anthropic handler's tool loop, approval gate, templates, sessions and trails apply, and each model call goes to the configured Ollama or OpenAI-compatible endpoint. See [llm_configuration.md §5](llm_configuration.md#5-local-llm-configuration-localllm-section).
+A local model is used through an **Anthropic profile** whose configuration is a Local LLM configuration (`localLlm.configurations`, edited in the Status Page's **LLM Configurations** section). Pick that profile in the ANTHROPIC/LLM subpanel or name it on a queue item: the Anthropic handler's tool loop, approval gate, templates, sessions and trails apply, and each model call goes to the configured Ollama or OpenAI-compatible endpoint. See [llm_configuration.md §5](llm_configuration.md#5-local-llm-configuration-localllm-section).
 
 The tool trail's past-tool-access tools (`tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult`) let the model recall prior tool output by replay key (`t1`, `t2`, …) across turns, on every Anthropic profile.
 

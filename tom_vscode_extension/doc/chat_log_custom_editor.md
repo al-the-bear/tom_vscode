@@ -1,6 +1,6 @@
 # Live Chat Trail — implementation plan
 
-The goal: one rolling, continuously-updating markdown file per Anthropic session (the ANTHROPIC panel's `chat`, the queue's `default`, every named session) that shows what the Anthropic transports are doing right now — thinking blocks, tool calls, tool results, assistant text — as they happen. Opens in the existing MD Browser custom editor, which is extended to auto-reload the currently-open file when it changes on disk.
+The goal: one rolling, continuously-updating markdown file per Anthropic session (the ANTHROPIC/LLM panel's `chat`, the queue's `default`, every named session) that shows what the Anthropic transports are doing right now — thinking blocks, tool calls, tool results, assistant text — as they happen. Opens in the existing MD Browser custom editor, which is extended to auto-reload the currently-open file when it changes on disk.
 
 This document supersedes the earlier "full custom editor" design. That spec was broader (tabs for every transport, synthetic backing doc, custom event stream) and overshot the need; see §6 for the pieces of the original spec that are deferred.
 

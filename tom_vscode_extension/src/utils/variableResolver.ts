@@ -1286,7 +1286,7 @@ The following placeholders are populated by the handler that drives the request.
 <em>Memory-extraction-only placeholders</em> (resolve only inside the <code>compaction.memoryExtractionTemplates[*].template</code> field — see the Memory Extraction editor):<br>
 <code>\${lastTurn}</code>, <code>\${compactedSummary}</code>, <code>\${existingMemory}</code>, <code>\${memoryFilePath}</code>, <code>\${memoryScope}</code>, <code>\${historyMaxChars}</code>, <code>\${memoryMaxChars}</code>.<br>
 <br>
-<em>Transport-retry-only placeholders</em> (resolve only inside the <code>anthropic.transportRetry.templates[*].template</code> field — see the Anthropic Transport Retry section of the Status page):<br>
+<em>Transport-retry-only placeholders</em> (resolve only inside the <code>anthropic.transportRetry.templates[*].template</code> field — see the Anthropic/LLM Transport Retry section of the Status page):<br>
 <code>\${errorText}</code> – The error message from the failed Agent SDK attempt that triggered the retry. Inject this into the continuation prompt so the model knows what went wrong.<br>
 <code>\${userMessage}</code> / <code>\${originalPrompt}</code> – The original user prompt text being retried.<br>
 <br>

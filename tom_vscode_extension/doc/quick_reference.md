@@ -83,7 +83,7 @@
 ## Core AI Commands
 
 - `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`
-- `tomAi.sendToLlm`, `tomAi.sendToLlm.standard`, `tomAi.sendToLlm.template` (to the @CHAT Anthropic panel's current profile and session)
+- `tomAi.sendToLlm`, `tomAi.sendToLlm.standard`, `tomAi.sendToLlm.template` (to the @CHAT ANTHROPIC/LLM panel's current profile and session)
 - `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (follow-tail mode for the live trail)
 
 ## Bridge and Runtime Commands
@@ -136,7 +136,7 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| Anthropic | `codicon-hubot` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
+| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
 
 #### Copilot Action Bar Fields
@@ -309,7 +309,7 @@ View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem sta
 
 | Surface | Path | Written by | Notes |
 | --- | --- | --- | --- |
-| Session storage (Anthropic) | `_ai/quests/<quest>/history/sessions/<session>/` — one per session, `chat` (the ANTHROPIC panel) and `default` (the queue) included | Anthropic handler, `TrailService`, `LiveTrailWriter` | `compacted_history.md`, `history.json` / `history.md` (snapshot) and `live-trail.md` are tracked; `rawTurns.json`, `compaction_rounds.json`, `iteration.json`, the pair `<quest>.anthropic.prompts.md` / `.answers.md` and `trail/` are ignored. `trail/` holds the raw per-call files (`*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_tool_request_*.json`, `*_tool_answer_*.json`), `compaction/` and `memory/`, `tool_results/t<n>.json` (keys continue past what is stored) and `current_prompt.*.md` |
+| Session storage (Anthropic) | `_ai/quests/<quest>/history/sessions/<session>/` — one per session, `chat` (the ANTHROPIC/LLM panel) and `default` (the queue) included | Anthropic handler, `TrailService`, `LiveTrailWriter` | `compacted_history.md`, `history.json` / `history.md` (snapshot) and `live-trail.md` are tracked; `rawTurns.json`, `compaction_rounds.json`, `iteration.json`, the pair `<quest>.anthropic.prompts.md` / `.answers.md` and `trail/` are ignored. `trail/` holds the raw per-call files (`*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_tool_request_*.json`, `*_tool_answer_*.json`), `compaction/` and `memory/`, `tool_results/t<n>.json` (keys continue past what is stored) and `current_prompt.*.md` |
 | Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` | `TrailService`, `lastRequestDump` | Copilot, LM API, MCP; the quest-level `last_request.json` of `_ai/trail/anthropic/<quest>/` and, for Anthropic profiles on Local LLM configurations, of `_ai/trail/localllm/<quest>/` |
 | Live trail | `history/sessions/<session>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
 | Quest memory | `_ai/memory/<quest>/<session>/` per session; `_ai/memory/shared/` one set | memory service, memory tools, background extraction | `${memory}` injects the running session's quest memory plus shared |

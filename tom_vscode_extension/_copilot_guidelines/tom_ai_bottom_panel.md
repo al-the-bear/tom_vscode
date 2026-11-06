@@ -11,7 +11,7 @@
 
 Accordion layout with two chat subpanels (see [anthropic_chat.md](anthropic_chat.md)):
 
-1. **Anthropic** — direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration, per selected profile.
+1. **ANTHROPIC/LLM** (section id `anthropic`) — direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration, per selected profile.
 2. **Copilot** — VS Code Copilot via answer-file mechanism.
 
 ## Responsibilities
