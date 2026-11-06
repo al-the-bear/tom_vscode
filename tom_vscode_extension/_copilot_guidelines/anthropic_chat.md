@@ -139,6 +139,8 @@ The profile's `toolApprovalMode` controls whether tool calls are routed through 
 
 The approval gate is part of the Anthropic handler's shared loop and applies to all four leaf paths (Direct, Agent SDK, VS Code LM, Local LLM).
 
+A request must be seen: `ChatPanelViewProvider` listens to `onApprovalNeeded` from its construction (not from its first send) and hands each request to an `ApprovalRelay` (`src/utils/approvalRelay.ts`), which reveals the @CHAT view (`view.show(true)`, or `tomAi.chatPanel.focus` when the view was never resolved) and posts the request once the webview reports `approvalUiReady`, re-posting the open ones when the webview restarts. The webview (`media/chatPanel/main.js`) expands the Anthropic subpanel, queues requests and answers them one at a time, and drops one the handler reports settled (`onApprovalSettled` → `anthropicToolApprovalSettled`). Tests: `approvalRelay.test.ts` (AR-1..3), `chatPanelApproval.dom.test.ts` (CA-1..4).
+
 ## Output channels
 
 - **Tom AI** — assistant text + tool summaries for the Anthropic panel's turns.

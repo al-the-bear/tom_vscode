@@ -690,6 +690,13 @@ export class AnthropicHandler {
      */
     readonly onApprovalNeeded: vscode.Event<AnthropicToolApprovalRequest> = this._onApprovalNeeded.event;
 
+    private readonly _onApprovalSettled = new vscode.EventEmitter<string>();
+    /**
+     * Fired with the `toolUseId` when an approval request is answered or
+     * aborted, whoever settled it, so the panel can drop its dialog.
+     */
+    readonly onApprovalSettled: vscode.Event<string> = this._onApprovalSettled.event;
+
     private readonly _onStatusUpdate = new vscode.EventEmitter<string>();
     /**
      * Fired while the handler is doing preparatory work before a send
@@ -705,6 +712,7 @@ export class AnthropicHandler {
             context.subscriptions.push({
                 dispose: () => {
                     AnthropicHandler._instance?._onApprovalNeeded.dispose();
+                    AnthropicHandler._instance?._onApprovalSettled.dispose();
                     AnthropicHandler._instance?._onStatusUpdate.dispose();
                 },
             });
@@ -1679,6 +1687,7 @@ export class AnthropicHandler {
             return;
         }
         this.pendingApprovals.delete(toolUseId);
+        this._onApprovalSettled.fire(toolUseId);
         // "Approve All" = "approve every subsequent invocation of this tool
         // in the current session" (spec §11.4 `approveAll`). It only takes
         // effect when the decision is approve — denying with approveAll
@@ -1702,8 +1711,10 @@ export class AnthropicHandler {
         if (this.pendingApprovals.size === 0) {
             return 0;
         }
+        const ids = Array.from(this.pendingApprovals.keys());
         const entries = Array.from(this.pendingApprovals.values());
         this.pendingApprovals.clear();
+        for (const id of ids) { this._onApprovalSettled.fire(id); }
         for (const entry of entries) {
             try {
                 entry.resolve(false);

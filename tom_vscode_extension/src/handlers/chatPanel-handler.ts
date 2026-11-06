@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { ApprovalRelay } from '../utils/approvalRelay';
 import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody, userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
@@ -122,12 +123,36 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * Only one entry per section (the panels are strictly sequential).
      */
     private _activeCts: Map<string, vscode.CancellationTokenSource> = new Map();
+    /** Whether the webview script has started and can show an approval dialog. */
+    private _approvalUiReady = false;
+    /** Tool-approval requests, shown in front of the user (src/utils/approvalRelay.ts). */
+    private readonly _approvals = new ApprovalRelay({
+        isReady: () => !!this._view && this._approvalUiReady,
+        reveal: () => this._revealForApproval(),
+        post: (message) => { void this._view?.webview.postMessage(message); },
+    });
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
         this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
         this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
         this._setupAnswerFileWatcher();
         this._registerChatProviders();
+        // Why here and not at the first panel send: a queue item's tool can
+        // ask for approval before the panel ever sent anything.
+        this._ensureAnthropicApprovalListener();
+    }
+
+    /**
+     * Bring the @CHAT view to the front of the bottom panel without taking
+     * the keyboard focus; open it when it was never resolved (its webview
+     * then reports `approvalUiReady` and the relay shows the request).
+     */
+    private _revealForApproval(): void {
+        if (this._view) {
+            this._view.show(true);
+            return;
+        }
+        void vscode.commands.executeCommand(`${VIEW_ID}.focus`);
     }
 
     /**
@@ -300,6 +325,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken
     ): void {
         this._view = webviewView;
+        this._approvalUiReady = false;
+        webviewView.onDidDispose(() => {
+            if (this._view === webviewView) { this._view = undefined; this._approvalUiReady = false; }
+        });
         debugLog('[T2] resolveWebviewView start', 'INFO', 'extension');
 
         webviewView.webview.options = {
@@ -385,6 +414,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     }
                     case 'openAnthropicMemory':
                         await vscode.commands.executeCommand('tomAi.panel.memory');
+                        break;
+                    case 'approvalUiReady':
+                        this._approvalUiReady = true;
+                        this._approvals.ready();
                         break;
                     case 'anthropicToolApprovalResponse':
                         AnthropicHandler.instance.handleApprovalResponse(
@@ -1397,14 +1430,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         this._anthropicApprovalListenerAttached = true;
-        AnthropicHandler.instance.onApprovalNeeded((req) => {
-            this._view?.webview.postMessage({
-                type: 'anthropicToolApproval',
-                toolId: req.toolUseId,
-                toolName: req.toolName,
-                inputSummary: req.inputSummary,
-            });
-        });
+        AnthropicHandler.instance.onApprovalNeeded((req) => this._approvals.request(req));
+        AnthropicHandler.instance.onApprovalSettled((toolUseId) => this._approvals.settled(toolUseId));
     }
 
     /**

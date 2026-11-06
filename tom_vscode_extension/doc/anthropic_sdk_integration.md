@@ -704,6 +704,8 @@ When a write tool is requested, the panel receives an `anthropicToolApproval` me
     [Allow]  [Allow All this session]  [Deny]  [Deny All this session]
 ```
 
+The request is brought in front of you wherever the bottom panel is: the @CHAT view comes to the front (keyboard focus stays where it is; a view never opened is opened) and its Anthropic subpanel expands, so the dialog is seen while the Logs or any other tab was showing. Requests that arrive while one is shown wait their turn and are answered one at a time; one settled elsewhere (Stop, a queue cancel) leaves the dialog. The relay is `src/utils/approvalRelay.ts`; the handler announces settled requests with `onApprovalSettled`.
+
 "Allow All" and "Deny All" set a per-session bypass. Both reset at session end. The `toolApprovalMode` config field controls the default: `'always'` (prompt every time), `'session'` (prompt once per tool per session), `'never'` (auto-allow all — not recommended).
 
 Individual tools can opt out of the approval gate by setting `requiresApproval: false` explicitly. This is appropriate for write tools that have their own visibility mechanism — for example, `tomAi_chatvar_write` updates the Chat Variables panel in real time, so the user can observe every change without an approval dialog (see §8.5).

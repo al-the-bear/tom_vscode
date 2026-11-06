@@ -45,7 +45,6 @@ var claudeCliVisible = false; // true when any config uses transport: 'agentSdk'
 var anthropicSending = false;
 var anthropicSessionTurns = 0;
 var anthropicLastToolCalls = 0;
-var pendingAnthropicApprovals = {};
 var copilotTemplateEntries = [];
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
@@ -696,6 +695,17 @@ function handleAction(action, id, slot) {
 var _currentAnthropicApprovalId = '';
 var _currentAnthropicApprovalTool = '';
 var _anthropicSessionDeny = {};
+// Requests waiting for the dialog, oldest first: the Agent SDK can ask for
+// several tools at once, and each must get its own answer.
+var _anthropicApprovalQueue = [];
+
+// The Anthropic subpanel holds the dialog: expand it (keeping pinned
+// sections) so the request is seen whatever the panel showed before.
+function revealAnthropicSection() {
+    if (isExpanded('anthropic')) { return; }
+    toggleSection('anthropic');
+}
+
 function showAnthropicApprovalDialog(toolId, toolName, inputSummary) {
     // Session-level auto-deny — suppresses the dialog entirely.
     if (_anthropicSessionDeny[toolName]) {
@@ -707,20 +717,61 @@ function showAnthropicApprovalDialog(toolId, toolName, inputSummary) {
         });
         return;
     }
-    _currentAnthropicApprovalId = toolId;
-    _currentAnthropicApprovalTool = toolName;
-    var body = document.getElementById('anthropic-approval-body');
-    if (body) {
-        body.textContent = 'Tool: ' + toolName + '\n\nInput:\n' + (inputSummary || '(no input)');
+    // The host re-sends open requests when the webview (re)starts: once each.
+    if (toolId === _currentAnthropicApprovalId) { return; }
+    for (var i = 0; i < _anthropicApprovalQueue.length; i++) {
+        if (_anthropicApprovalQueue[i].toolId === toolId) { return; }
     }
+    _anthropicApprovalQueue.push({ toolId: toolId, toolName: toolName, inputSummary: inputSummary });
+    if (!_currentAnthropicApprovalId) { showNextAnthropicApproval(); } else { renderAnthropicApprovalBody(); }
+}
+
+var _currentAnthropicApprovalInput = '';
+function renderAnthropicApprovalBody() {
+    var body = document.getElementById('anthropic-approval-body');
+    if (!body) { return; }
+    var waiting = _anthropicApprovalQueue.length > 0 ? '\n\n(' + _anthropicApprovalQueue.length + ' more waiting)' : '';
+    body.textContent = 'Tool: ' + _currentAnthropicApprovalTool + '\n\nInput:\n' + (_currentAnthropicApprovalInput || '(no input)') + waiting;
+}
+
+function showNextAnthropicApproval() {
     var overlay = document.getElementById('anthropic-approval-overlay');
+    var next = _anthropicApprovalQueue.shift();
+    while (next && _anthropicSessionDeny[next.toolName]) {
+        vscode.postMessage({ type: 'anthropicToolApprovalResponse', toolId: next.toolId, approved: false, approveAll: false });
+        next = _anthropicApprovalQueue.shift();
+    }
+    if (!next) {
+        _currentAnthropicApprovalId = '';
+        _currentAnthropicApprovalTool = '';
+        if (overlay) {overlay.style.display = 'none';}
+        return;
+    }
+    _currentAnthropicApprovalId = next.toolId;
+    _currentAnthropicApprovalTool = next.toolName;
+    _currentAnthropicApprovalInput = next.inputSummary || '';
+    revealAnthropicSection();
+    renderAnthropicApprovalBody();
+    overlay = document.getElementById('anthropic-approval-overlay');
     if (overlay) {overlay.style.display = 'block';}
 }
 
+// The request was answered or aborted elsewhere (Stop, a queue cancel).
+function dropAnthropicApproval(toolId) {
+    _anthropicApprovalQueue = _anthropicApprovalQueue.filter(function(r) { return r.toolId !== toolId; });
+    if (toolId === _currentAnthropicApprovalId) {
+        _currentAnthropicApprovalId = '';
+        _currentAnthropicApprovalTool = '';
+        showNextAnthropicApproval();
+    }
+}
+
 function resolveAnthropicApproval(approved, approveAll) {
-    var overlay = document.getElementById('anthropic-approval-overlay');
-    if (overlay) {overlay.style.display = 'none';}
-    if (!_currentAnthropicApprovalId) {return;}
+    if (!_currentAnthropicApprovalId) {
+        var overlay = document.getElementById('anthropic-approval-overlay');
+        if (overlay) {overlay.style.display = 'none';}
+        return;
+    }
     // Deny with approveAll (labelled "Deny All session") — remember locally
     // so the rest of the session short-circuits without round-tripping.
     if (!approved && approveAll && _currentAnthropicApprovalTool) {
@@ -734,6 +785,7 @@ function resolveAnthropicApproval(approved, approveAll) {
     });
     _currentAnthropicApprovalId = '';
     _currentAnthropicApprovalTool = '';
+    showNextAnthropicApproval();
 }
 
 function confirmDelete(itemType, sectionId) {
@@ -1147,6 +1199,8 @@ window.addEventListener('message', function(e) {
         setAnthropicStatus('Error: ' + (msg.message || 'unknown'));
     } else if (msg.type === 'anthropicToolApproval') {
         showAnthropicApprovalDialog(msg.toolId || '', msg.toolName || '', msg.inputSummary || '');
+    } else if (msg.type === 'anthropicToolApprovalSettled') {
+        dropAnthropicApproval(msg.toolId || '');
     } else if (msg.type === 'reusablePrompts') {
         reusablePromptModel = msg.model || { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
         reusablePreferredQuestId = msg.preferredQuestId || '';
@@ -1493,6 +1547,8 @@ vscode.postMessage({ type: 'getAutoHideDelay' });
 vscode.postMessage({ type: 'getKeepContent' });
 vscode.postMessage({ type: 'checkAnswerFile' });
 vscode.postMessage({ type: 'getContextSummary' });
+// Last: the host may now show tool-approval requests (it re-sends the open ones).
+vscode.postMessage({ type: 'approvalUiReady' });
 vscode.postMessage({ type: 'loadDrafts' });
 
 // Guard: do not persist drafts until the initial load has completed.
