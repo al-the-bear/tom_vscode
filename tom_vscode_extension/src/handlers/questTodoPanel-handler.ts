@@ -31,6 +31,7 @@ import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { todoFormUnchanged } from '../utils/todoFormSave';
 import { groupPromptDirs } from '../services/groupPromptDirs';
 import { readGroupPrompts } from '../services/groupPromptStore';
 import { groupPromptChoices } from '../utils/groupPrompts';
@@ -1759,21 +1760,9 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
 function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any) => void): void {
     const current = questTodo.findTodoById(questId, todoId);
     if (current) {
-        const normalize = (v: any) => v === undefined ? null : v;
-        const same =
-            normalize(current.title) === normalize(updates.title) &&
-            normalize(current.status) === normalize(updates.status) &&
-            normalize(current.priority) === normalize(updates.priority) &&
-            normalize(current.description) === normalize(updates.description) &&
-            JSON.stringify(normalize(current.tags)) === JSON.stringify(normalize(updates.tags)) &&
-            JSON.stringify(normalize(current.dependencies)) === JSON.stringify(normalize(updates.dependencies)) &&
-            JSON.stringify(normalize(current.blocked_by)) === JSON.stringify(normalize(updates.blocked_by)) &&
-            normalize(current.notes) === normalize(updates.notes) &&
-            JSON.stringify(normalize(current.scope)) === JSON.stringify(normalize(updates.scope)) &&
-            JSON.stringify(normalize(current.references)) === JSON.stringify(normalize(updates.references)) &&
-            JSON.stringify(normalize(current.decisions)) === JSON.stringify(normalize(questTodo.normaliseTodoDecisions(updates.decisions))) &&
-            normalize(current.completed_date) === normalize(updates.completed_date) &&
-            normalize(current.completed_by) === normalize(updates.completed_by);
+        // Nothing the form sends differs: answer saved without a write.
+        const same = todoFormUnchanged(current as unknown as Record<string, unknown>,
+            { ...updates, decisions: questTodo.normaliseTodoDecisions(updates.decisions) });
         if (same) {
             post({ type: 'qtSaved', success: true, todoId });
             return;
