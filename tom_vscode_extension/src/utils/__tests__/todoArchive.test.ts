@@ -718,7 +718,7 @@ todos:
  */
 const realFsForFault = createRequire(__filename)('fs') as typeof fs;
 
-/** Drop the write to `victim`, restoring what the file held before. */
+/** Drop the write to `victim` (direct or by a rename onto it), restoring what the file held before. */
 function withLostWriteTo<T>(victim: string, body: () => T): T {
     const descriptor = Object.getOwnPropertyDescriptor(realFsForFault, 'writeFileSync')!;
     const real = realFsForFault.writeFileSync;
@@ -734,10 +734,27 @@ function withLostWriteTo<T>(victim: string, body: () => T): T {
             return (real as (...a: unknown[]) => unknown)(target, ...rest);
         },
     });
+    // Todo files are written atomically: a temporary file renamed onto them
+    // (src/utils/atomicWrite.ts). A rename onto the victim is dropped too.
+    const renameDescriptor = Object.getOwnPropertyDescriptor(realFsForFault, 'renameSync')!;
+    const realRename = realFsForFault.renameSync;
+    Object.defineProperty(realFsForFault, 'renameSync', {
+        configurable: true,
+        writable: true,
+        value: (from: fs.PathLike, to: fs.PathLike) => {
+            if (String(to) === victim) {
+                realFsForFault.unlinkSync(from);
+                if (before !== undefined) { (real as (...a: unknown[]) => unknown)(victim, before, 'utf8'); }
+                return undefined;
+            }
+            return realRename(from, to);
+        },
+    });
     try {
         return body();
     } finally {
         Object.defineProperty(realFsForFault, 'writeFileSync', descriptor);
+        Object.defineProperty(realFsForFault, 'renameSync', renameDescriptor);
     }
 }
 

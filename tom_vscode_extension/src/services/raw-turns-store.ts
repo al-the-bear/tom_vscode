@@ -54,6 +54,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { ConversationMessage } from './history-compaction';
+import { writeFileAtomic } from '../utils/atomicWrite';
 
 /** Filename inside the quest's `history/` folder. */
 export const RAW_TURNS_FILENAME = 'rawTurns.json';
@@ -113,13 +114,11 @@ export function save(historyFolder: string, rounds: ConversationMessage[][]): vo
             fs.mkdirSync(historyFolder, { recursive: true });
         }
         const target = rawTurnsPath(historyFolder);
-        const tmp = target + '.tmp';
         const payload: RawTurnsPayload = {
             rounds,
             savedAt: new Date().toISOString(),
         };
-        fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf-8');
-        fs.renameSync(tmp, target);
+        writeFileAtomic(target, JSON.stringify(payload, null, 2));
     } catch {
         // best-effort — see doc comment
     }

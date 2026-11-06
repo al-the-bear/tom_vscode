@@ -69,7 +69,8 @@ beforeEach(() => {
 });
 
 /**
- * Stand in for the external writer. `writeFileSync` is patched to drop the
+ * Stand in for the external writer. `writeFileSync` (and `renameSync` onto the
+ * todo file, how an atomic write lands) is patched to drop the
  * payload and restore the file to what it held before — exactly what another
  * process clobbering the file looks like from in here, and indistinguishable
  * from the observed failure.
@@ -88,10 +89,27 @@ function withLostWrite<T>(body: () => T): T {
             return (real as (...a: unknown[]) => unknown)(target, ...rest);
         },
     });
+    // Todo files are written atomically: a temporary file renamed onto them
+    // (src/utils/atomicWrite.ts). A rename onto the todo file is dropped too.
+    const renameDescriptor = Object.getOwnPropertyDescriptor(realFs, 'renameSync')!;
+    const realRename = realFs.renameSync;
+    Object.defineProperty(realFs, 'renameSync', {
+        configurable: true,
+        writable: true,
+        value: (from: fs.PathLike, to: fs.PathLike) => {
+            if (String(to) === todoFile) {
+                realFs.unlinkSync(from);
+                (real as (...a: unknown[]) => unknown)(todoFile, before, 'utf8');
+                return undefined;
+            }
+            return realRename(from, to);
+        },
+    });
     try {
         return body();
     } finally {
         Object.defineProperty(realFs, 'writeFileSync', descriptor);
+        Object.defineProperty(realFs, 'renameSync', renameDescriptor);
     }
 }
 

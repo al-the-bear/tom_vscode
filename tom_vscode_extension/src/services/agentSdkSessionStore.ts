@@ -22,6 +22,7 @@ import {
     type SessionStart,
 } from '../utils/agentSdkSessions';
 import type { SessionProfile, SessionSpec } from '../utils/sessionSpecs';
+import { writeFileAtomic } from '../utils/atomicWrite';
 
 const SUFFIX = '.session.json';
 
@@ -55,9 +56,7 @@ function write(folder: string, record: SessionRecord): void {
     fs.mkdirSync(folder, { recursive: true });
     const { name: _name, ...body } = record;
     const file = fileOf(folder, record.name);
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp, file);
+    writeFileAtomic(file, `${JSON.stringify(body, null, 2)}\n`);
     notifySessionsChanged(folder);
 }
 

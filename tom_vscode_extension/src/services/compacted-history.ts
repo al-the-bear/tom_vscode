@@ -41,6 +41,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeFileAtomic } from '../utils/atomicWrite';
 
 /** Filename inside the quest's `history/` folder. */
 export const COMPACTED_HISTORY_FILENAME = 'compacted_history.md';
@@ -304,9 +305,7 @@ export function saveToDisk(historyFolder: string, blocks: Block[]): boolean {
             fs.mkdirSync(historyFolder, { recursive: true });
         }
         const target = compactedHistoryPath(historyFolder);
-        const tmp = target + '.tmp';
-        fs.writeFileSync(tmp, serialiseBlocks(blocks), 'utf-8');
-        fs.renameSync(tmp, target);
+        writeFileAtomic(target, serialiseBlocks(blocks));
         return true;
     } catch {
         return false;

@@ -17,6 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Document, isMap, isScalar, isSeq, parse, YAMLMap } from 'yaml';
+import { writeFileAtomic } from './atomicWrite';
 
 import { isArchivedOrDeletedTodoFile } from './todoArchiveNames';
 import {
@@ -139,7 +140,7 @@ function questsRootFor(filePath: string): string | undefined {
 export function writeTodoFileText(filePath: string, text: string): BlockingChange[] {
     let before: string | undefined;
     try { before = fs.readFileSync(filePath, 'utf8'); } catch { before = undefined; }
-    fs.writeFileSync(filePath, text, 'utf8');
+    writeFileAtomic(filePath, text);
     const root = questsRootFor(filePath);
     if (!root) { return []; }
     try {
@@ -214,7 +215,7 @@ export function syncBlockingAfterWrite(
             setBlocking(doc, node as YAMLMap, blocking);
             changes.push({ file, id, blocking });
         }
-        fs.writeFileSync(file, doc.toString(), 'utf8');
+        writeFileAtomic(file, doc.toString());
         forgetTodoFile(file);
     }
     return changes;
