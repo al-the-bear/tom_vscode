@@ -48,7 +48,7 @@ surfaces** — the suite targets the first:
 1. **Standalone client (what these scripts use).** A normal Dart program
    connects over TCP to the CLI Integration Server. The whole package is
    available, including the static-class feature APIs (`TomWorkspaceApi`,
-   `TomQueueApi`, `TomTodoApi`, `TomToolsApi`, `TomChatApi`, `AiPromptApi`, …).
+   `TomQueueApi`, `TomTodoApi`, `TomToolsApi`, `TomChatApi`, …).
    Run with `dart run` as above.
 
 2. **Bridge-hosted d4rt script (`tom_bs`).** When the extension runs a d4rt

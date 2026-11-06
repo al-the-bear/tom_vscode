@@ -699,29 +699,6 @@ export class DartBridgeClient {
                     result = { tools: getActiveProfileToolsJson(this.context) };
                     break;
 
-                // The Local LLM (Prompt Expander) and AI Conversation APIs served
-                // the removed @CHAT panels; a script calling them gets this error
-                // instead of the generic unknown-method one. The Local LLM is
-                // reached through Anthropic profiles on Local LLM configurations.
-                case 'localLlm.getProfilesVce':
-                case 'localLlm.getModelsVce':
-                case 'localLlm.updateProfileVce':
-                case 'localLlm.removeProfileVce':
-                case 'localLlm.updateModelVce':
-                case 'localLlm.removeModelVce':
-                case 'localLlm.processVce':
-                case 'aiConversation.getConfigVce':
-                case 'aiConversation.getProfilesVce':
-                case 'aiConversation.startVce':
-                case 'aiConversation.stopVce':
-                case 'aiConversation.haltVce':
-                case 'aiConversation.continueVce':
-                case 'aiConversation.addInfoVce':
-                case 'aiConversation.statusVce':
-                case 'aiConversation.getLogVce':
-                case 'aiConversation.singleTurnVce':
-                    throw new Error(`${method} is no longer available: the Local LLM and AI Conversation panels were removed. Use an Anthropic profile (a Local LLM configuration works as its configuration) through the chat or queue API.`);
-
                 // Tom Scripting API - TODO, Queue, Timed, Document, Workspace operations
                 case 'todo.listFilesVce':
                 case 'todo.listQuestVce':
