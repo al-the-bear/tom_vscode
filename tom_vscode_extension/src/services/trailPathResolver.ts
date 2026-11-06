@@ -78,7 +78,7 @@ export function resolveTrailPath(
     const resolved = resolveVariables(prepared, {
         values: resolverValues,
         includeEditor: false,
-        enableJsExpressions: false,
+        enableExpressions: false,
         unresolvedBehavior: 'empty',
     });
 

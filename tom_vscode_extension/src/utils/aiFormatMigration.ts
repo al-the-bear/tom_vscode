@@ -54,6 +54,11 @@
  *     toolsEnabled, models) are removed from that config and the user
  *     overlay; `configurations` and `tools` stay (localLlmProfileMigration.ts).
  *     Format version 7;
+ *   - every `${{ … }}` JavaScript placeholder of that config, the user overlay
+ *     and the process definitions (`_ai/processes/<id>/<id>.process.yaml`)
+ *     is written in the expression language (templateExpression.ts); a
+ *     template that cannot be converted stays as it was and is a problem.
+ *     Format version 7;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -65,7 +70,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Document, isMap, isSeq, parseDocument, YAMLMap } from 'yaml';
+import { Document, isMap, isScalar, isSeq, parseDocument, visit, YAMLMap } from 'yaml';
 
 import {
     MIGRATION_MARKER_FILE,
@@ -83,6 +88,7 @@ import {
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { renameExplainTemplate } from './explainTodoTemplate';
 import { dropCopilotTemplates } from './copilotTemplates';
+import { convertTemplateText } from './templateExpression';
 import { defaultLocalLlmConfigId, dropLocalLlmPanelKeys, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
@@ -123,7 +129,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'format-version';
     detail: string;
 }
 
@@ -514,6 +520,61 @@ class Run {
         });
     }
 
+    /**
+     * Every `${{ … }}` JavaScript placeholder in the expression language
+     * (templateExpression.ts): the workspace config, the user overlay and the
+     * process definitions. A template that cannot be converted stays as it was
+     * and is a problem.
+     */
+    expressions(): void {
+        this.editConfigFiles('expressions', (parsed) => {
+            let converted = 0;
+            const walk = (node: unknown, where: string): unknown => {
+                if (typeof node === 'string') {
+                    if (!node.includes('${{')) { return node; }
+                    const r = convertTemplateText(node);
+                    for (const problem of r.problems) { this.problem('(workspace)', 'expressions', `${where}: ${problem}`); }
+                    converted += r.converted;
+                    return r.text;
+                }
+                if (Array.isArray(node)) { return node.map((v, i) => walk(v, `${where}[${i}]`)); }
+                if (node && typeof node === 'object') {
+                    for (const [k, v] of Object.entries(node)) {
+                        (node as Record<string, unknown>)[k] = walk(v, where ? `${where}.${k}` : k);
+                    }
+                }
+                return node;
+            };
+            const config = walk(parsed, '');
+            return { config, done: converted === 0 ? [] : [`${converted} JavaScript expression(s) in the expression language`] };
+        });
+        const processes = path.join(this.opts.aiRoot, 'processes');
+        for (const dir of list(processes).filter((e) => e.isDirectory())) {
+            const file = path.join(processes, dir.name, `${dir.name}.process.yaml`);
+            if (!fs.existsSync(file)) { continue; }
+            const text = fs.readFileSync(file, 'utf8');
+            if (!text.includes('${{')) { continue; }
+            const doc = parseDocument(text);
+            let converted = 0;
+            visit(doc, {
+                Scalar: (_key, node, nodePath) => {
+                    if (!isScalar(node) || typeof node.value !== 'string' || !node.value.includes('${{')) { return; }
+                    const r = convertTemplateText(node.value);
+                    const where = nodePath.filter((n) => isScalar((n as { key?: unknown }).key)).map((n) => String(((n as { key: { value: unknown } }).key).value)).join('.');
+                    for (const problem of r.problems) { this.problem('(workspace)', 'expressions', `${this.rel(file)} ${where}: ${problem}`); }
+                    if (r.converted > 0) { node.value = r.text; converted += r.converted; }
+                },
+            });
+            if (converted === 0) { continue; }
+            this.change('(workspace)', 'expressions', `${this.rel(file)}: ${converted} JavaScript expression(s) in the expression language`);
+            if (this.opts.apply) {
+                // Why: block sequences at the key's own indent (`- x` under `key:`) are written back as found.
+                const indentSeq = !/^( *)[^\s#-][^\n]*:\n\1- /m.test(text);
+                fs.writeFileSync(file, doc.toString({ indentSeq }), 'utf8');
+            }
+        }
+    }
+
     /** `copilot.templates` and `copilot.defaultTemplate` removed; an own Answer Wrapper kept as `copilot.queueWrapper`. */
     copilotTemplates(): void {
         this.editConfigFiles('copilot-templates', (parsed) => ({ config: parsed, done: dropCopilotTemplates(parsed) }));
@@ -634,6 +695,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.localLlmProfiles();
     run.removedPanelConfig();
     run.localLlmKeys();
+    run.expressions();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
     stampFormatVersion(opts, run);

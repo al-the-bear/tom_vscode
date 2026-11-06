@@ -150,15 +150,17 @@ Quick setups:
 
 All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, and Copilot prompt templates. They resolve the same way everywhere.
 
-### Conditional injection via JS expressions
+### Conditional injection with expressions
 
 ```text
-${{ vars["role-description"] ? "## Your role\n" + vars["role-description"] + "\n" : "" }}
-${{ vars["quest-description"] ? "## Current quest\n" + vars["quest-description"] + "\n" : "" }}
-${{ vars["instructions"] ? "## Workspace instructions\n" + vars["instructions"] + "\n" : "" }}
+${{ role-description ? "## Your role\n" + role-description + "\n" : "" }}
+${{ quest-description ? "## Current quest\n" + quest-description + "\n" : "" }}
+${{ instructions ? "## Workspace instructions\n" + instructions + "\n" : "" }}
 ```
 
-Note: inside `${{ ... }}` expressions the dynamic keys (`${guidelines-*}`, `${role-*}`, `${quest-*}`, `${file-*}`) are **not** pre-populated into the `vars` object — they're resolved only when referenced via `${...}`. If you need the content in JS, put the `${...}` form in a separate pass or use `${{ (() => { /* read via fs */ })() }}` — most prompts don't need this.
+An expression reads a variable the way `${name}` does, the file-injection
+placeholders (`role-*`, `quest-*`, `guidelines-*`, `file-*`) included. The
+language is described under [Expression placeholders](#expression-placeholders).
 
 ---
 
@@ -200,7 +202,7 @@ To show a placeholder instead of filling it — a process description or step
 prompt that tells the agent what to queue — write it with a second `$`:
 `$${repeatTodoId}` (or `$${{expr}}`). Every resolution leaves it alone, and the
 model reads `${repeatTodoId}`; the item the agent queues with that text then
-resolves it when it is sent. See placeholder_engine.md §1.1.
+resolves it when it is sent. See placeholder_engine.md §1.2.
 
 ## Notes
 
@@ -209,186 +211,72 @@ resolves it when it is sent. See placeholder_engine.md §1.1.
 
 ---
 
-## JavaScript Expression Placeholders
+## Expression Placeholders
 
-Prompt templates support inline JavaScript expressions using the `${{ ... }}` syntax.
-This allows dynamic values, conditional text, and computations that go beyond what
-static `${...}` placeholders can provide.
+Prompt templates decide what to write with `${{ ... }}` expressions: text that
+appears only when a variable is set, a fallback, a comparison. The expression
+language is small and runs no JavaScript.
 
 ### Syntax
 
 ```text
-${{ <javascript expression> }}
+${{ <expression> }}
 ```
 
-The expression must be a single JS expression (not a statement). It is evaluated and
-its result is converted to a string and inserted in place of the `${{ ... }}` block.
+The expression is evaluated and its text inserted in place of the
+`${{ ... }}` block.
+
+| Form | Meaning |
+| --- | --- |
+| `name` | A variable, read the way `${name}` reads it: `role-description`, `git.dirty`, `file.name`, `env.HOME`, `guidelines-coding_guidelines`. Unset reads as `""`. |
+| `"text"`, `'text'` | Text; escapes `\n`, `\t`, `\r`, `\"`, `\'`, `\\`. |
+| `42`, `1.5`, `true`, `false` | Numbers and the two truth values. |
+| `a + b` | Joins the two as text. There is no arithmetic. |
+| `a == b`, `a != b` | Equal (not equal) as text. |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | Numeric when both are numbers, else text order. |
+| `a && b`, `a \|\| b`, `!a` | `a \|\| b` is `a` when it is set, else `b`; `a && b` is `b` when `a` is set, else `a`; `!a` is `true` when `a` is not set. |
+| `a ? b : c` | `b` when `a` is set, else `c`. |
+| `( a )` | Grouping. |
+| `empty(a)`, `notEmpty(a)` | Whether `a` is unset / set. |
+| `lower(a)`, `upper(a)` | `a` in lower / upper case. |
+| `default(a, b)` | `a` when it is set, else `b`. |
+
+A value is **set** when it is non-empty text, `true` or a non-zero number (the
+text `"0"` and `"false"` are set: compare them, `git.dirty == "true"`).
+
+Variable names start with a letter or `_` and hold letters, digits, `_`, `.`
+and `-`, so `process-context` is one name; there is no subtraction. Precedence,
+tightest first: `!`, `+`, the comparisons, `&&`, `||`, `? :`.
 
 ```text
-Today is ${{ new Date().toDateString() }}
-Branch: ${{ vars["git.branch"] === "main" ? "production" : "development" }}
-Next item: ${{ Number(vars.repeatNumber) + 1 }}
+${{ role-description ? "## Role\n" + role-description + "\n" : "" }}
+${{ git.branch == "main" ? "production" : "development" }}
+${{ default(file.name, "(no file)") }}
+${{ rawTurns && rawTurnCount > 0 ? "## Raw turns\n\n" + rawTurns : "" }}
+${{ notEmpty(selection) ? "Selection:\n" + selection : "" }}
 ```
 
 ### Evaluation order
 
-JS expressions are evaluated **before** `${...}` placeholders in each resolution pass.
-The resolver runs up to 10 passes, so a `${...}` value set in pass 1 can be used by a
-`${{ }}` expression in pass 2 — but within a single pass, `${{ }}` always runs first.
+Expressions are evaluated **before** `${...}` placeholders in each resolution
+pass. The resolver runs up to 10 passes, so a `${...}` value set in pass 1 can
+be used by an expression in pass 2.
 
-### What is in scope
+### Errors and templates still in JavaScript
 
-Six objects are injected into every expression:
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `vars` | `Record<string, string>` | All resolved placeholder values (see below) |
-| `env` | `Record<string, string>` | Full `process.env` — all OS environment variables |
-| `path` | Node.js `path` module | Path utilities (`path.join`, `path.basename`, etc.) |
-| `os` | Node.js `os` module | OS utilities (`os.homedir`, `os.platform`, etc.) |
-| `vscode` | VS Code API | Full VS Code extension API namespace |
-| `editor` | `TextEditor \| undefined` | `vscode.window.activeTextEditor` — may be `undefined` |
-
-Standard JavaScript globals (`Math`, `Date`, `JSON`, `Array`, `String`, `Number`, etc.)
-are also available — this is a normal JS `new Function(...)` context with `"use strict"`.
-
-### Accessing `vars`
-
-`vars` contains all built-in placeholder values as strings, populated before JS
-evaluation. Use dot notation for simple keys and bracket notation for keys that
-contain dots or dashes.
-
-```js
-// Simple keys
-vars.workspaceFolder   // workspace root path
-vars.username          // OS user name
-vars.hostname          // machine hostname
-vars.datetime          // YYYYMMDD_HHMMSS timestamp
-vars.uuid              // random UUID v4
-
-// Keys with dots — must use bracket notation
-vars["git.branch"]
-vars["git.commit"]
-vars["git.dirty"]          // "true" or "false"
-vars["file.name"]          // filename without extension
-vars["file.extension"]     // e.g. ".dart"
-vars["file.language"]      // language ID
-vars["vs-code-workspace-name"]   // quest/workspace name
-vars["vscode.version"]
-vars["custom.myVar"]       // custom chat variable
-vars["chat.quest"]
-vars["chat.todoFile"]
-```
-
-All values in `vars` are strings. Convert when doing arithmetic:
-
-```js
-Number(vars.repeatCount)
-parseInt(vars["custom.count"], 10)
-```
-
-#### Repeat-specific values (queue prompts only)
-
-Available when a prompt is part of a repeat sequence:
-
-| Key | Value | Notes |
-| --- | --- | --- |
-| `vars.repeatCount` | Total number of repetitions | String |
-| `vars.repeatIndex` | Current iteration, 0-based | String — `"0"` on first run |
-| `vars.repeatNumber` | Current iteration, 1-based | String — `repeatIndex + 1`, use for display |
-
-```js
-// Are we on the last repetition?
-${{ Number(vars.repeatNumber) === Number(vars.repeatCount) ? "FINAL PASS" : `Pass ${vars.repeatNumber} of ${vars.repeatCount}` }}
-
-// Zero-based index for array access or offset calculations
-${{ Number(vars.repeatIndex) * 10 }}
-```
-
-### Using the `editor` object
-
-`editor` can be `undefined` when no file is open. Always guard with `?.`:
-
-```js
-${{ editor?.document.languageId ?? "unknown" }}
-${{ editor?.document.fileName ?? "" }}
-${{ editor?.document.getText(editor.selection) ?? "" }}
-${{ editor ? path.basename(editor.document.fileName) : "" }}
-```
-
-### Using `path` and `os`
-
-```js
-${{ path.basename(vars.workspaceFolder) }}
-${{ path.join(vars.home, ".tom", "config.json") }}
-${{ path.extname(vars["file.name"]) }}
-${{ os.homedir() }}
-${{ os.platform() }}   // linux, darwin, win32
-${{ os.cpus().length }} // number of CPU cores
-```
-
-### Using `env`
-
-```js
-${{ env.HOME }}
-${{ env.PATH }}
-${{ env.MY_CUSTOM_VAR ?? "default" }}
-```
-
-### Using `vscode`
-
-The full VS Code API is available. Some useful examples:
-
-```js
-${{ vscode.workspace.workspaceFolders?.length ?? 0 }}
-${{ vscode.env.appName }}
-${{ vscode.env.sessionId }}
-${{ vscode.version }}
-${{ vscode.window.activeTextEditor?.document.uri.fsPath ?? "" }}
-```
-
-### Error handling
-
-- If the expression throws, the `${{ }}` block is replaced with an empty string `""`.
-- The error is logged to the VS Code developer console as:
-  `[VariableResolver] JS expression error in ${{...}}: <message>`
-- A `null` or `undefined` result also produces `""`.
-
-### Practical examples
-
-```text
-// Conditional branch label
-${{ vars["git.branch"] === "main" ? "PROD" : "DEV" }}
-
-// Next iteration number
-${{ Number(vars.repeatNumber) + 1 }}
-
-// Workspace name from path
-${{ path.basename(vars.workspaceFolder) }}
-
-// Filter all vars keys that contain "count"
-${{ Object.keys(vars).filter(k => k.includes("count")).join(", ") }}
-
-// Format today's date manually
-${{ (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })() }}
-
-// Safely read selected text or fall back to file name
-${{ editor?.document.getText(editor.selection) || vars["file.name"] || "no file" }}
-
-// Read an environment variable with fallback
-${{ env.PROJECT_PREFIX ?? vars["vs-code-workspace-name"] }}
-
-// Conditional prompt section (multi-line via ternary)
-${{ vars["git.dirty"] === "true" ? "⚠️ There are uncommitted changes.\n" : "" }}
-```
+A syntax error yields `""` and logs the error with its position. The names of
+the objects the former JavaScript placeholders offered (`vars`, `editor`,
+`vscode`, `os`, `path`, `Number`, …) are refused: `vars["process-context"]`
+is written `process-context`. `npm run migrate:ai-formats -- --apply` converts
+saved templates (the workspace config, the user overlay, the process
+definitions); a template it cannot convert — one that called a function such as
+`path.basename` or did arithmetic — is reported and left for you to rewrite.
 
 ### Limitations
 
-- The expression must be a single JS **expression**, not a statement block. Use IIFEs
-  (`(() => { ... })()`) for multi-step logic.
-- JS expressions run with `"use strict"` and have no access to Node.js `require` or the
-  file system beyond what the injected objects expose.
 - `${{ }}` is **not** evaluated when the resolver is called in path-only mode
-  (e.g. folder path fields in configuration). It is only active in prompt templates.
-- `${{ }}` runs before `${...}` in the same pass, so it cannot reference the result of
-  a `${...}` replacement made earlier in the same string during the same pass.
+  (e.g. folder path fields in configuration). It is only active in prompt
+  templates.
+- `${{ }}` runs before `${...}` in the same pass, so it cannot reference the
+  result of a `${...}` replacement made earlier in the same string during the
+  same pass.

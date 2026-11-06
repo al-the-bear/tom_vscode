@@ -44,6 +44,7 @@ import {
     userActionConfirmation,
     decisionDialog,
 } from '../processActionPrompt.js';
+import { expressionVariableNames } from '../templateExpression.js';
 
 const YAML = `
 id: flow
@@ -143,8 +144,11 @@ describe('process action prompts', () => {
             for (const m of template.replace(/\$\{\{[\s\S]*?\}\}/g, '').matchAll(/\$\{([^{}]+)\}/g)) {
                 assert.ok(known.has(m[1]), `${kind}: \${${m[1]}} is not provided`);
             }
-            for (const m of template.matchAll(/vars(?:\.(\w+)|\["([^"]+)"\])/g)) {
-                assert.ok(known.has(m[1] ?? m[2]), `${kind}: vars ${m[1] ?? m[2]} is not provided`);
+            // The ${{ … }} expressions parse (no JavaScript) and read only variables an action provides.
+            for (const m of template.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+                for (const name of expressionVariableNames(m[1])) {
+                    assert.ok(known.has(name), `${kind}: ${name} in \${{…}} is not provided`);
+                }
             }
         }
         assert.deepEqual(Object.keys(DEFAULT_PROCESS_ACTION_TEMPLATES), ['proceed'], 'only Proceed runs anything');

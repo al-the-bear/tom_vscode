@@ -7,7 +7,7 @@
  * Supports three syntaxes:
  *   ${name}             – Dollar-brace style (preferred)
  *   {{name}}            – Mustache style (legacy, fully supported)
- *   ${{expression}}     – Inline JavaScript evaluation
+ *   ${{expression}}     – An expression (templateExpression.ts)
  *
  * Built-in placeholders are resolved automatically.  Callers may pass extra
  * key/value pairs via `PromptTemplateOptions.values` for domain-specific
@@ -37,6 +37,7 @@ import {
     resolveDynamicKey,
     PLACEHOLDER_HELP as RESOLVER_PLACEHOLDER_HELP,
 } from '../utils/variableResolver.js';
+import { evaluateExpression, forEachExpressionPlaceholder } from '../utils/templateExpression';
 
 // ============================================================================
 // Public types
@@ -127,30 +128,27 @@ async function addAsyncValues(values: Record<string, string>): Promise<void> {
  * from the supplied values map.
  *
  * Also handles:
- *   - `${{javascript}}` inline JS evaluation
+ *   - `${{ expression }}` placeholders (templateExpression.ts)
  *   - `${date.FORMAT}` / `${time.FORMAT}` custom formatting
  *   - `${env.VARNAME}`, `${config.KEY}`, `${git.KEY}` namespace patterns
  */
 function resolvePass(text: string, values: Record<string, string>): string {
-    // Delegate ${{js}} expressions first
+    // ${{ expression }} placeholders first (templateExpression.ts).
     // An escaped `$${…}` / `$${{…}}` stays as written (variableResolver.ts, unescapePlaceholders).
-    let result = text.replace(/(?<!\$)\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
+    const now = new Date();
+    const lookup = (key: string): string | undefined => {
+        if (key in values) { return values[key]; }
+        const lk = key.toLowerCase();
+        for (const [k, v] of Object.entries(values)) {
+            if (k.toLowerCase() === lk) { return v; }
+        }
+        return resolveDynamicKey(key, values, now);
+    };
+    let result = forEachExpressionPlaceholder(text, (expr) => {
         try {
-            // eslint-disable-next-line no-new-func
-            const fn = new Function(
-                'vscode', 'os', 'path', 'env', 'vars', 'editor',
-                `"use strict"; return (${expr.trim()});`,
-            );
-            const res = fn(
-                vscode,
-                require('os'),
-                require('path'),
-                process.env,
-                values,
-                vscode.window.activeTextEditor,
-            );
-            return res !== null && res !== undefined ? String(res) : '';
-        } catch {
+            return evaluateExpression(expr, lookup);
+        } catch (e) {
+            console.error(`[promptTemplate] expression error in $\{{ ${expr} }}: ${(e as Error).message}`);
             return '';
         }
     });
@@ -169,28 +167,13 @@ function resolvePass(text: string, values: Record<string, string>): string {
     });
 
     // 2. Replace ${key} patterns (including dot paths, namespaces)
-    result = result.replace(/(?<!\$)\$\{([^{}]+)\}/g, (match, rawKey: string) => {
-        let key = rawKey.trim();
+    result = result.replace(/(?<!\$)\$\{([^{}]+)\}/g, (_match, rawKey: string) => {
+        const key = rawKey.trim();
 
-        // Direct lookup (case-sensitive)
-        if (key in values) {
-            return values[key];
-        }
-
-        // Case-insensitive fallback
-        const lk = key.toLowerCase();
-        for (const [k, v] of Object.entries(values)) {
-            if (k.toLowerCase() === lk) { return v; }
-        }
-
-        // Dynamic namespace resolution — delegates to the unified resolver
-        // so date.*, time.*, env.*, config.*, git.*, vscode.*, chat.* and
-        // the file-injection placeholders (claude.md, copilot-instructions,
-        // instructions, guidelines-*, role-*, quest-*, file-*) all resolve
-        // identically regardless of which code path reached here.
-        const now = new Date();
-        const dynamic = resolveDynamicKey(key, values, now);
-        return dynamic ?? '';
+        // Map, any case, then the dynamic namespaces (date.*, env.*, config.*,
+        // git.*, vscode.*, chat.* and the file-injection placeholders) — as the
+        // unified resolver reads them.
+        return lookup(key) ?? '';
     });
 
     return result;

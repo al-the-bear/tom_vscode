@@ -600,7 +600,7 @@ ${userMessage}
 A richer one adds file context:
 
 ```text
-${{ editor ? "Current file: " + path.basename(editor.document.fileName) + "\n\n" : "" }}${userMessage}
+${{ file.relative ? "Current file: " + file.relative + "\n\n" : "" }}${userMessage}
 ```
 
 Fields per template entry:
@@ -665,9 +665,9 @@ Resolution rules:
 Typical usage in a system prompt template:
 
 ```text
-${{ vars["role-description"] ? "## Your role\n" + vars["role-description"] + "\n" : "" }}
-${{ vars["quest-description"] ? "## Current quest\n" + vars["quest-description"] + "\n" : "" }}
-${{ vars["process-context"] ? "## Current process\n" + vars["process-context"] + "\n" : "" }}
+${{ role-description ? "## Your role\n" + role-description + "\n" : "" }}
+${{ quest-description ? "## Current quest\n" + quest-description + "\n" : "" }}
+${{ process-context ? "## Current process\n" + process-context + "\n" : "" }}
 ```
 
 Or as static placeholders when the surrounding text handles the empty case:
@@ -1793,7 +1793,7 @@ The following subsystems remain in-extension and apply to both transports unchan
 
 - **Raw trail** (§4) — every SDK message (user, assistant, result) is logged with `subsystem: 'anthropic'` using the existing `logPrompt` / `logResponse` helpers.
 - **Tool trail / summary trail** (§4) — tool calls and their results flow through the same retention window.
-- **Placeholder resolution** — `resolveVariables()` expands `${userMessage}`, `${role-description}`, `${quest-description}`, `${{ }}` JS expressions, etc., before the user message is handed to the SDK.
+- **Placeholder resolution** — `resolveVariables()` expands `${userMessage}`, `${role-description}`, `${quest-description}`, `${{ }}` expressions, etc., before the user message is handed to the SDK.
 - **Profiles** (§7.2) — `profile.systemPrompt` becomes the SDK's `options.systemPrompt`.
 - **`anthropicUserMessage` template** — expanded before the SDK is invoked (same code path as direct).
 - **Memory tools** (§5 `tomAi_memory_*`) — exposed to the agent via MCP; the agent reads/writes memory through the same `TwoTierMemoryService`.

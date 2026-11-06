@@ -2215,7 +2215,7 @@ export class AnthropicHandler {
                                 userMessage: userContent,
                                 originalPrompt: userContent,
                             },
-                            enableJsExpressions: true,
+                            enableExpressions: true,
                         });
                     },
                 }
@@ -2239,7 +2239,7 @@ export class AnthropicHandler {
                         const body = selected?.template ?? DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE;
                         return resolveVariables(body, {
                             values: { questions: questionsDigest },
-                            enableJsExpressions: true,
+                            enableExpressions: true,
                         });
                     },
                 }

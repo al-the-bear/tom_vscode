@@ -44,13 +44,13 @@ export type ProcessActionTemplates = Partial<Record<ProcessTemplateKind, string>
 
 const POSITION =
     'Process `${process}`, phase `${phase}` (iteration ${phase-iteration}), step `${step}` (iteration ${step-iteration})'
-    + '${{ vars.substep ? ", sub-step `" + vars.substep + "` (iteration " + vars["substep-iteration"] + ")" : "" }}.';
+    + '${{ substep ? ", sub-step `" + substep + "` (iteration " + substep-iteration + ")" : "" }}.';
 
-const NOTE = '${{ vars["action-note"] ? "\\n\\n" + vars["action-note"] : "" }}';
+const NOTE = '${{ action-note ? "\\n\\n" + action-note : "" }}';
 
-const INSTRUCTIONS = '${{ vars["custom-instructions"] ? "\\n\\n## Instructions\\n\\n" + vars["custom-instructions"] : "" }}';
+const INSTRUCTIONS = '${{ custom-instructions ? "\\n\\n## Instructions\\n\\n" + custom-instructions : "" }}';
 
-const ACTION_PROMPT = '${{ vars["action-prompt"] ? "\\n\\n## What to do\\n\\n" + vars["action-prompt"] : "" }}';
+const ACTION_PROMPT = '${{ action-prompt ? "\\n\\n## What to do\\n\\n" + action-prompt : "" }}';
 
 const AFTER = '\n\n${action-after}';
 

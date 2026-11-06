@@ -259,7 +259,7 @@ export function resolvePathVariables(input: string, options?: { silent?: boolean
             return resolveVariables(input, {
                 includeEditor: true,
                 unresolvedBehavior: 'empty',
-                enableJsExpressions: true,
+                enableExpressions: true,
             });
         }
         vscode.window.showErrorMessage(
@@ -271,7 +271,7 @@ export function resolvePathVariables(input: string, options?: { silent?: boolean
     return resolveVariables(input, {
         includeEditor: true,
         unresolvedBehavior: 'empty',
-        enableJsExpressions: true,
+        enableExpressions: true,
     });
 }
 

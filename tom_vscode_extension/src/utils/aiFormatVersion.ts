@@ -32,6 +32,7 @@ import { parse, stringify } from 'yaml';
  *   6  copilot.templates removed; the Answer Wrapper as copilot.queueWrapper
  *   7  the Local LLM panel's top-level localLlm keys removed; the Telegram
  *      notification settings nothing reads removed from the quest configs
+ *      and the ${{ … }} placeholders in the expression language, not JavaScript
  */
 export const AI_FORMAT_VERSION = 7;
 

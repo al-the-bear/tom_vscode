@@ -6,7 +6,7 @@
  *
  * Supports two syntaxes:
  *   ${name}            — Dollar-brace (standard)
- *   ${{expression}}    — Inline JavaScript evaluation
+ *   ${{expression}}    — An expression (templateExpression.ts): conditionals, comparisons, helpers
  *
  * Variables are organized into tiers:
  *   Tier 1 — Universal:    always available (workspace, env, date/time, machine, etc.)
@@ -37,6 +37,7 @@ import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
 import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
+import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
 
 // ============================================================================
 // Public types
@@ -64,10 +65,10 @@ export interface ResolveOptions {
      */
     silent?: boolean;
     /**
-     * Enable ${{javascript}} expression evaluation.
+     * Evaluate `${{ expression }}` placeholders (templateExpression.ts).
      * Defaults to true for prompts, false for paths.
      */
-    enableJsExpressions?: boolean;
+    enableExpressions?: boolean;
 }
 
 // ============================================================================
@@ -149,36 +150,6 @@ export function formatDateTime(date: Date = new Date()): string {
     const mi = String(date.getMinutes()).padStart(2, '0');
     const s  = String(date.getSeconds()).padStart(2, '0');
     return `${y}${mo}${d}_${h}${mi}${s}`;
-}
-
-// ============================================================================
-// JavaScript expression evaluation
-// ============================================================================
-
-/**
- * Evaluate an inline JavaScript expression in a controlled context.
- * Returns the stringified result, or empty string on error.
- */
-function evaluateJsExpression(expr: string, vars: Record<string, string>): string {
-    try {
-        // eslint-disable-next-line no-new-func
-        const fn = new Function(
-            'vscode', 'os', 'path', 'env', 'vars', 'editor',
-            `"use strict"; return (${expr});`,
-        );
-        const result = fn(
-            vscode,
-            os,
-            path,
-            process.env,
-            vars,
-            vscode.window.activeTextEditor,
-        );
-        return result !== null && result !== undefined ? String(result) : '';
-    } catch (e: any) {
-        console.error(`[VariableResolver] JS expression error in $\{{${expr}}}: ${e.message}`);
-        return '';
-    }
 }
 
 // ============================================================================
@@ -984,6 +955,20 @@ function readFirstMatchingFile(dir: string, prefix: string): string {
     }
 }
 
+/**
+ * A variable's value as a placeholder reads it: the map (exact, then any case),
+ * then the dynamic namespaces (`date.*`, `env.*`, `chat.*`, …); undefined when
+ * it has none. `${name}` and the `${{ … }}` expressions read variables alike.
+ */
+function lookupVariable(key: string, values: Record<string, string>, now: Date): string | undefined {
+    if (key in values) { return values[key]; }
+    const lk = key.toLowerCase();
+    for (const [k, v] of Object.entries(values)) {
+        if (k.toLowerCase() === lk) { return v; }
+    }
+    return resolveDynamicKey(key, values, now);
+}
+
 // ============================================================================
 // Resolution pass
 // ============================================================================
@@ -992,7 +977,7 @@ function readFirstMatchingFile(dir: string, prefix: string): string {
  * Perform a single resolution pass, replacing placeholders with values.
  *
  * Resolution order:
- *   1. ${{javascript}} expressions (if enabled)
+ *   1. ${{ expression }} placeholders (if enabled)
  *   2. ${key} patterns
  */
 function resolvePass(
@@ -1004,32 +989,24 @@ function resolvePass(
     let result = text;
     const unresolvedBehavior = options?.unresolvedBehavior ?? 'empty';
 
-    // 1. Evaluate ${{javascript}} expressions
-    if (options?.enableJsExpressions !== false) {
-        result = result.replace(/(?<!\$)\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
-            return evaluateJsExpression(expr.trim(), values);
+    const lookup = (key: string): string | undefined => lookupVariable(key, values, now);
+
+    // 1. Evaluate ${{ expression }} placeholders
+    if (options?.enableExpressions !== false) {
+        result = forEachExpressionPlaceholder(result, (expr) => {
+            try {
+                return evaluateExpression(expr, lookup);
+            } catch (e) {
+                console.error(`[VariableResolver] expression error in $\{{ ${expr} }}: ${(e as Error).message}`);
+                return '';
+            }
         });
     }
 
     // 2. Replace ${key} dollar-brace patterns (an escaped `$${key}` stays as written)
     result = result.replace(/(?<!\$)\$\{([^{}]+)\}/g, (match, rawKey: string) => {
-        const key = rawKey.trim();
-
-        // Direct lookup (case-sensitive first, then case-insensitive)
-        if (key in values) {
-            return values[key];
-        }
-
-        // Case-insensitive fallback
-        const lk = key.toLowerCase();
-        for (const [k, v] of Object.entries(values)) {
-            if (k.toLowerCase() === lk) { return v; }
-        }
-
-        // Dynamic namespace resolution
-        const dynamic = resolveDynamicKey(key, values, now);
-        if (dynamic !== undefined) { return dynamic; }
-
+        const value = lookup(rawKey.trim());
+        if (value !== undefined) { return value; }
         return unresolvedBehavior === 'keep' ? match : '';
     });
 
@@ -1096,7 +1073,7 @@ export function resolveFolderPath(folderPath: string): string {
         maxDepth: 10,
         unresolvedBehavior: 'empty',
         includeEditor: false,
-        enableJsExpressions: false,
+        enableExpressions: false,
 
     });
 }
@@ -1300,7 +1277,7 @@ The following placeholders are populated by the handler that drives the request.
 <br>
 <code>\${compactedSummary}</code> – The running session summary produced by incremental <code>trim_and_summary</code> compaction. Resolves inside the Anthropic profile's <code>userPromptWrapper</code> field. (On the wire, the summary is also injected automatically as a synthetic user/assistant pair between <code>rawTurns</code> and the current prompt, so you usually do <em>not</em> need to reference it explicitly.)<br>
 <code>\${rawTurns}</code> – The most recent verbatim user/assistant turns kept inline, formatted as one block. Resolves inside the Anthropic profile's <code>userPromptWrapper</code>.<br>
-<code>\${rawTurnCount}</code> – Number of raw turn messages currently kept (≤ <code>rawTurnsKept × 2</code>). Useful for guarding the surrounding markup, e.g. <code>\${{ Number(vars["rawTurnCount"]) &gt; 0 ? "## Raw turns…" : "" }}</code>.<br>
+<code>\${rawTurnCount}</code> – Number of raw turn messages currently kept (≤ <code>rawTurnsKept × 2</code>). Useful for guarding the surrounding markup, e.g. <code>\${{ rawTurnCount &gt; 0 ? "## Raw turns…" : "" }}</code>.<br>
 <code>\${toolHistory}</code> – Compact YAML rendering of the last ~25 tool calls in the session ring buffer (key, time, round, tool, input, preview). Resolves inside the Anthropic profile's <code>systemPrompt</code> and inside user-message templates. Empty on the Agent SDK transport and on the first turn. Each line names a replay <code>key</code> that the model can pass to <code>tomAi_readPastToolResult({"key":"tX"})</code> to recover the full body.<br>
 <br>
 <em>Compaction-only placeholders</em> (resolve only inside the <code>compaction.templates[*].template</code> field — see the History Compaction editor for the inline help):<br>
@@ -1315,28 +1292,22 @@ The following placeholders are populated by the handler that drives the request.
 <br>
 <em>Tool-trail retention contract:</em> within a single user turn, a tool result is cut to <code>toolTrailMaxResultChars</code> when it arrives and older rounds are replaced with a stub naming the replay key — without prompt caching every round past <code>toolTrailKeepRounds</code>, with caching in batches (once more than <code>toolTrailCollapseRounds</code> rounds or <code>toolTrailCollapseChars</code> characters are kept whole, down to <code>toolTrailKeepRounds</code>). Full bodies are persisted under <code>_ai/trail/&lt;subsystem&gt;/&lt;quest&gt;/tool_results/&lt;key&gt;.json</code> and are recoverable via <code>tomAi_readPastToolResult({"key":"tX"})</code>.<br>
 <br>
-<em>Inline JavaScript:</em><br>
-<code>\${{expression}}</code> – Evaluate a single JS expression at resolution time. The result is stringified and spliced into the template.<br>
+<em>Expressions:</em><br>
+<code>\${{expression}}</code> – Evaluate an expression at resolution time; its text is spliced into the template. The expression language is small and runs no JavaScript:<br>
+<code>name</code> – a variable, read as <code>\${name}</code> reads it ('' when unset): <code>role-description</code>, <code>git.dirty</code>, <code>file.name</code>, <code>env.HOME</code>.<br>
+<code>"text"</code> / <code>'text'</code> (escapes <code>\\n \\t \\" \\\\</code>), numbers, <code>true</code> / <code>false</code>.<br>
+<code>a + b</code> – joins text. <code>a == b</code>, <code>a != b</code> – equal as text. <code>&lt; &lt;= &gt; &gt;=</code> – numeric when both are numbers, else text order.<br>
+<code>a &amp;&amp; b</code>, <code>a || b</code>, <code>!a</code> – <code>a || b</code> is <code>a</code> when it is set, else <code>b</code>. <code>a ? b : c</code> – the conditional. Parentheses group.<br>
+Helpers: <code>empty(a)</code>, <code>notEmpty(a)</code>, <code>lower(a)</code>, <code>upper(a)</code>, <code>default(a, b)</code>.<br>
+A value is set when it is non-empty text, <code>true</code> or a non-zero number. Names start with a letter or <code>_</code> and may hold <code>.</code> and <code>-</code>; there is no arithmetic. A syntax error, or JavaScript such as <code>vars["x"]</code>, yields <code>""</code> and is logged; <code>npm run migrate:ai-formats</code> converts templates still in JavaScript.<br>
 <br>
-<em>Six objects are in scope inside <code>\${{ ... }}</code>:</em><br>
-<code>vars</code> – <code>Record&lt;string, string&gt;</code>: every built-in placeholder value (workspace, file, git.*, chat.*, custom.*, etc.). Use bracket notation for keys with dots or dashes: <code>vars["git.branch"]</code>, <code>vars["file.name"]</code>, <code>vars["role-description"]</code>. All values are strings — convert with <code>Number()</code> / <code>parseInt()</code> for arithmetic.<br>
-<code>env</code> – <code>Record&lt;string, string&gt;</code>: <code>process.env</code>. Example: <code>env.HOME</code>, <code>env.PATH</code>.<br>
-<code>path</code> – Node's <code>path</code> module. Example: <code>path.basename(vars.workspaceFolder)</code>, <code>path.join(vars.home, ".tom")</code>.<br>
-<code>os</code> – Node's <code>os</code> module. Example: <code>os.homedir()</code>, <code>os.platform()</code>, <code>os.cpus().length</code>.<br>
-<code>vscode</code> – the full VS Code API namespace. Example: <code>vscode.version</code>, <code>vscode.env.appName</code>, <code>vscode.workspace.workspaceFolders?.length</code>.<br>
-<code>editor</code> – <code>vscode.window.activeTextEditor</code> or <code>undefined</code>. Always guard with <code>?.</code>: <code>editor?.document.languageId</code>.<br>
-<br>
-Standard JS globals (<code>Math</code>, <code>Date</code>, <code>JSON</code>, <code>Array</code>, <code>String</code>, <code>Number</code>, etc.) are available too — the expression runs under <code>"use strict"</code>. No <code>require</code>, no filesystem access beyond what the injected objects expose.<br>
-<br>
-<em>Evaluation order:</em> <code>\${{ ... }}</code> runs <strong>before</strong> <code>\${...}</code> in each pass. Throwing or returning <code>null</code>/<code>undefined</code> yields <code>""</code>. The resolver loops up to 10 passes, so a <code>\${...}</code> value produced in pass 1 is visible to <code>\${{ ... }}</code> in pass 2.<br>
-<br>
-<em>Dynamic file-injection placeholders</em> (<code>\${role-*}</code>, <code>\${quest-*}</code>, <code>\${guidelines-*}</code>, <code>\${file-*}</code>, <code>\${memory*}</code>) are <strong>not</strong> pre-populated into <code>vars</code>. They're resolved only when referenced via <code>\${...}</code>. For programmatic access from JS, put the <code>\${...}</code> form in a prior pass.<br>
+<em>Evaluation order:</em> <code>\${{ ... }}</code> runs <strong>before</strong> <code>\${...}</code> in each pass. The resolver loops up to 10 passes, so a <code>\${...}</code> value produced in pass 1 is visible to <code>\${{ ... }}</code> in pass 2.<br>
 <br>
 <em>Examples:</em><br>
-<code>\${{ vars["git.branch"] === "main" ? "PROD" : "DEV" }}</code><br>
-<code>\${{ Number(vars.repeatNumber) + 1 }}</code><br>
-<code>\${{ path.basename(vars.workspaceFolder) }}</code><br>
-<code>\${{ vars["role-description"] ? "## Role\\n" + vars["role-description"] : "" }}</code><br>
+<code>\${{ git.branch == "main" ? "PROD" : "DEV" }}</code><br>
+<code>\${{ role-description ? "## Role\\n" + role-description : "" }}</code><br>
+<code>\${{ default(file.name, "(no file)") }}</code><br>
+<code>\${{ git.dirty == "true" ? " · uncommitted changes" : "" }}</code><br>
 <br>
 <em>Recursive resolution:</em> placeholders inside file-injection results are resolved on the next pass (max 10). A role.md file that contains <code>\${guidelines-coding_guidelines}</code> will have the guidelines text inlined automatically.<br>
 <br>

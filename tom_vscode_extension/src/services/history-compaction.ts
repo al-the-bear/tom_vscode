@@ -226,7 +226,7 @@ function resolveMemoryExtractionTemplate(id?: string): MemoryExtractionTemplateE
 }
 
 function expandTemplate(template: string, extraVars: Record<string, string>): string {
-    return resolveVariables(template, { values: extraVars, enableJsExpressions: true });
+    return resolveVariables(template, { values: extraVars, enableExpressions: true });
 }
 
 /**

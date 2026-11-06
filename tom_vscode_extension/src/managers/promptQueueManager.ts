@@ -803,7 +803,7 @@ export class PromptQueueManager {
         const withResolvedAffixes = resolveVariables(withAffixes, {
             includeEditor: false,
             unresolvedBehavior: 'empty',
-            enableJsExpressions: true,
+            enableExpressions: true,
             values: {
                 repeatCount: String(repeatCount),
                 repeatIndex: String(repeatIndex),

@@ -8,13 +8,13 @@ Resolves a finding from the code review: the extension used to ship **five paral
 
 | Engine | Source | Entry point | Syntax accepted |
 | --- | --- | --- | --- |
-| **Canonical** | [utils/variableResolver.ts](../src/utils/variableResolver.ts) | `resolveVariables()`, `resolveVariablesAsync()` | `${name}`, `${ns.key}`, `${{js}}` |
-| **Template** | [handlers/promptTemplate.ts](../src/handlers/promptTemplate.ts) | `expandTemplate()` | `${name}`, `${{js}}`, **plus** `{{name}}` (mustache alias) |
+| **Canonical** | [utils/variableResolver.ts](../src/utils/variableResolver.ts) | `resolveVariables()`, `resolveVariablesAsync()` | `${name}`, `${ns.key}`, `${{expression}}` |
+| **Template** | [handlers/promptTemplate.ts](../src/handlers/promptTemplate.ts) | `expandTemplate()` | `${name}`, `${{expression}}`, **plus** `{{name}}` (mustache alias) |
 | **Exec config** | [utils/executableResolver.ts](../src/utils/executableResolver.ts) | `expandConfigPlaceholders()` | `${binaryPath}`, `${home}`, `${workspaceFolder}`, `${env:VAR}`, `~` |
 | **Trail paths** | [services/trailPathResolver.ts](../src/services/trailPathResolver.ts) | `resolveTrailPath()` | delegates to canonical + `{quest, subsystem}` overrides |
 | **Reminders** | [managers/reminderSystem.ts](../src/managers/reminderSystem.ts) | internal `.replace()` chain in `checkAndGenerateReminder()` | `{{name}}` (mustache only) |
 
-**Rule of thumb:** if your call site sends text to a user-facing AI channel, reach for `expandTemplate`. If it's a path or filesystem string, reach for `resolveVariables` (with `includeEditor: false`, `enableJsExpressions: false`). Don't introduce a new engine.
+**Rule of thumb:** if your call site sends text to a user-facing AI channel, reach for `expandTemplate`. If it's a path or filesystem string, reach for `resolveVariables` (with `includeEditor: false`, `enableExpressions: false`). Don't introduce a new engine.
 
 > **Not to be confused with webview shell tokens.** The webview loader and the
 > accordion/tab host shells substitute their own `{{cspSource}}`/`{{nonce}}`/
@@ -26,7 +26,26 @@ Resolves a finding from the code review: the extension used to ship **five paral
 > The contributor guide `_copilot_guidelines/media_webview_migration.md` (§9.2)
 > in the extension source covers that path.
 
-### 1.1 A literal placeholder: `$${name}`
+### 1.1 Expressions: `${{ … }}`
+
+Both the canonical and the template engine evaluate `${{ … }}` with one
+expression language, [utils/templateExpression.ts](../src/utils/templateExpression.ts)
+(vscode-free): variables read as `${name}` reads them (`lookupVariable` in
+`variableResolver.ts`: the values, any case, then the dynamic namespaces), text
+and number literals, `+` joining text, the comparisons, `&&` / `||` / `!`, the
+conditional, and the helpers `empty`, `notEmpty`, `lower`, `upper`, `default`.
+It parses and evaluates the expression itself; no JavaScript runs, and the
+names of the former JavaScript objects (`vars`, `editor`, `vscode`, `os`,
+`path`, `Number`, …) are refused, so a template still in JavaScript gives `""`
+with a logged error. The syntax for template authors is in
+[file_and_prompt_placeholders.md](file_and_prompt_placeholders.md) and
+`PLACEHOLDER_HELP`; `convertJsExpression` / `convertTemplateText` convert the
+JavaScript forms the saved templates used, for the `_ai` format migration
+(format version 7, step `expressions`). Tests: `templateExpression.test.ts`
+(TE-1..6), `templateExpressionResolver.test.ts` (TR-1..3),
+`expressionMigration.test.ts` (EM-1, EM-2).
+
+### 1.2 A literal placeholder: `$${name}`
 
 `$${name}` (and `$${{expr}}`) is **left as written by every resolution pass** of
 the canonical and the template engine, however often a text is resolved on its
@@ -52,7 +71,7 @@ Every placeholder context falls into one of four levels. Adding a new context me
 
 **Engine:** `expandTemplate()`.
 
-**Accepts:** the entire canonical token catalog ([`PLACEHOLDER_HELP`](../src/utils/variableResolver.ts)) — workspace, editor, chat variables, namespaces (`env.*`, `config.*`, `git.*`, `chat.*`, `vscode.*`, `date.*`, `time.*`), JS expressions, file-injection placeholders (`${memory}`, `${role-description}`, `${quest-*}`, `${guidelines-*}`, `${file-*}`, `${claude.md}`), and the `{{…}}` mustache alias for ergonomics.
+**Accepts:** the entire canonical token catalog ([`PLACEHOLDER_HELP`](../src/utils/variableResolver.ts)) — workspace, editor, chat variables, namespaces (`env.*`, `config.*`, `git.*`, `chat.*`, `vscode.*`, `date.*`, `time.*`), `${{ … }}` expressions, file-injection placeholders (`${memory}`, `${role-description}`, `${quest-*}`, `${guidelines-*}`, `${file-*}`, `${claude.md}`), and the `{{…}}` mustache alias for ergonomics.
 
 ### 2.2 `path-limited`
 
@@ -60,7 +79,7 @@ Every placeholder context falls into one of four levels. Adding a new context me
 
 **Engine:** `resolveVariables()` via `handler_shared.resolvePathVariables()`, or `resolveTrailPath()` for trail-specific patterns.
 
-**Accepts:** canonical tokens minus editor context (`includeEditor: false`) and minus JS expressions (`enableJsExpressions: false`). `{{…}}` mustache is **not** accepted.
+**Accepts:** canonical tokens minus editor context (`includeEditor: false`) and minus `${{ … }}` expressions (`enableExpressions: false`). `{{…}}` mustache is **not** accepted.
 
 ### 2.3 `trail-limited`
 
