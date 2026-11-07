@@ -38,6 +38,7 @@ import { WsPaths } from './workspacePaths';
 import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
 import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
+import { collectClaudeMd, renderClaudeMd } from '../services/claudeMd';
 
 // ============================================================================
 // Public types
@@ -769,6 +770,10 @@ export function resolveDynamicKey(key: string, values: Record<string, string>, n
  *   ${claude.md}              → <workspace>/CLAUDE.md
  *   ${copilot-instructions}   → <workspace>/.github/copilot-instructions.md
  *   ${instructions}           → CLAUDE.md if present, else .github/copilot-instructions.md
+ *   ${claudeMd}               → every CLAUDE.md as Claude Code loads it — the
+ *                                user-level file, the folder chain with the
+ *                                CLAUDE.local.md files, the @imports
+ *                                (services/claudeMd.ts)
  *   ${guidelines-<name>}      → <workspace>/_copilot_guidelines/<name>.md
  *                                (fallback: _guidelines/<name>.md). `<name>` can
  *                                already include `.md`; no double-extension.
@@ -792,6 +797,9 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
     }
     if (key === 'copilot-instructions' || key === 'copilot-instructions.md') {
         return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
+    }
+    if (key === 'claudeMd') {
+        return wsRoot ? renderClaudeMd(collectClaudeMd({ wsRoot, homeDir: os.homedir() })) : '';
     }
     if (key === 'instructions') {
         const claude = safeReadFileSync(path.join(wsRoot, 'CLAUDE.md'));
@@ -1260,6 +1268,7 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
 <code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
 <code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>
+<code>\${claudeMd}</code> – Every <code>CLAUDE.md</code> as Claude Code loads it: <code>~/.claude/CLAUDE.md</code>, the folder chain with <code>CLAUDE.local.md</code>, the <code>@imports</code> (for direct, Local LLM and VS Code LM profiles; the Agent SDK loads them itself)<br>
 <code>\${guidelines-NAME}</code> – <code>_copilot_guidelines/NAME.md</code> (fallback: <code>_guidelines/NAME.md</code>). Omit or include <code>.md</code>. Example: <code>\${guidelines-index}</code>, <code>\${guidelines-project_guidelines}</code>.<br>
 <code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
 <code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-copilot_todos}</code>.<br>

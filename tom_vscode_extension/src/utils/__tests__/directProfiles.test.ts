@@ -7,7 +7,8 @@
  * buildPayloadDump).
  *
  *   DP-1 every direct and Local LLM profile with a system prompt names `${file-CLAUDE-direct.md}`, after
- *        `${instructions}` where it has them; the four `<model>-direct` todo profiles set effort `high`
+ *        `${claudeMd}` (CLAUDE.md as Claude Code loads it, CC-14) where it has them, and none the older
+ *        `${instructions}`; the four `<model>-direct` todo profiles set effort `high`
  *   DP-2 the payload dump of opus-5-5-direct: the system prompt holds CLAUDE.md and then CLAUDE-direct.md,
  *        and the dump's effort line reads `high`
  */
@@ -46,7 +47,8 @@ describe('the direct and Local LLM profiles', () => {
         for (const p of withPrompt) {
             const sp = p.systemPrompt!;
             assert.ok(sp.includes(HINTS), `${p.id}: no ${HINTS}`);
-            if (sp.includes('${instructions}')) { assert.ok(sp.indexOf(HINTS) > sp.indexOf('${instructions}'), `${p.id}: the hints come after the instructions`); }
+            assert.ok(!sp.includes('${instructions}'), `${p.id}: \${claudeMd} loads CLAUDE.md as Claude Code does`);
+            if (sp.includes('${claudeMd}')) { assert.ok(sp.indexOf(HINTS) > sp.indexOf('${claudeMd}'), `${p.id}: the hints come after the instructions`); }
         }
         for (const p of PROFILES.filter((x) => transportOf(x) === 'agentSdk')) {
             assert.ok(!(p.systemPrompt ?? '').includes(HINTS), `${p.id}: the Agent SDK has its own tools`);
@@ -64,6 +66,7 @@ describe('the direct and Local LLM profiles', () => {
         const direct = fs.readFileSync(path.join(WORKSPACE, 'CLAUDE-direct.md'), 'utf8').trim().split('\n')[0];
         assert.equal(direct, '# Working on the direct API');
         assert.ok(systemPrompt.includes(claude), 'the instructions');
+        assert.ok(systemPrompt.includes(`Contents of ${path.join(WORKSPACE, 'CLAUDE.md')} (project instructions):`), 'as Claude Code loads it');
         assert.ok(systemPrompt.indexOf(direct) > systemPrompt.indexOf(claude), 'then the hints file');
         assert.ok(!systemPrompt.includes(HINTS), 'resolved');
         const thinking = directThinkingFields(configuration.model ?? '', profileThinkingSettings(profile as unknown as Record<string, unknown>));

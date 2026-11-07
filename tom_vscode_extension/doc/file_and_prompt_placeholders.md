@@ -10,7 +10,7 @@ Primary categories:
 
 - workspace/context values (`workspace`, `workspaceFolder`, `vs-code-workspace-name`, `vs-code-workspace-folder`, file, selection),
 - chat variables (`quest`, `role`, `activeProjects`, `todo`, `workspaceName`),
-- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `copilot-instructions`, `instructions`), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), arbitrary files (`file-<path>`), and two-tier memory (`memory`, `memory-shared`, `memory-quest`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
+- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `copilot-instructions`, `instructions`, `claudeMd`), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), arbitrary files (`file-<path>`), and two-tier memory (`memory`, `memory-shared`, `memory-quest`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
 
 ## VS Code Workspace Placeholders
 
@@ -69,6 +69,7 @@ Two shortcuts for the most common case — the active role / quest from the Chat
 | `${claude.md}` | `CLAUDE.md` at the workspace root |
 | `${copilot-instructions}` | `.github/copilot-instructions.md` (also accepts `${copilot-instructions.md}`) |
 | `${instructions}` | `CLAUDE.md` if present; otherwise `.github/copilot-instructions.md`. Prefer this in templates that should work in either type of workspace. |
+| `${claudeMd}` | Every `CLAUDE.md` as Claude Code loads it (`src/services/claudeMd.ts`): `~/.claude/CLAUDE.md`; then each folder from the farthest ancestor of the workspace root down to the root — its `CLAUDE.md`, then its `CLAUDE.local.md`; after each file the files it imports with `@path` (relative to it, `~/…` or absolute; nested up to five levels, each file once, not from inline code or fenced blocks). Each under `Contents of <path> (user / project / private project instructions, or imported by …):`. For direct, Local LLM and VS Code LM profiles — the Agent SDK loads these files itself. |
 
 ### Project guidelines
 
