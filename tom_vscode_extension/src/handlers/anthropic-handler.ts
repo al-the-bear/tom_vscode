@@ -44,6 +44,7 @@ import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../u
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { withRetryBudget, RetryWait } from '../utils/retryWithBudget';
 import { isRetryableVsCodeLmError } from '../utils/retryableError';
+import { sendWithContinuation, type ContinuationMessage } from '../utils/directContinuation';
 import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { runWithToolContext } from '../services/tool-execution-context';
@@ -1796,6 +1797,30 @@ export class AnthropicHandler {
      * loaded at activation is not re-read after a hand edit of the file, and
      * the send then used a variable the check no longer named.
      */
+    /** Attempts in all after an interrupted send (`anthropic.transportRetry.maxAttempts`, default 3; at least 1). */
+    private transportRetryMaxAttempts(): number {
+        const max = this.getAnthropicSection().transportRetry?.maxAttempts;
+        return Number.isFinite(max) ? Math.max(1, max as number) : 3;
+    }
+
+    /**
+     * The continuation prompt after an interrupted send — the Agent SDK's
+     * resumed session and the direct transport's continued turn (CC-8) alike:
+     * the `anthropic.transportRetry` template (empty templateId: the one
+     * marked isDefault, else the built-in text) with the error and the prompt.
+     */
+    private transportContinuationPrompt(errorText: string, userContent: string): string {
+        const body = selectTransportRetryTemplateBody(this.getAnthropicSection().transportRetry);
+        return resolveVariables(body, {
+            values: {
+                errorText,
+                userMessage: userContent,
+                originalPrompt: userContent,
+            },
+            enableExpressions: true,
+        });
+    }
+
     private getClient(): Anthropic | undefined {
         return this.clientCache.get(directApiKeyEnvVar(loadSendToChatConfig()?.anthropic), process.env);
     }
@@ -2249,10 +2274,7 @@ export class AnthropicHandler {
             // from the selected template, or restart on a fresh session
             // when the id is missing/unusable. Disabled (single attempt)
             // when maxAttempts <= 1.
-            const retrySection = this.getAnthropicSection().transportRetry;
-            const retryMaxAttempts = Number.isFinite(retrySection?.maxAttempts)
-                ? Math.max(1, retrySection!.maxAttempts as number)
-                : 3;
+            const retryMaxAttempts = this.transportRetryMaxAttempts();
             const retryParam = retryMaxAttempts > 1
                 ? {
                     maxAttempts: retryMaxAttempts,
@@ -2263,21 +2285,7 @@ export class AnthropicHandler {
                     // of being capped at the small `maxAttempts` count.
                     maxTotalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
                     onRetryStatus: (text: string): void => this._onStatusUpdate.fire(text),
-                    buildContinuationPrompt: (errorText: string): string => {
-                        // Empty templateId ("use default") resolves to the
-                        // template marked isDefault (seeded as "Default Retry"),
-                        // falling back to the in-code constant only when no
-                        // default exists on disk.
-                        const body = selectTransportRetryTemplateBody(retrySection);
-                        return resolveVariables(body, {
-                            values: {
-                                errorText,
-                                userMessage: userContent,
-                                originalPrompt: userContent,
-                            },
-                            enableExpressions: true,
-                        });
-                    },
+                    buildContinuationPrompt: (errorText: string): string => this.transportContinuationPrompt(errorText, userContent),
                 }
                 : undefined;
 
@@ -2602,21 +2610,37 @@ export class AnthropicHandler {
                     messages: requestMessages(),
                     ...(serverClearing ?? {}),
                 };
-                const response = await withRetryBudget({
-                    // Streamed: the SDK refuses a non-streaming request whose
-                    // max_tokens could take longer than ten minutes.
-                    call: () => createMessageStreamed(client, createParams, abortSignal),
-                    totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
-                    backendLabel: 'Anthropic API busy',
-                    cancellationToken: options.cancellationToken,
-                    // A 429 says when the window resets (retry-after, the
-                    // anthropic-ratelimit-*-reset headers): wait exactly that.
-                    waitFromError: providerRetryDelayMs,
-                    onRetryStatus: (text: string, cause?: string): void => {
-                        this._onStatusUpdate.fire(text);
-                        liveTrail?.appendRetry(text, cause);
+                // A dropped connection continues the turn over the history it
+                // has, with the transport-retry continuation prompt (CC-8,
+                // utils/directContinuation.ts); a busy backend is ridden out by
+                // the retry budget inside. Each attempt sends `messages` as
+                // they are then (the continuation prompt included).
+                const response = await sendWithContinuation({
+                    messages: messages as unknown as ContinuationMessage[],
+                    send: () => withRetryBudget({
+                        // Streamed: the SDK refuses a non-streaming request whose
+                        // max_tokens could take longer than ten minutes.
+                        call: () => createMessageStreamed(client, { ...createParams, messages: requestMessages() }, abortSignal),
+                        totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                        backendLabel: 'Anthropic API busy',
+                        cancellationToken: options.cancellationToken,
+                        // A 429 says when the window resets (retry-after, the
+                        // anthropic-ratelimit-*-reset headers): wait exactly that.
+                        waitFromError: providerRetryDelayMs,
+                        onRetryStatus: (text: string, cause?: string): void => {
+                            this._onStatusUpdate.fire(text);
+                            liveTrail?.appendRetry(text, cause);
+                        },
+                        onRetryWait: options.onRetryWait,
+                    }),
+                    maxAttempts: this.transportRetryMaxAttempts(),
+                    continuationPrompt: (errorText) => this.transportContinuationPrompt(errorText, userContent),
+                    isCancelled: () => options.cancellationToken?.isCancellationRequested === true,
+                    onContinue: (attempt, max, errorText) => {
+                        const note = `Connection dropped — continuing the turn (attempt ${attempt} of ${max})`;
+                        this._onStatusUpdate.fire(note);
+                        liveTrail?.appendRetry(note, errorText);
                     },
-                    onRetryWait: options.onRetryWait,
                 });
 
                 sendUsage.addRound(addResponseUsage({}, response.usage));

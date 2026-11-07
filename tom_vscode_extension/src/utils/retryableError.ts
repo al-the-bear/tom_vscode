@@ -75,3 +75,27 @@ export function isRetryableVsCodeLmError(err: unknown): boolean {
     const msg = typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : String(err);
     return /\b(?:request\s+failed|server\s+error|status(?:\s+code)?)\s*:?\s*(?:429|5(?!0[15])\d\d)\b/i.test(msg);
 }
+
+/**
+ * Whether an error is a dropped connection: the request or its stream broke
+ * off (reset, timed out, closed early) rather than the backend refusing it.
+ * The direct transport continues the turn after one (CC-8,
+ * src/utils/directContinuation.ts), as the Agent SDK resumes its session.
+ * The Anthropic SDK names these `APIConnectionError` /
+ * `APIConnectionTimeoutError`; Node's network layer reports the codes. A
+ * cancellation (`AbortError`, `APIUserAbortError`) is not one: the user
+ * stopped the send.
+ */
+export function isDroppedConnectionError(err: unknown): boolean {
+    if (err === null || err === undefined) { return false; }
+    const e = err as { name?: unknown; code?: unknown; message?: unknown; cause?: unknown };
+    const name = typeof e.name === 'string' ? e.name : '';
+    if (name === 'AbortError' || name === 'APIUserAbortError') { return false; }
+    if (name === 'APIConnectionError' || name === 'APIConnectionTimeoutError') { return true; }
+    const code = typeof e.code === 'string' ? e.code : '';
+    if (/^(?:ECONNRESET|ETIMEDOUT|EPIPE|ECONNABORTED|ENETRESET|ENETUNREACH|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CLOSED)$/.test(code)) { return true; }
+    const msg = typeof e.message === 'string' ? e.message : String(err);
+    if (/\b(?:ECONNRESET|ETIMEDOUT|EPIPE|ECONNABORTED|ENETRESET)\b/.test(msg)) { return true; }
+    if (/socket hang up|other side closed|premature close|fetch failed|network error|connection (?:error|reset|closed|lost)|terminated|stream ended (?:early|before)|request timed out/i.test(msg)) { return true; }
+    return e.cause !== undefined && e.cause !== err ? isDroppedConnectionError(e.cause) : false;
+}

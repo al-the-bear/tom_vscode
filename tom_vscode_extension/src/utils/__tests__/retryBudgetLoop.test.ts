@@ -192,7 +192,7 @@ describe('wiring', () => {
 
     test('RB-16: the direct send waits as the headers say and reports each wait', () => {
         const src = read('handlers', 'anthropic-handler.ts');
-        const at = src.indexOf('call: () => createMessageStreamed(client, createParams, abortSignal)');
+        const at = src.indexOf('call: () => createMessageStreamed(client, { ...createParams, messages: requestMessages() }, abortSignal)');
         assert.ok(at > 0, 'the direct send goes through withRetryBudget');
         const call = src.slice(at, src.indexOf('});', at));
         assert.match(call, /waitFromError: providerRetryDelayMs/);

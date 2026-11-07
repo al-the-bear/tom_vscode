@@ -143,7 +143,7 @@ The Anthropic flow uses the following template categories, all editable via the 
 | `anthropicUserMessage` | User-input wrapping (e.g. add file context, role banner) | Wraps each user turn before sending (both transports) |
 | `compaction` | History-summary template | `history-compaction.ts` between turns (direct only — SDK compacts on `agentSdk`) |
 | `memoryExtraction` | Extract durable facts from a finished exchange | Background pass after each turn (direct only on `agentSdk`) |
-| `transportRetry` | Retry-on-busy planning text | `agentSdk` transport when a turn is interrupted/overloaded |
+| `transportRetry` | The continuation prompt after an interrupted send (`maxAttempts`, default 3) | `agentSdk` when a turn is interrupted; `direct` after a dropped connection |
 | `interactiveQuestions` | Fallback text returned to the agent for an `AskUserQuestion` call | `agentSdk` transport when interactive questions are off / dismissed (see §6) |
 
 The compaction and memory extraction templates support `${userMessage}` (raw user input) plus all the universal placeholders documented in `file_and_prompt_placeholders.md`.
@@ -182,6 +182,10 @@ How long it retries depends on the transport, but all of them honour the profile
 | `agentSdk` | `runAgentSdkQuery` loop + `planAgentSdkRetry` (`src/services/agent-sdk-retry.ts`) | **busy** errors: same time budget; **non-busy** "resume interrupted work" errors: `anthropic.transportRetry.maxAttempts` (default 3) | a reported **rate-limit reset** when there is one (see below), otherwise exponential (`computeBackoffMs`), capped 5 min/step, bounded by remaining budget |
 
 On the `agentSdk` path a busy error keeps retrying past the small `maxAttempts` cap until the time budget is spent — a sustained 529 needs many spaced-out retries, not three instant ones. Each backoff sleep is cancellable (Stop button / cancellation token) and pushes a status line (`Anthropic API busy (Agent SDK) — retrying in …`) to the panel via `_onStatusUpdate`, plus a `[retry]` line to the Tom Tool Log. The `transportRetry` *template* (§5) still governs the continuation prompt sent when a retry **resumes** the failed session.
+
+### A dropped connection on the direct transport
+
+A connection that drops — the stream cut mid-answer (the SDK's `terminated`), a reset, a timeout, `fetch failed` (`isDroppedConnectionError`, `src/utils/retryableError.ts`) — does not fail the turn on `direct`, nor start the prompt again: the round is sent again over the history the turn already has (the prompt and every finished tool round), with the continuation prompt of `anthropic.transportRetry` (the same template the Agent SDK resumes with; `${errorText}`, `${originalPrompt}`) added to the last user message, up to `transportRetry.maxAttempts` attempts in all (`sendWithContinuation`, `src/utils/directContinuation.ts`). The cut response's partial text is not kept. A second continuation of the same round replaces the first's prompt. The panel's status line and the live trail's `[retry]` line say *Connection dropped — continuing the turn (attempt N of M)*. A cancellation is never continued; a busy backend is the retry budget's (above). Tests: `directContinuation.test.ts` (DC-1..6, a real SDK client over a stream cut mid-answer).
 
 ### Rate limits on the direct transport
 

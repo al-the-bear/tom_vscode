@@ -152,9 +152,10 @@ describe('anthropicPromptCache', () => {
         const loop = src.slice(src.lastIndexOf('const requestTools', start), src.indexOf('private ', start));
         assert.match(loop, /const requestTools = effectiveCaching \? withToolsCacheBreakpoint\(anthropicTools\)/);
         assert.match(loop, /effectiveCaching \? withLastMessageCacheBreakpoint\(messages\) : messages/);
-        // Both the dump and the request body use the marked tools and messages.
+        // The dump, the request body and each attempt after a dropped connection
+        // (rebuilt with the continuation prompt, CC-8) use the marked tools and messages.
         assert.equal((loop.match(/tools: requestTools/g) ?? []).length, 2);
-        assert.equal((loop.match(/messages: requestMessages\(\)/g) ?? []).length, 2);
+        assert.equal((loop.match(/messages: requestMessages\(\)/g) ?? []).length, 3);
         assert.doesNotMatch(loop, /\? \{ tools: anthropicTools \}/, 'no request goes out with the unmarked tools');
         // Every response's usage is added as it arrives, round by round (DirectSendUsage, UC-9..12).
         assert.match(loop, /sendUsage\.addRound\(addResponseUsage\(\{\}, response\.usage\)\)/);
