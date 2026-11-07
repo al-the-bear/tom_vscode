@@ -89,6 +89,8 @@ import {
     writePromptTrail,
     writeAnswerTrail,
 } from '../services/copilotTrailService';
+import { usageSummaryLine } from '../utils/usageCost';
+import type { LiveTrailTokenCounts } from '../services/live-trail';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
 // windowStatusPanel) import from this module today. Keeps their
@@ -1596,6 +1598,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 turnsUsed: result.turnsUsed,
                 toolCallCount: result.toolCallCount,
                 historyMode: cfg.historyMode || '',
+                // The send's tokens (input / output / cache read / cache write) for the status line.
+                usageLine: usageSummaryLine(result.usage),
             });
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -2410,7 +2414,7 @@ export function isChatPanelOpen(): boolean {
  */
 export function showAnthropicResultInPanel(
     text: string,
-    meta: { turnsUsed: number; toolCallCount: number; historyMode: string },
+    meta: { turnsUsed: number; toolCallCount: number; historyMode: string; usage?: LiveTrailTokenCounts },
 ): void {
     const view = (_provider as unknown as { _view?: vscode.WebviewView })?._view;
     if (!view) { return; }
@@ -2420,6 +2424,7 @@ export function showAnthropicResultInPanel(
         turnsUsed: meta.turnsUsed,
         toolCallCount: meta.toolCallCount,
         historyMode: meta.historyMode,
+        usageLine: usageSummaryLine(meta.usage),
     });
 }
 

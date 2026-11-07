@@ -3141,7 +3141,7 @@ export class AnthropicHandler {
                 if (!result.toolCalls || result.toolCalls.length === 0) {
                     lastStopReason = 'end_turn';
                     writeLocalUsage();
-                    return this.finalize(
+                    return withUsage(this.finalize(
                         userContent,
                         lastText,
                         turn + 1,
@@ -3154,7 +3154,7 @@ export class AnthropicHandler {
                         options.isolated === true,
                         effectiveUserText,
                         liveTrail,
-                    );
+                    ), Object.keys(localUsage).length > 0 ? localUsage : undefined);
                 }
 
                 // Append assistant turn with tool_calls so Ollama sees the
@@ -3207,7 +3207,7 @@ export class AnthropicHandler {
             // Exhausted maxRounds — finalize with whatever text we have.
             lastStopReason = 'max_tokens';
             writeLocalUsage();
-            return this.finalize(
+            return withUsage(this.finalize(
                 userContent,
                 lastText,
                 configuration.maxRounds,
@@ -3220,7 +3220,7 @@ export class AnthropicHandler {
                 options.isolated === true,
                 effectiveUserText,
                 liveTrail,
-            );
+            ), Object.keys(localUsage).length > 0 ? localUsage : undefined);
         } catch (err) {
             const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
             const body = lastText

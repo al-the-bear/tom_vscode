@@ -47,6 +47,8 @@ export interface RunStateItem {
     lastDispatched?: unknown;
     inFlightRepetition?: unknown;
     awaitingAnswer?: boolean;
+    /** The usage the run's stages reported (QueuedPrompt.sendUsage): a new run starts from none. */
+    sendUsage?: unknown;
 }
 
 /**
@@ -79,4 +81,5 @@ export function resetItemRunState(item: RunStateItem): void {
     item.lastDispatched = undefined;
     item.inFlightRepetition = undefined;
     item.awaitingAnswer = false;
+    item.sendUsage = undefined;
 }

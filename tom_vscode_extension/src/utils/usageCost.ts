@@ -141,3 +141,45 @@ export class DirectSendUsage {
         };
     }
 }
+
+const tokenNumber = (v: number | undefined): string => n(v).toLocaleString('en-US');
+
+/**
+ * A send's usage as one line, for where the send is watched (the @CHAT
+ * ANTHROPIC/LLM status, a queue item): `in 1,234 · out 56 · cache read 7,890 ·
+ * cache write 0`. Every field is shown, a missing one as 0, so a cache miss
+ * reads as `cache read 0` instead of disappearing. Undefined without counts.
+ */
+export function usageSummaryLine(counts: LiveTrailTokenCounts | undefined): string | undefined {
+    if (!counts || Object.keys(counts).length === 0) { return undefined; }
+    return [
+        `in ${tokenNumber(counts.inputTokens)}`,
+        `out ${tokenNumber(counts.outputTokens)}`,
+        `cache read ${tokenNumber(counts.cacheReadInputTokens)}`,
+        `cache write ${tokenNumber(counts.cacheCreationInputTokens)}`,
+    ].join(' · ');
+}
+
+/** The usage a queue item's stages have reported in its current run (`QueuedPrompt.sendUsage`). */
+export interface ItemSendUsage {
+    /** The stages' token counts, summed. */
+    totals: LiveTrailTokenCounts;
+    /** How many stage answers reported usage. */
+    stages: number;
+}
+
+/** The item's usage after one more stage answered with `usage`; unchanged when the stage reported none. */
+export function addStageUsage(sum: ItemSendUsage | undefined, usage: LiveTrailTokenCounts | undefined): ItemSendUsage | undefined {
+    if (!usage || Object.keys(usage).length === 0) { return sum; }
+    return {
+        totals: addTokenCounts(sum?.totals ?? {}, usage),
+        stages: (sum?.stages ?? 0) + 1,
+    };
+}
+
+/** A queue item's usage line: the summed counts and how many stages they cover. */
+export function itemUsageSummaryLine(sum: ItemSendUsage | undefined): string | undefined {
+    const line = usageSummaryLine(sum?.totals);
+    if (!line || !sum) { return undefined; }
+    return `${line} (${sum.stages} ${sum.stages === 1 ? 'stage' : 'stages'})`;
+}

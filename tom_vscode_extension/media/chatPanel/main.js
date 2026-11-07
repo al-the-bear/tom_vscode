@@ -1192,7 +1192,10 @@ window.addEventListener('message', function(e) {
         updateAnthropicSendButton();
         anthropicSessionTurns += 1;
         anthropicLastToolCalls = msg.toolCallCount || 0;
-        setAnthropicStatus(buildAnthropicStatusLine(msg.historyMode || ''));
+        var anthropicStatus = buildAnthropicStatusLine(msg.historyMode || '');
+        // The send's tokens, cache reads and writes included (usageSummaryLine on the host).
+        if (msg.usageLine) {anthropicStatus += ' · ' + msg.usageLine;}
+        setAnthropicStatus(anthropicStatus);
     } else if (msg.type === 'anthropicError') {
         anthropicSending = false;
         updateAnthropicSendButton();

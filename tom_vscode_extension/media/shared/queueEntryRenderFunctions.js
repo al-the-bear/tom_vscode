@@ -301,6 +301,11 @@ function renderEntry(item, idx) {
   } else if (item.processPosition) {
     processBadge += '  <span class="process-badge" style="border:1px solid #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="Runs as this process position">[⚙ ' + escapeHtml(item.processPosition) + ']</span>';
   }
+  // The tokens the item's stages used in this run (summed by the host), so a
+  // cache miss on a walk shows while it runs.
+  if (item.sendUsageLine) {
+    processBadge += '  <span class="usage-badge" style="border:1px solid #6a737d;padding:0 4px;border-radius:3px;font-size:10px;" title="Tokens this run of the item used, summed over its stages">[Σ ' + escapeHtml(item.sendUsageLine) + ']</span>';
+  }
   if (editorMode === 'queue') {
     headerHtml = '<div class="item-header">' +
       '<div class="status-bar ' + statusBarCls + '">' +

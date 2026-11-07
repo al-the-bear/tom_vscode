@@ -222,7 +222,7 @@ import {
     selectTransportRetryTemplateBody,
 } from '../services/agent-sdk-retry';
 import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-sdk-retry';
-import type { LiveTrailUsage, LiveTrailModelUsage } from '../services/live-trail';
+import type { LiveTrailUsage, LiveTrailModelUsage, LiveTrailTokenCounts } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
 import {
     FailureCauseCollector,
@@ -463,6 +463,8 @@ export interface AgentSdkResult {
     /** Session id returned by the SDK's init/result messages; used by the
      *  handler to persist continuity for the next call in sdk-managed mode. */
     sessionId?: string;
+    /** The turn's token counts (cache reads and writes included), from the SDK's result message. */
+    usage?: LiveTrailTokenCounts;
 }
 
 // ============================================================================
@@ -919,6 +921,8 @@ async function runAgentSdkAttempt(
     let totalToolCalls = 0;
     let stopReason: string | undefined;
     let turnsUsed = 0;
+    /** The turn's token counts, from the SDK's result message. */
+    let usageTotals: LiveTrailTokenCounts | undefined;
 
     // Built-in tool tracking — when the profile opts into the Claude
     // Code preset (Read, Write, Bash, Grep, …), the SDK executes those
@@ -1205,7 +1209,9 @@ async function runAgentSdkAttempt(
                     }
                     // Token / cost accounting for the whole turn — the SDK only
                     // reports it here, so record it before the stream closes.
-                    params.liveTrail?.appendUsage(toLiveTrailUsage(res));
+                    const turnUsage = toLiveTrailUsage(res);
+                    usageTotals = turnUsage.totals;
+                    params.liveTrail?.appendUsage(turnUsage);
                     break;
                 }
                 default:
@@ -1263,6 +1269,7 @@ async function runAgentSdkAttempt(
         toolCallCount: totalToolCalls,
         stopReason,
         sessionId: attempt.sessionOut.capturedSessionId,
+        ...(usageTotals ? { usage: usageTotals } : {}),
     };
 }
 

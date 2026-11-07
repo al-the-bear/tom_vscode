@@ -43,6 +43,8 @@ import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
 import { applyErrorTransition, applyInterruptForContinuation, applyResetToPending, applyWaitingTransition, clearWaitingState, dispatchWasSuperseded, isWaitingDue, itemHasInFlightProgress, pickInterruptedResume, resolveAnswerContainer } from '../utils/queueErrorTransitions';
 import { canSendNow, pausesBeforeNextDispatch, resetItemRunState } from '../utils/queueSendNow';
+import { addStageUsage, type ItemSendUsage } from '../utils/usageCost';
+import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { applyBudgetFallback, decideOutOfBudget, isOutOfBudgetFailure, outOfBudgetPrompt, type BudgetFallback, type OutOfBudgetMark } from '../utils/outOfBudget';
 import { applyRetryScheduling, applyStopRetrying, clearRetryBookkeeping, computeRetryDecision, fireRetry, isPreviousMessageIdError, isRetryDue, isUnretryableRequestError, rollbackInFlightRepetition, type InFlightRepetition } from '../utils/queueRetryTransitions';
 import { parseResetClause } from '../utils/queueResetClause';
@@ -399,6 +401,12 @@ export interface QueuedPrompt {
      * and cleared by the dispatch; never meaningful outside `sending`.
      */
     sendWait?: QueueSendWait;
+    /**
+     * The token usage the item's direct-transport stages reported in its
+     * current run (pre-prompts, main prompt, repetitions, follow-ups), summed;
+     * the queue editor shows it on the item. Reset when the item starts again.
+     */
+    sendUsage?: ItemSendUsage;
     retryAttempt?: number;
     /**
      * When `status === 'retry'`: the ISO instant at which the next retry
@@ -4239,6 +4247,7 @@ export class PromptQueueManager {
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
             }
+            if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
             // Propagate responseValues on EVERY direct answer — pre-prompt,
             // main prompt, each repeat, follow-up — so chat-variable setting and
             // TODO analysis run on all final answers, not only the last stage.
@@ -4285,6 +4294,16 @@ export class PromptQueueManager {
             };
             logQueue(`Item ${live.id}: ${wait.kind === 'rate_limit' ? 'rate limited' : 'API busy'} — attempt ${wait.attempt} at ${live.sendWait.until}`);
         }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /** Add one stage's usage to the item's run sum (`sendUsage`), so the queue editor shows it while the item runs. */
+    private _addItemSendUsage(item: QueuedPrompt, usage: LiveTrailTokenCounts | undefined): void {
+        const live = this._items.find(i => i.id === item.id) ?? item;
+        const next = addStageUsage(live.sendUsage, usage);
+        if (next === live.sendUsage) { return; }
+        live.sendUsage = next;
         this.persist();
         this._onDidChange.fire();
     }

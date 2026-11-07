@@ -30,6 +30,7 @@ import { QuestRefreshService } from '../services/quest-refresh-service';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { positionText } from '../utils/processActionPrompt';
 import { runningLoopAbove } from '../utils/queueSendBetween';
+import { itemUsageSummaryLine } from '../utils/usageCost';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -1078,6 +1079,8 @@ function buildState(): Record<string, unknown> {
             const extra = {
                 ...(apiKeyWarnings.has(item.id) ? { apiKeyWarnings: apiKeyWarnings.get(item.id) } : {}),
                 ...(processPosition ? { processPosition } : {}),
+                // The tokens the item's stages used in this run, summed (input / output / cache read / cache write).
+                ...(item.sendUsage ? { sendUsageLine: itemUsageSummaryLine(item.sendUsage) } : {}),
                 // Directly under a running loop: Send next means "send between iterations".
                 ...(runningLoopAbove(items, item.id) ? { canSendBetween: true } : {}),
             };

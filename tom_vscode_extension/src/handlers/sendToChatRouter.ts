@@ -156,6 +156,7 @@ export async function runAnthropicSend(
             turnsUsed: result.turnsUsed,
             toolCallCount: result.toolCallCount,
             historyMode: configuration.historyMode || '',
+            ...(result.usage ? { usage: result.usage } : {}),
         });
 
         return { target: 'anthropic', ok: true, answer: result.text };
