@@ -285,6 +285,38 @@ The tool is reachable under both profile shapes: it is in `ALL_SHARED_TOOLS`
 (so `toolsEnabled: true` profiles get it) and in `AVAILABLE_LLM_TOOLS` under the
 **Ids** category, so allow-list profiles can tick it in every picker.
 
+### 4.11b Skills
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_loadSkill` | Load a skill: its `SKILL.md`, folder, allowed tools and files. | 🔁 | ✅ | ✅ | ✅ |
+
+A skill is Claude Code's `.claude/skills/<name>/SKILL.md`: frontmatter (`name`,
+`description`, `allowed-tools`) and a Markdown body, with supporting files
+beside it. Skills are found in the workspace's own `.claude/skills/` and in
+every parent folder's — the nearest skill of a name wins, a symlinked skill
+folder counts — exactly as the panel's `/skill` completion finds them.
+
+On **direct, Local LLM and VS Code LM** the system prompt gets a `## Skills`
+section: one line per skill, its name and description (cut at 300
+characters), and the instruction to call `tomAi_loadSkill` with the name before
+a task a skill matches. It is added only when the send carries
+`tomAi_loadSkill` — the tool is in the core set, so it is never deferred, but a
+profile with an allow-list gets it (and the section) once it ticks the tool
+(category **Skills**). The tool answers the skill's folder, its
+`allowed-tools` (shown, not enforced: Tool Approval still decides), its files
+(relative, sub-folders included; read them with `tomAi_readFile`) and the
+whole `SKILL.md`; an unknown name answers the skills there are.
+
+On the **Agent SDK** the SDK loads skills itself (its Skill tool, the project
+setting source): no section is added, and `tomAi_loadSkill` is a duplicate of
+a built-in (suppressed with `useBuiltInTools`).
+
+Implementation: `src/services/skills.ts` (discovery, frontmatter, the section,
+`loadSkillImpl`; vscode-free), `src/tools/skill-tools.ts`. Tests:
+`skill-tools.test.ts` (SK-1..4, a fixture workspace),
+`skills-system-prompt.test.ts` (SS-1/2, through `sendMessage`).
+
 ### 4.12 Session todos (per host + quest)
 
 Session todos live in one stable, git-tracked file per host+quest:
@@ -807,7 +839,7 @@ Tool descriptions are short: purpose, arguments and the one trap, each at most 1
 
 ### 5.0 Tools a request carries
 
-The **core set** is always sent in full: `tomAi_readFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_createFile`, `tomAi_listDirectory`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_runCommand`, `tomAi_runCommandStream`, `tomAi_readCommandOutput`, `tomAi_gitRead`, `tomAi_gitWrite`, `tomAi_getQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_createQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_askUser`, `tomAi_readPastToolResult`, `tomAi_notifyUser`, `tomAi_describeTool` (`DEFAULT_CORE_TOOLS`, `src/utils/toolSelection.ts`), plus the profile's **Core Tools (added)** (`coreTools`).
+The **core set** is always sent in full: `tomAi_readFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_createFile`, `tomAi_listDirectory`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_runCommand`, `tomAi_runCommandStream`, `tomAi_readCommandOutput`, `tomAi_gitRead`, `tomAi_gitWrite`, `tomAi_getQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_createQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_askUser`, `tomAi_readPastToolResult`, `tomAi_notifyUser`, `tomAi_describeTool`, `tomAi_loadSkill` (`DEFAULT_CORE_TOOLS`, `src/utils/toolSelection.ts`), plus the profile's **Core Tools (added)** (`coreTools`).
 
 A prompt names more tools with a line in its text — in a user-message template, a process step's prompt or the typed prompt:
 
@@ -889,6 +921,7 @@ Tools are grouped by functional family, one file per family under `src/tools/`:
 | `docspecs-tools.ts` | Plain DocSpecs Markdown: validate, outline, get and replace a section |
 | `spec-tools.ts`, `spec-search-tools.ts`, `spec-edit-tools.ts`, `spec-validate-tools.ts` | TomSpecs (SOM) documents: read and reflect, search with a cursor, edits and the batch, validate / render / convert (`spec-tool-common.ts` holds what they share) |
 | `chat-enhancement-tools.ts` | Notify, quest/session todos, queue, timed, templates, reminders |
+| `skill-tools.ts` | `tomAi_loadSkill`: a `.claude/skills` SKILL.md and its files (`services/skills.ts`) |
 | `tool-executors.ts` | File I/O primitives, shell, web, memory, chat vars, ask-AI bridges |
 
 Every new tool needs:

@@ -97,6 +97,9 @@ export const CATEGORY_MAP: Record<string, string[]> = {
     'Ids': [
         'tomAi_generateIdPrefix',
     ],
+    'Skills': [
+        'tomAi_loadSkill',
+    ],
     'Issues': [
         'tomAi_addIssueComment',
         'tomAi_createIssue',

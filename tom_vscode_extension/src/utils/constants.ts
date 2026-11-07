@@ -188,6 +188,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_deleteReminderTemplate',
     // Id generation
     'tomAi_generateIdPrefix',
+    // Skills (.claude/skills)
+    'tomAi_loadSkill',
     // TomSpecs (SOM) documents: read-only views and model reflection
     'tomAi_specListDocuments',
     'tomAi_specOutline',

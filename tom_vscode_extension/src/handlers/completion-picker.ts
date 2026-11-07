@@ -15,8 +15,6 @@
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 
 import { WsPaths } from '../utils/workspacePaths';
 import {
@@ -29,32 +27,14 @@ import {
     type FileCompletion,
     type CompletionKind,
 } from '../services/completion-service';
+import { fsSkillStore } from '../services/skills';
 
 // ===========================================================================
 // Live stores / gatherers
 // ===========================================================================
 
-/** Live skill store: walks `.claude/skills` dirs on disk via `fs`. */
-const liveSkillStore: SkillStore = {
-    wsRoot: () => WsPaths.wsRoot ?? null,
-    listSkillFolders(claudeSkillsDir: string): string[] {
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(claudeSkillsDir, { withFileTypes: true });
-        } catch {
-            return [];
-        }
-        const out: string[] = [];
-        for (const e of entries) {
-            if (!e.isDirectory()) { continue; }
-            // A folder is a skill only if it contains a SKILL.md.
-            if (fs.existsSync(path.join(claudeSkillsDir, e.name, 'SKILL.md'))) {
-                out.push(e.name);
-            }
-        }
-        return out;
-    },
-};
+/** Live skill store: the `.claude/skills` dirs on disk, symlinked skill folders included (services/skills.ts). */
+const liveSkillStore: SkillStore = fsSkillStore(() => WsPaths.wsRoot ?? null);
 
 /** Absolute paths of every file open in an editor tab (file scheme only). */
 function collectOpenEditorPaths(): string[] {

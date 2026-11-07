@@ -50,6 +50,7 @@ import { sendWithContinuation, type ContinuationMessage } from '../utils/directC
 import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
+import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -416,6 +417,8 @@ export { temperatureField };
  * getErrors, readGuideline) are kept.
  */
 export const DUPLICATES_OF_CLAUDE_CODE_BUILTINS: ReadonlySet<string> = new Set([
+    // The Agent SDK loads skills with its own Skill tool (CC-10).
+    'tomAi_loadSkill',
     'tomAi_readFile',
     'tomAi_createFile',
     'tomAi_editFile',
@@ -2114,6 +2117,14 @@ export class AnthropicHandler {
         // `${toolHistory}` block stays empty there — matching the previous
         // behaviour, just with variable resolution turned back on.
         const systemSegments = this.buildSystemSegments(profile, quest, { toolHistory: toolHistoryText });
+        // Skills (CC-10): on the transports that run our own tool loop the
+        // system prompt names each skill and its description, and
+        // tomAi_loadSkill loads one — when the send carries that tool. The
+        // Agent SDK loads skills itself.
+        if (transport !== 'agentSdk' && tools.some((t) => t.name === LOAD_SKILL_TOOL_NAME)) {
+            const skillsSection = skillsSystemSection(listSkills(WsPaths.wsRoot ?? ''));
+            if (skillsSection) { systemSegments.push(skillsSection); }
+        }
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         // Effective history mode for this call. Agent SDK configs may use
         // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'

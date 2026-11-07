@@ -90,7 +90,7 @@ describe('tool selection', () => {
 
     test('TS-5: the core set, and what the model reads', () => {
         const names = new Set(ALL_SHARED_TOOLS.map((t) => t.name));
-        assert.equal(DEFAULT_CORE_TOOLS.length, 20);
+        assert.equal(DEFAULT_CORE_TOOLS.length, 21, 'the 20 a todo walk uses, and tomAi_loadSkill (the system prompt lists the skills, CC-10)');
         assert.deepEqual(DEFAULT_CORE_TOOLS.filter((n) => !names.has(n)), [], 'every core tool is registered');
         const all = toAnthropicTools(ALL_SHARED_TOOLS);
         const plan = planRequestTools({ transport: 'direct', profileTools: ALL_SHARED_TOOLS.map((t) => t.name), directive: [], categories: CATEGORY_MAP });
