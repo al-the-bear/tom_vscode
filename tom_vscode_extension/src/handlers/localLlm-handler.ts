@@ -18,7 +18,9 @@ import {
     toOllamaTools,
 } from '../tools/shared-tool-registry';
 import { apiKeyAuthHeader } from '../utils/apiKeyAuthHeader';
-import { withRetryBudget } from '../utils/retryWithBudget';
+import { withRetryBudget, type RetryWait } from '../utils/retryWithBudget';
+import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
+import { httpStatusError } from '../utils/httpStatusError';
 
 // ============================================================================
 // Interfaces
@@ -185,12 +187,10 @@ export class LocalLlmManager {
                                 const parsed = JSON.parse(errorBody);
                                 if (parsed.error) { errorMsg = parsed.error; }
                             } catch { /* use default message */ }
-                            // Attach the statusCode so callers (e.g. the
-                            // compaction retry wrapper) can branch on it
-                            // without parsing the message.
-                            const err = new Error(errorMsg) as Error & { statusCode?: number };
-                            err.statusCode = status;
-                            ollamaSafeReject(err);
+                            // Status and headers on the error: the retry loop
+                            // classifies by the status and waits as long as a
+                            // `retry-after` says (utils/httpStatusError.ts).
+                            ollamaSafeReject(httpStatusError(errorMsg, status, res.headers));
                         });
                         res.on('error', (e) => ollamaSafeReject(e instanceof Error ? e : new Error(String(e))));
                         return;
@@ -401,10 +401,9 @@ export class LocalLlmManager {
                     // HTTP error: drain the body once so we can include the
                     // server's error message in the rejection.
                     if (res.statusCode && res.statusCode >= 400) {
-                        // Tag the status onto the rejection so the
-                        // compaction retry wrapper (and any other
-                        // caller that branches on retryable status)
-                        // can read it directly without parsing.
+                        // The status and headers go onto the rejection
+                        // (httpStatusError): the retry loop classifies by the
+                        // status and honours a `retry-after`.
                         const status = res.statusCode;
                         let errorBody = '';
                         res.on('data', (chunk: Buffer) => { errorBody += chunk.toString(); });
@@ -415,9 +414,7 @@ export class LocalLlmManager {
                                 if (parsed.error?.message) { errorMsg = parsed.error.message; }
                                 else if (parsed.detail) { errorMsg = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail); }
                             } catch { /* use default */ }
-                            const err = new Error(errorMsg) as Error & { statusCode?: number };
-                            err.statusCode = status;
-                            safeReject(err);
+                            safeReject(httpStatusError(errorMsg, status, res.headers));
                         });
                         res.on('error', (err) => safeReject(err instanceof Error ? err : new Error(String(err))));
                         return;
@@ -609,6 +606,11 @@ export class LocalLlmManager {
          * behaviour predictable across backends.
          */
         retryTotalWaitMs?: number;
+        /**
+         * Each retry wait in structured form (`null` when it is over), for the
+         * prompt queue's `sendWait` — the same channel the direct transport uses.
+         */
+        onRetryWait?: (wait: RetryWait | null) => void;
     }): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         const ollamaTools = toOllamaTools(opts.tools, () => true);
         const totalWaitMs = opts.retryTotalWaitMs ?? 10 * 60 * 1000;
@@ -639,7 +641,11 @@ export class LocalLlmManager {
             totalWaitMs,
             backendLabel: label,
             cancellationToken: opts.cancellationToken,
+            // A 429 / 503 from vLLM or a gateway may say how long to wait
+            // (`retry-after`, `retry-after-ms`): wait that, as on direct.
+            waitFromError: providerRetryDelayMs,
             onRetryStatus: opts.onRetryStatus,
+            onRetryWait: opts.onRetryWait,
         });
     }
 

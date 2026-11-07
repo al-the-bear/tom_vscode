@@ -372,7 +372,7 @@ export interface AnthropicSendOptions {
      */
     source?: PromptSource;
     /**
-     * Direct transport: each wait of the retry loop (a rate limit waited out,
+     * Direct, Local LLM and VS Code LM transports: each wait of the retry loop (a rate limit waited out,
      * or a backoff after an overload / 5xx), and `null` when the call goes out
      * again. The prompt queue shows it on the sending item.
      */
@@ -3223,6 +3223,9 @@ export class AnthropicHandler {
                         this._onStatusUpdate.fire(text);
                         liveTrail?.appendRetry(text, cause);
                     },
+                    // The queue's sendWait (a stage waiting on a busy or
+                    // rate-limited server), as on the direct transport.
+                    onRetryWait: options.onRetryWait,
                 });
                 lastText = result.text || lastText;
                 this.rememberAssistantText(lastText);

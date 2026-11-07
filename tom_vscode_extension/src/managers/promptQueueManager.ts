@@ -248,9 +248,9 @@ export interface QueuedPrePrompt {
     answerText?: string;
 }
 
-/** A retry wait inside one direct-transport send (`QueuedPrompt.sendWait`). */
+/** A retry wait inside one send on the direct, Local LLM or VS Code LM transport (`QueuedPrompt.sendWait`). */
 export interface QueueSendWait {
-    /** `rate_limit`: the API said when to retry; `backoff`: overload / 5xx backoff. */
+    /** `rate_limit`: the server said when to retry (`retry-after`, reset headers); `backoff`: overload / 5xx backoff. */
     kind: 'rate_limit' | 'backoff';
     /** ISO instant the next attempt goes out. */
     until: string;
