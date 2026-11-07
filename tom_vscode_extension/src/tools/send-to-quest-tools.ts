@@ -135,21 +135,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
 }
 
 export const SEND_ITEM_TO_QUEST_DESCRIPTION =
-    'Put a prompt into the queue of ANOTHER quest\'s VS Code window on this machine (for this window\'s own quest use '
-    + 'tomAi_addQueueItem). The item is written as an inbox file into the shared queue folder; the target window takes '
-    + 'it up at once (or when a window of that quest starts) and queues it with ITS OWN defaults (transport, profile, '
-    + 'session, template, auto-send) — `anthropicProfileId` (the Anthropic profile, and so the model; transport '
-    + '`anthropic`), `session` or `newSession` override them. `session`: an existing session of the TARGET quest. '
-    + '`newSession`: `{basedOn, name?, lifetime?, profile?}` — a new session of the target quest based on an existing '
-    + 'one (lifetime continue / per-prompt / per-iteration, default continue; profile default the base\'s, else the '
-    + 'item\'s); without `name` it is temporary and deleted once the item and its notification are done. '
-    + '`doneNotificationPrompt`: queued in the TARGET queue, right after the item, when the item is done or ends in an '
-    + 'error that will not recover — typically a prompt that sends back to this quest with this tool. `${senderQuest}` '
-    + 'in the text and the notification prompt is this quest, `${itemOutcome}` in the notification prompt `done` or '
-    + '`error: <message>`. `pauseAfter`: the target queue pauses after the item (after its notification, if any). '
-    + 'Refused: an unknown quest, this window\'s own quest, an unknown profile, a missing session or base, a taken '
-    + 'session name. Answers `{delivered, targetRunning, targetWindows}`: `targetRunning` is whether a window of that '
-    + 'quest has a live heartbeat.';
+    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `doneNotificationPrompt` is queued in the target after the item (`${itemOutcome}`, `${senderQuest}`); `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
 
 export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
     name: 'tomAi_sendItemToQuest',

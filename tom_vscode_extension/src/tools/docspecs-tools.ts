@@ -207,24 +207,13 @@ const SCHEMA = {
     description: 'Check against this schema instead of the declared one: `<id>/<version>` (looked up like a declared one) or a path to a `*.docspecs-schema.yaml`.',
 };
 const FORM_NOTE =
-    ' The runtime reads the current DocSpecs form: `<!-- docspec: <id>/<version> -->` on the first line and `<!--[ID]-->` '
-    + 'heading ids. A document in the legacy form (`# [id] Title`, `<!-- schema=… -->`) or with its declaration below the '
-    + 'title is answered with a `migrationHint` naming `_bin/migrate_docspecs.py doc <file> --assign-ids --write`. For SOM specs '
-    + '(`*.docspecs.yaml`, SOM Markdown) prefer the tomAi_spec* tools.';
+    ' The runtime reads the current DocSpecs form (`<!-- docspec: <id>/<version> -->` on the first line, `<!--[ID]-->` heading ids); a legacy document answers a `migrationHint`. SOM specs: the tomAi_spec* tools.';
 
 export const DOCSPECS_VALIDATE_TOOL: SharedToolDefinition<DocSpecsValidateInput> = {
     name: 'tomAi_docspecsValidate',
     displayName: 'DocSpecs: Validate',
     description:
-        'Check a DocSpecs Markdown document against its schema. The schema is the one its `<!-- docspec: <id>/<version> -->` '
-        + 'header declares, looked up in `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml` (or a suffixed folder '
-        + '`<id>.<suffix>/`) in the document\'s '
-        + 'folder or the nearest one above it (up to the workspace root), else among the schemas generated from the SOM model. '
-        + 'A declared schema found nowhere is a finding (`unknownSchema`), a declaration below the title too (`headerNotFirst`: '
-        + 'no runtime reads it there), and a missing header (`noSchemaDeclared`); '
-        + '`docspec: none` means no schema. Answers `{passed, findings: [{rule, line, sectionId, message}], schema: {ref, '
-        + 'source, file, ignoredByRuntime}}`; `ignoredByRuntime` lists schema keys the runtime does not support, whose '
-        + 'constraints are therefore not checked.' + FORM_NOTE,
+        'Check a DocSpecs Markdown document against its schema: the one its header declares (looked up in `.tom/docspecs-schema/` from the document\'s folder upwards, else among the SOM model\'s), or `schema`. Answers `{passed, findings: [{rule, line, sectionId, message}], schema}`; an unknown or misplaced declaration is itself a finding, and `ignoredByRuntime` lists schema keys whose constraints are not checked.' + FORM_NOTE,
     tags: ['docspecs', 'validate', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: { file: FILE, schema: SCHEMA }, required: ['file'] },

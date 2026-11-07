@@ -236,24 +236,7 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
 // ===========================================================================
 
 export const ASK_COPILOT_DESCRIPTION =
-    'Send a prompt to GitHub Copilot Chat and (by default) block until ' +
-    'Copilot writes an answer file. **How it works**: (1) render the ' +
-    'prompt through the configured template chain — an optional user ' +
-    'template wraps `${originalPrompt}`, then the required ' +
-    '`__answer_file__` wrapper instructs Copilot to dump its final ' +
-    'answer to a JSON file; (2) clear any stale answer file; (3) open ' +
-    'Copilot Chat via the VS Code command; (4) poll the answer-file ' +
-    'path at `pollInterval` until it appears or `timeoutMs` elapses. ' +
-    '**Response formats**: when the answer file is JSON with a ' +
-    '`response` string, the envelope returns `{format: "json", response, ' +
-    'requestId, elapsedMs}` and any sibling `responseValues` object is ' +
-    'forwarded to the chat-variable store. Plain-text answers come back ' +
-    'as `{format: "text", response}`. **Timeout** returns ' +
-    '`{ok: false, timedOut: true, timeoutMs, answerFile}` — Copilot may ' +
-    'still finish processing in the chat window after the tool gives up. ' +
-    '**Set `waitForAnswer: false`** for fire-and-forget (response ' +
-    'returns immediately with the answer-file path). Network-bound — ' +
-    'expect multi-second latency.';
+    'Send a prompt to GitHub Copilot Chat and, by default, wait until Copilot writes its answer file (the answer wrapper asks it to). Answers `{format: "json", response, requestId}` (its `responseValues` go to the chat variables) or `{format: "text", response}`; a timeout answers `timedOut: true` while Copilot may still be working. `waitForAnswer: false` returns at once with the answer-file path. Takes seconds.';
 
 export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
     name: 'tomAi_askCopilot',

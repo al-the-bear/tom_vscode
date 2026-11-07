@@ -14,6 +14,8 @@ _copilot_guidelines/**
 doc/**
 !doc/quick_reference.md
 !doc/workspace_setup.md
+# tomAi_describeTool reads it at run time (src/tools/describe-tool.ts)
+!doc/llm_tools.md
 example/**
 .npmrc
 

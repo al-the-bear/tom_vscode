@@ -262,6 +262,9 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSetItemSectionId',
         'tomAi_specWriteAnswers',
     ],
+    'Tool Help': [
+        'tomAi_describeTool',
+    ],
     'User Interaction': [
         'tomAi_askUser',
         'tomAi_askUserPicker',

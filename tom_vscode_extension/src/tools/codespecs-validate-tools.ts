@@ -218,15 +218,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server '
-        + 'packages), through the validate_codespecs binary bundled with the extension (no Dart SDK needed). `outcome` is '
-        + '`clean` or `violations` (both ok: the checks ran) or, with ok false, `usageError` (the input was refused: a '
-        + 'missing folder, a partial regenerated trio) or `binaryMissing`. Each violation: check number and title, the '
-        + 'section that defines it, file and line, section-id token or area, message. `notRun` names each check whose '
-        + 'corroborating input was not given (extracts for 19 and 32–36, migrations for 13, coreSource for 9, regenerated '
-        + 'for 31) — a check that did not run is not a pass. tom_code_specs\' vocabulary, whose hook catalogue checks 40 '
-        + 'and 41 (protocol-feature hooks, reserved protocol paths) need, ships with the extension and is passed unless '
-        + '`csVocabulary` names another; `inputs` then shows it as `(bundled) resources/codespecs/vocabulary.dart`.',
+        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) with the bundled validate_codespecs. `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false. `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated`) — a check that did not run is not a pass.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

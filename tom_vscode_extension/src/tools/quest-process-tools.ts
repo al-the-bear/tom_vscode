@@ -187,19 +187,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process. Give any of `process` (an id from `tomAi_listProcesses`; ' +
-        'another process starts at its first phase and step; `""` clears the state), `phase`, `step`, ' +
-        '`substep` (applied in that order: a new phase starts at its first step, a step with sub-steps at ' +
-        'its first sub-step; a step that already ran in this phase iteration starts at its next iteration), ' +
-        'and `phaseIteration` / `stepIteration` / `substepIteration` (set as given; ' +
-        'only on a repeatable level, at most its maxIterations; a gate can always be run again). ' +
-        '`completed: true` marks the process finished; any other change opens it again. A step\'s id may ' +
-        'be its phase\'s gate or post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, ' +
-        'error}` and changes nothing. On success: `{ok, state, role, roleChanged}` — moving to a step ' +
-        'that names a role also sets the `role` chat variable, so the role description in the system ' +
-        'prompt follows the process. Record each move as the work moves on. A step started by the PROCESS ' +
-        'view\'s Proceed moves on by itself when its queued items are done (a process-move marker in the ' +
-        'queue); setting the state removes that marker (`processMoveMarkersRemoved`).',
+        'Move the active quest in its process: `process` ("" clears it), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in

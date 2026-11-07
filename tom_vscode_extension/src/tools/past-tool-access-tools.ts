@@ -347,20 +347,7 @@ export async function searchPastToolResultsImpl(access: ToolHistoryAccess, input
 }
 
 export const SEARCH_PAST_TOOL_RESULTS_DESCRIPTION =
-    'Regex-search across the bodies of past tool results in the ring ' +
-    'buffer for this session. **Regex syntax**: JavaScript regex with ' +
-    'the `g` flag (always) and `i` flag when `caseSensitive: false` ' +
-    '(default). Invalid regex returns `{ok: false, error}`. Each match ' +
-    'becomes one snippet with up to `contextChars` (default 120, capped ' +
-    '1000) of surrounding text; whitespace inside the snippet is ' +
-    'collapsed to single spaces for readability; `…` markers indicate ' +
-    'truncation at either end. Zero-width matches are guarded against. ' +
-    'Filters: `toolName` (exact match), `limit` (default 20, capped 200). ' +
-    'Response: `{ok, pattern, caseSensitive, entriesScanned, hitCount, ' +
-    'hits: [{key, toolName, round, matchIndex, snippet}]}`. Pass any ' +
-    '`key` to `tomAi_readPastToolResult` for the full body. ' + '**`sessions`** (a name, a list, or `"all"`): instead of this session\'s ring buffer, every result the chosen ' +
-    'sessions stored on disk (evicted ones included), each with its `session`; an unknown session is refused (code ' +
-    '`unknownSession`) naming the sessions there are.';
+    'Search the bodies of this session\'s past tool results with a JavaScript regular expression (`caseSensitive` default false): each hit a snippet with `contextChars` (default 120) around it, its `key`, tool and round. `toolName` and `limit` (default 20) narrow it; `sessions` searches what those sessions stored instead. Read a hit in full with tomAi_readPastToolResult.';
 
 export const SEARCH_PAST_TOOL_RESULTS_TOOL: SharedToolDefinition<SearchPastToolResultsInput> = {
     name: 'tomAi_searchPastToolResults',
@@ -509,23 +496,7 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
 }
 
 export const READ_PAST_TOOL_RESULT_DESCRIPTION =
-    'Return the full result body for a past tool call by its replay key. ' +
-    '**Key format**: `t<n>` (e.g. `t14`). **Bare numerics are normalised**: ' +
-    'passing `key: "14"` resolves the same as `key: "t14"` — the response ' +
-    'echoes both `rawKey` (input) and `key` (normalised). **Lookup order**: ' +
-    '(1) in-memory ring buffer (fast, session-scoped, ~40 most recent); ' +
-    '(2) disk store at `${ai}/trail/<subsystem>/<quest>/tool_results/' +
-    '<key>.json` (tried for `anthropic` then `localLlm` subsystems, ' +
-    'survives ring eviction + window reload). Response reports `source: ' +
-    '"memory" | "disk"` so the caller knows which layer answered. Stub ' +
-    'blocks in the conversation like `[Past tool call tX — …]` remain ' +
-    'resolvable here even after eviction. **`sessions`** (a name, a list, or `"all"`): read the key from those ' +
-    'sessions\' stored results instead (keys are per session); the answer names the `session` it came from, and ' +
-    '`alsoIn` the other chosen sessions holding the same key. **Paging**: `offset` (default 0) and `length` (characters, ' +
-    `default ${READ_PAST_DEFAULT_PAGE_CHARS}, at most ${READ_PAST_MAX_PAGE_CHARS}) pick a page of the result; the answer ` +
-    'says `resultSize` (the whole length), `offset`, `length`, `nextOffset` (where the next page starts; null at the end) ' +
-    'and `complete` (the whole result in this answer). Read on with `offset: nextOffset` until it is null. This tool\'s ' +
-    'answers are never cut by the inline tool-trail retention.';
+    'The body of a past tool call by its replay key (`t14`; `14` is read as `t14`), from this session\'s ring buffer, else its stored results (`source`); `sessions` reads another session\'s. Paged: `offset` (default 0) and `length` (default ' + READ_PAST_DEFAULT_PAGE_CHARS + ', at most ' + READ_PAST_MAX_PAGE_CHARS + '); the answer says `resultSize`, `nextOffset` (null at the end) and `complete` — read on with `offset: nextOffset`. Its answers are never cut by the inline tool-trail retention.';
 
 export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResultInput> = {
     name: 'tomAi_readPastToolResult',

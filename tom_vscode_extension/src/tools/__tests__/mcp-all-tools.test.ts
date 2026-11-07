@@ -394,6 +394,7 @@ function inputs(): Record<string, Input> {
         tomAi_specEditMarkComment: { file: SPEC, markId: 'M-1', text: 'An inline comment, edited by the MCP test.' },
         tomAi_specDecideMarks: { file: SPEC, all: 'accept' },
         tomAi_specRemoveAllAnnotations: { file: SPEC },
+        tomAi_describeTool: { name: 'tomAi_createQuestTodo' },
         tomAi_specCodeSpecsGate: { file: SPEC },
         tomAi_specCodeSpecsRouting: { file: SPEC, limit: 5 },
         tomAi_specCodeSpecsExtract: { file: SPEC },

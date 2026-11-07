@@ -204,15 +204,6 @@ export async function specWriteAnswersImpl(deps: SpecToolDeps, input: SpecWriteA
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-const WHAT =
-    'The answers of a review round (SOM §11.9.7), as a step folder\'s `answers.md`: per document (labelled by its file '
-    + 'name without the format suffix, e.g. `tom_uam.sbp`) the answered questions and the reviewer comments, each with '
-    + 'its section-id chain, its line in the document\'s Markdown rendition, the question and its answer verbatim or the '
-    + 'comment and its author; `includeOpen` adds the open questions, `includeMarks` the inline marks. Read through the '
-    + 'runtime\'s extractAnswers / renderAnswers — the text tom_specs\' `extract_answers` CLI writes. `files` lists '
-    + 'several documents in the order answers.md shows them; fragments of one root are assembled into one document. '
-    + '`path` keeps the subtree at that path. The annotations stay in the documents (tomAi_specRemoveAllAnnotations '
-    + 'removes them). Counts: answered, open, comments, marks.';
 const INPUT_PROPS = {
     file: { ...FILE_PARAM, description: `${FILE_PARAM.description} Or pass \`files\`.` },
     files: { type: 'array', items: { type: 'string' }, description: 'Several documents (or fragments of one), in the order answers.md lists them.' },
@@ -226,9 +217,7 @@ export const SPEC_EXTRACT_ANSWERS_TOOL: SharedToolDefinition<SpecExtractAnswersI
     name: 'tomAi_specExtractAnswers',
     displayName: 'Spec: Extract Answers',
     description:
-        WHAT + ' Answers `{counts, documents: [{label, root, files, counts}], findings, markdown}` and writes nothing; '
-        + 'tomAi_specWriteAnswers writes the file. `findings` lists annotations the runtime cannot read (malformed, '
-        + 'misplaced, duplicate id) — the extraction misses them, so `complete: false`.' + FIRST_LOOK,
+        'A review round\'s answers (SOM §11.9.7) as the text of a step folder\'s `answers.md`, written nowhere: per document the answered questions and the comments with their section-id chain and line (`includeOpen`, `includeMarks` add more); `files` takes several documents in order. Answers `{counts, documents, findings, markdown}`; `findings` (annotations the runtime cannot read) make it `complete: false`. tomAi_specWriteAnswers writes the file.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: INPUT_PROPS },
@@ -239,11 +228,7 @@ export const SPEC_WRITE_ANSWERS_TOOL: SharedToolDefinition<SpecWriteAnswersInput
     name: 'tomAi_specWriteAnswers',
     displayName: 'Spec: Write Answers',
     description:
-        WHAT + ' Writes it to `output` (inside the workspace; folders are created). Answers `{written, file, status '
-        + '(new / changed / unchanged), counts, documents}`; an unchanged file is not touched. An existing file with other '
-        + 'text is refused (`exists`) unless `overwrite: true`; `dryRun` returns the `diff` and the text and writes '
-        + 'nothing. Annotations the runtime cannot read are refused (`annotationsMalformed`, with the findings): the file '
-        + 'would miss them. Read the counts and the text first with tomAi_specExtractAnswers.' + FIRST_LOOK,
+        'Write a review round\'s answers (SOM §11.9.7) to `output` as the step folder\'s `answers.md`: per document the answered questions and the comments (`includeOpen`, `includeMarks` add more); `files` takes several documents in order. An existing file with other text is refused (`exists`) unless `overwrite: true`; unreadable annotations are refused (`annotationsMalformed`). The annotations stay in the documents. Read it first with tomAi_specExtractAnswers.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,

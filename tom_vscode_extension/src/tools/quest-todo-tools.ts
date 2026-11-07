@@ -139,15 +139,14 @@ export interface QuestTodoToolsDeps {
 const DECISIONS_SCHEMA = {
     type: 'array',
     description:
-        'Decisions the user has to make before this todo can be started. ' +
-        'Pair with `status: "decision-needed"` while any `decision` is still empty.',
+        'Decisions the user has to make first; pair with `status: "decision-needed"` while a `decision` is empty.',
     items: {
         type: 'object',
         required: ['summary'],
         properties: {
             summary: { type: 'string', description: 'One line naming what has to be decided.' },
-            decision_needed: { type: 'string', description: 'The full question, its context and the options.' },
-            decision: { type: 'string', description: "What the user decided. Leave out until they've answered." },
+            decision_needed: { type: 'string', description: 'The question, its context and options.' },
+            decision: { type: 'string', description: 'The answer; leave out until given.' },
         },
     },
 } as const;
@@ -157,7 +156,7 @@ const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed',
 /** A schema date field: a date, or a timestamp written as the date it names. */
 const DATE_SCHEMA = {
     type: 'string',
-    description: 'A date, YYYY-MM-DD. A timestamp is accepted and written as the date it names (2026-10-20T12:37:25+0200 → 2026-10-20); anything else is refused.',
+    description: 'YYYY-MM-DD (a timestamp is written as its date).',
 } as const;
 
 /**
@@ -165,12 +164,12 @@ const DATE_SCHEMA = {
  * strings). Shared by create and update so neither can drop one.
  */
 const ORCHESTRATION_SCHEMA = {
-    execution_role: { type: 'string', description: 'The role that carries the todo out when execution is agent-driven (Worktracker).' },
-    qa_role: { type: 'string', description: "The role that checks the todo's result (Worktracker)." },
-    orchestration_role: { type: 'string', description: 'The role that orchestrates the execution bundle the todo belongs to (Worktracker).' },
-    bundle_id: { type: 'string', description: 'The execution bundle the todo is grouped into (Worktracker).' },
-    derived_from: { type: 'string', description: 'The todo this one was derived from (Worktracker).' },
-    feedback_source: { type: 'string', description: 'The feedback that raised this todo (Worktracker).' },
+    execution_role: { type: 'string', description: 'Worktracker: the role that carries it out.' },
+    qa_role: { type: 'string', description: 'Worktracker: the role that checks it.' },
+    orchestration_role: { type: 'string', description: 'Worktracker: the role orchestrating its bundle.' },
+    bundle_id: { type: 'string', description: 'Worktracker: its execution bundle.' },
+    derived_from: { type: 'string', description: 'Worktracker: the todo it was derived from.' },
+    feedback_source: { type: 'string', description: 'Worktracker: the feedback that raised it.' },
 } as const;
 
 /**
@@ -185,7 +184,7 @@ const BLOCKED_UNTIL_SCHEMA = {
     blocked_until: {
         type: 'array',
         items: { type: 'string', pattern: BLOCKED_UNTIL_PATTERN },
-        description: 'Publish conditions that block the todo, each `<package> >= <x.y.z>` (or `>`): met when pub.dev\'s latest release satisfies it. Keep the prose in `notes`. [] removes the field.',
+        description: 'Publish conditions, each `<package> >= <x.y.z>` (or `>`), met by pub.dev\'s latest release. [] removes it.',
     },
 } as const;
 
@@ -239,19 +238,13 @@ export function validateBlockedUntil(blockedUntil: unknown): string | undefined 
 const USER_ACTION_SCHEMA = {
     user_action: {
         type: 'boolean',
-        description: "true: the todo is the user's to do (a review, an answer, a look at a screen). A `<prefix>*` queue walk passes it instead of sending it to an agent, and the todo panel marks it 👤. false removes the mark.",
+        description: "true: the user's to do (a walk passes it; marked 👤). false removes it.",
     },
 } as const;
 
 /** The sentence both write tools' descriptions carry about dates and the orchestration fields. */
 const DATES_AND_ORCHESTRATION_DOC =
-    ' **Dates are dates:** `completed_date` (and every other date field of the schema) is written as YYYY-MM-DD; ' +
-    'a timestamp is accepted and written as the date it names, anything else is refused with nothing written. ' +
-    '`created` / `updated` are stamped by the writer (local date). The Worktracker orchestration fields ' +
-    '`execution_role`, `qa_role`, `orchestration_role`, `bundle_id`, `derived_from`, `feedback_source` ' +
-    '(optional strings) are written, read back and kept by updates that do not name them. ' +
-    "`user_action: true` marks a todo that is the user's to do: a `<prefix>*` queue walk passes it and goes on with the next todo. " +
-    '`blocked_until` lists publish conditions (`<package> >= <x.y.z>`) that keep a blocked todo blocked until pub.dev has the release; an entry in another form is refused with nothing written.';
+    ' Dates are written as YYYY-MM-DD (a timestamp as the date it names; anything else is refused). `user_action: true` marks the user\'s todo (a walk passes it); `blocked_until` takes `<package> >= <x.y.z>` conditions.';
 
 // ===========================================================================
 // listQuestTodos
@@ -499,11 +492,11 @@ const REFERENCE_ANCHORS = ['path', 'url', 'description'] as const;
 const REFERENCE_SCHEMA = {
     type: 'object',
     properties: {
-        type: { type: 'string', description: 'Reference type, e.g. file, url, doc.' },
-        path: { type: 'string', description: 'Workspace-relative file path.' },
-        url: { type: 'string', description: 'External URL.' },
-        description: { type: 'string', description: 'What the reference contains.' },
-        lines: { type: 'string', description: "Line range or location hint, e.g. '45-60'." },
+        type: { type: 'string', description: 'e.g. file, url, doc.' },
+        path: { type: 'string', description: 'Workspace-relative path.' },
+        url: { type: 'string' },
+        description: { type: 'string' },
+        lines: { type: 'string', description: "e.g. '45-60'." },
     },
     additionalProperties: false,
     anyOf: REFERENCE_ANCHORS.map((key) => ({ required: [key] })),
@@ -596,33 +589,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
 }
 
 export const CREATE_QUEST_TODO_DESCRIPTION =
-    'Create a new persistent quest todo in a YAML file. **There are NO ' +
-    'auto-id rules** — the model picks `todo.id` (convention: lowercase, ' +
-    'hyphen-separated, starts with a letter, stable, e.g. `add-auth-flow`). ' +
-    'Collisions are rejected with a pointer to `tomAi_updateQuestTodo`. ' +
-    '**A reused id STEM is WARNED about, not rejected**: creating ' +
-    '`scc5_aict-x` while `scc5_agnd-y` exists in the same quest succeeds and ' +
-    'returns a `warning` field naming the others, because a `scc5*` iteration ' +
-    'then dispatches both. Read it — it usually means a batch restarted its ' +
-    'numbering and should be renumbered before work is dispatched by prefix. ' +
-    'Ids with no `<stem><number>_<datecode>` shape are not checked. ' +
-    '`file` defaults to the persistent `todos.<questId>.todo.yaml`; pass a ' +
-    'different `*.todo.yaml` filename to target a per-topic file. **Status ' +
-    'enum**: `not-started` (default) / `in-progress` / `blocked` / ' +
-    '`decision-needed` / `completed` / `cancelled`. **Priority enum**: `low` / ' +
-    '`medium` / `high` / `critical`. **Before creating a todo, work out what ' +
-    'the user still has to decide**: list each open question in `decisions` ' +
-    '(`summary` + `decision_needed`, leaving `decision` empty) and set ' +
-    '`status: "decision-needed"` instead of `not-started`, so nobody starts ' +
-    'the todo on a guess. Optional fields (`scope`, `references`, ' +
-    '`dependencies`, `blocked_by`, `notes`) are persisted verbatim. Each `references` entry is an OBJECT, the shape the schema defines: `{path}` for a workspace file, `{url}` for a link or `{description}` for a note, optionally with `type` and `lines`. A bare string is rejected with `ok: false` (send `{"path": "…"}` instead). YAML ' +
-    'formatting in existing files is preserved across the create. ' +
-    '**`ok: true` is verified, not assumed**: the file is re-read after the ' +
-    'write, the id confirmed present AND every field you sent confirmed ' +
-    'readable back, so a write lost to another writer of the same file — or a ' +
-    'field this code path does not persist — comes back as `ok: false` naming ' +
-    'what differs, instead of a success response for data that is on no disk ' +
-    'anywhere. You do not need to grep the YAML afterwards to check it landed.' + DATES_AND_ORCHESTRATION_DOC;
+    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
@@ -771,27 +738,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
 }
 
 export const UPDATE_QUEST_TODO_DESCRIPTION =
-    'Update fields of an existing quest todo. **Every field you pass REPLACES the stored ' +
-    'value as a whole; nothing is merged or appended.** `notes` and `description` are ' +
-    'overwritten, never appended to: to add a paragraph, read the todo with ' +
-    '`tomAi_getQuestTodo` and send the old text plus the new. `tags`, `dependencies`, ' +
-    '`blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list. `blocking` (the todos this one ' +
-    'blocks, the reverse of their `blocked_by`) is derived and kept in step by every write; passing it is refused, and so is `last_answer` (the queue run\'s answer, written by the queue). `scope` replaces ' +
-    'the whole object, so keys you leave out are dropped. An empty string or empty list ' +
-    'removes the field. **Fields you do NOT pass are kept verbatim**, including `scope`, ' +
-    '`references`, `created` timestamps, `_sourceFile` and unknown fields an earlier ' +
-    'hand-edit added. YAML formatting is preserved. When a `notes` or `description` ' +
-    'replacement keeps less than half of the previous text (clearing included), the ' +
-    'update is still applied and the response carries a `warning` quoting what was ' +
-    'replaced, so an accidental overwrite can be undone at once. Each `references` entry ' +
-    'is an object (`{path}`, `{url}` or `{description}`, optionally with `type` and ' +
-    '`lines`); a bare string is rejected with `ok: false`, nothing applied. Status enum: ' +
-    '`not-started`/`in-progress`/`blocked`/`decision-needed`/`completed`/`cancelled`. ' +
-    'Priority enum: `low`/`medium`/`high`/`critical`. To close a `decision-needed` todo, ' +
-    'write the user\'s answers into `decisions[].decision` and move the status back to ' +
-    '`not-started` in the same call. Missing id surfaces structured ' +
-    '`{ok: false, error: "..."}`. For id changes or moving across files, use ' +
-    '`tomAi_moveQuestTodo` or delete+create.' + DATES_AND_ORCHESTRATION_DOC;
+    'Update fields of a quest todo. **Every field you pass REPLACES the stored value as a whole; nothing is merged or appended**: `notes` and `description` are overwritten, never appended to (read with tomAi_getQuestTodo and send the old text plus the new); `tags`, `dependencies`, `blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list; `scope` replaces the whole object; an empty string or empty list removes the field. Fields you do not pass are kept. `blocking` and `last_answer` cannot be set. `references` entries are objects; a bare string is rejected. To close a `decision-needed` todo, write the answers into `decisions[].decision` and set the status in the same call. A replacement keeping less than half of a `notes` / `description` text answers a `warning` quoting it.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> = {
     name: 'tomAi_updateQuestTodo',

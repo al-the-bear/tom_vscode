@@ -255,34 +255,9 @@ export async function askUserPickerImpl(
 }
 
 export const ASK_USER_PICKER_DESCRIPTION =
-    'Show a VS Code QuickPick and let the user choose one or more items. ' +
-    `An "${OTHER_OPTION_LABEL}" entry is appended to your list automatically — do NOT ` +
-    'add one yourself. Taking it opens a free-text box, so the user can always ' +
-    'answer in their own words; the entry never filters away, and typing an ' +
-    'answer that matches no item and pressing Enter submits it directly. ' +
-    'Consequence: `selected.value` may be text that ' +
-    'is not among the `items` you offered (for a free-text answer `label` and ' +
-    '`value` are both the typed text). Never assume the answer is one of your ' +
-    'options. ' +
-    '**BLOCKING** — awaits the user, and by default waits **indefinitely**; ' +
-    'this works the same for a prompt running in the prompt queue. Set the ' +
-    'optional `timeoutMinutes` to give up after a while and continue on your ' +
-    'own — only do that when you have a sensible default to fall back on. ' +
-    '`ignoreFocusOut: true` is ' +
-    'set (clicking outside does NOT cancel). Items may be plain strings ' +
-    '(label = value) or objects `{label, description?, detail?, value?}` ' +
-    '(when `value` is omitted it falls back to `label`). Response: ' +
-    '`{ok, dismissed, timedOut, multiSelect, selected}`. ' +
-    'Shape of `selected`: (1) `canPickMany: false` (default) and user picked ' +
-    '→ `selected: {label, value}`; (2) `canPickMany: true` and user pressed ' +
-    'OK → `selected: [{label, value}, ...]` (array — possibly empty, which ' +
-    'is distinct from dismissal); (3) cancelled (Escape) → `selected: null` ' +
-    'with `dismissed: true`; (4) deadline elapsed → `selected: null` with ' +
-    '`timedOut: true`. Treat (3) and (4) differently: dismissed means the ' +
-    'user saw the question and declined, timed out means nobody was there. ' +
-    '`matchOnDescription` controls whether the typed filter matches against ' +
-    'the description column too (default true). Every exchange is logged to ' +
-    'the quest questions journal.';
+    'Show a QuickPick and let the user choose one or more `items` (strings or `{label, description?, detail?, value?}`). '
+    + `An "${OTHER_OPTION_LABEL}" entry is added automatically`
+    + ' (do not add one): `selected.value` may be free text that is none of your items. BLOCKING, by default without a deadline (`timeoutMinutes` to give up, only with a sensible default). Answers `{dismissed, timedOut, selected}`: `{label, value}`, or an array with `canPickMany`; dismissed (the user declined) and timed out (nobody there) are different. Logged to the quest questions journal.';
 
 // (Picker tool def lives at the bottom, after the live bridge.)
 

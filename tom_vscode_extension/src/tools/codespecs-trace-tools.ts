@@ -276,16 +276,7 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
     name: 'tomAi_specCodeSpecsTrace',
     displayName: 'CodeSpecs: Trace',
     description:
-        'Trace between a specification and the code generated from it, by section-id TOKEN — the unit the generated '
-        + 'code\'s back-links (`@CodeSpec(source: […])`, `@DocSpec([DocRef(token)])`) cite. Start from exactly one of: '
-        + '`specPath` (its entries\' tokens, the declarations citing them, and with `file` the heading `codeSpec=` forward '
-        + 'links of the node and its ancestors), `token`, `codeFile` + `line` (the declaration at or above that line) or '
-        + '`declaration` (a @CodeSpec id or a name) — each token with its extract entries (spec path, verbatim value). '
-        + 'With back-links, `agreement` lists the tokens the two ends disagree on: extracted but cited by no declaration '
-        + '(uncited) and cited but held by no in-scope extract (dangling) — the shape of validate_codespecs checks 35 and 36. '
-        + 'Which declaration should carry a token is not decided. The back-links come from `codeDirs` (the generated trio, '
-        + 'read by the validate_codespecs binary bundled with the extension) or from `backlinks`, a JSON index '
-        + '`validate_codespecs --backlinks` wrote.',
+        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled validate_codespecs, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36).',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

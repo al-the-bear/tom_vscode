@@ -197,11 +197,7 @@ export const EDIT_PARAMS = {
     dryRun: { type: 'boolean', description: 'Return the result and a unified `diff` without writing. Default false.' },
 };
 export const RESULT_NOTE =
-    ' Answers `{ok, written, revision, …, validation: {introduced, resolved, underPath, total}}` — validation found by '
-    + 'the runtime\'s validateDocument, compared before and after the edit across the whole document (a stated count '
-    + 'that no longer matches is `countMismatch`) — plus `staleReviewPaths` for YAML review entries left without a node, '
-    + 'and `diff` on a dry run. A refused edit writes nothing and returns `{ok:false, code, error}`; the document must '
-    + 'be editable (see readOnlyReason in tomAi_specOutline). ' + UNRESOLVED_NOTE + BATCH_HINT;
+    ' Answers `{ok, written, revision, validation: {introduced, resolved, underPath, total}}` (`diff` on a dry run); a refused edit writes nothing (`{ok:false, code, error}`), and the document must be editable (`readOnlyReason` in tomAi_specOutline). ' + UNRESOLVED_NOTE + BATCH_HINT;
 
 /**
  * One edit tool. The `{ name, displayName }` literal keeps `name: 'tomAi_…'`

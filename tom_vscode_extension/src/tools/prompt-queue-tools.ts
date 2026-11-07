@@ -293,10 +293,8 @@ function err(message: string, extra: Record<string, unknown> = {}): string {
  * caller decides.
  */
 /** The sentence the queue tools' descriptions carry about {@link apiKeyWarning}. */
-const API_KEY_WARNING_DOC = ' The answer carries `warning` when a stage of the item runs on an Anthropic profile '
-    + 'whose configuration uses the direct API and whose key variable is not in this VS Code\'s environment: every '
-    + 'send of that stage would fail. The item is kept; pick another profile (an Agent SDK one) or have the key set '
-    + 'and VS Code restarted.';
+const API_KEY_WARNING_DOC =
+    ' A `warning` in the answer names stages whose direct-API key is missing (they would fail; the item is kept).';
 
 function apiKeyWarning(access: PromptQueueAccess, itemId: string | undefined): { warning?: string } {
     const lines = itemId ? access.missingApiKeyWarnings?.(itemId) ?? [] : [];
@@ -317,16 +315,8 @@ function queuedItemWarning(access: PromptQueueAccess, item: { id: string; status
 }
 
 /** What a queue item's `session` is. */
-const SESSION_DOC = 'The named session the item runs in: a `<name>.session.json` of the quest\'s history folder '
-    + '(tomAi_listSessions). A name, or a spec `{name, basedOn?, mode?, profile?}`: a session that does not exist when '
-    + 'the item is dispatched is created before its first send — from the spec (fresh, or based on `basedOn`, a missing '
-    + 'base being created plainly; `mode` continue / per-prompt / per-iteration; `profile` the Anthropic profile, else '
-    + 'the item\'s own anthropicProfileId), or for a bare name as a fresh `continue` session. Unset: the queue default, '
-    + 'else the queue\'s own `default`. On the Agent SDK transport it is the SDK conversation; on the direct API '
-    + 'transport the session\'s own history (`chat` and `default` share the quest\'s). A prompt runs with the stage\'s '
-    + 'or item\'s profile, else the session\'s, else the queue default. Refused when queued (code invalidSession): a '
-    + 'malformed spec, an unknown profile, or a profile that keeps its conversation elsewhere than the session\'s '
-    + 'existing one (an Agent SDK session continued with our own history, or the reverse).';
+const SESSION_DOC =
+    'The named session the item runs in (tomAi_listSessions): a name, or `{name, basedOn?, mode?, profile?}` to create it on first dispatch if missing. Unset: the queue default. A malformed spec or a profile of the other conversation kind is refused (`invalidSession`).';
 
 /** The JSON schema of a queue item's `session`. */
 const SESSION_SCHEMA = {
@@ -355,14 +345,8 @@ function sessionRefusal(session: unknown): string | null {
 }
 
 /** How a repeat count is written, for every tool that takes one. */
-const REPEAT_COUNT_DOC = 'Literal number, chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with '
-    + '<prefix>, lowest number first (the number is the first digit run after the prefix). The prefix may hold digits '
-    + '(`p2s2ss3-*`) but must not end in one (refused with code invalidTodoPrefix). The text names the todo each dispatch '
-    + 'picked with `${repeatTodoId}` (its id), `${repeatTodoTitle}` and `${repeatNumber}`, filled in when it is sent; the '
-    + 'picked todo is set in-progress, and a todo the work creates with the next free number joins the walk. An item whose '
-    + 'main prompt walks over nothing (no todo of the prefix, or none not-started, blocked or decision-needed) and that '
-    + 'has no pre-prompt (which could create the todos) is held in `error` at once, its reason in `warning`; it is staged '
-    + 'again when an edit or a pre-prompt gives it work, or when its status is set once the todos are there.';
+const REPEAT_COUNT_DOC =
+    'A number, a chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with <prefix>, lowest number first (`${repeatTodoId}`, `${repeatTodoTitle}`, `${repeatNumber}` in the text). The prefix must not end in a digit (`invalidTodoPrefix`); a walk over nothing without a pre-prompt is held in `error`.';
 
 /** The refusal of the first repeat count no queue item may carry (a todo prefix ending in a digit), or null. */
 function repeatCountRefusal(...values: unknown[]): string | null {
@@ -501,25 +485,11 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
 }
 
 /** What a queue item's `doneNotificationPrompt` is. */
-const DONE_NOTIFICATION_DOC = 'A prompt queued right after the item, ahead of every other pending item, when the item '
-    + 'is finished: all its pre-prompts, repetitions (or `<prefix>*` todos), follow-ups and template iterations done, or '
-    + 'ended in an error that will not recover (no API key, a request the API refused, an exhausted retry schedule; '
-    + 'not a quota or rate limit being waited out). It runs with the item\'s transport, profile and session, takes over '
-    + 'its "pause after this", and is queued once per run. `${itemOutcome}` in it reads `done` or `error: <message>`.';
+const DONE_NOTIFICATION_DOC =
+    'A prompt queued right after the item, ahead of the others, once it is finished (done, or an error that will not recover); `${itemOutcome}` reads `done` or `error: <message>`.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
-    'Stage a new prompt-queue item with optional pre-prompts, main-prompt ' +
-    'config, and follow-ups all in one call. **Default `deferSend: true`** ' +
-    '— the item is created in the `staged` state, NOT sent immediately. ' +
-    'Call `tomAi_sendQueuedPrompt` afterwards to start the lifecycle ' +
-    '(manager auto-chains through pre-prompts → main → follow-ups, waiting ' +
-    'on each answer). `repeatCount`/`templateRepeatCount` accept a literal ' +
-    'number or a chat-variable name (resolved at send time, decremented per ' +
-    'iteration). `transport` defaults to `copilot`; pass `anthropic` for ' +
-    'unattended Anthropic dispatch (requires `anthropicProfileId`; falls back ' +
-    'to the default profile when omitted). The canonical add → addFollowUp → ' +
-    'sendQueuedPrompt workflow is documented in detail on the Prompt Queue ' +
-    'spec — this tool is step 1.' + API_KEY_WARNING_DOC;
+    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `session` names the session it runs in.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     name: 'tomAi_addQueueItem',

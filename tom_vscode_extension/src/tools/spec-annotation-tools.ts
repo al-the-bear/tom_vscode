@@ -584,17 +584,9 @@ export async function specRemoveAllAnnotationsImpl(deps: SpecToolDeps, input: Sp
 // ---------------------------------------------------------------------------
 
 const NOTATION =
-    ' Annotations (SOM §11.9) live in content values and form-field values: a comment block `> ⬆️ **C-12** (author): text` '
-    + '(id and author optional), a question block `> **❓ BQ-81 — topic:** question`, options `> - (a) …` with the '
-    + 'recommended one bold `> - **(b)** …`, and `> **Answer:**`; inline marks `{++added++}`, `{--removed--}`, '
-    + '`{~~old~>new~~}`, `{==text==}{>>comment<<}`, `{>>comment<<}`; a change comment `{~~old~>new~~}{>>[~~old~>new~~] why?<<}` '
-    + 'quotes the change it is about, and records `| accepted` / `| rejected` in its quote when the change is decided.';
+    ' Notation (SOM §11.9): comment `> ⬆️ **C-12** (author): text`; question `> **❓ BQ-81 — topic:** …` with options and `> **Answer:**`; inline marks `{++…++}` `{--…--}` `{~~…~>…~~}` `{==…==}{>>…<<}` `{>>…<<}`; a change comment `{>>[~~…~>…~~] …<<}` quotes its change.';
 const PARAGRAPHS =
-    'Paragraphs are the blank-line separated blocks of the value (an annotation block is one; a blank line inside fenced '
-    + 'code does not end one), counted from 0 as tomAi_specGetSection shows the value; -1 is the start. Instead of the '
-    + 'number, name the paragraph by its text: `afterTextStart` (the paragraph that begins with it, trimmed, '
-    + 'case-sensitive) or `afterTextContains` (anywhere in it) — annotation blocks are not matched; no match is refused '
-    + '(`anchorNotFound`, with the paragraphs), more than one (`anchorAmbiguous`, with the candidates and their numbers).';
+    'Paragraphs are the value\'s blank-line separated blocks, from 0 (-1 = the start); or name one by `afterTextStart` / `afterTextContains` (no match, or more than one, is refused with the candidates).';
 const ANCHOR_PARAMS = {
     afterTextStart: { type: 'string', description: 'Instead of `afterParagraph`: the paragraph that begins with this text.' },
     afterTextContains: { type: 'string', description: 'Instead of `afterParagraph`: the paragraph that contains this text.' },
@@ -623,18 +615,7 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
     name: 'tomAi_specAnnotations',
     displayName: 'Spec: Annotations',
     description:
-        'The review annotations of a TomSpecs document (`*.docspecs.yaml` or SOM `*.md`), read by the runtime\'s '
-        + 'SpecReviewAnnotations: `comments` (id, qualifiedId `SBP C-12`, author, text, `context` = the paragraph the '
-        + 'comment follows, path, field, line), `questions` (id, topic, text, options with the bold one, recommended '
-        + 'letter, answer, open) and `marks` (`M-<n>`, markKind, oldText, newText, comment, markup, context), with `counts` '
-        + '(questions, openQuestions, answeredQuestions, comments, marks), `marksRevision` (what tomAi_specDecideMarks '
-        + 'checks mark ids against) and `findings` (annotation problems the runtime reports). `path` keeps those at or '
-        + 'below it; `kinds` and `openOnly` narrow the lists; at most `limit` (default 200) of each, `truncated` when '
-        + 'more. Lines are 0-based within the value. With `dir` instead of `file`: every SOM document under the folder '
-        + '(found as tomAi_specListDocuments finds them) with its `counts` and its number of `findings`, and the `totals` '
-        + '(documents, withAnnotations, the counts, findings) — no lists; which documents still have open questions, '
-        + 'unapplied comments or marks, in one call. `maxResults` / `timeBudgetMs` bound it; `truncated` with `stoppedBy` '
-        + 'when they did.' + NOTATION + FIRST_LOOK,
+        'The review annotations of a TomSpecs document: `comments`, `questions` and `marks` (`M-<n>`, with `marksRevision` for tomAi_specDecideMarks), their `counts` and the runtime\'s `findings`. `path`, `kinds`, `openOnly` and `limit` (default 200) narrow it. With `dir` instead of `file`: the counts of every SOM document under the folder, no lists.' + NOTATION + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -655,11 +636,7 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
 
 export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
     { name: 'tomAi_specInsertComment', displayName: 'Spec: Insert Comment' },
-    'Insert a reviewer comment block `> ⬆️ **C-<n>** (author): text` after a paragraph of a value (`afterParagraph`, or '
-    + '`afterTextStart` / `afterTextContains`), through '
-    + 'SpecReviewAnnotations.insertComment. The id is `id` when given, else the next free one (the highest `C-<n>` in '
-    + 'the document plus one); answers it as `id`. ' + PARAGRAPHS + ' A missing paragraph is refused (`annotationRefused`).'
-    + NOTATION + FIRST_LOOK + RESULT_NOTE,
+    'Insert a reviewer comment `> ⬆️ **C-<n>** (author): text` after a paragraph of a value; the id is `id`, else the next free one (answered as `id`). ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS, ...TARGET_PARAMS,
         afterParagraph: { type: 'number', description: 'The paragraph (0-based) the comment follows; -1 for the start of the value.' },
@@ -674,10 +651,7 @@ export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
 
 export const SPEC_INSERT_QUESTION_TOOL = editTool<SpecInsertQuestionInput>(
     { name: 'tomAi_specInsertQuestion', displayName: 'Spec: Insert Question' },
-    'Insert a question block (SOM §11.9.2): directly after a comment (`afterComment`, its id — how to ask about a '
-    + 'comment), or after a paragraph of the value at `path` (`afterParagraph`, `afterTextStart` or `afterTextContains`). The block is written by the runtime: the '
-    + 'header `> **❓ <id> — <topic>:** <text>`, the options one per line with the recommended one bold, an optional '
-    + '`*Recommendation:*` and working assumption, and an empty `> **Answer:**`. ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
+    'Insert a question block (SOM §11.9.2) after a comment (`afterComment`) or a paragraph of the value at `path`; the runtime writes the header, the options (the recommended one bold) and an empty `> **Answer:**`. ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS, ...TARGET_PARAMS,
         question: QUESTION_SCHEMA,
@@ -744,13 +718,7 @@ export const SPEC_RESOLVE_ANNOTATION_TOOL = editTool<SpecResolveAnnotationInput>
 
 export const SPEC_DECIDE_MARKS_TOOL = editTool<SpecDecideMarksInput>(
     { name: 'tomAi_specDecideMarks', displayName: 'Spec: Decide Marks' },
-    'Accept or reject inline marks (SOM §11.9.3): accepting takes the change (an insertion\'s text, nothing for a '
-    + 'deletion, a substitution\'s new text) and removes a highlight\'s or comment mark\'s comment; rejecting undoes it. '
-    + '`decisions` names marks by their `M-<n>` id from tomAi_specAnnotations, each "accept", "reject" or "leave", '
-    + 'checked against `marksRevision` (default: the document as it is now) — a stale one is refused '
-    + '(`annotationRefused`) and nothing changes. Or `all`: "accept" / "reject" every mark under `path` (default the '
-    + 'whole document). Answers `applied` (id, decision, markup, result) and `malformed` marks left as written.'
-    + FIRST_LOOK + RESULT_NOTE,
+    'Accept or reject inline marks (SOM §11.9.3): `decisions` maps `M-<n>` ids from tomAi_specAnnotations to "accept" / "reject" / "leave", checked against `marksRevision` (a stale one is refused, nothing changes); or `all` with an optional `path`. Accepting takes the change and removes a comment mark; rejecting undoes it. Answers `applied` and the `malformed` marks left as written.' + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         decisions: { type: 'object', additionalProperties: { type: 'string', enum: ['accept', 'reject', 'leave'] }, description: 'Mark id → decision, e.g. {"M-2": "accept"}.' },
@@ -764,13 +732,7 @@ export const SPEC_DECIDE_MARKS_TOOL = editTool<SpecDecideMarksInput>(
 
 export const SPEC_COMMENT_CHANGE_TOOL = editTool<SpecCommentChangeInput>(
     { name: 'tomAi_specCommentChange', displayName: 'Spec: Comment a Change' },
-    'Comment on a change mark by its `M-<n>` id (SpecReviewAnnotations.commentChange, SOM §11.9.3): a change comment is '
-    + 'written right after the change, quoting it (`{~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<}`), so it stays '
-    + 'understandable once the change is decided — deciding the change keeps the comment and records the outcome in its '
-    + 'quote. Answers the new comment\'s id (`commentId`). Refused, nothing changed: an unknown id or a stale '
-    + '`marksRevision`, a mark that is not a change, a change that has its comment already, an empty text or one holding '
-    + 'a mark delimiter or a blank line, an `author` that is not a member id. Edit it later with tomAi_specEditMarkComment; '
-    + 'remove it with tomAi_specDecideMarks (either decision).' + FIRST_LOOK + RESULT_NOTE,
+    'Comment on a change mark by its `M-<n>` id: the comment is written after the change, quoting it (`{~~ 30 ~> 15 ~~}{>> [~~ 30 ~> 15 ~~] why shorter? <<}`), so it stays readable once the change is decided. Answers `commentId`. Refused: a stale `marksRevision`, a mark that is not a change, a change already commented, an empty text or one holding a mark delimiter or a blank line. Edit it with tomAi_specEditMarkComment.' + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         markId: { type: 'string', description: 'The change mark\'s id, e.g. `M-3` (from tomAi_specAnnotations).' },
@@ -801,13 +763,7 @@ export const SPEC_EDIT_MARK_COMMENT_TOOL = editTool<SpecEditMarkCommentInput>(
 
 export const SPEC_REMOVE_ALL_ANNOTATIONS_TOOL = editTool<SpecRemoveAllAnnotationsInput>(
     { name: 'tomAi_specRemoveAllAnnotations', displayName: 'Spec: Remove All Annotations' },
-    'Remove every review annotation of the document and write it back (SpecReviewAnnotations.removeAllAnnotations): '
-    + 'every inline mark accepted, every comment and question block removed, answered or not — the document as it '
-    + 'reads once a review round is integrated (step 05, Result). The whole document; for part of it use '
-    + 'tomAi_specDecideMarks with `all` and tomAi_specResolveAnnotation. Answers `removed` (comments, questions, '
-    + 'openQuestions, marks, counted before), `applied` (each mark accepted) and `malformed` marks left as written. '
-    + 'Collect the answers first (tomAi_specWriteAnswers): what is removed here is gone from the document. '
-    + '`dryRun` shows the diff.' + FIRST_LOOK + RESULT_NOTE,
+    'Remove every review annotation of the whole document: every inline mark accepted, every comment and question removed, answered or not (a review round\'s step 05). Collect the answers first (tomAi_specWriteAnswers): what is removed is gone. Part of a document: tomAi_specDecideMarks with `all`, tomAi_specResolveAnnotation. Answers `removed`, `applied` and `malformed`.' + FIRST_LOOK + RESULT_NOTE,
     { ...EDIT_PARAMS },
     ['file'],
     specRemoveAllAnnotationsImpl,

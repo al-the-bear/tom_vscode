@@ -154,30 +154,7 @@ export function journal(
 // ===========================================================================
 
 export const ASK_USER_DESCRIPTION =
-    'THE way to ask the user something and actually receive an answer. ' +
-    'Whenever you need a decision, clarification, missing information, or ' +
-    'approval from the user, call this tool — do NOT just write the question ' +
-    'in your text reply, because that reply is not surfaced to the user as a ' +
-    'prompt and nothing will answer it (the run will stall or you will be ' +
-    'forced to guess). ' +
-    'Syntax: call `tomAi_askUser` with `questions` (an array of 1–15 strings), ' +
-    'an optional `title`, and an optional `timeoutMinutes`. Example: ' +
-    '`{ "questions": ["Which database should I target?", "Is a destructive ' +
-    'migration acceptable?"], "title": "Migration plan" }`. ' +
-    'It pauses the prompt queue and **waits**: **BLOCKING** — the call does ' +
-    'not return until the user answers (from the VS Code question panel OR ' +
-    'from Telegram). This works the same for a prompt running in the prompt ' +
-    'queue. By default it waits **indefinitely** — there is no deadline unless ' +
-    'you set `timeoutMinutes`, so only set it when you genuinely have a ' +
-    'sensible default to fall back on and would rather proceed than stall. ' +
-    'The questions are numbered (1..n) for display; the user types a single ' +
-    'free-form reply and that reply is returned to you **verbatim** as the ' +
-    'tool result — structure your questions so a numbered, free-form answer ' +
-    'makes sense. If a timeout does fire, the result is the configured ' +
-    'fallback prompt instead (default: ask the model to follow its own ' +
-    'recommendations). Only **one** ask may be in flight at a time (the queue ' +
-    'is blocked on it). Every exchange is logged to the quest questions ' +
-    'journal.';
+    'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One ask at a time; logged to the quest questions journal.';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
     name: 'tomAi_askUser',

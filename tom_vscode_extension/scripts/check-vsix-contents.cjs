@@ -54,6 +54,9 @@ const REQUIRED = [
     'extension/resources/codespecs/codespecs_mapping.md',
     'extension/out/services/codespecs-validator.js',
     'extension/out/services/codespecs-contract.js',
+    // tomAi_describeTool reads the tool documentation at run time.
+    'extension/doc/llm_tools.md',
+    'extension/out/tools/describe-tool.js',
     VALIDATE_CODESPECS_BINARY,
 ];
 

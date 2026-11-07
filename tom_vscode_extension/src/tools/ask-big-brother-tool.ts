@@ -276,23 +276,7 @@ export async function askBigBrotherImpl(bridge: LanguageModelBridge, input: AskB
 // ===========================================================================
 
 export const ASK_BIG_BROTHER_DESCRIPTION =
-    'Query a VS Code language model (GitHub Copilot, Claude, GPT-4, …) ' +
-    'from the local-LLM tool loop. **Two operations**: `"list"` returns ' +
-    'the model catalogue + recommendations; `"query"` runs a bounded ' +
-    'tool-use loop against the chosen model. **Model selection** is a ' +
-    'fallback chain: exact id → family → case-insensitive substring on ' +
-    'name OR id; the first hit wins. **Tool loop**: when ' +
-    '`enableTools: true`, the model may call up to `maxIterations` ' +
-    'rounds of tools before returning its final answer (default from ' +
-    'config); when `enableTools: false`, exactly one round runs. ' +
-    '**Timeout**: configured via `responseTimeoutMs`; on expiry the ' +
-    'response is `{ok: false, error: "Response timed out.", cancelled: ' +
-    'true, reason: "timeout", iterationsUsed, toolCallsMade}` so the ' +
-    'caller can tell how far the conversation got. **Response chunking**: ' +
-    'responses longer than the summarisation threshold are passed through ' +
-    'a second model (when `summarisationEnabled`); the envelope reports ' +
-    '`summarised: true` when this fired. Network-bound — typical latency ' +
-    'is several seconds, well above the local-tool budget.';
+    'Ask a VS Code language model (Copilot, Claude, GPT, …). `operation: "list"`: the models and recommendations; `"query"`: the `prompt` to the model `modelId` picks (exact id, else family, else a substring), with up to `maxIterations` tool rounds when `enableTools`. A timeout answers `cancelled: true` with how far it got; a long answer may come back summarised (`summarised: true`). Takes seconds.';
 
 export const ASK_BIG_BROTHER_TOOL: SharedToolDefinition<AskBigBrotherInput> = {
     name: 'tomAi_askBigBrother',

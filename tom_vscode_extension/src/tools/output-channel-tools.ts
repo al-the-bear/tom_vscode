@@ -100,20 +100,7 @@ function describeRun(run: { index: number; started: string; folder: string }): R
 }
 
 export const READ_OUTPUT_CHANNEL_DESCRIPTION =
-    'Read this VS Code window\'s output channels (the Output panel), from the files VS Code writes them to — ' +
-    'the extension\'s own (Tom Prompt Queue: sends, retries, errors; Tom AI Anthropic Chat: turns; ' +
-    'Tom AI Compaction and Memory Extraction: `history scope:` lines; Tom Extension Debug Log; Tom Tool Log; …) ' +
-    'and every other extension\'s. **Without `channel`**: the channels of the run with their size and last write, ' +
-    'and the runs there are. **With `channel`** (its name, any case; else the one name containing it; or its file ' +
-    'name such as `12-Tom Prompt Queue.log` when two channels share a name; a `:` in a name may be given or left out, ' +
-    'as VS Code leaves it out of the file: `Tom AI: MCP Server` and `Tom AI MCP Server` find the same channel): its lines as `<line>: <text>`, the last ' +
-    '`maxLines` (default 200, max 2000) of them; `grep` keeps lines containing the text (any case) or, with ' +
-    '`regex: true`, matching the JavaScript regular expression (case-insensitive); `context` adds up to 20 lines ' +
-    'around each match, `--` separating groups. `run` picks the extension-host run: 0 (default) is this one, 1 the ' +
-    'run before the last window reload, and so on — what an earlier session logged. Channels do not share a ' +
-    'timestamp format (ISO, `[HH:MM:SS]`, none), so filter by text, not by time. `truncated: true` when more ' +
-    'lines matched than were returned (the earliest left out); `readFromEnd: true` when the file was over 32 MB ' +
-    'and only its end was read (line numbers then count from there). Read-only.';
+    'Read this window\'s output channels (the extension\'s — Tom Prompt Queue, Tom AI Anthropic Chat, Tom Tool Log, … — and every other extension\'s) from the files VS Code writes. Without `channel`: the channels and runs. With `channel` (name, part of it, or file name): the last `maxLines` (default 200) as `<line>: <text>`; `grep` (`regex: true` for a regular expression), `context`; `run` 1 = the run before the last reload. Filter by text, not time: the channels\' timestamps differ. Read-only.';
 
 export const READ_OUTPUT_CHANNEL_TOOL: SharedToolDefinition<ReadOutputChannelInput> = {
     name: 'tomAi_readOutputChannel',

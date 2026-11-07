@@ -765,7 +765,7 @@ describe('missing API key warning', () => {
     });
 
     test('QK-3: the descriptions say so', () => {
-        assert.match(ADD_QUEUE_ITEM_TOOL.description, /carries `warning` when a stage of the item runs on an Anthropic profile/);
+        assert.match(ADD_QUEUE_ITEM_TOOL.description, /`warning` in the answer names stages whose direct-API key is missing/);
     });
 });
 

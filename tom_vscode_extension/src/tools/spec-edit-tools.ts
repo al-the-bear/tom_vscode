@@ -374,14 +374,7 @@ export async function specClearSectionImpl(deps: SpecToolDeps, input: SpecClearS
 // ---------------------------------------------------------------------------
 
 const MARKED_NOTE =
-    ' With `marked: true` the new text is written as a change the reviewer can accept or reject (SOM §11.9.3, through '
-    + 'SpecReviewAnnotations.setMarked): its differences against the value there now become inline marks '
-    + '(`{++added++}`, `{--removed--}`, `{~~old~>new~~}`), so accepting every mark gives the new text and rejecting every '
-    + 'mark the old one. A value already holding marks is compared from its original, so a second edit of a passage '
-    + 'updates its mark instead of nesting one. Text only: a typed or enum value is refused (`notText`). Answers '
-    + '`marked: true` and `exact` (false when a difference could not be marked — inside fenced code, or text holding mark '
-    + 'delimiters — and the new text was written unmarked). Read and decide the marks with tomAi_specAnnotations and '
-    + 'tomAi_specDecideMarks.';
+    ' `marked: true` writes the new text as a change the reviewer accepts or rejects (inline marks, SOM §11.9.3; text values only, `notText` otherwise); `exact: false` when part of it could not be marked.';
 const MARKED_PARAM = { type: 'boolean', description: 'Write the new text as a marked change against the value there now. Default false.' };
 
 export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
@@ -399,11 +392,7 @@ export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
 
 export const SPEC_SET_CONTENT_TOOL = editTool<SpecSetContentInput>(
     { name: 'tomAi_specSetContent', displayName: 'Spec: Set Content' },
-    'Set the value of a content or scalar leaf (a `…/content` path, or a scalar list item) through the runtime\'s '
-    + 'SpecEditor. `text` null or empty clears it. A typed leaf takes a number or boolean, or a string it can read; a '
-    + 'value its type cannot read (an int leaf given "lots" or 2.5, an enum leaf a name outside its domain) is refused as '
-    + '`code: "wrongValue"` with the leaf\'s `field` (name, type, enum domain), as tomAi_specSetFormField answers. For '
-    + 'form fields use tomAi_specSetFormField. Editor counterpart: doc_set_content.' + MARKED_NOTE + RESULT_NOTE,
+    'Set the value of a content or scalar leaf (a `…/content` path, or a scalar list item); null or "" clears it. A typed leaf takes a value its type can read, else `wrongValue` with the leaf\'s `field`. Form fields: tomAi_specSetFormField. Editor counterpart: doc_set_content.' + MARKED_NOTE + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         path: { type: 'string', description: PATH_PARAM_HINT },
@@ -416,11 +405,7 @@ export const SPEC_SET_CONTENT_TOOL = editTool<SpecSetContentInput>(
 
 export const SPEC_SET_FORM_FIELD_TOOL = editTool<SpecSetFormFieldInput>(
     { name: 'tomAi_specSetFormField', displayName: 'Spec: Set Form Field' },
-    'Set one field of a form, typed by its declaration: an `int` field takes a whole number (2.5 is refused), a `double` '
-    + 'a number, a `bool` true/false, an enum one of its names; a string is stored as written and must read back as the '
-    + 'declared type. A wrong value returns `code: "wrongValue"` with the field\'s type and enum domain; an unknown field '
-    + 'returns the form\'s fields. null or "" clears it. tomAi_specGetSection shows each form\'s fields. Editor '
-    + 'counterpart: doc_set_form_field.' + MARKED_NOTE + RESULT_NOTE,
+    'Set one field of a form, typed by its declaration (`int` a whole number, `double` a number, `bool`, an enum one of its names; a string must read back as the type). A wrong value answers `wrongValue` with the field\'s type and domain; an unknown field the form\'s fields. null or "" clears it. Editor counterpart: doc_set_form_field.' + MARKED_NOTE + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         path: { type: 'string', description: `The form's path. ${PATH_PARAM_HINT}` },
@@ -453,15 +438,7 @@ export const SPEC_SET_CODE_SPEC_TOOL = editTool<SpecSetCodeSpecInput>(
 
 export const SPEC_ADD_NODE_TOOL = editTool<SpecAddNodeInput>(
     { name: 'tomAi_specAddNode', displayName: 'Spec: Add Node' },
-    'Add a child under `parentPath` through the runtime\'s SpecNodeCreator: for a list segment (e.g. `FRE-REQU-LST`) a new '
-    + 'item, whose section id is generated from the list\'s @SectionIdPattern (dated `month`/`day`, default today) or '
-    + 'taken from `itemId` (it must keep the pattern prefix and be unique); for a single child its path. Optionally '
-    + 'populate it in the same call: `content` sets the new node\'s value (or its `content` leaf), `fields` sets forms '
-    + '`{ "<form segment relative to the new node, \'\' for the node itself>": { "<field>": value } }`, `headline` its '
-    + 'headline (one line, e.g. `FR-07 — Archive closed orders`), so one call adds a filled, headlined item. Answers the new '
-    + '`path`, `kind`, `sectionId` and `headline`. A refused add returns the runtime\'s code (unknownChild, patternMismatch, '
-    + 'duplicateSectionId, cardinalityExceeded, notAContainer) and the parent\'s `addable` children; nothing is written. '
-    + 'Editor counterparts: doc_add_node, doc_add_list_item.' + RESULT_NOTE,
+    'Add a child under `parentPath`: under a list segment (e.g. `FRE-REQU-LST`) a new item whose section id is generated from the list\'s pattern (dated `month`/`day`) or is `itemId`; else the single child. `content`, `fields` (`{"<form segment relative to the new node>": {field: value}}`) and `headline` fill it in the same call. A refused add answers the runtime\'s code and the parent\'s `addable` children. Editor counterparts: doc_add_node, doc_add_list_item.' + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         parentPath: { type: 'string', description: PATH_PARAM_HINT },
@@ -488,11 +465,7 @@ export const SPEC_SET_ITEM_SECTION_ID_TOOL = editTool<SpecSetItemSectionIdInput>
 
 export const SPEC_MOVE_LIST_ITEM_TOOL = editTool<SpecMoveListItemInput>(
     { name: 'tomAi_specMoveListItem', displayName: 'Spec: Move List Item' },
-    'Move a list item to `toIndex` (0-based) within its list, or into `toList` (a list of the same element class; the '
-    + 'item\'s id must fit the destination\'s pattern). The section id is the identity and the path the position: the list '
-    + 'is renumbered and values travel with their item. Answers `renamed` (old → new item path for every item that moved '
-    + '— any path you hold below the list may have changed) and `pinnedIds`. In YAML files the `review:` entries follow '
-    + 'their items.' + RESULT_NOTE,
+    'Move a list item to `toIndex` (0-based) in its list, or into `toList` (same element class; its id must fit the destination\'s pattern). The list is renumbered: the answer\'s `renamed` maps every old item path to its new one — any path you hold below the list may have changed.' + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
         itemPath: { type: 'string', description: PATH_PARAM_HINT },
@@ -692,27 +665,7 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
     name: 'tomAi_specApplyEdits',
     displayName: 'Spec: Apply Edits',
     description:
-        'Apply several edits to one TomSpecs document as ONE change: one approval, one write, one undo step, all or '
-        + 'nothing. The preferred way to make more than one change (add an item, then fill it). `edits` is an ordered list '
-        + `of up to ${MAX_BATCH_EDITS} entries, each \`{op, …}\` with the same arguments as the single tool, minus \`file\`: `
-        + 'setContent {path, text, marked?}, setFormField {path, field, value, marked?}, setHeadline {path, headline}, setCodeSpec {path, '
-        + 'codeSpec}, addNode {parentPath, childSegment, itemId?, month?, day?, content?, fields?, headline?, as?}, setItemSectionId '
-        + '{itemPath, sectionId}, moveListItem {itemPath, toIndex, toList?}, removeListItem {itemPath}, clearSection {path}; '
-        + 'and the review annotations: insertComment {path, field?, afterParagraph | afterTextStart | afterTextContains, text, '
-        + 'author?, id?}, insertQuestion {question, afterComment? | path + afterParagraph | afterTextStart | afterTextContains}, setAnswer {questionId, answer}, editComment {commentId, text}, '
-        + 'assignCommentIds {floor?}, resolveAnnotation {id}, decideMarks {decisions + marksRevision? | all + path?} (mark ids '
-        + 'are those of the document as the entry finds it), commentChange {markId, text, author?, marksRevision?} (a change '
-        + 'comment quoting the change), editMarkComment {markId, text, marksRevision?}, removeAllAnnotations {}. '
-        + 'addNode can bind its new path with `as: "req"`; later entries write `$req` or `$req/FRED` in path, parentPath, '
-        + 'itemPath or toList, so an item can be added and filled without knowing its generated id. A move re-points '
-        + 'bound names; a later entry that names a path a move changed is refused (`stalePath`) with the new path. '
-        + 'Names, ops and the cap are checked before anything runs (`invalidBatch`). Any failing entry aborts the whole '
-        + 'batch and writes nothing: `{ok:false, failedOp: {index, op}, code, error, completed}`. On success: `{written, '
-        + 'revision, applied, results: [{index, op, …}], bindings, validation: {introduced, resolved, underPath, total}}`, '
-        + 'the validation compared before and after the whole batch. `dryRun` returns all of it plus the `diff`, writing '
-        + 'nothing. Creating a document is tomAi_specCreateDocument. `validation` is the instance tier only; '
-        + 'tomAi_specValidate gives the full picture, the DocSpecs schema tier included. Paths are document paths as in the '
-        + 'single tools, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.' + FIRST_LOOK,
+        'Apply several edits to one TomSpecs document as ONE change: one approval, one write, all or nothing — the way to make more than one change. `edits` (at most ' + MAX_BATCH_EDITS + ') are `{op, …}` with the single tool\'s arguments minus `file`: setContent, setFormField, setHeadline, setCodeSpec, addNode, setItemSectionId, moveListItem, removeListItem, clearSection, insertComment, insertQuestion, setAnswer, editComment, assignCommentIds, resolveAnnotation, decideMarks, commentChange, editMarkComment, removeAllAnnotations. addNode can bind its new path (`as: "req"`) for later entries (`$req/FRED`); an entry naming a path a move changed is refused (`stalePath`). A failing entry writes nothing (`failedOp`). Paths as in the single tools, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,

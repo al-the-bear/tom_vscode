@@ -95,23 +95,7 @@ export const LIST_PROMPT_PAIRS_TOOL: SharedToolDefinition<ListPromptPairsInput> 
     name: 'tomAi_listPromptPairs',
     displayName: 'List Prompt Pairs',
     description:
-        `List past prompt+answer pairs for a quest, with metadata (requestId, ISO timestamp, sequence, ` +
-        `subsystem, prompt/answer character counts, previews). Newest first.\n\n` +
-        `Reads the summary trail pairs: each Anthropic session's own \`_ai/quests/<quest>/history/sessions/<session>/<quest>.anthropic.{prompts,answers}.md\` ` +
-        `(listed as subsystem \`anthropic:<session>\`; the filter \`anthropic\` matches them all) and the other subsystems' ` +
-        `\`_ai/quests/<quest>/history/<quest>.<subsystem>.{prompts,answers}.md\` — the same source a history rebuild reads. ` +
-        `Pairs are matched by \`requestId\`.\n\n` +
-        `**Inputs (all optional):**\n` +
-        `  - questId      — defaults to the current quest\n` +
-        `  - subsystem    — e.g. "anthropic", "copilot", "localllm-<configName>", or a prefix like "localllm" or "localllm-*". ` +
-        `Omit to scan every subsystem the quest has files for.\n` +
-        `  - limit        — page size (default 50, max 500)\n` +
-        `  - offset       — page offset (default 0; newest=0)\n` +
-        `  - previewChars — preview length per body (default 120; set 0 to disable)\n` +
-        `  - sessions     — the Anthropic sessions whose pairs to include: a name, a list, or "all"; default the session ` +
-        `this call runs in (every session when it runs in none). Other subsystems are always included. An unknown session ` +
-        `is refused (code unknownSession) with the sessions there are.\n\n` +
-        `Use the returned \`requestId\` (or the merged-list \`index\`) with \`tomAi_getPromptPair\` to fetch full bodies.`,
+        'List past prompt + answer pairs of a quest, newest first, with requestId, timestamp, subsystem, sizes and previews — from each Anthropic session\'s summary trail (subsystem `anthropic:<session>`) and the other subsystems\'. `subsystem` filters ("anthropic", "copilot", a prefix such as "localllm-*"); `limit` (default 50) / `offset` page; `sessions` picks Anthropic sessions (default this call\'s). Full bodies: tomAi_getPromptPair with the `requestId`.',
     tags: ['history', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

@@ -278,6 +278,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_readPastToolResult',
     'tomAi_listPromptPairs',
     'tomAi_getPromptPair',
+    // A tool's full description and documentation
+    'tomAi_describeTool',
 ] as const;
 
 /**

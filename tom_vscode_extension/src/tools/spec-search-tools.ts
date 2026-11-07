@@ -287,18 +287,7 @@ export const SPEC_SEARCH_TOOL: SharedToolDefinition<SpecSearchInput> = {
     name: 'tomAi_specSearch',
     displayName: 'Spec: Search',
     description:
-        'Search one TomSpecs document (`*.docspecs.yaml` or SOM `*.md`) with the runtime\'s query engine. All given '
-        + 'filters are AND-combined: `text` over content, form values and headlines (a node\'s stored headline, else its '
-        + 'model doc comment), `kinds`, `className` (a list item\'s or section\'s model class), `sectionIdExact` / '
-        + '`sectionIdPrefix` (a node\'s section id; a list item\'s is its own — the stored id, else the list\'s '
-        + 'pattern with its position, as its heading shows — so `FRE-REQU-ORDER-CAPTURE` finds that item, while the '
-        + 'list\'s id `FRE-REQU-LST` finds only the list), `pathGlob` '
-        + '(`*` within one segment, `**` across), `mapsTo` / `detailedIn` (a root type such as `D03InformationModel`), '
-        + 'and `state` (`empty` / `nonEmpty`; review state is not searchable). Returns `total`, the first page of matches '
-        + '`{path, kind, classId, headline, snippet, matchSpans}` and, when more remain, a `cursorId` for '
-        + 'tomAi_specSearchIterate. A snippet longer than 320 characters is a window around the first match, with '
-        + '`snippetOffset` and `valueLength`; spans are relative to the snippet. With `regex: true`, `text` is a pattern: '
-        + PATTERN_SUBSET + ' A rejected pattern returns `code: "patternError"`.' + FIRST_LOOK + ' Editor counterpart: doc_search.',
+        'Search one TomSpecs document; the filters are AND-combined: `text` (values and headlines), `kinds`, `className`, `sectionIdExact` / `sectionIdPrefix` (a list item\'s own id; the list\'s id finds only the list), `pathGlob` (`*` one segment, `**` across), `mapsTo` / `detailedIn`, `state`. Answers `total`, a page of matches `{path, kind, headline, snippet, matchSpans}` and a `cursorId` for tomAi_specSearchIterate when more remain. `regex: true` reads `text` in the runtime\'s portable subset: no alternation, grouping or `\\d`/`\\w` (refused as `patternError`).' + FIRST_LOOK + ' Editor counterpart: doc_search.',
     tags: ['tomspecs', 'som', 'docspecs', 'search', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

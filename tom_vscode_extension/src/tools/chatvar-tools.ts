@@ -122,25 +122,7 @@ export async function readChatVariableImpl(deps: ChatVariablesAccess, input: Cha
 }
 
 export const READ_CHATVAR_DESCRIPTION =
-    'Read chat variables. **Built-in keys**: `quest` (active quest id), ' +
-    '`role` (active role name), `activeProjects` (string[]), `todo` ' +
-    '(selected todo id), `todoFile` (selected file name or `"all"`). ' +
-    '**Process keys** (the active quest\'s process, kept per quest in the ' +
-    'quest folder): `process`, `phase`, `step`, `substep`, `phase-iteration`, ' +
-    '`step-iteration`, `substep-iteration` and the descriptions ' +
-    '`process-description`, `phase-description`, `step-description`, ' +
-    '`substep-description`, the prompts `phase-prompt`, `step-prompt`, ' +
-    '`substep-prompt`, and `session` (the Agent SDK session the step runs in) — all `""` when no process is set; change them ' +
-    'with `tomAi_setProcessState`. ' +
-    '**Custom keys** are stored under the `custom.*` namespace; you can ' +
-    'address them as `custom.myKey` or just `myKey` — both forms resolve ' +
-    'to the same value. Omit `key` to return the full snapshot ' +
-    '(`{quest, role, activeProjects, todo, todoFile, process: {...}, custom}`); pass ' +
-    '`key` to get `{key, value, exists, isBuiltIn}` for one variable — ' +
-    '`exists: false` distinguishes an unknown custom key from one with ' +
-    'an empty value. **Persistence**: per VS Code window, written to a ' +
-    'YAML file under the workspace metadata folder; survives window ' +
-    'reload, but a fresh window starts empty.';
+    'Read chat variables: without `key` the snapshot (`quest`, `role`, `activeProjects`, `todo`, `todoFile`, `process`, `custom`); with `key` `{value, exists, isBuiltIn}`. The process keys (`process`, `phase`, `step`, `substep`, their iterations, descriptions and prompts, `session`) are set with tomAi_setProcessState. A custom key is `custom.name` or just `name`. Per window, kept across a reload.';
 
 export const READ_CHATVAR_TOOL: SharedToolDefinition<ChatvarReadInput> = {
     name: 'tomAi_readChatVariable',
@@ -240,22 +222,7 @@ export async function writeChatVariableImpl(deps: ChatVariablesAccess, input: Ch
 }
 
 export const WRITE_CHATVAR_DESCRIPTION =
-    'Update one or more custom chat variables. Keys are stored under the ' +
-    '`custom.*` namespace; passing `myKey` or `custom.myKey` is equivalent ' +
-    '(the `custom.` prefix is stripped idempotently). **Built-in keys** ' +
-    '(`quest`, `role`, `activeProjects`, `todo`, `todoFile`) are rejected ' +
-    'with `reason: "built-in keys are user-only..."` — set those from the ' +
-    'Chat Variables panel. The process keys (`process`, `phase`, `step`, ' +
-    '`substep`, the iterations and descriptions) are rejected too — set ' +
-    'them with `tomAi_setProcessState`. **Empty-string value DELETES the variable** when ' +
-    'the key currently exists; writing an empty string to an unknown key is ' +
-    'rejected as "would set/delete nothing" so the model knows nothing was ' +
-    'persisted. **Coercion rules**: strings pass through; null/undefined → ' +
-    'empty string (= delete); numbers/booleans → `String(value)`; objects → ' +
-    '`String(value)` (usually `"[object Object]"` — JSON-stringify yourself ' +
-    'first if you want the JSON form). Response is `{ok, accepted: {created, ' +
-    'updated, deleted}, rejected: [{key, reason}, ...]}`. No approval ' +
-    'required — every write is visible live in the Chat Variables Editor.';
+    'Set custom chat variables (`name` or `custom.name`, the same key). The built-in keys (set in the Chat Variables panel) and the process keys (tomAi_setProcessState) are refused. An empty string DELETES an existing variable (an unknown one is refused); values become strings, so JSON-stringify an object yourself. Answers `{accepted: {created, updated, deleted}, rejected}`.';
 
 export const WRITE_CHATVAR_TOOL: SharedToolDefinition<ChatvarWriteInput> = {
     name: 'tomAi_writeChatVariable',

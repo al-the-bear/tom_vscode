@@ -354,15 +354,7 @@ export const CODESPECS_GUIDE_TOOL: SharedToolDefinition<CodeSpecsGuideInput> = {
     name: 'tomAi_specCodeSpecsGuide',
     displayName: 'CodeSpecs: Guide',
     description:
-        'The CodeSpecs (Phase 4) workflow guides and stage runbooks, packaged with the extension. Without arguments: the '
-        + 'two guides — `prompt` (codespecs_prompt.md: Stage A, the extraction run, Stage B, Stage C) and `mapping` '
-        + '(codespecs_mapping.md: concepts, the Phase-4 contract and run procedure §1.1, the todo tree, the parts '
-        + 'catalogue, slices and authoring order §4.4, DocSpecs ↔ CodeSpecs linking §9) — with their main sections, and '
-        + 'the runbooks. `guide` alone: its full outline. `guide` + `section` (a number such as `6.2` or `1.1.2`): that '
-        + 'section with its subsections (a very long one answers its own text and lists its children). `runbook` '
-        + '(codespecs-next-step, -stage-a, -extraction, -stage-b, -stage-c, -authoring-step, -validate): the stage\'s '
-        + 'instructions with `file` / `questId` / `step` / `shared` filled in and its guide sections appended. The same '
-        + 'guides are MCP resources (`codespecs-guide://prompt`, `codespecs-guide://mapping`) and the runbooks MCP prompts.',
+        'The CodeSpecs (Phase 4) guides and stage runbooks bundled with the extension. Without arguments: the guides (`prompt`, `mapping`) with their main sections, and the runbooks. `guide`: its outline; with `section` (e.g. `6.2`) that section. `runbook` (codespecs-next-step, -stage-a, -extraction, -stage-b, -stage-c, -authoring-step, -validate): the stage\'s instructions with `file` / `questId` / `step` / `shared` filled in. Also MCP resources and prompts.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

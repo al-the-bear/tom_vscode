@@ -133,17 +133,7 @@ export const SPEC_VALIDATE_TOOL: SharedToolDefinition<SpecValidateInput> = {
     name: 'tomAi_specValidate',
     displayName: 'Spec: Validate',
     description:
-        'Is a TomSpecs document valid? Runs the three tiers tom_specs\' validate_spec CLI runs and answers in its report '
-        + 'shape (`spec-validation`/1): decode (Markdown parse rejections; with `files`, fragments of different roots and '
-        + 'values written by more than one fragment, each overlap naming every writer), schema (the DocSpecs schema of the '
-        + 'root, generated from the model, over the document\'s Markdown rendition), and instance (typed values, enum '
-        + 'domains, references, stated counts). Answers `{passed, summary, root {type, schemaId, schemaVersion}, tiers, '
-        + 'notRun, violations: [{tier, code, severity, file, line, location, path, message}]}`; `path` is the document path '
-        + 'to fix, as the edit tools take it (for a schema finding, the section its line falls under). `files` validates '
-        + 'fragments of one document as one, so references between them resolve. `path` keeps only findings at or below '
-        + 'it. Known limit: on a few rare shapes the schema and instance tiers still disagree (tom_specs vsctsa32), and the '
-        + 'schema tier has not been checked against every model shape (qrb3); schema findings name the schema id and '
-        + 'version so such a case can be traced.' + FIRST_LOOK,
+        'Is a TomSpecs document valid? The three tiers of tom_specs\' validate_spec: decode, schema (the root\'s DocSpecs schema over the Markdown rendition) and instance (types, enums, references, stated counts). Answers `{passed, summary, tiers, notRun, violations: [{tier, code, file, line, path, message}]}`, `path` the document path to fix. `files` validates fragments of one document as one; `path` keeps findings at or below it.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'validate', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
