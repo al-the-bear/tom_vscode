@@ -279,6 +279,22 @@ Every transport that counts tokens also returns the send's totals as `AnthropicS
 - the **@CHAT ANTHROPIC/LLM** status line after each answer, after the model, history mode, tool calls and session turns (a panel send and a routed Send to Chat / script send alike);
 - each **queue item** in the queue editor, as `[Σ … (N stages)]`: the usage of every stage of the item's current run (pre-prompts, main prompt, repetitions, follow-ups) summed in `QueuedPrompt.sendUsage` (`addStageUsage`), updated after each stage and reset when the item starts again (`resetItemRunState`). On a `<prefix>*` walk this shows a cache miss while the walk runs. `LiveTrailWriter.appendUsage` also emits a `{ kind: 'usage', usage }` event; the Telegram coalescer deliberately drops it (a remote follower wants the answer, not the invoice).
 
+## 8. Claude Code hooks (all transports)
+
+The hooks in Claude Code's settings files — `~/.claude/settings.json` (user), the workspace's `.claude/settings.json` (project) and `.claude/settings.local.json` (local), `{"hooks": {"<Event>": [{"matcher": "…", "hooks": [{"type": "command", "command": "…", "timeout": 60}]}]}}` — run on every transport, with Claude Code's semantics (`src/services/claudeHooks.ts`, CC-12). The files are read on every use, so an edit applies at once.
+
+| Event | Where it runs (direct, Local LLM, VS Code LM) | What a hook can do |
+| --- | --- | --- |
+| `SessionStart` | the first send of a session in the window (`source: startup`; after clearing the session `clear`) | its context (`additionalContext`, or plain stdout) goes after the prompt |
+| `UserPromptSubmit` | each send, before anything goes out | block it (exit 2, or `decision: block`; the send answers *Prompt blocked by a UserPromptSubmit hook: …* and sends nothing); context after the prompt |
+| `PreToolUse` | each tool call (`runTool`), after plan mode, before approval | deny (exit 2 with the reason on stderr, `permissionDecision: deny`, the legacy `decision: block`) — the call answers *Blocked by a PreToolUse hook: …*; allow — no approval asked; ask — approval asked even for a reader (not under Tool Approval *Never*: an unattended queue cannot answer); `updatedInput` replaces the input |
+| `PostToolUse` | after each tool call | a block's reason (exit 2, `decision: block`) and `additionalContext` go back with the result |
+| `Stop` | when the model ends its turn (not on isolated sends) | block with a reason: the model goes on with it, `stop_hook_active` true on the next Stop |
+
+Every hook gets Claude Code's input JSON on stdin (`session_id` = `<quest>:<session>`, `transcript_path` = the session's live trail, `cwd`, `hook_event_name` and the event's fields) and `CLAUDE_PROJECT_DIR`; it runs in a shell in the workspace root and is killed after its `timeout` (default 60 s). Matchers are regular expressions over the whole tool name (none, `''` and `*` match all). All matching hooks run in parallel; deny wins over ask over allow. Another exit code, a crash or a timeout is a non-blocking error shown in the status line and the live trail; `systemMessage` is shown the same way; `continue: false` ends the send after the current round (stop reason `hook_stop`).
+
+On the **Agent SDK** the SDK runs the hooks of the setting sources it loads (the profile's or configuration's `settingSources`, `project` added when the workspace has a CLAUDE.md); the hooks of the other files go to its `hooks` option as callbacks that run the same commands — every hook runs once. Tests: `claudeHooks.test.ts` (HK-1..5), `claude-hooks-transports.test.ts` (HT-1..4).
+
 ## Related sections of the spec
 
 - §4 Trail system (raw + summary trails for `anthropic` subsystem)

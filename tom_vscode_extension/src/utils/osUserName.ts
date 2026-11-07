@@ -45,12 +45,30 @@ export function commentAuthorName(form: CommentAuthorForm, fullName: string, log
     return name.replace(/[()]/g, '').trim();
 }
 
+/**
+ * The login name, never throwing: `os.userInfo()` asks the directory service,
+ * which can be down (macOS opendirectoryd answering eServerError: libuv's
+ * uv_os_get_passwd then fails with ENOENT); then `$USER`, `$USERNAME`, the
+ * home folder's name, else `user`.
+ */
+export function osLoginName(
+    userInfo: () => string = () => os.userInfo().username,
+    env: Record<string, string | undefined> = process.env,
+    homeDir: string = os.homedir(),
+): string {
+    try {
+        const name = userInfo();
+        if (name) { return name; }
+    } catch { /* the directory service is down: the fallbacks */ }
+    return env.USER || env.USERNAME || homeDir.split(/[\\/]/).filter(Boolean).pop() || 'user';
+}
+
 let cached: string | undefined;
 
 /** The comment author for this machine's logged-in user (computed once). */
 export function currentCommentAuthor(form: CommentAuthorForm): string {
     if (cached === undefined) {
-        const login = os.userInfo().username;
+        const login = osLoginName();
         const fullName = osUserFullName({
             platform: process.platform,
             login,

@@ -37,6 +37,7 @@ import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
 import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
+import { osLoginName } from './osUserName';
 import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
 import { collectClaudeMd, renderClaudeMd } from '../services/claudeMd';
 
@@ -289,7 +290,7 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
         'vs-code-workspace-folder': wsRoot || '',
 
         // User / Host
-        username:         os.userInfo().username,
+        username:         osLoginName(),
         hostname:         os.hostname(),
         home:             os.homedir(),
 

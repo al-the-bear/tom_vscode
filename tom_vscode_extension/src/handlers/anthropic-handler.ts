@@ -52,6 +52,7 @@ import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
 import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
 import { parseSettingSources, parseSystemPromptMode, type SettingSource, type SystemPromptMode } from '../utils/agentSdkSystemPrompt';
+import { hooksHomeDir, loadHooks, runHooks, type CommandHook, type HookOutcome, type HookRunOptions } from '../services/claudeHooks';
 import { findAgentDefinition, listAgentDefinitions, resolveSubagentConfiguration, toOurToolNames, toSdkAgents } from '../services/agentDefinitions';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
@@ -780,6 +781,11 @@ export class AnthropicHandler {
      * history compaction…"), no prefix needed.
      */
     readonly onStatusUpdate: vscode.Event<string> = this._onStatusUpdate.event;
+    /** A hook's `continue: false` during a request (CC-12), by request id: the loop ends after the round. */
+    private readonly hookStops = new Map<string, string>();
+    /** The session keys whose SessionStart hooks ran in this window, and the ones cleared since (CC-12). */
+    private readonly hookSessionsStarted = new Set<string>();
+    private readonly hookSessionsCleared = new Set<string>();
 
     /** Show a line in the panel's status line (a sub-agent's progress, say). */
     reportStatus(text: string): void {
@@ -862,6 +868,8 @@ export class AnthropicHandler {
         // That session's tool trail (each session has its own).
         this.toolTrailFor(sessionKey).clear();
         this.sessionApprovals.clear();
+        // The next send in it starts a session again: SessionStart with source `clear` (CC-12).
+        if (this.hookSessionsStarted.delete(sessionKey)) { this.hookSessionsCleared.add(sessionKey); }
         this.roundCounter = 0;
         this.compactionInFlight = null;
         this.memoryExtractionInFlight = null;
@@ -2176,7 +2184,36 @@ export class AnthropicHandler {
         // summary trail (written from finalize) uses `effectiveUserText`
         // directly so it reflects only what the user typed — no
         // injections, templates, or prefixes.
-        const userContent = expandedUser;
+        let userContent = expandedUser;
+
+        // Claude Code's SessionStart and UserPromptSubmit hooks (CC-12), on the
+        // transports with our own loop (the Agent SDK runs its own). A blocked
+        // prompt is not sent; context the hooks give goes after the prompt.
+        if (transport !== 'agentSdk' && !options.isolated) {
+            const hooks = this.claudeHooks();
+            if (hooks.length > 0) {
+                const hookOpts = this.hookRunOptions(options, quest, liveTrail);
+                const context: string[] = [];
+                const sessionKey = options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY;
+                if (!this.hookSessionsStarted.has(sessionKey)) {
+                    const source = this.hookSessionsCleared.has(sessionKey) ? 'clear' : 'startup';
+                    this.hookSessionsStarted.add(sessionKey);
+                    this.hookSessionsCleared.delete(sessionKey);
+                    const started = await runHooks(hooks, 'SessionStart', { source }, hookOpts);
+                    this.reportHookMessages(started, liveTrail);
+                    context.push(...started.additionalContext);
+                }
+                const submitted = await runHooks(hooks, 'UserPromptSubmit', { prompt: effectiveUserText }, hookOpts);
+                this.reportHookMessages(submitted, liveTrail);
+                if (submitted.block || submitted.stop) {
+                    const why = submitted.reason ?? submitted.stop?.reason ?? 'no reason given';
+                    this._onStatusUpdate.fire(`Prompt blocked by a UserPromptSubmit hook: ${why}`);
+                    return { text: `Prompt blocked by a UserPromptSubmit hook: ${why}`, turnsUsed: 0, toolCallCount: 0, stopReason: 'hook_blocked' };
+                }
+                context.push(...submitted.additionalContext);
+                if (context.length > 0) { userContent = `${userContent}\n\n${context.join('\n\n')}`; }
+            }
+        }
 
         // First live-trail event for this turn — shows up in the
         // MD Browser as soon as the send button is clicked.
@@ -2396,6 +2433,9 @@ export class AnthropicHandler {
                     // tool, wherever they are (CC-11); its sub-agents' progress
                     // goes to the status line.
                     agents: toSdkAgents(listAgentDefinitions(WsPaths.wsRoot ?? '')),
+                    // Claude Code's hooks (CC-12): the SDK runs those of the setting
+                    // sources it loads; the transport hands it the others as callbacks.
+                    claudeHooks: this.claudeHooks(),
                     onStatus: (text: string): void => this._onStatusUpdate.fire(text),
                     onToolUse: options.onToolCall,
                     context: {
@@ -2644,6 +2684,8 @@ export class AnthropicHandler {
 
         // One signal for the whole send: cancelling aborts the stream in flight.
         const abortSignal = abortSignalFor(options.cancellationToken);
+        // Set once a Stop hook kept the turn going (Claude Code's stop_hook_active).
+        let stopHookActive = false;
         try {
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
@@ -2727,6 +2769,17 @@ export class AnthropicHandler {
                 }
 
                 if (response.stop_reason !== 'tool_use') {
+                    // A Stop hook that blocks gives the model its reason to go on (CC-12).
+                    const goOn = turn + 1 < configuration.maxRounds
+                        ? await this.stopHookContinuation(options, quest, requestId, liveTrail, stopHookActive)
+                        : undefined;
+                    if (goOn !== undefined) {
+                        stopHookActive = true;
+                        messages.push({ role: 'assistant', content: response.content });
+                        messages.push({ role: 'user', content: goOn });
+                        continue;
+                    }
+                    this.takeHookStop(requestId);
                     const usage = finishUsage();
                     return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
                 }
@@ -2770,6 +2823,13 @@ export class AnthropicHandler {
                 // the blocks are signed over them.
                 const caps = { ...this.resolveEffectiveCaps(configuration), cachingEnabled: effectiveCaching };
                 this.applyToolTrailRetentionPolicy(messages, caps);
+                // A hook's `continue: false` ends the send after this round (CC-12).
+                const hookStop = this.takeHookStop(requestId);
+                if (hookStop !== undefined) {
+                    liveTrail?.appendNotice(`Stopped by a hook: ${hookStop}`);
+                    const usage = finishUsage();
+                    return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, 'hook_stop', windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
+                }
             }
         } catch (err) {
             // Guarantee the raw answer file exists even when the API
@@ -2924,6 +2984,8 @@ export class AnthropicHandler {
             }, quest);
         } catch { /* best-effort */ }
 
+        // Set once a Stop hook kept the turn going (Claude Code's stop_hook_active).
+        let stopHookActive = false;
         try {
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
@@ -2984,6 +3046,17 @@ export class AnthropicHandler {
                 if (turnText) { lastText = turnText; this.rememberAssistantText(lastText); }
 
                 if (toolCalls.length === 0) {
+                    // A Stop hook that blocks gives the model its reason to go on (CC-12).
+                    const goOn = turn + 1 < configuration.maxRounds
+                        ? await this.stopHookContinuation(options, quest, requestId, liveTrail, stopHookActive)
+                        : undefined;
+                    if (goOn !== undefined) {
+                        stopHookActive = true;
+                        chatMessages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+                        chatMessages.push(vscode.LanguageModelChatMessage.User(goOn));
+                        continue;
+                    }
+                    this.takeHookStop(requestId);
                     lastStopReason = 'end_turn';
                     return this.finalize(
                         userContent,
@@ -3054,6 +3127,12 @@ export class AnthropicHandler {
                     chatMessages[r.messageIndex] = vscode.LanguageModelChatMessage.User(
                         r.results.map((res) => new vscode.LanguageModelToolResultPart(res.tool_use_id, [new vscode.LanguageModelTextPart(res.content)])),
                     );
+                }
+                // A hook's `continue: false` ends the send after this round (CC-12).
+                const hookStop = this.takeHookStop(requestId);
+                if (hookStop !== undefined) {
+                    liveTrail?.appendNotice(`Stopped by a hook: ${hookStop}`);
+                    return this.finalize(userContent, lastText, turn + 1, totalToolCalls, 'hook_stop', windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail);
                 }
             }
 
@@ -3217,6 +3296,8 @@ export class AnthropicHandler {
             const writeLocalUsage = (): void => {
                 if (Object.keys(localUsage).length > 0) { liveTrail?.appendUsage(localLlmSendUsage(llm.model, localUsage)); }
             };
+            // Set once a Stop hook kept the turn going (Claude Code's stop_hook_active).
+            let stopHookActive = false;
             for (let turn = 0; turn < configuration.maxRounds; turn++) {
                 if (options.cancellationToken?.isCancellationRequested) {
                     break;
@@ -3269,6 +3350,17 @@ export class AnthropicHandler {
                 localUsage = addTokenCounts(localUsage, tokensFromLocalStats(result.stats));
 
                 if (!result.toolCalls || result.toolCalls.length === 0) {
+                    // A Stop hook that blocks gives the model its reason to go on (CC-12).
+                    const goOn = turn + 1 < configuration.maxRounds
+                        ? await this.stopHookContinuation(options, quest, requestId, liveTrail, stopHookActive)
+                        : undefined;
+                    if (goOn !== undefined) {
+                        stopHookActive = true;
+                        messages.push({ role: 'assistant', content: result.text ?? '' });
+                        messages.push({ role: 'user', content: goOn });
+                        continue;
+                    }
+                    this.takeHookStop(requestId);
                     lastStopReason = 'end_turn';
                     writeLocalUsage();
                     return withUsage(this.finalize(
@@ -3331,6 +3423,13 @@ export class AnthropicHandler {
                                 .join('')
                             : '';
                     messages.push({ role: 'tool', content: resultText });
+                }
+                // A hook's `continue: false` ends the send after this round (CC-12).
+                const hookStop = this.takeHookStop(requestId);
+                if (hookStop !== undefined) {
+                    liveTrail?.appendNotice(`Stopped by a hook: ${hookStop}`);
+                    writeLocalUsage();
+                    return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, 'hook_stop', windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), Object.keys(localUsage).length > 0 ? localUsage : undefined);
                 }
             }
 
@@ -3572,8 +3671,7 @@ export class AnthropicHandler {
         liveTrail: LiveTrailWriter | null,
     ): Promise<AnthropicToolResultBlockParam> {
         const def = tools.find((t) => t.name === block.name);
-        const input = (block.input ?? {}) as Record<string, unknown>;
-        const inputSummary = summarizeToolInput(def, input);
+        let input = (block.input ?? {}) as Record<string, unknown>;
         options.onToolCall?.(block.name);
 
         // Plan mode (CC-3): a write tool is refused here, before approval and
@@ -3585,6 +3683,28 @@ export class AnthropicHandler {
             return { type: 'tool_result', tool_use_id: block.id, is_error: true, content: planRefusal };
         }
 
+        // Claude Code's PreToolUse hooks (CC-12): deny refuses the call, allow
+        // skips the approval, ask asks even where nothing would, updatedInput
+        // replaces the input. `continue: false` also ends the send.
+        const hooks = this.claudeHooks();
+        const hookOpts = this.hookRunOptions(options, quest, liveTrail);
+        let hookDecision: 'allow' | 'deny' | 'ask' | undefined;
+        if (hooks.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's hook and tool_result wire fields
+            const pre = await runHooks(hooks, 'PreToolUse', { tool_name: block.name, tool_input: input }, hookOpts);
+            this.reportHookMessages(pre, liveTrail);
+            if (pre.stop) { this.hookStops.set(requestId, pre.stop.reason); }
+            if (pre.decision === 'deny' || pre.stop) {
+                const refusal = `Blocked by a PreToolUse hook: ${pre.reason ?? pre.stop?.reason ?? 'no reason given'}`;
+                logToolCall({ at: new Date(), transport: configuration.transport ?? 'direct', tool: block.name, durationMs: 0, resultChars: refusal.length, error: refusal });
+                // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's hook and tool_result wire fields
+                return { type: 'tool_result', tool_use_id: block.id, is_error: true, content: refusal };
+            }
+            if (pre.updatedInput) { input = pre.updatedInput; }
+            hookDecision = pre.decision;
+        }
+        const inputSummary = summarizeToolInput(def, input);
+
         // Per spec §8.1: `requiresApproval` defaults to `true` for write
         // tools (i.e. `!readOnly`). An explicit value overrides the default
         // — e.g. `tomAi_writeChatVariable` opts out because it has its own
@@ -3593,8 +3713,11 @@ export class AnthropicHandler {
         // asks for the rest — one rule for every transport (toolNeedsApproval).
         // A name with no definition is no tool of ours: nothing to ask about.
         const approvalMode = parseToolApprovalMode(options.profile.toolApprovalMode);
-        const needsApproval = def ? toolNeedsApproval(approvalMode, block.name, def) : false;
-        if (needsApproval && !this.sessionApprovals.has(block.name)) {
+        // A hook's allow skips the prompt; its ask asks (not under "Never": an unattended queue cannot answer).
+        const needsApproval = hookDecision === 'allow' ? false
+            : hookDecision === 'ask' ? approvalMode !== 'never'
+                : def ? toolNeedsApproval(approvalMode, block.name, def) : false;
+        if (needsApproval && (hookDecision === 'ask' || !this.sessionApprovals.has(block.name))) {
             const approved = await this.awaitApproval({
                 toolUseId: block.id,
                 toolName: block.name,
@@ -3658,6 +3781,25 @@ export class AnthropicHandler {
             result = `Error: ${error}`;
         }
         const durationMs = Date.now() - start;
+
+        // Claude Code's PostToolUse hooks (CC-12): a block's reason (exit 2 or
+        // `decision: block`) and any additionalContext go back to the model
+        // with the result; the call has already run.
+        if (hooks.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's hook and tool_result wire fields
+            const post = await runHooks(hooks, 'PostToolUse', { tool_name: block.name, tool_input: input, tool_response: result }, hookOpts);
+            this.reportHookMessages(post, liveTrail);
+            if (post.stop) { this.hookStops.set(requestId, post.stop.reason); }
+            const feedback = [
+                ...(post.block ? [`PostToolUse hook: ${post.reason ?? 'blocked'}`] : []),
+                ...post.additionalContext,
+            ];
+            if (feedback.length > 0) {
+                const note = feedback.join('\n');
+                result = `${result}\n\n${note}`;
+                if (richBlocks) { richBlocks = [...richBlocks, { type: 'text', text: note }]; }
+            }
+        }
         // One line in the Tom Tool Log per call, on every transport this loop serves.
         logToolCall({ at: new Date(), transport: configuration.transport ?? 'direct', tool: block.name, durationMs, resultChars: result.length, error });
 
@@ -3699,6 +3841,65 @@ export class AnthropicHandler {
     // ------------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------------
+
+    /**
+     * Claude Code's command hooks (CC-12) from its three settings files:
+     * ~/.claude/settings.json, and the workspace's .claude/settings.json and
+     * .claude/settings.local.json. Read per use, so an edit applies at once.
+     */
+    private claudeHooks(): CommandHook[] {
+        const wsRoot = WsPaths.wsRoot;
+        return wsRoot ? loadHooks(wsRoot, hooksHomeDir()) : [];
+    }
+
+    /** The common input of a hook run: the workspace, the session, its live trail. */
+    private hookRunOptions(options: AnthropicSendOptions, quest: string, liveTrail: LiveTrailWriter | null): HookRunOptions {
+        return {
+            cwd: WsPaths.wsRoot ?? '',
+            sessionId: `${quest}:${options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY}`,
+            transcriptPath: liveTrail?.getFilePath() ?? '',
+        };
+    }
+
+    /** A hook's messages for the user (systemMessage, non-blocking errors): status line and live trail. */
+    private reportHookMessages(outcome: HookOutcome, liveTrail: LiveTrailWriter | null): void {
+        for (const message of outcome.userMessages) {
+            this._onStatusUpdate.fire(message);
+            liveTrail?.appendNotice(message);
+        }
+    }
+
+    /**
+     * Claude Code's Stop hooks at the end of a turn (CC-12): a block's reason
+     * is the instruction the model continues with; undefined lets it stop.
+     * Not for isolated sends (sub-agents, compaction).
+     */
+    private async stopHookContinuation(
+        options: AnthropicSendOptions,
+        quest: string,
+        requestId: string,
+        liveTrail: LiveTrailWriter | null,
+        stopHookActive: boolean,
+    ): Promise<string | undefined> {
+        if (options.isolated) { return undefined; }
+        const hooks = this.claudeHooks();
+        if (hooks.length === 0) { return undefined; }
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's hook and tool_result wire fields
+        const outcome = await runHooks(hooks, 'Stop', { stop_hook_active: stopHookActive }, this.hookRunOptions(options, quest, liveTrail));
+        this.reportHookMessages(outcome, liveTrail);
+        if (outcome.stop) { this.hookStops.set(requestId, outcome.stop.reason); return undefined; }
+        if (!outcome.block) { return undefined; }
+        const reason = outcome.reason ?? 'A Stop hook asked to continue.';
+        liveTrail?.appendNotice(`Stop hook: continuing — ${reason}`);
+        return reason;
+    }
+
+    /** A hook's `continue: false` during this request, taken once; undefined when none. */
+    private takeHookStop(requestId: string): string | undefined {
+        const reason = this.hookStops.get(requestId);
+        if (reason !== undefined) { this.hookStops.delete(requestId); }
+        return reason;
+    }
 
     private getAnthropicSection(): AnthropicSection {
         return TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};

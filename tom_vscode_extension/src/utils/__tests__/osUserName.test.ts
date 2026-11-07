@@ -4,12 +4,14 @@
  *
  *   OU-1  macOS: the account's full name (`id -F`); Linux: the GECOS full name; else the login
  *   OU-2  the forms: first name, full name, login
+ *   OU-3  the login name never throws: os.userInfo() fails when the directory service is down (seen on mbp,
+ *         2026-11-07: uv_os_get_passwd ENOENT), then $USER, $USERNAME, the home folder's name
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { osUserFullName, commentAuthorName } from '../osUserName.js';
+import { osUserFullName, commentAuthorName, osLoginName } from '../osUserName.js';
 
 describe('OS user name', () => {
     test('OU-1: the full name per platform', () => {
@@ -27,5 +29,14 @@ describe('OS user name', () => {
         assert.equal(commentAuthorName('login', 'Alexis Kyaw', 'alexiskyaw'), 'alexiskyaw');
         assert.equal(commentAuthorName('first', '', 'alexiskyaw'), 'alexiskyaw', 'no full name: the login');
         assert.equal(commentAuthorName('full', 'Kyaw (admin)', 'x'), 'Kyaw admin', 'no parentheses: they would end the author');
+    });
+
+    test('OU-3: the login name without the directory service', () => {
+        const down = (): string => { throw new Error('uv_os_get_passwd returned ENOENT'); };
+        assert.equal(osLoginName(() => 'alexis', {}, '/home/x'), 'alexis');
+        assert.equal(osLoginName(down, { USER: 'alexiskyaw' }, '/Users/other'), 'alexiskyaw');
+        assert.equal(osLoginName(down, { USERNAME: 'alexi' }, 'C:\\Users\\other'), 'alexi');
+        assert.equal(osLoginName(down, {}, '/Users/alexiskyaw'), 'alexiskyaw');
+        assert.equal(osLoginName(down, {}, ''), 'user');
     });
 });

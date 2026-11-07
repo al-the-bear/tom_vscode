@@ -225,6 +225,7 @@ import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-
 import type { LiveTrailUsage, LiveTrailModelUsage, LiveTrailTokenCounts } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
 import { SubagentProgress } from '../utils/subagentProgress';
+import { sdkHookCallbacks, type CommandHook } from '../services/claudeHooks';
 import { effectiveSettingSources, parseSystemPromptMode, sdkSystemPromptOption, type SettingSource, type SystemPromptMode } from '../utils/agentSdkSystemPrompt';
 import type { SdkAgentDefinition } from '../services/agentDefinitions';
 import {
@@ -322,6 +323,12 @@ export interface AgentSdkSendParams {
     settingSources?: SettingSource[];
     /** Claude Code's subagent definitions for the SDK's `agents` option (CC-11); none when empty. */
     agents?: Record<string, SdkAgentDefinition>;
+    /**
+     * Claude Code's command hooks of the three settings files (CC-12). Those
+     * of a setting source the SDK loads it runs itself; the rest go to its
+     * `hooks` option as callbacks, so every hook runs once.
+     */
+    claudeHooks?: CommandHook[];
     /** A status-line message: the SDK's own sub-agents starting, calling tools, ending. */
     onStatus?: (text: string) => void;
     /** Every top-level tool call, by name, as the model makes it. */
@@ -1008,6 +1015,11 @@ async function runAgentSdkAttempt(
         // or wherever VS Code was launched from — and would silently
         // find no CLAUDE.md even when 'project' is in settingSources.
         const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        // The hooks the SDK will not load itself (their setting source is off).
+        const sdkHooks = sdkHookCallbacks(
+            (params.claudeHooks ?? []).filter((h) => !settingSources.includes(h.source)),
+            { cwd: workspaceCwd ?? process.cwd() },
+        );
         const queryOptions: Record<string, unknown> = {
             model: configuration.model,
             // Replace Claude Code's prompt, or append to it (its claude_code preset), as the profile chooses.
@@ -1020,6 +1032,7 @@ async function runAgentSdkAttempt(
             mcpServers: { [MCP_SERVER_NAME]: mcpServer },
             tools: toolsOption,
             ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
+            ...(Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {}),
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.

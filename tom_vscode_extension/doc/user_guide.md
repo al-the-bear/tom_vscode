@@ -300,6 +300,10 @@ The trails are per session too (§9); **Recreate history from trail** rebuilds e
 
 An agent can enter **plan mode** (`tomAi_enterPlanMode`) to read and plan before it changes anything. While it is on, the ANTHROPIC/LLM subpanel shows a yellow **Plan mode: read and plan only** badge, and every write tool — the extension's and Claude Code's Bash, Write, Edit, … — is refused on every transport; reading and asking you still work. When the agent has a plan it proposes it: the plan appears in the panel with **Accept and leave plan mode** and **Keep planning** (with an optional note to the agent). Only you end plan mode — by accepting a plan, or with the badge's **Leave plan mode** button. Without the panel open, a dialog shows the plan instead. Plan mode is one per window, so a queued prompt in plan mode waits for your answer too.
 
+### Claude Code hooks
+
+The hooks you set up for Claude Code (`~/.claude/settings.json`, the workspace's `.claude/settings.json` and `.claude/settings.local.json`) run on every profile: on direct, Local LLM and VS Code LM the extension runs them itself — PreToolUse, PostToolUse, UserPromptSubmit, Stop and SessionStart, with Claude Code's input and its exit-code and decision rules — and on the Agent SDK they run once, in the SDK. A hook's messages and failures show in the status line and the live trail. Details: [anthropic_handler.md §8](anthropic_handler.md#8-claude-code-hooks-all-transports).
+
 ### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:

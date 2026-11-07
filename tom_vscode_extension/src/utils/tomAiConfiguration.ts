@@ -6,6 +6,7 @@ import { parseDocument } from 'yaml';
 import { FsUtils } from './fsUtils';
 import { WsPaths } from './workspacePaths';
 import { logConfigAccess } from './toolLog';
+import { osLoginName } from './osUserName';
 import {
     BRIDGE_MAX_RESTARTS,
     BRIDGE_REQUEST_TIMEOUT,
@@ -105,7 +106,7 @@ export class TomAiConfiguration {
 
     static get defaults(): Readonly<TomAiConfigDefaults> {
         return {
-            userName: os.userInfo().username,
+            userName: osLoginName(),
             copilot: {
                 answerFolder: '${ai}/chat_replies',
                 showNotifications: true,
