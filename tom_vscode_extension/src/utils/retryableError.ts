@@ -17,15 +17,15 @@
  */
 
 /**
- * HTTP statuses treated as transient backend pressure worth retrying: 429
- * (rate limit), 529 (Anthropic overloaded) and every 5xx except 501 (Not
+ * HTTP statuses treated as transient backend pressure worth retrying: 408
+ * (request timeout, which the Anthropic SDK retries too), 429 (rate limit), 529 (Anthropic overloaded) and every 5xx except 501 (Not
  * Implemented) and 505 (HTTP Version Not Supported), which say the request
  * can never succeed. 502 / 504 are what a proxy or gateway in front of the
  * API answers while it is unreachable or slow, so they are as transient as
  * a 503.
  */
 export function isRetryableStatus(status: number): boolean {
-    if (status === 429 || status === 529) { return true; }
+    if (status === 408 || status === 429 || status === 529) { return true; }
     return status >= 500 && status <= 599 && status !== 501 && status !== 505;
 }
 
@@ -34,6 +34,13 @@ export function isRetryableStatus(status: number): boolean {
  * rate-limited / internal server error" signal worth retrying. Other errors
  * (auth, model-not-found, malformed request) return false so they escape
  * immediately and the user can fix them.
+ *
+ * A request that never got an answer is retried too: the Anthropic SDK's
+ * `APIConnectionError` ("Connection error.") and `APIConnectionTimeoutError`
+ * ("Request timed out."), ECONNRESET / ETIMEDOUT on the error or its cause
+ * ({@link isRetryableConnectionError}). The direct client runs with
+ * `maxRetries: 0` (services/directAnthropicClient.ts), so this loop covers
+ * what the SDK's own retries did.
  *
  * `500` is included because Anthropic's `api_error` ("Internal server error")
  * and Ollama's 500s are server-side transients — the SDK itself retries them by
@@ -45,6 +52,7 @@ export function isRetryableBusyError(err: unknown): boolean {
     if (typeof anyErr.status === 'number' && isRetryableStatus(anyErr.status)) {
         return true;
     }
+    if (isRetryableConnectionError(err)) { return true; }
     const msg = typeof anyErr.message === 'string' ? anyErr.message : String(err);
     // Both `HTTP 529` (our leaf-wrapped text) and `API Error: 529` (Claude Agent
     // SDK) embed the code in the message — match either prefix.
@@ -57,6 +65,30 @@ export function isRetryableBusyError(err: unknown): boolean {
     if (/\bserver\s+busy/i.test(msg)) { return true; }
     if (/\btoo\s+many\s+requests/i.test(msg)) { return true; }
     return false;
+}
+
+/**
+ * Whether the request failed to get an answer at all — the classes the
+ * Anthropic SDK retries besides statuses: its `APIConnectionError` /
+ * `APIConnectionTimeoutError` (by name, or their messages "Connection
+ * error." / "Request timed out.", which the Agent SDK passes on as
+ * `API Error: Connection error.`), and a reset or timed-out socket
+ * (ECONNRESET / ETIMEDOUT, on the error or its cause). Not one: a
+ * cancellation; a refused connection (ECONNREFUSED: nothing listens, e.g. a
+ * Local LLM server that is not running — failing at once says so); a stream
+ * cut mid-answer ("terminated"), which the direct transport continues with
+ * a continuation prompt ({@link isDroppedConnectionError}, CC-8).
+ */
+export function isRetryableConnectionError(err: unknown): boolean {
+    if (err === null || err === undefined || typeof err !== 'object') { return false; }
+    const e = err as { name?: unknown; code?: unknown; message?: unknown; cause?: unknown };
+    const name = typeof e.name === 'string' ? e.name : '';
+    if (name === 'AbortError' || name === 'APIUserAbortError') { return false; }
+    if (name === 'APIConnectionError' || name === 'APIConnectionTimeoutError') { return true; }
+    if (e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT') { return true; }
+    const msg = typeof e.message === 'string' ? e.message : '';
+    if (/(?:^|API Error:\s*)(?:Connection error|Request timed out)\./.test(msg)) { return true; }
+    return e.cause !== undefined && e.cause !== err ? isRetryableConnectionError(e.cause) : false;
 }
 
 /**

@@ -48,6 +48,7 @@ import { isRetryableVsCodeLmError } from '../utils/retryableError';
 import { sendWithContinuation, type ContinuationMessage } from '../utils/directContinuation';
 import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
+import { createDirectAnthropicClient } from '../services/directAnthropicClient';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -544,9 +545,18 @@ function withToolPlan(options: AnthropicSendOptions): AnthropicSendOptions {
     };
 }
 
+/**
+ * Retry budget of the direct client's one-shot calls (compaction, memory
+ * extraction, the model list): the direct client does not retry itself, and
+ * these have no profile budget; one minute rides out what the SDK's two
+ * retries did, and a stated rate-limit reset up to that.
+ */
+const INTERNAL_CALL_RETRY_WAIT_MS = 60 * 1000;
+
 export class AnthropicHandler {
     private static _instance: AnthropicHandler | undefined;
-    private readonly clientCache = new KeyedClientCache<Anthropic>((apiKey) => new Anthropic({ apiKey }));
+    // maxRetries 0: the time-budget loop is the one retry layer (services/directAnthropicClient.ts).
+    private readonly clientCache = new KeyedClientCache<Anthropic>((apiKey) => createDirectAnthropicClient(apiKey));
     /** The tool trail of the session the current send runs in (one per session: {@link toolTrailFor}). */
     private toolTrail: ToolTrail;
     private readonly toolTrails = new Map<string, ToolTrail>();
@@ -1849,12 +1859,19 @@ export class AnthropicHandler {
         if (!client) {
             throw new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
         }
-        const response = await createMessageStreamed(client, {
-            model: params.model,
-            max_tokens: params.maxTokens ?? 2048,
-            ...temperatureField(params.temperature),
-            ...(params.systemPrompt ? { system: params.systemPrompt } : {}),
-            messages: [{ role: 'user', content: params.userPrompt }],
+        // The client does not retry (maxRetries 0): the budget loop does,
+        // briefly — compaction and memory extraction run inside a send.
+        const response = await withRetryBudget({
+            call: () => createMessageStreamed(client, {
+                model: params.model,
+                max_tokens: params.maxTokens ?? 2048,
+                ...temperatureField(params.temperature),
+                ...(params.systemPrompt ? { system: params.systemPrompt } : {}),
+                messages: [{ role: 'user', content: params.userPrompt }],
+            }),
+            totalWaitMs: INTERNAL_CALL_RETRY_WAIT_MS,
+            backendLabel: 'Anthropic API busy',
+            waitFromError: providerRetryDelayMs,
         });
         return response.content
             .filter((b): b is Extract<AnthropicContentBlock, { type: 'text' }> => b.type === 'text')
@@ -1923,7 +1940,12 @@ export class AnthropicHandler {
             return { models: [], error: `${directApiKeyEnvVar(loadSendToChatConfig()?.anthropic)} environment variable not set` };
         }
         try {
-            const page = await client.models.list({ limit: 100 });
+            const page = await withRetryBudget({
+                call: () => client.models.list({ limit: 100 }),
+                totalWaitMs: INTERNAL_CALL_RETRY_WAIT_MS,
+                backendLabel: 'Anthropic API busy',
+                waitFromError: providerRetryDelayMs,
+            });
             return {
                 models: (page.data ?? []).map((m) => ({
                     id: m.id,
