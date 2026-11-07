@@ -63,6 +63,7 @@ import {
     type QuestLogTabId,
     type QuestLogVariantId,
 } from '../utils/questLogFiles.js';
+import { CHAT_SESSION_ACTIONS, runChatSessionAction, type ChatSessionAction } from './chatPanel-handler';
 
 // ---------------------------------------------------------------------------
 // Fragment assets
@@ -302,6 +303,15 @@ export async function handleQuestLogsMessage(message: any, webview: vscode.Webvi
         case 'qlogOpenInEditor':
             await openQuestLogInEditor(tab, variant, session);
             return;
+        case 'qlogSessionAction': {
+            // The trail / history / memory buttons behind the session switch:
+            // the chat panel's action for the selected session.
+            const action = String(message?.action || '') as ChatSessionAction;
+            if (session && CHAT_SESSION_ACTIONS.includes(action)) {
+                await runChatSessionAction(action, session);
+            }
+            return;
+        }
     }
 }
 

@@ -368,6 +368,8 @@ function render() {
   const sent = currentItems.filter(i => i.status === 'sent').length;
   const blocked = currentItems.filter(i => i.status === 'decision-needed').length;
   const interrupted = currentItems.filter(i => i.status === 'interrupted').length;
+  // A chat send shown in the queue while it runs (never sent by the queue).
+  const chatRunning = currentItems.filter(i => i.status === 'chat').length;
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
@@ -395,6 +397,7 @@ function render() {
     // count is the one number that explains why nothing is moving.
     + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
     + (interrupted > 0 ? '  |  Interrupted: ' + interrupted : '')
+    + (chatRunning > 0 ? '  |  Chat: running' : '')
     + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
   const list = document.getElementById('queueList');
@@ -410,7 +413,8 @@ function render() {
       var statusB = b.item.status || 'staged';
       var rankDiff = statusSortRank(statusA) - statusSortRank(statusB);
       if (rankDiff !== 0) return rankDiff;
-      if (statusA === 'sent') return (new Date(b.item.createdAt || 0).getTime()) - (new Date(a.item.createdAt || 0).getTime());
+      // Sent items and finished chat sends: one history, newest first.
+      if (statusSortRank(statusA) === statusSortRank('sent')) return (new Date(b.item.createdAt || 0).getTime()) - (new Date(a.item.createdAt || 0).getTime());
       return a.idx - b.idx;
     })
     .map(function(x) { return x.item; });

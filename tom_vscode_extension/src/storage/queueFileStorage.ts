@@ -185,6 +185,9 @@ export interface QueuePromptYaml {
     /** Set on a process-move marker: the move it makes when the queue reaches it (src/utils/processMoveMarker.ts). */
     'process-move'?: unknown;
     'answer-text'?: string;
+    /** A chat send shown in the queue: where it came from and the window that ran it. */
+    'chat-source'?: string;
+    'chat-window-id'?: string;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */
@@ -195,7 +198,7 @@ export interface QueueMetaYaml {
     'main-prompt'?: string;
     imports?: string[];
     quest?: string;
-    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
+    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
     /** "Pause after this": hold the queue once this item has finished. */
     'pause-after'?: boolean;
     /** "Send between iterations": sent after the running loop's current iteration (queueSendBetween.ts). */
@@ -637,7 +640,8 @@ export function findEntryById(entryId: string): QueueEntryFile | undefined {
 export function trimSentEntries(): void {
     try {
         const entries = readAllEntries();
-        const sent = entries.filter(e => e.doc.meta.status === 'sent');
+        // Finished chat sends (chat-sent) are sent history too.
+        const sent = entries.filter(e => e.doc.meta.status === 'sent' || e.doc.meta.status === 'chat-sent');
 
         if (sent.length <= MAX_SENT_ON_DISK) return;
 
@@ -653,7 +657,7 @@ export function trimSentEntries(): void {
         // Check total count
         const remaining = readAllEntries();
         if (remaining.length > MAX_TOTAL_ON_DISK) {
-            const sentRemaining = remaining.filter(e => e.doc.meta.status === 'sent');
+            const sentRemaining = remaining.filter(e => e.doc.meta.status === 'sent' || e.doc.meta.status === 'chat-sent');
             const excess = remaining.length - MAX_TOTAL_ON_DISK;
             const removable = sentRemaining.slice(0, Math.min(excess, sentRemaining.length));
             for (const entry of removable) {

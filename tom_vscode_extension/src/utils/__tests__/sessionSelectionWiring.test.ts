@@ -30,19 +30,20 @@ function caseBody(src: string, name: string): string {
 describe('session selection wiring', () => {
     test('SW-1: the ANTHROPIC panel', () => {
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
-        const clear = caseBody(panel, 'clearAnthropicHistory');
-        assert.match(clear, /_pickPanelSessions\('Clear session history', 'Clear history'\)/, 'destructive: confirmed');
-        assert.match(clear, /for \(const name of names\) \{ AnthropicHandler\.instance\.clearSession\(name\); \}/);
-        assert.match(clear, /type: 'anthropicHistoryCleared'/);
+        // The per-session actions run from the @WS Logs panel for its selected session (runSessionAction).
+        const actions = panel.slice(panel.indexOf('async runSessionAction('), panel.indexOf('private async _pickPanelSessions('));
+        assert.match(actions, /case 'clearHistory':[\s\S]{0,400}\{ modal: true \}[\s\S]{0,200}this\._clearSessions\(names\)/, 'destructive: confirmed');
+        assert.match(actions, /for \(const name of names\) \{ AnthropicHandler\.instance\.clearSession\(name\); \}/);
+        assert.match(actions, /type: 'anthropicHistoryCleared'/);
         const history = caseBody(panel, 'recreateHistoryFromTrail');
         assert.match(history, /_pickPanelSessions\('Recreate history from the trail', 'Recreate history'\)/);
         assert.match(history, /recreateHistoryFromTrail\(undefined, name\)/);
         const memory = caseBody(panel, 'recreateMemoryFromTrail');
         assert.match(memory, /_pickPanelSessions\('Recreate quest memory from the trail', 'Recreate memory'\)/);
         assert.match(memory, /recreateMemoryFromTrail\(undefined, name\)/);
-        assert.match(caseBody(panel, 'openSessionHistory'), /_openSessionHistoryMarkdown\(name\)/);
-        assert.match(caseBody(panel, 'openLiveTrail'), /_openLiveTrailMarkdown\('anthropic', name\)/);
-        assert.match(caseBody(panel, 'openTrailRawFiles'), /sessionTrailFolder\(root, n\)/);
+        assert.match(actions, /case 'history':[\s\S]{0,120}_openSessionHistoryMarkdown\(name\)/);
+        assert.match(actions, /case 'liveTrail':[\s\S]{0,120}_openLiveTrailMarkdown\('anthropic', name\)/);
+        assert.match(actions, /case 'rawTrail':[\s\S]{0,400}sessionTrailFolder\(root, n\)/);
         assert.match(panel, /private async _openAnthropicSummaryTrail[\s\S]*?_pickPanelSessions\('Open the summary trail'\)/);
         const pick = panel.slice(panel.indexOf('private async _pickPanelSessions('));
         assert.match(pick, /current: this\._chatSessionKey\(\)/, "the panel's session preselected");

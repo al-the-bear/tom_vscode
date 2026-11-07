@@ -155,6 +155,30 @@ function qlogCreateViewer(cfg) {
         });
     }
 
+    /**
+     * The selected session's actions, behind the switch: the raw trail viewer,
+     * the trail summary, the history and the live trail in the MD Browser, the
+     * memory panel, and clearing the history (it asks first). The host runs
+     * them for the session (runChatSessionAction).
+     */
+    var SESSION_ACTIONS = [
+        ['rawTrail', 'codicon-history', 'Open the raw trail of session '],
+        ['trailSummary', 'codicon-list-flat', 'Open the trail summary viewer'],
+        ['history', 'codicon-file-text', 'Open the rolling history (history.md) of session '],
+        ['liveTrail', 'codicon-pulse', 'Open the live trail of session '],
+        ['memory', 'codicon-book', 'Open the memory panel'],
+        ['clearHistory', 'codicon-clear-all', 'Clear the history of session '],
+    ];
+    function sessionActionsHtml(selected) {
+        var html = '<span class="qlog-session-actions">';
+        for (var i = 0; i < SESSION_ACTIONS.length; i++) {
+            var a = SESSION_ACTIONS[i];
+            var title = a[2].slice(-8) === 'session ' ? a[2] + selected + (a[0] === 'clearHistory' ? ' (asks first)' : '') : a[2];
+            html += '<button class="icon-btn qlog-session-action" data-qlog-session-action="' + a[0] + '" title="' + qlogEscape(title) + '"><span class="codicon ' + a[1] + '"></span></button>';
+        }
+        return html + '</span>';
+    }
+
     /** The session switch, from the host's plan. */
     function renderSessions() {
         var box = el('sessions');
@@ -174,6 +198,7 @@ function qlogCreateViewer(cfg) {
             var b = plan.buttons[j];
             html += '<button class="qlog-session-btn' + (b === plan.selected ? ' active' : '') + '" data-qlog-session="' + qlogEscape(b) + '" title="Session ' + qlogEscape(b) + '">' + qlogEscape(b) + '</button>';
         }
+        html += sessionActionsHtml(plan.selected);
         box.innerHTML = html;
     }
 
@@ -298,6 +323,11 @@ function qlogCreateViewer(cfg) {
         var box = el('sessions');
         if (box) {
             box.addEventListener('click', function (ev) {
+                var action = ev.target && ev.target.closest ? ev.target.closest('[data-qlog-session-action]') : null;
+                if (action) {
+                    vscode.postMessage({ type: 'qlogSessionAction', viewer: cfg.id, tab: v.tab, variant: v.variant, action: action.getAttribute('data-qlog-session-action'), session: session() });
+                    return;
+                }
                 var btn = ev.target && ev.target.closest ? ev.target.closest('[data-qlog-session]') : null;
                 if (btn) { selectSession(btn.getAttribute('data-qlog-session')); }
             });

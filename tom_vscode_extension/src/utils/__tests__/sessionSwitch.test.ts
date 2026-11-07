@@ -112,7 +112,7 @@ describe('session switch in the webview', () => {
         send(w, { type: 'qlogSessions', viewer: 'logs', tab: 'mdTrail', plan: plan(['default', 'chat', 'walk'], 'default') });
         const box = w.document.getElementById('qlog-sessions');
         assert.equal(box.querySelector('select'), null, 'three sessions: no dropdown');
-        assert.deepEqual([...box.querySelectorAll('button')].map((b: Win) => [b.textContent, b.classList.contains('active')]),
+        assert.deepEqual([...box.querySelectorAll('button.qlog-session-btn')].map((b: Win) => [b.textContent, b.classList.contains('active')]),
             [['default', true], ['chat', false], ['walk', false]]);
 
         send(w, { type: 'qlogContent', viewer: 'logs', tab: 'mdTrail', session: 'default', exists: true, html: '<p>default trail</p>', newestAt: 'end', fileName: 'live-trail.md', bytes: 10 });
@@ -131,7 +131,7 @@ describe('session switch in the webview', () => {
         const select = box.querySelector('select');
         assert.ok(select, 'six sessions: the dropdown');
         assert.equal(select.value, 'chat', 'the choice without a button is shown there');
-        assert.equal(box.querySelectorAll('button').length, 4);
+        assert.equal(box.querySelectorAll('button.qlog-session-btn').length, 4);
         posted.length = 0;
         select.value = 'default';
         select.dispatchEvent(new w.Event('change', { bubbles: true }));

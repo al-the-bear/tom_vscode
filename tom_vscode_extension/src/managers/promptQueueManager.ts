@@ -63,7 +63,9 @@ import {
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
 } from '../utils/queueStep4Utils';
-import { writeWindowState, setWindowSubsystemActive } from '../handlers/windowStatusPanel-handler';
+import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
+import { isWindowAlive } from '../utils/windowHeartbeat';
+import { CHAT_SENT_STATUS, finishChatItem, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
@@ -118,7 +120,7 @@ import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
  * rep — same expanded text — before anything else moves. See
  * `interruptActiveItemForContinuation` / `pickInterruptedResume`.
  */
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted';
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /** The error a held process-move marker shows. */
@@ -264,6 +266,10 @@ export interface QueuedPrompt {
     expandedText: string;         // After template processing
     status: QueuedPromptStatus;
     type: QueuedPromptType;
+    /** A chat send shown in the queue (status `chat` / `chat-sent`): where it came from. */
+    chatSource?: string;
+    /** A chat send shown in the queue: the window that ran it (src/utils/chatQueueItems.ts). */
+    chatWindowId?: string;
     createdAt: string;            // ISO timestamp
     sentAt?: string;              // When actually sent to Copilot
     error?: string;
@@ -3137,9 +3143,50 @@ export class PromptQueueManager {
     }
 
     /** Clear all items with the given status. */
+    // ----- chat sends shown in the queue (src/utils/chatQueueItems.ts) ---------
+
+    /**
+     * Show a chat send in the queue: an item with status `chat` while it runs.
+     * The queue never picks, sends or counts it. A stale `chat` item (this
+     * window's older one, or one of a window that is gone) is settled first.
+     * Answers the item's id for completeChatItem.
+     */
+    addChatItem(opts: { text: string; profileId?: string; session: string; source: string }): string {
+        const ownWindowId = getWindowStatusWindowId();
+        const chat = newChatItem({ id: randomUUID(), text: opts.text, profileId: opts.profileId, session: opts.session, source: opts.source, windowId: ownWindowId, now: new Date() });
+        const item: QueuedPrompt = {
+            ...(chat as unknown as QueuedPrompt),
+            reminderTemplateId: '__none__',
+            reminderEnabled: false,
+            reminderQueued: false,
+            reminderSentCount: 0,
+            prePrompts: [],
+            followUps: [],
+        };
+        this._items.push(item);
+        settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id });
+        this.trimSentHistory();
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Chat send shown in the queue: ${item.id} (${opts.source}, session ${opts.session})`);
+        return item.id;
+    }
+
+    /** The chat send ended: `chat-sent`, with its answer or its error. */
+    completeChatItem(id: string, result: { answerText?: string; error?: string; usage?: LiveTrailTokenCounts }): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return; }
+        finishChatItem(item as unknown as ChatQueueItem, result);
+        if (result.usage) { this._addItemSendUsage(item, result.usage); }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
     clearByStatus(status: QueuedPromptStatus): void {
-        this._releaseClaimsOfDroppedItems(this._items.filter(i => i.status === status), 'cleared');
-        this._items = this._items.filter(i => i.status !== status);
+        // "Clear sent" also clears the finished chat sends shown in the queue.
+        const matches = (i: QueuedPrompt): boolean => i.status === status || (status === 'sent' && i.status === CHAT_SENT_STATUS);
+        this._releaseClaimsOfDroppedItems(this._items.filter(matches), 'cleared');
+        this._items = this._items.filter(i => !matches(i));
         this.trimSentHistory();
         this.persist();
         this._onDidChange.fire();
@@ -5016,6 +5063,10 @@ export class PromptQueueManager {
         const entries = readAllEntries();
         this._loadFromEntryFiles(entries);
         console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
+        // Chat sends that can no longer report back (their window is gone) are settled.
+        if (settleRunningChatItems(this._items, { ownWindowId: getWindowStatusWindowId(), liveWindowIds: liveWindowIdSet() }) > 0) {
+            this._persistToFiles();
+        }
 
         // Crash recovery is applied inside _loadFromEntryFiles so it runs
         // for both initial activation and subsequent file-watcher reloads.
@@ -5522,6 +5573,8 @@ export class PromptQueueManager {
                 processRun: parseProcessRun(main['process-run']),
                 ...(parseProcessMove(main['process-move']) ? { processMove: parseProcessMove(main['process-move']) } : {}),
                 answerText: main['answer-text'] || undefined,
+                chatSource: main['chat-source'] || undefined,
+                chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
@@ -5661,6 +5714,8 @@ export class PromptQueueManager {
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.processMove ? { 'process-move': item.processMove } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
+            ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
+            ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
         };
 
@@ -5833,12 +5888,14 @@ export class PromptQueueManager {
 
     private trimSentHistory(): void {
         // Keep at most MAX_SENT_HISTORY sent items
-        const sent = this._items.filter(i => i.status === 'sent');
+        // Finished chat sends count as sent history.
+        const isDone = (i: QueuedPrompt): boolean => i.status === 'sent' || i.status === CHAT_SENT_STATUS;
+        const sent = this._items.filter(isDone);
         if (sent.length > MAX_SENT_HISTORY) {
             const removeCount = sent.length - MAX_SENT_HISTORY;
             let removed = 0;
             this._items = this._items.filter(i => {
-                if (i.status === 'sent' && removed < removeCount) { removed++; return false; }
+                if (isDone(i) && removed < removeCount) { removed++; return false; }
                 return true;
             });
         }
@@ -5846,7 +5903,7 @@ export class PromptQueueManager {
         if (this._items.length > MAX_TOTAL_ITEMS) {
             // Remove oldest sent items first, then oldest pending
             const excess = this._items.length - MAX_TOTAL_ITEMS;
-            const sentItems = this._items.filter(i => i.status === 'sent');
+            const sentItems = this._items.filter(isDone);
             const toRemove = new Set<string>();
             for (let i = 0; i < Math.min(excess, sentItems.length); i++) {
                 toRemove.add(sentItems[i].id);
@@ -5964,6 +6021,16 @@ const QUEST_TODO_ANSWER_PORT: TodoAnswerPort = {
         }
     },
 };
+
+/** The windows of this machine with a live heartbeat (their window-state files). */
+function liveWindowIdSet(): Set<string> {
+    const now = Date.now();
+    try {
+        return new Set(loadAllWindowStates().filter((s) => isWindowAlive(s as unknown as { heartbeat?: string }, now)).map((s) => String((s as unknown as { windowId?: string }).windowId || '')));
+    } catch {
+        return new Set();
+    }
+}
 
 function getWindowStatusWindowId(): string {
     const session = vscode.env.sessionId.substring(0, 8);

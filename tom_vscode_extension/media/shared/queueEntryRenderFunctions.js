@@ -26,6 +26,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
+  if (item.status === 'chat' || item.status === 'chat-sent') { return renderChatEntry(item, idx); }
   var safeStatus = normalizeQueueStatus(item.status);
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
@@ -444,36 +445,7 @@ function renderEntry(item, idx) {
     reminderRow = '';
   }
 
-  /* Anthropic answerText inline preview (spec §4.10). Displayed only
-   * when the item produced direct text (anthropic transport). The
-   * authoritative trail is the Anthropic trail file; this is the
-   * practical at-a-glance view. Truncated to 600 chars by default
-   * with a toggle to expand to full. */
-  var answerBlock = '';
-  if (typeof item.answerText === 'string' && item.answerText.length > 0) {
-    var ansId = 'ans-' + safeId;
-    var fullText = item.answerText;
-    var truncated = fullText.length > 600 ? fullText.slice(0, 600) + '…' : fullText;
-    /* The full answer for the markdown preview buttons (queueAnswerMarkdown), by item id. */
-    var promptLine = String(item.originalText || item.expandedText || '').split('\n')[0].trim();
-    window.__queueAnswers = window.__queueAnswers || {};
-    window.__queueAnswers[item.id] = { text: fullText, title: 'Answer \u2014 ' + (promptLine.length > 60 ? promptLine.slice(0, 60) + '…' : promptLine || item.id) };
-    var mdBtns = '<span class="qe-md-btns">' +
-      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="overlay" data-qid="' + escapeHtml(String(item.id)) + '" title="Show the answer as markdown over the queue"><span class="codicon codicon-eye"></span></button>' +
-      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="editor" data-qid="' + escapeHtml(String(item.id)) + '" title="Open the answer in the markdown preview editor"><span class="codicon codicon-open-preview"></span></button>' +
-      '</span>';
-    answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
-        '<strong style="color:#4a9eff;">Answer</strong>' +
-        '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
-        mdBtns +
-        (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\'' + ansId + '\')" title="Expand / collapse"></span>' : '') +
-      '</div>' +
-      '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
-        escapeHtml(truncated) +
-      '</div>' +
-    '</div>';
-  }
+  var answerBlock = renderAnswerBlock(item, safeId);
 
   return '<div class="queue-item ' + cls.join(' ') + '">' +
     headerHtml +
@@ -519,6 +491,65 @@ function renderEntry(item, idx) {
  * collapsed unless the item has a prompt; editable until the item is sent; the bell icon
  * switches it off (the prompt is kept but not queued) and on again.
  */
+/* Anthropic answerText inline preview (spec §4.10). Displayed only
+ * when the item produced direct text (anthropic transport). The
+ * authoritative trail is the Anthropic trail file; this is the
+ * practical at-a-glance view. Truncated to 600 chars by default
+ * with a toggle to expand to full; the two markdown preview buttons show the
+ * full answer. Shared by renderEntry and renderChatEntry. */
+function renderAnswerBlock(item, safeId) {
+  var answerBlock = '';
+  if (typeof item.answerText === 'string' && item.answerText.length > 0) {
+    var ansId = 'ans-' + safeId;
+    var fullText = item.answerText;
+    var truncated = fullText.length > 600 ? fullText.slice(0, 600) + '…' : fullText;
+    /* The full answer for the markdown preview buttons (queueAnswerMarkdown), by item id. */
+    var promptLine = String(item.originalText || item.expandedText || '').split('\n')[0].trim();
+    window.__queueAnswers = window.__queueAnswers || {};
+    window.__queueAnswers[item.id] = { text: fullText, title: 'Answer \u2014 ' + (promptLine.length > 60 ? promptLine.slice(0, 60) + '…' : promptLine || item.id) };
+    var mdBtns = '<span class="qe-md-btns">' +
+      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="overlay" data-qid="' + escapeHtml(String(item.id)) + '" title="Show the answer as markdown over the queue"><span class="codicon codicon-eye"></span></button>' +
+      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="editor" data-qid="' + escapeHtml(String(item.id)) + '" title="Open the answer in the markdown preview editor"><span class="codicon codicon-open-preview"></span></button>' +
+      '</span>';
+    answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+        '<strong style="color:#4a9eff;">Answer</strong>' +
+        '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
+        mdBtns +
+        (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\'' + ansId + '\')" title="Expand / collapse"></span>' : '') +
+      '</div>' +
+      '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
+        escapeHtml(truncated) +
+      '</div>' +
+    '</div>';
+  }
+
+  return answerBlock;
+}
+
+/**
+ * A chat send shown in the queue (status `chat` while it runs, `chat-sent`
+ * once it ended; src/utils/chatQueueItems.ts): read-only. The queue never
+ * sends it, so it has none of the queue's controls, only Remove.
+ */
+function renderChatEntry(item, idx) {
+  var safeId = escapeJsSingleQuoted(item.id);
+  var running = item.status === 'chat';
+  var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
+  var profile = item.anthropicProfileId ? escapeHtml(String(item.anthropicProfileId)) : '';
+  var session = item.session ? escapeHtml(String(item.session)) : 'chat';
+  var source = item.chatSource ? escapeHtml(String(item.chatSource)) : 'chat';
+  var promptLine = String(item.originalText || '').split('\n')[0];
+  var header = '<div class="item-header chat-item-header">' +
+      '<span class="status-badge chat-badge' + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + (running ? 'CHAT' : 'CHAT SENT') + '</span>' +
+      '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
+      '<span class="chat-item-prompt" title="' + escapeHtml(String(item.originalText || '')) + '">' + escapeHtml(promptLine.length > 120 ? promptLine.slice(0, 120) + '\u2026' : promptLine) + '</span>' +
+      '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="Remove from the list"' + (running ? ' disabled' : '') + '><span class="codicon codicon-trash"></span></button>' +
+    '</div>';
+  var errorChip = item.error ? '<div class="warning-chip chat-error">' + escapeHtml(String(item.error)) + '</div>' : '';
+  return '<div class="queue-item chat-item ' + (running ? 'chat' : 'chat-sent') + '" data-qid="' + escapeHtml(String(item.id)) + '">' + header + errorChip + renderAnswerBlock(item, safeId) + '</div>';
+}
+
 function renderDoneNotification(item, safeId, safeStatus) {
   var prompt = typeof item.doneNotificationPrompt === 'string' ? item.doneNotificationPrompt : '';
   var disabled = item.doneNotificationDisabled === true;

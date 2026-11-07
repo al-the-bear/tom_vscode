@@ -555,6 +555,7 @@ export interface CommandRegistryDeps {
     runAnthropicSend: (
         context: vscode.ExtensionContext,
         prompt: string,
+        opts?: { source?: string },
     ) => Promise<SendToChatOutcome>;
     /**
      * Cancel the running **direct** chat prompt (panel Send / Send-to-Chat /
@@ -642,7 +643,7 @@ async function sendPromptHandler(
 
     bridgeLog(`[Telegram] send_prompt (${parsed.prompt.length} chars)`);
 
-    const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt);
+    const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt, { source: 'telegram' });
 
     if (outcome.rejected) {
         const status = deps.liveConversation.getStatus();

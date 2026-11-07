@@ -84,12 +84,12 @@ describe('session picker plans', () => {
     test('PP-5: the ANTHROPIC panel', () => {
         const handler = source('src', 'handlers', 'chatPanel-handler.ts');
         const queue = handler.slice(handler.indexOf('private async _handleAddToQueue('));
-        assert.match(queue.slice(0, queue.indexOf('\n    }\n')), /\.\.\.\(transport === 'anthropic' \? \{ session: this\._chatSessionKey\(\) \} : \{\}\)/,
-            'Save to Queue carries the panel\'s session');
+        assert.match(queue.slice(0, queue.indexOf('\n    }\n')), /transportOpts\?\.usePanelTarget[\s\S]{0,200}session: this\._chatSessionKey\(\)/,
+            'Save to Queue with the panel\'s target carries the panel\'s session (plain Save to Queue: the queue\'s own)');
         assert.match(handler, /const \{ label, tooltip \} = sessionLabel\(name, record\);/);
         assert.match(handler, /this\._sendChatSession\(picked !== undefined\);/, 'a pick preselects the session\'s profile');
         const send = handler.indexOf('const mismatch = sessionTransportMismatch(');
-        assert.ok(send > 0 && send < handler.indexOf('sessionKey: this._chatSessionKey(),'), 'Send checks the session before it sends');
+        assert.ok(send > 0 && send < handler.indexOf('const sessionKey = this._chatSessionKey();'), 'Send checks the session before it sends');
         const main = source('media', 'chatPanel', 'main.js');
         assert.match(main, /sessionLabel\.textContent = msg\.label \|\| msg\.name \|\| 'chat';/);
         assert.match(main, /if \(msg\.profileId\) \{[\s\S]*sessionProfileSel\.value = msg\.profileId;/);

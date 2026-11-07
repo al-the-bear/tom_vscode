@@ -53,7 +53,7 @@ function reminderTimeoutOptions(selectedMinutes) {
 // was updated. The normaliser then rewrote every blocked item to `staged`
 // before render, so the "Decision needed" count read 0 and the blocked item
 // sorted to the bottom of the list instead of the top.
-var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted'];
+var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted', 'chat', 'chat-sent'];
 
 /**
  * How a session reads next to its name in the prompt queue: `info` is
@@ -94,9 +94,9 @@ function statusSortRank(status) {
   if (status === 'retry') { return 2; }
   if (status === 'waiting') { return 3; }
   if (status === 'interrupted') { return 4; }
-  if (status === 'sending') { return 5; }
+  if (status === 'sending' || status === 'chat') { return 5; }
   if (status === 'pending') { return 6; }
   if (status === 'staged') { return 7; }
-  if (status === 'sent') { return 8; }
+  if (status === 'sent' || status === 'chat-sent') { return 8; }
   return 9;
 }

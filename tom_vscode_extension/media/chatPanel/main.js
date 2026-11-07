@@ -318,17 +318,14 @@ function getSectionContent(id) {
                 // Queue-only repeat count — applied when staging via "Save to Queue";
                 // ignored by the inline send button.
                 '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
-                // Queue buttons — mirror the Copilot section (spec §4.11).
-                // Stages the prompt as a queued item with transport='anthropic'
-                // and pins the current profile / user-message template.
-                '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="anthropic" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="anthropic" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<button class="icon-btn" data-action="openSessionHistory" data-id="anthropic" title="Open session history — each chosen session&#39;s rolling history.md, rendered in the MD Browser"><span class="codicon codicon-file-text"></span></button>' +
-                '<button class="icon-btn" data-action="openLiveTrail" data-id="anthropic" title="Open live trail — continuously-updating MD of the current + last 4 prompts (thinking, tool calls + results, assistant text); opens in the MD Browser which auto-reloads as the turn runs"><span class="codicon codicon-pulse"></span></button>' +
-                '<button class="icon-btn" data-action="openAnthropicMemory" data-id="anthropic" title="Memory Panel"><span class="codicon codicon-book"></span></button>' +
-                '<button class="icon-btn" data-action="clearAnthropicHistory" data-id="anthropic" title="Clear session history — choose the sessions (the panel&#39;s preselected, or All sessions); asks to confirm"><span class="codicon codicon-clear-all"></span></button>',
+                // Queue buttons. Save to Queue stages the prompt on the prompt queue's own
+                // profile and session; the second pins this panel's profile and session.
+                // Both keep the panel's user-message template and repeat count.
+                '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue — runs with the prompt queue&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
+                '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
+                // The trail, history and memory buttons are in the @WS Logs panel, behind its session switch.
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
+
             afterToolbarHtml:
                 '<div id="anthropic-approval-overlay" class="context-overlay" style="display:none;">' +
                 '<div id="anthropic-approval-popup" class="context-popup">' +
@@ -657,16 +654,15 @@ function handleAction(action, id, slot) {
         case 'applyContext': applyContextPopup(); break;
         case 'cancel': vscode.postMessage({ type: 'cancel', section: id || '' }); break;
         case 'addToQueue':
-            if (id === 'anthropic') { addAnthropicToQueue(); }
+            if (id === 'anthropic') { addAnthropicToQueue(false); }
             else { addCopilotToQueue(); }
             break;
+        case 'addToQueuePanelTarget': addAnthropicToQueue(true); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
-        case 'openSessionHistory': vscode.postMessage({ type: 'openSessionHistory', section: id || '' }); break;
         case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
-        case 'openLiveTrail': vscode.postMessage({ type: 'openLiveTrail', section: id || '' }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
@@ -683,8 +679,6 @@ function handleAction(action, id, slot) {
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
         case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         // The host asks which sessions to clear and answers with anthropicHistoryCleared.
-        case 'clearAnthropicHistory': vscode.postMessage({ type: 'clearAnthropicHistory' }); break;
-        case 'openAnthropicMemory': vscode.postMessage({ type: 'openAnthropicMemory' }); break;
         case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
         case 'anthropicApprovalApproveAll': resolveAnthropicApproval(true, true); break;
         case 'anthropicApprovalDeny': resolveAnthropicApproval(false, false); break;
@@ -1372,10 +1366,10 @@ function addCopilotToQueue() {
     if (repeatEl) { repeatEl.value = '1'; }
 }
 
-function addAnthropicToQueue() {
-    // Spec §4.11 — stage a queue item with transport='anthropic' and
-    // pin the active profile + user-message template from this panel's
-    // own dropdowns (never inherit from the queue default).
+function addAnthropicToQueue(usePanelTarget) {
+    // Stage a queue item with transport='anthropic' and the panel's
+    // user-message template. Profile and session: the prompt queue's own,
+    // unless usePanelTarget pins this panel's profile and session.
     var text = document.getElementById('anthropic-text');
     text = text ? text.value : '';
     if (!text.trim()) {return;}
@@ -1391,7 +1385,7 @@ function addAnthropicToQueue() {
         template: templateName,
         repeatCount: repeatCount,
         transport: 'anthropic',
-        anthropicProfileId: profileId,
+        ...(usePanelTarget ? { anthropicProfileId: profileId, usePanelTarget: true } : {}),
     });
     // Reset the repeat count to 1 so the next simple prompt isn't accidentally
     // queued again with a leftover (high) repeat count.

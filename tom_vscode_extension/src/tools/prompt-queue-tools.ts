@@ -60,7 +60,7 @@ import { parseSessionSpec } from '../utils/sessionSpecs';
 // Shared shapes
 // ===========================================================================
 
-export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'interrupted';
+export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
 export type QueueTransport = 'copilot' | 'anthropic';
 
 export interface PrePromptSpec {
@@ -537,7 +537,7 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
     try {
         const includeSent = !!input.includeSent;
         const items = access.items()
-            .filter((i) => includeSent || i.status !== 'sent')
+            .filter((i) => includeSent || (i.status !== 'sent' && i.status !== 'chat-sent'))
             .map(compactItem);
         return JSON.stringify({
             ok: true,

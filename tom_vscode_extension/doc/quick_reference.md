@@ -136,7 +136,7 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile picker, Open Live Trail button, Session History, Memory, Clear Session |
+| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session) and Save to Queue with the panel's profile and session. Trail, history, memory and Clear are in @WS Logs behind the session switch |
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
 
 #### Copilot Action Bar Fields

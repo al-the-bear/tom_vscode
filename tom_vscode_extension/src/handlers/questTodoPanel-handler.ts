@@ -1169,7 +1169,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
             const { runAnthropicSend } = await import('./sendToChatRouter.js');
-            const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tplBody });
+            const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tplBody, source: 'todo panel: guide me' });
             if (outcome.rejected) {
                 vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
             } else if (!outcome.ok && outcome.error) {
@@ -2055,7 +2055,7 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
             ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
             : undefined;
         const { runAnthropicSend } = await import('./sendToChatRouter.js');
-        const outcome = await runAnthropicSend(ctx, todoPrompt, tplBody ? { userMessageTemplate: tplBody } : {});
+        const outcome = await runAnthropicSend(ctx, todoPrompt, { source: 'todo panel', ...(tplBody ? { userMessageTemplate: tplBody } : {}) });
         if (outcome.rejected) {
             vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
         } else if (!outcome.ok && outcome.error) {

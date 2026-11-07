@@ -24,8 +24,6 @@
  *     busy guard (see `sendToChatState.ts`).
  */
 
-import { WsPaths } from '../utils/workspacePaths';
-import { chatSessionFor } from './sessionPicker';
 import * as vscode from 'vscode';
 import {
     loadSendToChatConfig,
@@ -47,6 +45,7 @@ import {
     tryBeginAnthropicSend,
     endAnthropicSend,
 } from './sendToChatState';
+import { trackChatSend } from './chatQueueTracking';
 
 export type SendToChatTarget = 'anthropic' | 'copilot';
 
@@ -97,7 +96,7 @@ function defaultUserMessageTemplate(): string | undefined {
 export async function runAnthropicSend(
     context: vscode.ExtensionContext,
     prompt: string,
-    opts?: { cancellationToken?: vscode.CancellationToken; userMessageTemplate?: string },
+    opts?: { cancellationToken?: vscode.CancellationToken; userMessageTemplate?: string; source?: string },
 ): Promise<SendToChatOutcome> {
     if (!prompt || !prompt.trim()) {
         return { target: 'anthropic', ok: false, error: 'Empty prompt.' };
@@ -139,16 +138,20 @@ export async function runAnthropicSend(
             profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
         );
 
-        const result = await AnthropicHandler.instance.sendMessage({
-            userText: prompt,
-            profile,
-            configuration,
-            tools,
-            // The session the panel has selected for this quest (the panel's own `chat` unless another was picked).
-            sessionKey: chatSessionFor(context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY),
-            cancellationToken,
-            ...(userMessageTemplate ? { userMessageTemplate } : {}),
-        });
+        // No session picker on this path (the editor's Send to Anthropic/LLM, a todo's Send and
+        // Guide me, Telegram): always the chat session. The send is shown in the prompt queue.
+        const result = await trackChatSend(
+            { text: prompt, profileId: profile.id, session: ANTHROPIC_CHAT_SESSION_KEY, source: opts?.source ?? 'send to chat' },
+            () => AnthropicHandler.instance.sendMessage({
+                userText: prompt,
+                profile,
+                configuration,
+                tools,
+                sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
+                cancellationToken,
+                ...(userMessageTemplate ? { userMessageTemplate } : {}),
+            }),
+        );
 
         // Mirror into the panel UI when it is open, so a Send-to-Chat / script
         // turn shows up just like a panel send. No-op when the panel is closed.
@@ -198,7 +201,7 @@ export async function dispatchToLlm(
     prompt: string,
     userMessageTemplate?: string,
 ): Promise<void> {
-    const outcome = await runAnthropicSend(context, prompt, userMessageTemplate ? { userMessageTemplate } : undefined);
+    const outcome = await runAnthropicSend(context, prompt, { source: 'editor', ...(userMessageTemplate ? { userMessageTemplate } : {}) });
     if (outcome.rejected) {
         vscode.window.showWarningMessage(
             'The LLM chat is busy — try again once the current request finishes.',
@@ -231,5 +234,5 @@ export async function sendToChatForScript(
         );
         return { target: 'copilot', ok: true, answer };
     }
-    return runAnthropicSend(context, prompt);
+    return runAnthropicSend(context, prompt, { source: 'script' });
 }

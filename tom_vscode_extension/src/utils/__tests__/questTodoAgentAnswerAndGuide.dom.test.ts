@@ -112,6 +112,6 @@ describe('todo detail: agent answer and guide me', () => {
         const guide = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
         assert.match(guide, /GUIDE_USER_ACTION_TEMPLATE_ID/);
         assert.match(guide, /template: GUIDE_USER_ACTION_TEMPLATE_ID,\s*transport: 'anthropic',\s*deferSend: true/, 'queued staged on Anthropic');
-        assert.match(guide, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tplBody \}\)/, 'sent in the chat with the template');
+        assert.match(guide, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tplBody, source: 'todo panel: guide me' \}\)/, 'sent in the chat with the template');
     });
 });
