@@ -95,21 +95,21 @@
       },
       {
         "command": "tomAi.sendToLlm",
-        "title": "@T: Send to LLM",
+        "title": "@T: Send to Anthropic/LLM",
         "category": "@Tom",
-        "shortTitle": "Send to LLM"
+        "shortTitle": "Send to Anthropic/LLM"
       },
       {
         "command": "tomAi.sendToLlm.template",
-        "title": "@T: Send to LLM (Pick Template)",
+        "title": "@T: Send to Anthropic/LLM (Pick Template)",
         "category": "@Tom",
-        "shortTitle": "Send to LLM (Pick Template)"
+        "shortTitle": "Send to Anthropic/LLM (Pick Template)"
       },
       {
         "command": "tomAi.sendToLlm.standard",
-        "title": "@T: Send to LLM (Default Template)",
+        "title": "@T: Send to Anthropic/LLM (Default Template)",
         "category": "@Tom",
-        "shortTitle": "Send to LLM (Default Template)"
+        "shortTitle": "Send to Anthropic/LLM (Default Template)"
       },
       {
         "command": "tomAi.reloadConfig",

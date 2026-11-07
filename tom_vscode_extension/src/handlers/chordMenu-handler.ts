@@ -8,7 +8,7 @@
  *
  * Groups:
  *   Ctrl+Shift+C → Send to Copilot Chat
- *   Ctrl+Shift+L → Send to LLM (the @CHAT Anthropic panel's profile)
+ *   Ctrl+Shift+L → Send to Anthropic/LLM (the @CHAT Anthropic panel's profile)
  *   Ctrl+Shift+E → Execute Commandline
  *   Ctrl+Shift+X → Favorites (configurable via tom_vscode_extension.json)
  *
@@ -101,12 +101,12 @@ const CHORD_GROUPS: Record<string, ChordGroup> = {
         ]
     },
     llm: {
-        title: 'Send to LLM',
+        title: 'Send to Anthropic/LLM',
         prefix: 'Ctrl+Shift+L',
         items: [
-            { key: 'l', label: 'Send to LLM', commandId: 'tomAi.sendToLlm' },
-            { key: 's', label: 'Send to LLM (Default Template)', commandId: 'tomAi.sendToLlm.standard' },
-            { key: 't', label: 'Send to LLM (Pick Template)', commandId: 'tomAi.sendToLlm.template' },
+            { key: 'l', label: 'Send to Anthropic/LLM', commandId: 'tomAi.sendToLlm' },
+            { key: 's', label: 'Send to Anthropic/LLM (Default Template)', commandId: 'tomAi.sendToLlm.standard' },
+            { key: 't', label: 'Send to Anthropic/LLM (Pick Template)', commandId: 'tomAi.sendToLlm.template' },
             HELP_ITEM,
         ]
     },

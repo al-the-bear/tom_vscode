@@ -4,7 +4,8 @@
  *
  *   AL-1 the @CHAT subpanel is titled Anthropic/LLM (shown upper-case by the accordion), its section id `anthropic`
  *   AL-2 the Status Page sections say Anthropic/LLM; no section title says plain Anthropic
- *   AL-3 the SESSIONS view says the `chat` session is the ANTHROPIC/LLM panel's; no command title names Anthropic
+ *   AL-3 the SESSIONS view says the `chat` session is the ANTHROPIC/LLM panel's; a command title names
+ *        Anthropic only as the panel, "Anthropic/LLM" (the Send to Anthropic/LLM commands)
  */
 
 import test, { describe } from 'node:test';
@@ -35,7 +36,9 @@ describe('ANTHROPIC/LLM labels', () => {
     test('AL-3: the SESSIONS view and the commands', () => {
         assert.equal(IMPLICIT_SESSIONS.find((r) => r.name === 'chat')?.usedBy, 'the ANTHROPIC/LLM panel');
         const pkg = JSON.parse(read('package.json'));
-        const named = (pkg.contributes.commands as Array<{ title: string }>).filter((c) => /anthropic/i.test(c.title));
-        assert.deepEqual(named, []);
+        const titles = (pkg.contributes.commands as Array<{ title: string }>).map((c) => c.title);
+        const bare = titles.filter((t) => /anthropic/i.test(t.replace(/Anthropic\/LLM/g, '')));
+        assert.deepEqual(bare, [], 'Anthropic only as the panel name Anthropic/LLM');
+        assert.ok(titles.includes('@T: Send to Anthropic/LLM'));
     });
 });

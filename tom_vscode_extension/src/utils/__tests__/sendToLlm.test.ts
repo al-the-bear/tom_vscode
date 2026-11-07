@@ -1,5 +1,5 @@
 /**
- * "Send to LLM" (`tomAi.sendToLlm*`): the text it takes, the templates it picks
+ * "Send to Anthropic/LLM" (`tomAi.sendToLlm*`): the text it takes, the templates it picks
  * from (src/utils/sendToLlm.ts), and how it is reached (package.json, the
  * chord menu, the handler).
  *
@@ -22,7 +22,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const COMMANDS = ['tomAi.sendToLlm', 'tomAi.sendToLlm.standard', 'tomAi.sendToLlm.template'];
 
-describe('Send to LLM', () => {
+describe('Send to Anthropic/LLM', () => {
     test('SL-1: the text a variant takes', () => {
         assert.deepEqual(llmSendText('sel', 'doc', 'selection'), { text: 'sel' });
         assert.deepEqual(llmSendText('', 'doc', 'selection'), { error: 'No text selected.' });
@@ -48,9 +48,9 @@ describe('Send to LLM', () => {
 
     test('SL-3: package.json', () => {
         const declared = new Map<string, { title: string }>(pkg.contributes.commands.map((c: { command: string; title: string }) => [c.command, c]));
-        assert.equal(declared.get('tomAi.sendToLlm')?.title, '@T: Send to LLM');
-        assert.equal(declared.get('tomAi.sendToLlm.standard')?.title, '@T: Send to LLM (Default Template)');
-        assert.equal(declared.get('tomAi.sendToLlm.template')?.title, '@T: Send to LLM (Pick Template)');
+        assert.equal(declared.get('tomAi.sendToLlm')?.title, '@T: Send to Anthropic/LLM');
+        assert.equal(declared.get('tomAi.sendToLlm.standard')?.title, '@T: Send to Anthropic/LLM (Default Template)');
+        assert.equal(declared.get('tomAi.sendToLlm.template')?.title, '@T: Send to Anthropic/LLM (Pick Template)');
         const menu = pkg.contributes.menus['editor/context'] as Array<{ command: string; when?: string; group?: string }>;
         const llm = menu.filter((m) => COMMANDS.includes(m.command));
         assert.deepEqual(llm.map((m) => [m.command, m.group, m.when]), [

@@ -29,7 +29,7 @@
 | Key | Command | Description |
 | --- | --- | --- |
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot menu |
-| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to LLM menu (`l` selection, `s` default template, `t` pick template) |
+| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to Anthropic/LLM menu (`l` selection, `s` default template, `t` pick template) |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute menu |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites menu |
 

@@ -834,7 +834,7 @@ export function deactivate() {
  * Register all extension commands
  */
 function registerCommands(context: vscode.ExtensionContext) {
-    // Send to LLM - the @CHAT Anthropic panel's current profile and session
+    // Send to Anthropic/LLM - the @CHAT Anthropic panel's current profile and session
     registerSendToLlmCommands(context);
 
     // Send to Chat command - sends selected text to Copilot Chat

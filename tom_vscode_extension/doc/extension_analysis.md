@@ -287,8 +287,8 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | `tomAi.sendToCopilot.standard` | Send with default template |
 | `tomAi.sendToCopilot.template` | Send with template picker |
 | `tomAi.sendToLlm` | Send the selection to the @CHAT ANTHROPIC/LLM panel's profile |
-| `tomAi.sendToLlm.standard` | Send to LLM with the default template |
-| `tomAi.sendToLlm.template` | Send to LLM with a template picker |
+| `tomAi.sendToLlm.standard` | Send to Anthropic/LLM with the default template |
+| `tomAi.sendToLlm.template` | Send to Anthropic/LLM with a template picker |
 
 ### Panels & Editors
 
@@ -321,7 +321,7 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | Key | Command | Menu |
 |-----|---------|------|
 | `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot operations |
-| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to LLM |
+| `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to Anthropic/LLM |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execution commands |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites |
 

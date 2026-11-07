@@ -1,5 +1,5 @@
 /**
- * Pure rules of the "Send to LLM" commands (`tomAi.sendToLlm*`,
+ * Pure rules of the "Send to Anthropic/LLM" commands (`tomAi.sendToLlm*`,
  * src/handlers/sendToLlm-handler.ts): which text of the editor is sent, and
  * which user-message templates there are to pick from.
  */

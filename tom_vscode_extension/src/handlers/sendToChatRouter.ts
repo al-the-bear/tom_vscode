@@ -189,7 +189,7 @@ export async function dispatchSendToChat(
 
 /**
  * Fire-and-forget send to the @CHAT Anthropic panel's current profile and
- * session (the "Send to LLM" commands, and Send to Chat with the Anthropic
+ * session (the "Send to Anthropic/LLM" commands, and Send to Chat with the Anthropic
  * target). `userMessageTemplate` is the template body to wrap the prompt with;
  * without it the default one. Busy / failure surfaces as a notification.
  */
@@ -204,7 +204,7 @@ export async function dispatchToLlm(
             'The LLM chat is busy — try again once the current request finishes.',
         );
     } else if (!outcome.ok && outcome.error) {
-        vscode.window.showErrorMessage(`Send to LLM failed: ${outcome.error}`);
+        vscode.window.showErrorMessage(`Send to Anthropic/LLM failed: ${outcome.error}`);
     }
 }
 

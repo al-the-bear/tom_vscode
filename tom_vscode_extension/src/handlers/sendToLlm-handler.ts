@@ -1,5 +1,5 @@
 /**
- * "Send to LLM": sends the editor's text to the @CHAT Anthropic panel's current
+ * "Send to Anthropic/LLM": sends the editor's text to the @CHAT Anthropic panel's current
  * profile and session, as if it had been typed there (src/handlers/sendToChatRouter.ts
  * runAnthropicSend). The profile may run on an Anthropic or a Local LLM
  * configuration. Three variants, as for Copilot:
@@ -60,7 +60,7 @@ async function pickTemplate(context: vscode.ExtensionContext): Promise<string | 
             detail: c.template.substring(0, 80).replace(/\n/g, ' '),
             template: c.template,
         })),
-        { title: 'Send to LLM', placeHolder: 'Select a template to send with' },
+        { title: 'Send to Anthropic/LLM', placeHolder: 'Select a template to send with' },
     );
     return picked?.template;
 }

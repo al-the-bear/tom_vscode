@@ -289,13 +289,13 @@ On the **direct API transport** the extension sends the history itself — the c
 
 The trails are per session too (§9); **Recreate history from trail** rebuilds each chosen session's history from its own trail.
 
-### Send to LLM
+### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:
 
-- `@T: Send to LLM` (`l`) — the selection, with the default user-message template;
-- `@T: Send to LLM (Default Template)` (`s`) — the selection, or the whole file without one, with the default template;
-- `@T: Send to LLM (Pick Template)` (`t`) — the same with a template picked from the one template store.
+- `@T: Send to Anthropic/LLM` (`l`) — the selection, with the default user-message template;
+- `@T: Send to Anthropic/LLM (Default Template)` (`s`) — the selection, or the whole file without one, with the default template;
+- `@T: Send to Anthropic/LLM (Pick Template)` (`t`) — the same with a template picked from the one template store.
 
 The answer appears in the panel and in the session's live trail. While a turn is running, a second send is refused with a notice.
 

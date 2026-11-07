@@ -239,7 +239,7 @@ Open the command palette and type `@T:` to discover commands.
 
 | Group | Commands |
 | --- | --- |
-| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) · Send to LLM · Send to LLM (Default Template) · Send to LLM (Pick Template) |
+| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) · Send to Anthropic/LLM · Send to Anthropic/LLM (Default Template) · Send to Anthropic/LLM (Pick Template) |
 | Queue & timer | Open Prompt Queue · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
 | Workspace & runtime | Open in Markdown Browser · Extension Status Page · Restart Bridge · Start / Stop Tom CLI Integration Server · Start Process Monitor |
 
