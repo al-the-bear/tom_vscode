@@ -143,6 +143,10 @@ The approval gate is part of the Anthropic handler's shared loop and applies to 
 
 A request must be seen: `ChatPanelViewProvider` listens to `onApprovalNeeded` from its construction (not from its first send) and hands each request to an `ApprovalRelay` (`src/utils/approvalRelay.ts`), which reveals the @CHAT view (`view.show(true)`, or `tomAi.chatPanel.focus` when the view was never resolved) and posts the request once the webview reports `approvalUiReady`, re-posting the open ones when the webview restarts. The webview (`media/chatPanel/main.js`) expands the ANTHROPIC/LLM subpanel, queues requests and answers them one at a time, and drops one the handler reports settled (`onApprovalSettled` → `anthropicToolApprovalSettled`). Tests: `approvalRelay.test.ts` (AR-1..3), `chatPanelApproval.dom.test.ts` (CA-1..4).
 
+## Plan mode
+
+Plan mode (`src/tools/planning-tools.ts`) is one flag per window that gates writes on every transport: `planModeRefusalFor` is the rule, checked in the handler's `runTool` (direct, Local LLM, VS Code LM), in the Agent SDK's `canUseTool` and MCP tool handlers (`planModeGated`), and through the SDK's `plan` permission mode (set at the start of a send, followed with `setPermissionMode` via `onPlanModeChanged`). The panel shows it: `ChatPanelViewProvider` registers the plan decider (`registerPlanDecider`) and follows the flag. The webview gets `planMode {active}` (the badge; its **Leave plan mode** posts `leavePlanMode` → `leavePlanModeByUser`) and `planProposal {id, html}` (the plan rendered by `renderQuestLogMarkdown`; **Accept** / **Keep planning** post `planDecision {id, accepted, feedback}`). Leaving with the badge settles waiting proposals as accepted (`planProposalSettled`). Both are re-sent on `approvalUiReady`. Without a ready panel, `_decidePlan` asks in a modal dialog.
+
 ## Output channels
 
 - **Tom AI** — assistant text + tool summaries for the ANTHROPIC/LLM panel's turns.

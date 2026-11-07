@@ -90,6 +90,8 @@ import {
     writePromptTrail,
     writeAnswerTrail,
 } from '../services/copilotTrailService';
+import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { isPlanModeActive, leavePlanModeByUser, onPlanModeChanged, registerPlanDecider, type PlanDecision } from '../tools/planning-tools';
 import { usageSummaryLine } from '../utils/usageCost';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 
@@ -134,8 +136,22 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         reveal: () => this._revealForApproval(),
         post: (message) => { void this._view?.webview.postMessage(message); },
     });
+    /** Plans proposed with tomAi_exitPlanMode, waiting for the user's decision: id → plan and resolver. */
+    private readonly _planProposals = new Map<string, { plan: string; resolve: (d: PlanDecision) => void }>();
+    private _planProposalSeq = 0;
+
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
+        // Plan mode (CC-3, CC-27): the badge follows the flag, and a proposed
+        // plan is shown here for the user to accept or keep planning.
+        registerPlanDecider((plan) => this._decidePlan(plan));
+        const stopPlanFollow = onPlanModeChanged((active) => {
+            this._postPlanMode();
+            // Left with the badge while a plan was shown: plan mode has ended,
+            // so the proposals waiting are settled as accepted.
+            if (!active) { this._settlePlanProposals({ accepted: true }); }
+        });
+        context.subscriptions.push({ dispose: () => { stopPlanFollow(); registerPlanDecider(undefined); } });
         this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
         this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
         this._setupAnswerFileWatcher();
@@ -143,6 +159,45 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Why here and not at the first panel send: a queue item's tool can
         // ask for approval before the panel ever sent anything.
         this._ensureAnthropicApprovalListener();
+    }
+
+    /** The plan-mode badge's state, to the webview. */
+    private _postPlanMode(): void {
+        void this._view?.webview.postMessage({ type: 'planMode', active: isPlanModeActive() });
+    }
+
+    /** Show the waiting plan proposals (again, after the webview restarted). */
+    private _postPlanProposals(): void {
+        for (const [id, p] of this._planProposals) {
+            void this._view?.webview.postMessage({ type: 'planProposal', id, html: renderQuestLogMarkdown(p.plan) });
+        }
+    }
+
+    private _settlePlanProposals(decision: PlanDecision): void {
+        for (const [id, p] of [...this._planProposals]) {
+            this._planProposals.delete(id);
+            p.resolve(decision);
+            void this._view?.webview.postMessage({ type: 'planProposalSettled', id });
+        }
+    }
+
+    /**
+     * Show a proposed plan and wait for the user: in the ANTHROPIC/LLM
+     * subpanel when the panel is up, else as a modal dialog (a queued prompt
+     * can propose a plan before the panel was ever opened).
+     */
+    private async _decidePlan(plan: string): Promise<PlanDecision> {
+        if (!this._view || !this._approvalUiReady) {
+            const accept = 'Accept and leave plan mode';
+            const answer = await vscode.window.showInformationMessage('The agent proposes a plan', { modal: true, detail: plan }, accept, 'Keep planning');
+            return { accepted: answer === accept };
+        }
+        const id = `plan-${++this._planProposalSeq}`;
+        return new Promise<PlanDecision>((resolve) => {
+            this._planProposals.set(id, { plan, resolve });
+            this._view?.show(true);
+            this._postPlanProposals();
+        });
     }
 
     /**
@@ -407,7 +462,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'approvalUiReady':
                         this._approvalUiReady = true;
                         this._approvals.ready();
+                        this._postPlanMode();
+                        this._postPlanProposals();
                         break;
+                    case 'leavePlanMode':
+                        // The user leaves plan mode with the badge (CC-27).
+                        leavePlanModeByUser();
+                        break;
+                    case 'planDecision': {
+                        const pending = this._planProposals.get(String(message.id || ''));
+                        if (pending) {
+                            this._planProposals.delete(String(message.id));
+                            const feedback = typeof message.feedback === 'string' && message.feedback.trim() ? message.feedback.trim() : undefined;
+                            pending.resolve({ accepted: !!message.accepted, ...(feedback ? { feedback } : {}) });
+                            void this._view?.webview.postMessage({ type: 'planProposalSettled', id: String(message.id) });
+                        }
+                        break;
+                    }
                     case 'anthropicToolApprovalResponse':
                         AnthropicHandler.instance.handleApprovalResponse(
                             String(message.toolId || ''),

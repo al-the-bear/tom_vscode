@@ -371,11 +371,13 @@ Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → L
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_enterPlanMode` | Signal planning; disables mutations (host-enforced). | 🔁 | ✅ | ⚪ | ⚪ |
-| `tomAi_exitPlanMode` | Leave plan mode, attach final plan. | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_enterPlanMode` | Enter plan mode: every write tool is refused until the user leaves it. | 🔁 | ✅ | ⚪ | ⚪ |
+| `tomAi_exitPlanMode` | Propose the plan; the user accepts it (plan mode ends) or asks to keep planning. | 🔁 | ✅ | ⚪ | ⚪ |
 | `tomAi_spawnSubagent` | Run a nested conversation with a narrower tool set. | 🔁 | 🔌 | ⚪ | ❌ |
 | `tomAi_askBigBrother` | Delegate to a larger model via the VS Code LM API. | ⚪ | ⚪ | ✅ | ❌ |
 | `tomAi_askCopilot` | Bounce a question off the **Copilot Chat panel** (via bridge). | ⚪ | ⚪ | ✅ | ❌ |
+
+**Plan mode** gates writes on every transport (`src/tools/planning-tools.ts`). While it is on, every write tool — a `tomAi_*` tool that is not `readOnly`, and Claude Code's writing built-ins (`Bash`, `Write`, `Edit`, …; an unknown built-in counts as one) — answers "plan mode: read and plan only — present your plan and call tomAi_exitPlanMode" instead of running; reading tools and `tomAi_askUser` / `tomAi_askUserPicker` / `tomAi_notifyUser` still run. On direct, Local LLM and VS Code LM the refusal happens in the extension's own tool loop (`runTool`) before any approval; on the Agent SDK in `canUseTool`, in the MCP tool handlers (which run without `canUseTool` under `bypassPermissions`), and through the SDK's own `plan` permission mode — set at the start of a send while plan mode is on, and passed on with `setPermissionMode` when it changes during one. **Only the user ends it:** `tomAi_exitPlanMode {plan}` (or the SDK's `ExitPlanMode`) shows the plan in the ANTHROPIC/LLM panel with *Accept and leave plan mode* / *Keep planning* (an optional note goes back with Keep planning) and waits; without the panel open, a modal dialog asks. The panel's plan-mode badge leaves it directly. Plan mode is one per window: a queued prompt that enters it waits for the user's decision like `tomAi_askUser`. Tests: `planning-tools.test.ts` (PL-1..4), `plan-mode-tool-loop.test.ts` (PT-1..3), `agent-sdk-plan-mode.test.ts` (SP-1..4).
 
 ### 4.20 Copilot Chat orchestration — prompt queue, pre-prompts, timed requests, templates
 
@@ -799,7 +801,7 @@ Tool descriptions are short: purpose, arguments and the one trap, each at most 1
 
 - Default to **`profile.useBuiltInTools = true`** for full-development mode. The SDK supplies `Read`/`Write`/`Edit`/`MultiEdit`/`Glob`/`Grep`/`Bash`/`BashOutput`/`KillBash`/`WebFetch`/`WebSearch`/`NotebookEdit`/`TaskCreate`…`TaskList`/`Task`/`AskUserQuestion`/`ExitPlanMode`; our 🔁 tools are suppressed automatically.
 - The built-ins go through the profile's **Tool Approval** like the `tomAi_*` tools: under *Always* the writers (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `KillShell`) ask, with the command or the file in the approval bar, and *Allow All (session)* covers one tool for the session; the readers (`Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `BashOutput`, the task-list tools, `Task`, …) never ask; a built-in neither list knows asks. A configured `permissionMode` of `acceptEdits` or `auto` would let edits through without asking, so with the built-ins on and *Always* it runs as `default` (`src/utils/agentSdkPermissionMode.ts`; tests PM-5/6, BA-1..4). Queued prompts never ask.
-- Leave `tomAi_enterPlanMode` / `tomAi_exitPlanMode` off — the SDK ships its own plan-mode state.
+- Plan mode: `tomAi_enterPlanMode` puts the send in the SDK's own `plan` permission mode and gates the writers (§4.19); the SDK's `ExitPlanMode` is then a proposal the user accepts, like `tomAi_exitPlanMode`.
 - `tomAi_spawnSubagent` is redundant when `Task` is available; keep off.
 - Keep all the ✅-rows on — they're VS Code specific and have no SDK equivalent (editor context, problems, symbols, code actions, git writes, tasks/debug, issues/tests, quest/session todos, chat variables, memory, pattern prompts, guidelines, user interaction).
 

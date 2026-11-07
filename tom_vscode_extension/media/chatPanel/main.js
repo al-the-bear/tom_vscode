@@ -327,6 +327,26 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
 
             afterToolbarHtml:
+                // Plan mode (CC-3, CC-27): the badge while it is on, with the
+                // button that leaves it; a plan proposed with tomAi_exitPlanMode
+                // shown for the user to accept or keep planning.
+                '<div id="anthropic-plan-badge" class="plan-mode-badge" style="display:none;" title="Write tools are refused until you leave plan mode">' +
+                '<span class="codicon codicon-checklist"></span><span class="plan-mode-label">Plan mode: read and plan only</span>' +
+                '<button data-action="leavePlanMode" title="Leave plan mode: write tools run again">Leave plan mode</button>' +
+                '</div>' +
+                '<div id="anthropic-plan-overlay" class="context-overlay" style="display:none;">' +
+                '<div class="context-popup plan-popup">' +
+                '<div class="context-popup-header"><span>The agent proposes a plan</span></div>' +
+                '<div class="context-popup-body">' +
+                '<div id="anthropic-plan-body" class="plan-body markdown-body"></div>' +
+                '<textarea id="anthropic-plan-feedback" class="plan-feedback" rows="2" placeholder="Optional: what to change (sent with Keep planning)"></textarea>' +
+                '</div>' +
+                '<div class="context-popup-footer">' +
+                '<button class="primary" data-action="planAccept">Accept and leave plan mode</button>' +
+                '<button data-action="planKeep">Keep planning</button>' +
+                '</div>' +
+                '</div>' +
+                '</div>' +
                 '<div id="anthropic-approval-overlay" class="context-overlay" style="display:none;">' +
                 '<div id="anthropic-approval-popup" class="context-popup">' +
                 '<div class="context-popup-header"><span>Tool Approval Required</span></div>' +
@@ -679,6 +699,9 @@ function handleAction(action, id, slot) {
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
         case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         // The host asks which sessions to clear and answers with anthropicHistoryCleared.
+        case 'leavePlanMode': vscode.postMessage({ type: 'leavePlanMode' }); break;
+        case 'planAccept': decidePlan(true); break;
+        case 'planKeep': decidePlan(false); break;
         case 'anthropicApprovalApprove': resolveAnthropicApproval(true, false); break;
         case 'anthropicApprovalApproveAll': resolveAnthropicApproval(true, true); break;
         case 'anthropicApprovalDeny': resolveAnthropicApproval(false, false); break;
@@ -698,6 +721,52 @@ var _anthropicApprovalQueue = [];
 function revealAnthropicSection() {
     if (isExpanded('anthropic')) { return; }
     toggleSection('anthropic');
+}
+
+// ---- Plan mode (CC-3, CC-27) ----
+// Proposed plans wait in order; the host renders each plan's markdown (safe HTML).
+var _planProposals = [];
+var _currentPlanId = '';
+
+function setPlanModeBadge(active) {
+    var badge = document.getElementById('anthropic-plan-badge');
+    if (badge) { badge.style.display = active ? 'flex' : 'none'; }
+}
+
+function showPlanProposal(id, html) {
+    if (id === _currentPlanId) { return; }
+    for (var i = 0; i < _planProposals.length; i++) { if (_planProposals[i].id === id) { return; } }
+    _planProposals.push({ id: id, html: html });
+    if (!_currentPlanId) { showNextPlanProposal(); }
+}
+
+function showNextPlanProposal() {
+    var overlay = document.getElementById('anthropic-plan-overlay');
+    var next = _planProposals.shift();
+    if (!next) {
+        _currentPlanId = '';
+        if (overlay) { overlay.style.display = 'none'; }
+        return;
+    }
+    _currentPlanId = next.id;
+    revealAnthropicSection();
+    var body = document.getElementById('anthropic-plan-body');
+    if (body) { body.innerHTML = next.html || '<p>(empty plan)</p>'; }
+    var feedback = document.getElementById('anthropic-plan-feedback');
+    if (feedback) { feedback.value = ''; }
+    if (overlay) { overlay.style.display = 'block'; }
+}
+
+function decidePlan(accepted) {
+    if (!_currentPlanId) { return; }
+    var feedback = document.getElementById('anthropic-plan-feedback');
+    vscode.postMessage({ type: 'planDecision', id: _currentPlanId, accepted: accepted, feedback: feedback ? feedback.value : '' });
+    showNextPlanProposal();
+}
+
+function settlePlanProposal(id) {
+    _planProposals = _planProposals.filter(function(p) { return p.id !== id; });
+    if (id === _currentPlanId) { showNextPlanProposal(); }
 }
 
 function showAnthropicApprovalDialog(toolId, toolName, inputSummary) {
@@ -1194,6 +1263,12 @@ window.addEventListener('message', function(e) {
         anthropicSending = false;
         updateAnthropicSendButton();
         setAnthropicStatus('Error: ' + (msg.message || 'unknown'));
+    } else if (msg.type === 'planMode') {
+        setPlanModeBadge(!!msg.active);
+    } else if (msg.type === 'planProposal') {
+        showPlanProposal(String(msg.id || ''), String(msg.html || ''));
+    } else if (msg.type === 'planProposalSettled') {
+        settlePlanProposal(String(msg.id || ''));
     } else if (msg.type === 'anthropicToolApproval') {
         showAnthropicApprovalDialog(msg.toolId || '', msg.toolName || '', msg.inputSummary || '');
     } else if (msg.type === 'anthropicToolApprovalSettled') {

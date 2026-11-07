@@ -2,8 +2,8 @@
  * Tool-impl tests for `planning-tools.ts` — entry #25's pure local
  * controllers:
  *
- *   - tomAi_enterPlanMode  — flag flip
- *   - tomAi_exitPlanMode   — flag clear + duration report
+ *   - tomAi_enterPlanMode  — plan mode on (it gates writes: CC-3)
+ *   - tomAi_exitPlanMode   — propose the plan; only the user ends plan mode (CC-27)
  *   - tomAi_spawnSubagent  — delegate to a host-registered spawner
  *
  * Plan-mode state is process-global; each test resets it in a
@@ -39,6 +39,12 @@ import {
     isPlanModeActive,
     getPlanModeState,
     resetPlanModeForTests,
+    leavePlanModeByUser,
+    onPlanModeChanged,
+    planModeRefusalFor,
+    registerPlanDecider,
+    PLAN_MODE_REFUSAL,
+    type PlanDecision,
     type PlanModeClock,
     type SubagentSpawner,
     type SubagentSpawnerLookup,
@@ -100,7 +106,7 @@ beforeEach(() => { resetPlanModeForTests(); });
 
 describe('enterPlanModeImpl + exitPlanModeImpl', () => {
 
-    test('typical: enter then exit reports durationMs and toggles flag', async () => {
+    test('typical: enter, propose, the user accepts: durationMs and the flag off', async () => {
         const clk = makeClock(100);
         const enterRaw = await withTiming('tomAi_enterPlanMode:typical', () =>
             enterPlanModeImpl({ reason: 'thinking it through' }, clk));
@@ -112,10 +118,14 @@ describe('enterPlanModeImpl + exitPlanModeImpl', () => {
         assert.equal(isPlanModeActive(), true);
 
         clk.set(2_500);  // 2_400ms later
+        const shown: string[] = [];
+        registerPlanDecider(async (plan) => { shown.push(plan); return { accepted: true }; });
         const exitRaw = await withTiming('tomAi_exitPlanMode:typical', () =>
             exitPlanModeImpl({ plan: 'final plan text' }, clk));
         const exitR = JSON.parse(exitRaw);
+        assert.deepEqual(shown, ['final plan text'], 'the plan is shown to the user');
         assert.equal(exitR.ok, true);
+        assert.equal(exitR.accepted, true);
         assert.equal(exitR.wasActive, true);
         assert.equal(exitR.noOp, false);
         assert.equal(exitR.durationMs, 2400);
@@ -151,10 +161,65 @@ describe('enterPlanModeImpl + exitPlanModeImpl', () => {
         assert.equal(r.reason, null);
     });
 
-    test('exit without plan → plan: null', async () => {
+    test('exit without a plan is refused; plan mode stays on', async () => {
         await enterPlanModeImpl({ reason: 'r' });
+        registerPlanDecider(async () => ({ accepted: true }));
         const r = JSON.parse(await exitPlanModeImpl({}));
-        assert.equal(r.plan, null);
+        assert.equal(r.ok, false);
+        assert.match(r.error, /plan/);
+        assert.equal(isPlanModeActive(), true);
+    });
+
+    test('PL-1: Keep planning — plan mode stays on, the feedback goes back', async () => {
+        await enterPlanModeImpl({});
+        registerPlanDecider(async (): Promise<PlanDecision> => ({ accepted: false, feedback: 'split step 2' }));
+        const r = JSON.parse(await exitPlanModeImpl({ plan: 'the plan' }));
+        assert.equal(r.ok, true);
+        assert.equal(r.accepted, false);
+        assert.equal(r.planMode, 'active');
+        assert.equal(r.feedback, 'split step 2');
+        assert.equal(isPlanModeActive(), true, 'only the user ends plan mode');
+    });
+
+    test('PL-2: no panel to show the plan in — refused, plan mode stays on', async () => {
+        await enterPlanModeImpl({});
+        const r = JSON.parse(await exitPlanModeImpl({ plan: 'the plan' }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /left by the user/);
+        assert.equal(isPlanModeActive(), true);
+    });
+
+    test('PL-3: the user leaves with the badge; listeners hear every change', async () => {
+        const heard: boolean[] = [];
+        const stop = onPlanModeChanged((a) => heard.push(a));
+        await enterPlanModeImpl({});
+        assert.equal(leavePlanModeByUser(), true);
+        assert.equal(leavePlanModeByUser(), false, 'already off');
+        await enterPlanModeImpl({});
+        registerPlanDecider(async () => ({ accepted: true }));
+        await exitPlanModeImpl({ plan: 'p' });
+        stop();
+        await enterPlanModeImpl({});
+        assert.deepEqual(heard, [true, false, true, false], 'enter, badge, enter, accepted; nothing after unsubscribing');
+    });
+
+    test('PL-4: what plan mode refuses', async () => {
+        const writer = { readOnly: false };
+        const reader = { readOnly: true };
+        assert.equal(planModeRefusalFor('tomAi_editFile', writer), undefined, 'off: nothing refused');
+        await enterPlanModeImpl({});
+        assert.equal(planModeRefusalFor('tomAi_editFile', writer), PLAN_MODE_REFUSAL);
+        assert.equal(planModeRefusalFor('tomAi_readFile', reader), undefined);
+        for (const allowed of ['tomAi_enterPlanMode', 'tomAi_exitPlanMode', 'tomAi_askUser', 'tomAi_askUserPicker', 'tomAi_notifyUser']) {
+            assert.equal(planModeRefusalFor(allowed, writer), undefined, allowed);
+        }
+        for (const builtIn of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'KillShell', 'SomeNewTool']) {
+            assert.equal(planModeRefusalFor(builtIn, undefined), PLAN_MODE_REFUSAL, builtIn);
+        }
+        for (const builtIn of ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch']) {
+            assert.equal(planModeRefusalFor(builtIn, undefined), undefined, builtIn);
+        }
+        assert.match(PLAN_MODE_REFUSAL, /^plan mode: read and plan only/);
     });
 });
 

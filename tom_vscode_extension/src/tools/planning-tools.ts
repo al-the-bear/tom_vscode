@@ -8,12 +8,16 @@
  *
  * ## Coverage entry #25 refactor (audit notes)
  *
- *   - Plan mode is **advisory** — flipping the flag does NOT gate any
- *     tool by itself.  Host handlers read `isPlanModeActive()` and may
- *     refuse to execute approval-gated tools while it is true.  The
- *     description was rewritten to say this explicitly (old text
- *     "Mirrors the Agent SDK's plan mode" was opaque to consumers
- *     not already familiar with the SDK).
+ *   - Plan mode **gates writes** (CC-3): while it is on, every transport
+ *     refuses a write tool with {@link PLAN_MODE_REFUSAL} before it runs —
+ *     the direct / Local LLM / VS Code LM tool loop in `runTool`, the Agent
+ *     SDK in `canUseTool`, in its MCP tool handlers (which run even when
+ *     `canUseTool` is bypassed) and through its own `plan` permission mode.
+ *     {@link planModeRefusalFor} is the one rule.
+ *   - **Only the user leaves it** (CC-27): `tomAi_exitPlanMode {plan}`
+ *     shows the plan to the user ({@link registerPlanDecider}, the chat
+ *     panel) with "Accept and leave plan mode" / "Keep planning"; the
+ *     panel's plan-mode badge leaves it directly ({@link leavePlanModeByUser}).
  *   - **Nested enter** is now surfaced explicitly: a second
  *     `enterPlanMode` while already active returns `nested: true` and
  *     preserves the original `enteredAt` / `originalReason`, so the
@@ -32,6 +36,7 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import { builtInToolNeedsApproval } from '../utils/agentSdkPermissionMode';
 
 // ===========================================================================
 // JSON envelopes
@@ -56,6 +61,78 @@ const planMode: PlanModeState = { active: false, enteredAt: null, reason: undefi
 
 /** Public read of the plan-mode flag for host handlers. */
 export function isPlanModeActive(): boolean { return planMode.active; }
+
+/** What a write tool answers while plan mode is on, on every transport. */
+export const PLAN_MODE_REFUSAL = 'plan mode: read and plan only — present your plan and call tomAi_exitPlanMode';
+
+/**
+ * Tools that run in plan mode although they are not read-only: entering and
+ * leaving it, and talking to the user (asking is part of planning; nothing in
+ * the workspace changes).
+ */
+export const PLAN_MODE_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+    'tomAi_enterPlanMode', 'tomAi_exitPlanMode', 'tomAi_askUser', 'tomAi_askUserPicker', 'tomAi_notifyUser',
+]);
+
+/**
+ * The refusal for a tool call while plan mode is on, or undefined when it may
+ * run. `def` is the extension tool's definition — a write tool is one that is
+ * not `readOnly` (the MCP read-only floor's rule); without one the name is a
+ * Claude Code built-in, refused when it writes (agentSdkPermissionMode's
+ * writer / reader lists; a built-in neither knows counts as a writer).
+ */
+export function planModeRefusalFor(toolName: string, def: { readOnly?: boolean } | undefined): string | undefined {
+    if (!planMode.active || PLAN_MODE_ALLOWED_TOOLS.has(toolName)) { return undefined; }
+    if (def) { return def.readOnly ? undefined : PLAN_MODE_REFUSAL; }
+    return builtInToolNeedsApproval(toolName) ? PLAN_MODE_REFUSAL : undefined;
+}
+
+type PlanModeListener = (active: boolean) => void;
+const listeners = new Set<PlanModeListener>();
+
+/** Be told when plan mode goes on or off (the chat panel's badge, a running Agent SDK query). Answers the unsubscribe. */
+export function onPlanModeChanged(listener: PlanModeListener): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+}
+
+function notifyPlanMode(): void {
+    for (const l of [...listeners]) {
+        try { l(planMode.active); } catch { /* a listener's failure is its own */ }
+    }
+}
+
+/** The user's answer to a proposed plan. */
+export interface PlanDecision {
+    accepted: boolean;
+    /** What the user said along with "Keep planning", if anything. */
+    feedback?: string;
+}
+
+/** Shows a proposed plan to the user and answers their decision (registered by the chat panel). */
+export type PlanDecider = (plan: string) => Promise<PlanDecision>;
+let planDecider: PlanDecider | undefined;
+
+/** Register how a proposed plan reaches the user; `undefined` unregisters. */
+export function registerPlanDecider(decider: PlanDecider | undefined): void {
+    planDecider = decider;
+}
+
+function clearPlanMode(): number | null {
+    const durationMs = planMode.enteredAt ? Date.now() - planMode.enteredAt : null;
+    planMode.active = false;
+    planMode.enteredAt = null;
+    planMode.reason = undefined;
+    return durationMs;
+}
+
+/** The user leaves plan mode (the panel's badge, or accepting a plan). Answers whether it was on. */
+export function leavePlanModeByUser(): boolean {
+    if (!planMode.active) { return false; }
+    clearPlanMode();
+    notifyPlanMode();
+    return true;
+}
 export function getPlanModeState(): { active: boolean; enteredAt: number | null; reason?: string } {
     return { active: planMode.active, enteredAt: planMode.enteredAt, reason: planMode.reason };
 }
@@ -69,6 +146,8 @@ export function resetPlanModeForTests(): void {
     planMode.active = false;
     planMode.enteredAt = null;
     planMode.reason = undefined;
+    planDecider = undefined;
+    listeners.clear();
 }
 
 // ===========================================================================
@@ -102,26 +181,27 @@ export async function enterPlanModeImpl(input: EnterPlanModeInput, clock: PlanMo
     planMode.active = true;
     planMode.enteredAt = clock.now();
     planMode.reason = input.reason;
+    notifyPlanMode();
     return ok({
         planMode: 'entered',
         nested: false,
         active: true,
         enteredAt: new Date(planMode.enteredAt).toISOString(),
         reason: input.reason ?? null,
-        note: 'Advisory flag — approval-gated tools are still executable. The host handler decides whether to enforce restrictions while planning.',
+        note: 'Write tools are refused until the user leaves plan mode: read, plan, then call tomAi_exitPlanMode with your plan.',
     });
 }
 
 export const ENTER_PLAN_MODE_DESCRIPTION =
-    'Flip the **advisory** plan-mode flag, signalling that you are ' +
-    'planning and would prefer to read/think rather than mutate. ' +
-    '**This does not gate any tool by itself** — host handlers may ' +
-    'read `isPlanModeActive()` and decide to refuse approval-gated ' +
-    'tools while the flag is set, but the flag alone never causes a ' +
-    'refusal. Calling this while already in plan mode returns ' +
-    '`{nested: true}` and preserves the original entry context ' +
-    '(`originalEnteredAt`, `originalReason`); call ' +
-    '`tomAi_exitPlanMode` first if you want to refresh the reason.';
+    'Enter plan mode: until the user leaves it, every write tool — the ' +
+    '`tomAi_*` writers and Claude Code\'s writing built-ins (Bash, Write, ' +
+    'Edit, …) — is refused with "' + PLAN_MODE_REFUSAL + '", on every ' +
+    'transport; reading tools, tomAi_askUser / tomAi_askUserPicker / ' +
+    'tomAi_notifyUser still run. Read and plan, then propose the plan with ' +
+    '`tomAi_exitPlanMode {plan}`: the user accepts it (plan mode ends) or ' +
+    'asks you to keep planning. You cannot leave plan mode yourself. ' +
+    'Calling this while already in plan mode returns `{nested: true}` ' +
+    'and keeps the original entry context.';
 
 export const ENTER_PLAN_MODE_TOOL: SharedToolDefinition<EnterPlanModeInput> = {
     name: 'tomAi_enterPlanMode',
@@ -155,26 +235,52 @@ export async function exitPlanModeImpl(input: ExitPlanModeInput, clock: PlanMode
             note: 'exitPlanMode called while plan mode was not active.',
         });
     }
-    const durationMs = planMode.enteredAt ? clock.now() - planMode.enteredAt : null;
-    planMode.active = false;
-    planMode.enteredAt = null;
-    planMode.reason = undefined;
+    const plan = typeof input.plan === 'string' ? input.plan.trim() : '';
+    if (!plan) {
+        return err('Pass the plan you propose in `plan`: the user reads it and accepts it (plan mode ends) or asks you to keep planning.', { planMode: 'active' });
+    }
+    if (!planDecider) {
+        return err('Plan mode is left by the user, and there is no panel here to show the plan in. The user can leave it with the plan-mode badge of the ANTHROPIC/LLM panel.', { planMode: 'active', plan });
+    }
+    let decision: PlanDecision;
+    try {
+        decision = await planDecider(plan);
+    } catch (e) {
+        return err(`The plan could not be shown to the user: ${(e as Error).message}`, { planMode: 'active', plan });
+    }
+    if (!decision.accepted) {
+        return ok({
+            planMode: 'active',
+            accepted: false,
+            plan,
+            ...(decision.feedback ? { feedback: decision.feedback } : {}),
+            note: 'The user wants you to keep planning: plan mode stays on. Revise the plan and propose it again.',
+        });
+    }
+    // The user may have left plan mode with the badge while the plan was shown.
+    const enteredAt = planMode.enteredAt;
+    const durationMs = enteredAt ? clock.now() - enteredAt : null;
+    leavePlanModeByUser();
     return ok({
         planMode: 'exited',
+        accepted: true,
         wasActive: true,
         noOp: false,
         durationMs,
-        plan: input.plan ?? null,
+        plan,
+        note: 'The user accepted the plan: plan mode is off, write tools run again. Carry out the plan.',
     });
 }
 
 export const EXIT_PLAN_MODE_DESCRIPTION =
-    'Clear the advisory plan-mode flag and report how long planning ' +
-    'took (`durationMs`). Optionally attach the final `plan` text — ' +
-    'the value is echoed back in the response so caller-side tools can ' +
-    'capture it. Calling this while plan mode is NOT active returns ' +
-    '`{wasActive: false, noOp: true}` (not an error) so "exit twice" is ' +
-    'safe and observable.';
+    'Propose your plan to the user and ask to leave plan mode: `plan` ' +
+    '(required, markdown) is shown in the ANTHROPIC/LLM panel with ' +
+    '"Accept and leave plan mode" / "Keep planning", and the call waits ' +
+    'for the answer. Accepted: `{accepted: true, planMode: "exited"}` — ' +
+    'write tools run again, carry out the plan. Keep planning: ' +
+    '`{accepted: false, planMode: "active", feedback?}` — revise and ' +
+    'propose again. Only the user ends plan mode. Called while plan ' +
+    'mode is not on: `{wasActive: false, noOp: true}`.';
 
 export const EXIT_PLAN_MODE_TOOL: SharedToolDefinition<ExitPlanModeInput> = {
     name: 'tomAi_exitPlanMode',
@@ -186,7 +292,7 @@ export const EXIT_PLAN_MODE_TOOL: SharedToolDefinition<ExitPlanModeInput> = {
     inputSchema: {
         type: 'object',
         properties: {
-            plan: { type: 'string', description: 'Summary of the plan the model has arrived at.' },
+            plan: { type: 'string', description: 'The plan you propose, as markdown; the user accepts it or asks you to keep planning. Required while plan mode is on.' },
         },
     },
     execute: (input) => exitPlanModeImpl(input),

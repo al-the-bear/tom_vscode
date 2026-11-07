@@ -296,6 +296,10 @@ On the **direct API transport** the extension sends the history itself — the c
 
 The trails are per session too (§9); **Recreate history from trail** rebuilds each chosen session's history from its own trail.
 
+### Plan mode
+
+An agent can enter **plan mode** (`tomAi_enterPlanMode`) to read and plan before it changes anything. While it is on, the ANTHROPIC/LLM subpanel shows a yellow **Plan mode: read and plan only** badge, and every write tool — the extension's and Claude Code's Bash, Write, Edit, … — is refused on every transport; reading and asking you still work. When the agent has a plan it proposes it: the plan appears in the panel with **Accept and leave plan mode** and **Keep planning** (with an optional note to the agent). Only you end plan mode — by accepting a plan, or with the badge's **Leave plan mode** button. Without the panel open, a dialog shows the plan instead. Plan mode is one per window, so a queued prompt in plan mode waits for your answer too.
+
 ### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:

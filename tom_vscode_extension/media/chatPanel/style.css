@@ -55,3 +55,11 @@
 /* Agent SDK session button: the icon plus the session's name. */
 .icon-btn.session-btn { width: auto; gap: 3px; padding: 0 4px; }
 .session-btn .session-name { font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Plan mode (CC-3, CC-27): the badge while it is on, and a proposed plan. */
+.plan-mode-badge { align-items: center; gap: 6px; margin: 4px 0; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid currentColor; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
+.plan-mode-badge .plan-mode-label { flex: 1; }
+.plan-mode-badge button { font-size: 11px; }
+.plan-popup { max-width: 640px; }
+.plan-body { padding: 8px; max-height: 50vh; overflow: auto; }
+.plan-feedback { width: calc(100% - 16px); margin: 0 8px 8px; resize: vertical; font-family: inherit; }

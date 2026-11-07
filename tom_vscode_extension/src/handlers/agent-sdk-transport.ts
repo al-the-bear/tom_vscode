@@ -29,6 +29,7 @@ import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { builtInApprovalSummary, builtInToolNeedsApproval, effectivePermissionMode, permissionModeOverride } from '../utils/agentSdkPermissionMode';
+import { exitPlanModeImpl, isPlanModeActive, onPlanModeChanged, planModeRefusalFor } from '../tools/planning-tools';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
 // host compiles to CommonJS. We load it via dynamic `import()` and cache
@@ -492,11 +493,10 @@ function buildMcpServer(
             def.name,
             def.description,
             toRawShape(def.inputSchema),
-            // Same executor + trail invariant as the standalone MCP server, via the
-            // shared wrapper. The Agent SDK path's two extras are the injected sink:
-            // it forwards to `TrailService` under the anthropic subsystem AND
-            // decorates the chat `toolTrail` (round + input summary).
-            wrapToolWithTrail(
+            // Plan mode is checked here too: under bypassPermissions (Tool
+            // Approval "Never", every queued prompt) the SDK runs these
+            // handlers without asking canUseTool.
+            planModeGated(def, wrapToolWithTrail(
                 def,
                 {
                     writeRequest: (name, input) => {
@@ -527,7 +527,7 @@ function buildMcpServer(
                 },
                 () => ({ source: 'anthropic', requestId: ctx.requestId }),
                 'agentSdk',
-            ),
+            )),
         ),
     );
 
@@ -542,6 +542,15 @@ function buildMcpServer(
         tools: mcpTools,
         alwaysLoad: true,
     });
+}
+
+/** An MCP tool handler that answers the plan-mode refusal instead of running while plan mode forbids it. */
+function planModeGated<H extends (...args: never[]) => Promise<unknown>>(def: SharedToolDefinition, handler: H): H {
+    return (async (...args: Parameters<H>) => {
+        const refusal = planModeRefusalFor(def.name, def);
+        if (refusal) { return { content: [{ type: 'text', text: refusal }], isError: true }; }
+        return handler(...args);
+    }) as unknown as H;
 }
 
 // ============================================================================
@@ -609,6 +618,20 @@ function makeCanUseTool(
         }
 
         const def = tools.find((t) => t.name === bare);
+
+        // Plan mode (CC-3, CC-27). The SDK's own ExitPlanMode is a proposal
+        // like tomAi_exitPlanMode: the user decides whether plan mode ends.
+        if (bare === 'ExitPlanMode' && isPlanModeActive()) {
+            const plan = typeof (input as { plan?: unknown }).plan === 'string' ? (input as { plan: string }).plan : '';
+            const answer = JSON.parse(await exitPlanModeImpl({ plan })) as { accepted?: boolean; note?: string; error?: string; feedback?: string };
+            return answer.accepted
+                ? { behavior: 'allow', updatedInput: input }
+                : { behavior: 'deny', message: [answer.error ?? answer.note, answer.feedback ? `The user: ${answer.feedback}` : ''].filter(Boolean).join(' ') };
+        }
+        const planRefusal = planModeRefusalFor(bare, def);
+        if (planRefusal) {
+            return { behavior: 'deny', message: planRefusal };
+        }
 
         // Claude Code's own built-ins (useBuiltInTools): the writers ask under
         // the profile's Tool Approval like the tomAi_* writers, the readers
@@ -870,6 +893,7 @@ async function runAgentSdkAttempt(
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
     const abortController = new AbortController();
+    let stopPlanFollow: (() => void) | undefined;
     const cancelSub = cancellationToken?.onCancellationRequested(() => {
         input.close('cancelled');
         abortController.abort();
@@ -884,7 +908,11 @@ async function runAgentSdkAttempt(
     // With Claude Code's built-ins on, a mode that lets them write unasked
     // (acceptEdits, auto) runs as default too.
     const builtInTools = params.useBuiltInTools === true;
-    const permissionMode: PermissionMode = effectivePermissionMode(approvalMode, configuredMode, builtInTools);
+    const baseMode: PermissionMode = effectivePermissionMode(approvalMode, configuredMode, builtInTools);
+    // Plan mode (CC-3) also puts the SDK in its own plan permission mode, where
+    // nothing writes and canUseTool is asked even on a bypassing profile; a
+    // change during the send is passed on (setPermissionMode below).
+    const permissionMode: PermissionMode = isPlanModeActive() ? 'plan' : baseMode;
     const modeOverride = permissionModeOverride(approvalMode, configuredMode, builtInTools);
     if (modeOverride) { toolLog(`[agent-sdk] ${modeOverride} (configuration ${configuration.id})`); }
     let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
@@ -1042,6 +1070,13 @@ async function runAgentSdkAttempt(
         const stream = sdk.query({
             prompt: input.messages(),
             options: queryOptions as Parameters<typeof sdk.query>[0]['options'],
+        });
+        // Plan mode entered or left while the query runs: the SDK's mode follows.
+        stopPlanFollow = onPlanModeChanged((active) => {
+            const setMode = (stream as { setPermissionMode?: (m: PermissionMode) => Promise<void> }).setPermissionMode;
+            if (typeof setMode === 'function') {
+                void setMode.call(stream, active ? 'plan' : baseMode).catch(() => { /* the query may have ended */ });
+            }
         });
 
         for await (const msg of stream) {
@@ -1263,6 +1298,7 @@ async function runAgentSdkAttempt(
     } finally {
         input.close('stream-ended');
         cancelSub?.dispose();
+        stopPlanFollow?.();
     }
 
     // Clean exit — write the final text (with an informative placeholder

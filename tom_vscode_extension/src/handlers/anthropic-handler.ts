@@ -15,6 +15,7 @@ import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
+import { planModeRefusalFor } from '../tools/planning-tools';
 import { recordRoundUsage } from '../services/usageLedgerService';
 import { parallelCallsReminder, roundResultContent } from '../utils/parallelToolCalls';
 import { appliedClearingNotice, promptTokensOf, serverToolClearing } from '../utils/serverToolClearing';
@@ -3444,6 +3445,15 @@ export class AnthropicHandler {
         const def = tools.find((t) => t.name === block.name);
         const input = (block.input ?? {}) as Record<string, unknown>;
         const inputSummary = summarizeToolInput(def, input);
+
+        // Plan mode (CC-3): a write tool is refused here, before approval and
+        // before it runs — the one place every tool call of the direct, Local
+        // LLM and VS Code LM loops passes. The model keeps reading and planning.
+        const planRefusal = planModeRefusalFor(block.name, def ?? { readOnly: false });
+        if (planRefusal) {
+            logToolCall({ at: new Date(), transport: configuration.transport ?? 'direct', tool: block.name, durationMs: 0, resultChars: planRefusal.length, error: planRefusal });
+            return { type: 'tool_result', tool_use_id: block.id, is_error: true, content: planRefusal };
+        }
 
         // Per spec §8.1: `requiresApproval` defaults to `true` for write
         // tools (i.e. `!readOnly`). An explicit value overrides the default
