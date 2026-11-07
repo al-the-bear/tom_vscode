@@ -813,6 +813,8 @@ export function deactivate() {
     disposeMcpLogChannel();
     // Stop the external MCP servers the client started (CC-16).
     void import('./handlers/anthropic-handler.js').then((m) => m.disposeExternalMcp()).catch(() => undefined);
+    // An open tomAi_askInMdBrowser ends; the MD Browser's comments worker stops.
+    void import('./handlers/markdownBrowser-handler.js').then((m) => m.disposeMarkdownBrowser()).catch(() => undefined);
 
     // Stop the bridge process to ensure clean shutdown
     const bridgeClient = getBridgeClient();

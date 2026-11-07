@@ -28,6 +28,9 @@
     </style>
 </head>
 <body>
+    <!-- tomAi_askInMdBrowser: the agent's buttons and "Keep this file", above everything (askBar.js) -->
+    <div class="ask-bar" id="askBar" hidden></div>
+
     <!-- Action Bar -->
     <div class="action-bar">
         <div class="picker-area">
@@ -155,6 +158,7 @@
     <script src="{{sharedUri}}/mdOverlay.js"></script>
     <script src="{{baseUri}}/blocks.js"></script>
     <script src="{{baseUri}}/main.js"></script>
+    <script src="{{baseUri}}/askBar.js"></script>
     <script>
 {{pickerScript}}
     </script>

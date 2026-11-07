@@ -170,6 +170,8 @@ export function formatToolSummary(
             return `notifyUser(${i.urgency || 'info'}: "${truncate(i.message || '', 80)}")${failedTag}`;
         case 'tomAi_askUser':
             return `askUser(${Array.isArray(i.questions) ? i.questions.length : 0} questions)${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
+        case 'tomAi_askInMdBrowser':
+            return `askInMdBrowser(${i.filePath || ''}: ${Array.isArray(i.buttons) ? i.buttons.map((b: { label?: string }) => b?.label).join(' / ') : ''})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_askUserPicker':
             return `askUserPicker(${Array.isArray(i.items) ? i.items.length : 0} items)${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_listIssues':

@@ -814,22 +814,30 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             visibleTextEditors: [] as unknown[],
             tabGroups: { all: [] as unknown[], onDidChangeTabs: new EventEmitter<unknown>().event },
             // A panel nobody sees: it takes HTML and messages, and dispose() fires onDidDispose.
+            // What the host posts is in `webview.__posted`; `webview.__receive(msg)` delivers a
+            // message from the webview. Every panel is listed in `window.__webviewPanels`.
+            __webviewPanels: [] as unknown[],
             createWebviewPanel: (viewType: string, title: string): Record<string, unknown> => {
                 record('window.createWebviewPanel', [viewType, title]);
                 const disposed = new EventEmitter<void>();
+                const received = new EventEmitter<unknown>();
+                const posted: unknown[] = [];
                 const panel: Record<string, unknown> = {
                     viewType, title, visible: true, active: true,
                     webview: {
                         html: '', options: {}, cspSource: 'vscode-resource:',
-                        onDidReceiveMessage: new EventEmitter<unknown>().event,
-                        postMessage: async (): Promise<boolean> => true,
+                        onDidReceiveMessage: received.event,
+                        postMessage: async (m: unknown): Promise<boolean> => { posted.push(m); return true; },
                         asWebviewUri: (u: unknown): unknown => u,
+                        __posted: posted,
+                        __receive: (m: unknown): void => received.fire(m),
                     },
                     onDidDispose: disposed.event,
                     onDidChangeViewState: new EventEmitter<unknown>().event,
                     reveal: (): void => undefined,
                     dispose: (): void => { panel.visible = false; disposed.fire(); },
                 };
+                ((stub.window as Record<string, unknown>).__webviewPanels as unknown[]).push(panel);
                 return panel;
             },
             // A QuickPick nobody sees. The ones shown are listed in `window.__quickPicks`, so a

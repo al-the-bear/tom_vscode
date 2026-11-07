@@ -751,7 +751,8 @@ import {
     CLOSE_MD_BROWSER_TOOL, LIST_MD_BROWSER_PANELS_TOOL, MD_BROWSER_TOOLS, OPEN_IN_MD_BROWSER_TOOL, closeMdBrowserImpl,
     listMdBrowserPanelsImpl, markMdBrowserTabs, openInMdBrowserImpl, type CloseMdBrowserInput, type OpenInMdBrowserInput,
 } from './md-browser-tools';
-import { mdBrowserController } from '../handlers/markdownBrowser-handler';
+import { mdBrowserAskDeps, mdBrowserController } from '../handlers/markdownBrowser-handler';
+import { ASK_IN_MD_BROWSER_TOOL, askInMdBrowserImpl, type AskInMdBrowserInput } from './ask-in-md-browser-tool';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry';
 import { execFile } from 'child_process';
 import { WsPaths as EditorWsPaths } from '../utils/workspacePaths';
@@ -935,6 +936,8 @@ function describeTab(input: unknown): { file: boolean; absolutePath: string | nu
     (input) => openInMdBrowserImpl(mdBrowserController, input);
 (CLOSE_MD_BROWSER_TOOL as { execute: (input: CloseMdBrowserInput) => Promise<string> }).execute =
     (input) => closeMdBrowserImpl(mdBrowserController, input);
+(ASK_IN_MD_BROWSER_TOOL as { execute: (input: AskInMdBrowserInput) => Promise<string> }).execute =
+    (input) => askInMdBrowserImpl(mdBrowserAskDeps, input);
 import {
     DIAGNOSTICS_TOOLS,
     GET_ERRORS_TOOL as GET_ERRORS_DEF_INSTALL,
@@ -1581,6 +1584,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...VSCODE_COMMAND_TOOLS,    // openFile, listCommands, vscode (meta)
     ...USER_INTERACTION_TOOLS,  // askUserPicker
     ASK_USER_LIVE_TOOL,         // askUser — blocking multi-question ask (webview + Telegram)
+    ASK_IN_MD_BROWSER_TOOL,     // askInMdBrowser — blocking ask through a document's button bar
     ...WORKSPACE_EDIT_TOOLS,    // applyEdit (transactional)
     ...TASK_DEBUG_TOOLS,        // runTask, runDebugConfig
     ...PROCESS_TOOLS,           // runCommandStream, readCommandOutput, killCommand

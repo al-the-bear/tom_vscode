@@ -48,6 +48,17 @@ function somCommentsClient(): SomCommentsWorkerClient {
     return sharedSomCommentsClient;
 }
 
+/**
+ * At deactivation: an open ask ends (cancelled) and the comments worker stops,
+ * so neither outlives the extension host's use of them.
+ */
+export async function disposeMarkdownBrowser(): Promise<void> {
+    mdBrowserAskSlot.cancel();
+    const client = sharedSomCommentsClient;
+    sharedSomCommentsClient = undefined;
+    await client?.dispose();
+}
+
 /** How the OS user is written as a comment author: the first name of the account's full name. */
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { readMediaText } from '../utils/webviewLoader.js';
@@ -58,6 +69,9 @@ import {
     MD_BROWSER_RECORDS_KEY, planDormantTabs, rememberedRecords, type MdPanelRecord, type MdTabRef,
 } from '../utils/mdBrowserRestore.js';
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
+import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
+import { readChatQuestionsConfig } from './chatQuestions-config.js';
+import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 
@@ -141,6 +155,10 @@ class MdBrowserPanel {
     private readonly _onDisposeCallback: () => void;
     /** This panel's id in the window's registry (utils/mdBrowserRegistry.ts). */
     private readonly _panelId: string;
+    /** The webview said it is ready: messages posted now are received. */
+    private _webviewReady = false;
+    /** The tomAi_askInMdBrowser bar this panel shows, sent again when the webview (re)starts. */
+    private _askBar?: AskMdBar;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -252,10 +270,24 @@ class MdBrowserPanel {
         this._navigateToFile(filePath, 'other');
     }
 
+    /** Show a tomAi_askInMdBrowser bar in the top area. */
+    showAskBar(bar: AskMdBar): void {
+        this._askBar = bar;
+        if (this._webviewReady) { void this._panel.webview.postMessage({ type: 'askBar', bar }); }
+    }
+
+    /** Take the bar of `requestId` off, leaving `note` in its place. */
+    clearAskBar(requestId: string, note: string): void {
+        if (this._askBar?.requestId === requestId) { this._askBar = undefined; }
+        void this._panel.webview.postMessage({ type: 'askBarClear', requestId, note });
+    }
+
     // ---- Lifecycle ---------------------------------------------------------
 
     private _onDispose(): void {
         this._stopWatching();
+        // An ask shown here ends: nobody can click its buttons any more.
+        mdBrowserAskSlot.panelClosed(this._panelId);
         mdBrowserRegistry.unregister(this._panelId);
         allPanels.delete(this);
         refreshPanelTitles();
@@ -638,7 +670,15 @@ class MdBrowserPanel {
                     // The webview's open in-place editors: text not yet saved.
                     mdBrowserRegistry.update(this._panelId, { unsavedEdits: Number(msg.openEditors) > 0 });
                     break;
+                case 'askAnswer':
+                    mdBrowserAskSlot.click(String(msg.requestId || ''), String(msg.button || ''), msg.keepFile !== false);
+                    break;
+                case 'askKeepFile':
+                    mdBrowserAskSlot.setKeepFile(String(msg.requestId || ''), msg.keepFile !== false);
+                    break;
                 case 'webviewReady':
+                    this._webviewReady = true;
+                    if (this._askBar) { void this._panel.webview.postMessage({ type: 'askBar', bar: this._askBar }); }
                     this._sendGroups();
                     if (this._pendingInitialFile) {
                         this._navigateToFile(this._pendingInitialFile, 'other', this._pendingInitialAnchor);
@@ -1168,6 +1208,38 @@ export const mdBrowserController: MdBrowserController = {
             if (panel) { panel.close(); } else { closeDormantTab(id); }
         }
     },
+};
+
+/**
+ * What tomAi_askInMdBrowser drives (src/tools/ask-in-md-browser-tool.ts): a
+ * static panel on the file (one already showing it is reused) with the bar.
+ */
+export const mdBrowserAskDeps: AskInMdBrowserDeps = {
+    get workspaceRoot() { return WsPaths.wsRoot; },
+    exists(absPath) {
+        try { return fs.existsSync(absPath); } catch { return false; }
+    },
+    openWithBar(absPath, bar) {
+        if (!mdBrowserContext) { return undefined; }
+        const onFile = mdBrowserRegistry.entries()
+            .filter((e) => !e.dormant && !e.liveMode && e.filePath !== '' && path.resolve(e.filePath) === absPath)
+            .map((e) => panelById(e.panelId))
+            .find((p): p is MdBrowserPanel => p !== undefined);
+        if (onFile) {
+            onFile.revealAndRefresh({});
+            onFile.showAskBar(bar);
+            return onFile.panelId;
+        }
+        const panelId = openMarkdownBrowser(mdBrowserContext, absPath, { liveMode: false });
+        const panel = panelId ? panelById(panelId) : undefined;
+        panel?.showAskBar(bar);
+        return panel?.panelId;
+    },
+    clearBar(panelId, requestId, note) { panelById(panelId)?.clearAskBar(requestId, note); },
+    closePanel(panelId) { panelById(panelId)?.close(); },
+    deleteFile(absPath) { fs.unlinkSync(absPath); },
+    ceilingMinutes: () => readChatQuestionsConfig().maxWaitMinutes,
+    log: (entry) => appendQuestionLogEntry(entry),
 };
 
 /**

@@ -108,6 +108,7 @@ export const AVAILABLE_LLM_TOOLS = [
     // User interaction
     'tomAi_askUser',
     'tomAi_askUserPicker',
+    'tomAi_askInMdBrowser',
     // Workspace-wide edit
     'tomAi_applyEdit',
     // Language service (cached code-action + rename)

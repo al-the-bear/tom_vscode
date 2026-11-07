@@ -511,3 +511,35 @@ body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
 }
 .markdown-body .mdb-md-btn:hover { border-color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
 .markdown-body .mdb-md-btn .codicon { font-size: 13px; }
+
+/* ---- tomAi_askInMdBrowser bar (askBar.js) ---- */
+.ask-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editorWidget-background);
+    border-left: 3px solid var(--vscode-focusBorder);
+    flex-shrink: 0;
+}
+.ask-bar[hidden] { display: none; }
+.ask-bar.answered { border-left-color: var(--vscode-panel-border); opacity: 0.8; }
+.ask-bar-title { font-weight: 600; }
+.ask-bar-buttons { display: inline-flex; gap: 6px; }
+.ask-bar-btn {
+    padding: 3px 12px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    border-radius: 2px;
+}
+.ask-bar-btn.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+.ask-bar-btn:disabled { opacity: 0.5; cursor: default; }
+.ask-bar-keep { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.ask-bar-deadline, .ask-bar-note { color: var(--vscode-descriptionForeground); }
