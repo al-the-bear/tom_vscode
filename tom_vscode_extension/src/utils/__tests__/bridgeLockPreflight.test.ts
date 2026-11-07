@@ -19,6 +19,9 @@
  *         and stops the install when it fails; the prebuilt route warns; PowerShell through Invoke-Native
  *   BLP-7 without a folder argument it looks at the bridge's lock and, when the checkout is there, the d4rt
  *         generator's, which the from-source build runs the generator with
+ *   BLP-8 how `dart` is started: through the shell on Windows, never under a quoted name — cmd resolves a quoted
+ *         batch name without extension so that Flutter's dart.bat loses its own folder (%~dp0) and fails with
+ *         "the system cannot find the path" (legiondary01, 2026-11-07); directly elsewhere
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/naming-convention -- package names and env keys as pub writes them */
@@ -176,5 +179,13 @@ describe('bridge lock preflight', () => {
         } finally {
             rmSync(ws, { recursive: true, force: true });
         }
+    });
+
+    test('BLP-8: how dart is started', () => {
+        assert.deepEqual(pre.dartSpawn('win32'), { command: 'dart', shell: true });
+        assert.deepEqual(pre.dartSpawn('darwin'), { command: 'dart', shell: false });
+        assert.deepEqual(pre.dartSpawn('linux'), { command: 'dart', shell: false });
+        const src = readFileSync(SCRIPT, 'utf8');
+        assert.doesNotMatch(src, /'"dart"'/, 'no quoted dart anywhere in the script');
     });
 });

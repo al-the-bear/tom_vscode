@@ -163,9 +163,20 @@ function upgradeArgs() {
     return ['pub', 'upgrade'];
 }
 
+/**
+ * How `dart` is started on `platform`: through the shell on Windows (it is a
+ * batch file there, Flutter's `dart.bat`), directly elsewhere. Never under a
+ * quoted name: cmd resolves a quoted batch name without extension so that the
+ * batch file's `%~dp0` is not its own folder, and Flutter's dart.bat then
+ * fails with "the system cannot find the path" (legiondary01, 2026-11-07).
+ */
+function dartSpawn(platform) {
+    return { command: 'dart', shell: platform === 'win32' };
+}
+
 function runDartUpgrade(bridgeDir) {
-    const shell = process.platform === 'win32';
-    const r = spawnSync(shell ? '"dart"' : 'dart', upgradeArgs(), { cwd: bridgeDir, stdio: 'inherit', shell });
+    const { command, shell } = dartSpawn(process.platform);
+    const r = spawnSync(command, upgradeArgs(), { cwd: bridgeDir, stdio: 'inherit', shell });
     return r.status === 0;
 }
 
@@ -236,7 +247,7 @@ async function main(argv) {
     return code;
 }
 
-module.exports = { parseHostedLock, parseVersion, compareVersions, pubCacheRoot, newestInCacheListing, newestInCache, measure, frozenOf, upgradeArgs, defaultDirs };
+module.exports = { parseHostedLock, parseVersion, compareVersions, pubCacheRoot, newestInCacheListing, newestInCache, measure, frozenOf, upgradeArgs, dartSpawn, defaultDirs };
 
 if (require.main === module) {
     main(process.argv.slice(2)).then((code) => process.exit(code), (err) => { console.error(err); process.exit(1); });
