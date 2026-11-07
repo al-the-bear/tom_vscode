@@ -16,6 +16,7 @@ import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
 import { recordRoundUsage } from '../services/usageLedgerService';
+import { parallelCallsReminder, roundResultContent } from '../utils/parallelToolCalls';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
@@ -2486,6 +2487,7 @@ export class AnthropicHandler {
         // into the live trail once (also when the send fails) and into the
         // send result.
         const sendUsage = new DirectSendUsage(configuration.model, loadSendToChatConfig()?.anthropic?.modelPrices, recordRoundUsage);
+        const parallelReminder = parallelCallsReminder(loadSendToChatConfig()?.anthropic?.parallelToolCallsReminder);
         let usageReported = false;
         const finishUsage = (): LiveTrailTokenCounts | undefined => {
             const block = sendUsage.sendUsage();
@@ -2558,6 +2560,7 @@ export class AnthropicHandler {
                 });
 
                 sendUsage.addRound(addResponseUsage({}, response.usage));
+                sendUsage.addTurn(response.content.filter((b) => b.type === 'tool_use').length);
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;
                 this.rememberAssistantText(lastText);
@@ -2601,7 +2604,10 @@ export class AnthropicHandler {
                     toolResults.push(toolResultBlock);
                 }
 
-                messages.push({ role: 'user', content: toolResults });
+                // The tool results, then the parallel-calls reminder as a text
+                // block (DA-11; `anthropic.parallelToolCallsReminder`, '' = off).
+                // Earlier rounds' messages keep theirs as sent.
+                messages.push({ role: 'user', content: roundResultContent(toolResults, parallelReminder) });
 
                 // Apply the configured tool-trail retention policy: the
                 // most-recent `toolTrailKeepRounds` rounds keep their

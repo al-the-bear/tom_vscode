@@ -120,6 +120,13 @@ export interface SendToChatConfig {
             cacheReadPerMTok?: number;
             cacheWritePerMTok?: number;
         }>;
+        /**
+         * The reminder the direct transport appends after each round's tool
+         * results, asking for independent tool calls in the same turn
+         * (src/utils/parallelToolCalls.ts). Unset: the built-in text; '' : no
+         * reminder.
+         */
+        parallelToolCallsReminder?: string;
         configurations?: Array<{
             id: string;
             name: string;

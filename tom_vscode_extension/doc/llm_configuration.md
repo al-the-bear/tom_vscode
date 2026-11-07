@@ -428,6 +428,8 @@ An Anthropic configuration inherits every one of these unless it sets its own. T
 
 The numbers are an example of the shape, not current prices: take them from Anthropic's pricing page. A model matches its exact entry, else the longest entry its id starts with (`claude-opus-5` prices every `claude-opus-5-*`). `cacheReadPerMTok` defaults to 0.1x and `cacheWritePerMTok` to 1.25x the input price. A model without an entry shows its tokens and no cost. The Agent SDK reports its own cost; Local LLM sends show tokens only.
 
+**`anthropic.parallelToolCallsReminder`** (on the section) is the reminder the direct transport appends after each round's tool results — a text block after the `tool_result` blocks of the same user message — asking the model to make tool calls that do not depend on each other in the same turn. Unset, the built-in text is used (`DEFAULT_PARALLEL_CALLS_REMINDER`, `src/utils/parallelToolCalls.ts`); `""` turns it off. Every round's message keeps its own copy as sent, so the prompt cache and signed thinking blocks stay valid. A direct send's usage block says how many of its assistant turns made more than one tool call (`- parallel calls: 2 of 9 turns made more than one tool call (22 %); 8 called tools`).
+
 ---
 
 ## 7. History Compaction (`compaction` section) — defaults & system-wide flags

@@ -69,6 +69,10 @@
                         "additionalProperties": false
                     }
                 },
+                "parallelToolCallsReminder": {
+                    "type": "string",
+                    "description": "The reminder the direct transport appends after each round's tool results (a text block after the tool_result blocks) asking the model to make independent tool calls in the same turn. Unset: the built-in text. An empty string turns the reminder off. The send's usage block records the share of turns with more than one tool call."
+                },
                 "configurations": {
                     "type": "array",
                     "description": "Named Anthropic configurations selectable in the ANTHROPIC/LLM panel section.",

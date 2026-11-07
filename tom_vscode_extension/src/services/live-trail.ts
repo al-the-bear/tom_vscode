@@ -82,6 +82,13 @@ export interface LiveTrailModelUsage extends LiveTrailTokenCounts {
     contextWindow?: number;
 }
 
+/** A send's assistant turns, those that called tools, and those with more than one call. */
+export interface LiveTrailToolTurns {
+    assistantTurns: number;
+    toolTurns: number;
+    multiCallTurns: number;
+}
+
 /**
  * Token / cost accounting for a completed turn, as reported once on the Agent
  * SDK's `result` message. Every field is optional — a transport that has no
@@ -97,6 +104,11 @@ export interface LiveTrailUsage {
     totalCostUsd?: number;
     /** Time spent inside API calls (SDK `result.duration_api_ms`). */
     durationApiMs?: number;
+    /**
+     * The direct transport's turns: how many assistant turns the send had, how
+     * many made tool calls and how many more than one (parallel calls).
+     */
+    toolTurns?: LiveTrailToolTurns;
     /**
      * The usage ledger already holds this send, round by round (the direct
      * transport records each round as it arrives): the ledger's observer
@@ -172,6 +184,12 @@ export function formatLiveTrailUsage(usage: LiveTrailUsage, at: Date): string {
         meta.push(`api ${(usage.durationApiMs / 1000).toFixed(1)}s`);
     }
     if (meta.length > 0) { lines.push(`- cost: ${meta.join(' · ')}`); }
+
+    const turns = usage.toolTurns;
+    if (turns && turns.assistantTurns > 0) {
+        const pct = Math.round((turns.multiCallTurns / turns.assistantTurns) * 100);
+        lines.push(`- parallel calls: ${turns.multiCallTurns} of ${turns.assistantTurns} turns made more than one tool call (${pct} %); ${turns.toolTurns} called tools`);
+    }
 
     const models = usage.models ?? [];
     if (models.length > 0) {

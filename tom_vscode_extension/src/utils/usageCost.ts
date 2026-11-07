@@ -11,7 +11,8 @@
  * vscode-free.
  */
 
-import type { LiveTrailTokenCounts, LiveTrailUsage } from '../services/live-trail';
+import type { LiveTrailTokenCounts, LiveTrailToolTurns, LiveTrailUsage } from '../services/live-trail';
+import { addAssistantTurn, emptyToolTurns } from './parallelToolCalls';
 
 /** One entry of the price table: USD per million tokens. */
 export interface ModelPrice {
@@ -100,6 +101,7 @@ export function localLlmSendUsage(model: string, totals: LiveTrailTokenCounts): 
 export class DirectSendUsage {
     private sum: LiveTrailTokenCounts = {};
     private rounds = 0;
+    private turns: LiveTrailToolTurns = emptyToolTurns();
 
     constructor(
         private readonly model: string,
@@ -118,12 +120,24 @@ export class DirectSendUsage {
         } catch { /* the ledger is a convenience; the send goes on */ }
     }
 
+    /** One assistant turn and the number of tool calls it made (the parallel-calls share). */
+    addTurn(toolCalls: number): void {
+        this.turns = addAssistantTurn(this.turns, toolCalls);
+    }
+
+    /** The turns counted so far. */
+    get toolTurns(): LiveTrailToolTurns { return this.turns; }
+
     /** The token counts of every round so far. */
     get totals(): LiveTrailTokenCounts { return this.sum; }
 
     /** The send's usage block, or undefined when no round reported usage. */
     sendUsage(): LiveTrailUsage | undefined {
         if (this.rounds === 0) { return undefined; }
-        return { ...directSendUsage(this.model, this.sum, this.prices), recordedInLedger: true };
+        return {
+            ...directSendUsage(this.model, this.sum, this.prices),
+            ...(this.turns.assistantTurns > 0 ? { toolTurns: this.turns } : {}),
+            recordedInLedger: true,
+        };
     }
 }
