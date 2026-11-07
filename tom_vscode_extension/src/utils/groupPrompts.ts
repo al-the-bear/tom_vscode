@@ -52,7 +52,7 @@ const KIND_FOLDERS: Readonly<Record<'addition' | 'prompt', string>> = { addition
  */
 export const BUILTIN_GROUP_PROMPT =
     'Do the quest todo ${repeatTodoId} — ${repeatTodoTitle} (todo ${repeatNumber} of this group walk). '
-    + 'Read it in full with tomAi_getQuestTodo (quest ${quest}) before you start.\n\n'
+    + 'Its complete record is appended below this prompt (quest ${quest}).\n\n'
     + 'Work through the TODO completely. When you start working on the TODO change its status to "In-Progress". '
     + 'If you notice anything that should be improved or also needs fixing, fix or do it. If you cannot do it now, '
     + 'create a new todo so it is tracked.\n\n'
@@ -60,7 +60,7 @@ export const BUILTIN_GROUP_PROMPT =
     + 'agents you start cannot call you back after that, and their results are lost. Wait actively for '
     + 'everything you start (poll or block until it has finished) and check its result before you answer.\n\n'
     + 'Once the TODO is fully done, change its status to "Completed" and report it with the response value '
-    + '`TODO` = `_ai/quests/${quest}/<sourceFile>/${repeatTodoId}` (`sourceFile` as tomAi_getQuestTodo names it).\n\n'
+    + '`TODO` = `_ai/quests/${quest}/<sourceFile>/${repeatTodoId}` (`sourceFile` is the file named at the top of the record).\n\n'
     + 'Please verify everything stated is implemented exactly as described.';
 
 /** The file of an entry, relative to its scope's group prompt folder. */

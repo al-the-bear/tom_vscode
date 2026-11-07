@@ -346,7 +346,7 @@ function sessionRefusal(session: unknown): string | null {
 
 /** How a repeat count is written, for every tool that takes one. */
 const REPEAT_COUNT_DOC =
-    'A number, a chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with <prefix>, lowest number first (`${repeatTodoId}`, `${repeatTodoTitle}`, `${repeatNumber}` in the text). The prefix must not end in a digit (`invalidTodoPrefix`); a walk over nothing without a pre-prompt is held in `error`.';
+    'A number, a chat-variable name, or `<prefix>*`: walk the quest\'s todos whose id starts with <prefix>, lowest number first (`${repeatTodoId}`, `${repeatTodoTitle}`, `${repeatNumber}` in the text; each prompt of the walk ends with the todo\'s whole record). The prefix must not end in a digit (`invalidTodoPrefix`); a walk over nothing without a pre-prompt is held in `error`.';
 
 /** The refusal of the first repeat count no queue item may carry (a todo prefix ending in a digit), or null. */
 function repeatCountRefusal(...values: unknown[]): string | null {

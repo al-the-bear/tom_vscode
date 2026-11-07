@@ -36,7 +36,8 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { todoForStage, todoYamlBlock, withTodoYaml, type IterationStage } from '../utils/todoIterationRecord';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
 import { mergeQueueReload } from '../utils/queueReloadMergeUtils';
@@ -796,6 +797,24 @@ export class PromptQueueManager {
         }
     }
 
+    /**
+     * The todo record a stage of a todo iteration carries, or undefined
+     * (src/utils/todoIterationRecord.ts): the main prompt its claimed todo, a
+     * pre-prompt the todo the walk picks next, a follow-up the todo walked last.
+     */
+    private iterationTodoBlock(item: QueuedPrompt, stage: IterationStage, claimedId?: string): string | undefined {
+        const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
+        const questId = isTodoIteration ? this.activeQuestId() : undefined;
+        if (!questId) { return undefined; }
+        const todoId = todoForStage(stage, {
+            isTodoIteration,
+            claimedId,
+            nextId: stage === 'prePrompt' ? pickNextTodoForIteration(item.repeatCount, readQuestTodoEntries(questId))?.id : undefined,
+            lastId: item.repeatTodoId,
+        });
+        return todoId ? readQuestTodoBlock(questId, todoId) : undefined;
+    }
+
     private async _buildExpandedText(
         originalText: string,
         template?: string,
@@ -811,6 +830,8 @@ export class PromptQueueManager {
         },
         transport: QueuedTransport = 'copilot',
         templateRepetition?: { templateRepeatCount?: number; templateRepeatIndex?: number },
+        /** A todo iteration's stage: the todo's record, appended (src/utils/todoIterationRecord.ts). */
+        todoBlock?: string,
     ): Promise<string> {
         const repeatCount = Math.max(0, Math.round(repetition?.repeatCount || 0));
         const repeatIndex = Math.max(0, Math.round(repetition?.repeatIndex || 0));
@@ -855,7 +876,10 @@ export class PromptQueueManager {
             },
         });
 
-        let expanded = await expandTemplate(withResolvedAffixes, { includeEditorContext: false });
+        // The todo's record goes with the prompt text, inside the template's
+        // `${userMessage}` and ahead of the Copilot answer wrapper. Its `${`
+        // are escaped, so the passes below leave it as stored.
+        let expanded = await expandTemplate(withTodoYaml(withResolvedAffixes, todoBlock), { includeEditorContext: false });
         expanded = await applyTemplateWrapping(expanded, template ?? '(None)', answerWrapper, transport);
         return expanded;
     }
@@ -4616,6 +4640,7 @@ export class PromptQueueManager {
                         templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                         templateRepeatIndex: item.templateRepeatIndex,
                     },
+                    this.iterationTodoBlock(item, 'prePrompt'),
                 );
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
@@ -4776,6 +4801,7 @@ export class PromptQueueManager {
                     templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                     templateRepeatIndex: item.templateRepeatIndex,
                 },
+                this.iterationTodoBlock(item, 'main', iterationTodo?.id),
             );
             const newRequestId = resolved.transport === 'copilot'
                 ? this._extractRequestIdFromExpandedPrompt(item.expandedText)
@@ -4865,6 +4891,7 @@ export class PromptQueueManager {
                         templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                         templateRepeatIndex: item.templateRepeatIndex,
                     },
+                    this.iterationTodoBlock(item, 'followUp'),
                 );
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;
@@ -5845,6 +5872,18 @@ function readQuestTodoEntries(questId: string): TodoIterationSource[] {
         const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean }>;
         return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status, ...(t.user_action === true ? { userAction: true } : {}) }));
     } catch { return []; }
+}
+
+/** A todo's record as the block a todo iteration appends; undefined when it cannot be read. */
+function readQuestTodoBlock(questId: string, todoId: string): string | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { readAllTodos } = require('../managers/questTodoManager');
+        const todo = (readAllTodos(questId) as Array<Record<string, unknown>>).find((t) => t.id === todoId);
+        if (!todo) { return undefined; }
+        const file = typeof todo._sourceFile === 'string' ? `_ai/quests/${questId}/${todo._sourceFile}` : undefined;
+        return todoYamlBlock(todo, file);
+    } catch { return undefined; }
 }
 
 /** The live todo store, for {@link releaseUnblockedTodos}; the status write is the claim's own. */

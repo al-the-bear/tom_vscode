@@ -15,3 +15,15 @@
 export function unescapePlaceholders(text: string): string {
     return text.replace(/\$\$\{/g, '${');
 }
+
+/**
+ * Text that must reach the model as written (a todo record, a file's
+ * content): every `${` gets one more `$` in front, so no resolution pass on
+ * the way touches it and {@link unescapePlaceholders} gives back exactly the
+ * text — an already escaped `$${` included (it becomes `$$${`, and returns as
+ * `$${`).
+ */
+export function escapePlaceholders(text: string): string {
+    // A function, not a replacement string: there `$$` would stand for one `$`.
+    return text.replace(/\$\{/g, () => '$$' + '{');
+}
