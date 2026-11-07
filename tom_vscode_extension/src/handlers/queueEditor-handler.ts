@@ -17,7 +17,8 @@ import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { loadSendToChatConfig } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
+import { compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../utils/compactionTarget';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
@@ -268,6 +269,20 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const doc = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(doc, { preview: false });
           await vscode.commands.executeCommand('revealInExplorer', uri);
+          return;
+        }
+        case 'setCompactionModel': {
+          // The compaction / memory-extraction model pickers above the queue:
+          // the same keys the Status Page's History Compaction dropdowns write.
+          const purpose = msg.purpose === 'memory' ? 'memory' : 'compaction';
+          const config = loadSendToChatConfig();
+          if (!config) { return; }
+          if (setCompactionModel(config as unknown as CompactionPickerConfig, purpose, typeof msg.value === 'string' ? msg.value : '')) {
+            saveSendToChatConfig(config);
+            const { refreshStatusPage } = await import('./statusPage-handler.js');
+            await refreshStatusPage();
+          }
+          sendState();
           return;
         }
         case 'setQueueDefaultTransport': {
@@ -1076,6 +1091,11 @@ function buildState(): Record<string, unknown> {
         defaultReminderTemplateId,
         reminderTemplates: templates,
         promptTemplates,
+        // The compaction / memory-extraction model pickers above the queue,
+        // the same state as the Status Page's History Compaction dropdowns.
+        compactionPickers: (() => {
+            try { return compactionPickerState(loadSendToChatConfig() as unknown as CompactionPickerConfig); } catch { return undefined; }
+        })(),
         anthropicProfiles,
         defaultProfileNoApiKey,
         anthropicConfigs,
@@ -1106,6 +1126,11 @@ function buildState(): Record<string, unknown> {
         // between the queue header and the first item.
         questRefreshActive,
     };
+}
+
+/** Send the editor its state again (another view changed something it shows, e.g. the compaction models). */
+export function refreshQueueEditorState(): void {
+    sendState();
 }
 
 function sendState(): void {

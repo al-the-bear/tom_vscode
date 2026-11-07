@@ -466,8 +466,8 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | Field | Default | Where used |
 | --- | --- | --- |
 | `disabled` | `false` | Global kill switch for the post-turn compaction + memory-extraction pass. Also suppresses the **automatic** trail-based history rebuild on session seed (so a disabled compactor makes no LLM/Ollama calls on a fresh session); the explicit "Recreate History" button still forces a rebuild. Per-config `compactionOverride` wins. |
-| `compactionModel` | — | The model compaction runs on: `anthropic:<configuration id>` — any Anthropic configuration, on the direct API, the Agent SDK or VS Code LM, called through its own transport — or `localLlm:<configuration id>`. Unset: no compaction. Chosen in the Status Page's History Compaction section ("Compaction model"). |
-| `memoryExtractionModel` | — | The model memory extraction runs on, written the same way ("Memory extraction model"). Unset: no memory extraction. |
+| `compactionModel` | — | The model compaction runs on: `anthropic:<configuration id>` — any Anthropic configuration, on the direct API, the Agent SDK or VS Code LM, called through its own transport — or `localLlm:<configuration id>`. Unset: no compaction. Chosen in the Status Page's History Compaction section ("Compaction model") or above the prompt queue (`compactionPickerState` / `setCompactionModel` serve both). |
+| `memoryExtractionModel` | — | The model memory extraction runs on, written the same way ("Memory extraction model", on the Status Page and above the prompt queue). Unset: no memory extraction. |
 | `llmProvider`, `llmConfigId` | — | The older form: one model for both. Read only while the two keys above are unset; the Status Page writes the two keys and drops these on save. |
 | `compactionTemplateId` | — | Active compaction template (`compaction.templates[]`). |
 | `memoryExtractionTemplateId` | — | Active memory-extraction template. |

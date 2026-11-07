@@ -39,6 +39,14 @@
      inherit this at dispatch. Per-item / per-stage overrides still win.
      Picker markup is rendered host-side and injected here by main.js. -->
 <div class="context-bar" id="queueDefaultPickerSlot" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;"></div>
+<!-- The compaction and memory-extraction models: the same keys and choices as
+     the Status Page's History Compaction dropdowns (compactionPickerState). -->
+<div class="context-bar" id="compactionPickers" style="gap:6px;">
+  <label for="compactionModelPick" style="font-size:0.85em;opacity:0.85;">Compaction model:</label>
+  <select id="compactionModelPick" title="The model that compacts the history (compaction.compactionModel; also on the Status Page, History Compaction)"></select>
+  <label for="memoryModelPick" style="font-size:0.85em;opacity:0.85;">Memory extraction model:</label>
+  <select id="memoryModelPick" title="The model that extracts memory (compaction.memoryExtractionModel; also on the Status Page, History Compaction)"></select>
+</div>
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>

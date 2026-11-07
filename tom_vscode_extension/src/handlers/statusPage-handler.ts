@@ -14,7 +14,7 @@
 import { checkBuildStatus } from '../services/buildStatusService';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
-import { compactionTargetChoices, encodeCompactionTarget, parseCompactionTarget, resolveCompactionTarget } from '../utils/compactionTarget';
+import { compactionPickerState, parseCompactionTarget, resolveCompactionTarget, type CompactionPickerConfig } from '../utils/compactionTarget';
 import type { UsageSummary } from '../utils/usageLedger';
 import { buildLabel, type BuildStatus } from '../utils/buildStamp';
 import * as vscode from 'vscode';
@@ -1320,6 +1320,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.trail) { stcConfig.trail = {}; }
             if (Number.isFinite(s.trailMaxRawFiles)) { stcConfig.trail.maxRawFiles = s.trailMaxRawFiles; }
             saveSendToChatConfig(stcConfig);
+            // The prompt queue editor shows the two model pickers too.
+            void import('./queueEditor-handler.js').then((m) => m.refreshQueueEditorState());
             vscode.window.showInformationMessage('Compaction settings saved');
             break;
         }
@@ -1973,21 +1975,10 @@ export async function gatherStatusData(): Promise<StatusData> {
         usage: usageSummary(),
         compaction: {
             disabled: sendToChatConfig?.compaction?.disabled === true,
-            ...(() => {
-                const section = sendToChatConfig?.compaction;
-                const encoded = (purpose: 'compaction' | 'memory'): string => {
-                    const t = resolveCompactionTarget(section, purpose);
-                    return t.configId ? encodeCompactionTarget(t) : '';
-                };
-                return {
-                    compactionModel: encoded('compaction'),
-                    memoryExtractionModel: encoded('memory'),
-                    modelChoices: compactionTargetChoices(
-                        (sendToChatConfig?.anthropic?.configurations ?? []) as Array<{ id: string; name?: string; transport?: string }>,
-                        ((sendToChatConfig as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } })?.localLlm?.configurations ?? []),
-                    ),
-                };
-            })(),
+            // The same state the prompt queue editor's pickers show (compactionPickerState).
+            ...((p) => ({ compactionModel: p.compactionModel, memoryExtractionModel: p.memoryExtractionModel, modelChoices: p.choices }))(
+                compactionPickerState(sendToChatConfig as unknown as CompactionPickerConfig),
+            ),
             compactionTemplateId: sendToChatConfig?.compaction?.compactionTemplateId || '',
             memoryExtractionTemplateId: sendToChatConfig?.compaction?.memoryExtractionTemplateId || '',
             compactionMaxRounds: sendToChatConfig?.compaction?.compactionMaxRounds ?? 4,

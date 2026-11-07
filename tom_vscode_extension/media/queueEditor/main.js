@@ -198,8 +198,15 @@ if (__ctxSummary) {
 var __afSlot = document.getElementById('addTransportRow');
 if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormPickerHtml; }
 
+/* The compaction / memory-extraction model pickers post their choice to the host. */
+[['compactionModelPick', 'compaction'], ['memoryModelPick', 'memory']].forEach(function (pair) {
+  var sel = document.getElementById(pair[0]);
+  if (sel) { sel.addEventListener('change', function () { setCompactionModel(pair[1], sel.value); }); }
+});
+
 /* Render immediately from embedded state */
 try {
+  renderCompactionPickers(__INITIAL__.compactionPickers);
   normalizeState();
   render();
   populateAddForm();
@@ -236,6 +243,7 @@ window.addEventListener('message', e => {
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
       questRefreshActive = msg.questRefreshActive === true;
+      renderCompactionPickers(msg.compactionPickers);
       normalizeState();
       render();
       populateAddForm();
@@ -807,3 +815,29 @@ function populateAddFormTemplateList() {
 
 // Fallback: also request state via message in case embedded state was stale
 vscode.postMessage({ type: 'getState' });
+
+/**
+ * The compaction and memory-extraction model pickers above the queue, from the
+ * host's compactionPickerState: the Status Page's choices, '' = none chosen.
+ */
+function renderCompactionPickers(state) {
+  // The Status Page's wording for "nothing chosen".
+  const pickers = [['compactionModelPick', 'compactionModel', '(not set — no compaction)'], ['memoryModelPick', 'memoryExtractionModel', '(not set — no memory extraction)']];
+  for (const [id, key, none] of pickers) {
+    const sel = document.getElementById(id);
+    if (!sel || !state) { continue; }
+    const value = state[key] || '';
+    const choices = state.choices || [];
+    const options = ['<option value="">' + none + '</option>'].concat(choices.map((c) =>
+      '<option value="' + escapeHtml(c.value) + '"' + (c.value === value ? ' selected' : '') + '>' + escapeHtml(c.label) + '</option>'));
+    if (value && !choices.some((c) => c.value === value)) {
+      options.push('<option value="' + escapeHtml(value) + '" selected>' + escapeHtml(value) + ' (not configured)</option>');
+    }
+    sel.innerHTML = options.join('');
+    sel.value = value;
+  }
+}
+
+function setCompactionModel(purpose, value) {
+  vscode.postMessage({ type: 'setCompactionModel', purpose: purpose, value: value || '' });
+}

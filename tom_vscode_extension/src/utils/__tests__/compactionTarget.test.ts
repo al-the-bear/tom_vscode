@@ -122,7 +122,7 @@ describe('compaction and memory-extraction targets', () => {
         const page = src('src', 'handlers', 'statusPage-handler.ts');
         assert.match(page, /id="sp-comp-compactionModel"/);
         assert.match(page, /id="sp-comp-memoryExtractionModel"/);
-        assert.match(page, /compactionTargetChoices\(/);
+        assert.match(page, /compactionPickerState\(/, 'the choices through compactionPickerState (compactionTargetChoices), shared with the queue editor');
         assert.match(page, /stcConfig\.compaction\.compactionModel = /);
         assert.match(page, /stcConfig\.compaction\.memoryExtractionModel = /);
         assert.match(page, /delete stcConfig\.compaction\.llmProvider/);

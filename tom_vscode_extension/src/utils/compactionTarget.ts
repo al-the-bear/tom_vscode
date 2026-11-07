@@ -143,3 +143,45 @@ export async function runTargetCall<A extends TargetAnthropicConfig, L extends T
     if (route.kind === 'localLlm') { return runners.localLlm(route.localConfig, prompts); }
     return runners[route.kind](route.configuration, prompts);
 }
+
+/** The config parts the pickers read and write (a SendToChatConfig satisfies it). */
+export interface CompactionPickerConfig {
+    compaction?: CompactionTargetSection & Record<string, unknown>;
+    anthropic?: { configurations?: readonly TargetAnthropicConfig[] };
+    localLlm?: { configurations?: readonly TargetLocalConfig[] };
+}
+
+/** What both pickers show — the Status Page's History Compaction dropdowns and the prompt queue editor's — from one config. */
+export interface CompactionPickerState {
+    /** The chosen model as `encodeCompactionTarget` writes it, '' when none. */
+    compactionModel: string;
+    memoryExtractionModel: string;
+    choices: Array<{ value: string; label: string }>;
+}
+
+export function compactionPickerState(config: CompactionPickerConfig | undefined): CompactionPickerState {
+    const section = config?.compaction;
+    const encoded = (purpose: CompactionPurpose): string => {
+        const t = resolveCompactionTarget(section, purpose);
+        return t.configId ? encodeCompactionTarget(t) : '';
+    };
+    return {
+        compactionModel: encoded('compaction'),
+        memoryExtractionModel: encoded('memory'),
+        choices: compactionTargetChoices(config?.anthropic?.configurations ?? [], config?.localLlm?.configurations ?? []),
+    };
+}
+
+/**
+ * Write one picker's choice: `compaction.compactionModel` or
+ * `compaction.memoryExtractionModel`, the keys the Status Page writes. '' (or a
+ * value no target reads) clears it. Returns false when nothing changed.
+ */
+export function setCompactionModel(config: CompactionPickerConfig, purpose: CompactionPurpose, value: string): boolean {
+    const key = purpose === 'compaction' ? 'compactionModel' : 'memoryExtractionModel';
+    const next = parseCompactionTarget(value) ? value : undefined;
+    const section = (config.compaction ??= {});
+    if (section[key] === next) { return false; }
+    if (next === undefined) { delete section[key]; } else { section[key] = next; }
+    return true;
+}

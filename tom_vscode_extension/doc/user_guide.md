@@ -511,6 +511,7 @@ A background watchdog runs every 60 seconds to ensure queue reliability:
 
 Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 
+- **Compaction models** (the row above the toolbar): **Compaction model** and **Memory extraction model**, the same choices and settings as the Status Page's History Compaction section (`compaction.compactionModel`, `compaction.memoryExtractionModel`) — a change in either place shows in the other.
 - **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue, **Stop** (cancel the running prompt and revert it to Staged) and **Interrupt for continuation** (see above)
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts
