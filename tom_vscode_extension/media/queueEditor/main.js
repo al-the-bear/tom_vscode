@@ -84,6 +84,7 @@ const vscode = (() => {
   };
 })();
 window.__queueEditorBooted = false;
+window.__tomVscodeApi = vscode; // shared completion.js reads this
 
 /* ---- First-paint data from loader (window.__INIT__) ---- */
 var __INIT = window.__INIT__ || {};

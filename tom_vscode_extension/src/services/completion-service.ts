@@ -1,6 +1,7 @@
 /**
  * Completion service — pure discovery + ranking logic for the chat-panel
- * `/skill` and `@file` completions (triggered by Ctrl+Shift+S).
+ * `/skill` and `@file` completions (triggered by Ctrl+Shift+Space). The `/`
+ * picker also offers the slash commands (`./slashCommands.ts`).
  *
  * This module is deliberately **free of `vscode` and `fs`**: all I/O is
  * injected through narrow stores so the orchestration can be unit-tested

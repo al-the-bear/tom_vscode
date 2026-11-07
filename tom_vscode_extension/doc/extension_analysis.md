@@ -344,7 +344,7 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | Component | File | Used By |
 |-----------|------|---------|
 | WebviewLoader | `utils/webviewLoader.ts` | Every webview — loads `media/<panelId>/` assets with fixed-placeholder + nonce/CSP rewriting and `init` injection |
-| Shared completion client | `media/shared/completion.js` + `utils/completionWiring.ts` | Any textarea tagged `data-completion="on"` (`/skill` + `@file` completion) |
+| Shared completion client | `media/shared/completion.js` + `utils/completionWiring.ts` | Any textarea tagged `data-completion="on"` (`/command` + `/skill` + `@file` completion; the Queue Editor's add form among them) |
 | AccordionPanel | `accordionPanel.ts` | @CHAT, @WS panels |
 | TabPanel | `tabPanel.ts` | Multiple editors |
 | DocumentPicker | `documentPicker.ts` | MD Browser, @WS Documentation/Guidelines |

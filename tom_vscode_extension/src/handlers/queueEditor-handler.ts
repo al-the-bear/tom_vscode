@@ -26,6 +26,7 @@ import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { wireCompletionMessages } from '../utils/completionWiring';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { QuestRefreshService } from '../services/quest-refresh-service';
@@ -134,6 +135,8 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
 
     // Register message handler BEFORE setting html so no messages are lost
     _panel.webview.onDidReceiveMessage(handleMessage);
+    // The add form's `/command`, `/skill` and `@file` completion (Ctrl+Shift+Space).
+    wireCompletionMessages(_panel.webview);
 
     // Build initial state — handed to the webview as first-paint data via the
     // loader's window.__INIT__ (the loader handles </script> escaping). The

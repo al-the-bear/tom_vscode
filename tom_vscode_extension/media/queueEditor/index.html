@@ -97,7 +97,7 @@
 
 <div class="add-form" id="addForm">
   <label>Prompt</label>
-  <textarea id="addText" placeholder="Type a prompt to add to the queue..." rows="3"></textarea>
+  <textarea id="addText" data-completion="on" placeholder="Type a prompt to add to the queue..." rows="3"></textarea>
   <div class="add-options">
     <label>Template:</label>
     <select id="addTemplate"><option value="">(None)</option></select>
@@ -134,9 +134,9 @@
   <div class="add-options" id="addTransportRow"></div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
-    <textarea id="addRepeatPrefix" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
+    <textarea id="addRepeatPrefix" data-completion="on" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
     <label style="display:block;margin:6px 0 4px;">Repeat Suffix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
-    <textarea id="addRepeatSuffix" rows="2" placeholder="Optional text added after repeated prompt body"></textarea>
+    <textarea id="addRepeatSuffix" data-completion="on" rows="2" placeholder="Optional text added after repeated prompt body"></textarea>
   </div>
   <div class="add-form-actions">
     <button onclick="addPrompt()" style="background:var(--btnBg);color:var(--btnFg);">✅ Add</button>
@@ -159,6 +159,7 @@
 <script src="{{sharedUri}}/queueEntryRenderFunctions.js"></script>
 <script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>
 <script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
 <script src="{{baseUri}}/transportPicker.js"></script>
 <script src="{{baseUri}}/fallback.js"></script>
 </body>

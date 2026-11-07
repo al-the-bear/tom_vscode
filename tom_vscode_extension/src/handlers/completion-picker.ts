@@ -28,6 +28,8 @@ import {
     type CompletionKind,
 } from '../services/completion-service';
 import { fsSkillStore } from '../services/skills';
+import { commandTakesArguments, expandSlashCommand, listSlashCommands, type SlashCommand } from '../services/slashCommands';
+import * as path from 'path';
 
 // ===========================================================================
 // Live stores / gatherers
@@ -73,6 +75,8 @@ const QUICK_KEYS = '1234567890abcdefghijklmnopqrstuvwxyz';
 interface PickerItem extends vscode.QuickPickItem {
     /** Text to splice into the textarea when chosen. */
     _insert: string;
+    /** Instead of `_insert`: the text worked out after the choice (a command asking for its arguments); undefined cancels. */
+    _resolve?: () => Promise<string | undefined>;
     /** Single-char quick-select key, or undefined past the 36th item. */
     _quickKey?: string;
 }
@@ -85,6 +89,37 @@ function skillToItem(skill: SkillCompletion, index: number): PickerItem {
         detail: skill.direct ? '(workspace skill)' : `(in ${skill.noteDir})`,
         _insert: formatSkillInsertion(skill),
         _quickKey: qk,
+    };
+}
+
+/**
+ * A slash command (`.claude/commands`, CC-13): chosen, it asks for its
+ * arguments when it takes any (showing its argument hint) and inserts its
+ * expanded prompt; Escape on the question inserts nothing.
+ */
+function commandToItem(command: SlashCommand, index: number): PickerItem {
+    const qk = QUICK_KEYS[index];
+    const prefix = qk ? `${qk}  ` : '';
+    return {
+        label: `${prefix}$(terminal) /${command.name}`,
+        description: command.description,
+        detail: `(command${command.argumentHint ? `, ${command.argumentHint}` : ''}${command.direct ? '' : `, in ${path.relative(WsPaths.wsRoot ?? '', path.dirname(command.file))}`})`,
+        _insert: '',
+        _quickKey: qk,
+        _resolve: async () => {
+            let args = '';
+            if (commandTakesArguments(command)) {
+                const answer = await vscode.window.showInputBox({
+                    title: `/${command.name}`,
+                    prompt: command.argumentHint ? `Arguments: ${command.argumentHint}` : 'Arguments',
+                    placeHolder: command.argumentHint,
+                    ignoreFocusOut: true,
+                });
+                if (answer === undefined) { return undefined; }
+                args = answer;
+            }
+            return expandSlashCommand(command, args);
+        },
     };
 }
 
@@ -116,7 +151,11 @@ function runPicker(
             if (picked) { return; }
             picked = true;
             qp.hide();
-            deliver(item._insert);
+            if (!item._resolve) {
+                deliver(item._insert);
+                return;
+            }
+            void item._resolve().then((text) => { if (text !== undefined) { deliver(text); } });
         };
 
         // Quick-select: a single typed char matching a leading key picks it
@@ -156,15 +195,21 @@ export async function showCompletionPicker(
     deliver: (insertText: string) => void,
 ): Promise<void> {
     if (kind === 'skill') {
+        // `/` offers the slash commands (.claude/commands, CC-13) and the skills.
+        const commands = listSlashCommands(WsPaths.wsRoot ?? '', query);
         const skills = discoverSkills(liveSkillStore, query);
-        if (skills.length === 0) {
+        if (commands.length === 0 && skills.length === 0) {
             vscode.window.showInformationMessage(
-                query ? `No skills match "/${query}".` : 'No skills found in this workspace or its parent folders.',
+                query ? `No commands or skills match "/${query}".` : 'No commands or skills found in this workspace or its parent folders.',
             );
             return;
         }
-        const title = query ? `Skills matching "/${query}"` : 'Skills';
-        await runPicker(title, skills.map(skillToItem), deliver);
+        const title = query ? `Commands and skills matching "/${query}"` : 'Commands and skills';
+        const items = [
+            ...commands.map((c, i) => commandToItem(c, i)),
+            ...skills.map((s, i) => skillToItem(s, commands.length + i)),
+        ];
+        await runPicker(title, items, deliver);
         return;
     }
 

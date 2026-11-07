@@ -128,9 +128,11 @@ render, it belongs on `postMessage`, not in a placeholder.
 
 ---
 
-## 6. Textarea completion (`/skill` + `@file`)
+## 6. Textarea completion (`/command`, `/skill` + `@file`)
 
-Opt a textarea into shared Ctrl+Shift+Space completion:
+Opt a textarea into shared Ctrl+Shift+Space completion (`/` offers the
+`.claude/commands` slash commands — expanded with their arguments,
+`services/slashCommands.ts` — and the skills; `@` the files):
 
 1. **HTML/JS side:** tag the textarea with `data-completion="on"` and include the
    shared client: `<script src="{{sharedUri}}/completion.js"></script>` after
