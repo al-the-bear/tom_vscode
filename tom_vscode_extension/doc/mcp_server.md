@@ -1,6 +1,6 @@
 # Standalone MCP Server
 
-The extension can publish its shared tool registry as a real [Model Context Protocol](https://modelcontextprotocol.io) server over HTTP, so **external** MCP clients (Claude Desktop, other agents/editors, CLI tools) can call the same tools the in-editor LLM panels use. Full design record: `_ai/quests/vscode_extension/mcp_server_implementation_plan.md`.
+The extension can publish its shared tool registry as a real [Model Context Protocol](https://modelcontextprotocol.io) server over HTTP, so **external** MCP clients (Claude Desktop, other agents/editors, CLI tools) can call the same tools the in-editor LLM panels use. Full design record: `_ai/quests/vscode_extension/mcp_server_implementation_plan.md`. The other direction — the extension as an MCP **client** of the servers Claude Code is configured with — is [llm_tools.md §4.11c](llm_tools.md#411c-tools-of-external-mcp-servers).
 
 ## 1. Two surfaces, one registry
 

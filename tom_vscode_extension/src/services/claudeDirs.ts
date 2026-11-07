@@ -9,6 +9,7 @@
  * the callers list and read the folders themselves.
  */
 
+import * as os from 'os';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 
@@ -60,4 +61,17 @@ export function frontmatterString(value: unknown): string | undefined {
 /** The first line of prose in a body (headings skipped): a description where none is stated. */
 export function firstProseLine(body: string): string {
     return body.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#')) ?? '';
+}
+
+let homeOverride: string | undefined;
+
+/** The home folder Claude Code's user-level files are read from (`~/.claude/…`, `~/.claude.json`). */
+export function claudeHomeDir(): string {
+    return homeOverride ?? os.homedir();
+}
+
+/** Tests only: read the user-level files from `dir` (undefined: the real home again). */
+// eslint-disable-next-line @typescript-eslint/naming-convention -- the test-only setter, as __setAgentSdkForTests
+export function __setClaudeHomeForTests(dir: string | undefined): void {
+    homeOverride = dir;
 }

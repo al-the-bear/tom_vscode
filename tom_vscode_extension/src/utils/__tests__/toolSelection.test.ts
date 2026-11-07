@@ -112,7 +112,8 @@ describe('tool selection', () => {
         assert.match(dump, /directive named no tool of the profile for: `tomAi_nope`/);
 
         const handler = src('src', 'handlers', 'anthropic-handler.ts');
-        assert.match(handler, /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\n\s+options = withToolPlan\(options\);/);
+        // The external MCP servers' tools (CC-16) join first, so the plan covers them too.
+        assert.match(handler, /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\n(?:\s*\/\/[^\n]*\n)*\s+options = await this\.withExternalMcpTools\(options\);\n\s+options = withToolPlan\(options\);/);
         assert.match(handler, /const anthropicTools = withToolSearch\(toAnthropicTools\(tools\), options\.toolPlan\?\.deferred \?\? \[\]\)/);
         assert.match(handler, /userText: stripToolsDirectives\(options\.userText\)/);
         assert.match(handler, /toolPlan: options\.toolPlan/, 'the payload dump gets the plan');

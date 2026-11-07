@@ -80,12 +80,13 @@ import { ToolTrail } from '../../services/tool-trail.js';
 import { TrailService } from '../../services/trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { fakeSuccessSdk } from './_agentSdkFake.js';
-import { __setHooksHomeForTests, type CommandHook } from '../../services/claudeHooks.js';
+import type { CommandHook } from '../../services/claudeHooks.js';
+import { __setClaudeHomeForTests } from '../../services/claudeDirs.js';
 import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
 
 TrailService.init({} as never);
 TomAiConfiguration.init({} as never);
-__setHooksHomeForTests(home);
+__setClaudeHomeForTests(home);
 
 const ran: Array<{ name: string; input: Record<string, unknown> }> = [];
 const asked: string[] = [];

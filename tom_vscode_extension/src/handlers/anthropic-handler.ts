@@ -51,8 +51,11 @@ import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound 
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
 import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
+import { claudeHomeDir } from '../services/claudeDirs';
+import { ExternalMcpManager, loadMcpServerConfigs } from '../services/externalMcp';
+import { toolLog } from '../utils/toolLog';
 import { parseSettingSources, parseSystemPromptMode, type SettingSource, type SystemPromptMode } from '../utils/agentSdkSystemPrompt';
-import { hooksHomeDir, loadHooks, runHooks, type CommandHook, type HookOutcome, type HookRunOptions } from '../services/claudeHooks';
+import { loadHooks, runHooks, type CommandHook, type HookOutcome, type HookRunOptions } from '../services/claudeHooks';
 import { findAgentDefinition, listAgentDefinitions, resolveSubagentConfiguration, toOurToolNames, toSdkAgents } from '../services/agentDefinitions';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
@@ -560,6 +563,23 @@ function withToolPlan(options: AnthropicSendOptions): AnthropicSendOptions {
         tools: options.tools.filter((t) => keep.has(t.name)),
         toolPlan: plan,
     };
+}
+
+/** The client of the external MCP servers (CC-16), created on first use. */
+let externalMcp: ExternalMcpManager | undefined;
+
+export function getExternalMcp(): ExternalMcpManager {
+    externalMcp ??= new ExternalMcpManager(
+        () => loadMcpServerConfigs(WsPaths.wsRoot ?? '', claudeHomeDir()),
+        { log: (line) => toolLog(`[mcp-client] ${line}`) },
+    );
+    return externalMcp;
+}
+
+/** Stop the external MCP servers (deactivation). */
+export async function disposeExternalMcp(): Promise<void> {
+    await externalMcp?.dispose();
+    externalMcp = undefined;
 }
 
 /**
@@ -1989,6 +2009,8 @@ export class AnthropicHandler {
 
     /** Main entry point — send a message and run the tool-call loop to completion. */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
+        // External MCP servers' tools join the direct and Local LLM loops (CC-16), before the plan.
+        options = await this.withExternalMcpTools(options);
         options = withToolPlan(options);
         const { profile, tools, userText } = options;
         // Profile overrides configuration when set (non-null / non-empty /
@@ -3849,7 +3871,7 @@ export class AnthropicHandler {
      */
     private claudeHooks(): CommandHook[] {
         const wsRoot = WsPaths.wsRoot;
-        return wsRoot ? loadHooks(wsRoot, hooksHomeDir()) : [];
+        return wsRoot ? loadHooks(wsRoot, claudeHomeDir()) : [];
     }
 
     /** The common input of a hook run: the workspace, the session, its live trail. */
@@ -3859,6 +3881,32 @@ export class AnthropicHandler {
             sessionId: `${quest}:${options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY}`,
             transcriptPath: liveTrail?.getFilePath() ?? '',
         };
+    }
+
+    /** How many of the MCP client's messages the status line has shown. */
+    private externalMcpReported = 0;
+
+    /**
+     * The tools of the external MCP servers (CC-16) added to a direct or Local
+     * LLM send, under their `mcp__<server>__<tool>` names; a writer among them
+     * is approved like ours. Not for isolated sends: a sub-agent runs without
+     * approval and gets only the tools it was given.
+     */
+    private async withExternalMcpTools(options: AnthropicSendOptions): Promise<AnthropicSendOptions> {
+        const transport = options.configuration?.transport ?? 'direct';
+        if ((transport !== 'direct' && transport !== 'localLlm') || options.isolated || !WsPaths.wsRoot) { return options; }
+        const manager = getExternalMcp();
+        let external: SharedToolDefinition[] = [];
+        try {
+            external = await manager.tools();
+        } catch (err) {
+            toolLog(`[mcp-client] ${(err as Error).message}`);
+        }
+        for (const message of manager.messages.slice(this.externalMcpReported)) { this._onStatusUpdate.fire(message); }
+        this.externalMcpReported = manager.messages.length;
+        if (external.length === 0) { return options; }
+        const known = new Set(options.tools.map((t) => t.name));
+        return { ...options, tools: [...options.tools, ...external.filter((t) => !known.has(t.name))] };
     }
 
     /** A hook's messages for the user (systemMessage, non-blocking errors): status line and live trail. */

@@ -39,7 +39,6 @@
 
 import { spawn } from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 export type HookEvent = 'PreToolUse' | 'PostToolUse' | 'UserPromptSubmit' | 'Stop' | 'SessionStart';
@@ -59,18 +58,6 @@ export interface CommandHook {
     source: HookSource;
     /** The settings file it came from. */
     file: string;
-}
-
-let homeOverride: string | undefined;
-
-/** The home folder whose `.claude/settings.json` holds the user's hooks. */
-export function hooksHomeDir(): string {
-    return homeOverride ?? os.homedir();
-}
-
-/** Tests only: read the user's hooks from `dir` (undefined: the real home again). */
-export function __setHooksHomeForTests(dir: string | undefined): void {
-    homeOverride = dir;
 }
 
 /** The settings files hooks are read from, in Claude Code's order. */
@@ -163,6 +150,7 @@ export function runCommandHook(hook: CommandHook, input: Record<string, unknown>
         const child = spawn(hook.command, {
             shell: true,
             cwd: opts.cwd,
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's environment variable
             env: { ...process.env, CLAUDE_PROJECT_DIR: opts.cwd },
             stdio: ['pipe', 'pipe', 'pipe'],
         });

@@ -304,6 +304,10 @@ An agent can enter **plan mode** (`tomAi_enterPlanMode`) to read and plan before
 
 The hooks you set up for Claude Code (`~/.claude/settings.json`, the workspace's `.claude/settings.json` and `.claude/settings.local.json`) run on every profile: on direct, Local LLM and VS Code LM the extension runs them itself — PreToolUse, PostToolUse, UserPromptSubmit, Stop and SessionStart, with Claude Code's input and its exit-code and decision rules — and on the Agent SDK they run once, in the SDK. A hook's messages and failures show in the status line and the live trail. Details: [anthropic_handler.md §8](anthropic_handler.md#8-claude-code-hooks-all-transports).
 
+### MCP servers on direct and Local LLM
+
+The MCP servers you set up for Claude Code — in the workspace's `.mcp.json`, or with `claude mcp add` (they land in `~/.claude.json`) — give their tools to direct and Local LLM profiles too, named `mcp__<server>__<tool>`. Project servers from `.mcp.json` run only once approved (as Claude Code asks you to; or list them in `enabledMcpjsonServers` in `.claude/settings.local.json`). Their tools ask for approval like the extension's write tools, unless the server marks them read-only. Details: [llm_tools.md §4.11c](llm_tools.md#411c-tools-of-external-mcp-servers).
+
 ### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:

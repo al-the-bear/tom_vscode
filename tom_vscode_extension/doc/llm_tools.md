@@ -317,6 +317,18 @@ Implementation: `src/services/skills.ts` (discovery, frontmatter, the section,
 `skill-tools.test.ts` (SK-1..4, a fixture workspace),
 `skills-system-prompt.test.ts` (SS-1/2, through `sendMessage`).
 
+### 4.11c Tools of external MCP servers
+
+The extension is also an MCP **client** (`src/services/externalMcp.ts`): the MCP servers Claude Code is configured with give their tools to the **direct** and **Local LLM** tool loops.
+
+- **Configuration**, as Claude Code keeps it: the workspace's `.mcp.json` (project), `~/.claude.json` `mcpServers` (user) and `projects[<workspace>].mcpServers` (local); local wins over project over user. A server is `{command, args, env}` (stdio) or `{type: "http" | "sse", url, headers}`; `${VAR}` and `${VAR:-default}` are expanded.
+- **Approval of project servers**, as in Claude Code: a `.mcp.json` server runs only when the settings approve it — `enableAllProjectMcpServers`, or its name in `enabledMcpjsonServers` — and it is not in `disabledMcpjsonServers` (`~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`). Approving a server in Claude Code writes these settings; until then the status line says it is not approved.
+- **Tools** are named `mcp__<server>__<tool>` (characters outside `[A-Za-z0-9_-]` as `_`, at most 64), with the server's description and input schema. A tool with `readOnlyHint` is a reader; every other one is a writer, approved like ours (Tool Approval, Accept edits, plan mode, hooks). A call answers the result's text; an error result is an error.
+- **When**: a direct or Local LLM send (not an isolated one — a sub-agent gets only the tools it is given) connects what is configured and not connected yet, before the tool plan — on direct the tools are deferred and found by tool search. Servers stay up; a changed configuration restarts its server; one that does not start is left out with a message in the status line and the Tom Tool Log, and tried again after a minute; deactivation stops them.
+- **Elsewhere**: the Agent SDK reads `.mcp.json` and the user's servers itself; VS Code LM gets VS Code's own MCP tools from VS Code.
+
+Tests: `externalMcp.test.ts` (MC-1..4, a fixture stdio server), `external-mcp-transports.test.ts` (EM-1/2, a Local LLM send end to end).
+
 ### 4.12 Session todos (per host + quest)
 
 Session todos live in one stable, git-tracked file per host+quest:
