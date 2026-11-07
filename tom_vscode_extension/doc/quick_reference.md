@@ -40,7 +40,7 @@
 - PROCESS (the active quest's process: phase, step, sub-step, iterations)
 - QUEST NOTES (toolbar: Preview Markdown, Open in Editor, Open in MD Browser, Open in MD Viewer)
 - QUEST TODOS
-- SESSIONS (the quest's named sessions: + new, per row Reset and Delete)
+- SESSIONS (the quest's named sessions: + new, Remove unused sessions, per row Reset and Delete)
 - SESSION TODOS
 
 **@TOM WS** (the workspace; `tomAi.tomWsSidebar.focus`):

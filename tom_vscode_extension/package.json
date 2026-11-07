@@ -330,6 +330,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "tomAi.sessions.removeUnused",
+        "title": "@T: Remove Unused Sessions",
+        "category": "@Tom",
+        "icon": "$(trash)"
+      },
+      {
         "command": "tomAi.showSidebarNotes",
         "title": "@T: Show Sidebar Notes",
         "category": "@Tom"
@@ -704,6 +710,11 @@
       "view/title": [
         {
           "command": "tomAi.sessions.add",
+          "when": "view == tomAi.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "tomAi.sessions.removeUnused",
           "when": "view == tomAi.sessions",
           "group": "navigation"
         }

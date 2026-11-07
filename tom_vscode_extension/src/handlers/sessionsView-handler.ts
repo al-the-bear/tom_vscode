@@ -16,6 +16,12 @@
  *   live trail, raw trail, tool results) and its quest memory
  *   (`_ai/memory/<quest>/<name>/`); refused while another session is based on
  *   it. `default` and `chat` have no file: Delete removes their storage only.
+ * - Remove unused sessions (title-bar icon, `tomAi.sessions.removeUnused`):
+ *   a multi-picker of the named sessions nothing uses any more
+ *   (src/utils/unusedSessions.ts: no queue item still to run, no process
+ *   definition and no other session names them), those without a
+ *   conversation ticked; the ticked ones are deleted like Delete does, after
+ *   one confirmation.
  *
  * The view refreshes when
  * this store writes or removes a session file, when the folder changes on
@@ -36,9 +42,13 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import { sessionRows } from '../utils/sessionsViewRows';
 import { WsPaths } from '../utils/workspacePaths';
 import { newSessionViaPicker, sessionsFolder } from './sessionPicker';
+import { PromptQueueManager } from '../managers/promptQueueManager';
+import { ProcessStateStore } from '../managers/processStateStore';
+import { planUnusedSessions } from '../utils/unusedSessions';
 
 export const SESSIONS_VIEW_ID = 'tomAi.sessions';
 export const ADD_SESSION_COMMAND = 'tomAi.sessions.add';
+export const REMOVE_UNUSED_SESSIONS_COMMAND = 'tomAi.sessions.removeUnused';
 
 class SessionsViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
@@ -161,5 +171,79 @@ export function registerSessionsView(context: vscode.ExtensionContext): void {
             await newSessionViaPicker(quest);
             provider.send();
         }),
+        vscode.commands.registerCommand(REMOVE_UNUSED_SESSIONS_COMMAND, async () => {
+            await removeUnusedSessions();
+            provider.send();
+        }),
     );
+}
+
+/**
+ * Offer the quest's unused sessions in a multi-picker and delete the ticked
+ * ones with their storage. Refuses when the queue or the process definitions
+ * cannot be read: without them a session in use could look unused.
+ */
+async function removeUnusedSessions(): Promise<void> {
+    const quest = WsPaths.getWorkspaceQuestId();
+    if (!quest) {
+        void vscode.window.showWarningMessage('Sessions belong to a quest: there is no active quest.');
+        return;
+    }
+    let queue: PromptQueueManager;
+    try { queue = PromptQueueManager.instance; } catch {
+        void vscode.window.showWarningMessage('The prompt queue is not loaded yet, so it is unknown which sessions it still uses. Try again in a moment.');
+        return;
+    }
+    const processes = ProcessStateStore.instance;
+    if (!processes) {
+        void vscode.window.showWarningMessage('The process definitions are not loaded yet, so it is unknown which sessions they name. Try again in a moment.');
+        return;
+    }
+    const folder = sessionsFolder(quest);
+    const plan = planUnusedSessions({
+        rows: sessionRows(listSessions(folder)),
+        queueItems: queue.items,
+        queueDefaultSession: queue.defaultAgentSdkSession,
+        processes: [...processes.definitions().values()],
+    });
+    const namedKept = plan.kept.filter((k) => k.name !== 'default' && k.name !== 'chat');
+    if (plan.offered.length === 0) {
+        void vscode.window.showInformationMessage(`No unused sessions in ${quest}.` +
+            (namedKept.length ? ` In use: ${namedKept.map((k) => `${k.name} (${k.reason})`).join('; ')}.` : ''));
+        return;
+    }
+    const picked = await vscode.window.showQuickPick(
+        plan.offered.map((o) => ({ label: o.name, description: o.detail, picked: o.preselected })),
+        {
+            canPickMany: true,
+            title: `Remove unused sessions — ${quest}`,
+            placeHolder: 'Tick the sessions to delete (those without a conversation are ticked)' +
+                (namedKept.length ? `; kept because in use: ${namedKept.map((k) => k.name).join(', ')}` : ''),
+            ignoreFocusOut: true,
+        },
+    );
+    if (!picked || picked.length === 0) { return; }
+    const names = picked.map((p) => p.label);
+    const answer = await vscode.window.showWarningMessage(
+        `Delete ${names.length} session${names.length === 1 ? '' : 's'}?`,
+        {
+            modal: true,
+            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results and quest memory.`,
+        },
+        'Delete',
+    );
+    if (answer !== 'Delete') { return; }
+    const failed: string[] = [];
+    for (const name of names) {
+        const result = deleteSession(folder, name);
+        if (!result.ok) { failed.push(result.error); continue; }
+        AnthropicHandler.instance.clearSession(name);
+        removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), quest, name);
+    }
+    const deleted = names.length - failed.length;
+    if (failed.length > 0) {
+        void vscode.window.showWarningMessage(`Deleted ${deleted} session${deleted === 1 ? '' : 's'}; not deleted: ${failed.join(' ')}`);
+    } else {
+        void vscode.window.showInformationMessage(`Deleted ${deleted} session${deleted === 1 ? '' : 's'} of ${quest}.`);
+    }
 }
