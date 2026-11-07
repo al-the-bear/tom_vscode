@@ -17,6 +17,7 @@ import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
 import { recordRoundUsage } from '../services/usageLedgerService';
 import { parallelCallsReminder, roundResultContent } from '../utils/parallelToolCalls';
+import { appliedClearingNotice, promptTokensOf, serverToolClearing } from '../utils/serverToolClearing';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
@@ -383,7 +384,7 @@ import { abortSignalFor, createMessageStreamed } from '../services/anthropicMess
 import { addResponseUsage, withLastMessageCacheBreakpoint, withToolsCacheBreakpoint } from '../utils/anthropicPromptCache';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
-import { applyToolTrailRetention, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
+import { applyToolTrailRetention, conversationHasThinking, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
 import { readQuestSection } from '../managers/extensionConfigStore';
 import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
@@ -2488,6 +2489,7 @@ export class AnthropicHandler {
         // send result.
         const sendUsage = new DirectSendUsage(configuration.model, loadSendToChatConfig()?.anthropic?.modelPrices, recordRoundUsage);
         const parallelReminder = parallelCallsReminder(loadSendToChatConfig()?.anthropic?.parallelToolCallsReminder);
+        let firstPromptTokens: number | undefined;
         let usageReported = false;
         const finishUsage = (): LiveTrailTokenCounts | undefined => {
             const block = sendUsage.sendUsage();
@@ -2532,6 +2534,15 @@ export class AnthropicHandler {
                     break;
                 }
 
+                // Server-side clearing of old tool results (context editing)
+                // once the conversation holds a thinking block — the one the
+                // client-side collapse may no longer rewrite.
+                const serverClearing = serverToolClearing(
+                    messages,
+                    this.resolveEffectiveCaps(configuration),
+                    firstPromptTokens,
+                    conversationHasThinking(messages as unknown as RetentionMessage[]),
+                );
                 const createParams = {
                     model: configuration.model,
                     max_tokens: configuration.maxTokens,
@@ -2541,6 +2552,7 @@ export class AnthropicHandler {
                     system: systemParam,
                     ...(requestTools.length > 0 ? { tools: requestTools } : {}),
                     messages: requestMessages(),
+                    ...(serverClearing ?? {}),
                 };
                 const response = await withRetryBudget({
                     // Streamed: the SDK refuses a non-streaming request whose
@@ -2560,6 +2572,11 @@ export class AnthropicHandler {
                 });
 
                 sendUsage.addRound(addResponseUsage({}, response.usage));
+                // The send's first prompt (system, tools, first message): the
+                // base the clearing trigger counts the tool results from.
+                if (firstPromptTokens === undefined) { firstPromptTokens = promptTokensOf(response.usage); }
+                const clearedNotice = appliedClearingNotice(response.context_management);
+                if (clearedNotice) { liveTrail?.appendNotice(clearedNotice); }
                 sendUsage.addTurn(response.content.filter((b) => b.type === 'tool_use').length);
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;

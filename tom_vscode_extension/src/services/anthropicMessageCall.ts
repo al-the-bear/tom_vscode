@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention -- Messages API wire fields (context_management, clear_at_least, ...) */
 /**
  * One Messages API call on the direct transport, always streamed.
  *
@@ -20,15 +21,44 @@ export interface MessageStreamingClient {
             options?: { signal?: AbortSignal },
         ): { finalMessage(): Promise<Anthropic.Message> };
     };
+    /** The beta surface, for a request that names betas (context editing). */
+    beta?: {
+        messages: {
+            stream(
+                params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+                options?: { signal?: AbortSignal },
+            ): { finalMessage(): Promise<Anthropic.Beta.Messages.BetaMessage> };
+        };
+    };
 }
 
-/** Send `params` as a streamed request and resolve with the final message. */
+/** Beta-only request fields: `betas` and `context_management` (server-side context editing). */
+export interface BetaRequestFields {
+    betas?: string[];
+    context_management?: Anthropic.Beta.Messages.BetaContextManagementConfig;
+}
+
+/** A final message, with what the server's context editing did when the request asked for it. */
+export type StreamedMessage = Anthropic.Message & { context_management?: Anthropic.Beta.Messages.BetaContextManagementResponse | null };
+
+/**
+ * Send `params` as a streamed request and resolve with the final message. A
+ * request with betas goes through the beta surface (`client.beta.messages`),
+ * every other one through `client.messages` as before.
+ */
 export async function createMessageStreamed(
     client: MessageStreamingClient,
-    params: Anthropic.MessageCreateParamsNonStreaming,
+    params: Anthropic.MessageCreateParamsNonStreaming & BetaRequestFields,
     signal?: AbortSignal,
-): Promise<Anthropic.Message> {
-    return client.messages.stream(params, signal ? { signal } : undefined).finalMessage();
+): Promise<StreamedMessage> {
+    const options = signal ? { signal } : undefined;
+    if (params.betas && params.betas.length > 0) {
+        if (!client.beta) { throw new Error('createMessageStreamed: this client has no beta surface for betas ' + params.betas.join(', ')); }
+        const message = await client.beta.messages.stream(params as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options).finalMessage();
+        return message as unknown as StreamedMessage;
+    }
+    const { betas: _b, context_management: _c, ...plain } = params;
+    return client.messages.stream(plain, options).finalMessage();
 }
 
 /** The part of a `vscode.CancellationToken` this needs. */

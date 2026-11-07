@@ -78,9 +78,35 @@ Settings (`compaction.*` with per-configuration overrides on every
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `toolTrailMaxResultChars` | `30000` | A tool_result block is cut to this many chars once, when it arrives (a cut result is never cut again); a `[Truncated inline view: N/total chars. Full result available via tomAi_readPastToolResult({"key":"tX"})...]` marker is prefixed so the model knows where to look. A `tomAi_readPastToolResult` answer is never cut: it pages the result itself. |
-| `toolTrailKeepRounds` | `2` | The tool rounds kept whole: without prompt caching, the newest N rounds at any time; with caching, the newest N rounds after a collapse. Older rounds have their `tool_result` content replaced with a one-line stub naming the replay key. The `tool_use` / `tool_result` pairing is preserved so the Anthropic API stays happy. **Once an assistant turn of the loop carries a thinking block, no earlier round is rewritten:** that holds whether or not the profile asks for thinking (`thinking`), because a model may think unasked — Opus 5.5 does. The `thinking` / `redacted_thinking` blocks are signed over the conversation as it was, and the API refuses a request whose earlier messages changed ("Invalid `signature` in `thinking` block"). Each round's results are then cut to `toolTrailMaxResultChars` once, as they are added, and nothing is stubbed (`src/services/toolTrailRetention.ts`). Long tool loops send a larger prompt in that case; the history kept between prompts is text only and unaffected. |
+| `toolTrailKeepRounds` | `2` | The tool rounds kept whole: without prompt caching, the newest N rounds at any time; with caching, the newest N rounds after a collapse. Older rounds have their `tool_result` content replaced with a one-line stub naming the replay key. The `tool_use` / `tool_result` pairing is preserved so the Anthropic API stays happy. **Once an assistant turn of the loop carries a thinking block, no earlier round is rewritten:** that holds whether or not the profile asks for thinking (`thinking`), because a model may think unasked — Opus 5.5 does. The `thinking` / `redacted_thinking` blocks are signed over the conversation as it was, and the API refuses a request whose earlier messages changed ("Invalid `signature` in `thinking` block"). Each round's results are then cut to `toolTrailMaxResultChars` once, as they are added, and nothing is stubbed client-side (`src/services/toolTrailRetention.ts`); on the direct transport the API clears old results instead (see *Server-side clearing* below). The history kept between prompts is text only and unaffected. |
 | `toolTrailCollapseRounds` | `30` | **Direct API with prompt caching.** The conversation is cached up to the newest turn (a read costs 0.1× the input price, a write 1.25×), and stubbing an old round rewrites a message inside that prefix — the next request reads the cache only up to it and writes everything after it again. So earlier rounds stay exactly as sent until more than this many rounds are kept whole; then every round but the newest `toolTrailKeepRounds` becomes a stub at once. The prefix changes once per batch (keep 2, collapse 30: at rounds 31, 60, 89, …) instead of every round. Without caching, every round past `toolTrailKeepRounds` is stubbed. |
 | `toolTrailCollapseChars` | `300000` | With caching, collapse also once the results of the rounds kept whole exceed this many characters, so a few huge results do not wait for `toolTrailCollapseRounds`. |
+
+### Server-side clearing (direct transport, thinking models)
+
+A conversation whose model thinks — Opus 5.5, Fable 5.1, any model that has
+returned a thinking block — may not have its earlier rounds rewritten, so the
+client-side collapse above stops. On the direct transport the request then asks
+the API to clear old tool results itself: context editing, the edit
+`clear_tool_uses_20250919` under the beta `context-management-2025-06-27`
+(`src/utils/serverToolClearing.ts`, sent through `client.beta.messages`). What
+is sent stays append-only; the server clears before the model reads, which
+does not count as a history edit, so the signed thinking blocks stay valid. The
+same four settings drive it:
+
+| Request field | From |
+| --- | --- |
+| `trigger` (`input_tokens`) | the send's first prompt (system, tools, first message; from the first response's usage) plus `toolTrailCollapseChars` ÷ 4 — clearing starts once the tool results pass `toolTrailCollapseChars` |
+| `keep` (`tool_uses`) | the tool uses of the newest `toolTrailKeepRounds` rounds, counted on each request |
+| `clear_at_least` (`input_tokens`) | (`toolTrailCollapseChars` − `toolTrailKeepRounds` × `toolTrailMaxResultChars`) ÷ 4: the batch the collapse would clear, so the cached prefix changes once per batch |
+| `exclude_tools` | `tomAi_readPastToolResult` (the recovery path) |
+
+`toolTrailCollapseRounds` has no counterpart: the API triggers on size. The
+first request of a send carries no clearing (no results yet). A conversation
+without thinking blocks keeps the client-side collapse and sends none. When the
+API cleared something, the live trail shows a notice with the tool uses and
+tokens cleared; the usage block's cache reads show its effect. Characters
+become tokens at 4 per token.
 
 ### Where the bodies live
 
