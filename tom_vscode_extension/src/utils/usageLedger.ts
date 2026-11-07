@@ -73,8 +73,14 @@ function emptyBucket(): UsageBucket {
 
 const num = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-/** The ledger with one send's usage added (a new object; the input is left alone). */
-export function recordUsage(ledger: UsageLedger, usage: LiveTrailUsage, at: Date): UsageLedger {
+/**
+ * The ledger with one send's usage added (a new object; the input is left
+ * alone). `countSend: false` adds the tokens and cost of a later round of a
+ * send already counted (the direct transport records round by round), so the
+ * send is not counted again.
+ */
+export function recordUsage(ledger: UsageLedger, usage: LiveTrailUsage, at: Date, options: { countSend?: boolean } = {}): UsageLedger {
+    const countSend = options.countSend !== false;
     const lines = usage.models && usage.models.length > 0
         ? usage.models
         : (usage.totals ? [{ model: UNKNOWN_MODEL, ...usage.totals, costUSD: usage.totalCostUsd }] : []);
@@ -83,13 +89,13 @@ export function recordUsage(ledger: UsageLedger, usage: LiveTrailUsage, at: Date
     const day = { ...(ledger.days[key] ?? {}) };
     for (const line of lines) {
         const b = { ...(day[line.model] ?? emptyBucket()) };
-        b.sends += 1;
+        if (countSend) { b.sends += 1; }
         b.inputTokens += num(line.inputTokens);
         b.outputTokens += num(line.outputTokens);
         b.cacheReadInputTokens += num(line.cacheReadInputTokens);
         b.cacheCreationInputTokens += num(line.cacheCreationInputTokens);
         if (typeof line.costUSD === 'number' && Number.isFinite(line.costUSD)) { b.costUsd += line.costUSD; }
-        else { b.unpricedSends += 1; }
+        else if (countSend) { b.unpricedSends += 1; }
         day[line.model] = b;
     }
     const days = { ...ledger.days, [key]: day };

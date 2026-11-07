@@ -97,6 +97,12 @@ export interface LiveTrailUsage {
     totalCostUsd?: number;
     /** Time spent inside API calls (SDK `result.duration_api_ms`). */
     durationApiMs?: number;
+    /**
+     * The usage ledger already holds this send, round by round (the direct
+     * transport records each round as it arrives): the ledger's observer
+     * leaves this block alone.
+     */
+    recordedInLedger?: boolean;
 }
 
 /** Thousands-separated integer, or `''` for a missing value. */

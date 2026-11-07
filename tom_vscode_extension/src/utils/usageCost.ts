@@ -88,3 +88,42 @@ export function directSendUsage(model: string, totals: LiveTrailTokenCounts, pri
 export function localLlmSendUsage(model: string, totals: LiveTrailTokenCounts): LiveTrailUsage {
     return { totals, models: [{ model, ...totals }] };
 }
+
+/**
+ * A direct send's usage, round by round. Each round's usage goes to `record`
+ * (the usage ledger) as its response arrives — the first round of the send as a
+ * new send, later ones as more of it — so a send that ends in an error (out of
+ * credit, a 400, a cancel) has still been counted for what it used.
+ * {@link sendUsage} is the send's block for the live trail: the totals of every
+ * round, marked as already in the ledger.
+ */
+export class DirectSendUsage {
+    private sum: LiveTrailTokenCounts = {};
+    private rounds = 0;
+
+    constructor(
+        private readonly model: string,
+        private readonly prices: readonly ModelPrice[] | undefined,
+        private readonly record: (round: LiveTrailUsage, firstOfSend: boolean) => void,
+    ) {}
+
+    /** One round's token counts (a round that reported none is not recorded). */
+    addRound(round: LiveTrailTokenCounts): void {
+        if (Object.keys(round).length === 0) { return; }
+        this.sum = addTokenCounts(this.sum, round);
+        const first = this.rounds === 0;
+        this.rounds += 1;
+        try {
+            this.record(directSendUsage(this.model, round, this.prices), first);
+        } catch { /* the ledger is a convenience; the send goes on */ }
+    }
+
+    /** The token counts of every round so far. */
+    get totals(): LiveTrailTokenCounts { return this.sum; }
+
+    /** The send's usage block, or undefined when no round reported usage. */
+    sendUsage(): LiveTrailUsage | undefined {
+        if (this.rounds === 0) { return undefined; }
+        return { ...directSendUsage(this.model, this.sum, this.prices), recordedInLedger: true };
+    }
+}

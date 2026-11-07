@@ -12,7 +12,7 @@
  *   PC-4 caching off: no breakpoint anywhere
  *   PC-5 usage is summed over the rounds, cache reads and writes included; a null field counts as zero
  *   PC-6 the direct send uses all of it: the marked tools and messages go into the request and the dump, every
- *        response's usage is summed, and the totals go to the live trail and the send result
+ *        response's usage is added round by round, and the totals go to the live trail and the send result
  *   PC-7 live (needs ANTHROPIC_API_KEY): a second identical request reads the prefix from the cache
  */
 
@@ -156,9 +156,11 @@ describe('anthropicPromptCache', () => {
         assert.equal((loop.match(/tools: requestTools/g) ?? []).length, 2);
         assert.equal((loop.match(/messages: requestMessages\(\)/g) ?? []).length, 2);
         assert.doesNotMatch(loop, /\? \{ tools: anthropicTools \}/, 'no request goes out with the unmarked tools');
-        assert.match(loop, /usageTotals = addResponseUsage\(usageTotals, response\.usage\)/);
-        // The block carries the model line and its cost (usageCost.ts, UC-3) since ccparity_a_directapi-3.
-        assert.match(loop, /liveTrail\?\.appendUsage\(directSendUsage\(configuration\.model, usageTotals, /);
+        // Every response's usage is added as it arrives, round by round (DirectSendUsage, UC-9..12).
+        assert.match(loop, /sendUsage\.addRound\(addResponseUsage\(\{\}, response\.usage\)\)/);
+        // The block carries the model line and its cost (usageCost.ts, UC-3), summed over the rounds.
+        assert.match(loop, /const block = sendUsage\.sendUsage\(\);/);
+        assert.match(loop, /liveTrail\?\.appendUsage\(block\)/);
         // Every way the loop ends with an answer reports the usage.
         const finals = loop.match(/return (withUsage\()?this\.finalize\(/g) ?? [];
         assert.ok(finals.length >= 2);

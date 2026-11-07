@@ -14,7 +14,8 @@ import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
-import { addTokenCounts, directSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
+import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
+import { recordRoundUsage } from '../services/usageLedgerService';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
@@ -2478,15 +2479,19 @@ export class AnthropicHandler {
         const requestTools = effectiveCaching ? withToolsCacheBreakpoint(anthropicTools) : anthropicTools;
         const requestMessages = (): AnthropicMessageParam[] =>
             effectiveCaching ? withLastMessageCacheBreakpoint(messages) : messages;
-        // Token usage summed over the rounds of this send (cache reads and
-        // writes included); reported in the live trail — with the model's cost
-        // from the configured price table (`anthropic.modelPrices`) — and in the
+        // Token usage of this send (cache reads and writes included): each
+        // round goes into the usage ledger as its response arrives, so a send
+        // that ends in an error is counted for what it used; the send's block,
+        // summed over the rounds and priced from `anthropic.modelPrices`, goes
+        // into the live trail once (also when the send fails) and into the
         // send result.
-        let usageTotals: LiveTrailTokenCounts = {};
+        const sendUsage = new DirectSendUsage(configuration.model, loadSendToChatConfig()?.anthropic?.modelPrices, recordRoundUsage);
+        let usageReported = false;
         const finishUsage = (): LiveTrailTokenCounts | undefined => {
-            if (Object.keys(usageTotals).length === 0) { return undefined; }
-            liveTrail?.appendUsage(directSendUsage(configuration.model, usageTotals, loadSendToChatConfig()?.anthropic?.modelPrices));
-            return usageTotals;
+            const block = sendUsage.sendUsage();
+            if (!block) { return undefined; }
+            if (!usageReported) { liveTrail?.appendUsage(block); usageReported = true; }
+            return sendUsage.totals;
         };
 
         // Dump the initial assembled request (system + compactedSummary
@@ -2552,7 +2557,7 @@ export class AnthropicHandler {
                     onRetryWait: options.onRetryWait,
                 });
 
-                usageTotals = addResponseUsage(usageTotals, response.usage);
+                sendUsage.addRound(addResponseUsage({}, response.usage));
                 lastStopReason = response.stop_reason ?? undefined;
                 lastText = this.extractText(response.content) || lastText;
                 this.rememberAssistantText(lastText);
@@ -2627,6 +2632,8 @@ export class AnthropicHandler {
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
             TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
+            // What the rounds before the error used (the ledger has them already).
+            finishUsage();
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
