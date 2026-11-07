@@ -706,7 +706,7 @@ When a write tool is requested, the panel receives an `anthropicToolApproval` me
 
 The request is brought in front of you wherever the bottom panel is: the @CHAT view comes to the front (keyboard focus stays where it is; a view never opened is opened) and its ANTHROPIC/LLM subpanel expands, so the dialog is seen while the Logs or any other tab was showing. Requests that arrive while one is shown wait their turn and are answered one at a time; one settled elsewhere (Stop, a queue cancel) leaves the dialog. The relay is `src/utils/approvalRelay.ts`; the handler announces settled requests with `onApprovalSettled`.
 
-"Allow All" and "Deny All" set a per-session bypass. Both reset at session end. The `toolApprovalMode` config field controls the default: `'always'` (prompt every time), `'session'` (prompt once per tool per session), `'never'` (auto-allow all — not recommended).
+"Allow All" and "Deny All" set a per-session bypass. Both reset at session end. The `toolApprovalMode` config field controls the default: `'always'` (prompt for every writer), `'acceptEdits'` (file edits go through, commands and every other writer prompt — one rule for every transport, `toolNeedsApproval` in `src/utils/agentSdkPermissionMode.ts`), `'never'` (auto-allow all — not recommended).
 
 Individual tools can opt out of the approval gate by setting `requiresApproval: false` explicitly. This is appropriate for write tools that have their own visibility mechanism — for example, `tomAi_chatvar_write` updates the Chat Variables panel in real time, so the user can observe every change without an approval dialog (see §8.5).
 
@@ -1047,7 +1047,7 @@ interface AnthropicConfiguration {
     historyMode: HistoryMode;
     maxHistoryTokens: number;
     maxRounds: number;
-    toolApprovalMode: 'always' | 'session' | 'never';
+    toolApprovalMode: 'always' | 'acceptEdits' | 'never';
     memoryExtractionTemplateId?: string; // which memoryExtraction template to use
     promptCachingEnabled?: boolean;      // default: false; adds cache_control to system blocks
     isDefault?: boolean;
@@ -1141,7 +1141,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
       "historyMode": "trim_and_summary",
       "maxHistoryTokens": 32000,
       "maxRounds": 40,
-      "toolApprovalMode": "session",
+      "toolApprovalMode": "acceptEdits",
       "memoryExtractionTemplateId": "default-memory",
       "promptCachingEnabled": true,
       "transport": "agentSdk",
@@ -1786,7 +1786,7 @@ When `transport === 'agentSdk'`:
 - `historyMode`, `maxHistoryTokens` are ignored — the SDK handles compaction internally.
 - `maxRounds` is used as the fallback for `agentSdk.maxTurns` when the latter is absent.
 - `enabledTools` is honored — tools are still filtered per configuration, then exposed to the agent via an in-process MCP server.
-- `toolApprovalMode` is honored via the SDK's `canUseTool` callback, and it decides the permission mode: `never` → `bypassPermissions`; `always` → the configuration's `agentSdk.permissionMode`, except that `bypassPermissions` becomes `default` (`effectivePermissionMode`, `src/utils/agentSdkPermissionMode.ts`), since the SDK skips `canUseTool` under it.
+- `toolApprovalMode` is honored via the SDK's `canUseTool` callback, and it decides the permission mode: `never` → `bypassPermissions`; `acceptEdits` → `acceptEdits` (`plan` when configured); `always` → the configuration's `agentSdk.permissionMode`, except that `bypassPermissions` becomes `default` (`effectivePermissionMode`, `src/utils/agentSdkPermissionMode.ts`), since the SDK skips `canUseTool` under it.
 - `memoryToolsEnabled` and memory tools behave identically (the tools run in-extension; the agent calls them over MCP).
 
 ### 18.3 What is reused from the direct-SDK implementation

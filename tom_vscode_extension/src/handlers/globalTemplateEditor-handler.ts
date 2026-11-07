@@ -35,6 +35,7 @@ import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { categorizeTools } from '../utils/toolCategories';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copilotTemplates';
+import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
 
 /** The one item of the Copilot — Queue Wrapper category. */
 const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
@@ -351,13 +352,13 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             // the field resolves to true when absent).
             const p = profile as unknown as {
                 promptCachingEnabled?: boolean;
-                toolApprovalMode?: 'always' | 'never';
+                toolApprovalMode?: string;
                 useBuiltInTools?: boolean;
                 autoInjectMemory?: boolean;
                 allowInteractiveQuestions?: boolean;
                 interactiveQuestionsTemplateId?: string;
             };
-            const approvalMode: 'always' | 'never' = p.toolApprovalMode === 'never' ? 'never' : 'always';
+            const approvalMode = parseToolApprovalMode(p.toolApprovalMode);
             // Out of budget (src/utils/outOfBudget.ts): which profile to continue on, and whether by itself.
             const outOfBudget = (profile as { outOfBudget?: { fallbackProfileId?: string; autoSwitch?: boolean } }).outOfBudget;
             const outOfBudgetOptions = [
@@ -390,7 +391,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'effort', label: 'Effort', type: 'select', value: thinkingSettings.effort ?? '', options: [{ value: '', label: "(model's default)" }, ...EFFORT_LEVELS.map((l) => ({ value: l, label: l }))], help: 'Sent as <code>output_config.effort</code> on the direct transport and as the Agent SDK\'s <code>effort</code> option. How much the model thinks and how many tokens it spends; the default is <code>medium</code> on Opus 5.5 and <code>high</code> elsewhere. A level the model does not take (xhigh on 4.6 models, any on Haiku 4.5) is left out and named in the payload dump.' },
                 { name: 'legacyThinkingBudgetTokens', label: 'Thinking Budget (older models)', type: 'number', value: String(thinkingSettings.legacyThinkingBudgetTokens ?? DEFAULT_LEGACY_THINKING_BUDGET), help: 'Token budget used only on models without adaptive thinking (Haiku 4.5, the 4.5 models and older) when Thinking is Adaptive. Minimum 1024; must stay below the configuration\'s max tokens.' },
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
-                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: toolApprovalHelp(profile.configurationId, config.anthropic?.configurations) },
+                { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'acceptEdits', label: 'Accept edits — file edits go through, commands and other writers ask' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: toolApprovalHelp(profile.configurationId, config.anthropic?.configurations) },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, …; the task-tracking tools TaskCreate/TaskUpdate are default only on models up to Opus 4.7 / Sonnet 4.6) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
                 { name: 'allowInteractiveQuestions', label: 'Allow Interactive Questions', type: 'checkbox', value: String(p.allowInteractiveQuestions === true), help: 'Agent SDK transport only: when the agent calls the built-in <code>AskUserQuestion</code> tool, show a VS Code QuickPick per question and feed your selections back to the model. When unchecked (default), the questions are answered with the fallback template below, telling the agent to proceed autonomously. Requires "Use Built-In Agent SDK Tools"; has no effect when Tool Approval is "Never" (the SDK does not fire the approval callback under <code>bypassPermissions</code>).' },
                 { name: 'interactiveQuestionsTemplateId', label: 'Interactive Questions Fallback', type: 'select', value: p.interactiveQuestionsTemplateId || '', options: interactiveQuestionsTemplateOptions, help: 'Fallback template (from the "Anthropic — Interactive Questions" category) returned to the agent when interactive questions are off or you dismiss the picker. Bodies may reference <code>${questions}</code>. "(built-in default)" uses the hard-coded autonomous fallback.' },
@@ -650,7 +651,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const legacyBudget = values.legacyThinkingBudgetTokens ? parseInt(values.legacyThinkingBudgetTokens, 10) : NaN;
             const legacyThinkingBudgetTokens = Number.isInteger(legacyBudget) && legacyBudget >= 1024 && legacyBudget !== DEFAULT_LEGACY_THINKING_BUDGET ? legacyBudget : undefined;
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
-            const toolApprovalMode: 'always' | 'never' = values.toolApprovalMode === 'never' ? 'never' : 'always';
+            const toolApprovalMode = parseToolApprovalMode(values.toolApprovalMode);
             const useBuiltInTools = values.useBuiltInTools === 'true';
             const autoInjectMemory = values.autoInjectMemory === 'true';
             const allowInteractiveQuestions = values.allowInteractiveQuestions === 'true';
@@ -1286,7 +1287,7 @@ function toolApprovalHelp(
 ): string {
     const list = configurations ?? [];
     const conf = list.find((c) => c.id === configurationId) ?? list.find((c) => c.isDefault === true);
-    const base = 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it runs in <code>permissionMode=bypassPermissions</code>). '
+    const base = 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Accept edits</strong> lets the file edits through without asking (edit, multi-edit, create, move, apply edit, notebook edit, rename; Claude Code\'s Edit, Write, MultiEdit, NotebookEdit) and asks for the rest — commands, git, deleting, every other writer — on every transport (on the Agent SDK it runs in <code>permissionMode=acceptEdits</code>). <strong>Never</strong> skips the gate entirely (on the Agent SDK it runs in <code>permissionMode=bypassPermissions</code>). '
         + 'This setting wins: the configuration\'s permission mode does not decide approval — with <strong>Always</strong> a configuration set to <code>bypassPermissions</code> runs in <code>default</code>, so the bar is shown. '
         + 'With Claude Code\'s built-in tools on, its writers (Bash, Write, Edit, MultiEdit, NotebookEdit, KillShell) ask the same way, and a configured <code>acceptEdits</code> or <code>auto</code> runs as <code>default</code>; its readers (Read, Grep, Glob, WebFetch, WebSearch, …) never ask. '
         + 'Queued prompts never ask: the prompt queue runs unattended and sends with approval off.';

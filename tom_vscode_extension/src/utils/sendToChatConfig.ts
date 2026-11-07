@@ -212,7 +212,8 @@ export interface SendToChatConfig {
             /** Thinking budget for models without adaptive thinking (Haiku 4.5 and older). */
             legacyThinkingBudgetTokens?: number;
             promptCachingEnabled?: boolean;
-            toolApprovalMode?: 'always' | 'never';
+            /** 'always' asks before every write tool, 'acceptEdits' lets the file edits through, 'never' asks nothing (CC-9). */
+            toolApprovalMode?: 'always' | 'acceptEdits' | 'never';
             useBuiltInTools?: boolean;
             /** When true, auto-append `${memory}` to the resolved system prompt. */
             autoInjectMemory?: boolean;

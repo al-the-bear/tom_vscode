@@ -113,7 +113,7 @@ See [file_and_prompt_placeholders.md](../doc/file_and_prompt_placeholders.md).
 
 Shared tools (exposed to the model): file I/O, search, guideline access, memory, diagnostics, git, issue, editor-context, notify-user, run-command/run-vscode-command, and the **past-tool-access trio** (`tomAi_listPastToolCalls`, `tomAi_searchPastToolResults`, `tomAi_readPastToolResult`) backed by the in-memory tool trail.
 
-Write tools (`tomAi_createFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_runCommand`, `tomAi_runVscodeCommand`, `tomAi_notifyUser`) go through an approval gate. Read-only tools skip it. Per-call approval, session-wide elevation, and `toolApprovalMode: 'never'` on a profile are all supported.
+Write tools (`tomAi_createFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_runCommand`, `tomAi_runVscodeCommand`, `tomAi_notifyUser`) go through an approval gate. Read-only tools skip it. Per-call approval, session-wide elevation, `toolApprovalMode: 'acceptEdits'` (file edits go through, commands and other writers ask) and `toolApprovalMode: 'never'` on a profile are all supported.
 
 On the Agent SDK path, tools surface through an MCP server (`mcp__tom-ai__<tool>` name prefix). Built-in preset tools (Read/Write/Bash/Grep/…) can be enabled per profile via `useBuiltInTools: true`; the stream is mirrored into the raw trail + tool trail for full visibility.
 

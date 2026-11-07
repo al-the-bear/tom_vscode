@@ -24,7 +24,48 @@
  */
 
 export type AgentSdkPermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk' | 'auto';
-export type ToolApprovalMode = 'always' | 'never';
+/**
+ * A profile's Tool Approval: `always` asks before every write tool, `acceptEdits`
+ * lets the file edits through and asks for the rest (commands, git, every
+ * other writer), `never` asks nothing — on every transport (CC-9).
+ */
+export type ToolApprovalMode = 'always' | 'acceptEdits' | 'never';
+
+/** The Tool Approval values, in the order the profile editor offers them. */
+export const TOOL_APPROVAL_MODES: readonly ToolApprovalMode[] = ['always', 'acceptEdits', 'never'];
+
+/** A stored Tool Approval value as one of the modes; anything else is `always`. */
+export function parseToolApprovalMode(value: unknown): ToolApprovalMode {
+    return value === 'never' || value === 'acceptEdits' ? value : 'always';
+}
+
+/**
+ * The file edits "Accept edits" lets through, as Claude Code's acceptEdits
+ * does: the extension's file editors (moving included, as Claude Code accepts
+ * `mv`; deleting not) and Claude Code's own edit built-ins.
+ */
+export const FILE_EDIT_TOOLS: ReadonlySet<string> = new Set([
+    'tomAi_editFile', 'tomAi_multiEditFile', 'tomAi_createFile', 'tomAi_moveFile',
+    'tomAi_applyEdit', 'tomAi_notebookEdit', 'tomAi_rename',
+    'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
+]);
+
+/**
+ * Whether a tool call asks for approval under `mode`, on every transport:
+ * an extension tool by its definition (`requiresApproval`, else not
+ * `readOnly`), a Claude Code built-in by {@link builtInToolNeedsApproval};
+ * `acceptEdits` lets {@link FILE_EDIT_TOOLS} through; `never` asks nothing.
+ */
+export function toolNeedsApproval(
+    mode: ToolApprovalMode,
+    toolName: string,
+    def: { readOnly?: boolean; requiresApproval?: boolean } | undefined,
+): boolean {
+    if (mode === 'never') { return false; }
+    if (mode === 'acceptEdits' && FILE_EDIT_TOOLS.has(toolName)) { return false; }
+    if (def) { return def.requiresApproval ?? !def.readOnly; }
+    return builtInToolNeedsApproval(toolName);
+}
 
 /** The permission mode a send on a profile with `approvalMode` runs in. */
 export function effectivePermissionMode(
@@ -33,6 +74,9 @@ export function effectivePermissionMode(
     builtInTools = false,
 ): AgentSdkPermissionMode {
     if (approvalMode === 'never') { return 'bypassPermissions'; }
+    // Accept edits is the SDK's own acceptEdits (its edit built-ins go through
+    // without canUseTool, everything else is asked); a configured plan mode stays.
+    if (approvalMode === 'acceptEdits') { return configuredMode === 'plan' ? 'plan' : 'acceptEdits'; }
     if (!configuredMode || configuredMode === 'bypassPermissions') { return 'default'; }
     if (builtInTools && ACCEPTS_WRITES_UNASKED.has(configuredMode)) { return 'default'; }
     return configuredMode;
@@ -50,6 +94,11 @@ export function permissionModeOverride(
     configuredMode: AgentSdkPermissionMode | undefined,
     builtInTools = false,
 ): string | undefined {
+    if (approvalMode === 'acceptEdits') {
+        return configuredMode && configuredMode !== 'acceptEdits' && configuredMode !== 'plan' && configuredMode !== 'default'
+            ? `the configuration's permissionMode ${configuredMode} is ignored: the profile's Tool Approval is "Accept edits", so the send runs in permissionMode acceptEdits`
+            : undefined;
+    }
     if (approvalMode !== 'always' || !configuredMode) { return undefined; }
     if (configuredMode === 'bypassPermissions') {
         return 'the configuration\'s permissionMode bypassPermissions is ignored: the profile\'s Tool Approval is "Always", '

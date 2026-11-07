@@ -28,7 +28,7 @@ import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
-import { builtInApprovalSummary, builtInToolNeedsApproval, effectivePermissionMode, permissionModeOverride } from '../utils/agentSdkPermissionMode';
+import { builtInApprovalSummary, effectivePermissionMode, permissionModeOverride, toolNeedsApproval, type ToolApprovalMode } from '../utils/agentSdkPermissionMode';
 import { exitPlanModeImpl, isPlanModeActive, onPlanModeChanged, planModeRefusalFor } from '../tools/planning-tools';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
@@ -311,7 +311,7 @@ export interface AgentSdkSendParams {
      * a single call is offered at the approval bar, not configured here.
      * Defaults to `always`.
      */
-    toolApprovalMode?: 'always' | 'never';
+    toolApprovalMode?: ToolApprovalMode;
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
     /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
@@ -571,7 +571,7 @@ function stripMcpPrefix(toolName: string): string {
 function makeCanUseTool(
     tools: SharedToolDefinition[],
     ctx: AgentSdkTransportContext,
-    approvalMode: 'always' | 'never' = 'always',
+    approvalMode: ToolApprovalMode = 'always',
     interactiveQuestions?: AgentSdkSendParams['interactiveQuestions'],
 ): CanUseTool {
     return async (toolName, input): Promise<PermissionResult> => {
@@ -637,7 +637,7 @@ function makeCanUseTool(
         // the profile's Tool Approval like the tomAi_* writers, the readers
         // run unasked (CC-2, utils/agentSdkPermissionMode.ts).
         if (!def) {
-            const asks = builtInToolNeedsApproval(bare) && approvalMode !== 'never';
+            const asks = toolNeedsApproval(approvalMode, bare, undefined);
             if (!asks || ctx.sessionApprovals.has(bare)) {
                 return { behavior: 'allow', updatedInput: input };
             }
@@ -651,9 +651,7 @@ function makeCanUseTool(
                 : { behavior: 'deny', message: `Tool "${bare}" was denied by the user.` };
         }
 
-        const defaultRequiresApproval = !def.readOnly;
-        const requiresApproval = def.requiresApproval ?? defaultRequiresApproval;
-        const needsApproval = requiresApproval && approvalMode !== 'never';
+        const needsApproval = toolNeedsApproval(approvalMode, bare, def);
 
         if (!needsApproval || ctx.sessionApprovals.has(bare)) {
             return { behavior: 'allow', updatedInput: input };

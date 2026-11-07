@@ -137,7 +137,7 @@ The panel sends in a named session (`<name>.session.json` in the quest's `histor
 
 ## Tool approval
 
-The profile's `toolApprovalMode` controls whether tool calls are routed through the in-panel approval bar (`'always'`) or auto-approved silently (`'never'`). Queue runs always use `'never'` regardless of the profile setting.
+The profile's `toolApprovalMode` controls whether tool calls are routed through the in-panel approval bar (`'always'`), lets the file edits through and routes the other writers there (`'acceptEdits'`), or auto-approves silently (`'never'`). Queue runs always use `'never'` regardless of the profile setting.
 
 The approval gate is part of the Anthropic handler's shared loop and applies to all four leaf paths (Direct, Agent SDK, VS Code LM, Local LLM).
 

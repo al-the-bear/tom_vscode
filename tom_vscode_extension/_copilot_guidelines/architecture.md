@@ -155,7 +155,7 @@ All four leaf paths write the raw trail of the session the send runs in (`histor
 
 ### Tool approval
 
-`toolApprovalMode: 'always' | 'never'`. Queue-dispatched items coerce this to `'never'` before calling `sendMessage()` (queue is unattended; blocking on the approval bar would stall the queue). Interactive sends honour the profile's stored value.
+`toolApprovalMode: 'always' | 'acceptEdits' | 'never'` (`acceptEdits`: file edits go through, every other writer asks; `toolNeedsApproval` in `utils/agentSdkPermissionMode.ts`, the same on every transport). Queue-dispatched items coerce this to `'never'` before calling `sendMessage()` (queue is unattended; blocking on the approval bar would stall the queue). Interactive sends honour the profile's stored value.
 
 See [anthropic_chat.md](anthropic_chat.md) for the panel-level detail and [../doc/anthropic_handler.md](../doc/anthropic_handler.md) for the full handler spec.
 

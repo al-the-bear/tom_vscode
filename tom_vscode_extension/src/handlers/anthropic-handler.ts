@@ -16,6 +16,7 @@ import { KeyedClientCache } from '../utils/anthropicClientCache';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStats } from '../utils/usageCost';
 import { planModeRefusalFor } from '../tools/planning-tools';
+import { parseToolApprovalMode, toolNeedsApproval, type ToolApprovalMode } from '../utils/agentSdkPermissionMode';
 import { recordRoundUsage } from '../services/usageLedgerService';
 import { parallelCallsReminder, roundResultContent } from '../utils/parallelToolCalls';
 import { appliedClearingNotice, promptTokensOf, serverToolClearing } from '../utils/serverToolClearing';
@@ -247,7 +248,7 @@ export interface AnthropicProfile {
      * `never` skips the gate entirely. Defaults to `always`. Lives on the
      * profile (persona + behavior), not the configuration (API capacity).
      */
-    toolApprovalMode?: 'always' | 'never';
+    toolApprovalMode?: ToolApprovalMode;
     /**
      * Agent SDK path only — enable the built-in Claude Code tool preset
      * (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and suppress
@@ -2328,7 +2329,7 @@ export class AnthropicHandler {
                     systemPrompt,
                     userText: userContent,
                     cancellationToken: options.cancellationToken,
-                    toolApprovalMode: profile.toolApprovalMode ?? 'always',
+                    toolApprovalMode: parseToolApprovalMode(profile.toolApprovalMode),
                     useBuiltInTools: profile.useBuiltInTools === true,
                     thinkingOptions: agentSdkThinkingOptions(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>)),
                     resumeSessionId,
@@ -3525,10 +3526,11 @@ export class AnthropicHandler {
         // tools (i.e. `!readOnly`). An explicit value overrides the default
         // — e.g. `tomAi_writeChatVariable` opts out because it has its own
         // real-time visibility mechanism (§8.5).
-        const defaultRequiresApproval = def ? !def.readOnly : false;
-        const requiresApproval = def?.requiresApproval ?? defaultRequiresApproval;
-        const approvalMode = options.profile.toolApprovalMode ?? 'always';
-        const needsApproval = requiresApproval && approvalMode !== 'never';
+        // Tool Approval (CC-9): `acceptEdits` lets the file edits through and
+        // asks for the rest — one rule for every transport (toolNeedsApproval).
+        // A name with no definition is no tool of ours: nothing to ask about.
+        const approvalMode = parseToolApprovalMode(options.profile.toolApprovalMode);
+        const needsApproval = def ? toolNeedsApproval(approvalMode, block.name, def) : false;
         if (needsApproval && !this.sessionApprovals.has(block.name)) {
             const approved = await this.awaitApproval({
                 toolUseId: block.id,
