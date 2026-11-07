@@ -344,7 +344,7 @@ Design note: the spec's original sketch envisioned an always-visible collapsible
 
 No checkbox to disable it. See §2 decision 7.
 
-**Display of direct responses**: when `item.answerText` exists (anthropic transport), show it inline under the item (truncated preview + expand-to-full button). The authoritative trail is the Anthropic trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
+**Display of direct responses**: when `item.answerText` exists (anthropic transport), show it inline under the item (truncated preview + expand-to-full button, and two buttons that show it rendered as Markdown over the queue or in the markdown preview editor). The authoritative trail is the Anthropic trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
 
 ### 4.11 ANTHROPIC/LLM panel — queueing buttons
 

@@ -238,6 +238,14 @@ function editFollowUpTransport(id, followUpId) {
   // Spec §4.10 — per-stage Advanced override for a follow-up.
   vscode.postMessage({ type: 'editFollowUpTransport', id: id, followUpId: followUpId });
 }
+function queueAnswerMarkdown(id, mode) {
+  // An item's full answer as markdown: in the overlay over the queue
+  // (media/shared/mdOverlay.js, after the host's safe render), or in the
+  // markdown preview editor. queueEntryRenderFunctions keeps the text by id.
+  var entry = (window.__queueAnswers || {})[id];
+  if (!entry) { return; }
+  vscode.postMessage({ type: mode === 'editor' ? 'openMarkdownPreview' : 'renderMarkdown', title: entry.title, markdown: entry.text });
+}
 function toggleAnswerExpand(ansId) {
   // Spec §4.10 — expand/collapse the inline answerText preview.
   var el = document.getElementById(ansId);

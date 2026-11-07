@@ -110,11 +110,10 @@
 .qt-popup-overlay.visible { display: flex; align-items: center; justify-content: center; }
 .qt-popup { background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 12px; min-width: 280px; max-width: 400px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 .qt-popup h4 { margin: 0 0 8px; font-size: 12px; }
-.qt-popup:has(.qt-answer-popup) { max-width: min(640px, 92vw); }
-.qt-answer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.qt-answer-head h4 { margin: 0; }
-.qt-answer-body { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.qt-answer-body pre { white-space: pre-wrap; background: var(--vscode-textCodeBlock-background); padding: 6px; border-radius: 3px; }
+/* The markdown preview buttons beside a field's label (qtMdButtons); the overlay is media/shared/mdOverlay.css. */
+.qt-md-btns { display: inline-flex; gap: 1px; margin-left: 4px; vertical-align: middle; }
+.qt-md-btns .icon-btn { padding: 0 2px; min-width: 0; height: 16px; line-height: 16px; }
+.qt-md-btns .codicon { font-size: 12px; }
 .qt-popup .qt-form-row { margin-bottom: 6px; }
 .qt-popup-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
 .qt-tag-picker-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }

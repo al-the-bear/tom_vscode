@@ -189,6 +189,7 @@ export async function selectTodoInBottomPanel(todoId: string, file?: string, que
 import { getQuestTodoCss, getQuestTodoHtmlFragment } from './questTodo/questTodoAssets';
 import { readMediaText } from '../utils/webviewLoader';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { todayLocalDate } from '../utils/todoDates';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
@@ -209,6 +210,7 @@ export { getQuestTodoCss, getQuestTodoHtmlFragment };
 export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
     const cfgJson = JSON.stringify(config ?? {});
     return `\n// ── Quest TODO variables ──\nvar qtViewConfig = ${cfgJson};\n`
+        + readMediaText('shared', 'mdOverlay.js')
         + readMediaText('questTodoPanel', 'grouping.js')
         + readMediaText('questTodoPanel', 'main.js');
 }
@@ -1099,9 +1101,15 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             vscode.window.showInformationMessage(`Deleted ${deletedFiles} session todo file(s) for quest ${sessionQuestId}.`);
             return true;
         }
-        case 'qtRenderAnswer':
-            // A todo's last_answer as safe HTML for the panel's popup.
-            post({ type: 'qtAnswerHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+        case 'qtRenderMarkdown':
+            // A todo's description, notes or last_answer as safe HTML for the panel's markdown overlay.
+            post({ type: 'qtMarkdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+            return true;
+        case 'qtOpenMarkdownPreview':
+            // The same text in the markdown preview editor, in the editor area.
+            if (_extensionContext) {
+                await showMarkdownHtmlPreview(_extensionContext, { title: String(msg.title || 'Markdown'), markdown: String(msg.markdown || '') });
+            }
             return true;
         case 'qtOpenYaml':
             if (isSessionMode) {

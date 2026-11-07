@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix, qtCompareTodoIds */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix, qtCompareTodoIds, tomMdOverlayShow */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -1227,7 +1227,7 @@ function qtRenderDetail(todo) {
     pane.innerHTML = '<div class="qt-detail-form">' +
         qtFormRow('ID', '<input id="qt-d-id" value="' + qtEsc(todo.id) + '" readonly class="qt-readonly">') +
         qtFormRow('Title', '<input id="qt-d-title" value="' + qtEsc(todo.title || '') + '">') +
-        qtFormRow('Description', '<textarea id="qt-d-desc" data-completion="on">' + qtEsc(todo.description || '') + '</textarea>') +
+        qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on">' + qtEsc(todo.description || '') + '</textarea>') +
         '<div class="qt-inline-row">' +
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
@@ -1245,7 +1245,7 @@ function qtRenderDetail(todo) {
             ? qtFormRow('Blocking', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocking-wrap" title="The todos whose Blocked By names this one; set Blocked By on those to change it">' +
                 qtRenderTodoBadges(todo.blocking, 'blocking') + '</div>')
             : '') +
-        qtFormRow('Notes', '<textarea id="qt-d-notes" data-completion="on">' + qtEsc(todo.notes || '') + '</textarea>') +
+        qtFormRow('Notes' + qtMdButtons('notes', 'Notes'), '<textarea id="qt-d-notes" data-completion="on">' + qtEsc(todo.notes || '') + '</textarea>') +
         qtRenderDecisionsSection() +
         qtRenderScopeSection(qtFormScope) +
         qtRenderRefsSection(qtFormRefs) +
@@ -1738,26 +1738,54 @@ function qtRenderDatesSection(todo) {
 
 /**
  * The answer of the queue run that completed the todo (`last_answer`, written
- * by the prompt queue): a label and a button that shows it in the popup.
+ * by the prompt queue): a label and the two markdown preview buttons.
  * Only for completed todos, and never editable.
  */
 function qtAnswerRow(todo) {
     if (!todo || todo.status !== 'completed' || !todo.last_answer) return '';
     return '<div class="qt-inline-row qt-answer-row">' +
-        qtFormRow('Answer', '<button class="icon-btn" id="qt-d-show-answer" type="button" title="Show the answer of the queue run that completed this todo">' +
-            '<span class="codicon codicon-comment-discussion"></span></button>') +
+        qtFormRow('Answer', qtMdButtons('answer', 'the answer of the queue run that completed this todo')) +
         '</div>';
 }
 
-/** Show a rendered answer (HTML from the host, safe for innerHTML) in the popup. */
-function qtShowAnswerPopup(title, html) {
-    qtShowPopup('<div class="qt-answer-popup">' +
-        '<div class="qt-answer-head"><h4>Answer \u2014 ' + qtEsc(title || '') + '</h4>' +
-        '<button class="icon-btn" id="qt-answer-close" type="button" title="Close"><span class="codicon codicon-close"></span></button></div>' +
-        '<div class="qt-answer-body">' + (html || '') + '</div></div>');
-    var close = document.getElementById('qt-answer-close');
-    if (close) close.addEventListener('click', qtClosePopup);
+/**
+ * The two markdown preview buttons of a field (`desc`, `notes`, `answer`): show
+ * it rendered in the overlay over the whole panel (media/shared/mdOverlay.js),
+ * or open it in the markdown preview editor. One delegated click handler
+ * (qtHandleMdButtonClick) serves every form, so re-rendering needs no wiring.
+ */
+function qtMdButtons(field, what) {
+    return '<span class="qt-md-btns">' +
+        '<button class="icon-btn qt-md-btn" type="button" data-qt-md-field="' + field + '" data-qt-md-mode="overlay" title="Show ' + qtEsc(what) + ' as markdown over the panel">' +
+            '<span class="codicon codicon-eye"></span></button>' +
+        '<button class="icon-btn qt-md-btn" type="button" data-qt-md-field="' + field + '" data-qt-md-mode="editor" title="Open ' + qtEsc(what) + ' in the markdown preview editor">' +
+            '<span class="codicon codicon-open-preview"></span></button>' +
+        '</span>';
 }
+
+var QT_MD_FIELD_LABELS = { desc: 'Description', notes: 'Notes', answer: 'Answer' };
+
+/** The field's text as it is now: the form's value (unsaved edits included), or the stored answer. */
+function qtMdFieldText(field) {
+    if (field === 'answer') return (qtDetailTodo && qtDetailTodo.last_answer) || '';
+    var el = document.getElementById(field === 'desc' ? 'qt-d-desc' : 'qt-d-notes');
+    return el ? el.value : '';
+}
+
+function qtHandleMdButtonClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-md-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    var field = btn.getAttribute('data-qt-md-field');
+    var isNew = !!document.getElementById('qt-btn-create');
+    var owner = isNew ? 'New todo' : ((qtDetailTodo && qtDetailTodo.id) || 'Todo');
+    vscode.postMessage({
+        type: btn.getAttribute('data-qt-md-mode') === 'editor' ? 'qtOpenMarkdownPreview' : 'qtRenderMarkdown',
+        title: owner + ' \u2014 ' + (QT_MD_FIELD_LABELS[field] || field),
+        markdown: qtMdFieldText(field),
+    });
+}
+document.addEventListener('click', qtHandleMdButtonClick);
 
 // Wire autosave on date fields (called after section rendered)
 function qtAttachDateAutoSave() {
@@ -1767,11 +1795,6 @@ function qtAttachDateAutoSave() {
     if (crEl) crEl.addEventListener('change', qtAutoSave);
     if (cdEl) cdEl.addEventListener('change', qtAutoSave);
     if (cbEl) cbEl.addEventListener('input', qtAutoSave);
-    var answerBtn = document.getElementById('qt-d-show-answer');
-    if (answerBtn) answerBtn.addEventListener('click', function() {
-        if (!qtDetailTodo || !qtDetailTodo.last_answer) return;
-        vscode.postMessage({ type: 'qtRenderAnswer', title: qtDetailTodo.id, markdown: qtDetailTodo.last_answer });
-    });
 }
 
 // ── Tag helpers ──
@@ -2206,7 +2229,7 @@ function qtShowNewTodoForm(id) {
             '<input type="date" id="qt-d-created" value="' + qtEsc(today) + '" style="flex:1;">' +
             '<button class="icon-btn" id="qt-d-created-pick" title="Select date"><span class="codicon codicon-calendar"></span></button></div>') +
         qtFormRow('Title', '<input id="qt-d-title" value="">') +
-        qtFormRow('Description', '<textarea id="qt-d-desc" data-completion="on"></textarea>') +
+        qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on"></textarea>') +
         '<div class="qt-inline-row">' +
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions('not-started') + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions('medium') + '</select>') +
@@ -2218,7 +2241,7 @@ function qtShowNewTodoForm(id) {
             '<button class="qt-edit-btn" id="qt-d-tag-picker-btn" title="Pick from existing tags">🏷️</button></div>') +
         qtFormRow('Dependencies', '<input id="qt-d-deps" placeholder="Comma-separated IDs">') +
         qtFormRow('Blocked By', '<input id="qt-d-blocked-by" placeholder="Comma-separated: todoId or questId/todoId">') +
-        qtFormRow('Notes', '<textarea id="qt-d-notes" data-completion="on"></textarea>') +
+        qtFormRow('Notes' + qtMdButtons('notes', 'Notes'), '<textarea id="qt-d-notes" data-completion="on"></textarea>') +
         qtRenderScopeSection(null) +
         qtRenderRefsSection([]) +
         '<div class="qt-form-actions">' +
@@ -2449,8 +2472,8 @@ function qtHandleMessage(msg) {
             qtAutoSave();
             qtUpdateArchiveButtons();
             break;
-        case 'qtAnswerHtml':
-            qtShowAnswerPopup(msg.title, msg.html);
+        case 'qtMarkdownHtml':
+            tomMdOverlayShow(msg.title, msg.html);
             break;
         case 'qtState':
             if (msg.state) {

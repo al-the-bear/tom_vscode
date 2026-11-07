@@ -24,6 +24,7 @@
 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'unsafe-inline';">
 <link rel="stylesheet" href="{{sharedUri}}/queueEntryStyles.css">
+<link rel="stylesheet" href="{{sharedUri}}/mdOverlay.css">
 </head>
 <body>
 <h2>Prompt Queue</h2>
@@ -153,6 +154,7 @@
 <div class="queue-list" id="queueList"><div class="empty">Loading…</div></div>
 <noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
 
+<script src="{{sharedUri}}/mdOverlay.js"></script>
 <script src="{{sharedUri}}/queueEntryUtils.js"></script>
 <script src="{{sharedUri}}/queueEntryRenderFunctions.js"></script>
 <script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>

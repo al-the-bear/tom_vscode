@@ -58,6 +58,9 @@
   /* Answer expand/collapse toggle: full opacity, with hover affordance. */
   .answer-toggle-icon { opacity: 1 !important; padding: 2px 4px; border-radius: 3px; }
   .answer-toggle-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+  .qe-md-btns { display: inline-flex; gap: 1px; }
+  .qe-md-btns .icon-btn { padding: 0 2px; min-width: 0; height: 16px; line-height: 16px; }
+  .qe-md-btns .codicon { font-size: 12px; }
   .add-form { border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-bottom: 10px; display: none; }
   .add-form.visible { display: block; }
   .add-form label { font-size: 0.85em; font-weight: 600; display: block; margin: 6px 0 2px; }

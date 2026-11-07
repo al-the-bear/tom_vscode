@@ -454,10 +454,19 @@ function renderEntry(item, idx) {
     var ansId = 'ans-' + safeId;
     var fullText = item.answerText;
     var truncated = fullText.length > 600 ? fullText.slice(0, 600) + '…' : fullText;
+    /* The full answer for the markdown preview buttons (queueAnswerMarkdown), by item id. */
+    var promptLine = String(item.originalText || item.expandedText || '').split('\n')[0].trim();
+    window.__queueAnswers = window.__queueAnswers || {};
+    window.__queueAnswers[item.id] = { text: fullText, title: 'Answer \u2014 ' + (promptLine.length > 60 ? promptLine.slice(0, 60) + '…' : promptLine || item.id) };
+    var mdBtns = '<span class="qe-md-btns">' +
+      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="overlay" data-qid="' + escapeHtml(String(item.id)) + '" title="Show the answer as markdown over the queue"><span class="codicon codicon-eye"></span></button>' +
+      '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="editor" data-qid="' + escapeHtml(String(item.id)) + '" title="Open the answer in the markdown preview editor"><span class="codicon codicon-open-preview"></span></button>' +
+      '</span>';
     answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
         '<strong style="color:#4a9eff;">Answer</strong>' +
         '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
+        mdBtns +
         (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\'' + ansId + '\')" title="Expand / collapse"></span>' : '') +
       '</div>' +
       '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +

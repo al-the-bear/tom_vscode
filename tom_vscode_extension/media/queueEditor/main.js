@@ -221,6 +221,11 @@ try {
 window.addEventListener('message', e => {
   const msg = e.data;
   try {
+    if (msg.type === 'markdownHtml') {
+      // The host's safe render of an answer (queueAnswerMarkdown): the overlay over the queue.
+      tomMdOverlayShow(msg.title, msg.html);
+      return;
+    }
     if (msg.type === 'state') {
       currentItems = msg.items || [];
       autoSend = msg.autoSend;
@@ -474,6 +479,12 @@ document.addEventListener('click', function(ev) {
   var panel = btn.closest('.out-of-budget');
   var select = panel ? panel.querySelector('select[data-oob-profile]') : null;
   if (select && select.value) { continueOnProfile(id, select.value); }
+});
+// The answer block's markdown preview buttons (queueEntryRenderFunctions): one delegated listener.
+document.addEventListener('click', function(ev) {
+  var btn = ev.target && ev.target.closest ? ev.target.closest('.qe-md-btn') : null;
+  if (!btn) return;
+  queueAnswerMarkdown(btn.getAttribute('data-qid'), btn.getAttribute('data-qe-md-mode'));
 });
 function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }

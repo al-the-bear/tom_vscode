@@ -267,6 +267,16 @@ an older saved state restores as `[]`. The 👤 toolbar button
 (`#qt-btn-only-mine`, `qtToggleOnlyUserActions`) switches between `['yes']`
 (opening every group) and `[]`. Tests: `questTodoUserAction.dom.test.ts` QU-1–7.
 
+The detail form's Description, Notes and (completed todos) Answer carry the two
+markdown preview buttons (`qtMdButtons`, one delegated click handler
+`qtHandleMdButtonClick`): overlay posts `qtRenderMarkdown` and the host answers
+`qtMarkdownHtml` with `renderQuestLogMarkdown`'s safe HTML, shown by the shared
+overlay `media/shared/mdOverlay.js` / `.css` (composed into the panel's script
+and CSS; the Prompt Queue editor loads the same files); editor posts
+`qtOpenMarkdownPreview` (`showMarkdownHtmlPreview`). Description and Notes are
+sent as they are in the form. Tests: `markdownPreviewButtons.dom.test.ts`
+MP-1–6, `questTodoLastAnswer.dom.test.ts` QA-1–4.
+
 The filter state also carries `blocking` (`[]` all, `['yes']` blocks an open todo by
 `qtOpenBlockedTodos`, `['no']`) and the date bounds `createdFrom`/`To`, `updatedFrom`/`To`,
 `completedFrom`/`To` (inclusive ISO date strings; a todo without `completed_date` fails any

@@ -136,7 +136,7 @@ The queue editor webview (opened via "Open Queue Editor") provides:
 - Status badge, prompt preview, repeat count, template name.
 - A **gear icon** → three-step VS Code QuickPick: transport (Copilot / Anthropic / Inherit) → profile → config. Selecting "Inherit" clears the item's transport fields so it falls through to the queue default.
 - Reminder + answer-wait controls, **disabled with tooltip** when transport is `'anthropic'` (those are Copilot-only).
-- Answer text preview (truncated + expand button) when `answerText` is present.
+- Answer text preview (truncated + expand button) when `answerText` is present, with the two markdown preview buttons (`.qe-md-btn`: the overlay of `media/shared/mdOverlay.js` after the host's `renderMarkdown`, or `openMarkdownPreview` in the editor area).
 
 **Per-stage overrides.** Pre-prompt and follow-up rows each have their own gear icon → same QuickPick with "Inherit from item" as the inherit option.
 

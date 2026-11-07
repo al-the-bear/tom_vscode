@@ -1,0 +1,29 @@
+/* Markdown overlay (media/shared/mdOverlay.js): over the whole panel, like the
+   chat panel's ? popup. */
+.tom-md-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(0, 0, 0, 0.4); display: none; }
+.tom-md-overlay.visible { display: block; }
+.tom-md-popup {
+    position: absolute; top: 4%; bottom: 4%; left: 4px; right: 4px;
+    display: flex; flex-direction: column;
+    background: var(--vscode-editorWidget-background, var(--vscode-panel-background));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+    border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.tom-md-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border);
+}
+.tom-md-title { margin: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tom-md-body {
+    flex: 1; overflow: auto; padding: 8px 12px;
+    font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; color: var(--vscode-foreground);
+}
+.tom-md-body h1 { font-size: 1.5em; } .tom-md-body h2 { font-size: 1.3em; } .tom-md-body h3 { font-size: 1.15em; }
+.tom-md-body pre { white-space: pre-wrap; background: var(--vscode-textCodeBlock-background); padding: 6px; border-radius: 3px; }
+.tom-md-body code { font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); padding: 0 3px; border-radius: 3px; }
+.tom-md-body pre code { background: none; padding: 0; }
+.tom-md-body table { border-collapse: collapse; }
+.tom-md-body th, .tom-md-body td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; }
+.tom-md-body blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid var(--vscode-textBlockQuote-border, #888); opacity: 0.9; }
+.tom-md-body a { color: var(--vscode-textLink-foreground); }
+.tom-md-empty { opacity: 0.6; font-style: italic; }

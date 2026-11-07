@@ -26,6 +26,8 @@ import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { positionText } from '../utils/processActionPrompt';
@@ -214,6 +216,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
     switch (msg.type) {
         case 'getState':
             sendState();
+            return;
+        case 'renderMarkdown':
+            // An item's answer as safe HTML for the editor's markdown overlay.
+            _panel?.webview.postMessage({ type: 'markdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+            return;
+        case 'openMarkdownPreview':
+            // The same answer in the markdown preview editor.
+            if (_ctx) {
+                await showMarkdownHtmlPreview(_ctx, { title: String(msg.title || 'Answer'), markdown: String(msg.markdown || '') });
+            }
             return;
         case 'openContextSettings':
             await vscode.commands.executeCommand('tomAi.editor.contextSettings');
