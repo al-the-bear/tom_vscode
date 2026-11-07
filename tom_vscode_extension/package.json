@@ -2632,7 +2632,7 @@
           "chat-variables",
           "tom-ai-chat"
         ],
-        "displayName": "Chat Variable — Read",
+        "displayName": "Chat Variable \u2014 Read",
         "userDescription": "Read chat variables",
         "modelDescription": "Read the current chat variables. Omit `key` to return all variables (built-ins + custom.*). Pass a `key` to return just that variable's current value.",
         "canBeReferencedInPrompt": true,
@@ -2653,9 +2653,9 @@
           "chat-variables",
           "tom-ai-chat"
         ],
-        "displayName": "Chat Variable — Write",
+        "displayName": "Chat Variable \u2014 Write",
         "userDescription": "Update custom chat variables",
-        "modelDescription": "Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected — those are user-only fields. Every change is visible live in the Chat Variables Editor.",
+        "modelDescription": "Update one or more custom chat variables. Keys are stored under the `custom.*` namespace. Built-in keys (quest, role, activeProjects, todo, todoFile) are rejected \u2014 those are user-only fields. Every change is visible live in the Chat Variables Editor.",
         "canBeReferencedInPrompt": true,
         "inputSchema": {
           "type": "object",
@@ -2665,7 +2665,7 @@
           "properties": {
             "variables": {
               "type": "object",
-              "description": "Map of variable names to string values. Plain names only — the tool prepends \"custom.\" automatically. Built-in names are rejected.",
+              "description": "Map of variable names to string values. Plain names only \u2014 the tool prepends \"custom.\" automatically. Built-in names are rejected.",
               "additionalProperties": {
                 "type": "string"
               }
@@ -2680,7 +2680,7 @@
           "memory",
           "tom-ai-chat"
         ],
-        "displayName": "Memory — Save",
+        "displayName": "Memory \u2014 Save",
         "userDescription": "Persist a fact to memory",
         "modelDescription": "Append a fact to a memory file (or replace a named markdown section when `heading` is provided). Default file is `facts.md`. Scope is `quest` (default) or `shared`.",
         "canBeReferencedInPrompt": true,
@@ -2720,7 +2720,7 @@
           "memory",
           "tom-ai-chat"
         ],
-        "displayName": "Memory — Update section",
+        "displayName": "Memory \u2014 Update section",
         "userDescription": "Replace a memory section",
         "modelDescription": "Replace the content under a named markdown heading in a memory file. If the heading does not exist yet it is appended.",
         "canBeReferencedInPrompt": true,
@@ -2758,7 +2758,7 @@
           "memory",
           "tom-ai-chat"
         ],
-        "displayName": "Memory — Forget",
+        "displayName": "Memory \u2014 Forget",
         "userDescription": "Delete a fact or file",
         "modelDescription": "Delete an entire memory file, or clear the content under a named markdown heading when `heading` is provided.",
         "canBeReferencedInPrompt": true,
@@ -2791,7 +2791,7 @@
           "memory",
           "tom-ai-chat"
         ],
-        "displayName": "Memory — Read",
+        "displayName": "Memory \u2014 Read",
         "userDescription": "Read memory contents",
         "modelDescription": "Read memory contents. Omit `file` to get the concatenated contents of all files in the scope. Scope is `quest` (default), `shared`, or `all`.",
         "canBeReferencedInPrompt": true,
@@ -2819,7 +2819,7 @@
           "memory",
           "tom-ai-chat"
         ],
-        "displayName": "Memory — List",
+        "displayName": "Memory \u2014 List",
         "userDescription": "List memory files",
         "modelDescription": "List memory files in the given scope. Scope is `quest` (default), `shared`, or `all`.",
         "canBeReferencedInPrompt": true,
@@ -3005,13 +3005,13 @@
     "@anthropic-ai/sdk": "^0.124.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/codicons": "^0.0.45",
+    "tom_som_typescript_runtime": "file:vendor/tom_som/tom_som_typescript_runtime.tgz",
+    "tom_som_typescript_v0": "file:vendor/tom_som/tom_som_typescript_v0.tgz",
     "ajv": "^8.18.0",
     "ignore": "^5.3.2",
     "marked": "^14.1.2",
     "mermaid": "^11.14.0",
     "telegramify-markdown": "^1.3.3",
-    "tom_som_typescript_runtime": "file:vendor/tom_som/tom_som_typescript_runtime.tgz",
-    "tom_som_typescript_v0": "file:vendor/tom_som/tom_som_typescript_v0.tgz",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
   }
