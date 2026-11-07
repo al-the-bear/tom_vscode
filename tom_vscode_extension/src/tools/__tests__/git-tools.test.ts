@@ -25,9 +25,9 @@
  *      gitShow split rationale (`<ref>:<path>` usability cliff);
  *      gitWrite allow-list spelled out; hook-skip block explained.
  *   b) Ambiguities covered:
- *        - Repo discovery — documented as workspace-root-only for
- *          gitRead; gitShow + gitWrite accept `cwd` (traversal-
- *          guarded).
+ *        - Repo discovery — gitRead, gitShow and gitWrite all accept
+ *          `cwd` (traversal-guarded); without it they run in the
+ *          workspace root.
  *        - Untracked files / detached HEAD — documented as
  *          "no special handling" (git decides).
  *        - --no-verify / --no-gpg-sign rejected per workspace policy.
@@ -180,6 +180,32 @@ describe('gitReadImpl — unit', () => {
 // ===========================================================================
 // Unit tests — gitShowImpl
 // ===========================================================================
+
+describe('gitReadImpl — cwd', () => {
+
+    test('a relative cwd inside the workspace runs git there', async () => {
+        const exec = makeExecutor();
+        const r = JSON.parse(await gitReadImpl(exec, makeWorkspace('/ws'), { subcommand: 'log', args: ['-n', '1'], cwd: 'tom_ai/vscode' }));
+        assert.equal(r.ok, true);
+        assert.equal(exec.calls[0].cwd, path.join('/ws', 'tom_ai', 'vscode'));
+    });
+
+    test('an absolute cwd inside the workspace is accepted', async () => {
+        const exec = makeExecutor();
+        await gitReadImpl(exec, makeWorkspace('/ws'), { subcommand: 'status', cwd: '/ws/_ai' });
+        assert.equal(exec.calls[0].cwd, path.join('/ws', '_ai'));
+    });
+
+    test('a cwd outside the workspace is refused; executor NOT called', async () => {
+        for (const cwd of ['../../etc', '/etc', '/ws-sibling']) {
+            const exec = makeExecutor();
+            const r = JSON.parse(await gitReadImpl(exec, makeWorkspace('/ws'), { subcommand: 'status', cwd }));
+            assert.equal(r.ok, false, cwd);
+            assert.match(r.error, /escapes the workspace root/);
+            assert.equal(exec.calls.length, 0, cwd);
+        }
+    });
+});
 
 describe('gitShowImpl — unit', () => {
 
@@ -384,6 +410,39 @@ before(() => {
     liveWorkspace = { root: () => repoDir };
 });
 after(() => { try { fs.rmSync(repoDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+describe('gitRead — a nested repository (integration)', () => {
+    let outer: string;
+    before(() => {
+        outer = fs.mkdtempSync(path.join(os.tmpdir(), 'git-tools-nested-'));
+        const env = {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@e',
+            GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 't@e',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+        };
+        const commit = (dir: string, message: string) => {
+            execFileSync('git', ['init', '-b', 'main'], { cwd: dir, env });
+            fs.writeFileSync(path.join(dir, 'file.txt'), `${message}\n`);
+            execFileSync('git', ['add', 'file.txt'], { cwd: dir, env });
+            execFileSync('git', ['commit', '-m', message], { cwd: dir, env });
+        };
+        commit(outer, 'outer commit');
+        const nested = path.join(outer, 'tom_ai', 'vscode');
+        fs.mkdirSync(nested, { recursive: true });
+        commit(nested, 'nested commit');
+    });
+    after(() => { try { fs.rmSync(outer, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+    test('cwd reads the nested repository; without it the workspace root', async () => {
+        const ws: GitWorkspace = { root: () => outer };
+        const nestedLog = JSON.parse(await gitReadImpl(liveExecutor, ws, { subcommand: 'log', args: ['-n', '1', '--format=%s'], cwd: 'tom_ai/vscode' }));
+        assert.equal(nestedLog.ok, true);
+        assert.equal(nestedLog.stdout.trim(), 'nested commit');
+        const rootLog = JSON.parse(await gitReadImpl(liveExecutor, ws, { subcommand: 'log', args: ['-n', '1', '--format=%s'] }));
+        assert.equal(rootLog.stdout.trim(), 'outer commit');
+    });
+});
 
 describe('git-tools — integration against real `git init` fixture', () => {
 

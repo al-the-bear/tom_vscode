@@ -35,10 +35,9 @@
  *     re-ask the user instead of silently bypassing.
  *   - **Path traversal closed**: `cwd` (when provided) is normalised
  *     against the workspace root and rejected when it escapes.
- *   - **Repo discovery is documented as workspace-root-only** in the
- *     descriptions — the "multi-root" ambiguity (checklist b) gets an honest
- *     answer: pick the workspace via `cwd` on the write/show tools;
- *     `gitRead` is locked to the first workspace folder.
+ *   - **Repo discovery**: all three tools run in the workspace root unless
+ *     given a `cwd`, which picks a nested repository (`tom_ai/vscode`, the
+ *     `_ai` mount) or another workspace folder inside the root.
  *   - **Detached HEAD + untracked files**: both tools just run git;
  *     git decides what's reachable.  Documented as "no special
  *     handling" so callers know not to expect filtering.
@@ -113,6 +112,8 @@ function sanitiseArgs(args: unknown): string[] {
 export interface GitReadInput {
     subcommand: 'status' | 'diff' | 'log' | 'blame';
     args?: string[];
+    /** Working directory (a nested repository); default the workspace root. Traversal-guarded. */
+    cwd?: string;
 }
 
 const READ_SUBCOMMANDS: ReadonlySet<string> = new Set(['status', 'diff', 'log', 'blame']);
@@ -128,7 +129,7 @@ export async function gitReadImpl(executor: GitExecutor, workspace: GitWorkspace
                 received: sub,
             });
         }
-        const cwdResult = resolveCwd(workspace, undefined);
+        const cwdResult = resolveCwd(workspace, input.cwd);
         if (cwdResult.error) { return err(cwdResult.error); }
         const args = sanitiseArgs(input.args);
         const result = await executor.run([sub, ...args], {
@@ -158,8 +159,9 @@ export async function gitReadImpl(executor: GitExecutor, workspace: GitWorkspace
 export const GIT_READ_DESCRIPTION =
     'Run a **read-only** git subcommand. Allow-list: `status`, `diff`, ' +
     '`log`, `blame` — anything else is rejected. **Repo discovery**: ' +
-    'locked to the first workspace folder; for multi-root workspaces ' +
-    'use `tomAi_gitShow` (which accepts `cwd`) or `tomAi_gitWrite`. ' +
+    'runs in the workspace root; pass `cwd` (workspace-relative or ' +
+    'absolute, traversal-guarded) for a nested repository such as ' +
+    '`tom_ai/vscode` or `_ai`, as on `tomAi_gitShow` and `tomAi_gitWrite`. ' +
     '**Detached HEAD / untracked files**: no special handling — git ' +
     'decides what\'s reachable; `status` will surface untracked files ' +
     'like the CLI does. Response: ' +
@@ -180,6 +182,7 @@ export const GIT_TOOL: SharedToolDefinition<GitReadInput> = {
         properties: {
             subcommand: { type: 'string', enum: ['status', 'diff', 'log', 'blame'], description: 'Read-only git subcommand.' },
             args: { type: 'array', items: { type: 'string' }, description: 'Optional arguments appended after the subcommand (e.g. ["--stat"], ["-n","20"]).' },
+            cwd: { type: 'string', description: 'Working directory, e.g. a nested repository. Default: workspace root. Traversal-guarded.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -237,7 +240,7 @@ export const GIT_SHOW_DESCRIPTION =
     '(file contents at a revision). **Use this — not `gitRead` — for ' +
     'historical inspection**; the read tool intentionally doesn\'t ' +
     'expose `show` because the `<ref>:<path>` syntax is easy to get ' +
-    'wrong. Accepts a `cwd` to target a non-default workspace folder; ' +
+    'wrong. Accepts a `cwd` to target a nested repository or another workspace folder; ' +
     '`cwd` is traversal-guarded against the workspace root. ' +
     'Response: `{ok, ref, filePath, stdout, stderr, exitCode}`.';
 

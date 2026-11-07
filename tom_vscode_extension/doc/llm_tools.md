@@ -156,6 +156,12 @@ tom_agent_container root a search through every file takes about 10 s
 | `tomAi_gitShow` | `git show <ref>[:path]`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_gitWrite` | Allow-listed git writes (approval). | ⚪ | ✅ | ⚪ | ✅ |
 
+All three run in the workspace root unless given `cwd`: a workspace-relative or
+absolute folder inside the root, such as a nested repository (`tom_ai/vscode`,
+the `_ai` mount). A `cwd` that leaves the root is refused before git runs
+(`src/tools/__tests__/git-tools.test.ts`, gitReadImpl — cwd and the nested
+repository test).
+
 ### 4.9 Notebook
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
