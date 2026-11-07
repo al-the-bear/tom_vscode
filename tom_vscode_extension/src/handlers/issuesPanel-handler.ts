@@ -76,11 +76,11 @@ function getPanelName(mode: PanelMode): string {
 const DEFAULT_COLUMN_LABELS: Record<string, string> = {
     statusDot: '', id: 'ID', title: 'Title', repository: 'Repository',
     repositoryOwner: 'Owner', status: 'Status', author: 'Author',
-    commentCount: '# of Comments', creationTimestamp: 'Created', updateTimestamp: 'Updated',
+    commentCount: '# of Comments', repo: 'Repo', creationTimestamp: 'Created', updateTimestamp: 'Updated',
     labels: 'Labels',
 };
 
-const DEFAULT_GROWTH_PRIORITY: string[] = ['title', 'author', 'repository', 'status', 'repositoryOwner'];
+const DEFAULT_GROWTH_PRIORITY: string[] = ['title', 'repo', 'author', 'repository', 'status', 'repositoryOwner'];
 
 const DEFAULT_AVAILABLE_COLUMNS: ColumnDef[] = [
     { key: 'statusDot', style: 'dot', minWidth: 20, maxWidth: 20, required: true },
@@ -91,6 +91,8 @@ const DEFAULT_AVAILABLE_COLUMNS: ColumnDef[] = [
     { key: 'status', style: 'grey', minWidth: 60, maxWidth: 120, required: false },
     { key: 'author', style: 'grey', minWidth: 60, maxWidth: 150, required: false },
     { key: 'commentCount', style: 'grey', minWidth: 20, maxWidth: 20, required: false },
+    // Where the issue is from, as `<repo-name>/<owner>`: the name, which tells repositories apart, first.
+    { key: 'repo', style: 'grey', minWidth: 90, maxWidth: 220, required: false },
     { key: 'creationTimestamp', style: 'grey', minWidth: 80, maxWidth: 80, required: false },
     { key: 'updateTimestamp', style: 'grey', minWidth: 80, maxWidth: 80, required: false },
 ];
@@ -106,7 +108,7 @@ export function loadPanelConfig(mode: PanelMode): IssuePanelConfig {
         additionalRepos: [],
         statuses: defaultStatuses.map(s => parseStatusEntry(s).name),
         statusColors: Object.fromEntries(defaultStatuses.map(s => { const p = parseStatusEntry(s); return [p.name, p.color]; })),
-        defaultColumns: ['author', 'commentCount', 'creationTimestamp', 'updateTimestamp'],
+        defaultColumns: ['author', 'commentCount', 'repo', 'creationTimestamp', 'updateTimestamp'],
         availableColumns: [...DEFAULT_AVAILABLE_COLUMNS],
         labels: ['quicklabel=Flaky', 'quicklabel=Regression', 'quicklabel=Blocked'],
         configError: null,

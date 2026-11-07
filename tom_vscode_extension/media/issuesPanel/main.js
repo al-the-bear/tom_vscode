@@ -53,6 +53,7 @@
         { key: 'createdAt', label: 'Created' },
         { key: 'updatedAt', label: 'Updated' },
         { key: 'commentCount', label: 'Comments' },
+        { key: 'repo', label: 'Repo' },
         { key: 'author', label: 'Author' }
     ];
 
@@ -256,6 +257,7 @@
             case 'createdAt': return issue.createdAt || '';
             case 'updatedAt': return issue.updatedAt || '';
             case 'commentCount': return issue.commentCount || 0;
+            case 'repo': return repoNameOwner(issue._repoId).toLowerCase();
             case 'author': return (issue.author && issue.author.name || '').toLowerCase();
             default: return '';
         }
@@ -480,6 +482,7 @@
             case 'status': return formatStatusLabel(effStatus);
             case 'author': return issue.author ? issue.author.name : '';
             case 'commentCount': return (issue.commentCount || 0) + '';
+            case 'repo': return repoNameOwner(issue._repoId);
             case 'creationTimestamp': return formatDateYYMMDD(issue.createdAt);
             case 'updateTimestamp': return formatDateYYMMDD(issue.updatedAt);
             case 'labels': {
@@ -491,6 +494,13 @@
             }
             default: return '';
         }
+    }
+    // `owner/name` as `name/owner`: the repository's name, which tells them apart, comes first.
+    // An id without an owner (a local tracker) shows as it is.
+    function repoNameOwner(repoId) {
+        var rid = repoId || '';
+        var slash = rid.indexOf('/');
+        return slash > 0 ? rid.substring(slash + 1) + '/' + rid.substring(0, slash) : rid;
     }
     function getVisibleColumnDefs() {
         return columnDefs.filter(function(cd) { return visibleColumns.indexOf(cd.key) >= 0; });

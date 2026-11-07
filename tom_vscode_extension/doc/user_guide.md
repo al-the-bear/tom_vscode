@@ -192,6 +192,8 @@ VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file yo
 
 The @WS **Issues** section lists the issues of the repositories it finds in the workspace's git remotes, plus the ones the panel configuration adds (`issuePanels`; **Tests** works the same for test reports). The repository dropdown offers one repository, **All Repos**, or **My Repos (<account>)**: the repositories of the GitHub account VS Code is signed in with, without forks and without clones of other people's repositories. The choice appears once the account's repositories are known (it asks GitHub whether each is a fork) and only when an account is signed in. New issues need one repository chosen.
 
+The table's **Repo** column, right of the comment count, names the repository each issue is from as `<repo-name>/<owner>` (`tom_vscode/al-the-bear`), so the name comes first; it sorts like the other columns.
+
 ### Quest TODO Panel
 
 The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
