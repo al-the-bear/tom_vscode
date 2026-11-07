@@ -46,7 +46,7 @@ Each table lists every tool in the family with a per-transport default.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). On the direct API an image (png, jpg, gif, webp) comes back as an image block and a PDF as a document block the model sees (`executeRich`; up to 3.75 MB / 16 MB); other transports get the text. | 🔁 | ✅ | ✅ | ✅ |
 | `tomAi_createFile` | Create a file (approval). | 🔁 | ✅ | ⚪ | ✅ |
 | `tomAi_editFile` | Find-replace edit (approval). | 🔁 | ✅ | ⚪ | ✅ |
 | `tomAi_multiEditFile` | Batched find-replace (approval). | 🔁 | ✅ | ⚪ | ✅ |
@@ -902,6 +902,7 @@ Every new tool needs:
 7. For Agent SDK duplicates: add to `DUPLICATES_OF_CLAUDE_CODE_BUILTINS` in `anthropic-handler.ts`.
 8. A row in the right family table in this document.
 9. For a write tool whose raw input would not let a person decide at the approval prompt, an `approvalSummary(input)` on its definition (`tomAi_specApplyEdits` summarises its batch as op counts and paths). Both Anthropic transports show it through `summarizeToolInput`; without it the prompt shows the input as JSON cut to 200 characters.
+10. For a tool that can show the model more than text, an `executeRich(input)` beside `execute`: content blocks (text, image, document) plus a stand-in `text` for the trails and logs, or `undefined` to let `execute` answer. Only the direct transport calls it (`AnthropicHandler.runTool`); the tool-trail retention leaves a fresh media result whole and stubs it once it is past `toolTrailKeepRounds`. `tomAi_readFile` uses it for images and PDFs (`readFileMediaImpl`, the bytes decide the type).
 
 Steps 4 and 5 are enforced by `src/tools/__tests__/tool-registry-parity.test.ts`.
 It asserts that `ALL_SHARED_TOOLS` equals `AVAILABLE_LLM_TOOLS` plus

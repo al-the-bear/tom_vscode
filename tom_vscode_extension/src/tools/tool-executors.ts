@@ -61,6 +61,7 @@ import {
     FindFilesInput,
     FindTextInFilesInput,
     readFileImpl,
+    readFileMediaImpl,
     listDirectoryImpl,
     findFilesImpl,
     findTextInFilesImpl,
@@ -71,6 +72,7 @@ export type { ReadFileInput, ListDirectoryInput, FindFilesInput, FindTextInFiles
 export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
     ...READ_FILE_DEF,
     execute: (input) => readFileImpl(getWorkspaceRoot(), input),
+    executeRich: (input) => readFileMediaImpl(getWorkspaceRoot(), input),
 };
 
 export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {

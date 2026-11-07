@@ -33,7 +33,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import ignore, { type Ignore } from 'ignore';
-import { SharedToolDefinition } from './shared-tool-registry';
+import { SharedToolDefinition, type RichToolResult, type ToolDocumentBlock, type ToolImageBlock } from './shared-tool-registry';
 
 // ---------------------------------------------------------------------------
 // Input shapes (re-exported so tests share the types)
@@ -639,15 +639,81 @@ function looksBinary(buf: Buffer): boolean {
 // it can pick up vscode.workspace at runtime; we just export the impls here)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// tomAi_readFile's rich answer: images and PDFs as content blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * Largest image file sent as an image block: the API takes at most 5 MB per
+ * image; three quarters of that keeps the base64 within 5 MB as well.
+ */
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024 * 3 / 4;
+/** Largest PDF sent as a document block: a request is at most 32 MB, base64 included. */
+export const PDF_MAX_BYTES = 16 * 1024 * 1024;
+
+type MediaType = ToolImageBlock['source']['media_type'] | 'application/pdf';
+
+/** The extensions a rich answer is tried for. */
+const MEDIA_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']);
+
+/** The media type the leading bytes say, or undefined (then the file is not sent as media). */
+function sniffMediaType(head: Buffer): MediaType | undefined {
+    if (head.length >= 8 && head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) { return 'image/png'; }
+    if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) { return 'image/jpeg'; }
+    const ascii = head.toString('latin1');
+    if (ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a')) { return 'image/gif'; }
+    if (ascii.startsWith('RIFF') && ascii.slice(8, 12) === 'WEBP') { return 'image/webp'; }
+    if (ascii.startsWith('%PDF-')) { return 'application/pdf'; }
+    return undefined;
+}
+
+/**
+ * tomAi_readFile's rich answer: an image (png, jpg, gif, webp) as an image
+ * block and a PDF as a document block, after a text block naming the file —
+ * what Claude Code's Read shows the model. The bytes decide the type (a file
+ * named `.png` that is no image gets the text answer, and a misnamed one its
+ * real type), so the API never receives a block it refuses. A file over the
+ * API's limit answers a note instead. Undefined — the text answer
+ * ({@link readFileImpl}) stands — for any other file, and for a path that is
+ * missing, a folder or outside the workspace (whose error the text answer
+ * gives). Ranges and line numbers do not apply to media.
+ */
+export async function readFileMediaImpl(wsRoot: string, input: ReadFileInput): Promise<RichToolResult | undefined> {
+    const resolved = resolveAgainstWsRoot(input.filePath, wsRoot);
+    if (!MEDIA_EXTENSIONS.has(path.extname(resolved).toLowerCase())) { return undefined; }
+    if (!isInsideWorkspace(resolved, wsRoot)) { return undefined; }
+    let stat: fs.Stats;
+    try { stat = await fs.promises.stat(resolved); } catch { return undefined; }
+    if (!stat.isFile()) { return undefined; }
+    let bytes: Buffer;
+    try { bytes = await fs.promises.readFile(resolved); } catch { return undefined; }
+    const mediaType = sniffMediaType(bytes.subarray(0, 16));
+    if (!mediaType) { return undefined; }
+    const name = path.basename(resolved);
+    const limit = mediaType === 'application/pdf' ? PDF_MAX_BYTES : IMAGE_MAX_BYTES;
+    if (bytes.length > limit) {
+        const text = `${input.filePath} (${mediaType}, ${bytes.length} bytes) is larger than the ${limit} byte limit the API takes for a ${mediaType === 'application/pdf' ? 'PDF' : 'single image'}; it cannot be shown.`;
+        return { blocks: [{ type: 'text', text }], text };
+    }
+    const text = `${input.filePath} (${mediaType}, ${bytes.length} bytes), shown below.`;
+    const data = bytes.toString('base64');
+    /* eslint-disable @typescript-eslint/naming-convention -- Messages API wire fields */
+    const media: ToolImageBlock | ToolDocumentBlock = mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: mediaType, data }, title: name }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    /* eslint-enable @typescript-eslint/naming-convention */
+    return { blocks: [{ type: 'text', text }, media], text };
+}
+
 export const READ_FILE_DESCRIPTION =
     'Read a UTF-8 text file. Paths are workspace-relative unless absolute. ' +
     'Optional `startLine`/`endLine` are 1-based and inclusive; out-of-range ' +
     'values clamp. Without a range at most 2000 lines are returned, and any read ' +
     'at most 200 000 characters; a note then says what was left out. ' +
     '`lineNumbers: true` prefixes each line with its number and a tab. Errors with a clear message if the path is a directory, ' +
-    'missing, or outside the workspace. Binary files return their bytes ' +
-    'interpreted as UTF-8 (may include replacement characters) — use a ' +
-    'different tool for binary inspection.';
+    'missing, or outside the workspace. On the direct API an image (png, jpg, gif, webp) ' +
+    'comes back as an image you see and a PDF as a document; elsewhere, and for ' +
+    'other binary files, the bytes are read as UTF-8 (may include replacement characters).';
 
 export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
     name: 'tomAi_readFile',

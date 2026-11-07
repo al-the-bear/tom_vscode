@@ -30,6 +30,7 @@ import * as vscode from 'vscode';
 import {
     executeToolCall,
     SharedToolDefinition,
+    type RichToolResult,
     summarizeToolInput,
     toAnthropicTools,
 } from '../tools/shared-tool-registry';
@@ -3594,14 +3595,26 @@ export class AnthropicHandler {
         const start = Date.now();
         let result = '';
         let error: string | undefined;
+        // The direct API takes content blocks in a tool_result: a tool with a
+        // rich answer (tomAi_readFile on an image or a PDF) shows the model
+        // what Claude Code's Read would. Local LLM and VS Code LM take text.
+        let richBlocks: RichToolResult['blocks'] | undefined;
+        const richExecutor = (configuration.transport ?? 'direct') === 'direct' ? def?.executeRich : undefined;
         try {
             // Ambient context so tools (e.g. tomAi_writeChatVariable) can log
             // change-log entries with the correct source and request ID.
             result = await runWithToolContext(
                 { source: 'anthropic', requestId },
-                () => executeToolCall(tools, {
-                    function: { name: block.name, arguments: input },
-                }),
+                async () => {
+                    const rich = richExecutor ? await richExecutor(input) : undefined;
+                    if (rich) {
+                        richBlocks = rich.blocks;
+                        return rich.text;
+                    }
+                    return executeToolCall(tools, {
+                        function: { name: block.name, arguments: input },
+                    });
+                },
             );
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -3642,7 +3655,7 @@ export class AnthropicHandler {
             type: 'tool_result',
             tool_use_id: block.id,
             is_error: error !== undefined,
-            content: result,
+            content: richBlocks ?? result,
         };
     }
 

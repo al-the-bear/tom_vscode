@@ -57,11 +57,46 @@ export interface SharedToolDefinition<TInput = Record<string, unknown>> {
     execute: (input: TInput) => Promise<string>;
 
     /**
+     * A richer answer for the transports that can show content blocks to the
+     * model — the direct Anthropic API: text, image and document blocks (an
+     * image or a PDF the model looks at). `undefined` means "no rich answer
+     * for this input" and {@link execute} answers instead. Other transports
+     * (Local LLM, VS Code LM, the Agent SDK's MCP server, Copilot) never call
+     * it and keep `execute`'s text.
+     */
+    executeRich?: (input: TInput) => Promise<RichToolResult | undefined>;
+
+    /**
      * What the approval prompt shows for a call, when the raw input would not
      * let a person decide (a batch of edits, say). Defaults to the input as
      * truncated JSON; see {@link summarizeToolInput}.
      */
     approvalSummary?: (input: TInput) => string;
+}
+
+/* eslint-disable @typescript-eslint/naming-convention -- Messages API wire fields */
+/** An image a tool shows the model (base64; the media types the API accepts). */
+export interface ToolImageBlock {
+    type: 'image';
+    source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string };
+}
+/** A PDF a tool shows the model. */
+export interface ToolDocumentBlock {
+    type: 'document';
+    source: { type: 'base64'; media_type: 'application/pdf'; data: string };
+    title?: string;
+}
+/* eslint-enable @typescript-eslint/naming-convention */
+export interface ToolTextBlock { type: 'text'; text: string }
+
+/**
+ * A tool's answer as content blocks ({@link SharedToolDefinition.executeRich}).
+ * `text` stands in for it wherever only text goes: the tool trail, the live
+ * trail, the logs, a later stub.
+ */
+export interface RichToolResult {
+    blocks: Array<ToolTextBlock | ToolImageBlock | ToolDocumentBlock>;
+    text: string;
 }
 
 /**

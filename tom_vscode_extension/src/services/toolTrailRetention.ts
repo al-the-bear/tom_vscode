@@ -113,6 +113,11 @@ function flattenContent(content: unknown): string {
     return '';
 }
 
+function hasMediaBlock(content: unknown): boolean {
+    return Array.isArray(content)
+        && content.some((p) => { const t = (p as { type?: unknown })?.type; return t === 'image' || t === 'document'; });
+}
+
 /**
  * Apply the retention step to `messages` in place. `entryFor` maps a
  * `tool_use_id` to its trail entry (undefined when the trail does not know it).
@@ -143,6 +148,10 @@ export function applyToolTrailRetention(
         // Its answer is the recovery path of a cut result, paged by its own
         // `offset` / `length`: cutting it again would make the cut final.
         if (entry.toolName === NEVER_CUT_TOOL) { return; }
+        // An image or a PDF (a rich tool answer) is shown whole, bounded by the
+        // API's size limits: flattening it to text would throw it away. It is
+        // stubbed like any round once it is past keepRounds.
+        if (hasMediaBlock(block.content)) { return; }
         block.content = trail.truncateInline(entry.key, entry.toolName, entry.inputSummary, flattenContent(block.content));
     };
     const stub = (block: Record<string, unknown>): void => {
