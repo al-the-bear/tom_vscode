@@ -51,6 +51,7 @@ import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound 
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
 import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
+import { parseSettingSources, parseSystemPromptMode, type SettingSource, type SystemPromptMode } from '../utils/agentSdkSystemPrompt';
 import { findAgentDefinition, listAgentDefinitions, resolveSubagentConfiguration, toOurToolNames, toSdkAgents } from '../services/agentDefinitions';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
@@ -253,6 +254,10 @@ export interface AnthropicProfile {
      * profile (persona + behavior), not the configuration (API capacity).
      */
     toolApprovalMode?: ToolApprovalMode;
+    /** Agent SDK: the system prompt replaces Claude Code's (default) or is appended to it (CC-15). */
+    systemPromptMode?: SystemPromptMode;
+    /** Agent SDK: the setting sources it loads; set, they win over the configuration's. */
+    settingSources?: SettingSource[];
     /**
      * Agent SDK path only — enable the built-in Claude Code tool preset
      * (Read, Write, Edit, Glob, Grep, Bash, WebFetch, etc.) and suppress
@@ -2377,6 +2382,8 @@ export class AnthropicHandler {
                     cancellationToken: options.cancellationToken,
                     toolApprovalMode: parseToolApprovalMode(profile.toolApprovalMode),
                     useBuiltInTools: profile.useBuiltInTools === true,
+                    systemPromptMode: parseSystemPromptMode(profile.systemPromptMode),
+                    ...(parseSettingSources(profile.settingSources) ? { settingSources: parseSettingSources(profile.settingSources) } : {}),
                     thinkingOptions: agentSdkThinkingOptions(configuration.model, profileThinkingSettings(profile as unknown as Record<string, unknown>)),
                     resumeSessionId,
                     forkSession: sessionStart.fork,

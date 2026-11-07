@@ -26,6 +26,7 @@
  */
 
 import { DEFAULT_CORE_TOOLS } from '../utils/toolSelection';
+import { parseSettingSources, parseSystemPromptMode, SETTING_SOURCES, type SettingSource } from '../utils/agentSdkSystemPrompt';
 import { DEFAULT_LEGACY_THINKING_BUDGET, EFFORT_LEVELS, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 import * as vscode from 'vscode';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -393,6 +394,8 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'promptCachingEnabled', label: 'Prompt Caching', type: 'checkbox', value: String(promptCachingDefaultOn), help: 'Enable prompt caching for this profile. Overrides <code>configuration.promptCachingEnabled</code>. Defaults to on.' },
                 { name: 'toolApprovalMode', label: 'Tool Approval', type: 'select', value: approvalMode, options: [{ value: 'always', label: 'Always — prompt before every write tool call' }, { value: 'acceptEdits', label: 'Accept edits — file edits go through, commands and other writers ask' }, { value: 'never', label: 'Never — skip the approval gate (dangerous)' }], help: toolApprovalHelp(profile.configurationId, config.anthropic?.configurations) },
                 { name: 'useBuiltInTools', label: 'Use Built-In Agent SDK Tools', type: 'checkbox', value: String(p.useBuiltInTools === true), help: 'Agent SDK transport only: expose Claude Code\'s built-in tool preset (Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, …; the task-tracking tools TaskCreate/TaskUpdate are default only on models up to Opus 4.7 / Sonnet 4.6) and automatically suppress extension tools that duplicate them. No effect on the direct Anthropic SDK.' },
+                { name: 'systemPromptMode', label: 'System Prompt (Agent SDK)', type: 'select', value: parseSystemPromptMode((profile as { systemPromptMode?: unknown }).systemPromptMode), options: [{ value: 'replace', label: 'Replace — the system prompt above is the whole prompt' }, { value: 'append', label: "Append — Claude Code's default prompt, then the system prompt above" }], help: "Agent SDK transport only. <strong>Replace</strong> sends this profile's system prompt instead of Claude Code's own; <strong>Append</strong> keeps Claude Code's default system prompt (its tools, conventions, environment) and adds this profile's after it (the SDK's <code>claude_code</code> preset with <code>append</code>). Profiles made before the choice existed replace." },
+                { name: 'settingSources', label: 'Setting Sources (Agent SDK)', type: 'multi-checkbox', value: JSON.stringify(parseSettingSources((profile as { settingSources?: unknown }).settingSources) ?? []), options: SETTING_SOURCES.map((s) => ({ value: s, label: s })), help: "Agent SDK transport only: which of Claude Code's settings the SDK loads — <code>user</code> (~/.claude: settings, CLAUDE.md, agents, commands), <code>project</code> (the workspace's .claude/ and CLAUDE.md), <code>local</code> (.claude/settings.local.json, CLAUDE.local.md). Ticked here they win over the configuration's <code>agentSdk.settingSources</code>; none ticked, the configuration's apply." },
                 { name: 'allowInteractiveQuestions', label: 'Allow Interactive Questions', type: 'checkbox', value: String(p.allowInteractiveQuestions === true), help: 'Agent SDK transport only: when the agent calls the built-in <code>AskUserQuestion</code> tool, show a VS Code QuickPick per question and feed your selections back to the model. When unchecked (default), the questions are answered with the fallback template below, telling the agent to proceed autonomously. Requires "Use Built-In Agent SDK Tools"; has no effect when Tool Approval is "Never" (the SDK does not fire the approval callback under <code>bypassPermissions</code>).' },
                 { name: 'interactiveQuestionsTemplateId', label: 'Interactive Questions Fallback', type: 'select', value: p.interactiveQuestionsTemplateId || '', options: interactiveQuestionsTemplateOptions, help: 'Fallback template (from the "Anthropic — Interactive Questions" category) returned to the agent when interactive questions are off or you dismiss the picker. Bodies may reference <code>${questions}</code>. "(built-in default)" uses the hard-coded autonomous fallback.' },
                 { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(p.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the profile explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code> in its System Prompt, User Prompt Wrapper, or user-message template.<br><br><strong>Caveat:</strong> file-injection placeholders (<code>${role-description}</code>, <code>${quest-description}</code>, <code>${guidelines-*}</code>) recursively expand any <code>${memory*}</code> tokens that appear inside the injected file. Leaving this off does NOT prevent that. Audit those files if you want zero memory in the prompt.' },
@@ -653,6 +656,9 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             const promptCachingEnabled = values.promptCachingEnabled !== 'false'; // default on
             const toolApprovalMode = parseToolApprovalMode(values.toolApprovalMode);
             const useBuiltInTools = values.useBuiltInTools === 'true';
+            const systemPromptMode = parseSystemPromptMode(values.systemPromptMode);
+            let settingSources: SettingSource[] = [];
+            try { settingSources = parseSettingSources(JSON.parse(values.settingSources || '[]')) ?? []; } catch { settingSources = []; }
             const autoInjectMemory = values.autoInjectMemory === 'true';
             const allowInteractiveQuestions = values.allowInteractiveQuestions === 'true';
             const interactiveQuestionsTemplateId = (values.interactiveQuestionsTemplateId || '').trim();
@@ -675,6 +681,9 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 promptCachingEnabled,
                 toolApprovalMode,
                 useBuiltInTools,
+                // Written only when not the defaults, so profiles that never chose stay as they are.
+                ...(systemPromptMode === 'append' ? { systemPromptMode } : {}),
+                ...(settingSources.length > 0 ? { settingSources } : {}),
                 autoInjectMemory,
                 allowInteractiveQuestions,
                 ...(interactiveQuestionsTemplateId ? { interactiveQuestionsTemplateId } : {}),
@@ -706,6 +715,13 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 // Same for a cleared interactiveQuestionsTemplateId.
                 if (!interactiveQuestionsTemplateId && 'interactiveQuestionsTemplateId' in existing) {
                     delete existing.interactiveQuestionsTemplateId;
+                }
+                // And for the Agent SDK prompt mode set back to replace, or the setting sources cleared.
+                if (systemPromptMode === 'replace' && 'systemPromptMode' in existing) {
+                    delete existing.systemPromptMode;
+                }
+                if (settingSources.length === 0 && 'settingSources' in existing) {
+                    delete existing.settingSources;
                 }
                 // And for an out-of-budget policy set back to "(ask)".
                 if (!outOfBudgetFallback && 'outOfBudget' in existing) {

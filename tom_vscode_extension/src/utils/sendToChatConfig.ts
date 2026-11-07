@@ -215,6 +215,10 @@ export interface SendToChatConfig {
             /** 'always' asks before every write tool, 'acceptEdits' lets the file edits through, 'never' asks nothing (CC-9). */
             toolApprovalMode?: 'always' | 'acceptEdits' | 'never';
             useBuiltInTools?: boolean;
+            /** Agent SDK: the system prompt replaces Claude Code's ('replace', the default) or is appended to it (CC-15). */
+            systemPromptMode?: 'replace' | 'append';
+            /** Agent SDK: the setting sources the SDK loads; set, they win over the configuration's agentSdk.settingSources. */
+            settingSources?: Array<'user' | 'project' | 'local'>;
             /** When true, auto-append `${memory}` to the resolved system prompt. */
             autoInjectMemory?: boolean;
             /**

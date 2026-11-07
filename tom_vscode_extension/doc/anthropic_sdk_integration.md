@@ -1048,6 +1048,8 @@ interface AnthropicConfiguration {
     maxHistoryTokens: number;
     maxRounds: number;
     toolApprovalMode: 'always' | 'acceptEdits' | 'never';
+    systemPromptMode?: 'replace' | 'append';           // Agent SDK: replace Claude Code's prompt (default) or append to it
+    settingSources?: Array<'user' | 'project' | 'local'>; // Agent SDK: set, wins over the configuration's agentSdk.settingSources
     memoryExtractionTemplateId?: string; // which memoryExtraction template to use
     promptCachingEnabled?: boolean;      // default: false; adds cache_control to system blocks
     isDefault?: boolean;
@@ -1796,7 +1798,7 @@ The following subsystems remain in-extension and apply to both transports unchan
 - **Raw trail** (§4) — every SDK message (user, assistant, result) is logged with `subsystem: 'anthropic'` using the existing `logPrompt` / `logResponse` helpers.
 - **Tool trail / summary trail** (§4) — tool calls and their results flow through the same retention window.
 - **Placeholder resolution** — `resolveVariables()` expands `${userMessage}`, `${role-description}`, `${quest-description}`, `${{ }}` expressions, etc., before the user message is handed to the SDK.
-- **Profiles** (§7.2) — `profile.systemPrompt` becomes the SDK's `options.systemPrompt`.
+- **Profiles** (§7.2) — `profile.systemPrompt` becomes the SDK's `options.systemPrompt`: as the whole prompt with `systemPromptMode: 'replace'` (the default, so profiles made before the choice existed keep replacing), or appended to Claude Code's default prompt with `'append'` (`{ type: 'preset', preset: 'claude_code', append }`). A profile's `settingSources` (user / project / local) win over the configuration's `agentSdk.settingSources`; the CLAUDE.md auto-load still adds `project`. Pure mapping: `src/utils/agentSdkSystemPrompt.ts`; profile editor: *System Prompt (Agent SDK)*, *Setting Sources (Agent SDK)*. Tests PS-1..3.
 - **`anthropicUserMessage` template** — expanded before the SDK is invoked (same code path as direct).
 - **Memory tools** (§5 `tomAi_memory_*`) — exposed to the agent via MCP; the agent reads/writes memory through the same `TwoTierMemoryService`.
 - **Approval gate UI** (§8.1) — intercepted via the SDK's `canUseTool` callback; emits the same `AnthropicToolApprovalRequest` to the panel and awaits the same `handleApprovalResponse`.

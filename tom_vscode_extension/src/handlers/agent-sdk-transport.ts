@@ -39,7 +39,6 @@ import { exitPlanModeImpl, isPlanModeActive, onPlanModeChanged, planModeRefusalF
 // build time and fail for an ESM-only package).
 
 type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk' | 'auto';
-type SettingSource = 'user' | 'project' | 'local';
 
 type PermissionResult =
     | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
@@ -152,7 +151,7 @@ interface AgentSdkModule {
         prompt: string | AsyncIterable<unknown>;
         options?: {
             model?: string;
-            systemPrompt?: string;
+            systemPrompt?: string | { type: 'preset'; preset: 'claude_code'; append?: string };
             maxTurns?: number;
             permissionMode?: PermissionMode;
             settingSources?: SettingSource[];
@@ -226,6 +225,7 @@ import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-
 import type { LiveTrailUsage, LiveTrailModelUsage, LiveTrailTokenCounts } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
 import { SubagentProgress } from '../utils/subagentProgress';
+import { effectiveSettingSources, parseSystemPromptMode, sdkSystemPromptOption, type SettingSource, type SystemPromptMode } from '../utils/agentSdkSystemPrompt';
 import type { SdkAgentDefinition } from '../services/agentDefinitions';
 import {
     FailureCauseCollector,
@@ -316,6 +316,10 @@ export interface AgentSdkSendParams {
     toolApprovalMode?: ToolApprovalMode;
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
+    /** The profile's system prompt replaces Claude Code's (default) or is appended to it (CC-15). */
+    systemPromptMode?: SystemPromptMode;
+    /** The profile's setting sources; when set they win over the configuration's `agentSdk.settingSources` (CC-15). */
+    settingSources?: SettingSource[];
     /** Claude Code's subagent definitions for the SDK's `agents` option (CC-11); none when empty. */
     agents?: Record<string, SdkAgentDefinition>;
     /** A status-line message: the SDK's own sub-agents starting, calling tools, ending. */
@@ -921,7 +925,7 @@ async function runAgentSdkAttempt(
     const permissionMode: PermissionMode = isPlanModeActive() ? 'plan' : baseMode;
     const modeOverride = permissionModeOverride(approvalMode, configuredMode, builtInTools);
     if (modeOverride) { toolLog(`[agent-sdk] ${modeOverride} (configuration ${configuration.id})`); }
-    let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
+    let settingSources: SettingSource[] = effectiveSettingSources(params.settingSources, configuration.agentSdk?.settingSources);
     let effectiveSystemPrompt = systemPrompt;
     // Auto-load workspace instructions when the handler asks for it
     // (SDK-managed mode). Priority:
@@ -1006,7 +1010,8 @@ async function runAgentSdkAttempt(
         const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const queryOptions: Record<string, unknown> = {
             model: configuration.model,
-            systemPrompt: effectiveSystemPrompt || undefined,
+            // Replace Claude Code's prompt, or append to it (its claude_code preset), as the profile chooses.
+            systemPrompt: sdkSystemPromptOption(parseSystemPromptMode(params.systemPromptMode), effectiveSystemPrompt),
             maxTurns,
             permissionMode,
             settingSources,
