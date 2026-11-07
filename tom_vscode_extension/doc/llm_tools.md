@@ -54,7 +54,7 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_moveFile` | Rename / move a file (approval). | 🔁 | ✅ | ⚪ | ⚪ |
 | `tomAi_listDirectory` | List directory entries. | 🔁 | ✅ | ✅ | ✅ |
 | `tomAi_findFiles` | Glob file search. | 🔁 | ✅ | ✅ | ✅ |
-| `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, 20 s budget. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, skips what git ignores (`includeIgnored` searches it), 20 s budget. | 🔁 | ✅ | ✅ | ✅ |
 | `tomAi_applyEdit` | Transactional multi-file WorkspaceEdit (atomic undo). | ✅ | ✅ | ⚪ | ✅ |
 
 On the direct API these tools, with the shell and git tools of §4.2 and §4.8,
@@ -69,6 +69,22 @@ read without a range stops at 2000 lines, a command returns its output's head
 and tail past 30 000 characters, and a text search reads every file (no file
 cap) until it has its matches or 20 s have passed, saying so when it stopped
 early (`src/tools/__tests__/direct-tool-coverage.test.ts`, DT-1 – DT-9).
+
+Like Claude Code's Grep (ripgrep), the text search skips what git ignores: the
+`.gitignore` of every folder, relative to that folder, a deeper one overriding
+an outer one and `!` re-including; a repository's `.git/info/exclude`; and the
+`.gitignore` files above the workspace root up to its repository's root. Unlike
+ripgrep, a folder that is a repository of its own (holds `.git`) is searched
+even when the outer `.gitignore` lists it, under its own rules only — the
+workspace mounts `_ai` that way and its root `.gitignore` lists `/_ai`, so
+ripgrep would never search the quest files. `includeIgnored: true` searches
+everything (build output, `ztmp/`, the `_ai` queue files). Files are read
+asynchronously, 32 at a time, so a long search does not block the extension
+host; a file is checked for a null byte in its first 8 KB before it is read
+whole, and split into lines only when the whole text can match
+(`src/tools/__tests__/findTextGitignore.test.ts`, GI-1 – GI-6). On the
+tom_agent_container root a search through every file takes about 10 s
+(76,000 files; with ignored files included it is over 200,000).
 
 ### 4.2 Shell and tasks
 

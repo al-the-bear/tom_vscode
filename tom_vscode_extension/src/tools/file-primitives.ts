@@ -32,6 +32,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import ignore, { type Ignore } from 'ignore';
 import { SharedToolDefinition } from './shared-tool-registry';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,8 @@ export interface FindTextInFilesInput {
     caseInsensitive?: boolean;
     /** Lines shown before and after each match, 0–10. */
     contextLines?: number;
+    /** Also search what git ignores (ripgrep's `--no-ignore`). Default false. */
+    includeIgnored?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +243,23 @@ export interface FindTextDeps {
     timeBudgetMs?: number;
 }
 
+/**
+ * How many files a text search reads at once. The reads are asynchronous, so
+ * the extension host stays responsive during a long search, and the disk
+ * serves them together.
+ */
+const READ_BATCH_SIZE = 32;
+
+/** `items` in consecutive groups of `size`, taken lazily (the walk stays lazy). */
+function* inBatches<T>(items: Iterable<T>, size: number): Generator<T[]> {
+    let batch: T[] = [];
+    for (const item of items) {
+        batch.push(item);
+        if (batch.length === size) { yield batch; batch = []; }
+    }
+    if (batch.length > 0) { yield batch; }
+}
+
 /** How long a text search may take before it answers with what it found. */
 export const FIND_TEXT_TIME_BUDGET_MS = 20_000;
 
@@ -255,21 +275,31 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     // Compile the search predicate. For non-regex inputs we test for
     // substring directly — no escape-then-recompile dance, no surprise
     // regex-specials behaviour for the LLM.
+    // `mayMatch` asks the whole file first, so a file without a match is not
+    // split into lines. It may say yes for a file no line matches, never no
+    // for one where a line does: the regex runs with `m`, so `^` / `$` still
+    // hold at every line.
     let predicate: (line: string) => boolean;
+    let mayMatch: (content: string) => boolean;
     if (input.isRegex) {
         let re: RegExp;
+        let reWhole: RegExp;
         try {
             re = new RegExp(input.searchText, input.caseInsensitive ? 'i' : '');
+            reWhole = new RegExp(input.searchText, input.caseInsensitive ? 'im' : 'm');
         } catch (err) {
             return `Error: \`searchText\` is not a valid regex: ${(err as Error).message}`;
         }
         predicate = (line) => re.test(line);
+        mayMatch = (content) => reWhole.test(content);
     } else if (input.caseInsensitive) {
         const needle = input.searchText.toLowerCase();
         predicate = (line) => line.toLowerCase().includes(needle);
+        mayMatch = (content) => content.toLowerCase().includes(needle);
     } else {
         const needle = input.searchText;
         predicate = (line) => line.includes(needle);
+        mayMatch = (content) => content.includes(needle);
     }
 
     // An injected walker (tests) hands over its list; production walks the
@@ -279,7 +309,7 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     try {
         files = deps.walk
             ? await deps.walk(includePattern, '**/node_modules/**', Number.MAX_SAFE_INTEGER)
-            : walkFiles(deps.wsRoot, globToRegExp(includePattern), null);
+            : walkFiles(deps.wsRoot, globToRegExp(includePattern), null, { gitignore: !input.includeIgnored });
     } catch (err) {
         return `Error walking files: ${(err as Error).message}`;
     }
@@ -288,34 +318,36 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     let matches = 0;
     let scanned = 0;
     let outOfTime = false;
+    // Appends the matching lines of one file (with their context) to `out`.
+    const searchFile = (rel: string, content: string): void => {
+        if (!mayMatch(content)) { return; }
+        const lines = content.split('\n');
+        let shownUpTo = -1;                            // last line index already printed
+        for (let i = 0; i < lines.length && matches < limit; i++) {
+            if (!predicate(lines[i])) { continue; }
+            matches += 1;
+            for (let j = Math.max(shownUpTo + 1, i - context); j < i; j++) { out.push(`${rel}-${j + 1}-${lines[j]}`); }
+            out.push(`${rel}:${i + 1}:${lines[i]}`);
+            shownUpTo = i;
+            // Trailing context stops at the next match, which prints itself.
+            for (let j = i + 1; j <= Math.min(lines.length - 1, i + context) && !predicate(lines[j]); j++) {
+                out.push(`${rel}-${j + 1}-${lines[j]}`);
+                shownUpTo = j;
+            }
+        }
+    };
     const startedAt = Date.now();
     try {
-        for (const rel of files) {
+        for (const batch of inBatches(files, READ_BATCH_SIZE)) {
             if (matches >= limit) { break; }
             if (Date.now() - startedAt >= budgetMs) { outOfTime = true; break; }
-            const abs = path.join(deps.wsRoot, rel);
-            let content: string;
-            try {
-                const buf = fs.readFileSync(abs);
-                if (looksBinary(buf)) { continue; }   // skip binaries silently
-                content = buf.toString('utf8');
-            } catch {
-                continue;                              // skip unreadable files silently
-            }
-            scanned += 1;
-            const lines = content.split('\n');
-            let shownUpTo = -1;                        // last line index already printed
-            for (let i = 0; i < lines.length && matches < limit; i++) {
-                if (!predicate(lines[i])) { continue; }
-                matches += 1;
-                for (let j = Math.max(shownUpTo + 1, i - context); j < i; j++) { out.push(`${rel}-${j + 1}-${lines[j]}`); }
-                out.push(`${rel}:${i + 1}:${lines[i]}`);
-                shownUpTo = i;
-                // Trailing context stops at the next match, which prints itself.
-                for (let j = i + 1; j <= Math.min(lines.length - 1, i + context) && !predicate(lines[j]); j++) {
-                    out.push(`${rel}-${j + 1}-${lines[j]}`);
-                    shownUpTo = j;
-                }
+            // Read together, searched in walk order: the output does not depend on which read finished first.
+            const contents = await Promise.all(batch.map((rel) => readTextFile(path.join(deps.wsRoot, rel))));
+            for (let b = 0; b < batch.length && matches < limit; b++) {
+                const content = contents[b];
+                if (content === undefined) { continue; }   // binaries and unreadable files are skipped silently
+                scanned += 1;
+                searchFile(batch[b], content);
             }
         }
     } catch (err) {
@@ -328,8 +360,10 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
         : '';
     if (out.length === 0) {
         const kind = input.isRegex ? 'regex' : 'substring';
+        // Only the production walker skips ignored files; say so, and how to search them.
+        const ignoredNote = !deps.walk && !input.includeIgnored ? '; files git ignores were skipped — `includeIgnored: true` searches them' : '';
         return `No matches for ${kind} \`${input.searchText}\` (scanned ${scanned} file${scanned === 1 ? '' : 's'} ` +
-               `matching \`${includePattern}\`).${budgetNote}`;
+               `matching \`${includePattern}\`${ignoredNote}).${budgetNote}`;
     }
     return out.join('\n') + budgetNote;
 }
@@ -394,18 +428,86 @@ export function globToRegExp(glob: string): RegExp {
 /** Folders no search enters: dependencies, git's store, Dart's generated state. */
 const SKIPPED_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git', '.dart_tool']);
 
+/** The ignore rules of one `.gitignore` (or a repository's `.git/info/exclude`), relative to `base`. */
+interface IgnoreRules {
+    base: string;
+    rules: Ignore;
+}
+
+/** How {@link walkFiles} walks. */
+export interface WalkOptions {
+    /**
+     * Skip what git ignores, as ripgrep does: the `.gitignore` of every
+     * folder (relative to that folder, a deeper file overriding an outer one,
+     * `!` re-including), the repository's `.git/info/exclude`, and the
+     * `.gitignore` files above `root` up to its repository's root. A folder
+     * that is a repository of its own (holds `.git`) starts afresh: the outer
+     * repository's rules neither hide it nor apply inside it — the workspace
+     * mounts `_ai` that way, and the outer `.gitignore` lists it.
+     */
+    gitignore?: boolean;
+}
+
+/** The rules a folder adds: its `.gitignore`, and at a repository root `.git/info/exclude`. */
+function rulesOf(dir: string): IgnoreRules[] {
+    const out: IgnoreRules[] = [];
+    for (const file of [path.join(dir, '.git', 'info', 'exclude'), path.join(dir, '.gitignore')]) {
+        let text: string;
+        try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+        out.push({ base: dir, rules: ignore().add(text) });
+    }
+    return out;
+}
+
+/** True when `dir` is a repository's root (`.git` as a folder, or as the file a submodule or worktree has). */
+function isRepositoryRoot(dir: string): boolean {
+    return fs.existsSync(path.join(dir, '.git'));
+}
+
+/** The rules of the folders above `root` up to its repository's root, outermost first; none outside a repository. */
+function rulesAbove(root: string): IgnoreRules[] {
+    const chain: string[] = [];
+    let dir = root;
+    while (!isRepositoryRoot(dir)) {
+        const parent = path.dirname(dir);
+        if (parent === dir) { return []; }               // not inside a repository
+        dir = parent;
+        chain.unshift(dir);
+    }
+    return chain.flatMap(rulesOf);
+}
+
+/**
+ * Whether git ignores `abs` under these rules: each set is asked for the path
+ * relative to its folder, outermost first, and the last one that ignores or
+ * re-includes it decides.
+ */
+function isIgnored(chain: readonly IgnoreRules[], abs: string, isDir: boolean): boolean {
+    let ignored = false;
+    for (const { base, rules } of chain) {
+        const rel = path.relative(base, abs).split(path.sep).join('/');
+        if (!rel || rel.startsWith('..')) { continue; }
+        const verdict = rules.test(isDir ? `${rel}/` : rel);
+        if (verdict.ignored) { ignored = true; } else if (verdict.unignored) { ignored = false; }
+    }
+    return ignored;
+}
+
 /**
  * Walk `root` depth-first, yielding the workspace-relative paths of files
  * that match `include` and not `exclude`, lazily, so a caller can stop at
  * any point. Symlinked folders are followed — every workspace mounts `_ai`
  * through one — and each real folder is entered once, so a link back up
- * the tree ends instead of looping.
+ * the tree ends instead of looping. With `gitignore`, what git ignores is
+ * skipped ({@link WalkOptions.gitignore}).
  */
-export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null): Generator<string> {
+export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null, options: WalkOptions = {}): Generator<string> {
     const seen = new Set<string>();
-    const stack: string[] = [root];
+    const stack: Array<{ dir: string; chain: IgnoreRules[] }> = [
+        { dir: root, chain: options.gitignore ? (isRepositoryRoot(root) ? [] : rulesAbove(root)) : [] },
+    ];
     while (stack.length > 0) {
-        const dir = stack.pop()!;
+        const { dir, chain: outer } = stack.pop()!;
         let real: string;
         try { real = fs.realpathSync(dir); } catch { continue; }
         if (seen.has(real)) { continue; }
@@ -416,8 +518,9 @@ export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null
         } catch {
             continue;
         }
+        const chain = options.gitignore ? [...outer, ...rulesOf(dir)] : outer;
         // Reverse-sorted onto the stack, so folders are visited in name order.
-        const subdirs: string[] = [];
+        const subdirs: Array<{ dir: string; chain: IgnoreRules[] }> = [];
         for (const ent of entries.sort((a, b) => a.name.localeCompare(b.name))) {
             const abs = path.join(dir, ent.name);
             let isDir = ent.isDirectory();
@@ -430,10 +533,14 @@ export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null
                 } catch { continue; }                  // a dangling link
             }
             if (isDir) {
-                if (!SKIPPED_DIRS.has(ent.name)) { subdirs.push(abs); }
+                if (SKIPPED_DIRS.has(ent.name)) { continue; }
+                if (!options.gitignore) { subdirs.push({ dir: abs, chain }); continue; }
+                // Why: a repository of its own is not the outer one's content (git does not list it either).
+                if (isRepositoryRoot(abs)) { subdirs.push({ dir: abs, chain: [] }); continue; }
+                if (!isIgnored(chain, abs, true)) { subdirs.push({ dir: abs, chain }); }
             } else if (isFile) {
                 const rel = path.relative(root, abs).split(path.sep).join('/');
-                if (include.test(rel) && !(exclude && exclude.test(rel))) {
+                if (include.test(rel) && !(exclude && exclude.test(rel)) && !(options.gitignore && isIgnored(chain, abs, false))) {
                     yield rel;
                 }
             }
@@ -487,6 +594,38 @@ function normalizeFilePattern(pattern: string | undefined): string {
  * Heuristic binary check: a null byte in the first 8 KB. Same trick
  * `git diff` uses for its `is_binary` shortcut.
  */
+/** How much of a file decides whether it is binary (a null byte in it). */
+const BINARY_PROBE_BYTES = 8192;
+
+/**
+ * A file's text, or undefined when it is binary or cannot be read. The first
+ * {@link BINARY_PROBE_BYTES} are read on their own, so a large binary is
+ * skipped without being read whole; the rest is read through the same handle.
+ */
+async function readTextFile(abs: string): Promise<string | undefined> {
+    let handle: fs.promises.FileHandle;
+    try { handle = await fs.promises.open(abs, 'r'); } catch { return undefined; }
+    try {
+        const head = Buffer.alloc(BINARY_PROBE_BYTES);
+        const { bytesRead: got } = await handle.read(head, 0, BINARY_PROBE_BYTES, 0);
+        if (looksBinary(head.subarray(0, got))) { return undefined; }
+        if (got < BINARY_PROBE_BYTES) { return head.subarray(0, got).toString('utf8'); }
+        const whole = Buffer.allocUnsafe(Math.max((await handle.stat()).size, got));
+        head.copy(whole, 0, 0, got);
+        let length = got;
+        while (length < whole.length) {
+            const { bytesRead } = await handle.read(whole, length, whole.length - length, length);
+            if (bytesRead === 0) { break; }
+            length += bytesRead;
+        }
+        return whole.subarray(0, length).toString('utf8');
+    } catch {
+        return undefined;
+    } finally {
+        await handle.close().catch(() => undefined);
+    }
+}
+
 function looksBinary(buf: Buffer): boolean {
     const limit = Math.min(buf.length, 8192);
     for (let i = 0; i < limit; i++) {
@@ -588,11 +727,14 @@ export const FIND_TEXT_IN_FILES_DESCRIPTION =
     'Output rows are `path:line:matched-line` (context rows `path-line-text`), ' +
     'up to `maxResults` matching lines (default 50, hard max 1000). ' +
     '`caseInsensitive` ignores case; `contextLines` (0–10) adds lines around ' +
-    'each match. Symlinked folders (such as `_ai`) are searched. Binary files ' +
-    '(null byte in first 8 KB) are skipped; `node_modules/`, `.git/` and ' +
-    '`.dart_tool/` are never entered. `.gitignore` is not consulted: every ' +
-    'file is read until `maxResults` matches or a 20 s budget, and a search the ' +
-    'budget stopped says so — pass a tight `filePattern` for large trees.';
+    'each match. Symlinked folders (such as `_ai`) are searched. What git ' +
+    'ignores is skipped, as ripgrep does (every `.gitignore`, nested ones ' +
+    'included; a folder that is a repository of its own, like `_ai`, is ' +
+    'searched under its own rules); `includeIgnored: true` searches it too. ' +
+    'Binary files (null byte in first 8 KB) are skipped; `node_modules/`, ' +
+    '`.git/` and `.dart_tool/` are never entered. Files are read until ' +
+    '`maxResults` matches or a 20 s budget, and a search the budget stopped ' +
+    'says so — pass a tight `filePattern` for large trees.';
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {
     name: 'tomAi_findTextInFiles',
@@ -612,6 +754,7 @@ export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput>
             maxResults: { type: 'number', description: 'Maximum matching lines (default 50, max 1000).' },
             caseInsensitive: { type: 'boolean', description: 'Ignore case. Default false.' },
             contextLines: { type: 'number', description: 'Lines shown before and after each match, 0–10. Default 0.' },
+            includeIgnored: { type: 'boolean', description: 'Also search files git ignores (build output, ztmp, ...). Default false.' },
         },
         required: ['searchText'],
     },
