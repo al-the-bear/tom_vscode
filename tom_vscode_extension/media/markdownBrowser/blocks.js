@@ -858,3 +858,70 @@ function mdbRevealDelta(contextTop, keepBottom, viewHeight, pad) {
     var keep = keepBottom - (viewHeight - pad);
     return keep > delta ? keep : delta;
 }
+
+// ---- Who wrote a review annotation; the check-here marker ----
+// An agent signs as `agent_<role>` (src/utils/reviewAuthors.ts; `agent:<role>`
+// written by hand counts too). `___check here___` flags what especially needs
+// the reviewer's eye. A comment longer than MDB_LONG_COMMENT characters gets
+// the buttons that show it in an overlay or the markdown preview editor.
+
+/** How long a comment is before it gets the overlay / preview buttons. */
+var MDB_LONG_COMMENT = 200;
+
+/** The check-here marker at the start of a string (any case, inner spaces free). */
+var MDB_CHECK_HERE = /^___\s*check here\s*___/i;
+
+/**
+ * @param {string} author
+ * @returns {boolean} whether `author` is an agent's (`agent`, `agent_<role>`, `agent:<role>`)
+ */
+function mdbIsAgentAuthor(author) {
+    return /^agent(?:[_:].+)?$/i.test(String(author || '').trim());
+}
+
+/**
+ * The author a comment block's first line names (`> ⬆️ **C-12** (Alexis): text`),
+ * or '' when it names none.
+ *
+ * @param {string} line
+ * @returns {string}
+ */
+function mdbCommentAuthor(line) {
+    var m = /^ {0,3}> ?⬆️?\s*(?:\*\*C-\d+\*\*\s*)?\(([^()\n]*)\)\s*:/.exec(String(line || ''));
+    return m ? m[1].trim() : '';
+}
+
+/**
+ * The text of a comment block without its markers: the `> ` prefixes, the
+ * arrow, the id and the author removed.
+ *
+ * @param {string} text the block's text with the `> ` prefixes already removed (mdbCommentAt)
+ * @returns {string}
+ */
+function mdbCommentBody(text) {
+    return String(text || '')
+        .replace(/^\s*⬆️?\s*(?:\*\*C-\d+\*\*\s*)?(?:\([^()\n]*\)\s*)?:?\s*/, '')
+        .trim();
+}
+
+/**
+ * An attribution token at the start of `src` (`{@alice}`, `{@agent_spec_author +bob -carol}`,
+ * SOM §11.9.8): its markup, the members it names as authors and those voting.
+ * Null when `src` starts with none.
+ *
+ * @param {string} src
+ * @returns {{raw: string, authors: string[], voters: string[]} | null}
+ */
+function mdbAttribution(src) {
+    var m = /^\{@([^{}\n]*)\}/.exec(String(src || ''));
+    if (!m) { return null; }
+    /** @type {string[]} */
+    var authors = [];
+    /** @type {string[]} */
+    var voters = [];
+    m[1].trim().split(/\s+/).forEach(function(part) {
+        if (!part) { return; }
+        if (part.charAt(0) === '+' || part.charAt(0) === '-') { voters.push(part.slice(1)); } else { authors.push(part); }
+    });
+    return { raw: m[0], authors: authors, voters: voters };
+}

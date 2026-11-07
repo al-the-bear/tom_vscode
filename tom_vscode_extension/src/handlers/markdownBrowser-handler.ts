@@ -58,6 +58,8 @@ import {
     MD_BROWSER_RECORDS_KEY, planDormantTabs, rememberedRecords, type MdPanelRecord, type MdTabRef,
 } from '../utils/mdBrowserRestore.js';
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
+import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 
 // ============================================================================
 // Constants
@@ -624,6 +626,14 @@ class MdBrowserPanel {
             if (MD_BROWSER_DEBUG) debugLog(`[MdBrowser] handleMessage type=${msg?.type}`, 'INFO', 'mdBrowser');
 
             switch (msg?.type) {
+                case 'renderMarkdown':
+                    // A long comment as safe HTML for the browser's markdown overlay.
+                    void this._panel.webview.postMessage({ type: 'markdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+                    break;
+                case 'openMarkdownPreview':
+                    // The same comment in the markdown preview editor.
+                    await showMarkdownHtmlPreview(this._context, { title: String(msg.title || 'Comment'), markdown: String(msg.markdown || '') });
+                    break;
                 case 'editState':
                     // The webview's open in-place editors: text not yet saved.
                     mdBrowserRegistry.update(this._panelId, { unsavedEdits: Number(msg.openEditors) > 0 });
@@ -1413,8 +1423,14 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
         .toString()
         .replace(/\/$/, '');
 
+    const sharedUri = webview
+        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'shared'))
+        .toString()
+        .replace(/\/$/, '');
+
     const tokens: Record<string, string> = {
         '{{cspSource}}': webview.cspSource,
+        '{{sharedUri}}': sharedUri,
         '{{codiconsUri}}': codiconsUri.toString(),
         '{{markedUri}}': markedUri.toString(),
         '{{mermaidUri}}': mermaidUri.toString(),

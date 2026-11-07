@@ -14,6 +14,7 @@ import { SomModelService } from '../services/som-model-service';
 import { SpecPathError } from '../services/som-spec-inspector';
 import { SomSearchCursors } from '../services/som-search-cursors';
 import { somDocumentStore } from '../services/som-document-io-vscode';
+import { agentAuthorId } from '../utils/reviewAuthors';
 
 export interface SpecToolDeps {
     /** Workspace root; relative `file` / `dir` inputs resolve against it, and nothing outside it is read. */
@@ -31,6 +32,11 @@ export interface SpecToolDeps {
     findCandidates?: (startAbs: string, opts: { deadline: number; cap: number }) => Promise<SpecCandidateSearch>;
     /** Open search cursors; default the extension-wide set. */
     cursors?: SomSearchCursors;
+    /**
+     * The author an agent's annotation is signed with when the call names none
+     * (`agent_<role>`, src/utils/reviewAuthors.ts). Unset: unsigned.
+     */
+    agentAuthor?: () => string;
 }
 
 export const json = (value: unknown): string => JSON.stringify(value);
@@ -124,7 +130,30 @@ export function liveDeps(): SpecToolDeps {
         service: SomModelService.instance,
         cursors: sharedCursors,
         findCandidates: vscodeSpecCandidates,
+        agentAuthor: liveAgentAuthor,
     };
+}
+
+/**
+ * `agent_<role>`: the role of the process position the prompt runs for, else
+ * the window's `role` chat variable. Loaded on first use (the stores import
+ * vscode and the whole manager layer).
+ */
+function liveAgentAuthor(): string {
+    let role = '';
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const process = require('../managers/processStateStore') as typeof import('../managers/processStateStore');
+        role = process.ProcessStateStore.instance?.runRole() ?? '';
+    } catch { /* no process store: the chat variable decides */ }
+    if (!role) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const chat = require('../managers/chatVariablesStore') as typeof import('../managers/chatVariablesStore');
+            role = chat.ChatVariablesStore.instance.role;
+        } catch { /* no chat variables yet: unsigned role */ }
+    }
+    return agentAuthorId(role);
 }
 
 export const FILE_PARAM = {

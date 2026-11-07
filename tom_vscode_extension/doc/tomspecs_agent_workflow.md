@@ -69,7 +69,14 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    a subtree): the comments with the paragraph each one follows, the questions
    with their options, recommended option and answer (`openOnly: true` for the
    unanswered ones), the inline marks `M-1`, `M-2`, … and the `marksRevision`.
-2. **Answer and ask.** `tomAi_specSetAnswer` writes an answer (`(b) because …`).
+2. **Sign and mark.** What you write is signed `agent_<role>` (the role you
+   work in, e.g. `agent_spec_author`): `tomAi_specInsertComment` and
+   `tomAi_specCommentChange` (and their batch ops) sign so when you give no
+   `author`; give the user's name only when writing down what the user said.
+   A comment that especially needs the reviewer starts with `___check here___`
+   and says why; the MD Browser steps through those markers and through agent
+   comments first.
+3. **Answer and ask.** `tomAi_specSetAnswer` writes an answer (`(b) because …`).
    `tomAi_specInsertQuestion` asks a new question — directly after a comment
    (`afterComment: "C-12"`) to ask about it, or after a paragraph — with options
    `(a) …`, `(b) …` and the `recommended` letter, which is written bold.
@@ -80,7 +87,7 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    refused with the paragraphs to choose from. `tomAi_specEditComment`
    changes one; `tomAi_specAssignCommentIds` numbers the comments a reviewer
    wrote without an id.
-3. **Apply and close.** Once an answer or a comment has been worked into the
+4. **Apply and close.** Once an answer or a comment has been worked into the
    document, `tomAi_specResolveAnnotation` removes it. Change marks are decided
    with `tomAi_specDecideMarks`: by id at the `marksRevision` from step 1, or
    `all: "accept"` under a path. To ask about a change rather than decide it,
@@ -88,7 +95,7 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    §11.9.3); it stays when the change is decided, its quote then recording
    `accepted` or `rejected`. `tomAi_specEditMarkComment` rewrites any inline
    comment by mark id.
-4. **Read the result.** `tomAi_specRender` with `withoutAnnotations: true`
+5. **Read the result.** `tomAi_specRender` with `withoutAnnotations: true`
    shows the document as it reads once every mark is accepted and every comment
    and question removed; the file is not changed.
 

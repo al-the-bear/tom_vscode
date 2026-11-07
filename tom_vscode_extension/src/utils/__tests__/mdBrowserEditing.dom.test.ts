@@ -642,7 +642,7 @@ describe('Markdown Browser editing', () => {
         assert.equal($(window, '.mdb-editor').length, 1, 'with Unanswered ticked an unanswered question opens');
         $(window, '.mdb-editor-btn')[1].click();
 
-        pickKinds(window, ['changes', 'comments', 'inline', 'questions', 'unanswered']);
+        pickKinds(window, ['changes', 'comments', 'inline', 'questions', 'unanswered', 'marked', 'agent']);
         assert.equal(label(), 'All');
         pickKinds(window, []);
         assert.equal(label(), 'Nothing');

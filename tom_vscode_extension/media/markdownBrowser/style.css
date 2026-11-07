@@ -475,3 +475,39 @@ body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
 .markdown-body .mdb-cm-outcome { font-style: italic; opacity: 0.8; }
 .markdown-body .mdb-cm-change-comment { margin-left: 2px; }
 .markdown-body .mdb-rm-token { font-size: 0.85em; opacity: 0.7; margin: 0 2px; }
+
+/* The navigation popup's Whose section: the authors whose comments and changes the arrows find. */
+.nav-kind-pop .nav-kind-head { margin: 4px 8px 2px; padding-top: 4px; border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border)); font-size: 11px; opacity: 0.8; text-transform: uppercase; }
+.nav-kind-pop .nav-authors { max-height: 220px; overflow-y: auto; }
+.nav-kind-pop .nav-authors:empty::before,
+.nav-kind-pop .nav-authors:not(:has(label)) { display: block; padding: 2px 8px; font-size: 12px; opacity: 0.7; }
+
+/* `___check here___`: what especially needs the reviewer's eye. */
+.markdown-body .mdb-check-here {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 0.85em;
+    color: var(--vscode-editorWarning-foreground, #cca700);
+    border: 1px solid currentColor;
+    background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 12%, transparent);
+}
+.markdown-body .mdb-check-here .mdb-cm-icon { font-size: 12px; }
+
+/* A long comment's overlay / preview-editor buttons, always shown. */
+.markdown-body .mdb-md-view { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; }
+.markdown-body .mdb-comment-block > .mdb-md-view { margin: 2px 0 0 0; }
+.markdown-body .mdb-md-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    padding: 0 3px;
+    line-height: 1.2;
+}
+.markdown-body .mdb-md-btn:hover { border-color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
+.markdown-body .mdb-md-btn .codicon { font-size: 13px; }

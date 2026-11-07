@@ -21,6 +21,7 @@
     -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; img-src {{cspSource}} data: https:;">
     <link href="{{codiconsUri}}" rel="stylesheet" />
+    <link href="{{sharedUri}}/mdOverlay.css" rel="stylesheet" />
     <link href="{{baseUri}}/style.css" rel="stylesheet" />
     <style>
 {{pickerCss}}
@@ -92,6 +93,10 @@
                     <label><input type="checkbox" data-nav-kind="inline"> Inline comments</label>
                     <label><input type="checkbox" data-nav-kind="questions"> Questions</label>
                     <label><input type="checkbox" data-nav-kind="unanswered" checked> Unanswered</label>
+                    <label><input type="checkbox" data-nav-kind="marked"> Marked: check here</label>
+                    <label><input type="checkbox" data-nav-kind="agent"> Agent comments</label>
+                    <div class="nav-kind-head" title="Comments and changes of the authors ticked; questions are not filtered">Whose</div>
+                    <div class="nav-authors" id="navAuthors"></div>
                 </div>
             </span>
             <button class="icon-btn" id="navNextBtn" title="Next (of the kinds chosen beside)">
@@ -147,6 +152,7 @@
 
     <script src="{{markedUri}}"></script>
     <script src="{{mermaidUri}}"></script>
+    <script src="{{sharedUri}}/mdOverlay.js"></script>
     <script src="{{baseUri}}/blocks.js"></script>
     <script src="{{baseUri}}/main.js"></script>
     <script>

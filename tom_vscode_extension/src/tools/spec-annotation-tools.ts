@@ -362,7 +362,7 @@ export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotat
 // The operations — single tools and batch ops alike
 // ---------------------------------------------------------------------------
 
-function opInsertComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecInsertCommentInput>): OpOutcome {
+function opInsertComment(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecInsertCommentInput>): OpOutcome {
     requireValue(ctx, input);
     const notes = notesOf(ctx);
     const id = notes.insertComment({
@@ -370,7 +370,7 @@ function opInsertComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<S
         field: input.field || null,
         afterParagraph: resolveParagraph(notes, input, input),
         text: requireText(input.text, 'text'),
-        author: input.author || null,
+        author: input.author || deps.agentAuthor?.() || null,
         id: input.id || null,
     });
     return { touched: input.path, result: { id, path: input.path, counts: countsOf(notes) } };
@@ -473,14 +473,14 @@ function markPath(notes: SpecReviewAnnotations, id: string): string {
  * Comment a change (SpecReviewAnnotations.commentChange, SOM §11.9.3): a change
  * comment, quoting the change, written right after the change mark `markId`.
  */
-function opCommentChange(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecCommentChangeInput>): OpOutcome {
+function opCommentChange(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecCommentChangeInput>): OpOutcome {
     const notes = notesOf(ctx);
     const id = requireText(input.markId, 'markId');
     const text = requireText(input.text, 'text');
     const where = markPath(notes, id);
     const commentId = notes.commentChange(id, text, {
         revision: input.marksRevision || notes.revision(),
-        ...(input.author ? { author: input.author } : {}),
+        ...(input.author || deps.agentAuthor ? { author: input.author || deps.agentAuthor!() } : {}),
     });
     return { touched: where, result: { markId: id, commentId, path: where, marksRevision: notes.revision(), counts: countsOf(notes) } };
 }
@@ -636,13 +636,14 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
 
 export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
     { name: 'tomAi_specInsertComment', displayName: 'Spec: Insert Comment' },
-    'Insert a reviewer comment `> ⬆️ **C-<n>** (author): text` after a paragraph of a value; the id is `id`, else the next free one (answered as `id`). ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
+    'Insert a reviewer comment `> ⬆️ **C-<n>** (author): text` after a paragraph of a value; the id is `id`, else the next free one (answered as `id`). '
+    + 'Signed `agent_<role>` by default; `___check here___` + why flags what needs the reviewer. ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS, ...TARGET_PARAMS,
         afterParagraph: { type: 'number', description: 'The paragraph (0-based) the comment follows; -1 for the start of the value.' },
         ...ANCHOR_PARAMS,
         text: { type: 'string', description: 'The comment.' },
-        author: { type: 'string', description: 'Who writes it; omit for none.' },
+        author: { type: 'string', description: 'Who writes it. Default `agent_<role>` (the role you work in); give the user\'s name only when writing on their behalf.' },
         id: { type: 'string', description: 'The id to write, e.g. `C-12`; default the next free one.' },
     },
     ['file', 'path', 'text'],
@@ -737,7 +738,7 @@ export const SPEC_COMMENT_CHANGE_TOOL = editTool<SpecCommentChangeInput>(
         ...EDIT_PARAMS,
         markId: { type: 'string', description: 'The change mark\'s id, e.g. `M-3` (from tomAi_specAnnotations).' },
         text: { type: 'string', description: 'The comment.' },
-        author: { type: 'string', description: 'A review member id, written as an attribution token `{@author}` after the comment (§11.9.8). Optional.' },
+        author: { type: 'string', description: 'A review member id, written as an attribution token `{@author}` after the comment (§11.9.8). Default `agent_<role>` (the role you work in).' },
         marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
     },
     ['file', 'markId', 'text'],

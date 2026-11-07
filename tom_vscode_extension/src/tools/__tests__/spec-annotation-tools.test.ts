@@ -45,6 +45,9 @@
  *         and answers its id; the listing links them (commentId / changeId / quotedChange); a second comment, a
  *         mark that is not a change and an empty text are refused; tomAi_specEditMarkComment keeps the quote;
  *         deciding the change records the outcome in the quote; both are batch ops of tomAi_specApplyEdits
+ *   SA-20 an agent signs what it writes: insertComment and commentChange without `author` (single tools and
+ *         batch ops) are signed with the deps' agentAuthor (`agent_<role>`); a given author is kept; without
+ *         agentAuthor they stay unsigned (SA-2)
  */
 
 import test, { before, describe } from 'node:test';
@@ -605,4 +608,26 @@ describe('TomSpecs annotation tools', () => {
         assert.match(read(batchFile), /\{\+\+ always \+\+\}\{>> \[\+\+ always \+\+\] always, really\? <<\}/);
     });
     /* eslint-enable @typescript-eslint/naming-convention */
+
+    test('SA-20: an agent signs its comments', async () => {
+        const signed: SpecToolDeps = { ...deps, agentAuthor: () => 'agent_spec_author' };
+        const file = await annotated();
+        const own = JSON.parse(await specInsertCommentImpl(signed, { file, path: VALUE, afterParagraph: 0, text: 'Agent remark.' }));
+        assert.equal(own.ok, true, JSON.stringify(own));
+        assert.match(read(file), /> ⬆️ \*\*C-\d+\*\* \(agent_spec_author\): Agent remark\./);
+        const given = JSON.parse(await specInsertCommentImpl(signed, { file, path: VALUE, afterParagraph: 0, text: 'For the user.', author: 'Alexis' }));
+        assert.equal(given.ok, true);
+        assert.match(read(file), /\(Alexis\): For the user\./, 'a given author is kept');
+        const change = JSON.parse(await specCommentChangeImpl(signed, { file, markId: 'M-2', text: 'why longer?' }));
+        assert.equal(change.ok, true, JSON.stringify(change));
+        assert.match(read(file), /\{>> \[~~ two ~> three ~~\] why longer\? <<\}\{@agent_spec_author\}/);
+        const batchFile = await annotated();
+        const batch = JSON.parse(await specApplyEditsImpl(signed, {
+            file: batchFile,
+            edits: [{ op: 'insertComment', path: VALUE, afterParagraph: 0, text: 'In a batch.' }, { op: 'commentChange', markId: 'M-1', text: 'always?' }],
+        }));
+        assert.equal(batch.ok, true, JSON.stringify(batch));
+        assert.match(read(batchFile), /\(agent_spec_author\): In a batch\./);
+        assert.match(read(batchFile), /\] always\? <<\}\{@agent_spec_author\}/);
+    });
 });

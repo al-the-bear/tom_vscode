@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -292,6 +292,32 @@
         // added, removed and changed text, highlights and comments stand out.
         // Inline tokens never span blocks, so the block/line mapping is untouched;
         // code spans are lexed before the extension sees their text.
+        /**
+         * The two buttons of a long comment: show it as markdown in an overlay
+         * over the browser (media/shared/mdOverlay.js, HTML from the host's safe
+         * renderer), or in the markdown preview editor. The text travels in
+         * the buttons' `data-md`; a click is handled once for the whole page.
+         */
+        function mdViewButtonsHtml(text, title) {
+            var attr = function(v) { return String(v).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+            var data = ' data-md="' + attr(text) + '" data-md-title="' + attr(title || 'Comment') + '"';
+            return '<span class="mdb-md-view">'
+                + '<button class="mdb-md-btn" type="button" data-md-mode="overlay"' + data + ' title="Show the whole comment in an overlay"><span class="codicon codicon-eye"></span></button>'
+                + '<button class="mdb-md-btn" type="button" data-md-mode="editor"' + data + ' title="Open the whole comment in the markdown preview editor"><span class="codicon codicon-open-preview"></span></button>'
+                + '</span>';
+        }
+        document.addEventListener('click', function(e) {
+            var btn = e.target && e.target.closest ? e.target.closest('.mdb-md-btn') : null;
+            if (!btn) { return; }
+            e.preventDefault();
+            e.stopPropagation();
+            vscode.postMessage({
+                type: btn.dataset.mdMode === 'editor' ? 'openMarkdownPreview' : 'renderMarkdown',
+                title: btn.dataset.mdTitle || 'Comment',
+                markdown: btn.dataset.md || '',
+            });
+        });
+
         var reviewMarksRegistered = false;
         function registerReviewMarks() {
             if (reviewMarksRegistered || typeof marked === 'undefined' || typeof marked.use !== 'function') { return; }
@@ -310,14 +336,24 @@
                     var withComment = mdbChangeWithComment(src);
                     var m = withComment ? withComment.mark : mdbCriticMark(src);
                     if (!m) { return undefined; }
-                    var token = { type: 'reviewMark', raw: withComment ? withComment.raw : m.raw, markRaw: m.raw, kind: m.kind, comment: m.comment || '' };
+                    var raw = withComment ? withComment.raw : m.raw;
+                    // The attribution token after it (§11.9.8): the mark's authors, or
+                    // the attached comment's when the change carries one.
+                    var after = mdbAttribution(src.slice(raw.length));
+                    var token = { type: 'reviewMark', raw: raw + (after ? after.raw : ''), markRaw: m.raw, kind: m.kind, comment: m.comment || '', authors: [] };
                     token.textTokens = this.lexer.inlineTokens(m.text);
                     if (m.kind === 'substitution') { token.oldTokens = this.lexer.inlineTokens(m.oldText); }
                     if (m.quote) { token.quote = m.quote; }
                     if (withComment && withComment.comment) {
                         token.token = withComment.token;
-                        token.attached = { raw: withComment.comment.raw, text: withComment.comment.text };
+                        var before = mdbAttribution(withComment.token);
+                        token.authors = before ? before.authors : [];
+                        token.attached = { raw: withComment.comment.raw, text: withComment.comment.text, authors: after ? after.authors : [], tokenAfter: after ? after.raw : '' };
+                    } else if (after) {
+                        token.token = after.raw;
+                        token.authors = after.authors;
                     }
+                    if (m.kind === 'comment') { token.noteText = m.text; } else if (m.kind === 'highlight') { token.noteText = m.comment || ''; }
                     return token;
                 },
                 renderer: function(token) {
@@ -337,14 +373,40 @@
                         : noteButtons(token.kind === 'highlight' && !token.comment);
                     var attached = token.attached
                         ? (token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '')
-                            + '<span class="mdb-rm" data-kind="note" data-raw="' + esc(token.attached.raw) + '">'
+                            + '<span class="mdb-rm" data-kind="note" data-raw="' + esc(token.attached.raw) + '"' + authorAttrs(token.attached.authors) + '>'
                             + '<span class="mdb-cm mdb-cm-comment mdb-cm-change-comment" title="Comment on this change">' + icon('comment', 'Comment on this change')
-                            + esc(token.attached.text) + '</span><span class="mdb-rm-actions">' + noteButtons(false) + '</span></span>'
+                            + esc(token.attached.text) + '</span>' + viewButtons(token.attached.text, 'Comment on a change')
+                            + '<span class="mdb-rm-actions">' + noteButtons(false) + '</span></span>'
+                            + (token.attached.tokenAfter ? '<span class="mdb-rm-token">' + esc(token.attached.tokenAfter) + '</span>' : '')
                         : '';
-                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '">'
-                        + renderMark.call(this, token) + '<span class="mdb-rm-actions">' + buttons + '</span>' + attached + '</span>';
+                    var ownToken = !token.attached && token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '';
+                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '"' + authorAttrs(token.authors) + '>'
+                        + renderMark.call(this, token) + (change ? '' : viewButtons(token.noteText || '', 'Comment'))
+                        + '<span class="mdb-rm-actions">' + buttons + '</span>' + attached + ownToken + '</span>';
+                },
+            }, {
+                // `___check here___`: what especially needs the reviewer's eye, as a badge
+                // (marked would make it bold italic text); the arrows step through them.
+                name: 'checkHere',
+                level: 'inline',
+                start: function(src) { var i = src.search(/___\s*check here\s*___/i); return i < 0 ? undefined : i; },
+                tokenizer: function(src) {
+                    var m = MDB_CHECK_HERE.exec(src);
+                    return m ? { type: 'checkHere', raw: m[0] } : undefined;
+                },
+                renderer: function() {
+                    return '<span class="mdb-check-here" title="Marked: check here">' + icon('eye', 'Check here') + 'check here</span>';
                 },
             }] });
+            /** `data-authors` (`|`-separated) and `data-agent` for the authors a mark names. */
+            function authorAttrs(authors) {
+                if (!authors || authors.length === 0) { return ''; }
+                return ' data-authors="' + esc(authors.join('|')) + '"' + (authors.some(mdbIsAgentAuthor) ? ' data-agent="1"' : '');
+            }
+            /** Overlay and preview-editor buttons for a comment longer than MDB_LONG_COMMENT. */
+            function viewButtons(text, title) {
+                return String(text || '').length > MDB_LONG_COMMENT ? mdViewButtonsHtml(text, title) : '';
+            }
             /** The change a change comment quotes, and its outcome: `30 → 15 (accepted)`. */
             function quoteLabel(quote) {
                 var change = quote.kind === 'substitution'
@@ -1127,6 +1189,7 @@
             if (block.comment) {
                 wrapper.classList.add('mdb-comment-block');
                 addCommentEditButton(wrapper, block);
+                decorateCommentAuthorship(wrapper, block);
             }
             // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
             var strongs = null;
@@ -1143,6 +1206,32 @@
                     var strong = strongs[markerIndex++];
                     if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }
                 }
+            }
+        }
+
+        /**
+         * A comment block's author (`data-authors`, `data-agent` for an agent's)
+         * for the navigation's filters, and the overlay / preview buttons when
+         * it is long.
+         */
+        function decorateCommentAuthorship(wrapper, block) {
+            var lines = shownLines();
+            var author = mdbCommentAuthor(lines[block.startLine]);
+            if (author) {
+                wrapper.dataset.authors = author;
+                if (mdbIsAgentAuthor(author)) { wrapper.dataset.agent = '1'; } else { delete wrapper.dataset.agent; }
+            } else {
+                delete wrapper.dataset.authors;
+                delete wrapper.dataset.agent;
+            }
+            var old = wrapper.querySelector(':scope > .mdb-md-view');
+            if (old) { old.remove(); }
+            var comment = mdbCommentAt(lines, block.startLine);
+            var body = comment ? mdbCommentBody(comment.text) : '';
+            if (body.length > MDB_LONG_COMMENT) {
+                var holder = document.createElement('span');
+                holder.innerHTML = mdViewButtonsHtml(body, 'Comment' + (author ? ' — ' + author : ''));
+                wrapper.appendChild(holder.firstChild);
             }
         }
 
@@ -1499,7 +1588,66 @@
             inline: '.mdb-rm[data-kind="note"]',
             questions: '.mdb-answer-btn',
             unanswered: '.mdb-answer-btn[data-unanswered="1"]',
+            marked: '.mdb-check-here',
+            agent: '.mdb-comment-block[data-agent="1"], .mdb-rm[data-kind="note"][data-agent="1"]',
         };
+        // ---- Whose: the authors whose comments and changes the arrows find ----
+        // Every author the document names (comment blocks' `(author)`, attribution
+        // tokens) plus "no author", all ticked at first; an author seen later
+        // comes in ticked. Questions and markers are found whoever wrote them.
+        var NO_AUTHOR = '';
+        var navHiddenAuthors = {};
+        var navAuthorsEl = document.getElementById('navAuthors');
+        function authorsOf(el) {
+            return el.dataset && el.dataset.authors ? el.dataset.authors.split('|') : [];
+        }
+        /** Whether the author filter lets `el` through. */
+        function navAuthorAllows(el) {
+            if (!el.classList.contains('mdb-comment-block') && !el.classList.contains('mdb-rm')) { return true; }
+            var authors = authorsOf(el);
+            if (authors.length === 0) { return !navHiddenAuthors[NO_AUTHOR]; }
+            return authors.some(function(a) { return !navHiddenAuthors[a]; });
+        }
+        /** The targets of `selector` in document order that the author filter lets through. */
+        function navTargetsOf(selector) {
+            return Array.prototype.slice.call(docRoot.querySelectorAll(selector)).filter(navAuthorAllows);
+        }
+        /** Rebuild the Whose list from the document shown, keeping what was unticked. */
+        function renderNavAuthors() {
+            if (!navAuthorsEl) { return; }
+            var seen = {};
+            Array.prototype.forEach.call(docRoot.querySelectorAll('.mdb-comment-block, .mdb-rm'), function(el) {
+                var authors = authorsOf(el);
+                if (authors.length === 0) { seen[NO_AUTHOR] = true; }
+                authors.forEach(function(a) { seen[a] = true; });
+            });
+            var names = Object.keys(seen).filter(function(a) { return a !== NO_AUTHOR; }).sort(function(a, b) {
+                return Number(mdbIsAgentAuthor(a)) - Number(mdbIsAgentAuthor(b)) || a.localeCompare(b);
+            });
+            if (seen[NO_AUTHOR]) { names.push(NO_AUTHOR); }
+            navAuthorsEl.innerHTML = '';
+            if (names.length === 0) {
+                navAuthorsEl.textContent = 'No comments or changes';
+                return;
+            }
+            names.forEach(function(name) {
+                var label = document.createElement('label');
+                var box = document.createElement('input');
+                box.type = 'checkbox';
+                box.dataset.navAuthor = name;
+                box.checked = !navHiddenAuthors[name];
+                label.appendChild(box);
+                label.appendChild(document.createTextNode(' ' + (name === NO_AUTHOR ? '(no author)' : name)));
+                navAuthorsEl.appendChild(label);
+            });
+        }
+        if (navAuthorsEl) {
+            navAuthorsEl.addEventListener('change', function(e) {
+                var box = e.target;
+                if (!box || box.dataset.navAuthor === undefined) { return; }
+                if (box.checked) { delete navHiddenAuthors[box.dataset.navAuthor]; } else { navHiddenAuthors[box.dataset.navAuthor] = true; }
+            });
+        }
         var navKindBtn = document.getElementById('navKindBtn');
         var navKindPop = document.getElementById('navKindPop');
         var navKindBoxes = navKindPop ? Array.prototype.slice.call(navKindPop.querySelectorAll('input[data-nav-kind]')) : [];
@@ -1561,7 +1709,7 @@
             var kinds = forceKinds || navKinds();
             var selector = navSelector(kinds);
             if (!selector) { return; }
-            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(selector));
+            var targets = navTargetsOf(selector);
             if (targets.length === 0) { return; }
             var index = navCurrent && navCurrent.isConnected ? targets.indexOf(navCurrent) : -1;
             if (index >= 0) {
@@ -1600,7 +1748,7 @@
             if (!navCountEl) { return; }
             var selector = navSelector(navKinds());
             if (!selector) { navCountEl.textContent = ''; return; }
-            var targets = Array.prototype.slice.call(docRoot.querySelectorAll(selector));
+            var targets = navTargetsOf(selector);
             var index = navCurrent && navCurrent.isConnected ? targets.indexOf(navCurrent) : -1;
             navCountEl.textContent = mdbCountLabel(index, targets.length);
         }
@@ -1623,7 +1771,7 @@
                 // still one of them, else from its place.
                 if (navCurrent && navCurrent.isConnected) {
                     var selector = navSelector(navKinds());
-                    if (!selector || !navCurrent.matches(selector)) { setNavAnchor(navKey(navCurrent)); }
+                    if (!selector || !navCurrent.matches(selector) || !navAuthorAllows(navCurrent)) { setNavAnchor(navKey(navCurrent)); }
                 } else if (navCurrent) {
                     navCurrent.classList.remove('mdb-nav-current');
                     navCurrent = null;
@@ -1634,6 +1782,7 @@
         if (navKindBtn && navKindPop) {
             navKindBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
+                if (navKindPop.hidden) { renderNavAuthors(); }
                 navKindPop.hidden = !navKindPop.hidden;
             });
             document.addEventListener('click', function() { navKindPop.hidden = true; });
@@ -2356,6 +2505,12 @@
         window.addEventListener('message', function(e) {
             var msg = e.data;
             if (!msg || !msg.type) return;
+
+            // A long comment rendered by the host for the overlay (mdViewButtonsHtml).
+            if (msg.type === 'markdownHtml') {
+                if (typeof tomMdOverlayShow === 'function') { tomMdOverlayShow(msg.title || '', msg.html || ''); }
+                return;
+            }
 
             if (msg.type === 'mdContent') {
                 handleContent(msg);
