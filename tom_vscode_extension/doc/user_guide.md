@@ -248,7 +248,9 @@ Each list row shows a small clickable circle **under its status icon**. Clicking
 With a non-empty stack, the send buttons switch to batch mode:
 
 - **Save to Queue** — adds **one prompt per stacked todo** to the prompt queue, in stack order, each embedded via the selected template (e.g. the Execute TODO template).
-- **Send** (Copilot or Anthropic, following the queue's transport) — combines **all stacked todos into a single prompt**: the todo YAML fragments concatenate into one todo list, get one numbered `REQUIRED: Add responseValue #TODO_<n>=…` line each, and the combined block is inserted into the selected template. With no template selected, the concatenated YAML fragments (plus the response-value lines) are sent as-is.
+- **Send** (Copilot or Anthropic, following the queue's transport) — combines **all stacked todos into a single prompt**: one block per todo, get one numbered `REQUIRED: Add responseValue #TODO_<n>=…` line each, and the combined text is inserted into the selected template. With no template selected, the blocks (plus the response-value lines) are sent as-is.
+
+Every send of a todo from the panel — Send, Save to Queue, single or stacked — carries the todo's whole record: its reference, then *Here is the complete YAML of the todo:* and the todo as stored (every field, decisions with their answers, notes, references; not `blocking`), the same block a todo walk appends. Execute TODO, Guide me through a user action and Explain TODO work from it, and so does any template of your own.
 
 ## 3) Sending prompts
 

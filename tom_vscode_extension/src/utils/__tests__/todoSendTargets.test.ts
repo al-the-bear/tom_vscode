@@ -108,19 +108,15 @@ describe('buildStackedTodoPrompt', () => {
         assert.ok(prompt.endsWith('\n\n'), 'trailing separator preserved');
     });
 
-    it('multiple todos: fragments concatenate into ONE yaml list, in stack order', async () => {
+    it('multiple todos: one block per todo, in stack order, separated by a blank line', async () => {
         const { buildStackedTodoPrompt } = await import('../todoSendTargets.js');
         const prompt = buildStackedTodoPrompt([
-            { yaml: '- id: f/a.todo.yaml/A\n  title: A', ref: 'f/a.todo.yaml/A' },
-            { yaml: '- id: f/a.todo.yaml/B\n  title: B', ref: 'f/a.todo.yaml/B' },
-            { yaml: '- id: f/b.todo.yaml/C\n  title: C', ref: 'f/b.todo.yaml/C' },
+            { yaml: 'Todo `f/a.todo.yaml/A`.\n\nrecord A', ref: 'f/a.todo.yaml/A' },
+            { yaml: 'Todo `f/a.todo.yaml/B`.\n\nrecord B', ref: 'f/a.todo.yaml/B' },
+            { yaml: 'Todo `f/b.todo.yaml/C`.\n\nrecord C', ref: 'f/b.todo.yaml/C' },
         ]);
-        const yamlBlock = prompt.split('\n\nREQUIRED')[0];
-        assert.equal(
-            yamlBlock,
-            '- id: f/a.todo.yaml/A\n  title: A\n- id: f/a.todo.yaml/B\n  title: B\n- id: f/b.todo.yaml/C\n  title: C',
-            'fragments join with a single newline so they form one valid yaml list',
-        );
+        const blocks = prompt.split('\n\nREQUIRED')[0];
+        assert.equal(blocks, 'Todo `f/a.todo.yaml/A`.\n\nrecord A\n\nTodo `f/a.todo.yaml/B`.\n\nrecord B\n\nTodo `f/b.todo.yaml/C`.\n\nrecord C');
         assert.ok(prompt.indexOf('/A') < prompt.indexOf('/B'), 'stack order preserved');
     });
 
@@ -133,5 +129,69 @@ describe('buildStackedTodoPrompt', () => {
         assert.ok(prompt.includes('REQUIRED: Add responseValue #TODO_1=f/x.todo.yaml/A'));
         assert.ok(prompt.includes('REQUIRED: Add responseValue #TODO_2=f/x.todo.yaml/B'));
         assert.ok(!/#TODO=/.test(prompt), 'no ambiguous unnumbered key when stacked');
+    });
+});
+
+/**
+ * dapieff9: a todo sent from the todo panel carries its whole record, the
+ * block a todo iteration appends — through Execute TODO, Guide me and
+ * Explain TODO alike.
+ *
+ *   SN-1 the panel's block: the reference, "Here is the complete YAML of the todo:", the record headed by its file,
+ *        decisions with their answers, no `blocking`
+ *   SN-2 through each template (filled and resolved as the queue and the send do, then unescaped): the whole
+ *        record arrives, a `${…}` in it as written; the panel builds every send from this block, and the direct
+ *        Copilot send unescapes
+ */
+describe('todo panel sends carry the todo record', () => {
+    const TODO = {
+        id: 'abc3_akfq-thing',
+        title: 'A thing',
+        description: 'Uses `${repeatTodoId}` literally.',
+        status: 'not-started',
+        decisions: [{ summary: 'Pick one', decision_needed: '(a) or (b)', decision: '(a)' }],
+        blocking: ['abc4_akfq-next'],
+        notes: 'n',
+        _sourceFile: 'todos.q.todo.yaml',
+    };
+    const REF = '_ai/quests/q/todos.q.todo.yaml/abc3_akfq-thing';
+
+    it('SN-1: the block', async () => {
+        const { todoSendBlock } = await import('../todoSendTargets.js');
+        const { todoYamlBlock, TODO_YAML_INTRO } = await import('../todoIterationRecord.js');
+        const block = todoSendBlock(REF, todoYamlBlock(TODO, '_ai/quests/q/todos.q.todo.yaml'));
+        assert.ok(block.startsWith(`Todo \`${REF}\`.\n\n${TODO_YAML_INTRO}\n\n\`\`\`yaml\n# _ai/quests/q/todos.q.todo.yaml\n`));
+        assert.ok(block.includes('decision: (a)'));
+        assert.ok(!block.includes('blocking'), 'blocking is derived');
+    });
+
+    it('SN-2: through Execute TODO, Guide me and Explain TODO', async () => {
+        const { installVscodeStub } = await import('../../tools/__tests__/_vscode-stub.js');
+        installVscodeStub({});
+        const { buildStackedTodoPrompt, todoSendBlock } = await import('../todoSendTargets.js');
+        const { todoYamlBlock } = await import('../todoIterationRecord.js');
+        const { fillTemplate } = await import('../copilotTemplates.js');
+        const { resolveTemplate } = await import('../../handlers/promptTemplate.js');
+        const { unescapePlaceholders } = await import('../placeholderEscape.js');
+        const { EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY } = await import('../sendToChatConfig.js');
+        const { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY } = await import('../explainTodoTemplate.js');
+        const fs = await import('fs');
+        const path = await import('path');
+        const root = path.resolve(__dirname, '..', '..', '..');
+        const workspaceConfig = JSON.parse(fs.readFileSync(path.resolve(root, '..', '..', '..', '.tom', 'tom_vscode_extension.json'), 'utf8'));
+        const guide = (workspaceConfig.anthropic.userMessageTemplates as Array<{ id: string; template: string }>).find((t) => t.id === 'guide-user-action')?.template;
+        assert.ok(guide, 'the workspace has the Guide me template');
+        const prompt = buildStackedTodoPrompt([{ ref: REF, yaml: todoSendBlock(REF, todoYamlBlock(TODO, '_ai/quests/q/todos.q.todo.yaml')) }]);
+        for (const [name, body] of [['execute-todo', EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY], ['explain-todo', EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY], ['guide-user-action', guide!]]) {
+            const sent = unescapePlaceholders(resolveTemplate(fillTemplate(body, prompt), { quest: 'q' }));
+            assert.ok(sent.includes('Here is the complete YAML of the todo:'), `${name}: the intro`);
+            assert.ok(sent.includes('decision: (a)'), `${name}: the decision's answer`);
+            assert.ok(sent.includes('Uses `${repeatTodoId}` literally.'), `${name}: the record as stored`);
+            assert.ok(sent.includes(`REQUIRED: Add responseValue #TODO=${REF}`), `${name}: the report line`);
+        }
+        const handler = fs.readFileSync(path.join(root, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
+        assert.equal((handler.match(/_todoPromptFragment\(todo, questId, /g) ?? []).length, 4, 'Send, Add to queue, both stack actions');
+        assert.match(handler, /\{ query: unescapePlaceholders\(expanded\) \}/);
+        assert.match(guide!, /comes with its complete YAML/, 'Guide me works from the record');
     });
 });

@@ -94,3 +94,14 @@ describe('ensureExplainTodoUserMessageTemplate', () => {
     });
 });
 
+
+describe('the todo templates take the panel\'s todo record (dapieff9)', () => {
+    it('Execute TODO and Explain TODO embed the sent text once: the record arrives where the template expects the todo', async () => {
+        const { EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY } = await import('../sendToChatConfig.js');
+        const { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY } = await import('../explainTodoTemplate.js');
+        for (const body of [EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY, EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY]) {
+            assert.equal(body.match(/\$\{userMessage\}/g)?.length, 1);
+        }
+        assert.match(EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY, /The todo's YAML is above/, 'Explain TODO reads the record it is sent');
+    });
+});

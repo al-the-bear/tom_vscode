@@ -16,7 +16,6 @@ import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as yaml from 'yaml';
 import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem } from '../utils/todoListItem';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
@@ -29,7 +28,9 @@ import { todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOrigin
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
-import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
+import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, todoSendBlock, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
+import { todoYamlBlock } from '../utils/todoIterationRecord';
+import { unescapePlaceholders } from '../utils/placeholderEscape';
 import { wireCompletionMessages } from '../utils/completionWiring';
 import { todoFormUnchanged } from '../utils/todoFormSave';
 import { groupPromptDirs } from '../services/groupPromptDirs';
@@ -1290,8 +1291,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`Todo not found: ${todoId}`);
                 return true;
             }
-            const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
-            const wrappedText = todoYaml;
+            const wrappedText = _todoPromptFragment(todo, questId, msg.sourceFile).yaml;
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
             try {
                 const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
@@ -1319,9 +1319,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`Todo not found: ${todoId}`);
                 return true;
             }
-            const todoYaml = _todoYamlFragment(todo, questId, msg.sourceFile);
-            const todoRef = _extractTodoRefFromYamlFragment(todoYaml) || todoId;
-            const todoPrompt = buildStackedTodoPrompt([{ yaml: todoYaml, ref: todoRef }]);
+            const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
             await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'));
             return true;
         }
@@ -1351,8 +1349,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     missing.push(todoId || '?');
                     continue;
                 }
-                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
-                prepared.push(todoYaml);
+                prepared.push(_todoPromptFragment(todo, questId, entry?.sourceFile).yaml);
             }
             if (!prepared.length) {
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
@@ -1395,8 +1392,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     missing.push(todoId || '?');
                     continue;
                 }
-                const todoYaml = _todoYamlFragment(todo, questId, entry?.sourceFile);
-                fragments.push({ yaml: todoYaml, ref: _extractTodoRefFromYamlFragment(todoYaml) || todoId });
+                fragments.push(_todoPromptFragment(todo, questId, entry?.sourceFile));
             }
             if (!fragments.length) {
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
@@ -1972,42 +1968,19 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
     const inner = body ? await expandTemplate(fillTemplate(body, todoPrompt)) : todoPrompt;
     const expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner));
 
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
+    // The record's `$${` (escaped against the passes above) become `${` here, where the text leaves.
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: unescapePlaceholders(expanded) });
 }
 
-function _todoYamlFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string {
+/**
+ * A todo as the panel sends it: its qualified reference and its whole stored
+ * record (todoSendBlock, todoYamlBlock) — the same record a todo iteration
+ * appends, so every template (Execute TODO, Guide me, Explain TODO, …) gets it.
+ */
+function _todoPromptFragment(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): StackedTodoFragment {
     const sourcePath = _resolveTodoSourcePath(todo, questId, sourceFileHint);
-    const qualifiedId = sourcePath ? `${sourcePath}/${todo.id}` : todo.id;
-    const clean: Record<string, unknown> = {
-        id: qualifiedId,
-        title: todo.title,
-        description: todo.description,
-        status: todo.status,
-        priority: todo.priority,
-        tags: todo.tags,
-        dependencies: todo.dependencies,
-        blocked_by: todo.blocked_by,
-        notes: todo.notes,
-        scope: todo.scope,
-        references: todo.references,
-        created: todo.created,
-        updated: todo.updated,
-        completed_date: todo.completed_date,
-        completed_by: todo.completed_by,
-    };
-    Object.keys(clean).forEach((key) => {
-        if (clean[key] === undefined || clean[key] === null || clean[key] === '') {
-            delete clean[key];
-        }
-    });
-    return yaml.stringify([clean]).trim();
-}
-
-function _extractTodoRefFromYamlFragment(todoYaml: string): string | undefined {
-    const m = todoYaml.match(/(?:^|\n)-\s*id:\s*([^\n]+)/);
-    if (!m?.[1]) return undefined;
-    const value = m[1].trim().replace(/^['"]|['"]$/g, '');
-    return value || undefined;
+    const ref = sourcePath ? `${sourcePath}/${todo.id}` : todo.id;
+    return { ref, yaml: todoSendBlock(ref, todoYamlBlock(todo as unknown as Record<string, unknown>, sourcePath)) };
 }
 
 function _resolveTodoSourcePath(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string | undefined {

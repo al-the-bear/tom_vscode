@@ -29,27 +29,39 @@ export interface TodoSendTemplateChoices {
 
 /** One stacked todo, ready for prompt embedding. */
 export interface StackedTodoFragment {
-    /** YAML list fragment for the todo (a single `- id: ...` entry). */
+    /** The todo's part of the prompt: {@link todoSendBlock}. */
     yaml: string;
     /** Qualified todo ref (`<ws-path>/<file>.todo.yaml/<id>`), or the bare id. */
     ref: string;
 }
 
 /**
+ * A todo as the todo panel sends it (Send, Add to queue, the stack): its
+ * reference, then its whole stored record after "Here is the complete YAML of
+ * the todo:" — the block a todo iteration appends (`todoYamlBlock`,
+ * src/utils/todoIterationRecord.ts), so Execute TODO, Guide me and Explain
+ * TODO get the same todo a walk gets. `recordBlock` is that block (escaped
+ * against the placeholder passes).
+ */
+export function todoSendBlock(ref: string, recordBlock: string): string {
+    return `Todo \`${ref}\`.\n\n${recordBlock}`;
+}
+
+/**
  * Build the combined prompt body for a STACK of todos sent as one message.
  *
- * Each fragment is a one-entry YAML list (`- id: ...`), so joining them with a
- * newline yields a single valid YAML todo list. The `REQUIRED responseValue`
+ * Each fragment is one todo's {@link todoSendBlock}; they follow each other,
+ * separated by a blank line. The `REQUIRED responseValue`
  * footer gets one line per todo; keys must be DISTINCT so the answer scanner
  * can resolve each todo separately — a single todo keeps the classic `#TODO=`
  * key, multiple todos use `#TODO_1=`, `#TODO_2=`, … in stack order.
  *
  * Pure so it can be unit tested; the handler feeds it the fragments it built
- * with `_todoYamlFragment` and routes the result through the same template
+ * with `_todoPromptFragment` and routes the result through the same template
  * embedding (`${originalPrompt}` / `${userMessage}`) as a single todo.
  */
 export function buildStackedTodoPrompt(fragments: StackedTodoFragment[]): string {
-    const yamlBlock = fragments.map((f) => f.yaml.trim()).join('\n');
+    const yamlBlock = fragments.map((f) => f.yaml.trim()).join('\n\n');
     const required = fragments.length === 1
         ? `REQUIRED: Add responseValue #TODO=${fragments[0].ref}`
         : fragments

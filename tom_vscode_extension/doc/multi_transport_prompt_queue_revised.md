@@ -513,6 +513,14 @@ Every send reads the one store: Copilot, and every Anthropic profile regardless 
 - The dropdown re-requests templates on todo selection so it tracks a transport
   change without a panel reload, while preserving a still-valid manual pick.
 
+**What a todo send carries:** every send of a todo from the panel (Send,
+Add to queue, the stack) puts the todo's reference and its whole stored record
+into the prompt (`todoSendBlock` in `todoSendTargets.ts` around
+`todoYamlBlock` of `todoIterationRecord.ts`, the block a todo iteration
+appends), so Execute TODO, Guide me and Explain TODO read the same todo a walk
+does. The record's placeholders are escaped; the queue, the Anthropic send and
+the panel's direct Copilot send unescape them as the text leaves.
+
 **Seeded "Execute TODO" Anthropic user-message template:**
 
 - `ensureExecuteTodoUserMessageTemplate` (in `sendToChatConfig.ts`, seeded at
