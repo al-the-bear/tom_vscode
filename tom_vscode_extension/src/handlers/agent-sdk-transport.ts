@@ -28,7 +28,7 @@ import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
-import { effectivePermissionMode, permissionModeOverride } from '../utils/agentSdkPermissionMode';
+import { builtInApprovalSummary, builtInToolNeedsApproval, effectivePermissionMode, permissionModeOverride } from '../utils/agentSdkPermissionMode';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
 // host compiles to CommonJS. We load it via dynamic `import()` and cache
@@ -610,10 +610,22 @@ function makeCanUseTool(
 
         const def = tools.find((t) => t.name === bare);
 
-        // Built-ins the SDK itself manages when useBuiltInTools is on —
-        // we don't know their approval semantics, so accept them.
+        // Claude Code's own built-ins (useBuiltInTools): the writers ask under
+        // the profile's Tool Approval like the tomAi_* writers, the readers
+        // run unasked (CC-2, utils/agentSdkPermissionMode.ts).
         if (!def) {
-            return { behavior: 'allow', updatedInput: input };
+            const asks = builtInToolNeedsApproval(bare) && approvalMode !== 'never';
+            if (!asks || ctx.sessionApprovals.has(bare)) {
+                return { behavior: 'allow', updatedInput: input };
+            }
+            const approvedBuiltIn = await ctx.requestApproval({
+                toolUseId: `${ctx.requestId}-${bare}-${Date.now()}`,
+                toolName: bare,
+                inputSummary: builtInApprovalSummary(bare, input),
+            });
+            return approvedBuiltIn
+                ? { behavior: 'allow', updatedInput: input }
+                : { behavior: 'deny', message: `Tool "${bare}" was denied by the user.` };
         }
 
         const defaultRequiresApproval = !def.readOnly;
@@ -869,8 +881,11 @@ async function runAgentSdkAttempt(
     // 'never' runs in bypassPermissions, so the SDK does not fire canUseTool
     // at all; 'always' never does, so a configured bypass runs in 'default'
     // and the extension's write tools ask for approval.
-    const permissionMode: PermissionMode = effectivePermissionMode(approvalMode, configuredMode);
-    const modeOverride = permissionModeOverride(approvalMode, configuredMode);
+    // With Claude Code's built-ins on, a mode that lets them write unasked
+    // (acceptEdits, auto) runs as default too.
+    const builtInTools = params.useBuiltInTools === true;
+    const permissionMode: PermissionMode = effectivePermissionMode(approvalMode, configuredMode, builtInTools);
+    const modeOverride = permissionModeOverride(approvalMode, configuredMode, builtInTools);
     if (modeOverride) { toolLog(`[agent-sdk] ${modeOverride} (configuration ${configuration.id})`); }
     let settingSources: SettingSource[] = (configuration.agentSdk?.settingSources ?? []) as SettingSource[];
     let effectiveSystemPrompt = systemPrompt;

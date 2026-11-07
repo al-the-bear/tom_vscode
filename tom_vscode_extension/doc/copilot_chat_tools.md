@@ -81,7 +81,7 @@ Tool categories (all live under `src/tools/`):
 - **Diagnostics + editor context** — `tomAi_getErrors`, editor-context helpers.
 - **Integrations** — GitHub PR, git, issue, language-service, web fetch / search.
 
-On the Agent SDK transport, tools are exposed via an MCP server; names carry the `mcp__tom-ai__` prefix when surfaced to `canUseTool`. Built-in Claude Code preset tools (Read/Write/Bash/Grep/…) can be enabled per profile via `useBuiltInTools: true`; their tool_use + tool_result blocks are mirrored into the raw and tool trails from the stream.
+On the Agent SDK transport, tools are exposed via an MCP server; names carry the `mcp__tom-ai__` prefix when surfaced to `canUseTool`. Built-in Claude Code preset tools (Read/Write/Bash/Grep/…) can be enabled per profile via `useBuiltInTools: true`; under the profile's Tool Approval the writing ones (Bash, Write, Edit, MultiEdit, NotebookEdit, KillShell) ask like the `tomAi_*` writers and the readers do not; their tool_use + tool_result blocks are mirrored into the raw and tool trails from the stream.
 
 ## Chat Variables and Context
 

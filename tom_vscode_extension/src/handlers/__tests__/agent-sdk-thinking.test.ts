@@ -29,34 +29,16 @@ import { ToolTrail } from '../../services/tool-trail.js';
 import { TrailService } from '../../services/trailService.js';
 import { agentSdkThinkingOptions, profileThinkingSettings } from '../../utils/thinkingAndEffort.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
+import { fakeSuccessSdk } from './_agentSdkFake.js';
 
 TrailService.init({} as never);
 // A successful send writes the raw trail, which reads the configuration (the workspace is the temp folder).
 TomAiConfiguration.init({} as never);
 
-/* eslint-disable @typescript-eslint/naming-convention -- SDK wire messages are snake_case */
-
-/** A fake SDK that records the options of every query and answers with one successful result. */
-function fakeSdk() {
-    const options: Record<string, unknown>[] = [];
-    const sdk = {
-        tool: () => ({}),
-        createSdkMcpServer: () => ({}),
-        query: (args: { prompt: unknown; options: Record<string, unknown> }) => {
-            options.push(args.options);
-            return (async function* () {
-                yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 'sess-1', num_turns: 1, usage: {} };
-            })();
-        },
-    };
-    return { sdk, options };
-}
-
-/* eslint-enable @typescript-eslint/naming-convention */
 
 /** The SDK options of one send with `profile` on `model`, its thinking options built as the handler builds them. */
 async function sdkOptionsFor(model: string, profile: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const { sdk, options } = fakeSdk();
+    const { sdk, options } = fakeSuccessSdk();
     __setAgentSdkForTests(sdk);
     try {
         const params: AgentSdkSendParams = {

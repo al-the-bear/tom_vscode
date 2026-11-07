@@ -1288,6 +1288,7 @@ function toolApprovalHelp(
     const conf = list.find((c) => c.id === configurationId) ?? list.find((c) => c.isDefault === true);
     const base = 'Approval gate for write tool calls. <strong>Always</strong> shows the approval bar; the user can elevate a single approval to the full session via the "Allow All (session)" button at the bar. <strong>Never</strong> skips the gate entirely (on the Agent SDK it runs in <code>permissionMode=bypassPermissions</code>). '
         + 'This setting wins: the configuration\'s permission mode does not decide approval — with <strong>Always</strong> a configuration set to <code>bypassPermissions</code> runs in <code>default</code>, so the bar is shown. '
+        + 'With Claude Code\'s built-in tools on, its writers (Bash, Write, Edit, MultiEdit, NotebookEdit, KillShell) ask the same way, and a configured <code>acceptEdits</code> or <code>auto</code> runs as <code>default</code>; its readers (Read, Grep, Glob, WebFetch, WebSearch, …) never ask. '
         + 'Queued prompts never ask: the prompt queue runs unattended and sends with approval off.';
     if (conf?.transport === 'agentSdk' && conf.agentSdk?.permissionMode === 'bypassPermissions') {
         return base + `<br><br><strong>Note:</strong> this profile's configuration <code>${conf.id ?? ''}</code> sets <code>permissionMode=bypassPermissions</code>; with <strong>Always</strong> that setting is ignored.`;
