@@ -439,7 +439,7 @@ and `_ai/trail/copilot/<quest>/`, one set per quest.
 An Anthropic configuration inherits every one of these unless it sets its own. The Status Page lists the configurations with ⚙ and the values each sets itself; its edit wizard asks for the retention values on a direct configuration — *Use the defaults*, *Keep this configuration's values* or *Customise…* (an empty field inherits) — and keeps the other overrides as they were.
 | `compactionOverride` | `'default' \| 'on' \| 'off'` — per-config override for the global compaction kill switch. |
 | `promptCachingEnabled` | Adds `cache_control` breakpoints on the system prompt, the tool definitions and the newest turn, so each tool-loop round reads the earlier prefix from the cache. Doesn't shrink the prompt; reduces cost. Cache reads and writes show in the live trail's usage block. |
-| `transport` | `'direct'` / `'agentSdk'` / `'vscodeLm'`. Tool-trail enforcement applies to `'direct'`. |
+| `transport` | `'direct'` / `'agentSdk'` / `'vscodeLm'`. Tool-trail enforcement applies to `'direct'` and `'vscodeLm'` (the extension runs both tool loops; VS Code LM has no prompt cache, so its old rounds are stubbed past `toolTrailKeepRounds` every round). |
 | `memoryToolsEnabled` | Expose memory read/write tools to the model. |
 | `maxRounds`, `maxTokens` | Standard agent loop knobs. |
 

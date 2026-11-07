@@ -58,3 +58,20 @@ export function isRetryableBusyError(err: unknown): boolean {
     if (/\btoo\s+many\s+requests/i.test(msg)) { return true; }
     return false;
 }
+
+/**
+ * The busy check for the VS Code LM API (`model.sendRequest` and its stream):
+ * {@link isRetryableBusyError}, plus the shapes VS Code's providers report a
+ * busy backend in — a status after "Request Failed:" / "Server error:" /
+ * "status" (Copilot: `Request Failed: 429 …`, `Server error: 503`), and
+ * "rate-limited". A `LanguageModelError` with code `Blocked`, `NoPermissions`
+ * or `NotFound` is not transient and is not retried.
+ */
+export function isRetryableVsCodeLmError(err: unknown): boolean {
+    if (err === null || err === undefined) { return false; }
+    const code = (err as { code?: unknown }).code;
+    if (code === 'Blocked' || code === 'NoPermissions' || code === 'NotFound') { return false; }
+    if (isRetryableBusyError(err)) { return true; }
+    const msg = typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : String(err);
+    return /\b(?:request\s+failed|server\s+error|status(?:\s+code)?)\s*:?\s*(?:429|5(?!0[15])\d\d)\b/i.test(msg);
+}

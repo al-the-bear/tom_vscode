@@ -43,6 +43,8 @@ import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
 import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorClassifier';
 import { withRetryBudget, RetryWait } from '../utils/retryWithBudget';
+import { isRetryableVsCodeLmError } from '../utils/retryableError';
+import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
@@ -2796,6 +2798,8 @@ export class AnthropicHandler {
         let totalToolCalls = 0;
         let lastText = '';
         let lastStopReason: string | undefined;
+        // Each round's tool results, where they sit in chatMessages (CC-6 retention).
+        const lmToolRounds: VsCodeLmToolRound[] = [];
 
         // Dump the initial vscodeLm payload once per user prompt.
         // `chatMessages` is a live SDK array of LanguageModelChatMessage
@@ -2849,25 +2853,49 @@ export class AnthropicHandler {
                     ? {}
                     : { tools: lmTools };
 
-                const request = await model.sendRequest(chatMessages, requestOptions, options.cancellationToken);
+                // The request and its stream, retried as one while the backend
+                // is busy or rate-limited (CC-6): the same budget as the direct
+                // loop (`retryMaxTotalWaitMinutes`), VS Code LM's error shapes
+                // (isRetryableVsCodeLmError). A response that failed mid-stream
+                // is asked again whole, so its parts are kept until it is done.
+                const responseParts = await withRetryBudget({
+                    call: async () => {
+                        const request = await model.sendRequest(chatMessages, requestOptions, options.cancellationToken);
+                        const parts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
+                        for await (const part of request.stream) {
+                            // Other part types (if any) are ignored silently.
+                            if (part instanceof vscode.LanguageModelTextPart || part instanceof vscode.LanguageModelToolCallPart) {
+                                parts.push(part);
+                            }
+                        }
+                        return parts;
+                    },
+                    totalWaitMs: (options.profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                    backendLabel: 'VS Code LM busy',
+                    cancellationToken: options.cancellationToken,
+                    isRetryable: isRetryableVsCodeLmError,
+                    onRetryStatus: (text: string, cause?: string): void => {
+                        this._onStatusUpdate.fire(text);
+                        liveTrail?.appendRetry(text, cause);
+                    },
+                    onRetryWait: options.onRetryWait,
+                });
 
-                // Collect both text parts and tool_call parts from the
-                // streamed response into parallel arrays so we can (a)
-                // append them to the Assistant message for the next
-                // round, and (b) act on tool_calls afterwards.
+                // Text parts and tool_call parts, in parallel arrays so we can
+                // (a) append them to the Assistant message for the next round,
+                // and (b) act on tool_calls afterwards.
                 const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
                 const toolCalls: vscode.LanguageModelToolCallPart[] = [];
                 let turnText = '';
-                for await (const part of request.stream) {
+                for (const part of responseParts) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         turnText += part.value;
                         assistantParts.push(part);
                         liveTrail?.appendAssistantText(part.value);
-                    } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                    } else {
                         assistantParts.push(part);
                         toolCalls.push(part);
                     }
-                    // Other part types (if any) are ignored silently.
                 }
                 if (turnText) { lastText = turnText; this.rememberAssistantText(lastText); }
 
@@ -2895,7 +2923,7 @@ export class AnthropicHandler {
 
                 // Execute each tool via runTool; build a User message
                 // with the paired LanguageModelToolResultPart entries.
-                const toolResultParts: vscode.LanguageModelToolResultPart[] = [];
+                const roundResults: VsCodeLmToolResult[] = [];
                 for (const tc of toolCalls) {
                     totalToolCalls++;
                     const toolUseBlock = {
@@ -2923,12 +2951,26 @@ export class AnthropicHandler {
                                 .map((p) => (p && typeof p === 'object' && 'type' in p && p.type === 'text' && 'text' in p ? String(p.text) : ''))
                                 .join('')
                             : '';
-                    toolResultParts.push(new vscode.LanguageModelToolResultPart(
-                        tc.callId,
-                        [new vscode.LanguageModelTextPart(resultText)],
-                    ));
+                    roundResults.push({ type: 'tool_result', tool_use_id: tc.callId, content: resultText });
                 }
-                chatMessages.push(vscode.LanguageModelChatMessage.User(toolResultParts));
+                lmToolRounds.push({ messageIndex: chatMessages.length, results: roundResults });
+                chatMessages.push(vscode.LanguageModelChatMessage.User([]));
+
+                // The tool-trail retention of the direct loop (CC-6,
+                // src/services/toolTrailRetention.ts) on an Anthropic-shaped
+                // view of the rounds' results: the new results cut to the
+                // inline length, rounds past toolTrailKeepRounds stubbed with
+                // their replay key. VS Code LM has no prompt cache to keep, and
+                // no signed thinking blocks, so every round is open to it.
+                this.applyToolTrailRetentionPolicy(
+                    vsCodeLmRetentionView(lmToolRounds) as unknown as AnthropicMessageParam[],
+                    { ...this.resolveEffectiveCaps(configuration), cachingEnabled: false },
+                );
+                for (const r of lmToolRounds) {
+                    chatMessages[r.messageIndex] = vscode.LanguageModelChatMessage.User(
+                        r.results.map((res) => new vscode.LanguageModelToolResultPart(res.tool_use_id, [new vscode.LanguageModelTextPart(res.content)])),
+                    );
+                }
             }
 
             // Exhausted maxRounds.
