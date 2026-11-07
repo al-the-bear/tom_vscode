@@ -77,7 +77,7 @@ Settings (`compaction.*` with per-configuration overrides on every
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `toolTrailMaxResultChars` | `30000` | A tool_result block is cut to this many chars once, when it arrives (a cut result is never cut again); a `[Truncated inline view: N/total chars. Full result available via tomAi_readPastToolResult({"key":"tX"})...]` marker is prefixed so the model knows where to look. |
+| `toolTrailMaxResultChars` | `30000` | A tool_result block is cut to this many chars once, when it arrives (a cut result is never cut again); a `[Truncated inline view: N/total chars. Full result available via tomAi_readPastToolResult({"key":"tX"})...]` marker is prefixed so the model knows where to look. A `tomAi_readPastToolResult` answer is never cut: it pages the result itself. |
 | `toolTrailKeepRounds` | `2` | The tool rounds kept whole: without prompt caching, the newest N rounds at any time; with caching, the newest N rounds after a collapse. Older rounds have their `tool_result` content replaced with a one-line stub naming the replay key. The `tool_use` / `tool_result` pairing is preserved so the Anthropic API stays happy. **Once an assistant turn of the loop carries a thinking block, no earlier round is rewritten:** that holds whether or not the profile asks for thinking (`thinking`), because a model may think unasked — Opus 5.5 does. The `thinking` / `redacted_thinking` blocks are signed over the conversation as it was, and the API refuses a request whose earlier messages changed ("Invalid `signature` in `thinking` block"). Each round's results are then cut to `toolTrailMaxResultChars` once, as they are added, and nothing is stubbed (`src/services/toolTrailRetention.ts`). Long tool loops send a larger prompt in that case; the history kept between prompts is text only and unaffected. |
 | `toolTrailCollapseRounds` | `30` | **Direct API with prompt caching.** The conversation is cached up to the newest turn (a read costs 0.1× the input price, a write 1.25×), and stubbing an old round rewrites a message inside that prefix — the next request reads the cache only up to it and writes everything after it again. So earlier rounds stay exactly as sent until more than this many rounds are kept whole; then every round but the newest `toolTrailKeepRounds` becomes a stub at once. The prefix changes once per batch (keep 2, collapse 30: at rounds 31, 60, 89, …) instead of every round. Without caching, every round past `toolTrailKeepRounds` is stubbed. |
 | `toolTrailCollapseChars` | `300000` | With caching, collapse also once the results of the rounds kept whole exceed this many characters, so a few huge results do not wait for `toolTrailCollapseRounds`. |
@@ -102,18 +102,22 @@ The file is a JSON object matching `ToolTrailEntry`
 
 ### How the model recovers a stubbed result
 
-The existing `tomAi_readPastToolResult` tool now reads from the in-memory ring
-buffer first and falls back to disk
-([past-tool-access-tools.ts:195](../src/tools/past-tool-access-tools.ts#L195)).
-Pass the `key` shown in the stub:
+`tomAi_readPastToolResult` reads from the in-memory ring buffer first and falls
+back to disk (`src/tools/past-tool-access-tools.ts`); the ring holds at most
+100,000 characters of a result, the disk copy the whole result, which a read of
+a clipped entry takes. Pass the `key` shown in the stub:
 
 ```text
 [Past tool call t14 — tomAi_readFile(path=src/foo.ts) — 61823 chars.
  Use tomAi_readPastToolResult({"key":"t14"}) to retrieve the full result.]
 ```
 
-The model calls `tomAi_readPastToolResult({"key":"t14"})` and gets the full
-body back. This is what makes aggressive truncation safe — the body is never
+The model calls `tomAi_readPastToolResult({"key":"t14"})` and gets the body
+back in pages: `offset` (default 0) and `length` (default 30,000 characters, at
+most 200,000) pick the page, and the answer says `resultSize` (the whole
+length), `nextOffset` (null on the last page) and `complete`. The inline cut
+leaves this tool's answers whole, so a result of any size is read in full in a
+few calls. This is what makes aggressive truncation safe — the body is never
 actually destroyed.
 
 ### Implementation

@@ -66,6 +66,8 @@ export interface PastToolEntry {
     result: string;
     durationMs: number;
     error?: string;
+    /** Set when `result` is a clipped copy (the ring buffer's): the whole result's length. */
+    fullResultChars?: number;
 }
 
 // ===========================================================================
@@ -139,7 +141,7 @@ export function normalisePastToolKey(raw: string): string {
 }
 
 function entrySummary(e: SessionEntry): Record<string, unknown> {
-    const size = (e.result ?? '').length;
+    const size = e.fullResultChars ?? (e.result ?? '').length;
     return {
         ...(e.session ? { session: e.session } : {}),
         key: e.key,
@@ -391,6 +393,44 @@ export interface ReadPastToolResultInput {
     key: string;
     /** Look in these sessions' stored results instead: a name, a list, or "all". */
     sessions?: string | string[];
+    /** First character of the result to return. Default 0. */
+    offset?: number;
+    /** How many characters to return. Default {@link READ_PAST_DEFAULT_PAGE_CHARS}, at most {@link READ_PAST_MAX_PAGE_CHARS}. */
+    length?: number;
+}
+
+/** A page of a stored result when `length` is not given. */
+export const READ_PAST_DEFAULT_PAGE_CHARS = 30_000;
+/** The largest page one call returns. */
+export const READ_PAST_MAX_PAGE_CHARS = 200_000;
+
+/**
+ * The page of `result` the input asks for, with what the answer says about it:
+ * the total length, where the page starts and ends, and the offset of the next
+ * page (null when this page reaches the end). A refusal names the bad argument.
+ */
+export function pastResultPage(result: string, input: { offset?: unknown; length?: unknown }):
+    { page: { resultSize: number; offset: number; length: number; nextOffset: number | null; complete: boolean; result: string } } | { error: string } {
+    const offset = input.offset ?? 0;
+    const length = input.length ?? READ_PAST_DEFAULT_PAGE_CHARS;
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+        return { error: '`offset` must be a whole number ≥ 0.' };
+    }
+    if (typeof length !== 'number' || !Number.isInteger(length) || length < 1) {
+        return { error: '`length` must be a whole number ≥ 1.' };
+    }
+    if (offset > result.length) {
+        return { error: `\`offset\` ${offset} is past the end of the result (${result.length} chars).` };
+    }
+    const take = Math.min(length, READ_PAST_MAX_PAGE_CHARS);
+    const text = result.slice(offset, offset + take);
+    const end = offset + text.length;
+    return {
+        page: {
+            resultSize: result.length, offset, length: text.length,
+            nextOffset: end < result.length ? end : null, complete: offset === 0 && end === result.length, result: text,
+        },
+    };
 }
 
 export async function readPastToolResultImpl(access: ToolHistoryAccess, input: ReadPastToolResultInput): Promise<string> {
@@ -410,10 +450,12 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
                 });
             }
             const e = found[0];
+            const paged = pastResultPage(e.result ?? '', input);
+            if ('error' in paged) { return err(paged.error, { key: e.key, resultSize: (e.result ?? '').length }); }
             return ok({
                 session: e.session, key: e.key, rawKey, source: 'disk', round: e.round, timestamp: e.timestamp,
                 durationMs: e.durationMs, toolName: e.toolName, inputSummary: e.inputSummary,
-                resultSize: (e.result ?? '').length, errorMessage: e.error ?? null, result: e.result ?? '',
+                errorMessage: e.error ?? null, ...paged.page,
                 ...(found.length > 1 ? { alsoIn: found.slice(1).map((x) => x.session) } : {}),
             });
         }
@@ -424,8 +466,9 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
         const ring = access.listRingBuffer();
         if (ring) { entry = ring.find((e) => e.key === normalised); }
 
-        // 2. Fall back to the disk store (any subsystem).
-        if (!entry) {
+        // 2. Fall back to the disk store (any subsystem) — also when the ring
+        //    holds a clipped copy: the persisted one is whole.
+        if (!entry || entry.fullResultChars !== undefined) {
             const fromDisk = access.readFromDisk(normalised);
             if (fromDisk) {
                 entry = fromDisk;
@@ -444,6 +487,8 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
             });
         }
 
+        const paged = pastResultPage(entry.result ?? '', input);
+        if ('error' in paged) { return err(paged.error, { key: entry.key, resultSize: (entry.result ?? '').length }); }
         return ok({
             key: entry.key,
             rawKey,
@@ -453,9 +498,10 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
             durationMs: entry.durationMs,
             toolName: entry.toolName,
             inputSummary: entry.inputSummary,
-            resultSize: (entry.result ?? '').length,
             errorMessage: entry.error ?? null,
-            result: entry.result ?? '',
+            ...paged.page,
+            // Only the ring's clipped copy was there (the disk copy is missing).
+            ...(entry.fullResultChars !== undefined ? { clippedFrom: entry.fullResultChars } : {}),
         });
     } catch (e) {
         return err(`readPastToolResult failed: ${(e as Error).message}`);
@@ -475,7 +521,11 @@ export const READ_PAST_TOOL_RESULT_DESCRIPTION =
     'blocks in the conversation like `[Past tool call tX — …]` remain ' +
     'resolvable here even after eviction. **`sessions`** (a name, a list, or `"all"`): read the key from those ' +
     'sessions\' stored results instead (keys are per session); the answer names the `session` it came from, and ' +
-    '`alsoIn` the other chosen sessions holding the same key.';
+    '`alsoIn` the other chosen sessions holding the same key. **Paging**: `offset` (default 0) and `length` (characters, ' +
+    `default ${READ_PAST_DEFAULT_PAGE_CHARS}, at most ${READ_PAST_MAX_PAGE_CHARS}) pick a page of the result; the answer ` +
+    'says `resultSize` (the whole length), `offset`, `length`, `nextOffset` (where the next page starts; null at the end) ' +
+    'and `complete` (the whole result in this answer). Read on with `offset: nextOffset` until it is null. This tool\'s ' +
+    'answers are never cut by the inline tool-trail retention.';
 
 export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResultInput> = {
     name: 'tomAi_readPastToolResult',
@@ -490,6 +540,8 @@ export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResult
         properties: {
             key: { type: 'string', description: 'Replay key from a tool history block (e.g. `t14`). Bare numerics like `"14"` are normalised to `t14`.' },
             sessions: SESSIONS_PARAM_SCHEMA,
+            offset: { type: 'number', description: 'First character of the result to return. Default 0; pass the previous answer\'s `nextOffset` to read on.' },
+            length: { type: 'number', description: `Characters to return. Default ${READ_PAST_DEFAULT_PAGE_CHARS}, at most ${READ_PAST_MAX_PAGE_CHARS}.` },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -512,6 +564,7 @@ function toPastToolEntry(e: ToolTrailEntry): PastToolEntry {
         result: e.result,
         durationMs: e.durationMs,
         error: e.error,
+        ...(e.fullResultChars !== undefined ? { fullResultChars: e.fullResultChars } : {}),
     };
 }
 

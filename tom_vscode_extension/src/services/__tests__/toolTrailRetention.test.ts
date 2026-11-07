@@ -13,6 +13,8 @@
  *   TR-2 no thinking block in the conversation: as before — the newest keepRounds rounds inline
  *        (cut), older ones stubbed, the tool_use / tool_result pairing kept
  *   TR-3 the handler: the step is not told whether thinking was requested
+ *   TR-4 a tomAi_readPastToolResult answer is never cut (it is the recovery path, paged by its own offset /
+ *        length); another tool's answer in the same round is
  */
 
 import test, { describe } from 'node:test';
@@ -21,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ToolTrail, type ToolTrailEntry } from '../tool-trail.js';
-import { applyToolTrailRetention, type RetentionMessage } from '../toolTrailRetention.js';
+import { applyToolTrailRetention, NEVER_CUT_TOOL, type RetentionMessage } from '../toolTrailRetention.js';
 
 const ROUNDS = 6;
 const KEEP = 2;
@@ -90,5 +92,31 @@ describe('tool-trail retention and extended thinking', () => {
         assert.match(handler, /this\.applyToolTrailRetentionPolicy\(messages, caps\);/);
         assert.doesNotMatch(handler, /freezeEarlierRounds/);
         assert.doesNotMatch(handler, /tt\.renderStub\(/, 'the stubbing lives in the shared step only');
+    });
+
+    test('TR-4: the answer of tomAi_readPastToolResult is not cut', () => {
+        assert.equal(NEVER_CUT_TOOL, 'tomAi_readPastToolResult');
+        const trail = new ToolTrail({ keepRounds: KEEP, inlineMaxChars: INLINE });
+        const page = 'page of a past result '.repeat(50);
+        const other = 'another result '.repeat(50);
+        const read = trail.add({ timestamp: '00:00:00', round: 1, toolName: NEVER_CUT_TOOL, inputSummary: 'key=t1', result: page, durationMs: 1 });
+        const file = trail.add({ timestamp: '00:00:00', round: 1, toolName: 'tomAi_readFile', inputSummary: 'f', result: other, durationMs: 1 });
+        const messages: RetentionMessage[] = [
+            { role: 'user', content: 'go' },
+            { role: 'assistant', content: [
+                { type: 'tool_use', id: 'a', name: NEVER_CUT_TOOL, input: { key: 't1' } },
+                { type: 'tool_use', id: 'b', name: 'tomAi_readFile', input: { path: 'f' } },
+            ] },
+            { role: 'user', content: [
+                { type: 'tool_result', tool_use_id: 'a', content: page },
+                { type: 'tool_result', tool_use_id: 'b', content: other },
+            ] },
+        ];
+        const byId = new Map([['a', read], ['b', file]]);
+        applyToolTrailRetention(messages, trail, (id) => byId.get(id), { keepRounds: KEEP, inlineMaxChars: INLINE });
+        const [first, second] = messages[2].content as Array<{ content: string }>;
+        assert.ok(page.length > INLINE);
+        assert.equal(first.content, page, 'the page is whole');
+        assert.match(second.content, /^\[Truncated inline view: 120\//, 'the other result is cut');
     });
 });

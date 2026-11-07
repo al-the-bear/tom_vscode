@@ -97,6 +97,9 @@ export function conversationHasThinking(messages: readonly RetentionMessage[]): 
         && (m.content as Array<{ type?: unknown }>).some((b) => SIGNED_BLOCK_TYPES.has(String(b?.type))));
 }
 
+/** The tool whose answers the inline cut leaves whole (it pages them itself). */
+export const NEVER_CUT_TOOL = 'tomAi_readPastToolResult';
+
 /** The parts of a ToolTrail this step uses. */
 export type RetentionTrail = Pick<ToolTrail, 'truncateInline' | 'renderStub'> & { inlineMaxChars: number; keepRounds: number };
 
@@ -137,6 +140,9 @@ export function applyToolTrailRetention(
     const cut = (block: Record<string, unknown>): void => {
         const entry = entryFor(String(block.tool_use_id ?? ''));
         if (!entry) { return; }
+        // Its answer is the recovery path of a cut result, paged by its own
+        // `offset` / `length`: cutting it again would make the cut final.
+        if (entry.toolName === NEVER_CUT_TOOL) { return; }
         block.content = trail.truncateInline(entry.key, entry.toolName, entry.inputSummary, flattenContent(block.content));
     };
     const stub = (block: Record<string, unknown>): void => {

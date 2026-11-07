@@ -413,7 +413,7 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ |
 | `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ |
-| `tomAi_readPastToolResult` | Return the full body of a past tool call by its replay key (e.g. `t14`). | ✅ | ✅ | ⚪ | ⚪ |
+| `tomAi_readPastToolResult` | Return the body of a past tool call by its replay key (e.g. `t14`), paged by `offset` / `length` (default 30,000 chars; the answer gives `resultSize` and `nextOffset`). Its answers are never cut inline. | ✅ | ✅ | ⚪ | ⚪ |
 
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
@@ -424,7 +424,7 @@ Tool results are per session: each session keeps them in `history/sessions/<sess
 
 **Every call, every transport: the Tom Tool Log.** Each tool call an agent makes writes one line to the *Tom Tool Log* output channel (`src/utils/toolCallLog.ts`): `<ISO time> [tool-call] <transport> <tool> <ms> ms <chars> chars ok` (or `error: <first line>`). The transport is `direct`, `vscodeLm` or `localLlm` for the Anthropic handler's own tool loop, `agentSdk` for the Agent SDK's in-process MCP server, and `mcp` for the standalone MCP server's clients. `tomAi_readOutputChannel {channel: 'Tom Tool Log', grep: '<tool>'}` answers how long a tool takes and which call failed in any session; `run: 1` reads the run before the last window reload. The ToolTrail (the tools above) covers the ANTHROPIC/LLM panel and the queue on every transport, the Agent SDK's included (with full results); calls of standalone MCP clients are only in the log, since their conversations are not an Anthropic session.
 
-Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the whole file content it saw earlier, no tool re-run.
+Typical usage: the injected history block shows `14:23:05 [t14] R3 tomAi_readFile(src/foo.ts) → export function foo …`. Past tool N returned content the model now wants verbatim → `tomAi_readPastToolResult({ key: "t14" })` returns the file content it saw earlier, no tool re-run — a result longer than one page (30,000 characters by default) is read on with `offset: nextOffset` until `nextOffset` is null.
 
 ### 4.23 TomSpecs (SOM) documents
 

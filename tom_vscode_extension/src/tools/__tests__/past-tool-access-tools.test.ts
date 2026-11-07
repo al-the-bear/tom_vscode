@@ -50,10 +50,15 @@ import {
     searchPastToolResultsImpl,
     readPastToolResultImpl,
     normalisePastToolKey,
+    pastResultPage,
+    READ_PAST_DEFAULT_PAGE_CHARS,
+    READ_PAST_MAX_PAGE_CHARS,
+    READ_PAST_TOOL_RESULT_TOOL,
     type ToolHistoryAccess,
     type PastToolEntry,
 } from '../past-tool-access-tools.js';
 import { ToolTrail } from '../../services/tool-trail.js';
+import { RETENTION_DEFAULTS } from '../../services/toolTrailRetention.js';
 
 // ===========================================================================
 // Fake disk store (Map-backed)
@@ -459,5 +464,91 @@ describe('layering: ring eviction + disk fallback (checklist c)', () => {
         assert.equal(r.ok, true);
         assert.equal(r.source, 'disk');
         assert.equal(r.result, 'first');
+    });
+});
+
+// ===========================================================================
+// Paging (dapieff1): a stored result of any size is read in a few calls
+// ===========================================================================
+
+describe('readPastToolResultImpl paging', () => {
+    const BIG = Array.from({ length: 2500 }, (_, i) => `line ${String(i).padStart(4, '0')} of the big result\n`).join('');
+
+    /** An access that, like the live bridge, passes the ring entry's `fullResultChars` on. */
+    function pagingAccess(t: ToolTrail, d: FakeDiskStore): ToolHistoryAccess {
+        return {
+            listRingBuffer: () => t.listEntries().map((e) => ({ ...e })),
+            ringBufferCapacity: () => t.keepEntries,
+            readFromDisk: (key) => d.read(key),
+        };
+    }
+
+    test('PG-1: a result above toolTrailMaxResultChars is read in full across pages', async () => {
+        assert.ok(BIG.length > RETENTION_DEFAULTS.toolTrailMaxResultChars * 2, 'needs three pages');
+        trail.add({ timestamp: '10:00:00', round: 1, toolName: 'tomAi_readFile', inputSummary: 'path=big.txt', result: BIG, durationMs: 1 });
+        let text = '';
+        let offset: number | null = 0;
+        let calls = 0;
+        while (offset !== null) {
+            const r = JSON.parse(await readPastToolResultImpl(access, { key: 't1', offset }));
+            assert.equal(r.ok, true);
+            assert.equal(r.resultSize, BIG.length, 'the answer says the total length');
+            assert.equal(r.offset, offset);
+            assert.equal(r.length, r.result.length);
+            assert.ok(r.result.length <= READ_PAST_DEFAULT_PAGE_CHARS);
+            assert.equal(r.complete, false);
+            text += r.result;
+            offset = r.nextOffset;
+            calls += 1;
+        }
+        assert.equal(text, BIG, 'the pages put together are the whole result');
+        assert.equal(calls, Math.ceil(BIG.length / READ_PAST_DEFAULT_PAGE_CHARS));
+        const whole = JSON.parse(await readPastToolResultImpl(access, { key: 't1', length: BIG.length }));
+        assert.deepEqual([whole.complete, whole.nextOffset, whole.result === BIG], [true, null, true], 'one call with a length that covers it');
+    });
+
+    test('PG-2: the arguments', async () => {
+        trail.add({ timestamp: '10:00:00', round: 1, toolName: 'tomAi_readFile', inputSummary: 'x', result: 'abcdef', durationMs: 1 });
+        const small = JSON.parse(await readPastToolResultImpl(access, { key: 't1' }));
+        assert.deepEqual([small.result, small.resultSize, small.offset, small.nextOffset, small.complete], ['abcdef', 6, 0, null, true]);
+        const mid = JSON.parse(await readPastToolResultImpl(access, { key: 't1', offset: 2, length: 3 }));
+        assert.deepEqual([mid.result, mid.length, mid.nextOffset, mid.complete], ['cde', 3, 5, false]);
+        const end = JSON.parse(await readPastToolResultImpl(access, { key: 't1', offset: 6 }));
+        assert.deepEqual([end.ok, end.result, end.nextOffset], [true, '', null], 'offset at the end: an empty last page');
+        for (const bad of [{ offset: -1 }, { offset: 1.5 }, { length: 0 }, { offset: 7 }]) {
+            const r = JSON.parse(await readPastToolResultImpl(access, { key: 't1', ...bad }));
+            assert.equal(r.ok, false, JSON.stringify(bad));
+            assert.equal(r.resultSize, 6);
+        }
+        const capped = pastResultPage('x'.repeat(READ_PAST_MAX_PAGE_CHARS + 10), { length: READ_PAST_MAX_PAGE_CHARS * 2 });
+        assert.ok('page' in capped);
+        assert.deepEqual([capped.page.length, capped.page.nextOffset], [READ_PAST_MAX_PAGE_CHARS, READ_PAST_MAX_PAGE_CHARS], 'length is capped');
+    });
+
+    test('PG-3: the ring keeps a clipped copy, the store the whole result, and the read takes the store\'s', async () => {
+        const small = new ToolTrail({ maxResultChars: 1000 });
+        const d = new FakeDiskStore();
+        small.setPersistHook((e) => d.write({ ...e }));
+        small.add({ timestamp: '10:00:00', round: 1, toolName: 'tomAi_readFile', inputSummary: 'path=big.txt', result: BIG, durationMs: 1 });
+        assert.equal(small.getByKey('t1')?.fullResultChars, BIG.length);
+        assert.ok((small.getByKey('t1')?.result.length ?? 0) < 1100, 'the ring copy is clipped');
+        assert.equal(d.read('t1')?.result, BIG, 'the persisted copy is whole');
+        const a = pagingAccess(small, d);
+        const r = JSON.parse(await readPastToolResultImpl(a, { key: 't1', length: BIG.length }));
+        assert.deepEqual([r.source, r.resultSize, r.result === BIG], ['disk', BIG.length, true]);
+        const listed = JSON.parse(await listPastToolCallsImpl(a, {}));
+        assert.equal(listed.entries[0].resultSize, BIG.length, 'the list names the whole length');
+        assert.match(small.renderStubByKey('t1'), new RegExp(`— ${BIG.length} chars\\.`));
+        // Without the store's copy the clipped one is answered, and says so.
+        const noDisk = JSON.parse(await readPastToolResultImpl(pagingAccess(small, new FakeDiskStore()), { key: 't1' }));
+        assert.deepEqual([noDisk.source, noDisk.clippedFrom], ['memory', BIG.length]);
+    });
+
+    test('PG-4: the tool declares offset and length', () => {
+        const props = READ_PAST_TOOL_RESULT_TOOL.inputSchema.properties as Record<string, { type: string }>;
+        assert.equal(props.offset.type, 'number');
+        assert.equal(props.length.type, 'number');
+        assert.match(READ_PAST_TOOL_RESULT_TOOL.description, /nextOffset/);
+        assert.match(READ_PAST_TOOL_RESULT_TOOL.description, /never cut/);
     });
 });

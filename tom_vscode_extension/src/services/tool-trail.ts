@@ -31,9 +31,12 @@ export interface ToolTrailEntry {
     toolName: string;
     /** Key input fields (short summary — used in the prefix block). */
     inputSummary: string;
-    /** Tool output. Full body, not truncated — readPastToolResult returns
-     *  this verbatim. Callers that want a short preview use `preview()`. */
+    /** Tool output. In the ring buffer at most `maxResultChars` (then
+     *  `fullResultChars` says how long it was); the persisted copy is whole,
+     *  and readPastToolResult reads that one when the ring's is clipped. */
     result: string;
+    /** Set when the ring's `result` was clipped: the length of the whole result. */
+    fullResultChars?: number;
     /** Execution time in milliseconds. */
     durationMs: number;
     /** Error message if the call failed. */
@@ -120,7 +123,7 @@ export class ToolTrail {
         if (!e) {
             return `${PAST_TOOL_CALL_STUB_PREFIX}${key} — full body not retained. Use tomAi_listPastToolCalls to enumerate available keys.]`;
         }
-        const status = e.error ? `ERROR: ${e.error}` : `${(e.result ?? '').length} chars`;
+        const status = e.error ? `ERROR: ${e.error}` : `${e.fullResultChars ?? (e.result ?? '').length} chars`;
         return (
             `${PAST_TOOL_CALL_STUB_PREFIX}${e.key} — ${e.toolName}(${e.inputSummary}) — ${status}. ` +
             `Use tomAi_readPastToolResult({"key":"${e.key}"}) to retrieve the full result.]`
@@ -134,16 +137,21 @@ export class ToolTrail {
 
     /**
      * Append a new entry. The entry's `key` is assigned here so the
-     * caller doesn't have to coordinate with anyone else. Result bodies
-     * are clipped to `maxResultChars` so a runaway tool result can't
-     * blow out memory; the short summary in `toSummaryString()` is
-     * truncated further to `previewChars`.
+     * caller doesn't have to coordinate with anyone else. The ring's copy
+     * of the result is clipped to `maxResultChars` so a runaway tool result
+     * can't blow out memory (`fullResultChars` then records its length);
+     * the persisted copy is the whole result, so it can be read in full by
+     * key. The short summary in `toSummaryString()` is truncated further to
+     * `previewChars`.
      */
     add(entry: Omit<ToolTrailEntry, 'key'>): ToolTrailEntry {
+        const key = `t${this.nextKeyIndex++}`;
+        const clipped = entry.result.length > this.maxResultChars;
         const full: ToolTrailEntry = {
             ...entry,
-            key: `t${this.nextKeyIndex++}`,
+            key,
             result: this.clip(entry.result),
+            ...(clipped ? { fullResultChars: entry.result.length } : {}),
         };
         this.entries.push(full);
         // Trim from the front once we cross the cap so the buffer stays
@@ -157,7 +165,7 @@ export class ToolTrail {
         // time so this module stays decoupled from quest/subsystem details.
         if (this.persistHook) {
             try {
-                this.persistHook(full);
+                this.persistHook({ ...entry, key });
             } catch {
                 // best-effort; ring buffer remains primary
             }
