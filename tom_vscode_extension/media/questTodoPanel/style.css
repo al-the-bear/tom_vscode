@@ -114,6 +114,9 @@
 .qt-md-btns { display: inline-flex; gap: 1px; margin-left: 4px; vertical-align: middle; }
 .qt-md-btns .icon-btn { padding: 0 2px; min-width: 0; height: 16px; line-height: 16px; }
 .qt-md-btns .codicon { font-size: 12px; }
+.qt-user-action-line { display: flex; align-items: center; gap: 8px; }
+.qt-guide-btns { display: inline-flex; gap: 2px; }
+.qt-guide-btns .icon-btn { padding: 0 3px; height: 18px; line-height: 18px; }
 .qt-popup .qt-form-row { margin-bottom: 6px; }
 .qt-popup-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
 .qt-tag-picker-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }

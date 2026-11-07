@@ -277,6 +277,16 @@ and CSS; the Prompt Queue editor loads the same files); editor posts
 sent as they are in the form. Tests: `markdownPreviewButtons.dom.test.ts`
 MP-1–6, `questTodoLastAnswer.dom.test.ts` QA-1–4.
 
+The **Agent answer** row (every saved todo) posts `qtShowAgentAnswer` with the
+stored `last_answer` as fallback; the host takes the newest trail answer that
+reports the todo (`todoAgentAnswer.latestTodoAnswer` over the quest's trail
+sets, the TODO Log's reader) and answers `qtMarkdownHtml` or opens the preview
+editor. The **Guide me** buttons beside the user-action checkbox
+(`qtUserActionRow(checked, true)`) post `qtGuideUserAction` (`chat` / `queue`):
+the todo's prompt fragment with the `guide-user-action` Anthropic template,
+sent by `runAnthropicSend` or enqueued staged on Anthropic. Tests:
+`questTodoAgentAnswerAndGuide.dom.test.ts` AG-1–5.
+
 The filter state also carries `blocking` (`[]` all, `['yes']` blocks an open todo by
 `qtOpenBlockedTodos`, `['no']`) and the date bounds `createdFrom`/`To`, `updatedFrom`/`To`,
 `completedFrom`/`To` (inclusive ISO date strings; a todo without `completed_date` fails any

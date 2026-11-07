@@ -190,6 +190,9 @@ import { getQuestTodoCss, getQuestTodoHtmlFragment } from './questTodo/questTodo
 import { readMediaText } from '../utils/webviewLoader';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
+import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
+import { todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { latestTodoAnswer } from '../utils/todoAgentAnswer';
 import { todayLocalDate } from '../utils/todoDates';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
@@ -1105,6 +1108,75 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             // A todo's description, notes or last_answer as safe HTML for the panel's markdown overlay.
             post({ type: 'qtMarkdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
             return true;
+        case 'qtShowAgentAnswer': {
+            // A todo's agent answer: the newest trail answer that reported it,
+            // else the stored last_answer; in the overlay or the preview editor.
+            const todoId = String(msg.todoId || '');
+            const quest = (effectiveQuestId(msg.questId) && effectiveQuestId(msg.questId) !== '__session__')
+                ? effectiveQuestId(msg.questId) : (WsPaths.getWorkspaceQuestId() || '');
+            const found = _latestAgentAnswer(quest, todoId, msg.sourceFile ? String(msg.sourceFile) : undefined);
+            const markdown = found?.content ?? (String(msg.fallback || '').trim() ? String(msg.fallback) : '');
+            const title = `${todoId} \u2014 Agent answer` + (found ? ` (${found.session}, ${found.when})` : (markdown ? ' (stored)' : ''));
+            if (!markdown) {
+                if (msg.mode === 'editor') {
+                    void vscode.window.showInformationMessage(`No agent answer recorded for ${todoId} yet.`);
+                } else {
+                    post({ type: 'qtMarkdownHtml', title, html: '<p class="tom-md-empty">No agent answer recorded for this todo yet: no answer in the quest\'s session trails reports it (TODO=&lt;ref&gt;), and no todo walk stored one.</p>' });
+                }
+                return true;
+            }
+            if (msg.mode === 'editor') {
+                if (_extensionContext) { await showMarkdownHtmlPreview(_extensionContext, { title, markdown }); }
+            } else {
+                post({ type: 'qtMarkdownHtml', title, html: renderQuestLogMarkdown(markdown) });
+            }
+            return true;
+        }
+        case 'qtGuideUserAction': {
+            // The todo with the "Guide me through a user action" template, on
+            // Anthropic: sent now in the @CHAT panel, or added to the queue (staged).
+            const questId = effectiveQuestId(msg.questId);
+            const todoId = String(msg.todoId || '');
+            const todo = todoId ? _findTodoForPromptAction(questId, todoId, msg.sourceFile) : undefined;
+            if (!todo) {
+                vscode.window.showErrorMessage(`Todo not found: ${todoId || '(none selected)'}`);
+                return true;
+            }
+            const tplBody = loadSendToChatConfig()?.anthropic?.userMessageTemplates?.find((t) => t.id === GUIDE_USER_ACTION_TEMPLATE_ID)?.template;
+            if (!tplBody) {
+                vscode.window.showWarningMessage(`The user-message template "${GUIDE_USER_ACTION_TEMPLATE_ID}" (Guide me through a user action) is missing from the Anthropic templates.`);
+                return true;
+            }
+            if (msg.target === 'queue') {
+                try {
+                    const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+                    await PromptQueueManager.instance.enqueue({
+                        originalText: _todoPromptFragment(todo, questId, msg.sourceFile).yaml,
+                        template: GUIDE_USER_ACTION_TEMPLATE_ID,
+                        transport: 'anthropic',
+                        deferSend: true,
+                    });
+                    vscode.window.showInformationMessage(`Added todo ${todoId} to the prompt queue with the Guide me template (staged).`);
+                } catch {
+                    vscode.window.showWarningMessage('Prompt queue not available');
+                }
+                return true;
+            }
+            const ctx = _extensionContext;
+            if (!ctx) {
+                vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
+                return true;
+            }
+            const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
+            const { runAnthropicSend } = await import('./sendToChatRouter.js');
+            const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tplBody });
+            if (outcome.rejected) {
+                vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+            } else if (!outcome.ok && outcome.error) {
+                vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+            }
+            return true;
+        }
         case 'qtOpenMarkdownPreview':
             // The same text in the markdown preview editor, in the editor area.
             if (_extensionContext) {
@@ -1928,6 +2000,28 @@ function _openYamlFile(questId: string, file: string): void {
  * default (transport-scoped) message-template id. Defaults to copilot when the
  * queue manager is unavailable.
  */
+/** The Anthropic user-message template the todo detail's Guide me buttons use. */
+const GUIDE_USER_ACTION_TEMPLATE_ID = 'guide-user-action';
+
+/**
+ * The newest answer in the quest's session trails that reported the todo
+ * (todoAgentAnswer), with the session it was in and when.
+ */
+function _latestAgentAnswer(questId: string, todoId: string, sourceFile?: string): { content: string; session: string; when: string } | undefined {
+    if (!questId || !todoId) { return undefined; }
+    const folder = questTrailFolder(WsPaths.ai('quests', questId) || '');
+    if (!folder || !fs.existsSync(folder)) { return undefined; }
+    const sets = todoLogTrailSets(folder, discoverTrailSets);
+    let best: { content: string; session: string; when: string; timestamp: string } | undefined;
+    for (const [name] of sets) {
+        const hit = latestTodoAnswer(loadTrailSet(name, sets), { questId, todoId, sourceFile });
+        if (hit && (!best || hit.timestamp.localeCompare(best.timestamp) > 0)) {
+            best = { content: hit.content, session: name, when: hit.rawTimestamp || hit.timestamp, timestamp: hit.timestamp };
+        }
+    }
+    return best;
+}
+
 async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templateId?: string }> {
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');

@@ -84,9 +84,8 @@ describe('markdown preview buttons', () => {
         pane.querySelector('.qt-md-btn[data-qt-md-field="notes"][data-qt-md-mode="editor"]').click();
         assert.deepEqual(posted.pop(), { type: 'qtOpenMarkdownPreview', title: 'qr1 — Notes', markdown: 'A note.' });
         pane.querySelector('.qt-md-btn[data-qt-md-field="answer"][data-qt-md-mode="overlay"]').click();
-        assert.deepEqual(posted.pop(), { type: 'qtRenderMarkdown', title: 'qr1 — Answer', markdown: DONE.last_answer });
+        assert.equal(posted.pop()?.type, 'qtShowAgentAnswer', 'the agent answer is looked up by the host (questTodoAgentAnswerAndGuide.dom.test.ts)');
         assert.match(w.qtRenderDatesSection(DONE).split('qt-answer-row')[1], /^(?![\s\S]*(<input|<textarea))/, 'the answer is not editable');
-        assert.doesNotMatch(w.qtRenderDatesSection({ ...DONE, status: 'in-progress' }), /qt-answer-row/, 'no answer row for an open todo');
     });
 
     test('MP-3: the new-todo form', (t) => {

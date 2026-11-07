@@ -1232,7 +1232,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         '</div>' +
-        qtUserActionRow(todo.user_action === true) +
+        qtUserActionRow(todo.user_action === true, true) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -1737,14 +1737,15 @@ function qtRenderDatesSection(todo) {
 }
 
 /**
- * The answer of the queue run that completed the todo (`last_answer`, written
- * by the prompt queue): a label and the two markdown preview buttons.
- * Only for completed todos, and never editable.
+ * The agent answer of a saved todo, whatever its status: the two markdown
+ * preview buttons. The host finds the newest answer in the quest's session
+ * trails that reported the todo (TODO=<ref>, a chat send or a queue run),
+ * else the stored `last_answer` of a todo walk. Never editable.
  */
 function qtAnswerRow(todo) {
-    if (!todo || todo.status !== 'completed' || !todo.last_answer) return '';
+    if (!todo) return '';
     return '<div class="qt-inline-row qt-answer-row">' +
-        qtFormRow('Answer', qtMdButtons('answer', 'the answer of the queue run that completed this todo')) +
+        qtFormRow('Agent answer', qtMdButtons('answer', 'the newest agent answer that reported this todo')) +
         '</div>';
 }
 
@@ -1763,11 +1764,10 @@ function qtMdButtons(field, what) {
         '</span>';
 }
 
-var QT_MD_FIELD_LABELS = { desc: 'Description', notes: 'Notes', answer: 'Answer' };
+var QT_MD_FIELD_LABELS = { desc: 'Description', notes: 'Notes' };
 
-/** The field's text as it is now: the form's value (unsaved edits included), or the stored answer. */
+/** The field's text as it is now: the form's value, unsaved edits included. */
 function qtMdFieldText(field) {
-    if (field === 'answer') return (qtDetailTodo && qtDetailTodo.last_answer) || '';
     var el = document.getElementById(field === 'desc' ? 'qt-d-desc' : 'qt-d-notes');
     return el ? el.value : '';
 }
@@ -1777,6 +1777,20 @@ function qtHandleMdButtonClick(e) {
     if (!btn) return;
     e.preventDefault();
     var field = btn.getAttribute('data-qt-md-field');
+    var mode = btn.getAttribute('data-qt-md-mode') === 'editor' ? 'editor' : 'overlay';
+    if (field === 'answer') {
+        // The host looks the answer up in the trails; the stored one is the fallback.
+        if (!qtDetailTodo) return;
+        vscode.postMessage({
+            type: 'qtShowAgentAnswer',
+            mode: mode,
+            questId: qtCurrentQuestId,
+            todoId: qtDetailTodo.id,
+            sourceFile: qtDetailTodo._sourceFile || undefined,
+            fallback: qtDetailTodo.last_answer || '',
+        });
+        return;
+    }
     var isNew = !!document.getElementById('qt-btn-create');
     var owner = isNew ? 'New todo' : ((qtDetailTodo && qtDetailTodo.id) || 'Todo');
     vscode.postMessage({
@@ -2287,11 +2301,39 @@ function qtShowNewTodoForm(id) {
 
 function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + label + '</label>' + input + '</div>'; }
 
-/** The "Your to do" checkbox (`user_action`), the same in the new-todo and the detail form. */
-function qtUserActionRow(checked) {
-    return qtFormRow('Your to do', '<label title="A prefix* queue walk passes this todo and goes on with the next one">' +
-        '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>');
+/**
+ * The "Your to do" checkbox (`user_action`), the same in the new-todo and the
+ * detail form. On a saved todo (`withGuide`) two buttons follow it: Guide me
+ * through the todo in the chat, or via the prompt queue, both with the
+ * "Guide me through a user action" template (qtGuideUserAction).
+ */
+function qtUserActionRow(checked, withGuide) {
+    var guide = withGuide
+        ? '<span class="qt-guide-btns">' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="chat" title="Guide me through this todo in the chat (ANTHROPIC/LLM panel, template &quot;Guide me through a user action&quot;)">' +
+                '<span class="codicon codicon-comment-discussion"></span></button>' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="queue" title="Add this todo to the prompt queue with the &quot;Guide me through a user action&quot; template (staged)">' +
+                '<span class="codicon codicon-list-ordered"></span></button>' +
+          '</span>'
+        : '';
+    return qtFormRow('Your to do', '<div class="qt-user-action-line"><label title="A prefix* queue walk passes this todo and goes on with the next one">' +
+        '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>' + guide + '</div>');
 }
+
+/** The Guide me buttons (qtUserActionRow): one delegated handler. */
+function qtHandleGuideButtonClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-guide-btn') : null;
+    if (!btn || !qtDetailTodo) return;
+    e.preventDefault();
+    vscode.postMessage({
+        type: 'qtGuideUserAction',
+        target: btn.getAttribute('data-qt-guide') === 'queue' ? 'queue' : 'chat',
+        questId: qtCurrentQuestId,
+        todoId: qtDetailTodo.id,
+        sourceFile: qtDetailTodo._sourceFile || undefined,
+    });
+}
+document.addEventListener('click', qtHandleGuideButtonClick);
 
 function qtShowMassAddOverlay() {
     var overlay = document.getElementById('qt-mass-overlay');

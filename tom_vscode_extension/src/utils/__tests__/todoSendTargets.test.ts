@@ -190,7 +190,7 @@ describe('todo panel sends carry the todo record', () => {
             assert.ok(sent.includes(`REQUIRED: Add responseValue #TODO=${REF}`), `${name}: the report line`);
         }
         const handler = fs.readFileSync(path.join(root, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
-        assert.equal((handler.match(/_todoPromptFragment\(todo, questId, /g) ?? []).length, 4, 'Send, Add to queue, both stack actions');
+        assert.equal((handler.match(/_todoPromptFragment\(todo, questId, /g) ?? []).length, 6, 'Send, Add to queue, both stack actions, Guide me in the chat and via the queue');
         assert.match(handler, /\{ query: unescapePlaceholders\(expanded\) \}/);
         assert.match(guide!, /comes with its complete YAML/, 'Guide me works from the record');
     });

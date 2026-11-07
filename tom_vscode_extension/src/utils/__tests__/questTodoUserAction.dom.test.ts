@@ -58,7 +58,7 @@ describe('todo panel: user-action todos', () => {
         assert.equal(w.qtCollectFormData().user_action, undefined, 'a form without the checkbox: nothing to write');
         assert.match(w.qtUserActionRow(true), /id="qt-d-user-action" checked>/);
         assert.doesNotMatch(w.qtUserActionRow(false), /checked/);
-        assert.match(media('questTodoPanel', 'main.js'), /qtUserActionRow\(todo\.user_action === true\)/, 'the detail form shows the stored value');
+        assert.match(media('questTodoPanel', 'main.js'), /qtUserActionRow\(todo\.user_action === true, true\)/, 'the detail form shows the stored value');
     });
 
     const todos = [

@@ -60,3 +60,26 @@ export function dedupeTodoRefs(refs: readonly string[]): string[] {
     }
     return out;
 }
+
+/**
+ * Extract TODO references from an answer entry's `variables` metadata.
+ * Variables format (from *.answers.md):
+ *   - TODO = _ai/quests/<quest>/<file>.todo.yaml/<todoId>
+ *   - TODO2 = ...
+ * Keys must contain uppercase "TODO".
+ */
+export function extractTodoRefsFromVariables(variables: string | undefined): string[] {
+    if (!variables) {return [];}
+    const refs: string[] = [];
+    const lines = variables.split('\n');
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/^\s*-\s*/, '').trim();
+        const eqIdx = line.indexOf('=');
+        if (eqIdx < 1) {continue;}
+        const key = line.substring(0, eqIdx).trim();
+        if (key.indexOf('TODO') === -1) {continue;}
+        const val = line.substring(eqIdx + 1).trim();
+        if (val) {refs.push(val);}
+    }
+    return refs;
+}

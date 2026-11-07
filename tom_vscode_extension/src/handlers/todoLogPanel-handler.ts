@@ -20,7 +20,7 @@ import {
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
 import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
-import { parseTodoRef, dedupeTodoRefs } from '../utils/todoLogRefs.js';
+import { parseTodoRef, dedupeTodoRefs, extractTodoRefsFromVariables } from '../utils/todoLogRefs.js';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 
@@ -318,28 +318,6 @@ interface TodoLogEntry {
 // Helpers
 // ============================================================================
 
-/**
- * Extract TODO references from an answer entry's `variables` metadata.
- * Variables format (from *.answers.md):
- *   - TODO = _ai/quests/<quest>/<file>.todo.yaml/<todoId>
- *   - TODO2 = ...
- * Keys must contain uppercase "TODO".
- */
-function extractTodoRefsFromVariables(variables: string | undefined): string[] {
-    if (!variables) return [];
-    const refs: string[] = [];
-    const lines = variables.split('\n');
-    for (const rawLine of lines) {
-        const line = rawLine.replace(/^\s*-\s*/, '').trim();
-        const eqIdx = line.indexOf('=');
-        if (eqIdx < 1) continue;
-        const key = line.substring(0, eqIdx).trim();
-        if (key.indexOf('TODO') === -1) continue;
-        const val = line.substring(eqIdx + 1).trim();
-        if (val) refs.push(val);
-    }
-    return refs;
-}
 
 // ============================================================================
 // Registration

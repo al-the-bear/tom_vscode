@@ -2,10 +2,11 @@
  * The todo panel shows a todo walk's final answer (`last_answer`,
  * media/questTodoPanel/main.js; cc_parity_a_start-18).
  *
- *   QA-1 the detail form's Dates section shows an "Answer" label and its two markdown preview buttons
- *        only for a completed todo that has an answer; no input, so it is not editable
- *   QA-2 the overlay button asks the host to render the answer; the host's HTML opens in the markdown
- *        overlay with the todo id, and Close closes it (more in markdownPreviewButtons.dom.test.ts)
+ *   QA-1 the detail form's Dates section shows an "Agent answer" label and its two markdown preview
+ *        buttons for every saved todo; no input, so it is not editable
+ *   QA-2 the overlay button asks the host for the agent answer with the stored last_answer as
+ *        fallback; the host's HTML opens in the markdown overlay, and Close closes it
+ *        (more in questTodoAgentAnswerAndGuide.dom.test.ts)
  *   QA-3 the form data never carries last_answer (an autosave cannot change or drop it)
  *   QA-4 the host renders the answer with the safe renderer (raw HTML escaped)
  */
@@ -46,8 +47,8 @@ describe('todo panel: the last answer', () => {
         assert.match(html, /data-qt-md-field="answer" data-qt-md-mode="overlay"/);
         assert.match(html, /data-qt-md-field="answer" data-qt-md-mode="editor"/);
         assert.doesNotMatch(html.split('qt-answer-row')[1], /<input|<textarea/, 'no editable field');
-        assert.doesNotMatch(w.qtRenderDatesSection({ ...DONE, status: 'in-progress' }), /qt-answer-row/, 'not for an open todo');
-        assert.doesNotMatch(w.qtRenderDatesSection({ ...DONE, last_answer: undefined }), /qt-answer-row/, 'not without an answer');
+        assert.match(w.qtRenderDatesSection({ ...DONE, status: 'in-progress' }), /Agent answer/, 'also for an open todo');
+        assert.match(w.qtRenderDatesSection({ ...DONE, last_answer: undefined }), /Agent answer/, 'also without a stored answer');
     });
 
     test('QA-2: the button and the popup', (t) => {
@@ -56,7 +57,9 @@ describe('todo panel: the last answer', () => {
         pane.innerHTML = w.qtRenderDatesSection(DONE);
         w.eval(`qtDetailTodo = ${JSON.stringify(DONE)};`);
         pane.querySelector('.qt-md-btn[data-qt-md-field="answer"][data-qt-md-mode="overlay"]').click();
-        assert.deepEqual(posted.pop(), { type: 'qtRenderMarkdown', title: 'qr1 — Answer', markdown: DONE.last_answer });
+        const asked = posted.pop() as Record<string, unknown>;
+        assert.equal(asked.type, 'qtShowAgentAnswer');
+        assert.equal(asked.fallback, DONE.last_answer);
         w.qtHandleMessage({ type: 'qtMarkdownHtml', title: 'qr1 — Answer', html: '<h1>Done</h1><p>All <strong>green</strong>.</p>' });
         const overlay = w.document.querySelector('.tom-md-overlay');
         assert.ok(overlay.classList.contains('visible'), 'the overlay opens');
