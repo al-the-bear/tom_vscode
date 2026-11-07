@@ -803,6 +803,7 @@ The raw trail's payload file marks each tool `deferred` or `named by the prompt`
 ### 5.2 Anthropic API direct (`transport: 'direct'`)
 
 - All ✅-rows are on by default; no preset exists. Outside the core set they are deferred and found by tool search (§5.0).
+- Working hints for this transport go into the profile's system prompt with a file placeholder, after `${instructions}`: `${file-CLAUDE-direct.md}` in this workspace (how to read, search, batch calls and recover cut results). Its direct todo profiles also set **Effort** `high` (`output_config.effort`); the raw trail's payload file shows both.
 - `tomAi_runCommandStream`/`tomAi_readCommandOutput`/`tomAi_killCommand` are the only way to stream long-running commands on this transport — leave them on when test-running or building.
 - Wire `tomAi_spawnSubagent` by calling `registerSubagentSpawner()` in `anthropic-handler.ts`; until then it returns an instructive error.
 
