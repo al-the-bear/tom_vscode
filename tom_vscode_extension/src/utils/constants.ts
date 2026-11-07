@@ -222,6 +222,10 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_docspecsOutline',
     'tomAi_docspecsGetSection',
     'tomAi_docspecsReplaceSection',
+    // Questions in plain Markdown (the MD Browser's parser)
+    'tomAi_mdQuestions',
+    'tomAi_mdSetAnswer',
+    'tomAi_mdProposeAnswer',
     // TomSpecs (SOM) edits — write tools, approval-gated
     'tomAi_specAddNode',
     'tomAi_specClearSection',

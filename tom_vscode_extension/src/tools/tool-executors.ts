@@ -575,7 +575,7 @@ let localLlmBridgeToolsInitialized = false;
  * to first use, it runs when the event loop is idle (<1s).
  */
 async function ensureLocalLlmBridgeToolsInitialized(): Promise<void> {
-    if (localLlmBridgeToolsInitialized) return;
+    if (localLlmBridgeToolsInitialized) { return; }
     localLlmBridgeToolsInitialized = true;
     try {
         const sub = performance.now();
@@ -1520,6 +1520,7 @@ import { SPEC_ANNOTATION_TOOLS } from './spec-annotation-tools';
 import { SPEC_ANSWERS_TOOLS } from './spec-answers-tools';
 import { SPEC_VALIDATE_TOOLS } from './spec-validate-tools';
 import { DOCSPECS_TOOLS } from './docspecs-tools';
+import { MD_QUESTION_TOOLS } from './md-question-tools';
 import { CODESPECS_TOOLS } from './codespecs-tools';
 import { CODESPECS_GATE_TOOLS } from './codespecs-gate-tools';
 import { CODESPECS_TRACE_TOOLS } from './codespecs-trace-tools';
@@ -1615,6 +1616,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CODESPECS_WORKFLOW_TOOLS,  // CodeSpecs: where a document is in Phase 4; the workflow guides and runbooks
     ...SESSION_TOOLS,             // Named Agent SDK sessions: list and create (queue items name theirs with `session`)
     ...DOCSPECS_TOOLS,            // plain DocSpecs Markdown: docspecsValidate, docspecsOutline, docspecsGetSection, docspecsReplaceSection (approval)
+    ...MD_QUESTION_TOOLS,         // questions in plain Markdown: mdQuestions, mdSetAnswer / mdProposeAnswer (approval)
 ];
 
 /**

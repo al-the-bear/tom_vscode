@@ -3,8 +3,10 @@
 // Pure string logic with no DOM and no `vscode` handle, kept in its own file so
 // it can be loaded into a bare `vm` sandbox and unit-tested directly
 // (src/utils/__tests__/mdBrowserBlocks.test.ts). Loaded as a classic script
-// before main.js; the declarations below are globals main.js calls.
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta */
+// before main.js; the declarations below are globals main.js calls. The question
+// and answer parser is media/shared/mdQuestions.js, loaded before this file and
+// shared with the extension host (src/utils/mdQuestions.ts).
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, mdbAttribution */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -15,9 +17,6 @@
  * @type {Record<string, boolean>}
  */
 var MDB_EDITABLE_TYPES = { paragraph: true, list: true, blockquote: true, table: true, code: true };
-
-/** The review-answer marker an answer is written after. */
-var MDB_ANSWER_MARKER = '**Answer:**';
 
 /**
  * The top-level blocks of `text` with their line ranges.
@@ -73,190 +72,6 @@ function countNewlines(src, from, to) {
 }
 
 /**
- * Every `**Answer:**` marker outside fenced code: its line, the column just
- * after it, and its ordinal among the markers on lines `startLine..endLine`
- * of the block it sits in is derived by the caller.
- *
- * @param {string} text
- * @returns {Array<{line: number, column: number}>}
- */
-function mdbAnswerMarkers(text) {
-    var lines = String(text || '').replace(/\r\n|\r/g, '\n').split('\n');
-    var out = [];
-    var fence = null;
-    for (var i = 0; i < lines.length; i++) {
-        var m = /^\s{0,3}(`{3,}|~{3,})/.exec(lines[i]);
-        if (m) {
-            if (fence === null) { fence = m[1][0]; continue; }
-            if (fence === m[1][0]) { fence = null; continue; }
-        }
-        if (fence !== null) { continue; }
-        var from = 0;
-        for (;;) {
-            var at = lines[i].indexOf(MDB_ANSWER_MARKER, from);
-            if (at < 0) { break; }
-            out.push({ line: i, column: at + MDB_ANSWER_MARKER.length });
-            from = at + MDB_ANSWER_MARKER.length;
-        }
-    }
-    return out;
-}
-
-/** A blockquote prefix (`> `, `>> `, with optional indentation). */
-var MDB_QUOTE_PREFIX = /^\s*(?:>\s?)+/;
-/** Lines that start a block of their own and so end an answer outside a quote. */
-var MDB_BLOCK_START = /^\s*(?:[-*+]\s|\d+[.)]\s|#|```|~~~|\||>)/;
-
-/**
- * @param {string} line
- * @returns {number} the blockquote depth of the line
- */
-function mdbQuoteDepth(line) {
-    var m = MDB_QUOTE_PREFIX.exec(line);
-    return m ? (m[0].match(/>/g) || []).length : 0;
-}
-
-/**
- * The answer written after the marker that ends at `column` of `lines[line]`,
- * as the answer import reads it: the rest of the line and, inside a
- * blockquote, the following lines of the same quote up to a bare `>` line, a
- * blank line or a line without `>`; outside a quote, the rest of the
- * paragraph. Another `**Answer:**` ends it, also later on the same line.
- *
- * @param {string[]} lines
- * @param {number} line
- * @param {number} column
- * @returns {{text: string, endLine: number}} the answer (lines joined by `\n`,
- *   quote prefixes removed) and the line after it
- */
-function mdbAnswerAt(lines, line, column) {
-    var rest = lines[line].slice(column);
-    var next = rest.indexOf(MDB_ANSWER_MARKER);
-    if (next >= 0) { return { text: rest.slice(0, next).trim(), endLine: line + 1 }; }
-    var parts = [rest.trim()];
-    var depth = mdbQuoteDepth(lines[line]);
-    var end = line + 1;
-    for (; end < lines.length; end++) {
-        var l = lines[end];
-        if (l.indexOf(MDB_ANSWER_MARKER) >= 0 || l.trim() === '') { break; }
-        if (depth > 0) {
-            if (mdbQuoteDepth(l) !== depth) { break; }
-            var body = l.replace(MDB_QUOTE_PREFIX, '');
-            if (body.trim() === '') { break; }
-            parts.push(body.trim());
-        } else {
-            if (MDB_BLOCK_START.test(l)) { break; }
-            parts.push(l.trim());
-        }
-    }
-    return { text: parts.join('\n').replace(/^\n+/, ''), endLine: end };
-}
-
-/**
- * The lines `line .. mdbAnswerAt(...).endLine` with `answer` written after the
- * marker that ends at `column`: `**Answer:** <answer>`, each further line of
- * the answer under the same quote prefix. Blank lines would end the answer,
- * so they are dropped; an empty answer clears it. A marker followed by
- * another on its line keeps that rest and takes the answer on one line.
- *
- * @param {string[]} lines
- * @param {number} line
- * @param {number} column
- * @param {string} answer
- * @returns {string}
- */
-function mdbWriteAnswer(lines, line, column, answer) {
-    var text = lines[line];
-    var head = text.slice(0, column);
-    var answerLines = String(answer).replace(/\r\n|\r/g, '\n').split('\n')
-        .map(function(l) { return l.trim(); })
-        .filter(function(l) { return l !== ''; });
-    var rest = text.slice(column);
-    var next = rest.indexOf(MDB_ANSWER_MARKER);
-    if (next >= 0) {
-        return head + (answerLines.length ? ' ' + answerLines.join(' ') : '') + ' ' + rest.slice(next);
-    }
-    if (answerLines.length === 0) { return head; }
-    var quote = MDB_QUOTE_PREFIX.exec(text);
-    var prefix = quote ? quote[0].replace(/\s*$/, ' ') : '';
-    return [head + ' ' + answerLines[0]].concat(answerLines.slice(1).map(function(l) { return prefix + l; })).join('\n');
-}
-
-// ---- Questions and their options ----
-// A question block (tom_specs annot1): `> **❓ BQ-07 — topic:** text`, in a
-// block of several questions also `> **BQ-08 — field:** text`, then its
-// options `> - (a) …` (continuation lines indented), maybe a
-// `> *Recommendation:* (c) …` line, and `> **Answer:**`. Options are a single
-// lowercase letter in round brackets; the recommended one is written bold,
-// `**(b)**`.
-
-/** A question header: `**❓ <ID>` or `**<ID> — `. */
-var MDB_QUESTION_HEAD = /\*\*(?:❓\s*([A-Z][A-Z0-9]*-\d+)|([A-Z][A-Z0-9]*-\d+)\s*(?:★\s*)?—)/;
-/** An option line: `- (a) text` or `- **(b)** text` (also `- **(b) text**`). */
-var MDB_OPTION = /^\s*[-*]\s+(\*\*)?\(([a-z])\)(\*\*)?\s*(.*)$/;
-var MDB_RECOMMENDATION = /^\s*\*?Recommendation:\*?\s*\(([a-z])\)/;
-
-/**
- * The question the `**Answer:**` on `lines[answerLine]` answers: its id, the
- * line of its header, its options and the recommended option — the bold one,
- * else the one whose text says "recommended", else the letter a
- * `*Recommendation:*` line names. Null when no question header is found above
- * the answer (before the previous answer).
- *
- * For a SOM document the host reads the questions with the TomSpecs runtime
- * (som-review-comments.ts); `fromRuntime` maps a question id to that reading,
- * whose options and recommended letter then replace the browser's own, so the
- * browser and the agents' tools read a question the same way. `source` says
- * which reading was used.
- *
- * @param {string[]} lines
- * @param {number} answerLine
- * @param {Object<string, {options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null)}>|null} [fromRuntime]
- * @returns {{id: string, line: number, options: Array<{letter: string, text: string, bold: boolean}>, recommended: (string|null), source: string}|null}
- */
-function mdbQuestionAt(lines, answerLine, fromRuntime) {
-    var head = -1;
-    var id = '';
-    for (var i = answerLine - (lines[answerLine].indexOf(MDB_ANSWER_MARKER) > 0 && MDB_QUESTION_HEAD.test(lines[answerLine]) ? 0 : 1); i >= 0 && i > answerLine - 400; i--) {
-        if (i < answerLine && lines[i].indexOf(MDB_ANSWER_MARKER) >= 0) { break; }
-        if (/^\s*#/.test(lines[i])) { break; }
-        var h = MDB_QUESTION_HEAD.exec(lines[i]);
-        if (h) { head = i; id = h[1] || h[2]; break; }
-    }
-    if (head < 0) { return null; }
-    var known = fromRuntime && Object.prototype.hasOwnProperty.call(fromRuntime, id) ? fromRuntime[id] : null;
-    if (known) {
-        return { id: id, line: head, options: known.options.slice(), recommended: known.recommended, source: 'runtime' };
-    }
-    /** @type {Array<{letter: string, text: string, bold: boolean}>} */
-    var options = [];
-    var fromLine = null;
-    var current = null;
-    for (var k = head + 1; k < answerLine; k++) {
-        var body = lines[k].replace(MDB_QUOTE_PREFIX, '');
-        var o = MDB_OPTION.exec(body);
-        if (o) {
-            var text = o[4];
-            var bold = !!o[1];
-            if (bold && !o[3]) { text = text.replace(/\*\*/, ''); }
-            current = { letter: o[2], text: text.replace(/\*\*$/, '').trim(), bold: bold };
-            options.push(current);
-            continue;
-        }
-        var r = MDB_RECOMMENDATION.exec(body);
-        if (r) { fromLine = r[1]; current = null; continue; }
-        // An indented line continues the option above; anything else ends it.
-        if (current && /^\s{2,}\S/.test(body)) { current.text += ' ' + body.trim(); continue; }
-        current = null;
-    }
-    var recommended = null;
-    for (var b = 0; b < options.length && recommended === null; b++) { if (options[b].bold) { recommended = options[b].letter; } }
-    for (var t = 0; t < options.length && recommended === null; t++) { if (/\brecommended\b/i.test(options[t].text)) { recommended = options[t].letter; } }
-    if (recommended === null && fromLine) { recommended = fromLine; }
-    return { id: id, line: head, options: options, recommended: recommended, source: 'browser' };
-}
-
-/**
  * The count shown beside the search and the navigation arrows: which match is
  * current and how many there are — `147/356`; `–/356` before the first step;
  * `0/0` when nothing matches.
@@ -268,16 +83,6 @@ function mdbQuestionAt(lines, answerLine, fromRuntime) {
 function mdbCountLabel(index, total) {
     if (total <= 0) { return '0/0'; }
     return (index >= 0 ? String(index + 1) : '–') + '/' + total;
-}
-
-/**
- * The answer that picks option `letter`: `(b)`.
- *
- * @param {string} letter
- * @returns {string}
- */
-function mdbOptionAnswer(letter) {
-    return '(' + letter + ')';
 }
 
 // ---- Folding ----

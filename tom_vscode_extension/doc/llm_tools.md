@@ -699,6 +699,30 @@ answers carry a `migrationHint` naming the conversion,
 `_bin/check_docspecs_documents.py` validates every declaring document of the
 workspace with the same rules.
 
+### 4.24a Questions in plain Markdown
+
+Any Markdown document written in the review syntax — the quest's completions
+and clarification documents, a questionnaire opened with
+`tomAi_askInMdBrowser` — not only TomSpecs specs. A question block is
+`> **❓ CC-125 — topic:** text` (in a block of several, the later ones
+`> **CC-126 — topic:** text`), its options `> - (a) …` (the recommended one
+bold, `**(b)**`, else the one saying "recommended", else the letter of a
+`*Recommendation:* (c)` line), and `> **Answer:**` with the answer after it.
+The tools read and write on the MD Browser's own parser,
+`media/shared/mdQuestions.js`: the browser loads it as a script, the host runs
+the same file in a `vm` context (`src/utils/mdQuestions.ts`), so a question
+reads the same in both. Fenced code is not read, so an example of the syntax in
+a code block is no question. Writes take the save path of every edit: the text
+of an open editor, refused when the file is dirty there or changed since
+`expectedRevision`; `dryRun` returns the diff. For TomSpecs documents the
+`tomAi_spec*` annotation tools read the questions with the runtime.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_mdQuestions` | Every question block of a Markdown file: `id`, `topic`, `text`, `line`, `options`, `recommended`, `answer`, `open`, `answerLine` (null without an Answer line) and `proposed` (a proposed answer under it). `id` / `openOnly` narrow it; `revision` for the writers. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_mdSetAnswer` | Write a question's answer after its `**Answer:**` (approval): `option` writes the letter first (`(b) because …`), `answer` the text; `""` clears it. A duplicate id needs `line`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_mdProposeAnswer` | Write a proposal under the question, after its answer and a bare `>` line, as `> **Proposed answer** (<source>, <date>): …` (approval); the answer stays open for the user to accept, edit or discard it. A proposal already there is replaced. | ✅ | ✅ | ⚪ | ✅ |
+
 ### 4.25 CodeSpecs (Phase 4: a filled spec becomes code-generation inputs)
 
 These tools run the runtime's `CodeSpecsExtractor` over one TomSpecs document

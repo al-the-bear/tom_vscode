@@ -58,6 +58,11 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_docspecsReplaceSection',
         'tomAi_docspecsValidate',
     ],
+    'Markdown Questions': [
+        'tomAi_mdQuestions',
+        'tomAi_mdSetAnswer',
+        'tomAi_mdProposeAnswer',
+    ],
     'Editor Context': [
         'tomAi_getActiveEditor',
         'tomAi_getOpenEditors',

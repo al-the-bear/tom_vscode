@@ -80,10 +80,12 @@ interface BlocksApi {
 }
 
 function load(): BlocksApi {
-    const src = readFileSync(join(__dirname, '..', '..', '..', 'media', 'markdownBrowser', 'blocks.js'), 'utf-8');
+    const media = join(__dirname, '..', '..', '..', 'media');
     const sandbox: Record<string, unknown> = {};
     vm.createContext(sandbox);
-    vm.runInContext(src, sandbox);
+    // The question parser is shared with the host (media/shared/mdQuestions.js); the browser loads it first.
+    vm.runInContext(readFileSync(join(media, 'shared', 'mdQuestions.js'), 'utf-8'), sandbox);
+    vm.runInContext(readFileSync(join(media, 'markdownBrowser', 'blocks.js'), 'utf-8'), sandbox);
     return sandbox as unknown as BlocksApi;
 }
 const api = load();

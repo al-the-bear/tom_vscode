@@ -46,6 +46,7 @@ function setup(): Win {
     const window = dom.window as Win;
     window.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined });
     window.eval(MARKED);
+    window.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     window.eval(asset('blocks.js'));
     window.eval(asset('main.js'));
     return window;

@@ -94,6 +94,7 @@ function setup(): { window: Win; posted: Array<Record<string, unknown>> } {
     const posted: Array<Record<string, unknown>> = [];
     window.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(m), setState: () => undefined });
     window.eval(MARKED);
+    window.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     window.eval(asset('blocks.js'));
     window.eval(asset('main.js'));
     return { window, posted };
