@@ -66,7 +66,10 @@ function isMarkable(block: unknown): boolean {
 export function withToolsCacheBreakpoint<T extends object>(tools: readonly T[]): T[] {
     if (tools.length === 0) { return []; }
     const copy = tools.slice();
-    const last = copy.length - 1;
+    // The last tool the model reads: a deferred one (`defer_loading`, found by
+    // tool search) is not part of the prompt, so the breakpoint goes before them.
+    let last = copy.length - 1;
+    while (last > 0 && (copy[last] as { defer_loading?: unknown }).defer_loading === true) { last--; }
     copy[last] = { ...copy[last], cache_control: EPHEMERAL_CACHE_CONTROL } as T;
     return copy;
 }

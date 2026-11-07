@@ -45,6 +45,8 @@ export interface PayloadDumpInputs {
     thinking?: { thinking?: unknown; output_config?: { effort: string }; effort?: string; notes: string[] };
     useBuiltInTools?: boolean;
     compactedSummary?: string;
+    /** Which tools are deferred (direct tool search) and which the prompt's directive named (src/utils/toolSelection.ts). */
+    toolPlan?: { deferred: string[]; fromPrompt: string[]; unknown: string[] };
 }
 
 /**
@@ -102,14 +104,22 @@ export function buildPayloadDump(params: PayloadDumpInputs): string {
     lines.push('```');
     lines.push('');
 
-    lines.push(`## Tools (${tools.length})`);
+    const plan = params.toolPlan;
+    const deferred = new Set(plan?.deferred ?? []);
+    const named = new Set(plan?.fromPrompt ?? []);
+    lines.push(`## Tools (${tools.length}${deferred.size > 0 ? `; ${tools.length - deferred.size} in full, ${deferred.size} deferred — found by tool search` : ''})`);
     lines.push('');
     if (tools.length === 0) {
         lines.push('_(none)_');
     } else {
         for (const t of tools) {
-            lines.push(`- \`${t.name}\``);
+            const marks = [deferred.has(t.name) ? 'deferred' : '', named.has(t.name) ? 'named by the prompt' : ''].filter(Boolean);
+            lines.push(`- \`${t.name}\`${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`);
         }
+    }
+    if (plan && plan.unknown.length > 0) {
+        lines.push('');
+        lines.push(`The prompt's tools directive named no tool of the profile for: ${plan.unknown.map((u) => `\`${u}\``).join(', ')}.`);
     }
     lines.push('');
 

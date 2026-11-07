@@ -460,6 +460,12 @@
                     "items": { "type": "string" },
                     "description": "Profile-level tool subset. Only used when toolsEnabled is false."
                 },
+                "coreTools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Tools added to the core set: always sent in full. On the direct transport every tool outside the core set and the prompt's `<!-- tools: … -->` directive is deferred and found by tool search; on Local LLM / VS Code LM a prompt with a directive gets the core set plus its tools."
+                },
+                "toolSearch": { "type": "boolean", "description": "Direct transport: defer the tools outside the core set and add the server-side tool search (default true). false sends every tool in full." },
                 "maxRounds": { "type": "integer", "minimum": 1 },
                 "historyMode": { "type": ["string", "null"] },
                 "thinking": {

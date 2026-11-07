@@ -305,7 +305,7 @@ Use command palette or editor context menu:
 - `@T: Send to Copilot (Default Template)`
 - `@T: Send to Copilot (Pick Template)`
 
-The templates are the one template store, the user-message templates (template editor: **Anthropic — User Message**); **Default Template** uses the one marked default. In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications, and response-value extraction.
+The templates are the one template store, the user-message templates (template editor: **Anthropic — User Message**); **Default Template** uses the one marked default. A template (or a process step's prompt) can name the tools its prompts need with a line `<!-- tools: tomAi_specApplyEdits, TomSpecs (edit) -->`: on the direct API they are sent in full next to the core set and the rest is found by tool search, on Local LLM and VS Code LM the core set plus these tools are the whole list ([llm_tools.md §5.0](llm_tools.md#50-tools-a-request-carries)). In `@CHAT`, Copilot supports templates, prompt slots, answer-file notifications, and response-value extraction.
 
 The **Copilot Queue Wrapper** (template editor: **Copilot — Queue Wrapper**, config `copilot.queueWrapper`; a built-in default when not set) goes around every Copilot send that waits for an answer — queue items, the todo panel's buttons, `tomAi_askCopilot` — and makes Copilot write the answer file the queue waits for. The subpanel's own **Send** wraps only when its **Wrap** checkbox is ticked (off by default); Preview shows the prompt as Send would send it.
 

@@ -199,6 +199,10 @@ export interface SendToChatConfig {
             configurationId?: string;
             toolsEnabled?: boolean;
             enabledTools?: string[];
+            /** Tools added to the core set, always sent in full (src/utils/toolSelection.ts). */
+            coreTools?: string[];
+            /** Direct transport: false sends every tool in full instead of deferring the non-core ones (default true). */
+            toolSearch?: boolean;
             maxRounds?: number;
             historyMode?: string | null;
             /** 'adaptive' | 'off'; absent = the model's default (src/utils/thinkingAndEffort.ts). */

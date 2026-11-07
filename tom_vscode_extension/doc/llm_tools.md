@@ -780,9 +780,29 @@ Tool descriptions are short: purpose, arguments and the one trap, each at most 1
 - `tomAi_spawnSubagent` is redundant when `Task` is available; keep off.
 - Keep all the ✅-rows on — they're VS Code specific and have no SDK equivalent (editor context, problems, symbols, code actions, git writes, tasks/debug, issues/tests, quest/session todos, chat variables, memory, pattern prompts, guidelines, user interaction).
 
+### 5.0 Tools a request carries
+
+The **core set** is always sent in full: `tomAi_readFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_createFile`, `tomAi_listDirectory`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_runCommand`, `tomAi_runCommandStream`, `tomAi_readCommandOutput`, `tomAi_gitRead`, `tomAi_gitWrite`, `tomAi_getQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_createQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_askUser`, `tomAi_readPastToolResult`, `tomAi_notifyUser`, `tomAi_describeTool` (`DEFAULT_CORE_TOOLS`, `src/utils/toolSelection.ts`), plus the profile's **Core Tools (added)** (`coreTools`).
+
+A prompt names more tools with a line in its text — in a user-message template, a process step's prompt or the typed prompt:
+
+```text
+<!-- tools: tomAi_specApplyEdits, TomSpecs (edit), tomAi_specCodeSpecs* -->
+```
+
+Entries are tool names, tool families (the groups of the profile editor's tool picker, any case) or a `prefix*`; only the profile's own tools are chosen, and entries that name none are listed in the payload dump. The line is removed from the text sent.
+
+| Transport | What the request carries |
+| --- | --- |
+| Direct API | Every tool of the profile. The core set and the prompt's tools in full; the others with `defer_loading: true`, after the server-side BM25 tool search (`tool_search_tool_bm25_20251119`), which loads a deferred schema when the model looks for it. The cache breakpoint sits on the last tool sent in full. A profile with **Tool Search (direct)** off (`toolSearch: false`) sends everything in full. |
+| Local LLM, VS Code LM | No tool search: with a directive, the core set plus the prompt's tools are the whole list; without one, the profile's list. |
+| Agent SDK | Unchanged: it defers the tools itself. |
+
+The raw trail's payload file marks each tool `deferred` or `named by the prompt`. Measured with every tool on (195): the model reads 26,334 characters of tool schemas instead of 227,719; the request body still carries the deferred schemas.
+
 ### 5.2 Anthropic API direct (`transport: 'direct'`)
 
-- All ✅-rows are on by default; no preset exists.
+- All ✅-rows are on by default; no preset exists. Outside the core set they are deferred and found by tool search (§5.0).
 - `tomAi_runCommandStream`/`tomAi_readCommandOutput`/`tomAi_killCommand` are the only way to stream long-running commands on this transport — leave them on when test-running or building.
 - Wire `tomAi_spawnSubagent` by calling `registerSubagentSpawner()` in `anthropic-handler.ts`; until then it returns an instructive error.
 

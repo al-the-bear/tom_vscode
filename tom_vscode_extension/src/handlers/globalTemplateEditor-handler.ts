@@ -25,6 +25,7 @@
  * and covers the larger set of stores the editor manages.
  */
 
+import { DEFAULT_CORE_TOOLS } from '../utils/toolSelection';
 import { DEFAULT_LEGACY_THINKING_BUDGET, EFFORT_LEVELS, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 import * as vscode from 'vscode';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -383,6 +384,8 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'configurationId', label: 'Configuration', type: 'select', value: profile.configurationId || '', options: configurationOptions, help: 'Which <code>anthropic.configurations[]</code> entry this profile uses. "(inherit default)" falls back to the configuration marked <code>isDefault</code>.' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(allToolsEnabled), help: 'When checked, <strong>every</strong> tool the extension knows about (all of <code>ALL_SHARED_TOOLS</code>) is exposed to the model. Uncheck to pick a profile-specific subset below.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(profileEnabledTools), options: toolOptions, optionGroups: toolOptionGroups, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Profile-level tool subset. Active only when "All Tools Enabled" is off. Empty subset → no tools. Use the global toolbar (Select All / None / Read-Only) or per-group buttons for bulk picks.' },
+                { name: 'coreTools', label: 'Core Tools (added)', type: 'multi-checkbox', value: JSON.stringify(Array.isArray((profile as { coreTools?: unknown }).coreTools) ? (profile as { coreTools: string[] }).coreTools : []), options: toolOptions, optionGroups: toolOptionGroups, help: `Tools added to the core set, which is always sent in full: ${DEFAULT_CORE_TOOLS.map((n) => `<code>${n}</code>`).join(', ')}. On the direct transport every other tool is deferred and found by tool search; a prompt may name more with a <code>&lt;!-- tools: name, Family, prefix* --&gt;</code> line. On Local LLM and VS Code LM a prompt with such a line gets the core set plus its tools.` },
+                { name: 'toolSearch', label: 'Tool Search (direct)', type: 'checkbox', value: String((profile as { toolSearch?: boolean }).toolSearch !== false), help: 'Direct transport: send the core set in full and defer the other tools, found by the server-side BM25 tool search. Off: every tool in full, as before.' },
                 { name: 'thinking', label: 'Thinking', type: 'select', value: thinkingSettings.thinking ?? '', options: [{ value: '', label: "(model's default)" }, { value: 'adaptive', label: 'Adaptive — the model decides how much to think' }, { value: 'off', label: 'Off' }], help: 'Sends <code>thinking: { type: "adaptive" }</code> on current models; models without adaptive thinking (Haiku 4.5 and older) get <code>{ type: "enabled", budget_tokens }</code> with the budget below. <strong>Off</strong> is not possible on Opus 5.5 and Fable (thinking is always on there; lower the effort instead) nor on Opus 5 at effort xhigh / max: no thinking parameter is sent then, and the payload dump says so. Passed to the Agent SDK as its <code>thinking</code> option.' },
                 { name: 'effort', label: 'Effort', type: 'select', value: thinkingSettings.effort ?? '', options: [{ value: '', label: "(model's default)" }, ...EFFORT_LEVELS.map((l) => ({ value: l, label: l }))], help: 'Sent as <code>output_config.effort</code> on the direct transport and as the Agent SDK\'s <code>effort</code> option. How much the model thinks and how many tokens it spends; the default is <code>medium</code> on Opus 5.5 and <code>high</code> elsewhere. A level the model does not take (xhigh on 4.6 models, any on Haiku 4.5) is left out and named in the payload dump.' },
                 { name: 'legacyThinkingBudgetTokens', label: 'Thinking Budget (older models)', type: 'number', value: String(thinkingSettings.legacyThinkingBudgetTokens ?? DEFAULT_LEGACY_THINKING_BUDGET), help: 'Token budget used only on models without adaptive thinking (Haiku 4.5, the 4.5 models and older) when Thinking is Adaptive. Minimum 1024; must stay below the configuration\'s max tokens.' },
@@ -409,7 +412,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
                 { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
                 { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
-                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '${userMessage}', help: PLACEHOLDER_HELP + '<br><br><strong>Must contain <code>${userMessage}</code></strong> — the raw text the user typed.' },
+                { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '${userMessage}', help: PLACEHOLDER_HELP + '<br><br><strong>Must contain <code>${userMessage}</code></strong> — the raw text the user typed.<br><br>A line <code>&lt;!-- tools: tomAi_specApplyEdits, TomSpecs (edit), tomAi_spec* --&gt;</code> names the tools its prompts need (tool names, families as the profile editor groups them, <code>prefix*</code>): on the direct transport they are sent in full next to the core set, the rest is found by tool search; on Local LLM and VS Code LM the core set plus these tools are the whole list. The line is removed before sending.' },
                 { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(tpl.isDefault === true) },
             );
             break;
@@ -636,6 +639,12 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             } catch {
                 enabledTools = undefined;
             }
+            let coreTools: string[] = [];
+            try {
+                const parsed = JSON.parse(values.coreTools || '[]');
+                if (Array.isArray(parsed)) { coreTools = parsed.filter((t): t is string => typeof t === 'string' && !DEFAULT_CORE_TOOLS.includes(t)); }
+            } catch { coreTools = []; }
+            const toolSearch = values.toolSearch !== 'false';
             const thinking: ThinkingMode | undefined = values.thinking === 'adaptive' || values.thinking === 'off' ? values.thinking : undefined;
             const effort = (EFFORT_LEVELS as readonly string[]).includes(values.effort) ? values.effort as EffortLevel : undefined;
             const legacyBudget = values.legacyThinkingBudgetTokens ? parseInt(values.legacyThinkingBudgetTokens, 10) : NaN;
@@ -657,6 +666,8 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 configurationId: values.configurationId || undefined,
                 toolsEnabled: allToolsEnabled,
                 ...(allToolsEnabled ? {} : { enabledTools: enabledTools ?? [] }),
+                ...(coreTools.length > 0 ? { coreTools } : {}),
+                ...(toolSearch ? {} : { toolSearch: false }),
                 ...(thinking ? { thinking } : {}),
                 ...(effort ? { effort } : {}),
                 ...(legacyThinkingBudgetTokens ? { legacyThinkingBudgetTokens } : {}),

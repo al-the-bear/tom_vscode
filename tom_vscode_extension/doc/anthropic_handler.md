@@ -103,8 +103,12 @@ A profile is a system prompt bound to a configuration. Open the **Global Templat
 - `systemPrompt` — the system prompt string (or `null` to inherit from the configuration)
 - `configurationId` — default configuration id this profile uses
 - `isDefault` — whether to preselect on panel load
+- `coreTools` (**Core Tools (added)**) — tools sent in full besides the core set
+- `toolSearch` (**Tool Search (direct)**, default on) — on the direct transport, defer the tools outside the core set and let the model find them with the server-side tool search
 
 The profile dropdown in the ANTHROPIC/LLM panel is populated from this list.
+
+Which tools a request carries — the core set, the `<!-- tools: … -->` line a prompt names more with, and what each transport does with them — is in [llm_tools.md §5.0](llm_tools.md#50-tools-a-request-carries). `sendMessage` decides it once (`withToolPlan`, `src/utils/toolSelection.ts`) before the transports split.
 
 ## 4. Enable memory tools
 

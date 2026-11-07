@@ -18,6 +18,8 @@ import { addTokenCounts, DirectSendUsage, localLlmSendUsage, tokensFromLocalStat
 import { recordRoundUsage } from '../services/usageLedgerService';
 import { parallelCallsReminder, roundResultContent } from '../utils/parallelToolCalls';
 import { appliedClearingNotice, promptTokensOf, serverToolClearing } from '../utils/serverToolClearing';
+import { planRequestTools, stripToolsDirectives, toolsDirectiveEntries, withToolSearch, type ToolPlan, type ToolTransport } from '../utils/toolSelection';
+import { CATEGORY_MAP } from '../utils/toolCategories';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
@@ -198,6 +200,10 @@ export interface AnthropicProfile {
     configurationId?: string;
     toolsEnabled?: boolean;
     enabledTools?: string[];
+    /** Tools added to the core set: always sent in full (src/utils/toolSelection.ts). */
+    coreTools?: string[];
+    /** False: the direct transport sends every tool in full instead of deferring the non-core ones. */
+    toolSearch?: boolean;
     maxRounds?: number;
     historyMode?: string | null;
     /**
@@ -305,6 +311,11 @@ interface AnthropicSection {
 export interface AnthropicSendOptions {
     /** Raw text the user typed into the panel. */
     userText: string;
+    /**
+     * Which tools the request carries, set by sendMessage from the profile and
+     * the prompt's `<!-- tools: … -->` directive (src/utils/toolSelection.ts).
+     */
+    toolPlan?: ToolPlan;
     /** Profile that supplies the system prompt. */
     profile: AnthropicProfile;
     /** Configuration that supplies model, tokens, temperature, round cap. */
@@ -497,6 +508,36 @@ type AnthropicToolResultBlockParam = Anthropic.ToolResultBlockParam;
 // ============================================================================
 // Handler
 // ============================================================================
+
+/**
+ * The tools of a send (DA-4, CC-127): reads the prompt's `<!-- tools: … -->`
+ * directives (in the typed text and the user-message template), removes them
+ * from the text, and narrows or defers the profile's tools for the transport
+ * (src/utils/toolSelection.ts). The tool list itself is narrowed only on the
+ * Local LLM and VS Code LM transports; the direct transport keeps every tool
+ * callable and defers the non-core ones.
+ */
+function withToolPlan(options: AnthropicSendOptions): AnthropicSendOptions {
+    const directive = toolsDirectiveEntries(options.userText, options.userMessageTemplate);
+    const transport = (options.configuration?.transport ?? 'direct') as ToolTransport;
+    const profile = options.profile as AnthropicProfile & { coreTools?: unknown; toolSearch?: unknown };
+    const plan = planRequestTools({
+        transport,
+        profileTools: options.tools.map((t) => t.name),
+        profileCore: Array.isArray(profile.coreTools) ? profile.coreTools.filter((n): n is string => typeof n === 'string') : [],
+        toolSearch: profile.toolSearch !== false,
+        directive,
+        categories: CATEGORY_MAP,
+    });
+    const keep = new Set(plan.tools);
+    return {
+        ...options,
+        userText: stripToolsDirectives(options.userText),
+        ...(options.userMessageTemplate !== undefined ? { userMessageTemplate: stripToolsDirectives(options.userMessageTemplate) } : {}),
+        tools: options.tools.filter((t) => keep.has(t.name)),
+        toolPlan: plan,
+    };
+}
 
 export class AnthropicHandler {
     private static _instance: AnthropicHandler | undefined;
@@ -1868,6 +1909,7 @@ export class AnthropicHandler {
 
     /** Main entry point — send a message and run the tool-call loop to completion. */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
+        options = withToolPlan(options);
         const { profile, tools, userText } = options;
         // Profile overrides configuration when set (non-null / non-empty /
         // positive). The profile carries persona-level runtime preferences
@@ -2129,6 +2171,7 @@ export class AnthropicHandler {
                 thinking: payloadThinking,
                 useBuiltInTools: profile.useBuiltInTools === true,
                 compactedSummary: this.compactedSummaryText,
+                ...(options.toolPlan ? { toolPlan: options.toolPlan } : {}),
             }),
             windowId,
             requestId,
@@ -2416,7 +2459,9 @@ export class AnthropicHandler {
             throw new Error(ANTHROPIC_CLIENT_UNAVAILABLE);
         }
 
-        const anthropicTools = toAnthropicTools(tools);
+        // Tool search (DA-4): the core set and the prompt's tools in full, the
+        // rest deferred and found by the server-side BM25 search.
+        const anthropicTools = withToolSearch(toAnthropicTools(tools), options.toolPlan?.deferred ?? []) as ReturnType<typeof toAnthropicTools>;
         // Wire payload shape:
         //
         //   [...rawTurns, <summary-prefix user>, <ack assistant>, currentUser]
