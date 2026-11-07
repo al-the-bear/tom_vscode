@@ -51,6 +51,7 @@ import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound 
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
 import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
+import { findAgentDefinition, listAgentDefinitions, resolveSubagentConfiguration, toOurToolNames, toSdkAgents } from '../services/agentDefinitions';
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -379,6 +380,12 @@ export interface AnthropicSendOptions {
      * again. The prompt queue shows it on the sending item.
      */
     onRetryWait?: (wait: RetryWait | null) => void;
+    /**
+     * Every tool call of the send, by name, as it starts — on every transport
+     * (the Agent SDK's top-level calls). A sub-agent reports its progress in
+     * the status line through it (CC-11).
+     */
+    onToolCall?: (toolName: string) => void;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -768,6 +775,11 @@ export class AnthropicHandler {
      * history compaction…"), no prefix needed.
      */
     readonly onStatusUpdate: vscode.Event<string> = this._onStatusUpdate.event;
+
+    /** Show a line in the panel's status line (a sub-agent's progress, say). */
+    reportStatus(text: string): void {
+        this._onStatusUpdate.fire(text);
+    }
 
     static init(context: vscode.ExtensionContext): AnthropicHandler {
         if (!AnthropicHandler._instance) {
@@ -2373,6 +2385,12 @@ export class AnthropicHandler {
                     interactiveQuestions: interactiveQuestionsParam,
                     autoLoadProjectSettings: useSdkManagedContinuity,
                     liveTrail: liveTrail ?? undefined,
+                    // Claude Code's subagent definitions for the SDK's own Task
+                    // tool, wherever they are (CC-11); its sub-agents' progress
+                    // goes to the status line.
+                    agents: toSdkAgents(listAgentDefinitions(WsPaths.wsRoot ?? '')),
+                    onStatus: (text: string): void => this._onStatusUpdate.fire(text),
+                    onToolUse: options.onToolCall,
                     context: {
                         requestApproval: (req) => this.awaitApproval(req),
                         sessionApprovals: this.sessionApprovals,
@@ -3549,6 +3567,7 @@ export class AnthropicHandler {
         const def = tools.find((t) => t.name === block.name);
         const input = (block.input ?? {}) as Record<string, unknown>;
         const inputSummary = summarizeToolInput(def, input);
+        options.onToolCall?.(block.name);
 
         // Plan mode (CC-3): a write tool is refused here, before approval and
         // before it runs — the one place every tool call of the direct, Local
@@ -3914,26 +3933,35 @@ import { ALL_SHARED_TOOLS } from '../tools/tool-executors';
  */
 export async function spawnAnthropicSubagent(options: {
     prompt: string;
+    agent?: string;
     systemPrompt?: string;
     enabledTools?: string[];
     maxRounds?: number;
     temperature?: number;
-}): Promise<{ summary: string; rounds: number; toolCalls: number; stopReason?: string }> {
-    const section = TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};
-    const configurations = section.configurations ?? [];
-    const configuration = configurations.find((c) => c.isDefault) ?? configurations[0];
-    if (!configuration) {
-        throw new Error(
-            'No Anthropic configuration is available. Add at least one in the Status page before spawning a sub-agent.',
-        );
+}): Promise<{ summary: string; rounds: number; toolCalls: number; stopReason?: string; agent?: string; model?: string; notes?: string[] }> {
+    // A Claude Code subagent definition (`.claude/agents/<name>.md`, CC-11):
+    // its body is the system prompt, its tools the allow-list, its model picks
+    // the configuration. What the caller passes explicitly wins.
+    const definition = options.agent ? findAgentDefinition(WsPaths.wsRoot ?? '', options.agent) : undefined;
+    if (options.agent && !definition) {
+        const names = listAgentDefinitions(WsPaths.wsRoot ?? '').map((d) => d.name).join(', ');
+        throw new Error(`No agent "${options.agent}" in .claude/agents/. ${names ? `Agents: ${names}.` : 'There are none.'}`);
     }
+    const notes: string[] = [];
+    const section = TomAiConfiguration.instance.getSection<AnthropicSection>('anthropic') ?? {};
+    const { configuration, note } = resolveSubagentConfiguration(section.configurations ?? [], definition?.model);
+    if (note) { notes.push(note); }
 
-    // Tool set: explicit allow-list from caller, or fall back to read-only tools.
-    // Sub-agents run autonomously so an empty / unspecified list should
-    // never default to "all tools".
-    const allow = Array.isArray(options.enabledTools) && options.enabledTools.length > 0
-        ? new Set(options.enabledTools)
-        : undefined;
+    // Tool set: the caller's allow-list, else the definition's (Claude Code's
+    // built-ins mapped to ours), else the read-only tools. Sub-agents run
+    // without approval, so an unstated list never means "all tools".
+    let allowList = Array.isArray(options.enabledTools) && options.enabledTools.length > 0 ? options.enabledTools : undefined;
+    if (!allowList && definition?.tools) {
+        const mapped = toOurToolNames(definition.tools);
+        if (mapped.unknown.length > 0) { notes.push(`Tools without an equivalent here, left out: ${mapped.unknown.join(', ')}.`); }
+        allowList = mapped.names;
+    }
+    const allow = allowList ? new Set(allowList) : undefined;
     const tools: SharedToolDefinition[] = allow
         ? ALL_SHARED_TOOLS.filter((t) => allow.has(t.name))
         : ALL_SHARED_TOOLS.filter((t) => t.readOnly);
@@ -3951,23 +3979,34 @@ export async function spawnAnthropicSubagent(options: {
         name: '__subagent__',
         description: 'Ephemeral sub-agent profile',
         systemPrompt: options.systemPrompt
+            ?? (definition?.prompt || undefined)
             ?? 'You are a sub-agent. Complete the requested task using the available tools and return a concise summary. Be direct.',
         toolApprovalMode: 'never',
         promptCachingEnabled: false, // no benefit for one-shot runs
     };
 
-    const result = await AnthropicHandler.instance.sendMessage({
+    // Progress in the status line: started, each tool call, done.
+    const handler = AnthropicHandler.instance;
+    const label = `Sub-agent ${definition?.name ?? ''}`.trim();
+    let calls = 0;
+    handler.reportStatus(`${label} started (${effectiveConfiguration.model})`);
+    const result = await handler.sendMessage({
         userText: options.prompt,
         profile,
         configuration: effectiveConfiguration,
         tools,
         isolated: true,
+        onToolCall: (toolName) => { calls += 1; handler.reportStatus(`${label}: ${toolName} (call ${calls})`); },
     });
+    handler.reportStatus(`${label} done: ${result.turnsUsed} rounds, ${result.toolCallCount} tool calls`);
 
     return {
         summary: result.text,
         rounds: result.turnsUsed,
         toolCalls: result.toolCallCount,
         stopReason: result.stopReason ?? undefined,
+        ...(definition ? { agent: definition.name } : {}),
+        model: effectiveConfiguration.model,
+        ...(notes.length > 0 ? { notes } : {}),
     };
 }

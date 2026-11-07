@@ -304,6 +304,8 @@ export const EXIT_PLAN_MODE_TOOL: SharedToolDefinition<ExitPlanModeInput> = {
 
 export interface SubagentSpawnOptions {
     prompt: string;
+    /** A Claude Code subagent definition (`.claude/agents/<name>.md`) to run as. */
+    agent?: string;
     systemPrompt?: string;
     enabledTools?: string[];
     maxRounds?: number;
@@ -315,6 +317,10 @@ export interface SubagentSpawnResult {
     rounds: number;
     toolCalls: number;
     stopReason?: string;
+    /** The definition it ran as, the model it ran on, and anything adjusted (unmapped tools, a model not found). */
+    agent?: string;
+    model?: string;
+    notes?: string[];
 }
 
 export type SubagentSpawner = (options: SubagentSpawnOptions) => Promise<SubagentSpawnResult>;
@@ -343,6 +349,7 @@ export function isSubagentSpawnerRegistered(): boolean { return SUBAGENT_SPAWNER
 
 export interface SpawnSubagentInput {
     prompt: string;
+    agent?: string;
     systemPrompt?: string;
     enabledTools?: string[];
     maxRounds?: number;
@@ -372,6 +379,7 @@ export async function spawnSubagentImpl(input: SpawnSubagentInput, lookup: Subag
     try {
         const result = await spawner({
             prompt: input.prompt,
+            ...(input.agent ? { agent: input.agent } : {}),
             systemPrompt: input.systemPrompt,
             enabledTools: input.enabledTools,
             maxRounds: input.maxRounds,
@@ -382,6 +390,9 @@ export async function spawnSubagentImpl(input: SpawnSubagentInput, lookup: Subag
             rounds: result.rounds,
             toolCalls: result.toolCalls,
             stopReason: result.stopReason ?? null,
+            ...(result.agent ? { agent: result.agent } : {}),
+            ...(result.model ? { model: result.model } : {}),
+            ...(result.notes && result.notes.length > 0 ? { notes: result.notes } : {}),
         });
     } catch (e) {
         return err(`Sub-agent failed: ${(e as Error).message}`);
@@ -391,17 +402,17 @@ export async function spawnSubagentImpl(input: SpawnSubagentInput, lookup: Subag
 export const SPAWN_SUBAGENT_DESCRIPTION =
     'Run a sub-agent conversation with a narrower system prompt and ' +
     'tool-name allow-list; the sub-agent returns a final summary plus ' +
-    'metadata (`rounds`, `toolCalls`, `stopReason`). The sub-agent is ' +
+    'metadata (`rounds`, `toolCalls`, `stopReason`, `model`). The sub-agent is ' +
     'an independent conversation — it does NOT see this conversation\'s ' +
-    'history and cannot mutate this conversation\'s tool-result store. ' +
-    'On the Agent SDK transport, prefer the built-in Task tool ' +
-    '(enable `useBuiltInTools` in the profile) — `spawnSubagent` is the ' +
-    'direct-transport equivalent. Requires the host to register a ' +
-    'spawner at activation; until then the tool returns ' +
-    '`{ok: false, error: "Sub-agent spawner is not registered."}`. ' +
-    '**Concurrency**: multiple parallel sub-agent calls share one ' +
-    'spawner closure — the host is responsible for serialising if its ' +
-    'implementation is not re-entrant.';
+    'history. `agent` runs it as a Claude Code subagent definition ' +
+    '(`.claude/agents/<name>.md`, the workspace\'s or a parent folder\'s): its body is ' +
+    'the system prompt, its `tools` the allow-list (Read, Edit, Bash, … mapped to the ' +
+    'tomAi_* equivalents; `notes` names any left out), its `model` the configuration; ' +
+    '`systemPrompt` / `enabledTools` given here win. Without an allow-list it gets the ' +
+    'read-only tools; it never asks for approval. Its progress shows in the status line. ' +
+    'On the Agent SDK the built-in Task tool knows the same definitions. ' +
+    'Requires the host to register a spawner at activation; until then the tool returns ' +
+    '`{ok: false, error: "Sub-agent spawner is not registered."}`.';
 
 export const SPAWN_SUBAGENT_TOOL: SharedToolDefinition<SpawnSubagentInput> = {
     name: 'tomAi_spawnSubagent',
@@ -415,6 +426,7 @@ export const SPAWN_SUBAGENT_TOOL: SharedToolDefinition<SpawnSubagentInput> = {
         required: ['prompt'],
         properties: {
             prompt: { type: 'string', description: 'Task for the sub-agent.' },
+            agent: { type: 'string', description: 'Name of a Claude Code subagent definition (`.claude/agents/<name>.md`) to run as.' },
             systemPrompt: { type: 'string', description: 'Optional system prompt override.' },
             enabledTools: { type: 'array', items: { type: 'string' }, description: 'Tool-name allow-list for the sub-agent.' },
             maxRounds: { type: 'number', description: 'Max tool-use rounds. Default 10. Must be a positive integer.' },

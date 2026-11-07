@@ -32,7 +32,7 @@ A Dart **script** can also reach the exact same tool registry over the bridge (`
 | Transport | Native text / tool-use | Extended thinking | Prompt caching | Vision / docs | Server-side tools (`web_search`, `code_execution`, `computer_use`, `text_editor_20250429`) | Preset built-in toolset |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: |
 | Anthropic Agent SDK | ✅ | ✅ | ✅ | available but unused | ❌ not surfaced | ✅ Claude Code preset (opt-in) |
-| Anthropic API (direct) | ✅ | ✅ | ✅ | available but unused | ❌ not surfaced | ❌ |
+| Anthropic API (direct) | ✅ | ✅ | ✅ | `tomAi_readFile` shows images and PDFs | ❌ not surfaced | ❌ |
 | Local LLM (Ollama / OpenAI-compatible) | ✅ | ❌ | ❌ | model-dependent | ❌ | ❌ |
 | VS Code LM | ✅ | provider-managed | provider-managed | model-dependent | ❌ | Copilot-side tools invisible to us |
 
@@ -405,11 +405,13 @@ Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → L
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_enterPlanMode` | Enter plan mode: every write tool is refused until the user leaves it. | 🔁 | ✅ | ⚪ | ⚪ |
 | `tomAi_exitPlanMode` | Propose the plan; the user accepts it (plan mode ends) or asks to keep planning. | 🔁 | ✅ | ⚪ | ⚪ |
-| `tomAi_spawnSubagent` | Run a nested conversation with a narrower tool set. | 🔁 | 🔌 | ⚪ | ❌ |
+| `tomAi_spawnSubagent` | Run a nested conversation with a narrower tool set, or as a `.claude/agents` definition (`agent`). | 🔁 | ⚪ | ⚪ | ⚪ |
 | `tomAi_askBigBrother` | Delegate to a larger model via the VS Code LM API. | ⚪ | ⚪ | ✅ | ❌ |
 | `tomAi_askCopilot` | Bounce a question off the **Copilot Chat panel** (via bridge). | ⚪ | ⚪ | ✅ | ❌ |
 
 **Plan mode** gates writes on every transport (`src/tools/planning-tools.ts`). While it is on, every write tool — a `tomAi_*` tool that is not `readOnly`, and Claude Code's writing built-ins (`Bash`, `Write`, `Edit`, …; an unknown built-in counts as one) — answers "plan mode: read and plan only — present your plan and call tomAi_exitPlanMode" instead of running; reading tools and `tomAi_askUser` / `tomAi_askUserPicker` / `tomAi_notifyUser` still run. On direct, Local LLM and VS Code LM the refusal happens in the extension's own tool loop (`runTool`) before any approval; on the Agent SDK in `canUseTool`, in the MCP tool handlers (which run without `canUseTool` under `bypassPermissions`), and through the SDK's own `plan` permission mode — set at the start of a send while plan mode is on, and passed on with `setPermissionMode` when it changes during one. **Only the user ends it:** `tomAi_exitPlanMode {plan}` (or the SDK's `ExitPlanMode`) shows the plan in the ANTHROPIC/LLM panel with *Accept and leave plan mode* / *Keep planning* (an optional note goes back with Keep planning) and waits; without the panel open, a modal dialog asks. The panel's plan-mode badge leaves it directly. Plan mode is one per window: a queued prompt that enters it waits for the user's decision like `tomAi_askUser`. Tests: `planning-tools.test.ts` (PL-1..4), `plan-mode-tool-loop.test.ts` (PT-1..3), `agent-sdk-plan-mode.test.ts` (SP-1..4).
+
+**Sub-agents and Claude Code's subagent definitions.** `tomAi_spawnSubagent` runs an independent conversation through the Anthropic handler on the default configuration (`isDefault`, else the first), with approval off and, without an allow-list, the read-only tools. `agent: "<name>"` runs it as a Claude Code definition — `.claude/agents/<name>.md` in the workspace or a parent folder, the nearest of a name winning (`src/services/agentDefinitions.ts`): the body is the system prompt; `tools` the allow-list, Claude Code's built-ins mapped to ours (`Read` → `tomAi_readFile`, `Edit` → `tomAi_editFile`, `Write` → `tomAi_createFile`, `Grep` → `tomAi_findTextInFiles`, `Glob` → `tomAi_findFiles`, `Bash` → `tomAi_runCommand`, …; `mcp__tom-ai__…` loses its prefix), the rest named in the answer's `notes`; `model` (alias, id or `inherit`) picks the configuration with that model, the default's transport first — an id no configuration has runs on the default with that model on direct and the Agent SDK, anything else on the default with a note. `systemPrompt` / `enabledTools` passed explicitly win. The answer adds `agent`, `model` and `notes`. Its progress shows in the status line: started, each tool call, done with rounds and calls. On the **Agent SDK** the same definitions go into the SDK's `agents` option (our tools under their `mcp__tom-ai__` names; no `tools` when the file states none, so the SDK gives the parent's), so its own Task tool delegates to them; those sub-agents report started / their tool calls / done in the status line too (`src/utils/subagentProgress.ts`). Tests: `agentDefinitions.test.ts` (AD-1..4), `subagent-definitions.test.ts` (SA-1..5).
 
 ### 4.20 Copilot Chat orchestration — prompt queue, pre-prompts, timed requests, templates
 
@@ -862,7 +864,6 @@ The raw trail's payload file marks each tool `deferred` or `named by the prompt`
 - All ✅-rows are on by default; no preset exists. Outside the core set they are deferred and found by tool search (§5.0).
 - Working hints for this transport go into the profile's system prompt with a file placeholder, after `${instructions}`: `${file-CLAUDE-direct.md}` in this workspace (how to read, search, batch calls and recover cut results). Its direct todo profiles also set **Effort** `high` (`output_config.effort`); the raw trail's payload file shows both.
 - `tomAi_runCommandStream`/`tomAi_readCommandOutput`/`tomAi_killCommand` are the only way to stream long-running commands on this transport — leave them on when test-running or building.
-- Wire `tomAi_spawnSubagent` by calling `registerSubagentSpawner()` in `anthropic-handler.ts`; until then it returns an instructive error.
 
 ### 5.3 Local LLM (Ollama)
 
@@ -882,11 +883,10 @@ Structurally similar to Anthropic API direct — same "hand the model messages +
 
 ## 6. Stubs pending host integration
 
-- **`tomAi_spawnSubagent`** — the Anthropic handler must call `registerSubagentSpawner(fn)` from `planning-tools.ts`. Until wired, the tool returns an instructive error. On the Agent SDK transport, prefer the SDK's `Task` tool.
+None: `tomAi_spawnSubagent` is wired at activation (`registerSubagentSpawner(spawnAnthropicSubagent)`, `extension.ts`); on the Agent SDK the SDK's `Task` tool is the native equivalent.
 
 ## 7. Deferred / future
 
-- **Plan-mode enforcement** — `isPlanModeActive()` is read by the host. Full behaviour (refuse approval-gated tools while active) is deferred to `anthropic-handler.ts` / `tool-execution-context.ts`.
 - **Code-action cache persistence** — `tomAi_getCodeActionsCached` returns `actionId`s backed by an in-process Map with a 5-minute TTL. Consider cross-session persistence if the user wants to apply actions after a window reload.
 - **Structured approval previews** — current approval bar renders raw JSON. Upgrade to human-readable previews (unified diff for edits, command preview for runs, URL for fetches). Lower friction → user enables more tools.
 - **Tool-result truncation envelope** — a standard `{ content, truncated, continuationToken }` shape would let every tool stream results without bespoke code.

@@ -19,8 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse as parseYaml } from 'yaml';
-
+import { frontmatterList, frontmatterString, firstProseLine, splitFrontmatter } from './claudeDirs';
 import { discoverSkills, type SkillStore } from './completion-service';
 
 /** The tool that loads a skill (named in the system-prompt section). */
@@ -65,28 +64,13 @@ export function fsSkillStore(wsRoot: () => string | null): SkillStore {
 
 /** SKILL.md split into its frontmatter fields and body. */
 export function parseSkillFile(text: string): { name?: string; description?: string; allowedTools: string[]; body: string } {
-    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
-    let meta: Record<string, unknown> = {};
-    let body = text;
-    if (match) {
-        try {
-            const parsed: unknown = parseYaml(match[1]);
-            if (parsed && typeof parsed === 'object') { meta = parsed as Record<string, unknown>; }
-        } catch { /* unreadable frontmatter: the body still stands */ }
-        body = match[2];
-    }
-    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
-    const tools = meta['allowed-tools'] ?? meta.allowedTools;
-    const allowedTools = Array.isArray(tools)
-        ? tools.map((t) => String(t).trim()).filter((t) => t)
-        : typeof tools === 'string' ? tools.split(',').map((t) => t.trim()).filter((t) => t) : [];
-    return { name: str(meta.name), description: str(meta.description), allowedTools, body };
-}
-
-/** The first line of prose in a body: the description of a skill without one. */
-function firstLine(body: string): string {
-    const line = body.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#'));
-    return line ?? '';
+    const { meta, body } = splitFrontmatter(text);
+    return {
+        name: frontmatterString(meta.name),
+        description: frontmatterString(meta.description),
+        allowedTools: frontmatterList(meta['allowed-tools'] ?? meta.allowedTools) ?? [],
+        body,
+    };
 }
 
 /** Every skill visible from the workspace: its own first, then by name. */
@@ -98,7 +82,7 @@ export function listSkills(wsRoot: string): SkillInfo[] {
         const parsed = parseSkillFile(text);
         return {
             name: found.name,
-            description: parsed.description ?? firstLine(parsed.body),
+            description: parsed.description ?? firstProseLine(parsed.body),
             allowedTools: parsed.allowedTools,
             dir,
             direct: found.direct,

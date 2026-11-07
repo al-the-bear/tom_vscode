@@ -24,6 +24,8 @@
 
 import * as path from 'path';
 
+import { claudeDirsUpward } from './claudeDirs';
+
 // ===========================================================================
 // Skills
 // ===========================================================================
@@ -75,25 +77,18 @@ export function discoverSkills(store: SkillStore, query: string): SkillCompletio
     const prefix = query.trim().toLowerCase();
     const byName = new Map<string, SkillCompletion>();
 
-    let dir = path.resolve(root);
-    // Walk from the workspace root upward to the filesystem root.
-    for (;;) {
-        const skillsDir = path.join(dir, '.claude', 'skills');
-        const folders = store.listSkillFolders(skillsDir);
-        const isWorkspaceOwn = dir === path.resolve(root);
-        for (const name of folders) {
+    // The workspace's own `.claude/skills`, then each parent folder's.
+    for (const { dir: skillsDir, direct } of claudeDirsUpward(root, 'skills')) {
+        for (const name of store.listSkillFolders(skillsDir)) {
             // First (closest) match wins.
             if (byName.has(name)) { continue; }
             byName.set(name, {
                 name,
                 skillsDir,
-                direct: isWorkspaceOwn,
-                noteDir: isWorkspaceOwn ? null : path.relative(root, skillsDir),
+                direct,
+                noteDir: direct ? null : path.relative(root, skillsDir),
             });
         }
-        const parent = path.dirname(dir);
-        if (parent === dir) { break; } // reached the filesystem root
-        dir = parent;
     }
 
     const matched = Array.from(byName.values()).filter(

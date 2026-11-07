@@ -19,7 +19,11 @@ export interface FakeSdk {
     modeChanges: string[];
 }
 
-export function fakeSuccessSdk(opts: { during?: (options: Record<string, unknown>) => Promise<void> } = {}): FakeSdk {
+export function fakeSuccessSdk(opts: {
+    during?: (options: Record<string, unknown>) => Promise<void>;
+    /** Stream messages yielded before the result, in order. */
+    messages?: unknown[];
+} = {}): FakeSdk {
     const options: Record<string, unknown>[] = [];
     const handlers: FakeSdk['handlers'] = new Map();
     const modeChanges: string[] = [];
@@ -33,6 +37,7 @@ export function fakeSuccessSdk(opts: { during?: (options: Record<string, unknown
             options.push(args.options);
             const stream = (async function* () {
                 if (opts.during) { await opts.during(args.options); }
+                for (const m of opts.messages ?? []) { yield m; }
                 yield { type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 'sess-1', num_turns: 1, usage: {} };
             })();
             return Object.assign(stream, {

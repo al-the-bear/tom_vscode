@@ -225,6 +225,8 @@ import {
 import type { AgentSdkRetryPlan, SdkRateLimitInfoLike } from '../services/agent-sdk-retry';
 import type { LiveTrailUsage, LiveTrailModelUsage, LiveTrailTokenCounts } from '../services/live-trail';
 import { isRetryableBusyError } from '../utils/retryableError';
+import { SubagentProgress } from '../utils/subagentProgress';
+import type { SdkAgentDefinition } from '../services/agentDefinitions';
 import {
     FailureCauseCollector,
     withFailureCause,
@@ -314,6 +316,12 @@ export interface AgentSdkSendParams {
     toolApprovalMode?: ToolApprovalMode;
     /** Profile-level override: enable Claude Code's built-in tool preset (Read, Write, Bash, …). */
     useBuiltInTools?: boolean;
+    /** Claude Code's subagent definitions for the SDK's `agents` option (CC-11); none when empty. */
+    agents?: Record<string, SdkAgentDefinition>;
+    /** A status-line message: the SDK's own sub-agents starting, calling tools, ending. */
+    onStatus?: (text: string) => void;
+    /** Every top-level tool call, by name, as the model makes it. */
+    onToolUse?: (toolName: string) => void;
     /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
     thinkingOptions?: AgentSdkThinkingOptions;
     /**
@@ -985,6 +993,8 @@ async function runAgentSdkAttempt(
     // the call never reached the server can be logged with the tool's name.
     const ownToolPrefix = `mcp__${MCP_SERVER_NAME}__`;
     const ownToolNames = new Map<string, string>();
+    // The SDK's own sub-agents (its Task tool) in the status line (CC-11).
+    const subagentProgress = new SubagentProgress((line) => params.onStatus?.(line));
 
     try {
         // `cwd` anchors the SDK's filesystem lookups (CLAUDE.md,
@@ -1004,6 +1014,7 @@ async function runAgentSdkAttempt(
             canUseTool: canUseToolFn,
             mcpServers: { [MCP_SERVER_NAME]: mcpServer },
             tools: toolsOption,
+            ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.
@@ -1106,9 +1117,15 @@ async function runAgentSdkAttempt(
 
                     const body = (msg as SDKAssistantMessage).message as { content?: unknown } | undefined;
                     const blocks = Array.isArray(body?.content) ? (body?.content as unknown[]) : [];
+                    // eslint-disable-next-line @typescript-eslint/naming-convention -- SDK wire field
+                    const parentToolUseId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? null;
                     for (const blk of blocks) {
                         if (!blk || typeof blk !== 'object') { continue; }
                         const b = blk as { type?: string; text?: unknown; thinking?: unknown; name?: unknown; input?: unknown; id?: unknown };
+                        if (b.type === 'tool_use') {
+                            subagentProgress.onToolUse(b, parentToolUseId);
+                            if (parentToolUseId === null && typeof b.name === 'string') { params.onToolUse?.(b.name); }
+                        }
 
                         // Live-trail: emit thinking / text / tool_use
                         // events in order. tool_result lives on the
@@ -1183,6 +1200,7 @@ async function runAgentSdkAttempt(
                         params.liveTrail?.appendToolResult(text, text.length);
 
                         const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined;
+                        subagentProgress.onToolResult(toolUseId);
                         const ownName = toolUseId ? ownToolNames.get(toolUseId) : undefined;
                         if (ownName && b.is_error === true && isChannelDeadToolResult(text)) {
                             // The call never reached our MCP server. Log what the
