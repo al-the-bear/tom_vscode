@@ -13,6 +13,7 @@
 
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, resolveAssistPrompt, type AssistPromptUse } from '../utils/assistPrompts';
 import { checkBuildStatus } from '../services/buildStatusService';
+import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
 import { compactionPickerState, parseCompactionTarget, resolveCompactionTarget, type CompactionPickerConfig } from '../utils/compactionTarget';
@@ -1016,6 +1017,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'reloadWindow':
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
             break;
+        // The page about missing Dart-built binaries.
+        case 'showDartBinariesHelp':
+            await vscode.commands.executeCommand(HELP_COMMAND);
+            break;
         // Start the usage totals again (this window's workspace).
         case 'resetUsage':
             await resetUsage();
@@ -1738,6 +1743,8 @@ export interface StatusData {
     configErrors: string[];
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
+    /** Which Dart-built binaries (tom_bs, validate_codespecs) this platform has. */
+    dartBinaries?: DartBinariesStatus;
     /** This window's usage totals (live-trail usage events, any transport). */
     usage?: UsageSummary;
     /** History compaction settings (anthropic_sdk_integration.md §10). */
@@ -2024,6 +2031,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         })),
         configErrors: strictErrors,
         build: checkBuildStatus(),
+        dartBinaries: currentDartBinariesStatus(),
         usage: usageSummary(),
         compaction: {
             disabled: sendToChatConfig?.compaction?.disabled === true,
@@ -2188,6 +2196,32 @@ export function buildSectionHtml(build: BuildStatus | undefined): string {
     </div>`;
 }
 
+const DART_SOURCE_LABEL = { configured: 'configured', bundled: 'bundled', missing: 'missing' } as const;
+
+/**
+ * The Dart binaries section: this platform, and for tom_bs (DartScript) and
+ * validate_codespecs (CodeSpecs validation) whether it is configured, bundled
+ * or missing, with a button to the page about them. Warns when one is missing.
+ */
+export function dartBinariesSectionHtml(status: DartBinariesStatus | undefined): string {
+    if (!status) { return ''; }
+    const warn = status.missing.length > 0
+        ? ' style="border-color: var(--vscode-inputValidation-warningBorder); background: var(--vscode-inputValidation-warningBackground);"'
+        : '';
+    const rows = status.binaries.map((b) => {
+        const where = b.path ?? (b.configuredPath ? `configured as ${b.configuredPath}, which does not exist` : '');
+        return `<div class="sp-settings-row"><label>${escapeHtmlContent(binaryFileName(b.name, status.platform))} (${escapeHtmlContent(DART_BINARY_FEATURE[b.name])}):</label>`
+            + `<span title="${escapeHtmlContent(where).replace(/"/g, '&quot;')}">${b.source === 'missing' ? '⚠️ ' : ''}${DART_SOURCE_LABEL[b.source]}</span></div>`;
+    }).join('\n        ');
+    return `<div class="sp-section" data-section="dartBinaries"${warn}>
+        <div class="sp-section-header"><span class="sp-section-title">🎯 Dart binaries</span></div>
+        <div class="sp-settings-row"><label>Platform:</label><span>${escapeHtmlContent(status.platform)}</span></div>
+        ${rows}
+        <div class="sp-settings-row"><label>${status.missing.length > 0 ? 'What is missing and how to add it:' : 'About these binaries:'}</label>
+            <div class="sp-controls"><button class="sp-btn${status.missing.length > 0 ? ' primary' : ''}" data-status-action="showDartBinariesHelp" title="Open the page about the Dart-built binaries">Open the page</button></div></div>
+    </div>`;
+}
+
 /**
  * Generate embedded status panel HTML for use in the @WS sidebar.
  * This is a full version mirroring all sections from the status page.
@@ -2328,6 +2362,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 <div class="sp-panel">
     ${strictErrorsHtml}
     ${buildSectionHtml(status.build)}
+    ${dartBinariesSectionHtml(status.dartBinaries)}
     ${usageSectionHtml(status.usage)}
     <!-- Queue & Timer Switches -->
     <div class="sp-section">

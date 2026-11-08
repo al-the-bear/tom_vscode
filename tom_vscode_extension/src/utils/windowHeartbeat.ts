@@ -10,6 +10,7 @@
  */
 
 import type { BuildStatus } from './buildStamp';
+import type { DartBinariesSummary } from '../services/dartBinariesStatus';
 
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_STALE_MS = 90_000;
@@ -28,6 +29,8 @@ export interface WindowHeartbeat {
     mcpServer?: ServerState;
     /** The extension build the window runs and the one installed (src/utils/buildStamp.ts). */
     build?: BuildStatus;
+    /** Which Dart-built binaries (tom_bs, validate_codespecs) the window has on its platform. */
+    dartBinaries?: DartBinariesSummary;
 }
 
 /** The fields of a window state file the rules below read. */
@@ -66,5 +69,6 @@ export function withHeartbeat<T extends object>(state: T, beat: Required<Pick<Wi
         cliServer: beat.cliServer ?? { running: false },
         mcpServer: beat.mcpServer ?? { running: false },
         ...(beat.build ? { build: beat.build } : {}),
+        ...(beat.dartBinaries ? { dartBinaries: beat.dartBinaries } : {}),
     };
 }

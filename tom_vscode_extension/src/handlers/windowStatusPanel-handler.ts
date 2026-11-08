@@ -214,6 +214,10 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
                         reload: s.build?.reloadNeeded
                             ? { running: buildLabel(s.build.running), installed: buildLabel(s.build.installed) }
                             : undefined,
+                        // The Dart-built binaries it lacks on its platform (tom_bs: DartScript, validate_codespecs: CodeSpecs validation).
+                        dartMissing: s.dartBinaries?.missing.length
+                            ? `${s.dartBinaries.missing.join(', ')} (${s.dartBinaries.platform})`
+                            : undefined,
                     }));
                     this._view?.webview.postMessage({ type: 'windowStates', states });
                     break;
@@ -549,7 +553,7 @@ export function writeWindowHeartbeat(
     windowId: string,
     workspace: string,
     activeQuest: string,
-    beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer' | 'build'>,
+    beat: Required<Pick<WindowHeartbeat, 'pid'>> & Pick<WindowHeartbeat, 'cliServer' | 'mcpServer' | 'build' | 'dartBinaries'>,
     activity?: WindowActivity,
 ): void {
     try {

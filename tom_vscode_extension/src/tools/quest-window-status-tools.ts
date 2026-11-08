@@ -39,7 +39,7 @@ export async function getQuestWindowStatusImpl(access: QuestWindowStatusAccess, 
 }
 
 export const GET_QUEST_WINDOW_STATUS_DESCRIPTION =
-    'The VS Code windows on THIS machine and what each is doing, each quest\'s sessions and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: quest, `alive` (heartbeat within 90 s), servers, role, process position, the ANTHROPIC/LLM panel\'s profile and session, the queue, `build` (`reloadNeeded`). `quests`: sessions with the profile each runs with. `profiles`: what a sent item may name (`noApiKey`). `quest` narrows it; `includeGone` adds windows without a heartbeat. Read-only.';
+    'The VS Code windows on THIS machine and what each is doing, each quest\'s sessions and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: quest, `alive` (heartbeat within 90 s), servers, role, process position, the ANTHROPIC/LLM panel\'s profile and session, the queue, `build` (`reloadNeeded`), `dartBinaries` (tom_bs / validate_codespecs on its platform). `quests`: sessions with the profile each runs with. `profiles`: what a sent item may name (`noApiKey`). `quest` narrows it; `includeGone` adds windows without a heartbeat. Read-only.';
 
 export const GET_QUEST_WINDOW_STATUS_TOOL: SharedToolDefinition<GetQuestWindowStatusInput> = {
     name: 'tomAi_getQuestWindowStatus',

@@ -7,14 +7,16 @@
  * with `dart compile exe` into `<extension>/bin/<platform>/` by
  * scripts/build-validate-codespecs.cjs (which the install scripts run). It
  * parses source text only, so it needs no Dart SDK at run time; nothing here
- * ever falls back to `dart run`.
+ * ever falls back to `dart run`. A binary configured for the platform
+ * (`bridge.executables.validate_codespecs`) is used instead when it exists.
  *
  * vscode-free.
  */
 
 import * as path from 'path';
 import { execFile } from 'child_process';
-import { getCurrentPlatform, resolveBundledBinary } from '../utils/executableResolver';
+import { getCurrentPlatform } from '../utils/executableResolver';
+import { currentDartBinary } from './dartBinariesStatus';
 
 export const VALIDATION_FORMAT = 'codespecs-validation';
 export const VALIDATION_FORMAT_VERSION = 1;
@@ -51,13 +53,17 @@ function binaryName(): string {
     return process.platform === 'win32' ? 'validate_codespecs.exe' : 'validate_codespecs';
 }
 
-/** The binary's path; throws {@link CodeSpecsBinaryMissing} naming the build step when it is absent. */
+/**
+ * The binary's path: a configured `bridge.executables.validate_codespecs` that
+ * exists first, else the bundled one (services/dartBinariesStatus.ts); throws
+ * {@link CodeSpecsBinaryMissing} naming the build step when neither is there.
+ */
 export function validateCodespecsBinary(extensionRoot: string = EXTENSION_ROOT): string {
-    const found = resolveBundledBinary(binaryName(), extensionRoot);
-    if (!found) {
+    const found = currentDartBinary('validate_codespecs', extensionRoot);
+    if (!found.path) {
         throw new CodeSpecsBinaryMissing(path.join(extensionRoot, 'bin', getCurrentPlatform(), binaryName()));
     }
-    return found;
+    return found.path;
 }
 
 export interface BinaryRun {

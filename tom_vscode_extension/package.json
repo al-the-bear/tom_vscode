@@ -194,6 +194,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.showDartBinariesHelp",
+        "title": "@T: Missing Dart Binaries (DartScript / CodeSpecs validation)",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.commandline.add",
         "title": "@T: Add Commandline",
         "category": "@Tom"

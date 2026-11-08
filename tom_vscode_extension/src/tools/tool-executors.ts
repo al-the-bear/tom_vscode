@@ -10,6 +10,7 @@
 
 import { copilotQueueWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import { checkBuildStatus } from '../services/buildStatusService';
+import { currentDartBinariesStatus, summarizeDartBinaries } from '../services/dartBinariesStatus';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -827,6 +828,8 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
         git,
         // Checked now, so an agent sees a build installed a moment ago.
         ...(build ? { build } : {}),
+        // Read now (a binary configured or copied in a moment ago counts); inside a window, like build.
+        ...(build ? { dartBinaries: summarizeDartBinaries(currentDartBinariesStatus()) } : {}),
     };
 }
 

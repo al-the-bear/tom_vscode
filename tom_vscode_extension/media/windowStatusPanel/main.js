@@ -99,9 +99,12 @@
             // `reload`: the window runs an older build than the one installed (computed by the extension).
             var reloadHtml = s.reload ? ' <span class="window-reload" title="Runs ' + escapeHtml(s.reload.running) + '; installed is '
                 + escapeHtml(s.reload.installed) + '. Reload that window to run the installed build.">reload needed</span>' : '';
+            // `dartMissing`: Dart-built binaries the window lacks on its platform (computed by the extension).
+            var dartHtml = s.dartMissing ? ' <span class="window-reload" title="' + escapeHtml(s.dartMissing)
+                + ' not available on that window\'s platform (@T: Missing Dart Binaries explains it).">no Dart binaries</span>' : '';
             html += '<div class="window-card' + (s.gone ? ' gone' : '') + '">'
                 + '<div class="window-card-header">'
-                + '<span class="window-workspace">' + escapeHtml(questLabel) + goneHtml + reloadHtml + '</span>'
+                + '<span class="window-workspace">' + escapeHtml(questLabel) + goneHtml + reloadHtml + dartHtml + '</span>'
                 + '<button class="delete-btn" data-windowid="' + escapeHtml(s.windowId) + '" title="Remove window status">'
                 + '<span class="codicon codicon-trash"></span></button>'
                 + '</div>'

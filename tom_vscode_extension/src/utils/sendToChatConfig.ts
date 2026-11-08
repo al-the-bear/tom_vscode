@@ -432,8 +432,16 @@ export interface SendToChatConfig {
         current?: string;
         /** Platform-specific binary path directory used as ${binaryPath}. */
         binaryPath?: { [platform: string]: string };
-        /** Cross-platform executable configuration. */
-        executables?: { [name: string]: { [platform: string]: string } };
+        /**
+         * Cross-platform executable configuration: a path per platform for
+         * each name. `tom_bs` is the bridge (DartScript), `validate_codespecs`
+         * the CodeSpecs validator; a configured file that exists is used before
+         * the binary bundled in `bin/<platform>/` (services/dartBinariesStatus.ts).
+         */
+        executables?: { [name: string]: { [platform: string]: string } } & {
+            tom_bs?: { [platform: string]: string }; // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
+            validate_codespecs?: { [platform: string]: string }; // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
+        };
         profiles: { [name: string]: {
             label: string;
             /** Executable name from `executables` config. */

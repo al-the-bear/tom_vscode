@@ -59,6 +59,9 @@ const REQUIRED = [
     // tomAi_describeTool reads the tool documentation at run time.
     'extension/doc/llm_tools.md',
     'extension/out/tools/describe-tool.js',
+    // The page a window shows when a Dart-built binary is missing on its platform
+    // (src/handlers/dartBinariesHelp-handler.ts).
+    'extension/resources/dart_binaries/missing_dart_binaries.md',
 ];
 
 const SOM_PREFIXES = [

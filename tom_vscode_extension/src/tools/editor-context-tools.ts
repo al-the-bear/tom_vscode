@@ -42,6 +42,7 @@
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import type { BuildStatus } from '../utils/buildStamp';
+import type { DartBinariesSummary } from '../services/dartBinariesStatus';
 
 // ===========================================================================
 // Snapshot shapes — what the production bridge passes to the impls
@@ -78,6 +79,8 @@ export interface WorkspaceInfoSnapshot {
     git: GitSnapshot | null;
     /** The extension build this window runs and the one installed; absent outside a window. */
     build?: BuildStatus;
+    /** Which Dart-built binaries (tom_bs, validate_codespecs) this window has on its platform; absent outside a window. */
+    dartBinaries?: DartBinariesSummary;
 }
 
 export interface EditorSelectionSnapshot {
@@ -176,6 +179,7 @@ export async function getWorkspaceInfoImpl(
         projectsSource: snap.projectsSource,
         git: snap.git,
         ...(snap.build ? { build: snap.build } : {}),
+        ...(snap.dartBinaries ? { dartBinaries: snap.dartBinaries } : {}),
     }, null, 2);
 }
 
@@ -189,6 +193,9 @@ export const GET_WORKSPACE_INFO_DESCRIPTION =
     'and `build`: the extension build this window runs and the one installed (`running` / ' +
     '`installed`, each `{commit, dirty, builtAt}`), with `reloadNeeded: true` when a newer build is ' +
     'installed than the window runs — a live check of a new feature should stop there and ask for a reload. ' +
+    '`dartBinaries`: this platform and, for `tom_bs` (DartScript) and `validate_codespecs` (CodeSpecs ' +
+    'validation), `configured` / `bundled` / `missing`, with the `missing` list; the command ' +
+    'tomAi.showDartBinariesHelp opens the page about them. ' +
     'Pass `includeGit: false` to skip the git CLI calls when you only need the ' +
     'workspace shape.';
 

@@ -21,6 +21,7 @@ import { DartBridgeClient } from './vscode-bridge';
 // Command handlers
 import {
     bridgeLog,
+    getWorkspaceRoot,
     reportException,
     getBridgeClient,
     initializeBridgeClient,
@@ -89,6 +90,9 @@ import {
 import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
+import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
+import { initDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
+import { loadSendToChatConfig } from './utils/sendToChatConfig';
 import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
@@ -381,6 +385,22 @@ export async function activate(context: vscode.ExtensionContext) {
     TrailService.init(context);
     timeStep('tomAiConfiguration + trailService', stepStart);
 
+    // Which Dart-built binaries (tom_bs, validate_codespecs) this platform has,
+    // bundled or configured in `bridge.executables`; when one is missing, the
+    // page about it opens once per build and platform, and a status-bar hint
+    // stays.
+    stepStart = performance.now();
+    setDartBinariesConfigSource(() => {
+        const bridge = loadSendToChatConfig()?.bridge;
+        const profiles = bridge?.profiles ?? {};
+        const current = bridge?.current ? profiles[bridge.current] : undefined;
+        // The bridge runs the current profile's executable, else the first profile's that names one.
+        const bridgeExecutable = current?.executable ?? Object.values(profiles).find((p) => typeof p?.executable === 'string')?.executable;
+        return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: getWorkspaceRoot(), bridgeExecutable };
+    });
+    initDartBinariesHelp(context);
+    timeStep('dartBinariesHelp', stepStart);
+
     // Initialize bridge client and immediately start the bridge process.
     // This must happen early so bridge output is visible even if later
     // registrations throw and abort activate().
@@ -535,6 +555,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     cliServer: { running: !!cli.running, ...(cli.port ? { port: cli.port } : {}) },
                     mcpServer: getMcpServerStatus(),
                     build: checkBuildStatus(),
+                    dartBinaries: summarizeDartBinaries(currentDartBinariesStatus()),
                 }, collectWindowActivity(context));
             } finally {
                 beating = false;

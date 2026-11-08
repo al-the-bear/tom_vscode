@@ -23,6 +23,7 @@
 
 import type { SessionRecord } from './agentSdkSessions';
 import type { BuildStatus } from './buildStamp';
+import type { DartBinariesSummary } from '../services/dartBinariesStatus';
 import { sessionRows } from './sessionsViewRows';
 import { HEARTBEAT_STALE_MS, isWindowAlive, type HeartbeatState } from './windowHeartbeat';
 
@@ -146,6 +147,8 @@ export interface WindowStatusEntry {
     mcpServer?: { running: boolean; host?: string; port?: number };
     /** The extension build the window runs and the one installed; `reloadNeeded`: a newer build is installed. */
     build?: BuildStatus;
+    /** Which Dart-built binaries (tom_bs, validate_codespecs) the window has on its platform. */
+    dartBinaries?: DartBinariesSummary;
     /** queue / anthropic / copilot / … whose prompt is out. */
     activeSubsystems: string[];
     role?: string;
@@ -238,6 +241,7 @@ export function buildQuestWindowStatus(input: QuestWindowStatusInput): QuestWind
                 ...(s.pid ? { pid: s.pid } : {}),
                 ...(s.cliServer ? { cliServer: s.cliServer } : {}),
                 ...(s.build ? { build: s.build } : {}),
+                ...(s.dartBinaries ? { dartBinaries: s.dartBinaries } : {}),
                 ...(s.mcpServer ? { mcpServer: s.mcpServer } : {}),
                 activeSubsystems: (s.status ?? []).filter((x) => x.status === 'prompt-sent').map((x) => x.subsystem),
                 ...(s.role ? { role: s.role } : {}),

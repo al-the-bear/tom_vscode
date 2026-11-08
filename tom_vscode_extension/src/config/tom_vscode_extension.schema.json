@@ -5,6 +5,38 @@
     "description": "User configuration for the Tom VS Code extension. Covers anthropic, compaction, memory, and trail subsystems (anthropic_sdk_integration.md §14).",
     "type": "object",
     "properties": {
+        "bridge": {
+            "type": "object",
+            "description": "The Dart bridge (tom_bs) and the executables the extension runs. Only the keys below are described here; the bridge profiles and other keys are read as they are.",
+            "properties": {
+                "binaryPath": {
+                    "type": "object",
+                    "description": "Per platform (darwin-arm64, win32-x64, …, a family wildcard such as darwin-* or *): the folder ${binaryPath} stands for in the executables.",
+                    "additionalProperties": { "type": "string" }
+                },
+                "executables": {
+                    "type": "object",
+                    "description": "Named executables, each a path per platform (keys as in binaryPath). A bare name means the binary bundled in the extension's bin/<platform>/. Paths may use ~, ${home}, ${workspaceFolder}, ${env:NAME} and ${binaryPath}. A configured file that exists is used before the bundled one (services/dartBinariesStatus.ts).",
+                    "properties": {
+                        "tom_bs": {
+                            "type": "object",
+                            "description": "The Dart bridge binary (DartScript), as the bridge profiles name it.",
+                            "additionalProperties": { "type": "string" }
+                        },
+                        "validate_codespecs": {
+                            "type": "object",
+                            "description": "The CodeSpecs validator binary (tomAi_specCodeSpecsValidate, the Trace agreement, the validation stage of tomAi_specCodeSpecsStatus); for a platform the extension carries none for.",
+                            "additionalProperties": { "type": "string" }
+                        }
+                    },
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                    }
+                }
+            },
+            "additionalProperties": true
+        },
         "sendToChatTarget": {
             "type": "string",
             "enum": ["anthropic", "copilot"],
