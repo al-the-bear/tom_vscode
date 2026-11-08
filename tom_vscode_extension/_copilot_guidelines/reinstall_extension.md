@@ -109,7 +109,8 @@ win32-x64 (minus the host) with `npm pack` into `.cache/agent-sdk-cli/`
 
 Before packaging, both installers build the workspace template
 (`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
-workspace, the config, all of `_copilot_guidelines/`, CLAUDE.md,
+workspace, the config (its issue / test panel repositories and command lines
+emptied: `genericConfig`), all of `_copilot_guidelines/`, CLAUDE.md,
 `.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
 prompt / format-version.yaml and the starting quest `tomai_introduction`,
 plus `.tom/workspace_template.json` (its type, `dart`). From the quest it

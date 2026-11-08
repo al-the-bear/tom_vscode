@@ -43,7 +43,7 @@ const TODO_PROFILES = ['sonnet-5-5-direct', 'opus-5-5-direct', 'fable-5-1-direct
 describe('the direct and Local LLM profiles', () => {
     test('DP-1: the hints file and the effort', () => {
         const withPrompt = PROFILES.filter((p) => ['direct', 'localLlm'].includes(transportOf(p) ?? '') && (p.systemPrompt ?? '').trim());
-        assert.ok(withPrompt.length >= 8);
+        assert.deepEqual(withPrompt.map((p) => p.id).sort(), [...TODO_PROFILES, 'local-direct', 'local-expand'].sort(), 'the direct and Local LLM profiles of the workspace config');
         for (const p of withPrompt) {
             const sp = p.systemPrompt!;
             assert.ok(sp.includes(HINTS), `${p.id}: no ${HINTS}`);

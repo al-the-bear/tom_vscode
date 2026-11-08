@@ -8,18 +8,21 @@
  *
  * Taken from the workspace (default: three levels above this extension, as the
  * install scripts take it), at build time, and nothing else:
- *   - .tom/tom_vscode_extension.json      the workspace's config as it is
+ *   - .tom/tom_vscode_extension.json      the workspace's config, its repositories
+ *                                          and command lines emptied (genericConfig)
  *   - _copilot_guidelines/                 all of it
  *   - CLAUDE.md, .github/copilot-instructions.md
  *   - _ai/roles/, _ai/processes/, _ai/schemas/, _ai/prompt/,
  *     _ai/format-version.yaml
- *   - _ai/quests/tomai_introduction/      the introduction quest (once it exists)
+ *   - _ai/quests/tomai_introduction/      the starting quest, without the files its
+ *                                          use on this machine writes
  * plus `.tom/workspace_template.json`, which names the template's type (a
  * "dart" workspace; other types come later).
  *
  * Before writing, every file is checked: nothing personal or machine-bound
  * (`extension_config.<host>.<quest>.yaml`, `session-todo.*`, a `history/`
- * folder) and no literal secret in any text file (an Anthropic key
+ * folder; in the introduction quest these are left out instead) and no
+ * literal secret in any text file (an Anthropic key
  * `sk-ant-…`, a GitHub token `ghp_…` / `github_pat_…`, a Telegram bot token
  * `<digits>:<35 chars>`). Secrets belong in environment variables, named in
  * the config. A finding stops the build and writes nothing.
@@ -67,6 +70,29 @@ const QUEST_USE_RULES = [
     /^extension_config\.[^/]+\.[^/]+\.yaml$/,
     /^process-state\.[^/]+\.yaml$/,
 ];
+
+/** The workspace config inside the template. */
+const CONFIG_PATH = '.tom/tom_vscode_extension.json';
+
+/**
+ * The template's copy of the workspace config: the live config without what is
+ * this workspace's own — the issue and test panels' repositories
+ * (`issuePanels.*.additionalRepos` / `excludeRepos`) and the command lines
+ * (`commandlines`) are emptied; everything else is kept as it is. The live
+ * file is not changed. Same 2-space JSON and final newline as the source.
+ * @param {Buffer} data
+ */
+function genericConfig(data) {
+    const text = data.toString('utf8');
+    const config = JSON.parse(text);
+    for (const panel of Object.values(config.issuePanels ?? {})) {
+        if (!panel || typeof panel !== 'object') { continue; }
+        if (Array.isArray(panel.additionalRepos)) { panel.additionalRepos = []; }
+        if (Array.isArray(panel.excludeRepos)) { panel.excludeRepos = []; }
+    }
+    if (Array.isArray(config.commandlines)) { config.commandlines = []; }
+    return Buffer.from(JSON.stringify(config, null, 2) + (text.endsWith('\n') ? '\n' : ''), 'utf8');
+}
 
 /** The template's own description, written into the zip. */
 const TEMPLATE_INFO_PATH = '.tom/workspace_template.json';
@@ -247,7 +273,10 @@ function buildTemplate(workspace) {
     }
     const info = { type: TEMPLATE_TYPE, sources: SOURCES.map((s) => s.path) };
     const entries = [
-        ...files.map((f) => ({ path: f, data: fs.readFileSync(path.join(workspace, f)) })),
+        ...files.map((f) => {
+            const data = fs.readFileSync(path.join(workspace, f));
+            return { path: f, data: f === CONFIG_PATH ? genericConfig(data) : data };
+        }),
         { path: TEMPLATE_INFO_PATH, data: Buffer.from(`${JSON.stringify(info, null, 2)}\n`, 'utf8') },
     ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const findings = checkTemplate(entries);
@@ -288,7 +317,7 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, QUEST_USE_RULES, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
+module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, genericConfig, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
 
 if (require.main === module) {
     process.exitCode = main();

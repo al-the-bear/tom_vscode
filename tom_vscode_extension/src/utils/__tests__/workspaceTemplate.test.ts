@@ -2,7 +2,7 @@
  * The workspace template (scripts/build-workspace-template.cjs, vsc_setup-2):
  * what a new workspace folder is set up from.
  *
- *   WT-1 built from this workspace: the zip holds exactly the listed sources (the config, all of
+ *   WT-1 built from this workspace: the zip holds exactly the listed sources (the config as genericConfig makes it) (the config, all of
  *        _copilot_guidelines/, CLAUDE.md, .github/copilot-instructions.md, _ai roles / processes / schemas /
  *        prompt / format-version.yaml, the tomai_introduction quest once it exists) plus
  *        .tom/workspace_template.json, each byte for byte; nothing else of _ai; the same bytes twice
@@ -15,6 +15,8 @@
  *   WT-5 the config in the zip parses and passes the extension's config schema
  *   WT-6 it ships: both install scripts build it before packaging and copy it beside the VSIX, the VSIX
  *        check requires it, git ignores both copies, the copy beside the VSIX is not packed again
+ *   WT-7 the template's config: the issue / test panels' repositories and the command lines emptied, everything
+ *        else as in the workspace, whose file is not changed
  */
 
 import test, { describe } from 'node:test';
@@ -38,6 +40,8 @@ const tpl = require(SCRIPT) as {
     TEMPLATE_INFO_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     buildTemplate(ws: string): { ok: true; zip: Buffer; files: string[]; skipped: string[]; leftOut: string[] } | { ok: false; errors: string[] };
     checkTemplate(entries: Entry[]): string[];
+    CONFIG_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    genericConfig(data: Buffer): Buffer;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { readCentralDirectory } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { readCentralDirectory(b: Buffer): Array<{ name: string; isSymlink: boolean }> };
@@ -92,7 +96,9 @@ describe('the workspace template', () => {
         assert.deepEqual(readCentralDirectory(r.zip).map((e) => e.name).sort(), [...expected].sort(), 'readable by the VSIX check\'s reader too');
         for (const e of entries) {
             if (e.path === tpl.TEMPLATE_INFO_PATH) { continue; }
-            assert.ok(e.data.equals(fs.readFileSync(path.join(WS, e.path))), `${e.path} byte for byte`);
+            const source = fs.readFileSync(path.join(WS, e.path));
+            const expected = e.path === tpl.CONFIG_PATH ? tpl.genericConfig(source) : source;
+            assert.ok(e.data.equals(expected), `${e.path} byte for byte${e.path === tpl.CONFIG_PATH ? ' (the generic config)' : ''}`);
         }
         assert.ok(entries.every((e) => !e.path.startsWith('_ai/') || /^_ai\/(roles|processes|schemas|prompt|quests\/tomai_introduction)\/|^_ai\/format-version\.yaml$/.test(e.path)),
             'nothing else of _ai');
@@ -203,5 +209,31 @@ describe('the workspace template', () => {
         assert.ok(vscodeignore.includes('workspace_template.zip'), 'the copy beside the VSIX is not packed');
         assert.ok(!vscodeignore.some((l) => l.startsWith('resources/')), 'the one in resources/ is');
         assert.match(read('package.json'), /"template:build": "node scripts\/build-workspace-template\.cjs"/);
+    });
+    test('WT-7: the template config leaves out this workspace\'s repositories and command lines', () => {
+        const live = {
+            anthropic: { profiles: [{ id: 'p' }] },
+            issuePanels: { common: { growthPriority: ['title'] }, issueKit: { additionalRepos: ['Mine:me/repo'], excludeRepos: ['x/y'], provider: 'github' }, testkit: { additionalRepos: ['me/tests'], excludeRepos: [] } },
+            commandlines: [{ command: 'git status', cwd: '${workspaceFolder}/mine' }],
+            commandlinePostActions: [{ commandId: 'workbench.action.reloadWindow' }],
+        };
+        const text = JSON.stringify(live, null, 2);
+        const out = tpl.genericConfig(Buffer.from(text));
+        const generic = JSON.parse(out.toString('utf8'));
+        assert.deepEqual(generic.issuePanels.issueKit, { additionalRepos: [], excludeRepos: [], provider: 'github' });
+        assert.deepEqual(generic.issuePanels.testkit, { additionalRepos: [], excludeRepos: [] });
+        assert.deepEqual(generic.issuePanels.common, live.issuePanels.common, 'everything else stays');
+        assert.deepEqual(generic.commandlines, []);
+        assert.deepEqual(generic.commandlinePostActions, live.commandlinePostActions);
+        assert.deepEqual(generic.anthropic, live.anthropic);
+        assert.equal(out.toString('utf8').endsWith('\n'), false, 'the source\'s final newline is kept as it is');
+        assert.equal(tpl.genericConfig(Buffer.from(text + '\n')).toString('utf8').endsWith('}\n'), true);
+        // In a built template, and the workspace file untouched.
+        const ws = fakeWorkspace();
+        fs.writeFileSync(path.join(ws, '.tom', 'tom_vscode_extension.json'), text);
+        const r = tpl.buildTemplate(ws) as { zip: Buffer };
+        const packed = JSON.parse(readZip(r.zip).find((e) => e.path === tpl.CONFIG_PATH)!.data.toString('utf8'));
+        assert.deepEqual(packed.commandlines, []);
+        assert.equal(fs.readFileSync(path.join(ws, '.tom', 'tom_vscode_extension.json'), 'utf8'), text);
     });
 });
