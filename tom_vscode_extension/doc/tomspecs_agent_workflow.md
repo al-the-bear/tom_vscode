@@ -132,6 +132,10 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 `<!-- docspec: … -->` header) has its own four tools: `tomAi_docspecsOutline`,
 `tomAi_docspecsGetSection`, `tomAi_docspecsReplaceSection` and
 `tomAi_docspecsValidate`.
+Questions in the review syntax in any other Markdown document (a completions
+or clarification document) are read and answered with `tomAi_mdQuestions`,
+`tomAi_mdSetAnswer` and `tomAi_mdProposeAnswer` ([llm_tools.md
+§4.24a](llm_tools.md#424a-questions-in-plain-markdown)).
 
 ## Show the user the current version
 
@@ -145,8 +149,14 @@ an earlier copy left open from a previous step folder:
   `exceptFilePath` (the working rendition) closes the MD Browser panels showing
   earlier versions; a panel with an answer or edit still open is kept and
   reported unless `force: true`. `tomAi_listMdBrowserPanels` shows what is open.
-- `tomAi_openInMdBrowser` (reuse, the default) brings the working rendition to
-  the front, or opens it once.
+- When the next step is the user's review (a user-action step), the working
+  rendition is shown with `tomAi_askInMdBrowser` and `finishReviewRound: true`:
+  the **Finish review round** button closes that panel, confirms the review,
+  moves the process on and queues the next step's prompt (or opens the
+  decision). The tom_specs closing items do this through
+  `${finish-review-round}`, the Assist prompt of that name. When no review
+  follows, the call is refused; `tomAi_openInMdBrowser` (reuse, the default)
+  then brings the working rendition to the front, or opens it once.
 
 ## Take it through Phase 4 (CodeSpecs)
 
