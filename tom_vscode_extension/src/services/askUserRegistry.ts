@@ -38,6 +38,8 @@
  * race and timeout are unit-testable without real timers.
  */
 
+import { layoutChoices, type AskChoice, type QuestionLayout } from '../utils/askChoices';
+
 export type AskAnswerSource = 'vscode' | 'telegram' | 'timeout' | 'cancel';
 
 /** Public snapshot of the currently-pending ask (read by the UI + Telegram bridge). */
@@ -55,12 +57,18 @@ export interface PendingAsk {
      * indefinitely — which is what tells the webview there is no countdown.
      */
     timeoutAt?: number;
+    /** Buttons in the questions (utils/askChoices.ts); empty when the ask has none. */
+    choices: AskChoice[];
+    /** Where each question shows its choices: at a marker or under it. */
+    layout: QuestionLayout[];
 }
 
 /** Parameters for {@link AskUserRegistry.begin}. */
 export interface BeginAskParams {
     questions: string[];
     title?: string;
+    /** Buttons in the questions, already checked (utils/askChoices.ts validateChoices). */
+    choices?: AskChoice[];
     /**
      * How long to wait before resolving with `fallbackPrompt`. Omitted, zero or
      * negative means **wait indefinitely** — no timer is armed at all.
@@ -148,6 +156,8 @@ export class AskUserRegistry {
             requestId: this.genId(),
             questions: params.questions.slice(),
             title: params.title,
+            choices: params.choices?.slice() ?? [],
+            layout: layoutChoices(params.questions, params.choices ?? []),
             createdAt,
             timeoutAt: timeoutMs === undefined ? undefined : createdAt + timeoutMs,
         };

@@ -23,7 +23,10 @@ import {
     AskUserInput,
     AskUserDeps,
     askUserImpl,
+    choiceClickAnswer,
 } from '../tools/ask-user-tool';
+import { questionText, type AskChoice, type ChoiceContext, type MoveOutcome } from '../utils/askChoices';
+import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
 // ===========================================================================
@@ -61,10 +64,15 @@ function openAskPanel(pending: PendingAsk): void {
         },
     );
 
-    panel.webview.onDidReceiveMessage((msg: { type?: string; requestId?: string; text?: string }) => {
+    panel.webview.onDidReceiveMessage((msg: { type?: string; requestId?: string; text?: string; choiceId?: string }) => {
         if (msg?.type === 'submit' && msg.requestId === pending.requestId) {
             const text = typeof msg.text === 'string' ? msg.text : '';
             AskUserRegistry.instance.submit(pending.requestId, text, 'vscode');
+        }
+        // A choice button: what it does (a move) is done here, then it answers.
+        if (msg?.type === 'choice' && msg.requestId === pending.requestId && AskUserRegistry.instance.getPending()?.requestId === pending.requestId) {
+            const answer = choiceClickAnswer(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
+            if (answer !== undefined) { AskUserRegistry.instance.submit(pending.requestId, answer, 'vscode'); }
         }
     });
 
@@ -84,6 +92,8 @@ function openAskPanel(pending: PendingAsk): void {
                 questions: pending.questions,
                 title: pending.title,
                 timeoutAt: pending.timeoutAt,
+                choices: pending.choices,
+                layout: pending.layout,
             },
         });
     } catch (err) {
@@ -131,7 +141,10 @@ function sendAskTelegram(pending: PendingAsk): void {
     lines.push('🙋 The assistant has some questions:');
     if (pending.title) { lines.push('', pending.title); }
     lines.push('');
-    pending.questions.forEach((q, i) => lines.push(`${i + 1}. ${q}`));
+    pending.questions.forEach((q, i) => lines.push(`${i + 1}. ${questionText(q, pending.choices)}`));
+    if (pending.choices.length) {
+        lines.push('', `Choices (buttons in VS Code; a move is made there on the click): ${pending.choices.map((c) => c.label).join(' · ')}`);
+    }
     lines.push('', 'Reply with your answer (you can address the questions by number).');
     const text = lines.join('\n');
 
@@ -142,6 +155,7 @@ function sendAskTelegram(pending: PendingAsk): void {
                 method: 'POST',
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 headers: { 'Content-Type': 'application/json' },
+                // eslint-disable-next-line @typescript-eslint/naming-convention -- Telegram's field
                 body: JSON.stringify({ chat_id: tg.defaultChatId, text }),
             });
             if (!resp.ok) {
@@ -157,6 +171,37 @@ function sendAskTelegram(pending: PendingAsk): void {
 // Live deps + tool
 // ===========================================================================
 
+/** The process store, required lazily (it pulls in the manager layer). */
+function processStore(): { activeQuest: string; state: ChoiceContext['state']; currentDefinition(): ChoiceContext['def']; apply(change: ProcessChange, source: 'user'): { ok: boolean; error?: string; state?: ChoiceContext['state'] } } | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/processStateStore.js').ProcessStateStore.instance;
+    } catch {
+        return undefined;
+    }
+}
+
+function liveProcessContext(): ChoiceContext {
+    const store = processStore();
+    return store ? { def: store.currentDefinition(), state: store.state } : { def: null, state: { ...EMPTY_PROCESS_STATE } };
+}
+
+/** A clicked move: the user's change, as the PROCESS view makes it — a running step's marker goes too. */
+function liveMoveTo(change: ProcessChange): MoveOutcome {
+    const store = processStore();
+    if (!store) { return { ok: false, error: 'the process store is not initialised' }; }
+    const result = store.apply(change, 'user');
+    if (!result.ok) { return { ok: false, error: result.error }; }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('../managers/promptQueueManager.js').PromptQueueManager.instance?.dropProcessMoveMarkers(store.activeQuest, 'state set by a choice in a question');
+    } catch { /* no queue: nothing to drop */ }
+    const def = store.currentDefinition();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { positionText } = require('../utils/processActionPrompt.js') as typeof import('../utils/processActionPrompt');
+    return { ok: true, where: def && result.state ? positionText(def, result.state) : undefined };
+}
+
 const liveAskUserDeps: AskUserDeps = {
     registry: AskUserRegistry.instance,
     loadConfig: () => readChatQuestionsConfig(),
@@ -168,7 +213,18 @@ const liveAskUserDeps: AskUserDeps = {
         closeAskPanel(pending, source);
     },
     log: (entry) => appendQuestionLogEntry(entry),
+    processContext: liveProcessContext,
+    moveTo: liveMoveTo,
 };
+
+/**
+ * Ask through the question panel with choices — the route of the Agent SDK's
+ * intercepted AskUserQuestion when it carries `choices`. Answers what
+ * tomAi_askUser answers (an `askUser error: …` when refused).
+ */
+export function askUserWithChoices(input: { questions: string[]; title?: string; choices: AskChoice[] }): Promise<string> {
+    return askUserImpl(liveAskUserDeps, input);
+}
 
 /** The live `tomAi_askUser` tool with its blocking executor wired in. */
 export const ASK_USER_LIVE_TOOL: SharedToolDefinition<AskUserInput> = {

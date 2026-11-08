@@ -36,6 +36,11 @@ import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUse
 import { ChatQuestionsConfig } from '../handlers/chatQuestions-config';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
+import {
+    ASK_CHOICE_KINDS, MAX_ASK_CHOICES, choiceAnswer, questionText, resolveMoveTarget, validateChoices,
+    type AskChoice, type ChoiceContext, type MoveOutcome,
+} from '../utils/askChoices';
+import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 
 /** Hard cap on the number of questions a single ask may carry. */
 export const MAX_ASK_USER_QUESTIONS = 15;
@@ -62,6 +67,10 @@ export interface AskUserDeps {
     log?(entry: QuestionLogEntry): void;
     /** Clock seam for the journal's `answeredAt`. Defaults to `Date.now`. */
     now?(): number;
+    /** The quest's process and where it is — what move, branch and subprocess choices are checked against. */
+    processContext?(): ChoiceContext;
+    /** Make a move of the quest's process (a clicked move choice), as the PROCESS view makes one. */
+    moveTo?(change: ProcessChange): MoveOutcome;
 }
 
 // ===========================================================================
@@ -78,6 +87,8 @@ export interface AskUserInput {
      * indefinitely; the user's configured ceiling still caps it.
      */
     timeoutMinutes?: number;
+    /** Buttons in the questions (utils/askChoices.ts). */
+    choices?: AskChoice[];
 }
 
 /**
@@ -96,6 +107,11 @@ export async function askUserImpl(deps: AskUserDeps, input: AskUserInput): Promi
         return `askUser error: too many questions (${questions.length}); the maximum is ${MAX_ASK_USER_QUESTIONS}.`;
     }
 
+    const checked = validateChoices(input.choices, questions, () => deps.processContext?.() ?? { def: null, state: { ...EMPTY_PROCESS_STATE } });
+    if (!checked.ok) {
+        return `askUser error: ${checked.error}. Nothing was asked.`;
+    }
+
     const cfg = deps.loadConfig();
     const timeoutMs = resolveAskTimeoutMs(cfg.maxWaitMinutes, input.timeoutMinutes);
     const title = input.title?.trim() ? input.title.trim() : undefined;
@@ -105,6 +121,7 @@ export async function askUserImpl(deps: AskUserDeps, input: AskUserInput): Promi
         return await deps.registry.begin({
             questions,
             title,
+            choices: checked.choices,
             timeoutMs,
             fallbackPrompt: cfg.fallbackPrompt,
             onOpen: deps.onOpen,
@@ -116,6 +133,28 @@ export async function askUserImpl(deps: AskUserDeps, input: AskUserInput): Promi
     } catch (e) {
         return `askUser error: ${(e as Error).message}`;
     }
+}
+
+/**
+ * The answer for a click on choice `choiceId` of `pending`, after doing what
+ * the click does: a move is made here, by the extension (its target resolved
+ * again against where the process is now). Undefined for an unknown choice.
+ */
+export function choiceClickAnswer(
+    deps: Pick<AskUserDeps, 'processContext' | 'moveTo'>,
+    pending: PendingAsk,
+    choiceId: string,
+): string | undefined {
+    const choice = pending.choices.find((c) => c.id === choiceId);
+    if (!choice) { return undefined; }
+    if (choice.kind !== 'move') { return choiceAnswer(choice); }
+    const ctx = deps.processContext?.();
+    if (!ctx?.def || !ctx.state.process || !deps.moveTo) {
+        return choiceAnswer(choice, { ok: false, error: 'the quest has no process set any more' });
+    }
+    const change = resolveMoveTarget(ctx.def, ctx.state, choice.target ?? '');
+    if (typeof change === 'string') { return choiceAnswer(choice, { ok: false, error: change }); }
+    return choiceAnswer(choice, deps.moveTo(change));
 }
 
 /**
@@ -138,7 +177,7 @@ export function journal(
         deps.log({
             tool,
             title: pending.title,
-            questions: pending.questions,
+            questions: pending.questions.map((q) => questionText(q, pending.choices ?? [])),
             answer,
             source,
             askedAt: pending.createdAt,
@@ -154,7 +193,8 @@ export function journal(
 // ===========================================================================
 
 export const ASK_USER_DESCRIPTION =
-    'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One ask at a time; logged to the quest questions journal.';
+    'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One ask at a time; logged to the quest questions journal. ' +
+    '`choices` adds buttons, each `{id, label, kind, target?, question?}`: placed at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `kind` `answer` answers `target` (default the label); `move` moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) — the extension makes the move on the click and the answer says so; do not move it yourself; `branch` / `subprocess` name an entry of the current step\'s `branches:` / `subprocesses:` list. Any other position or process is refused before anything is shown.';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
     name: 'tomAi_askUser',
@@ -181,6 +221,22 @@ export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
                     'Optional. Give up waiting after this many minutes and receive the fallback ' +
                     'prompt instead. Omit it to wait indefinitely for the user (the default). ' +
                     "The user's configured maximum wait still caps this value.",
+            },
+            choices: {
+                type: 'array',
+                description: `Optional buttons (at most ${MAX_ASK_CHOICES}), at a \`{{choice:<id>}}\` marker or under their question.`,
+                maxItems: MAX_ASK_CHOICES,
+                items: {
+                    type: 'object',
+                    required: ['id', 'label', 'kind'],
+                    properties: {
+                        id: { type: 'string', description: 'Letters, digits, "_", "-"; what the marker names.' },
+                        label: { type: 'string', description: 'The button text.' },
+                        kind: { type: 'string', enum: [...ASK_CHOICE_KINDS] },
+                        target: { type: 'string', description: 'answer: the text answered (default the label); move: `step`, `phase/step` or `phase/step/substep` of the current process; branch / subprocess: an entry of the step\'s list.' },
+                        question: { type: 'number', description: 'The question (1-based) a choice without a marker goes under; default the last.' },
+                    },
+                },
             },
         },
     },

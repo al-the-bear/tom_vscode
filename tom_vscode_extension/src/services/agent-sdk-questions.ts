@@ -122,6 +122,28 @@ export function parseAskUserQuestionInput(input: unknown): ParsedAskUserQuestion
 }
 
 /**
+ * The `choices` an AskUserQuestion call carries beside its questions (the
+ * same buttons tomAi_askUser takes, utils/askChoices.ts), or undefined when it
+ * carries none. Checked when the ask is made, not here.
+ */
+export function askUserQuestionChoices(input: unknown): unknown[] | undefined {
+    const raw = input && typeof input === 'object' ? (input as { choices?: unknown }).choices : undefined;
+    return Array.isArray(raw) && raw.length > 0 ? raw : undefined;
+}
+
+/**
+ * The questions as the question panel shows them: the header in brackets,
+ * the question (its `{{choice:<id>}}` markers kept), its options named.
+ */
+export function questionsForPanel(parsed: ParsedAskUserQuestion): string[] {
+    return parsed.questions.map((q) => {
+        const head = q.header ? `[${q.header}] ` : '';
+        const opts = q.options.length > 0 ? ` (options: ${q.options.map((o) => o.label).join(' / ')})` : '';
+        return `${head}${q.question}${opts}`;
+    });
+}
+
+/**
  * Human-readable digest of the questions (one bullet per question with its
  * options), suitable for inlining into the fallback template via
  * `${questions}`.

@@ -1,7 +1,9 @@
 // @ts-nocheck
 // Ask-User panel — renders the numbered questions + free-form textarea and
 // posts the verbatim answer back to the extension. First-paint data arrives in
-// window.__INIT__ = { requestId, questions: string[], title?, timeoutAt? }.
+// window.__INIT__ = { requestId, questions: string[], title?, timeoutAt?, choices?, layout? }
+// (choices: buttons at `{{choice:<id>}}` markers or under their question; a
+// click posts { type: 'choice', choiceId } and the extension answers for it).
 // Live signals (e.g. the ask was answered from Telegram) arrive via postMessage
 // as { type: 'resolved' }.
 (function () {
@@ -22,16 +24,56 @@
     }
 
     const questions = Array.isArray(init.questions) ? init.questions : [];
-    for (const q of questions) {
-        const li = document.createElement('li');
-        li.textContent = String(q);
-        listEl.appendChild(li);
+    // Choices (utils/askChoices.ts): `layout[i]` cuts question i at its
+    // `{{choice:<id>}}` markers (segments) and names the choices shown under it.
+    const choices = Array.isArray(init.choices) ? init.choices : [];
+    const layout = Array.isArray(init.layout) ? init.layout : [];
+    const choiceButtons = [];
+
+    function choiceButton(id) {
+        const choice = choices.find(function (c) { return c.id === id; });
+        if (!choice) { return document.createTextNode('{{choice:' + id + '}}'); }
+        const btn = document.createElement('button');
+        btn.className = 'ask-choice ask-choice-' + choice.kind;
+        btn.textContent = choice.label;
+        btn.setAttribute('data-choice-id', choice.id);
+        btn.title = choice.kind === 'move' ? 'Moves the process to ' + choice.target + ' when clicked' : choice.label;
+        btn.addEventListener('click', function () {
+            if (submitted) { return; }
+            submitted = true;
+            submitBtn.disabled = true;
+            choiceButtons.forEach(function (b) { b.disabled = true; });
+            btn.classList.add('chosen');
+            vscode.postMessage({ type: 'choice', requestId, choiceId: choice.id });
+        });
+        choiceButtons.push(btn);
+        return btn;
     }
+
+    questions.forEach(function (q, i) {
+        const li = document.createElement('li');
+        const place = layout[i];
+        if (place && Array.isArray(place.segments)) {
+            place.segments.forEach(function (seg) {
+                li.appendChild(seg.choiceId !== undefined ? choiceButton(seg.choiceId) : document.createTextNode(seg.text));
+            });
+            if (Array.isArray(place.below) && place.below.length) {
+                const row = document.createElement('div');
+                row.className = 'ask-choice-row';
+                place.below.forEach(function (id) { row.appendChild(choiceButton(id)); });
+                li.appendChild(row);
+            }
+        } else {
+            li.textContent = String(q);
+        }
+        listEl.appendChild(li);
+    });
 
     function submit() {
         if (submitted) { return; }
         submitted = true;
         submitBtn.disabled = true;
+        choiceButtons.forEach(function (b) { b.disabled = true; });
         vscode.postMessage({ type: 'submit', requestId, text: answerEl.value });
     }
 
@@ -70,6 +112,7 @@
         if (msg.type === 'resolved') {
             submitted = true;
             submitBtn.disabled = true;
+            choiceButtons.forEach(function (b) { b.disabled = true; });
             answerEl.disabled = true;
             if (timerEl) {
                 timerEl.textContent = msg.note || 'Answered.';

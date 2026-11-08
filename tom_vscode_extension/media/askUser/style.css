@@ -95,3 +95,19 @@ button.primary:disabled {
     opacity: 0.5;
     cursor: default;
 }
+
+/* Choices (utils/askChoices.ts): buttons in a question or under it. */
+.ask-choice {
+    margin: 0 4px;
+    padding: 2px 10px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border-radius: 2px;
+    cursor: pointer;
+}
+.ask-choice-move, .ask-choice-branch, .ask-choice-subprocess { border-color: var(--vscode-focusBorder); }
+.ask-choice.chosen { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.ask-choice:disabled { cursor: default; opacity: 0.7; }
+.ask-choice-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-choice-row .ask-choice { margin: 0; }

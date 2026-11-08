@@ -240,11 +240,14 @@ import { toolLog } from '../utils/toolLog';
 import {
     isAskUserQuestionTool,
     parseAskUserQuestionInput,
+    askUserQuestionChoices,
+    questionsForPanel,
     collectInteractiveAnswers,
     summarizeQuestions,
     buildAskUserQuestionLogEntry,
     DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE,
 } from '../services/agent-sdk-questions';
+import type { AskChoice } from '../utils/askChoices';
 import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
 import { appendQuestionLogEntry } from '../services/questionsLog';
@@ -616,6 +619,15 @@ function makeCanUseTool(
                         // diagnostics only
                     }
                 };
+                // With `choices` the questions go to the question panel, whose buttons
+                // make process moves (utils/askChoices.ts); it journals the exchange
+                // itself, and a refused choice comes back as the answer.
+                const choices = askUserQuestionChoices(input);
+                if (choices && interactiveQuestions?.enabled) {
+                    const { askUserWithChoices } = await import('./askUser-handler.js');
+                    const answer = await askUserWithChoices({ questions: questionsForPanel(parsed), choices: choices as AskChoice[] });
+                    return { behavior: 'deny', message: answer };
+                }
                 if (interactiveQuestions?.enabled) {
                     const answers = await collectInteractiveAnswers(liveUserPrompter, parsed);
                     if (answers !== null) {
