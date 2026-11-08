@@ -106,6 +106,9 @@ describe('DartScript without tom_bs', () => {
         guard.guardDartScript('Restart Bridge');
         await tick(); await tick();
         assert.equal(previews(), opened + 1, 'the button opens the page');
+        const shownFile = (stubbed.spies.byMethod('commands.executeCommand').filter((c) => c.args[0] === 'markdown.showPreview').at(-1)!.args[1] as { fsPath: string }).fsPath;
+        assert.equal(shownFile, path.join(root, status.HELP_PAGE_TEMPLATE), 'before activation: the extension\'s own page, nothing written');
+        assert.ok(!fs.existsSync(path.join(process.cwd(), 'dart_binaries')), 'nothing written into the working directory');
         clicked = undefined;
     });
 

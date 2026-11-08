@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     currentDartBinariesStatus,
+    dartBinariesHelp,
     DART_BINARY_FEATURE,
     fillHelpPage,
     HELP_COMMAND,
@@ -45,11 +46,15 @@ export function writeFilledHelpPage(status: DartBinariesStatus = currentDartBina
     return target;
 }
 
-/** Open the page, filled for what is missing now. */
+/**
+ * Open the page, filled for what is missing now. Before activation has set up
+ * the storage folder there is nowhere to write the filled copy, so the
+ * extension's own page is shown as it is.
+ */
 export async function showDartBinariesHelp(): Promise<void> {
     const status = currentDartBinariesStatus(extensionRoot || undefined);
     updateStatusBar(status);
-    const file = writeFilledHelpPage(status);
+    const file = storageDir ? writeFilledHelpPage(status) : dartBinariesHelp().page;
     await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(file));
 }
 
