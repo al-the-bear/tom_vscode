@@ -15,7 +15,7 @@ Answer artifacts are JSON payloads containing:
 - optional `requestedAttachments`
 - optional `responseValues` — extracted key/value pairs fed back into chat variable resolvers.
 
-Naming: `*_answer.json` in the configured Copilot answer folder (resolved by `getCopilotChatAnswerFolderAbsolute()` in [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts)).
+Naming: `*_answer.json` in the configured Copilot answer folder (resolved by `getCopilotChatAnswerFolderAbsolute()` in [sendToChatConfig.ts](../src/utils/sendToChatConfig.ts)).
 
 ## Runtime behavior
 
@@ -30,7 +30,7 @@ A polling fallback (every 30 seconds, tied to the queue watchdog) catches missed
 
 ## Paths
 
-Answer location resolves from the configured Copilot answer path (workspace-relative by default) with window-specific subfolders. See `sendToChatConfig.copilot.answerFolder` in the JSON schema.
+The answer files are written directly into the Copilot answer folder: `copilot.answerFolder` in `tom_vscode_extension.json` (workspace-relative), default `_ai/answers/copilot/`. The prompt queue, the chat panel and the `${copilotAnswerFile}` / `${copilotAnswerFolder}` placeholders all use it. The per-window Markdown logs (`copilot-answer.md`, `copilot-prompts.md`) go into a window-id subfolder of the same folder (of `_ai/copilot/` when `copilot.answerFolder` is not set).
 
 ## Guidance
 

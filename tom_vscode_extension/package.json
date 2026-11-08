@@ -2948,7 +2948,7 @@
         },
         "tomAi.copilot.answerFolder": {
           "type": "string",
-          "default": "_ai/chat_replies",
+          "default": "_ai/answers/copilot",
           "description": "Folder path for chat answer files (relative to workspace root)"
         },
         "tomAi.todo.workspaceTodoFile": {

@@ -25,7 +25,7 @@
  *
  * `${userMessage}` is the prompt body (`${originalPrompt}` is filled the
  * same), plus the chat-variable placeholders (`${quest}`, `${role}`,
- * `${memory}`, `${file:path}`, …; see the placeholder-engine guideline).
+ * `${memory}`, `${file-<path>}`, …; see the placeholder-engine guideline).
  *
  * ## Safer-by-default
  *
@@ -171,7 +171,7 @@ export const CREATE_PROMPT_TEMPLATE_DESCRIPTION =
     'other template. **Placeholder syntax** matches the placeholder engine: ' +
     '`${userMessage}` (or `${originalPrompt}`) for the prompt body, plus ' +
     'chat-variable expansions (`${quest}`, `${role}`, `${memory}`, ' +
-    '`${file:path}`, …).';
+    '`${file-<path>}`, …).';
 
 export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<CreatePromptTemplateInput> = {
     name: 'tomAi_createPromptTemplate',

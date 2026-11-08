@@ -22,7 +22,7 @@ Profiles on the `agentSdk` transport need no key (they use the Claude Code login
 
 ## 2. Create a configuration
 
-A configuration bundles a model id, token limits, history mode, tool set, and approval mode. Open the **Status Page → LLM Configurations** section, or edit `tom_vscode_extension.json` directly:
+A configuration bundles a model id, token limits, history mode, tool set, and approval mode. Open the Status Page section **Anthropic/LLM — Configurations**, or edit `tom_vscode_extension.json` directly:
 
 ```json
 "anthropic": {
@@ -100,7 +100,7 @@ A quick summary of every configuration (name, model, transport, permission mode,
 
 ## 3. Create a profile
 
-A profile is a system prompt bound to a configuration. Open the **Global Template Editor** (`Tom AI: Edit Templates` command) and switch to the **Anthropic Profiles** category. Each profile has:
+A profile is a system prompt bound to a configuration. Open the Prompt Template Editor (`@T: Open Prompt Template Editor`) and switch to the **Anthropic — Profiles** category. Each profile has:
 
 - `systemPrompt` — the system prompt string (or `null` to inherit from the configuration)
 - `configurationId` — default configuration id this profile uses

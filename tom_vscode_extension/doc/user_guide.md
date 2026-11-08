@@ -110,7 +110,7 @@ The Documentation section of @WS has its own sub-tabs:
 
 The Markdown Browser is a standalone webview panel for reading markdown documents with full navigation:
 
-- **Open via**: `@T: Open in Markdown Browser` command, `@T: Open in Markdown Browser (Live)` for follow-tail mode, or link clicks in Guidelines panel
+- **Open via**: the `@T: Open in MD Browser` command, link clicks in the Guidelines panel, or the tools (`tomAi_openInMdBrowser`, with `live: true` for follow-tail mode)
 - **Document picker**: Grouped by Guidelines, Workspace Docs, Notes, Roles, Quests, Copilot Instructions, and Projects
 - **Quest dropdown**: Secondary dropdown to filter quest documents when in quest context
 - **Link resolver**: Clickable `.md` links navigate within the browser; special link types include `quest:`, `issue:`, `todo:`, and `test:` protocols; non-`.md` files open in the VS Code editor; external URLs open in the system browser
@@ -129,7 +129,7 @@ The Markdown Browser is a standalone webview panel for reading markdown document
 - **Reload** (the refresh button): renders the file again in any case — also when its text has not changed, and with a text area open (which is closed; the reading position stays)
 - **While a change is saved** — Save, Save and next, a one-click answer, accepting / rejecting / removing a mark or a comment, accept / reject all — the browser shows a *Saving…* indicator with a wait cursor and takes no clicks or typing until the change is done (or refused)
 - **While a text area is open** the search box and the review navigation (↑ / ↓ and the kinds) are disabled, so nothing scrolls or re-renders under the text you are writing; they come back when it is saved or discarded
-- **Live mode (follow-tail)**: Opened via the "Open Live Trail" button in the ANTHROPIC/LLM subpanel or the Live command. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
+- **Live mode (follow-tail)**: Opened by a session's live-trail action in the @WS Logs section, or by `tomAi_openInMdBrowser` with `live: true`. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
 - **Anchor navigation**: Heading anchors allow direct scrolling to specific sections
 - **Position in the document**: the file bar shows `Line X / N` — the source line at the top of the view and the document's line count. While you drag far into a part not shown yet it reads `≈ Line X / N` until that part is drawn.
 - **Navigation history**: Back/forward buttons with up to 100 entries; going back or forward to a document opens it where you left it (the block that was at the top of the view, at the same height)
@@ -192,7 +192,7 @@ The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Ses
 
 #### Notes views
 
-VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application, MarkText unless configured otherwise); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
+VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application the workspace config maps to `.md` files in `externalApplications.mappings`; without such a mapping it warns that none is configured); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
 
 ### Issues Panel
 
@@ -272,13 +272,13 @@ Every send of a todo from the panel — Send, Save to Queue, single or stacked �
 
 The ANTHROPIC/LLM subpanel in `@CHAT` is the primary AI chat surface. Every turn picks a **profile** that bundles model + transport + history mode + user-message template.
 
-Curated profiles (9 total): **Sonnet 4.6**, **Opus 4.7**, and **Opus 4.6**, each in three flavors:
+The profiles are the workspace config's `anthropic.profiles` (`.tom/tom_vscode_extension.json`), edited in `@T: Open Prompt Template Editor`. Besides a few task profiles (read-only research, precise code edits, role + quest context) and the Local LLM profiles, the Anthropic models each come in three flavors:
 
 - **Direct** — raw Anthropic SDK. History injected via `trim_and_summary` compaction. Memory placeholders (`${memory}`, `${memory-shared}`, `${memory-quest}`) expanded before send.
 - **Agent SDK T&S** — routes through `@anthropic-ai/claude-agent-sdk` but still uses in-extension history compaction. Memory pulled via `tomAi_memory_*` tools on demand.
 - **Agent SDK SDK-MM** — Agent SDK with SDK-managed continuity. The session id persists in a `<name>.session.json` in `_ai/quests/<quest>/history/` (gitignored; `chat` for the panel, `default` for the queue, or a named session) so the next turn resumes in place. Works with Claude Code's session selector.
 
-Switches + actions on the action bar: profile picker, model picker (filters to profile-compatible models), **Open Live Trail** (MD Browser in follow-tail mode), **Session History** (opens `history.md`), **Memory**, **Clear Session**, **Config**.
+Around the prompt: the profile picker with its edit button, the session button (below), the user-message template picker, Preview, Send and Stop, and Save to Queue. The status bar holds the Chat Variables and Process editors, the prompt queue and queue templates, the Status Page, Recreate history / Recreate memory, Run Quest Refresh, `history.md`, the quest memory and the shared memory in the MD Browser, and a model list (read-only: the models the API returns; the profile's configuration decides the model). The live trail, the session's history, the raw and summary trails, the memory panel and clearing a session's history are in the @WS **Logs** section, behind its session switch (see [Logs Panel](#logs-panel)).
 
 #### Named sessions
 
@@ -292,7 +292,7 @@ A conversation lives in a **session**: a `<name>.session.json` file in the quest
   - **New for every queue iteration** — each round of a queued item's repeat count, or each todo of a `<prefix>*` walk, starts again from the base (or fresh); that iteration's pre-prompts, main prompt and follow-ups continue it.
 - Then for the **profile** the session runs with: its prompts use it unless the queued item names its own profile; without one they use the queue default. The session list shows each session's model.
 - **The SESSIONS view** (@TOM sidebar, above SESSION TODOS) lists the quest's sessions — `default` (the queue's) and `chat` (the panel's) always, then every session file — with what each is based on, its lifetime, profile and model, whether it has a conversation yet and when it was last used. **+** in its title bar creates a session (the picker's new-session steps); per row, **Reset** forgets the conversation — its history and its Agent SDK session — and keeps the base, lifetime, profile, its trails and its quest memory (a based session starts from its base again; `default` and `chat` can be reset too), and **Delete** removes the session with its whole storage after a confirmation naming what goes: `history/sessions/<name>/` (history, prompts/answers trail, live trail, raw trail, tool results) and its quest memory `_ai/memory/<quest>/<name>/` — not while another session is based on it. **Remove unused sessions** (the trash icon in the title bar) offers, in one multi-select, every named session nothing uses any more — no queue item still to run (any status but sent) runs in it or is created from it, it is not the queue's default session, no process definition names it (as session or base, a name with `${…}` placeholders standing for every session it can become), no other session is based on it, and it is not a temporary session; those without a conversation are ticked, the rest are yours to tick. The ticked ones are deleted like Delete does, after one confirmation; when nothing is unused it says so and names what keeps the others.
-- **Clear Session** forgets the selected session's conversation; a session you created keeps its definition (base, lifetime and profile) and starts again from it.
+- **Clear** (the @WS Logs section's clear-history action) forgets the selected session's conversation; a session you created keeps its definition (base, lifetime and profile) and starts again from it.
 - A queued item can name a session that does not exist yet, as a name or with its base, lifetime and profile: it is created before the item's first prompt is sent. An item whose profile keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a direct-API profile, or the reverse) is refused when it is queued.
 
 On the **direct API transport** the extension sends the history itself — the compacted history, the last raw turns and the rounds not yet compacted — so a session's history is files of its own:
@@ -426,10 +426,15 @@ The queue uses RequestId-based answer file matching:
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| Auto-send | On | Automatically send pending items |
-| Auto-start | Off | Enable auto-send on extension activation |
+| Auto-send | Off | Send pending items one after another |
+| Auto-start | Off | Turn auto-send on when the window starts |
 | Auto-pause | On | Pause auto-send when queue empties |
-| Auto-continue | Off | Auto-continue processing after receiving an answer |
+| Auto-continue | Off | Resume after a reload (see below) |
+
+Without Auto-start the queue starts paused at every window start: auto-send is
+off until you turn it on (or Auto-continue does). **Auto-continue** (only when
+Auto-start is off) turns auto-send on 30 s after the window starts if an item
+is interrupted or is pending with repetitions left.
 
 Turning **Auto-send** off never interrupts the item that is already running —
 it finishes its stages and then the queue stops instead of starting the next
@@ -660,13 +665,13 @@ Every Anthropic session — `chat` (the panel), `default` (the queue) and every 
 
 - **History** — `compacted_history.md`, `history.json` (+ `history.md` rendering), `rawTurns.json`, `compaction_rounds.json`. Rolling compacted context used by `trim_and_summary`; read back from the same folder. SDK-managed mode keeps the conversation in the Agent SDK, its id in `<session>.session.json`.
 - **Trail pair** — `<quest>.anthropic.prompts.md` / `.answers.md`, the session's prompts and answers; **Recreate history** and **Recreate memory** rebuild from this session's own pair.
-- **Live trail** — `live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the **Open Live Trail** button (the panel's session's; MD Browser in live mode follow-tails the file).
+- **Live trail** — `live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the live-trail action in the @WS Logs section (for the session selected there; the MD Browser in live mode follow-tails the file).
 - **Raw trail** — `trail/`. Every turn produces `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus tool request / answer files; `compaction/` and `memory/` hold the background passes, `tool_results/t<n>.json` the session's tool results (keys continue past what is stored, so nothing is overwritten). Inspect via the Raw Trail Viewer editor.
 - **Quest memory** — `_ai/memory/<quest>/<session>/`; `${memory}` and the memory tools use the running session's, plus `_ai/memory/shared/`.
 
 Git tracks a session's `compacted_history.md`, snapshot and `live-trail.md`; the rest is machine-local. On a quest's first use a window moves its files from the older per-quest layout (`history/`, the quest folder's `live-trail.md`, `_ai/trail/anthropic/<quest>/`, `_ai/memory/<quest>/`) into the `default` session, once per machine.
 
-**Choosing the sessions.** Every button that works on this storage asks which sessions first: a multi-select of the quest's sessions (the SESSIONS view's list — `default`, `chat`, the session files, temporary ones marked, and storage left without a file) with **All sessions** on top and the panel's session preselected. That holds for the subpanel's **Recreate history** and **Recreate memory** — both then confirm, naming the sessions — and for the panel's **Recreate** actions. **Open session history**, **Open live trail**, the summary trail, the raw trail, the memory panel and **Clear** are in the @WS Logs panel behind its session switch and work on the session selected there (Clear asks first). The Status Page's compaction **Dry Run** (each chosen session's rolling history) and **Trail Viewer**, the memory panel (its **Session** button: whose quest memory it shows and edits) and the command `Tom AI: Migrate compaction format` (the chosen sessions in every quest; **All sessions** means every session of every quest) ask the same way. `@T: Clear Anthropic Session` clears the queue's `default` session.
+**Choosing the sessions.** Every button that works on this storage asks which sessions first: a multi-select of the quest's sessions (the SESSIONS view's list — `default`, `chat`, the session files, temporary ones marked, and storage left without a file) with **All sessions** on top and the panel's session preselected. That holds for the subpanel's **Recreate history** and **Recreate memory** — both then confirm, naming the sessions — and for the panel's **Recreate** actions. **Open session history**, **Open live trail**, the summary trail, the raw trail, the memory panel and **Clear** are in the @WS Logs panel behind its session switch and work on the session selected there (Clear asks first). The Status Page's compaction **Dry Run** (each chosen session's rolling history) and **Trail Viewer**, the memory panel (its **Session** button: whose quest memory it shows and edits) and the command `Tom AI: Migrate compaction format` (the chosen sessions in every quest; **All sessions** means every session of every quest) ask the same way. To clear the queue's `default` session, use **Clear** in the Logs section with `default` selected, or **Reset** on its row in the SESSIONS view.
 
 ## 10) Keyboard productivity
 

@@ -1,8 +1,8 @@
 /**
  * The "open the notes file" buttons the three NOTES panels share (VS CODE
  * NOTES, WORKSPACE NOTES, QUEST NOTES): Open in Editor, Open in MD Browser
- * and Open in MD Viewer (the external Markdown application, MarkText by
- * default). Each panel answers its webview's message with
+ * and Open in MD Viewer (the external Markdown application that
+ * `externalApplications.mappings` names for `.md`). Each panel answers its webview's message with
  * {@link handleNotesFileMessage}; the file is created first when it is
  * missing, so every button opens something.
  */

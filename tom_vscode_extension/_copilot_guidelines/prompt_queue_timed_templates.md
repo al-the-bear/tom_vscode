@@ -18,7 +18,7 @@ The queue is a **strictly sequential, ordered list** of `QueuedPrompt` items. On
 
 ### Storage
 
-Each item is a separate YAML file: `_ai/local/<hostname>.q_<id>.yaml` (hostname prefix prevents cross-workspace collisions). Queue settings live in `_ai/local/queue-settings.yaml`. Managed by `queueFileStorage.ts` via VS Code `FileSystemWatcher`; changes propagate across windows in real time.
+Each item is a separate YAML file in the queue folder — `_ai/queue/` by default, or the folder the `tomAi.queueFolder` setting names: `<hostname>_<workspace>_<yymmdd_hhmmss>_<quest>.<type>.entry.queue.yaml` (the host and workspace prefix keeps windows and machines from colliding). Queue settings live in `queue-settings.yaml` in the same folder. Managed by `queueFileStorage.ts` via VS Code `FileSystemWatcher`; changes propagate across windows in real time.
 
 **Important:** `_reloadFromDisk()` is debounced (300 ms) and skips entirely while any item has `status === 'sending'`. This prevents the watcher from replacing in-memory item references during an async Anthropic dispatch (which would stall the queue permanently).
 
@@ -211,15 +211,15 @@ interface TimedRequest {
 
 **Interval mode.** Fires every `intervalMinutes` minutes after `lastSentAt`. Auto-pauses when `sentCount >= sendMaximum` (if set). Useful for periodic check-ins or status polls.
 
-**Scheduled mode.** Fires at specific `ScheduledTime` entries (day-of-week + time, or specific date + time). Entries without a date repeat weekly on the specified day. Entries with a date fire once; when all dated entries have passed the item auto-completes.
+**Scheduled mode.** Fires at specific `ScheduledTime` slots. Each slot has a `time` (`HH:MM`), an optional `date` (`YYYY-MM-DD`) and optional `weekdays` (0 = Sunday … 6 = Saturday; absent or empty means every day). A slot without a date fires daily at its time on the days its weekdays allow; a slot with a date is a one-shot that fires on that date only. When every slot of an entry is dated and all of them have passed, the entry completes.
 
 ### Dispatch
 
-Timed requests currently dispatch via the **Copilot** path (`workbench.action.chat.open`) — they are not yet transport-aware. The `originalText` is optionally expanded through a named template (the one store, `config.anthropic.userMessageTemplates`) before dispatch.
+A due timed request is enqueued into the prompt queue as a `pending` item of type `timed` and runs there with the queue's default transport (an entry carries no transport of its own). The `originalText` is optionally expanded through a named template (the one store, `config.anthropic.userMessageTemplates`) before dispatch.
 
 ### Persistence
 
-Stored in `_ai/local/timed-panel.yaml` alongside a `timerActivated` flag and optional `schedule` slots (global schedule overrides). Managed by `panelYamlStore.ts`.
+Stored in the panel storage folder (`_ai/local/`) as `<hostname>_<workspace>.timed.yaml`, alongside a `timerActivated` flag and optional `schedule` slots (global schedule overrides). Managed by `panelYamlStore.ts`.
 
 ### Tool surface
 
@@ -259,7 +259,7 @@ Source: [queueTemplateEditor-handler.ts](../src/handlers/queueTemplateEditor-han
 
 ### Template files
 
-Stored as `_ai/local/<id>.template.queue.yaml`. Format is the same as a live queue entry YAML (`QueueFileYaml`), plus a `meta` section:
+Stored in the queue folder (`_ai/queue/` by default, `tomAi.queueFolder`) as `<name>.template.queue.yaml`. Format is the same as a live queue entry YAML (`QueueFileYaml`), plus a `meta` section:
 
 ```yaml
 meta:

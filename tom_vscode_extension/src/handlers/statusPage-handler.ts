@@ -854,9 +854,10 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
  *
  * Side-effects:
  *   - Writes raw prompts/answers to the trail (same place as normal runs).
- *   - Writes memory entries when the mode is `llm_extract` and the memory
- *     extraction template returns non-empty output. We surface this in the
- *     confirmation dialog so the user can opt out.
+ *   - Writes memory entries (prepends them to the extraction template's
+ *     memory file) when the mode is `llm_extract` and the memory extraction
+ *     template returns non-empty output; the button's tooltip and the
+ *     completion message say so.
  *   - Does NOT mutate the active Anthropic handler's rolling history.
  */
 async function runCompactionDryRun(settings: {
@@ -2853,7 +2854,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateCompactionSettings">Save Compaction Settings</button>
-                <button class="sp-btn" data-status-action="runCompactionDryRun" title="Run one compaction + memory-extraction pass against the current rolling history (or a small synthetic one when empty). Writes raw prompts/answers to the trail and a detailed line to the 'Tom AI Compaction and Memory Extraction' output channel. Does NOT mutate the live history or memory files.">🧪 Dry Run</button>
+                <button class="sp-btn" data-status-action="runCompactionDryRun" title="Run one pass of the history mode you pick (summary, trim_and_summary or llm_extract) against the chosen sessions' rolling history (or a small synthetic one when empty). Writes raw prompts/answers to the trail and a detailed line to the 'Tom AI Compaction and Memory Extraction' output channel. Does NOT change the live history. In llm_extract mode the extracted facts ARE written to the memory file (prepended), as a real extraction would.">🧪 Dry Run</button>
             </div>
         </div>
     </div>

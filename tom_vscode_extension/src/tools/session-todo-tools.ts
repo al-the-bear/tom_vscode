@@ -7,8 +7,9 @@
  *
  * **Session todos are NOT the same as quest todos.** Different store
  * (`SessionTodoStore` vs `QuestTodoStore`), different id space
- * (`wt-N` vs whatever-the-quest-uses), different lifetime (per-VS-Code-
- * window vs per-quest-folder-persisting-across-sessions). Every
+ * (`wt-N` vs whatever-the-quest-uses), different file (one
+ * `session-todo.<host>.<quest>.todo.yaml` per machine and quest vs the
+ * quest's `todos.<quest>.todo.yaml` and topic files). Every
  * description now opens with that distinction so the model doesn't
  * mix them up.
  *
@@ -118,10 +119,12 @@ export async function addSessionTodoImpl(deps: SessionTodoToolsDeps, input: Sess
 }
 
 export const ADD_SESSION_TODO_DESCRIPTION =
-    'Add a self-reminder todo to the **current VS Code window**\'s session ' +
-    'todo list. **NOT the same as quest todos** — session todos are ' +
-    'per-window-per-quest, ephemeral (gone when the window closes), and have ' +
-    'ids like `wt-1`, `wt-2`. For persistent project-wide todos use the ' +
+    'Add a self-reminder todo to the session todo list of this machine and ' +
+    'quest. **NOT the same as quest todos** — session todos live in the ' +
+    'quest folder\'s `session-todo.<host>.<quest>.todo.yaml` (one file per ' +
+    'machine and quest, kept across window reloads and shared by every ' +
+    'window of the quest on this machine) and have ids like `wt-1`, `wt-2`. ' +
+    'For the quest\'s own todo list use the ' +
     '`tomAi_createQuestTodo` family. Default `priority: medium`, status starts ' +
     'as `pending`. Use to remember postponed tasks within a single session ' +
     '(e.g. "follow up on X after the build finishes"). Visible live in the ' +
@@ -165,13 +168,13 @@ export async function listSessionTodosImpl(deps: SessionTodoToolsDeps, input: Se
 }
 
 export const LIST_SESSION_TODOS_DESCRIPTION =
-    'List **window-session** todos, optionally filtered by `status` ' +
+    'List **session** todos (this machine and quest), optionally filtered by `status` ' +
     '(`pending` / `done` / `all` — default `all`) and/or `tags` (any-match). ' +
     'Returns `{ok, count, items: [...]}`. Use this when you want **filtered** ' +
     'results. For an unfiltered snapshot with counts (total + pending), use ' +
     '`tomAi_getAllSessionTodos` instead — that variant is shorter when you ' +
     'just need the overview. **Reminder**: session todos ≠ quest todos; see ' +
-    '`tomAi_listQuestTodos` for the persistent quest list.';
+    '`tomAi_listQuestTodos` for the quest\'s own todo list.';
 
 export const LIST_SESSION_TODOS_TOOL: SharedToolDefinition<SessionTodoListInput> = {
     name: 'tomAi_listSessionTodos',
@@ -206,7 +209,7 @@ export async function getAllSessionTodosImpl(deps: SessionTodoToolsDeps, _input:
 }
 
 export const GET_ALL_SESSION_TODOS_DESCRIPTION =
-    'Snapshot of **every window-session todo** with summary counts — ' +
+    'Snapshot of **every session todo** (this machine and quest) with summary counts — ' +
     'returns `{ok, todos: [...], count, pendingCount}` in one call. No ' +
     'filtering. Use this when you want the overview (e.g. "is the session ' +
     'list getting long?"); use `tomAi_listSessionTodos` when you want to ' +
@@ -259,7 +262,7 @@ export async function updateSessionTodoImpl(deps: SessionTodoToolsDeps, input: S
 }
 
 export const UPDATE_SESSION_TODO_DESCRIPTION =
-    'Update a **window-session** todo by id. Status enum is `pending` (the ' +
+    'Update a **session** todo by id. Status enum is `pending` (the ' +
     'default after `addSessionTodo`) and `done` (terminal — a `done` todo ' +
     'stays in the list until deleted). You can also change `title`, ' +
     '`details`, and `priority`. **`tags` are NOT updatable** — to change ' +
@@ -315,7 +318,7 @@ export async function deleteSessionTodoImpl(deps: SessionTodoToolsDeps, input: S
 }
 
 export const DELETE_SESSION_TODO_DESCRIPTION =
-    'Delete a **window-session** todo by id. Production moves the todo to ' +
+    'Delete a **session** todo by id. Production moves the todo to ' +
     'the `-deleted` (or `-archived`, when completed) sibling of the session ' +
     'todo file, so it stays recoverable. Missing id returns `{ok: false, error: ' +
     '...}`. To mark a todo "completed" without removing it from the list, ' +

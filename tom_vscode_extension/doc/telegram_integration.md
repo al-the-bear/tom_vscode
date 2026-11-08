@@ -152,8 +152,10 @@ single-purpose `telegram.{questId}.json` is superseded.
 The **Status Page → Telegram** section surfaces the same settings as a form:
 `enabled`, `botTokenEnv`, `defaultChatId`, `allowedUserIds` (comma-separated),
 `pollIntervalMs`, and the per-host `autostart` checkbox. It pre-populates from the effective merged config
-and writes back via `updateTelegramSettings`. Two buttons wire to the VS Code
-commands above: **Test Connection** and **Configure**. Machine-specific fields
+and **Save Telegram Settings** writes it back (`updateTelegramSettings`). Its
+controls: **Start** and **Stop** (polling for the window), **Test** (runs
+`Telegram: Test Connection`), the **Autostart** checkbox (saved as soon as it
+changes) and **Save Telegram Settings**. Machine-specific fields
 (`enabled`, `autostart`, `botTokenEnv`) are written to the host file; everything
 else to the quest file.
 

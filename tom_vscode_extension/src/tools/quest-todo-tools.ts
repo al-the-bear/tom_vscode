@@ -7,7 +7,7 @@
  * **Quest todos are NOT session todos.** Different store
  * (`questTodoManager` fs/YAML free functions vs `SessionTodoStore`
  * singleton), different lifetime (persist across sessions vs
- * per-window-ephemeral), different id space (model-invented vs
+ * one per-machine session file), different id space (model-invented vs
  * `wt-N` monotonic). Every description here mirrors the entry #15
  * pattern — opens with the distinction.
  *
@@ -279,7 +279,8 @@ export async function listQuestTodosImpl(deps: QuestTodoToolsDeps, input: ListQu
 
 export const LIST_QUEST_TODOS_DESCRIPTION =
     'List **persistent quest todos** (YAML files in `_ai/quests/<questId>/`). ' +
-    '**NOT session todos** — those are per-window-ephemeral; see ' +
+    '**NOT session todos** — those are the per-machine ' +
+    '`session-todo.<host>.<quest>.todo.yaml` list; see ' +
     '`tomAi_listSessionTodos`. `file: "all"` (default) aggregates across ' +
     'every `*.todo.yaml` file in the quest folder; pass a specific file name ' +
     '(e.g. `"todos.vscode_extension.todo.yaml"`) to scope to one. **`status`** ' +
