@@ -22,6 +22,11 @@ function Write-TomVsixPath([string]$Dir) {
     Write-Host ""
     Write-Host "VSIX: $vsix"
     Write-Host "   On another machine: copy it there and run  code --install-extension <path-to>\$(Split-Path -Leaf $vsix)"
+    # The workspace template the setup unpacks: inside the VSIX, and this copy beside it.
+    $template = Join-Path $Dir 'workspace_template.zip'
+    if (Test-Path $template) {
+        Write-Host "Workspace template: $template (also inside the VSIX)"
+    }
 }
 
 function Write-TomNoDartWarning([string]$Reason, [bool]$FromSource) {

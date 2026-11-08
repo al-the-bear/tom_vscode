@@ -2,7 +2,7 @@
 
 # Install script for tom_vscode_extension extension
 #
-#   ./install_extension.sh [--no-dart] [--all-platforms]
+#   ./install_extension.sh [--no-dart] [--all-platforms] [--package-only]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1):
 # no Dart step runs, and the VSIX carries no validate_codespecs and, from
@@ -13,6 +13,8 @@
 # for darwin-arm64, linux-x64 and win32-x64, not only for this host, so the
 # Agent SDK transport also runs where the VSIX is installed on another
 # platform (about 110 MB more per platform).
+# --package-only (also TOM_PACKAGE_ONLY=1) builds and checks the VSIX but does
+# not uninstall the old one or install it (create_vsix*.sh use it).
 
 set -e
 
@@ -25,11 +27,13 @@ for ARG in "$@"; do
     case "$ARG" in
         --no-dart) export TOM_NO_DART=1; TOM_NO_DART_REASON="${TOM_NO_DART_REASON:---no-dart given}" ;;
         --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
-        -h|--help) sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms])"; exit 1 ;;
+        --package-only) export TOM_PACKAGE_ONLY=1 ;;
+        -h|--help) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--package-only])"; exit 1 ;;
     esac
 done
 ALL_PLATFORMS="${TOM_ALL_PLATFORMS:-0}"
+PACKAGE_ONLY="${TOM_PACKAGE_ONLY:-0}"
 NO_DART="${TOM_NO_DART:-0}"
 [ "$NO_DART" = "1" ] && TOM_NO_DART_REASON="${TOM_NO_DART_REASON:-TOM_NO_DART=1}"
 FROM_SOURCE="${TOM_BRIDGE_FROM_SOURCE:-0}"
@@ -151,10 +155,13 @@ fi
 echo ""
 echo "✅ Extension compiled successfully!"
 
-# The VS Code CLI installs the VSIX. Without it the VSIX is still built (its
-# path is printed at the end), only the install is skipped.
+# The VS Code CLI installs the VSIX. Without it (or with --package-only) the
+# VSIX is still built (its path is printed at the end), only the uninstall and
+# the install are skipped.
 CODE_CLI=""
-if command -v code &> /dev/null; then
+if [ "$PACKAGE_ONLY" = "1" ]; then
+    echo "📦 Package only: the VSIX is built and checked, not installed."
+elif command -v code &> /dev/null; then
     CODE_CLI="code"
 else
     echo "⚠️  VS Code CLI \`code\` not found: the VSIX is built but not installed."
@@ -475,6 +482,9 @@ if [ $? -eq 0 ]; then
                 echo "❌ Failed to install extension"
                 exit 1
             fi
+        elif [ "$PACKAGE_ONLY" = "1" ]; then
+            echo ""
+            echo "📦 Package only: not installed (install the VSIX with \`code --install-extension\`, path below)."
         else
             echo ""
             echo "⚠️  Not installed: VS Code CLI \`code\` not found (install the VSIX by hand, path below)."

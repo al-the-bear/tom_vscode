@@ -3,7 +3,7 @@
     Tom AI Build - VS Code Extension Installation Script
     This script sets up and installs the VS Code extension for development.
 .DESCRIPTION
-    install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms]
+    install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-PackageOnly | --package-only]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
     Dart SDK: no Dart step runs, and the VSIX carries no validate_codespecs and,
@@ -15,8 +15,12 @@
     Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64, not only
     for this host, so the Agent SDK transport also runs where the VSIX is
     installed on another platform (about 110 MB more per platform).
+
+    -PackageOnly (or --package-only, or TOM_PACKAGE_ONLY=1) builds and checks
+    the VSIX without the prompt and does not install it (create_vsix*.ps1 use
+    it).
 #>
-param([switch]$NoDart, [switch]$AllPlatforms)
+param([switch]$NoDart, [switch]$AllPlatforms, [switch]$PackageOnly)
 
 $ErrorActionPreference = "Stop"
 
@@ -25,9 +29,12 @@ $ErrorActionPreference = "Stop"
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
     elseif ($Arg -eq '--all-platforms') { $AllPlatforms = $true }
-    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms])"; exit 1 }
+    elseif ($Arg -eq '--package-only') { $PackageOnly = $true }
+    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-PackageOnly | --package-only])"; exit 1 }
 }
 if ($AllPlatforms) { $env:TOM_ALL_PLATFORMS = '1' }
+if ($PackageOnly) { $env:TOM_PACKAGE_ONLY = '1' }
+$PackageOnlyMode = ($env:TOM_PACKAGE_ONLY -eq '1')
 $AllPlatformsMode = ($env:TOM_ALL_PLATFORMS -eq '1')
 if ($NoDart) {
     $env:TOM_NO_DART = '1'
@@ -204,10 +211,13 @@ Write-Host ""
 Write-Host "Extension compiled successfully!"
 Write-Host ""
 
-# The VS Code CLI installs the VSIX. Without it the VSIX is still built (its
-# path is printed at the end), only the install is skipped.
+# The VS Code CLI installs the VSIX. Without it (or with -PackageOnly) the
+# VSIX is still built (its path is printed at the end), only the install is
+# skipped.
 $CodeCli = ""
-if (Get-Command code -ErrorAction SilentlyContinue) {
+if ($PackageOnlyMode) {
+    Write-Host "Package only: the VSIX is built and checked, not installed."
+} elseif (Get-Command code -ErrorAction SilentlyContinue) {
     $CodeCli = "code"
     Write-Host "VS Code CLI detected"
 } else {
@@ -218,8 +228,9 @@ Write-Host ""
 
 $VsixBuilt = $false
 # Ask if user wants to package (and install) as VSIX. compile_and_install.ps1
-# sets TOM_BRIDGE_FROM_SOURCE=1 to run unattended (auto-confirm).
-if ($FromSource) {
+# sets TOM_BRIDGE_FROM_SOURCE=1, create_vsix*.ps1 TOM_PACKAGE_ONLY=1, to run
+# unattended (auto-confirm).
+if ($FromSource -or $PackageOnlyMode) {
     $Result = 'y'
 } else {
     $Result = Read-Host "Do you want to package (and install) the extension (VSIX)? (y/n)"
@@ -545,7 +556,10 @@ if ($Result -match "^[Yy]") {
                 exit 1
             }
             $VsixBuilt = $true
-            if (-not $CodeCli) {
+            if ($PackageOnlyMode) {
+                Write-Host ""
+                Write-Host "Package only: not installed (install the VSIX with 'code --install-extension', path below)."
+            } elseif (-not $CodeCli) {
                 Write-Host ""
                 Write-Warning "Not installed: VS Code CLI 'code' not found (install the VSIX by hand, path below)."
             } else {

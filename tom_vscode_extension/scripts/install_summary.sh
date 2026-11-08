@@ -24,6 +24,10 @@ tom_print_vsix_path() {
     echo ""
     echo "📦 VSIX: $vsix"
     echo "   On another machine: copy it there and run  code --install-extension <path-to>/$(basename "$vsix")"
+    # The workspace template the setup unpacks: inside the VSIX, and this copy beside it.
+    if [ -f "$1/workspace_template.zip" ]; then
+        echo "📦 Workspace template: $1/workspace_template.zip (also inside the VSIX)"
+    fi
 }
 
 tom_print_no_dart_warning() {

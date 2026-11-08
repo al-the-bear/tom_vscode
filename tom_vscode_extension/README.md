@@ -172,6 +172,33 @@ bash install_extension.sh        # macOS / Linux
 pwsh install_extension.ps1       # Windows
 ```
 
+### Private distribution: `create_vsix`
+
+To hand the extension to other machines, package a VSIX without installing
+it:
+
+```bash
+bash create_vsix.sh              # with tom_bs / validate_codespecs for this platform
+bash create_vsix_nodart.sh       # without the Dart binaries, no Dart SDK needed
+pwsh create_vsix.ps1             # Windows (create_vsix_nodart.ps1 likewise)
+```
+
+Both build like `compile_and_install` (`--package-only` of
+`install_extension.*`: no uninstall, no install) and always bundle the Agent
+SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
+(`--all-platforms`; about 370 MB). They end with:
+
+- the VSIX's path;
+- the workspace template's path (`workspace_template.zip`, beside the VSIX and
+  inside it as `resources/workspace_template.zip`);
+- which binaries the VSIX carries for which platform.
+
+`create_vsix.sh` carries `tom_bs` and `validate_codespecs` for the platform it
+runs on only: a Dart binary cannot be built for another platform, so build the
+VSIX on the platform that needs DartScript most, or configure binaries per
+platform (below). Without a Dart SDK it builds as `create_vsix_nodart.sh` and
+says so in red.
+
 ### Installing the VSIX on another machine
 
 Both installers end with the VSIX's path. Copy that file to another machine

@@ -149,7 +149,7 @@ describe('the Agent SDK CLI per platform', () => {
         assert.doesNotMatch(sh, /--force/, 'no other platform\'s package in node_modules');
         assert.match(read('compile_and_install.sh'), /--all-platforms\) export TOM_ALL_PLATFORMS=1 ;;/);
         const ps1 = read('install_extension.ps1');
-        assert.match(ps1, /param\(\[switch\]\$NoDart, \[switch\]\$AllPlatforms\)/);
+        assert.match(ps1, /param\(\[switch\]\$NoDart, \[switch\]\$AllPlatforms, \[switch\]\$PackageOnly\)/);
         assert.match(ps1, /elseif \(\$Arg -eq '--all-platforms'\) \{ \$AllPlatforms = \$true \}/);
         assert.match(ps1, /foreach \(\$plat in @\('darwin-arm64', 'linux-x64', 'win32-x64'\)\) \{\s+if \(\$plat -eq \$HostPlat\) \{ continue \}/);
         assert.match(ps1, /Invoke-Native \{ npm pack \$pkg --silent \}/);
