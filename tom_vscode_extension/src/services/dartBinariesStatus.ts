@@ -57,6 +57,11 @@ export function setDartBinariesExtensionRoot(root: string): void {
     defaultRoot = root;
 }
 
+/** The extension root the `current…` lookups read now. */
+export function dartBinariesExtensionRoot(): string {
+    return defaultRoot;
+}
+
 /** The page template inside the extension. */
 export const HELP_PAGE_TEMPLATE = path.join('resources', 'dart_binaries', 'missing_dart_binaries.md');
 

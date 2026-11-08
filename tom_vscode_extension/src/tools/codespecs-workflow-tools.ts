@@ -22,6 +22,7 @@ import { EXTRACTS_DIR, codeSpecsWriteExtractsImpl } from './codespecs-tools';
 import { codeSpecsGateImpl, codeSpecsVerdictsImpl } from './codespecs-gate-tools';
 import { codeSpecsPlanTodosImpl, type PlanTodoDeps } from './codespecs-plan-tools';
 import { codeSpecsValidateImpl } from './codespecs-validate-tools';
+import { noteValidationSkipped, validatorMissingWarning } from '../services/codespecs-validator';
 import {
     GUIDES,
     RUNBOOKS,
@@ -217,6 +218,13 @@ async function validationStage(deps: SpecToolDeps, file: string, shared: string 
     // The run's extracts corroborate checks 19 and 32–36; without them those checks are reported not run.
     const extractsDir = path.join(path.dirname(resolveInput(deps, file)), EXTRACTS_DIR);
     const r = parse(await codeSpecsValidateImpl(deps, { shared, ...(fs.existsSync(extractsDir) ? { extractsDir } : {}) }));
+    if (!r.ok && r.outcome === 'binaryMissing') {
+        // Not a failure of the trio: this host cannot check it. The stage stays
+        // open as if validation had not been asked for; the answer says why.
+        noteValidationSkipped('tomAi_specCodeSpecsStatus');
+        const warning = validatorMissingWarning('the trio is not validated (the validation stage is notChecked)');
+        return { stage: 'validation', state: 'notChecked', summary: `${warning}. Validate on a host that has validate_codespecs, or configure one (${r.help}).`, tool, details: { warnings: [warning], help: r.help, page: r.page } };
+    }
     if (!r.ok) {
         return { stage: 'validation', state: 'failing', summary: `Validation could not run (${r.outcome}): ${r.error}`, tool };
     }
@@ -249,10 +257,12 @@ export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps
         const validation = await validationStage(deps, input.file, input.shared);
         const stages = [gate, extraction, verdicts, tree.stage, authoring, validation];
         const first = stages.find((s) => s.state !== 'done');
+        const skipped = validation.details?.warnings as string[] | undefined;
         return json({
             ok: true,
             file: input.file,
             ...(questId ? { questId } : {}),
+            ...(skipped ? { warnings: skipped, help: validation.details?.help, page: validation.details?.page } : {}),
             stages,
             next: first
                 ? { stage: first.stage, state: first.state, tool: first.tool, action: first.state === 'notChecked' ? first.summary : NEXT_ACTION[first.stage] }
@@ -334,7 +344,8 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
         + 'done, and the next one), `validation` (the generated trio against the derivation contract) — with its state '
         + '(done, notStarted, outdated, incomplete, failing, blocked, notChecked), a summary, the tool that moves it and '
         + 'details; and `next`: the first stage not done and what to do. Reads only: every stage is checked with its own '
-        + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` to include validation. How to do each '
+        + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` to include validation (without '
+        + 'validate_codespecs on this platform it is notChecked, with `warnings` and `help`). How to do each '
         + 'stage: tomAi_specCodeSpecsGuide with `runbook`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,

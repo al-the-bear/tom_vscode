@@ -31,6 +31,7 @@ import {
 } from '../services/codespecs-validator';
 import { CONTRACT_FILE, entriesForStep, readContract } from '../services/codespecs-contract';
 import { entryView, readExtractDirectory } from '../services/codespecs-trace';
+import { dartBinariesHelp } from '../services/dartBinariesStatus';
 
 // ---------------------------------------------------------------------------
 // Validate
@@ -80,7 +81,8 @@ const BUNDLED_VOCABULARY_LABEL = '(bundled) resources/codespecs/vocabulary.dart'
 
 function validateFailure(e: unknown): string {
     if (e instanceof CodeSpecsBinaryMissing) {
-        return json({ ok: false, outcome: 'binaryMissing', error: e.message, expected: e.expected });
+        // Validation is what this tool does, so there is no working around it: say how to get the binary.
+        return json({ ok: false, outcome: 'binaryMissing', error: e.message, expected: e.expected, ...dartBinariesHelp() });
     }
     if (e instanceof CodeSpecsUsageError) {
         return json({ ok: false, outcome: 'usageError', error: e.message });
@@ -218,7 +220,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) with the bundled validate_codespecs. `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false. `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated`) — a check that did not run is not a pass.',
+        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) with the bundled validate_codespecs. `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated`) — a check that did not run is not a pass.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

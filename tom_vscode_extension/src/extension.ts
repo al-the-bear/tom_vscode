@@ -91,7 +91,7 @@ import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
 import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
-import { initDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
+import { initDartBinariesHelp, showWithDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
 import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/dartScriptGuard';
 import { loadSendToChatConfig } from './utils/sendToChatConfig';
 import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
@@ -109,7 +109,7 @@ import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/q
 // Tom AI Chat tools
 import { registerVsCodeLmTools } from './tools/vscodeLmTools';
 import { setBacklinkProvider } from './tools/codespecs-trace-tools';
-import { backlinkIndexJson } from './services/codespecs-validator';
+import { backlinkIndexJson, isValidatorAvailable, setValidationSkippedNotifier } from './services/codespecs-validator';
 import { initializeToolDescriptions } from './tools/guideline-tools';
 
 // Chat Enhancement stores & managers
@@ -787,11 +787,14 @@ export async function activate(context: vscode.ExtensionContext) {
     // but <1s when the event loop is idle.
     stepStart = performance.now();
     registerVsCodeLmTools(context);
-    // The CodeSpecs trace reads a generated trio's back-links through the
-    // validate_codespecs binary bundled in bin/<platform>/; a missing binary is
-    // reported by the tool call, naming the build step.
-    setBacklinkProvider((dirs) => backlinkIndexJson(dirs));
-    context.subscriptions.push({ dispose: () => setBacklinkProvider(null) });
+    // The CodeSpecs trace reads a generated trio's back-links through
+    // validate_codespecs (configured, or bundled in bin/<platform>/). Without it
+    // on this platform the provider answers null: the trace goes on without
+    // back-links, its answer carries the warning, and the user is told once per
+    // tool and window session (a warning with the Dart binaries help button).
+    setBacklinkProvider(async (dirs) => (isValidatorAvailable() ? backlinkIndexJson(dirs) : null));
+    setValidationSkippedNotifier((message) => { void showWithDartBinariesHelp('warning', message); });
+    context.subscriptions.push({ dispose: () => { setBacklinkProvider(null); setValidationSkippedNotifier(null); } });
     timeStep('vscodeLmTools.registerTools', stepStart);
 
     // Register chat variable resolvers (#quest, #role, etc.)

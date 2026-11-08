@@ -18,7 +18,8 @@ import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, SpecToolDeps, json, liveDeps, loadDocument, resolveInput, toWorkspacePath } from './spec-tool-common';
 import { EXTRACTS_DIR, codeSpecsFailure } from './codespecs-tools';
-import { CodeSpecsBinaryMissing, CodeSpecsUsageError } from '../services/codespecs-validator';
+import { CodeSpecsBinaryMissing, CodeSpecsUsageError, noteValidationSkipped, validatorMissingWarning } from '../services/codespecs-validator';
+import { dartBinariesHelp } from '../services/dartBinariesStatus';
 import {
     BacklinkIndex,
     ExtractDirectory,
@@ -70,9 +71,10 @@ export interface CodeSpecsTraceInput extends ExtractsLocator {
 /**
  * Produces the back-link index for a trio. The extension installs the bundled
  * validate_codespecs binary (`backlinkIndexJson`) at activation; a test may
- * install its own.
+ * install its own. `null`: the binary is missing on this platform, so there
+ * are no back-links (the trace goes on without them and says so).
  */
-export type BacklinkProvider = (dirs: CodeDirs) => Promise<string>;
+export type BacklinkProvider = (dirs: CodeDirs) => Promise<string | null>;
 let backlinkProvider: BacklinkProvider | null = null;
 
 /** Install (or clear) the back-link provider: the bundled validate_codespecs binary. */
@@ -102,6 +104,12 @@ function directoryHeader(deps: SpecToolDeps, dir: ExtractDirectory): Record<stri
     };
 }
 
+/** The warning a trace over `codeDirs` carries when validate_codespecs is missing. */
+export const NO_AGREEMENT = 'no back-link agreement (checks 35, 36)';
+
+/** No back-links from `codeDirs`: validate_codespecs is missing on this platform. */
+class BacklinksUnavailable extends Error {}
+
 async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Promise<BacklinkIndex | null> {
     if (input.backlinks) {
         const file = resolveInput(deps, input.backlinks);
@@ -118,9 +126,31 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
         for (const k of ['shared', 'client', 'server'] as const) {
             if (input.codeDirs[k]) { resolved[k] = resolveInput(deps, input.codeDirs[k] as string); }
         }
-        return parseBacklinkIndex(await backlinkProvider(resolved), 'validate_codespecs --backlinks');
+        let indexJson: string | null;
+        try {
+            indexJson = await backlinkProvider(resolved);
+        } catch (e) {
+            if (e instanceof CodeSpecsBinaryMissing) { throw new BacklinksUnavailable(e.message); }
+            throw e;
+        }
+        if (indexJson === null) { throw new BacklinksUnavailable(); }
+        return parseBacklinkIndex(indexJson, 'validate_codespecs --backlinks');
     }
     return null;
+}
+
+/**
+ * The back-links, or — when `codeDirs` needs validate_codespecs and it is
+ * missing — none, with the warning the answer carries (the user is told once).
+ */
+async function loadBacklinksOrWarn(deps: SpecToolDeps, input: CodeSpecsTraceInput): Promise<{ index: BacklinkIndex | null; warnings: string[] }> {
+    try {
+        return { index: await loadBacklinks(deps, input), warnings: [] };
+    } catch (e) {
+        if (!(e instanceof BacklinksUnavailable)) { throw e; }
+        noteValidationSkipped('tomAi_specCodeSpecsTrace');
+        return { index: null, warnings: [validatorMissingWarning(NO_AGREEMENT)] };
+    }
 }
 
 function traceFailure(e: unknown): string {
@@ -164,8 +194,12 @@ export async function codeSpecsTraceImpl(deps: SpecToolDeps, input: CodeSpecsTra
             throw new TraceInputError('invalidInput', 'Trace from exactly one of `specPath`, `token`, `codeFile` (+ `line`) or `declaration`.');
         }
         const dir = readExtractDirectory(extractsDirOf(deps, input));
-        const index = await loadBacklinks(deps, input);
+        const { index, warnings } = await loadBacklinksOrWarn(deps, input);
         if ((input.codeFile || input.declaration) && !index) {
+            if (warnings.length > 0) {
+                // Tracing from code has nothing to start from without the back-links.
+                return json({ ok: false, code: 'binaryMissing', error: `Tracing from code needs the back-links, and ${warnings[0]}. Pass \`backlinks\` (an index written where the binary runs).`, warnings, ...dartBinariesHelp() });
+            }
             throw new TraceInputError('noBacklinkSource', 'Tracing from code needs the back-links: pass `backlinks` (or `codeDirs`).');
         }
         const citedBy = (token: string): Array<Record<string, unknown>> =>
@@ -231,6 +265,7 @@ export async function codeSpecsTraceImpl(deps: SpecToolDeps, input: CodeSpecsTra
                     dangling: agreement.dangling,
                 },
             } : {}),
+            ...(warnings.length > 0 ? { warnings, ...dartBinariesHelp() } : {}),
         });
     } catch (e) {
         return traceFailure(e);
@@ -276,7 +311,7 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
     name: 'tomAi_specCodeSpecsTrace',
     displayName: 'CodeSpecs: Trace',
     description:
-        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled validate_codespecs, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36).',
+        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled validate_codespecs, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36). Without validate_codespecs on this platform, `codeDirs` gives no `agreement`: the answer carries `warnings` and `help` instead.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

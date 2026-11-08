@@ -16,7 +16,7 @@
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { getCurrentPlatform } from '../utils/executableResolver';
-import { currentDartBinary } from './dartBinariesStatus';
+import { currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND } from './dartBinariesStatus';
 
 export const VALIDATION_FORMAT = 'codespecs-validation';
 export const VALIDATION_FORMAT_VERSION = 1;
@@ -38,12 +38,58 @@ export const CS_VOCABULARY_FILE = path.join(EXTENSION_ROOT, 'resources', 'codesp
 /** Generous for a run measured at under a second; a hung binary must not hang a tool call. */
 const RUN_TIMEOUT_MS = 60_000;
 
+/** Where a validate_codespecs of the user's own is configured. */
+export const VALIDATOR_CONFIG_KEY = 'bridge.executables.validate_codespecs';
+
 export class CodeSpecsBinaryMissing extends Error {
-    constructor(readonly expected: string) {
-        super(`The validate_codespecs binary is not in this extension (expected at ${expected}). `
+    constructor(readonly expected: string, readonly platform: string = getCurrentPlatform()) {
+        super(`validate_codespecs is not available on ${platform}: it is not bundled with this extension (expected at ${expected}) `
+            + `and none is configured (\`${VALIDATOR_CONFIG_KEY}\` in .tom/tom_vscode_extension.json). `
             + `It is compiled from tom_ai/ai_build/tom_specs_clitool by \`${BUILD_COMMAND}\` in the extension `
-            + '(compile_and_install.sh / .ps1 run it), which needs a Dart SDK at build time only.');
+            + '(compile_and_install.sh / .ps1 run it), which needs a Dart SDK at build time only. '
+            + `How to get or configure it: ${dartBinariesHelp().page} (command ${HELP_COMMAND}).`);
     }
+}
+
+// ── Working around a missing binary ───────────────────────────────────────────
+
+/** Whether validate_codespecs is there (configured or bundled) for this platform, read now. */
+export function isValidatorAvailable(): boolean {
+    return currentDartBinary('validate_codespecs').source !== 'missing';
+}
+
+/** The warning a tool answer carries when it skipped what needs the binary: `validate_codespecs missing on <platform>: <what>`. */
+export function validatorMissingWarning(what: string, platform: string = getCurrentPlatform()): string {
+    return `validate_codespecs missing on ${platform}: ${what}`;
+}
+
+/** The message shown to the user when a tool skipped validation. */
+export function validationSkippedMessage(platform: string = getCurrentPlatform()): string {
+    return `CodeSpecs validation skipped: validate_codespecs is not available on ${platform}.`;
+}
+
+let skippedNotifier: ((message: string) => void) | null = null;
+const notifiedTools = new Set<string>();
+
+/** How the user is told (the extension: a warning with the Dart binaries help button); set at activation. */
+export function setValidationSkippedNotifier(notifier: ((message: string) => void) | null): void {
+    skippedNotifier = notifier;
+}
+
+/**
+ * A tool skipped validation: tell the user, at most once per tool in this
+ * window session (a queue walk calls the same tool many times). The tool's
+ * answer carries the warning every time.
+ */
+export function noteValidationSkipped(tool: string): void {
+    if (notifiedTools.has(tool)) { return; }
+    notifiedTools.add(tool);
+    skippedNotifier?.(validationSkippedMessage());
+}
+
+/** Forget which tools have told the user (a test's fresh session). */
+export function resetValidationSkippedNotices(): void {
+    notifiedTools.clear();
 }
 
 /** A usage error: the binary refused its arguments (exit 2); the message is its stderr. */
@@ -58,7 +104,7 @@ function binaryName(): string {
  * exists first, else the bundled one (services/dartBinariesStatus.ts); throws
  * {@link CodeSpecsBinaryMissing} naming the build step when neither is there.
  */
-export function validateCodespecsBinary(extensionRoot: string = EXTENSION_ROOT): string {
+export function validateCodespecsBinary(extensionRoot: string = dartBinariesExtensionRoot()): string {
     const found = currentDartBinary('validate_codespecs', extensionRoot);
     if (!found.path) {
         throw new CodeSpecsBinaryMissing(path.join(extensionRoot, 'bin', getCurrentPlatform(), binaryName()));
