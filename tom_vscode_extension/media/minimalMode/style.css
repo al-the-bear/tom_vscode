@@ -71,3 +71,19 @@ button {
 button:hover {
     background: var(--vscode-button-hoverBackground);
 }
+
+.buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+button.secondary {
+    color: var(--vscode-button-secondaryForeground);
+    background: var(--vscode-button-secondaryBackground);
+}
+
+button.secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}

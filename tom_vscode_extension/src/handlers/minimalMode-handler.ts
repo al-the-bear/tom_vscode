@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BaseWebviewProvider } from '../utils/baseWebviewProvider';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { SETUP_WORKSPACE_COMMAND } from './setupWorkspaceFolder-handler';
 
 // All webview view IDs declared in package.json that need a provider in minimal mode
 const MINIMAL_VIEW_IDS = [
@@ -39,6 +40,9 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
         super();
         this.registerMessageHandler('openSetupDoc', async () => {
             await this._openSetupDoc();
+        });
+        this.registerMessageHandler('setupWorkspaceFolder', async () => {
+            await vscode.commands.executeCommand(SETUP_WORKSPACE_COMMAND);
         });
     }
 

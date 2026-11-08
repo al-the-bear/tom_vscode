@@ -24,6 +24,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 // eslint-disable-next-line @typescript-eslint/naming-convention
 import Ajv from 'ajv';
+import { readZip } from '../zipArchive';
 
 const EXT = path.resolve(__dirname, '..', '..', '..');
 const WS = path.resolve(EXT, '..', '..', '..');
@@ -35,7 +36,6 @@ const tpl = require(SCRIPT) as {
     TEMPLATE_INFO_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     buildTemplate(ws: string): { ok: true; zip: Buffer; files: string[]; skipped: string[] } | { ok: false; errors: string[] };
     checkTemplate(entries: Entry[]): string[];
-    readZip(buf: Buffer): Entry[];
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { readCentralDirectory } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { readCentralDirectory(b: Buffer): Array<{ name: string; isSymlink: boolean }> };
@@ -82,7 +82,7 @@ describe('the workspace template', () => {
             if (!fs.existsSync(abs)) { assert.equal(src.optional, true, `${src.path} is required`); continue; }
             for (const f of src.kind === 'dir' ? filesUnder(WS, src.path) : [src.path]) { expected.add(f); }
         }
-        const entries = tpl.readZip(r.zip);
+        const entries = readZip(r.zip);
         assert.deepEqual(entries.map((e) => e.path).sort(), [...expected].sort());
         assert.deepEqual(readCentralDirectory(r.zip).map((e) => e.name).sort(), [...expected].sort(), 'readable by the VSIX check\'s reader too');
         for (const e of entries) {
@@ -101,7 +101,7 @@ describe('the workspace template', () => {
         const ws = fakeWorkspace();
         const ok = tpl.buildTemplate(ws);
         assert.ok(ok.ok, ok.ok ? '' : ok.errors.join('\n'));
-        const names = tpl.readZip((ok as { zip: Buffer }).zip).map((e) => e.path);
+        const names = readZip((ok as { zip: Buffer }).zip).map((e) => e.path);
         assert.ok(names.includes('_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml'), 'the quest\'s own config is fine');
         assert.ok(!names.some((n) => n.startsWith('_ai/quests/other/') || n.startsWith('_ai/memory/')), 'other quests and memory are not taken');
         for (const [planted, why] of [
@@ -159,7 +159,7 @@ describe('the workspace template', () => {
 
     test('WT-5: the config passes the schema', { skip: present ? false : 'no workspace around this checkout' }, () => {
         const r = tpl.buildTemplate(WS) as { zip: Buffer };
-        const config = JSON.parse(tpl.readZip(r.zip).find((e) => e.path === '.tom/tom_vscode_extension.json')!.data.toString('utf8'));
+        const config = JSON.parse(readZip(r.zip).find((e) => e.path === '.tom/tom_vscode_extension.json')!.data.toString('utf8'));
         const schema = JSON.parse(fs.readFileSync(path.join(EXT, 'src', 'config', 'tom_vscode_extension.schema.json'), 'utf8'));
         const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
         assert.ok(validate(config), JSON.stringify(validate.errors));

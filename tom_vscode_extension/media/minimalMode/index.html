@@ -11,11 +11,13 @@
 <h3>TOM AI Setup Required</h3>
 <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
 <ol class="steps">
-    <li>Create a <code>.tom/</code> folder in the workspace root</li>
-    <li>Add <code>.tom/tom_vscode_extension.json</code> config file</li>
-    <li>Reload the window</li>
+    <li><b>Setup new workspace folder</b> unpacks the workspace template (configuration, guidelines, <code>_ai/</code> roles and processes) into a folder and opens it, or</li>
+    <li>by hand: create a <code>.tom/</code> folder in the workspace root with a <code>.tom/tom_vscode_extension.json</code> config file, then reload the window</li>
 </ol>
-<button id="setupBtn">Open Setup Guide</button>
+<div class="buttons">
+    <button id="setupWorkspaceBtn">Setup new workspace folder</button>
+    <button id="setupBtn" class="secondary">Open Setup Guide</button>
+</div>
 <script src="{{baseUri}}/main.js"></script>
 </body>
 </html>

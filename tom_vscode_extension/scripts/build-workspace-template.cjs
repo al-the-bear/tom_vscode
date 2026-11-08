@@ -29,7 +29,8 @@
  * there (the install scripts put a copy beside the VSIX). It is deterministic:
  * entries sorted, fixed times, so an unchanged workspace gives the same bytes.
  *
- * Node only (zlib for deflate, an own CRC-32): the same on every platform.
+ * Node only (zlib for deflate, an own CRC-32): the same on every platform. The
+ * extension reads the zip with src/utils/zipArchive.ts.
  *
  * Exit codes: 0 written, 1 a check refused the content or a source is missing.
  */
@@ -217,43 +218,6 @@ function writeZip(entries) {
     return Buffer.concat([...locals, cd, eocd]);
 }
 
-/**
- * Read a zip `writeZip` (or any classic, non-zip64 zip with stored / deflated
- * entries) wrote: path → content. The setup unpacks with it too.
- * @returns {Array<{ path: string, data: Buffer }>}
- */
-function readZip(buf) {
-    let eocd = -1;
-    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
-        if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
-    }
-    if (eocd < 0) { throw new Error('not a zip: no end-of-central-directory record'); }
-    const count = buf.readUInt16LE(eocd + 10);
-    let p = buf.readUInt32LE(eocd + 16);
-    const out = [];
-    for (let n = 0; n < count; n++) {
-        if (buf.readUInt32LE(p) !== 0x02014b50) { throw new Error(`bad central directory entry #${n}`); }
-        const method = buf.readUInt16LE(p + 10);
-        const compressed = buf.readUInt32LE(p + 20);
-        const nameLen = buf.readUInt16LE(p + 28);
-        const extraLen = buf.readUInt16LE(p + 30);
-        const commentLen = buf.readUInt16LE(p + 32);
-        const localOffset = buf.readUInt32LE(p + 42);
-        const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
-        const lNameLen = buf.readUInt16LE(localOffset + 26);
-        const lExtraLen = buf.readUInt16LE(localOffset + 28);
-        const start = localOffset + 30 + lNameLen + lExtraLen;
-        const body = buf.subarray(start, start + compressed);
-        let data;
-        if (method === 0) { data = Buffer.from(body); } else if (method === 8) { data = zlib.inflateRawSync(body); } else {
-            throw new Error(`${name}: unsupported compression method ${method}`);
-        }
-        out.push({ path: name, data });
-        p += 46 + nameLen + extraLen + commentLen;
-    }
-    return out;
-}
-
 // ── The build ─────────────────────────────────────────────────────────────────
 
 /**
@@ -307,7 +271,7 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, readZip, buildTemplate, crc32 };
+module.exports = { SOURCES, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
 
 if (require.main === module) {
     process.exitCode = main();

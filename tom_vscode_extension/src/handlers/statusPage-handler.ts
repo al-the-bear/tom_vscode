@@ -13,6 +13,7 @@
 
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, resolveAssistPrompt, type AssistPromptUse } from '../utils/assistPrompts';
 import { checkBuildStatus } from '../services/buildStatusService';
+import { SETUP_WORKSPACE_COMMAND } from './setupWorkspaceFolder-handler';
 import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
@@ -1016,6 +1017,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // A newer extension build is installed: run it (only on the user's click).
         case 'reloadWindow':
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            break;
+        // Setup New Workspace Folder: the bundled workspace template into a folder.
+        case 'setupWorkspaceFolder':
+            await vscode.commands.executeCommand(SETUP_WORKSPACE_COMMAND);
             break;
         // The page about missing Dart-built binaries.
         case 'showDartBinariesHelp':
@@ -2197,6 +2202,17 @@ export function buildSectionHtml(build: BuildStatus | undefined): string {
     </div>`;
 }
 
+/**
+ * The first section of the Status Page (and of @WS): set up a new workspace
+ * folder from the template the VSIX carries (`tomAi.setupWorkspaceFolder`).
+ */
+export function setupWorkspaceSectionHtml(): string {
+    return `<div class="sp-section" data-section="setupWorkspace">
+        <div class="sp-settings-row"><label>🆕 A new workspace from the bundled template:</label>
+            <div class="sp-controls"><button class="sp-btn" data-status-action="setupWorkspaceFolder" title="Unpack the workspace template (configuration, guidelines, _ai roles and processes) into a folder">Setup new workspace folder</button></div></div>
+    </div>`;
+}
+
 const DART_SOURCE_LABEL = { configured: 'configured', bundled: 'bundled', missing: 'missing' } as const;
 
 /**
@@ -2363,6 +2379,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 
     return `
 <div class="sp-panel">
+    ${setupWorkspaceSectionHtml()}
     ${strictErrorsHtml}
     ${buildSectionHtml(status.build)}
     ${dartBinariesSectionHtml(status.dartBinaries)}

@@ -199,6 +199,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.setupWorkspaceFolder",
+        "title": "@T: Setup New Workspace Folder",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.showDartBinariesHelp",
         "title": "@T: Missing Dart Binaries (DartScript / CodeSpecs validation)",
         "category": "@Tom"

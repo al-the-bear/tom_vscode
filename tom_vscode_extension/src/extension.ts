@@ -78,6 +78,7 @@ import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
+import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import {
     McpServerController,
@@ -879,6 +880,9 @@ export function deactivate() {
  * Register all extension commands
  */
 function registerCommands(context: vscode.ExtensionContext) {
+    // Setup New Workspace Folder: unpack the bundled workspace template (minimal mode too)
+    registerSetupWorkspaceFolderCommand(context);
+
     // Send to Anthropic/LLM - the @CHAT Anthropic panel's current profile and session
     registerSendToLlmCommands(context);
 
