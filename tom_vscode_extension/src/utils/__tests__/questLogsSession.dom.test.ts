@@ -6,6 +6,8 @@
  *   QS-1 a session chosen on one tab (button click) is the session every other tab asks for, and is saved once
  *   QS-2 the host settling the choice (a plan for a deleted session) settles it for every tab
  *   QS-3 state saved per tab (`sessions`, tab → name) is read as one session: the active tab's, else the first
+ *   QS-4 every session action behind the switch (raw trail, trail summary, history, live trail, memory, clear) posts
+ *        the selected session, not `default`, and its title names it
  */
 
 import test, { afterEach, describe } from 'node:test';
@@ -23,7 +25,7 @@ setExtensionPath(path.resolve(__dirname, '..', '..', '..'));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Win = any;
-interface Posted { type: string; viewer?: string; tab?: string; session?: string }
+interface Posted { type: string; viewer?: string; tab?: string; session?: string; action?: string }
 
 // The viewer polls every 2.5 s: every window is closed after its test, passed or failed.
 const open: Win[] = [];
@@ -91,5 +93,20 @@ describe('@WS Logs: one session for every tab', () => {
         assert.equal(logs(first.win).state.session, 'walk', 'else the first choice made');
         const none = mount({ qlog_logs: { tab: 'trail' } });
         assert.equal(logs(none.win).state.session, '');
+    });
+    test('QS-4: the session actions act on the selected session', () => {
+        const { win, posted } = mount();
+        const viewer = logs(win);
+        viewer.onMessage(plan('mdTrail', ['default', 'chat', 'op5'], 'default'));
+        viewer.start();
+        win.document.querySelector('[data-qlog-session="op5"]').click();
+        const buttons = [...win.document.querySelectorAll('[data-qlog-session-action]')] as Array<{ getAttribute(n: string): string; click(): void }>;
+        assert.deepEqual(buttons.map((b) => b.getAttribute('data-qlog-session-action')), ['rawTrail', 'trailSummary', 'history', 'liveTrail', 'memory', 'clearHistory']);
+        for (const b of buttons) {
+            b.click();
+            const sent = posted.filter((m) => m.type === 'qlogSessionAction').at(-1)!;
+            assert.deepEqual([sent.action, sent.session], [b.getAttribute('data-qlog-session-action'), 'op5']);
+            assert.match(b.getAttribute('title'), /op5/, `${b.getAttribute('data-qlog-session-action')}: the title names the session`);
+        }
     });
 });

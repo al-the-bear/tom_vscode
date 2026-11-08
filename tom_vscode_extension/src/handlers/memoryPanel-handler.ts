@@ -45,8 +45,9 @@ interface WebviewMessage {
 export function registerMemoryPanelCommand(context: vscode.ExtensionContext): void {
     _context = context;
     context.subscriptions.push(
-        vscode.commands.registerCommand('tomAi.panel.memory', () => {
-            openMemoryPanel(context);
+        // An optional session names whose quest memory the panel shows (the @WS Logs button passes its selected session).
+        vscode.commands.registerCommand('tomAi.panel.memory', (session?: unknown) => {
+            openMemoryPanel(context, typeof session === 'string' && session ? session : undefined);
         }),
     );
     // Restore the panel after a window reload. Singleton that reloads all memory
@@ -65,8 +66,10 @@ export function registerMemoryPanelCommand(context: vscode.ExtensionContext): vo
     );
 }
 
-export function openMemoryPanel(context: vscode.ExtensionContext): void {
+/** Open (or reveal) the memory panel; `session`, when given, is the session whose quest memory it shows. */
+export function openMemoryPanel(context: vscode.ExtensionContext, session?: string): void {
     _context = context;
+    if (session) { _session = session; }
     if (_panel) {
         _panel.reveal();
         _sendSnapshot();

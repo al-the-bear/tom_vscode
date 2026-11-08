@@ -1716,10 +1716,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _openAnthropicSummaryTrail(): Promise<void> {
+    /**
+     * Open the summary trail of `sessions` — each session's own trail pair
+     * (src/services/sessionStorage.ts) — or, without them, of the sessions the
+     * user picks (the panel's own button).
+     */
+    private async _openAnthropicSummaryTrail(sessions?: string[]): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId();
-        // Each chosen session's own trail pair (src/services/sessionStorage.ts).
-        const names = await this._pickPanelSessions('Open the summary trail');
+        const names = sessions ?? await this._pickPanelSessions('Open the summary trail');
         for (const session of names ?? []) {
             const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic', session }, questId);
             if (!summaryPath || !fs.existsSync(summaryPath)) {
@@ -1756,11 +1760,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 }
                 return;
             }
-            case 'trailSummary': {
-                const provider = chatProviders.get('anthropic');
-                if (provider?.openTrailSummary) { await provider.openTrailSummary(); } else { await this._openTrailFiles(); }
+            case 'trailSummary':
+                // The given sessions' summary trails, not a picker preselected on the panel's session.
+                await this._openAnthropicSummaryTrail(names);
                 return;
-            }
             case 'history':
                 for (const name of names) { await this._openSessionHistoryMarkdown(name); }
                 return;
@@ -1768,7 +1771,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 for (const name of names) { await this._openLiveTrailMarkdown('anthropic', name); }
                 return;
             case 'memory':
-                await vscode.commands.executeCommand('tomAi.panel.memory');
+                // The memory panel shows one session's quest memory: the first given.
+                await vscode.commands.executeCommand('tomAi.panel.memory', names[0]);
                 return;
             case 'clearHistory': {
                 const choice = await vscode.window.showWarningMessage(
@@ -2465,7 +2469,9 @@ export function registerChatPanel(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {
             webviewOptions: { retainContextWhenHidden: true }
-        })
+        }),
+        // Closes the answer-folder watcher and the answer poll timer on deactivate.
+        _provider,
     );
 }
 

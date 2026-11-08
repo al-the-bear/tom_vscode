@@ -67,9 +67,9 @@ these in `_ai/quests/{quest}/history/sessions/{session}/`. It is read-only; use
 the toolbar to edit.
 
 - **Session actions**: behind the session switch, six icons work on the
-  selected session — the raw trail viewer, the trail summary viewer, its rolling
-  history and its live trail in the MD Browser, the memory panel, and clearing
-  its history (asks first).
+  selected session — its raw trail viewer, its summary trail in the trail
+  viewer, its rolling history and its live trail in the MD Browser, the memory
+  panel on its quest memory, and clearing its history (asks first).
 - **Session switch**: above the sub-tabs, one button per session, the most
   recently used first. With more than four sessions a dropdown holding every
   session comes first, and the buttons are the four most recently used; the

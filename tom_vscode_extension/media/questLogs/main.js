@@ -163,10 +163,10 @@ function qlogCreateViewer(cfg) {
      */
     var SESSION_ACTIONS = [
         ['rawTrail', 'codicon-history', 'Open the raw trail of session '],
-        ['trailSummary', 'codicon-list-flat', 'Open the trail summary viewer'],
+        ['trailSummary', 'codicon-list-flat', 'Open the trail summary of session '],
         ['history', 'codicon-file-text', 'Open the rolling history (history.md) of session '],
         ['liveTrail', 'codicon-pulse', 'Open the live trail of session '],
-        ['memory', 'codicon-book', 'Open the memory panel'],
+        ['memory', 'codicon-book', 'Open the memory panel on session '],
         ['clearHistory', 'codicon-clear-all', 'Clear the history of session '],
     ];
     function sessionActionsHtml(selected) {
