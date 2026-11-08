@@ -194,6 +194,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.showAgentSdkCliHelp",
+        "title": "@T: Missing Agent SDK CLI (Claude CLI for this platform)",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.showDartBinariesHelp",
         "title": "@T: Missing Dart Binaries (DartScript / CodeSpecs validation)",
         "category": "@Tom"

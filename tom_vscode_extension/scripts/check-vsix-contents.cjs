@@ -21,7 +21,10 @@
  * Reported, not checked: which Dart-built binaries (tom_bs, validate_codespecs)
  * the VSIX carries for which platform. A VSIX built without a Dart SDK has none
  * for its host and is still a valid package: the extension then runs without
- * DartScript and CodeSpecs validation on that platform.
+ * DartScript and CodeSpecs validation on that platform. Likewise for which
+ * platforms it carries the Agent SDK's native Claude CLI (the host's; with
+ * --all-platforms also the fleet's): elsewhere the Agent SDK transport says it
+ * cannot run.
  *
  * Exit codes: 0 ok, 1 a check failed (each failure is listed), 2 no VSIX or an
  * unreadable zip.
@@ -62,6 +65,8 @@ const REQUIRED = [
     // The page a window shows when a Dart-built binary is missing on its platform
     // (src/handlers/dartBinariesHelp-handler.ts).
     'extension/resources/dart_binaries/missing_dart_binaries.md',
+    // The page the Agent SDK transport points to when this platform has no CLI.
+    'extension/resources/agent_sdk/missing_agent_sdk_cli.md',
 ];
 
 const SOM_PREFIXES = [
@@ -148,6 +153,21 @@ function printDartBinaryReport(report, host = HOST_PLATFORM) {
     }
 }
 
+/**
+ * The platforms whose Agent SDK native CLI the VSIX carries: the host's package
+ * (`@anthropic-ai/claude-agent-sdk-<platform>/claude[.exe]`) and the binaries
+ * --all-platforms bundles (`bin/<platform>/claude[.exe]`).
+ */
+function agentSdkCliPlatforms(names) {
+    const platforms = new Set();
+    for (const name of names) {
+        const m = /^extension\/node_modules\/@anthropic-ai\/claude-agent-sdk-([^/]+)\/claude(\.exe)?$/.exec(name)
+            ?? /^extension\/bin\/([^/]+)\/claude(\.exe)?$/.exec(name);
+        if (m) { platforms.add(m[1]); }
+    }
+    return [...platforms].sort();
+}
+
 function main() {
     const vsixPath = process.argv[2] ? path.resolve(process.argv[2]) : newestVsix();
     if (!vsixPath || !fs.existsSync(vsixPath)) {
@@ -178,10 +198,12 @@ function main() {
     }
     console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks.`);
     printDartBinaryReport(dartBinaryReport(names));
+    const cli = agentSdkCliPlatforms(names);
+    console.log(`   Agent SDK CLI (informational): ${cli.length > 0 ? cli.join(', ') : 'none'}${cli.includes(HOST_PLATFORM) ? '' : ` — not for this host (${HOST_PLATFORM})`}`);
 }
 
 if (require.main === module) {
     main();
 }
 
-module.exports = { readCentralDirectory, dartBinaryReport, REQUIRED };
+module.exports = { readCentralDirectory, dartBinaryReport, agentSdkCliPlatforms, REQUIRED };

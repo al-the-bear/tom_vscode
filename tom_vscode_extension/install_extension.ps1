@@ -3,15 +3,20 @@
     Tom AI Build - VS Code Extension Installation Script
     This script sets up and installs the VS Code extension for development.
 .DESCRIPTION
-    install_extension.ps1 [-NoDart | --no-dart]
+    install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
     Dart SDK: no Dart step runs, and the VSIX carries no validate_codespecs and,
     from source, no tom_bs. Without the option the same happens when no Dart
     SDK is found (scripts/find-dart.cjs). The extension then loses only
     DartScript and CodeSpecs validation; everything else works.
+
+    -AllPlatforms (or --all-platforms, or TOM_ALL_PLATFORMS=1) bundles the
+    Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64, not only
+    for this host, so the Agent SDK transport also runs where the VSIX is
+    installed on another platform (about 110 MB more per platform).
 #>
-param([switch]$NoDart)
+param([switch]$NoDart, [switch]$AllPlatforms)
 
 $ErrorActionPreference = "Stop"
 
@@ -19,8 +24,11 @@ $ErrorActionPreference = "Stop"
 
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
-    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart])"; exit 1 }
+    elseif ($Arg -eq '--all-platforms') { $AllPlatforms = $true }
+    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms])"; exit 1 }
 }
+if ($AllPlatforms) { $env:TOM_ALL_PLATFORMS = '1' }
+$AllPlatformsMode = ($env:TOM_ALL_PLATFORMS -eq '1')
 if ($NoDart) {
     $env:TOM_NO_DART = '1'
     if (-not $env:TOM_NO_DART_REASON) { $env:TOM_NO_DART_REASON = '--no-dart given' }
@@ -419,16 +427,25 @@ if ($Result -match "^[Yy]") {
     }
     Write-Host ""
 
-    # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────
+    # ── Claude Agent SDK native CLI: this host's, or the fleet's ──────────
     # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native
     # binary via optional deps (@anthropic-ai/claude-agent-sdk-<platform>)
     # rather than a bundled cli.js. `vsce package` only includes what is
-    # physically present in node_modules, so a vsix is portable only for the
-    # host it was built on. We build and install on the same machine, so we
-    # only ensure the host binary is present. Older SDKs that still bundle
-    # cli.js need nothing. Missing it yields at runtime:
-    #   "Native CLI binary for <platform>-<arch> not found ..."
-    Write-Host "Ensuring Claude Agent SDK native CLI binary for this host..."
+    # physically present in node_modules, and only the host's package may be
+    # there (vsce's `npm list` refuses another platform's as invalid), so by
+    # default the VSIX runs the Agent SDK transport only on this platform;
+    # elsewhere the transport says the CLI is missing
+    # (resources/agent_sdk/missing_agent_sdk_cli.md). With -AllPlatforms the
+    # fleet's other CLIs (darwin-arm64, linux-x64, win32-x64) are fetched with
+    # `npm pack` (no platform check) into .cache/agent-sdk-cli/ and bundled as
+    # bin/<platform>/claude[.exe], which the transport hands to the SDK
+    # (pathToClaudeCodeExecutable). bin/ was emptied above, so a default build
+    # carries none of them. Older SDKs that still bundle cli.js need nothing.
+    if ($AllPlatformsMode) {
+        Write-Host "Ensuring the Claude Agent SDK native CLI for this host and the fleet (-AllPlatforms)..."
+    } else {
+        Write-Host "Ensuring the Claude Agent SDK native CLI for this host (only; -AllPlatforms adds the fleet's)..."
+    }
     $SdkPkgDir = Join-Path $ExtensionDir 'node_modules/@anthropic-ai/claude-agent-sdk'
     if (Test-Path (Join-Path $SdkPkgDir 'cli.js')) {
         Write-Host "  SDK bundles cli.js - no per-platform binary needed"
@@ -441,8 +458,16 @@ if ($Result -match "^[Yy]") {
         $SdkPkgJson = ($SdkPkgDir -replace '\\', '/') + '/package.json'
         $SdkVer = Invoke-Native { node -p "require('$SdkPkgJson').version" }
         $HostPkg = "@anthropic-ai/claude-agent-sdk-$HostPlat"
-        $HostPkgDir = Join-Path $ExtensionDir "node_modules/@anthropic-ai/claude-agent-sdk-$HostPlat"
-        if (Test-Path $HostPkgDir) {
+        # Only the host's package: another platform's would fail vsce's npm list.
+        $SdkScopeDir = Join-Path $ExtensionDir 'node_modules/@anthropic-ai'
+        foreach ($dir in @(Get-ChildItem -Path $SdkScopeDir -Directory -Filter 'claude-agent-sdk-*' -ErrorAction SilentlyContinue)) {
+            $plat = $dir.Name.Substring('claude-agent-sdk-'.Length)
+            if ($plat -ne $HostPlat) {
+                Remove-Item -Recurse -Force $dir.FullName
+                Write-Host "  removed the $plat package (only the host's may be in node_modules)"
+            }
+        }
+        if (Test-Path (Join-Path $SdkScopeDir "claude-agent-sdk-$HostPlat")) {
             Write-Host "  $HostPkg already present"
         } else {
             Write-Host "  Installing $HostPkg@$SdkVer ..."
@@ -452,6 +477,34 @@ if ($Result -match "^[Yy]") {
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Failed to install $HostPkg@$SdkVer - the packaged extension would fail at runtime on this host."
                 exit 1
+            }
+        }
+        if ($AllPlatformsMode) {
+            $CliCache = Join-Path $ExtensionDir '.cache/agent-sdk-cli'
+            New-Item -ItemType Directory -Path $CliCache -Force | Out-Null
+            foreach ($plat in @('darwin-arm64', 'linux-x64', 'win32-x64')) {
+                if ($plat -eq $HostPlat) { continue }
+                $exe = if ($plat -like 'win32-*') { '.exe' } else { '' }
+                $pkg = "@anthropic-ai/claude-agent-sdk-$plat@$SdkVer"
+                $tgz = Join-Path $CliCache "anthropic-ai-claude-agent-sdk-$plat-$SdkVer.tgz"
+                if (-not (Test-Path $tgz)) {
+                    Write-Host "  Fetching $pkg ..."
+                    Push-Location $CliCache
+                    $null = Invoke-Native { npm pack $pkg --silent }
+                    $packed = $LASTEXITCODE
+                    Pop-Location
+                    if ($packed -ne 0) { Write-Error "Failed to fetch $pkg"; exit 1 }
+                }
+                $unpack = Join-Path $CliCache "unpacked-$plat"
+                if (Test-Path $unpack) { Remove-Item -Recurse -Force $unpack }
+                New-Item -ItemType Directory -Path $unpack -Force | Out-Null
+                Invoke-Native { tar -xzf $tgz -C $unpack }
+                if ($LASTEXITCODE -ne 0) { Write-Error "Failed to unpack $tgz"; exit 1 }
+                $dstDir = Join-Path $ExtensionDir "bin/$plat"
+                New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+                Copy-Item -Path (Join-Path $unpack "package/claude$exe") -Destination (Join-Path $dstDir "claude$exe") -Force
+                Remove-Item -Recurse -Force $unpack
+                Write-Host "  bin/$plat/claude$exe ($pkg)"
             }
         }
     } else {

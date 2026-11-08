@@ -34,3 +34,7 @@ bin/*/validate_codespecs.build.json
 # The TomSpecs SOM tarballs (scripts/build-som-packages.cjs). They are installed
 # into node_modules, which is what ships; the tarballs themselves are build input.
 vendor/**
+
+# The Agent SDK CLI tarballs --all-platforms fetches (install_extension.*); the
+# binaries themselves ship as bin/<platform>/claude[.exe].
+.cache/**

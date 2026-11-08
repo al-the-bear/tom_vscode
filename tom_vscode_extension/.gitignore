@@ -6,3 +6,6 @@ bin
 .DS_Store
 vendor
 resources/codespecs
+
+# The Agent SDK CLI tarballs --all-platforms fetches (install_extension.*)
+.cache/

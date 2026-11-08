@@ -3,12 +3,15 @@
 # Compile the bridge binary for the LOCAL platform from source, then build and
 # install the extension bundling only that single host-platform executable.
 #
-#   ./compile_and_install.sh [--no-dart]
+#   ./compile_and_install.sh [--no-dart] [--all-platforms]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1): no
 # tom_bs and no validate_codespecs are built, so the VSIX lacks DartScript and
 # CodeSpecs validation. The same happens when no Dart SDK is found. The VSIX
 # path is printed at the end, to install it on other machines.
+# --all-platforms (also TOM_ALL_PLATFORMS=1) bundles the Agent SDK's Claude CLI
+# for darwin-arm64, linux-x64 and win32-x64, so the Agent SDK transport runs
+# on those platforms too (by default only on this one).
 #
 # Thin wrapper over install_extension.sh: TOM_BRIDGE_FROM_SOURCE=1 switches the
 # bundling step from "copy all prebuilt platforms out of tom_binaries" to
@@ -30,8 +33,9 @@ export TOM_BRIDGE_FROM_SOURCE=1
 for ARG in "$@"; do
     case "$ARG" in
         --no-dart) export TOM_NO_DART=1; export TOM_NO_DART_REASON="--no-dart given" ;;
-        -h|--help) sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart])"; exit 1 ;;
+        --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
+        -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms])"; exit 1 ;;
     esac
 done
 

@@ -73,6 +73,13 @@ export type RequestClient = (
 export interface AgentSdkBridgeDeps {
     /** Lazily loads (and caches) the ESM-only Agent SDK module. */
     loadSdk: () => Promise<AgentSdkLike>;
+    /**
+     * Throws when the SDK's native CLI is missing on this platform (the
+     * extension: transport's requireAgentSdkCli); answers the bundled CLI's
+     * path when the SDK must be given it. Not asked when the caller names its
+     * own `pathToClaudeCodeExecutable`.
+     */
+    requireCli?: () => string | undefined;
     /** Emits a JSON-RPC notification back to the Dart client. */
     sendNotification: (method: string, params: Record<string, unknown>) => void;
     /**
@@ -220,7 +227,8 @@ export class AgentSdkBridge {
             // the bridge-managed abortController; everything else is passed
             // unchanged — except `{type:'sdk'}` mcp servers, which are rebuilt
             // into real instances whose tools call back into Dart.
-            const options: Record<string, unknown> = { ...callerOptions, abortController };
+            const bundledCli = callerOptions.pathToClaudeCodeExecutable ? undefined : this.deps.requireCli?.();
+            const options: Record<string, unknown> = { ...callerOptions, abortController, ...(bundledCli ? { pathToClaudeCodeExecutable: bundledCli } : {}) };
             this.resolveEnvOverlay(options);
             const mcpServers = options.mcpServers;
             if (mcpServers && typeof mcpServers === 'object') {

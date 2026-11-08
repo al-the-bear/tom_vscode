@@ -6,7 +6,7 @@ import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-t
 import { sendToChatForScript } from './handlers/sendToChatRouter';
 import { AgentSdkBridge } from './services/agent-sdk-bridge';
 import { ServerToClientRpc } from './services/server-to-client-rpc';
-import { loadSdk } from './handlers/agent-sdk-transport';
+import { loadSdk, requireAgentSdkCli } from './handlers/agent-sdk-transport';
 import { toolLog } from './utils/toolLog';
 
 const DART_COMMAND = 'dart';
@@ -475,6 +475,7 @@ export class DartBridgeClient {
         if (!this.agentSdkBridge) {
             this.agentSdkBridge = new AgentSdkBridge({
                 loadSdk,
+                requireCli: requireAgentSdkCli,
                 sendNotification: (m, p) => this.sendNotification(m, p),
                 // Dart-defined tools (#5) call back into the connected client
                 // over the reverse RPC.

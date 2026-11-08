@@ -3,12 +3,17 @@
     Compile the bridge binary for the LOCAL platform from source, then build and
     install the extension bundling only that single host-platform executable.
 .DESCRIPTION
-    compile_and_install.ps1 [-NoDart | --no-dart]
+    compile_and_install.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
     Dart SDK: no tom_bs and no validate_codespecs are built, so the VSIX lacks
     DartScript and CodeSpecs validation. The same happens when no Dart SDK is
     found. The VSIX path is printed at the end, to install it on other machines.
+
+    -AllPlatforms (or --all-platforms, or TOM_ALL_PLATFORMS=1) bundles the
+    Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64, so the
+    Agent SDK transport runs on those platforms too (by default only on this
+    one).
 
     Thin wrapper over install_extension.ps1: TOM_BRIDGE_FROM_SOURCE=1 switches
     the bundling step from "copy all prebuilt platforms out of tom_binaries" to
@@ -20,7 +25,7 @@
     Everything else (Node check, npm install, TypeScript compile, Claude Agent
     SDK host binary, vsce package, install) is shared with install_extension.ps1.
 #>
-param([switch]$NoDart)
+param([switch]$NoDart, [switch]$AllPlatforms)
 
 $ErrorActionPreference = "Stop"
 
@@ -29,8 +34,10 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
-    else { Write-Error "Unknown option: $Arg (usage: compile_and_install.ps1 [-NoDart | --no-dart])"; exit 1 }
+    elseif ($Arg -eq '--all-platforms') { $AllPlatforms = $true }
+    else { Write-Error "Unknown option: $Arg (usage: compile_and_install.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms])"; exit 1 }
 }
+if ($AllPlatforms) { $env:TOM_ALL_PLATFORMS = '1' }
 
 $env:TOM_BRIDGE_FROM_SOURCE = '1'
 # Settle the no-Dart mode here, so this wrapper and install_extension.ps1 agree
@@ -65,6 +72,7 @@ try {
     Remove-Item Env:TOM_SKIP_FINISH_TS -ErrorAction SilentlyContinue
     Remove-Item Env:TOM_NO_DART -ErrorAction SilentlyContinue
     Remove-Item Env:TOM_NO_DART_REASON -ErrorAction SilentlyContinue
+    if ($AllPlatforms) { Remove-Item Env:TOM_ALL_PLATFORMS -ErrorAction SilentlyContinue }
 }
 
 Write-TomVsixPath $ScriptDir

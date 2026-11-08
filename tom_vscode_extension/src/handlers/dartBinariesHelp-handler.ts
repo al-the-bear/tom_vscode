@@ -8,8 +8,6 @@
  * file outside the workspace.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     currentDartBinariesStatus,
@@ -27,10 +25,11 @@ import {
 } from '../services/dartBinariesStatus';
 import { readBuildStamp } from '../utils/buildStamp';
 import { reportException } from './handler_shared';
+import { HELP_BUTTON_LABEL, previewPage, showWithHelpButton, writeFilledPage } from './helpPages';
 
 /** globalState key: the (build, platform) keys the page was opened for. */
 export const HELP_SHOWN_STATE_KEY = 'tomAi.dartBinariesHelp.shown';
-export const HELP_BUTTON_LABEL = 'What does this mean?';
+export { HELP_BUTTON_LABEL };
 
 let extensionRoot = '';
 let storageDir = '';
@@ -38,11 +37,8 @@ let item: vscode.StatusBarItem | undefined;
 
 /** Write the page filled for this window's status; answers its path. */
 export function writeFilledHelpPage(status: DartBinariesStatus = currentDartBinariesStatus(extensionRoot || undefined)): string {
-    const template = fs.readFileSync(path.join(extensionRoot, HELP_PAGE_TEMPLATE), 'utf8');
-    const target = path.join(storageDir, 'dart_binaries', 'missing_dart_binaries.md');
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, fillHelpPage(template, status, extensionRoot), 'utf8');
-    setFilledHelpPagePath(target);
+    const target = writeFilledPage(extensionRoot, storageDir, HELP_PAGE_TEMPLATE, (template) => fillHelpPage(template, status, extensionRoot));
+    if (storageDir) { setFilledHelpPagePath(target); }
     return target;
 }
 
@@ -55,7 +51,7 @@ export async function showDartBinariesHelp(): Promise<void> {
     const status = currentDartBinariesStatus(extensionRoot || undefined);
     updateStatusBar(status);
     const file = storageDir ? writeFilledHelpPage(status) : dartBinariesHelp().page;
-    await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(file));
+    await previewPage(file);
 }
 
 /**
@@ -68,10 +64,7 @@ export function dartBinariesHelpAction(): { label: string; run: () => Promise<vo
 
 /** Show `message` (error or warning) with the help button; the click opens the page. */
 export async function showWithDartBinariesHelp(kind: 'error' | 'warning', message: string): Promise<void> {
-    const action = dartBinariesHelpAction();
-    const show = kind === 'error' ? vscode.window.showErrorMessage : vscode.window.showWarningMessage;
-    const picked = await show(message, action.label);
-    if (picked === action.label) { await action.run(); }
+    await showWithHelpButton(kind, message, showDartBinariesHelp);
 }
 
 function updateStatusBar(status: DartBinariesStatus): void {
@@ -104,7 +97,7 @@ export function initDartBinariesHelp(context: vscode.ExtensionContext): void {
         const shown = context.globalState.get<string[]>(HELP_SHOWN_STATE_KEY);
         if (shouldOpenHelpPage(status, shown, key)) {
             void context.globalState.update(HELP_SHOWN_STATE_KEY, rememberHelpPage(shown, key));
-            void vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(page));
+            void previewPage(page);
         }
     } catch (error) {
         reportException('dartBinariesHelp.init', error);

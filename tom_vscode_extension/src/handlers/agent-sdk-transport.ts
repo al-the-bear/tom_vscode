@@ -198,9 +198,43 @@ export async function loadSdk(): Promise<AgentSdkModule> {
  */
 export function __setAgentSdkForTests(sdk: unknown): void {
     cachedSdk = Promise.resolve(sdk as AgentSdkModule);
+    // A fake SDK runs no CLI.
+    cliFinder = () => ({ path: 'fake-sdk', source: 'package' });
+}
+
+/** Where the native CLI is for this platform (null: none); a test may stand in. */
+let cliFinder: () => AgentSdkCliLocation | null = () => locateAgentSdkCli();
+
+/** Test seam: how the CLI is looked up. */
+export function __setAgentSdkCliFinderForTests(finder: () => AgentSdkCliLocation | null): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam, named like __setAgentSdkForTests
+    cliFinder = finder;
+}
+
+/**
+ * Before a query: the SDK needs its native CLI, which a VSIX carries only for
+ * the platforms it was built with. Without it here, fail with what is missing
+ * and how to get it (instead of the SDK's "Native CLI binary for … not
+ * found"), and tell the user once per window session. Answers the path the
+ * SDK must be given (`pathToClaudeCodeExecutable`) when the CLI is the binary
+ * bundled in bin/<platform>/ rather than the package the SDK finds itself.
+ */
+export function requireAgentSdkCli(): string | undefined {
+    const cli = cliFinder();
+    if (cli) { return cli.source === 'bundled' ? cli.path : undefined; }
+    const err = new AgentSdkCliMissing(undefined, agentSdkCliHelpPage());
+    noteAgentSdkCliMissing(err.message);
+    throw err;
+}
+
+/** The bundled CLI's path for this platform, when the SDK must be given it. */
+function bundledCliOption(): Record<string, unknown> {
+    const cli = cliFinder();
+    return cli?.source === 'bundled' ? { pathToClaudeCodeExecutable: cli.path } : {};
 }
 
 import { SharedToolDefinition, summarizeToolInput } from '../tools/shared-tool-registry';
+import { AgentSdkCliMissing, locateAgentSdkCli, type AgentSdkCliLocation } from '../services/agentSdkCli';
+import { agentSdkCliHelpPage, noteAgentSdkCliMissing } from './agentSdkCliHelp-handler';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
 import { wrapToolWithTrail } from '../utils/toolTrailWrapper';
@@ -722,6 +756,7 @@ function makeCanUseTool(
  * `maxAttempts <= 1`) it behaves exactly as a single attempt.
  */
 export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<AgentSdkResult> {
+    requireAgentSdkCli();
     const maxAttempts = Math.max(1, params.retry?.maxAttempts ?? 1);
     const maxTotalWaitMs = params.retry?.maxTotalWaitMs;
     let attemptResumeSessionId = params.resumeSessionId;
@@ -1045,6 +1080,8 @@ async function runAgentSdkAttempt(
             tools: toolsOption,
             ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
             ...(Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {}),
+            // A CLI bundled for this platform by --all-platforms (no package the SDK would find).
+            ...bundledCliOption(),
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.
