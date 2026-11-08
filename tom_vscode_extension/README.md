@@ -268,12 +268,30 @@ needed.
 
 In a folder without `.tom/`, the extension's panels offer **Setup new
 workspace folder** (also `@T: Setup New Workspace Folder` and the top of the
-Status Page): it unpacks the workspace template the VSIX carries into a
-folder. The template brings the quest **tomai_introduction**, the workspace's
+Status Page): it unpacks the workspace template the VSIX carries
+(`resources/workspace_template.zip`) into a folder you pick or create.
+
+- **A folder that is not empty** shows what is in it first; **Set up anyway**
+  goes on.
+- **A file that already exists** is asked about one by one: **Overwrite**,
+  **Skip**, **Overwrite All** or **Skip All** for the rest, or **Cancel**
+  (the files written so far stay). The end shows what was written,
+  overwritten and skipped.
+- **Adapt the configuration afterwards.** `.tom/tom_vscode_extension.json`
+  comes from the machine the VSIX was built on: its bridge profiles' paths,
+  `bridge.executables`, the Local LLM endpoint and the name of the API key's
+  environment variable. The setup offers to open it.
+- **Then open** the introduction quest or the folder, each in a new window,
+  or stay.
+
+The template brings the quest **tomai_introduction**, the workspace's
 starting quest: open `_ai/quests/tomai_introduction/tomai_introduction.code-workspace`
-(the setup offers to). Its overview describes every feature and links to a
-page about each, and its todos are a guided first tour, run in the prompt
-queue (a todo walk over `intro*`) or one by one in the chat.
+(the setup offers to). Its overview opens by itself the first time (once per
+quest and machine), describes every feature and links to a page about each;
+its todos are a guided first tour, run in the prompt queue (a todo walk over
+`intro*`) or one by one in the chat. While no quest is open, the panels show
+a *No quest is open* banner with **Create new quest** (`@T: Create New
+Quest`) and **Setup new workspace folder**.
 
 ### After installing: the `_ai` format migration
 

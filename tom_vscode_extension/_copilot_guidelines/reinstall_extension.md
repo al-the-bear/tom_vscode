@@ -111,11 +111,23 @@ Before packaging, both installers build the workspace template
 (`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
 workspace, the config, all of `_copilot_guidelines/`, CLAUDE.md,
 `.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
-prompt / format-version.yaml (and the `tomai_introduction` quest once it
-exists), plus `.tom/workspace_template.json` (its type, `dart`). It refuses
-host-bound files and literal secrets and then writes nothing; the result is
+prompt / format-version.yaml and the starting quest `tomai_introduction`,
+plus `.tom/workspace_template.json` (its type, `dart`). From the quest it
+leaves out what its use on this machine writes (`history/`, `session-todo.*`,
+the host's `extension_config`, `process-state`); anywhere else such host-bound
+files, and literal secrets, make it refuse and write nothing. The result is
 `resources/workspace_template.zip` (in the VSIX, required by
-`check-vsix-contents.cjs`) and a copy beside the VSIX.
+`check-vsix-contents.cjs`) and a copy beside the VSIX; @T: Setup New Workspace
+Folder unpacks it.
+
+**Packaging without installing** (private distribution): `create_vsix.sh` /
+`.ps1` build from source with the Dart binaries for this platform,
+`create_vsix_nodart.sh` / `.ps1` without the Dart step; both always bundle the
+three Claude CLIs (`TOM_ALL_PLATFORMS=1`) and run `install_extension.*` in its
+package-only mode (`--package-only` / `-PackageOnly` / `TOM_PACKAGE_ONLY=1`:
+no uninstall, no prompt, no `code --install-extension`). They end with the
+VSIX path, the template path and the per-platform report of
+`check-vsix-contents.cjs`. Tests: `createVsixScripts.test.ts` (CS-1 – CS-5).
 
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from

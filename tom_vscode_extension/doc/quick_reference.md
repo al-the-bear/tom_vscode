@@ -114,6 +114,19 @@
 - `tomAi.openConfig`
 - `tomAi.openSettings`
 
+## Workspace and Quest Setup
+
+- **Setup New Workspace Folder** (`tomAi.setupWorkspaceFolder`): the
+  workspace template into a folder; an existing file is asked about one by one
+  (Overwrite, Skip, Overwrite All, Skip All, Cancel); then the configuration
+  to adapt and what to open.
+- **Create New Quest** (`tomAi.createQuest`): `_ai/quests/<id>/` with the
+  quest's files and the `questsetup1` todo that defines the quest with you.
+- **No quest is open** banner: in @CHAT, @WS and the @TOM quest views while
+  the window's quest is `default`, with both buttons.
+- **The quest overview** opens in the MD Browser the first time a quest's
+  window opens on a machine (globalState `tomAi.questOverview.shown`).
+
 ## Custom Editors (file-bound)
 
 | Editor | View Type | File Patterns | Priority |

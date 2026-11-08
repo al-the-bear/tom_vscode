@@ -8,10 +8,47 @@ The extension combines VS Code automation, bridge-based scripting, Copilot workf
 
 Current bottom panel layout:
 
-- `@CHAT` (`tomAi.chatPanel`): two subpanels — **ANTHROPIC/LLM** and **Copilot**. Shared features: prompt queue side panel, document picker, live-trail button (ANTHROPIC/LLM), session-history button, memory/config buttons, accordion/pin/rotate layout.
+- `@CHAT` (`tomAi.chatPanel`): two subpanels — **ANTHROPIC/LLM** and **Copilot**
+  — in an accordion layout (pin, rotate). Each subpanel can send its prompt to
+  the prompt queue. The session's live trail, history, memory and Clear are in
+  @WS › Logs, behind the session switch.
 - `@WS` (`tomAi.wsPanel`): Guidelines, Documentation, Logs, Settings, Issues, Tests, Quest TODO. The Logs section shows one session's live trail, prompts, answers and running prompt, with a session switch — see [Logs Panel](#logs-panel); the Documentation section's sub-tabs hold the document editor and the quest's own documents — see [Documentation Panel](#documentation-panel).
 
 Both subpanels are queue-compatible.
+
+### Setting up a workspace, creating quests
+
+- **Setup New Workspace Folder** (`@T: Setup New Workspace Folder`; also the
+  button on the panels of a folder without `.tom/` and at the top of the Status
+  Page) unpacks the workspace template the VSIX carries — the configuration, the
+  guidelines, CLAUDE.md, the `_ai` roles, processes, schemas and prompts, and
+  the starting quest `tomai_introduction` — into a folder you pick or create. A
+  folder that is not empty shows what is in it first (**Set up anyway** goes
+  on). For each file that already exists you choose **Overwrite**, **Skip**,
+  **Overwrite All**, **Skip All** or **Cancel** (what was written stays); the
+  end reports what was written, overwritten and skipped (**Show the file
+  list**). Then it says what in `.tom/tom_vscode_extension.json` to adapt (the
+  bridge profiles' paths, `bridge.executables`, the Local LLM endpoint, the API
+  key's environment variable; **Open the configuration**) and asks what to open:
+  the introduction quest or the folder, each in a new window, or stay here.
+- **Create New Quest** (`@T: Create New Quest`) asks the quest id (letters,
+  digits and `_`, not taken) and a name, creates `_ai/quests/<id>/` with the
+  quest's files (empty but for their headings), adds the quest to the Active
+  Quests table of `_copilot_guidelines/quests_and_processes.md`, and offers to
+  open the quest's workspace. Its one todo,
+  `questsetup1_<code>-define-the-quest`, defines the quest with you in question
+  rounds when you run it in the queue or the chat. Agents run the command with
+  `{ id, name, offerOpen }` (the `!create quest` pattern prompt does).
+- **No quest is open:** while the window's workspace is not a quest's (quest
+  `default`), @CHAT, @WS and the @TOM views PROCESS, QUEST NOTES, QUEST TODOS,
+  SESSIONS and SESSION TODOS show a banner *No quest is open. Open a quest
+  workspace (`_ai/quests/<id>/<id>.code-workspace`) or create one.* with **Create
+  new quest** and **Setup new workspace folder**.
+- **The quest overview once:** the first time a quest's window opens on a
+  machine, its `overview.<quest>.md` opens in the MD Browser (the focus stays
+  where it is; not when a restored tab shows it already). It is remembered per
+  quest in the VS Code profile's global state (`tomAi.questOverview.shown`);
+  afterwards the overview is in @WS › Documentation › Quest Overview.
 
 ### Guidelines Panel
 

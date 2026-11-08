@@ -47,13 +47,20 @@ utils/        config, schema, path + variable resolution
 
 ## Activation flow
 
-During activation, the extension:
+During activation, the extension first checks for the workspace's `.tom/`
+configuration. Without it, it runs in **minimal mode**: it registers the
+commands (Setup New Workspace Folder and Create New Quest among them) and the
+placeholder panels (`minimalMode-handler.ts`, a **Setup new workspace folder**
+button and the setup guide), and stops. With it, the extension:
 
 1. initializes the bridge client (fail-soft),
 2. registers commands, key systems, and webviews (`@CHAT`, `@WS`, the `@TOM` and `@TOM WS` sidebar views),
 3. initializes stores (chat variables, session todos, queue, timer, reminder),
 4. registers shared tools + variable resolvers,
-5. registers custom editors (quest todo, markdown browser, trail viewer),
+5. registers custom editors (quest todo, markdown browser, trail viewer), then
+   opens the quest's overview in the MD Browser once per quest and machine
+   (`questOverviewOnOpen-handler.ts`, after the MD Browser registered its
+   restored tabs),
 6. starts queue watchdog and timed-request timer engine,
 7. writes window state file for multi-window status tracking.
 
