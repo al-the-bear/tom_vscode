@@ -13,6 +13,8 @@
  * vscode-free.
  */
 
+import { buildAssistPrompt, type AssistPromptsSection } from './assistPrompts';
+
 /** A profile's policy for running out of credit. */
 export interface OutOfBudgetPolicy {
     /** The profile the work continues on. */
@@ -94,31 +96,42 @@ export function decideOutOfBudget(
 }
 
 /**
- * The prompt sent on the other profile: what stopped, where, where its trail
- * is, and the original prompt — so the new run continues the work instead of
- * starting it again.
+ * The placeholder values of the out-of-budget prompt: what stopped, where, where
+ * its trail is, and the original prompt — so the new run continues the work
+ * instead of starting it again.
+ */
+export function outOfBudgetValues(
+    mark: OutOfBudgetMark,
+    opts: { quest?: string; toProfileName: string; runsInSession: string; originalPrompt: string },
+): Record<string, string> {
+    return {
+        stoppedProfile: mark.profileName ?? mark.profileId,
+        stoppedProfileId: mark.profileId,
+        stoppedModel: mark.model || 'unknown',
+        stoppedSession: mark.session,
+        stoppedAt: mark.at,
+        budgetMessage: mark.message,
+        liveTrail: opts.quest
+            ? `\`_ai/quests/${opts.quest}/history/sessions/${mark.session}/live-trail.md\``
+            : `the live trail of session "${mark.session}"`,
+        toProfile: opts.toProfileName,
+        runsInSession: opts.runsInSession,
+        sessionNote: opts.runsInSession === mark.session
+            ? ''
+            : ` It runs in session "${opts.runsInSession}": session "${mark.session}" keeps its conversation where profile "${opts.toProfileName}" cannot continue it.`,
+        originalPrompt: opts.originalPrompt,
+    };
+}
+
+/**
+ * The prompt sent on the other profile: the Assist prompt chosen for
+ * "Out of budget" on the Status Page (`assistPrompts`), filled with
+ * {@link outOfBudgetValues}.
  */
 export function outOfBudgetPrompt(
     mark: OutOfBudgetMark,
     opts: { quest?: string; toProfileName: string; runsInSession: string; originalPrompt: string },
+    assistPrompts?: AssistPromptsSection,
 ): string {
-    const ran = `profile "${mark.profileName ?? mark.profileId}" (${mark.profileId}${mark.model ? `, model ${mark.model}` : ''}) in session "${mark.session}"`;
-    const where = opts.runsInSession === mark.session
-        ? ''
-        : ` It runs in session "${opts.runsInSession}": session "${mark.session}" keeps its conversation where profile "${opts.toProfileName}" cannot continue it.`;
-    const trail = opts.quest
-        ? `\`_ai/quests/${opts.quest}/history/sessions/${mark.session}/live-trail.md\``
-        : `the live trail of session "${mark.session}"`;
-    return [
-        `**Out of budget — continuing on profile "${opts.toProfileName}".**`,
-        '',
-        `The prompt below was running on ${ran} and stopped at ${mark.at}: ${mark.message}`,
-        `It is sent again on profile "${opts.toProfileName}".${where}`,
-        '',
-        `What the stopped run had already done is in that session's live trail, ${trail}; changes it made and did not commit are in the working trees (\`git status\`). Read them first and continue the work from where it stopped — do not start it over.`,
-        '',
-        '---',
-        '',
-        opts.originalPrompt,
-    ].join('\n');
+    return buildAssistPrompt(assistPrompts, 'outOfBudget', outOfBudgetValues(mark, opts));
 }

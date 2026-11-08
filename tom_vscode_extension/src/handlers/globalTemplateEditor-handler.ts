@@ -15,6 +15,8 @@
  *   7. Memory Extraction             — config.compaction.memoryExtractionTemplates
  *   8. Transport Retry               — config.anthropic.transportRetry.templates
  *   9. Interactive Questions         — config.anthropic.interactiveQuestionsTemplates
+ *  10. Assist Prompts                — config.assistPrompts.templates (which one each use
+ *                                      runs is chosen on the Status Page)
  *
  * The category dropdown at the top of the editor is the user-facing
  * per-transport switcher mandated by multi_transport_prompt_queue_revised.md
@@ -37,6 +39,7 @@ import { categorizeTools } from '../utils/toolCategories';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copilotTemplates';
 import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
+import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, assistPromptsHelp } from '../utils/assistPrompts';
 
 /** The one item of the Copilot — Queue Wrapper category. */
 const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
@@ -54,7 +57,8 @@ export type TemplateCategory =
     | 'compaction'
     | 'memoryExtraction'
     | 'transportRetry'
-    | 'interactiveQuestions';
+    | 'interactiveQuestions'
+    | 'assistPrompts';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilotQueueWrapper: 'Copilot — Queue Wrapper',
@@ -66,6 +70,7 @@ export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     memoryExtraction: 'Memory Extraction',
     transportRetry: 'Anthropic Transport Retry',
     interactiveQuestions: 'Anthropic — Interactive Questions',
+    assistPrompts: 'Assist Prompts',
 };
 
 /**
@@ -257,6 +262,9 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
                 .map(t => ({ id: t.id, label: t.name || t.id }));
         case 'interactiveQuestions':
             return (config.anthropic?.interactiveQuestionsTemplates || [])
+                .map(t => ({ id: t.id, label: t.name || t.id }));
+        case 'assistPrompts':
+            return (config.assistPrompts?.templates || [])
                 .map(t => ({ id: t.id, label: t.name || t.id }));
     }
 }
@@ -495,6 +503,21 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'template', label: 'Fallback Answer', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Interactive-questions placeholder</strong> (resolved when the Agent SDK calls the built-in <code>AskUserQuestion</code> tool and interactive answering is off, or the user dismisses the picker):<br>'
                     + '<code>${questions}</code> – a digest of the skipped questions (one bullet per question with its options)<br>'
                     + '<br><strong>How this template is invoked:</strong> the body is returned to the agent as the <code>AskUserQuestion</code> tool result, so it should instruct the agent to proceed autonomously rather than wait for an answer.<br>' },
+            );
+            break;
+        }
+        case 'assistPrompts': {
+            const tpl = (config.assistPrompts?.templates || []).find(t => t.id === itemId);
+            if (!tpl) { break; }
+            const usedBy = ASSIST_PROMPT_USES.filter((u) => (config.assistPrompts?.selected?.[u] || ASSIST_PROMPT_INFO[u].defaultId) === tpl.id)
+                .map((u) => ASSIST_PROMPT_INFO[u].label);
+            fields.push(
+                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
+                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
+                { name: 'description', label: 'Description', type: 'text', value: tpl.description || '' },
+                { name: 'template', label: 'Prompt', type: 'textarea', value: tpl.template || '', help: (usedBy.length ? `<strong>Runs for:</strong> ${usedBy.join(', ')} (chosen on the Status Page, Assist prompts).<br><br>` : '<strong>Runs for:</strong> no use yet — choose it on the Status Page (Assist prompts).<br><br>')
+                    + '<strong>The placeholders of each use</strong> (filled before the prompt expands; a placeholder of another use stays as written):<br><br>'
+                    + assistPromptsHelp() + '<br><br>' + PLACEHOLDER_HELP },
             );
             break;
         }
@@ -861,6 +884,24 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             config.anthropic.interactiveQuestionsTemplates = templates;
             break;
         }
+        case 'assistPrompts': {
+            const section = (config.assistPrompts ??= {});
+            const templates = section.templates ?? [];
+            const idx = templates.findIndex(t => t.id === itemId);
+            const next = {
+                id: itemId,
+                name: values.name || itemId,
+                description: values.description || '',
+                template: values.template || '',
+            };
+            if (idx >= 0) {
+                templates[idx] = { ...templates[idx], ...next };
+            } else {
+                templates.push(next);
+            }
+            section.templates = templates;
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -978,6 +1019,17 @@ async function _addItem(category: TemplateCategory): Promise<void> {
             config.anthropic.interactiveQuestionsTemplates = templates;
             break;
         }
+        case 'assistPrompts': {
+            // A new one starts from Grill me's default; the Status Page chooses where it runs.
+            const section = (config.assistPrompts ??= {});
+            (section.templates ??= []).push({
+                id: name,
+                name,
+                description: '',
+                template: ASSIST_PROMPT_INFO.grillMe.defaultBody,
+            });
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1017,6 +1069,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
         case 'memoryExtraction':      return new Set((config.compaction?.memoryExtractionTemplates ?? []).map((t) => t.id));
         case 'transportRetry':        return new Set((config.anthropic?.transportRetry?.templates ?? []).map((t) => t.id));
         case 'interactiveQuestions':  return new Set((config.anthropic?.interactiveQuestionsTemplates ?? []).map((t) => t.id));
+        case 'assistPrompts':         return new Set((config.assistPrompts?.templates ?? []).map((t) => t.id));
         default:                      return new Set();
     }
 }
@@ -1123,6 +1176,15 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
             config.anthropic.interactiveQuestionsTemplates!.push(clone);
             break;
         }
+        case 'assistPrompts': {
+            const src = (config.assistPrompts?.templates ?? []).find((t) => t.id === itemId);
+            if (!src) { return; }
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = targetId;
+            clone.name = `${src.name} (copy)`;
+            ((config.assistPrompts ??= {}).templates ??= []).push(clone);
+            break;
+        }
     }
 
     if (saveSendToChatConfig(config)) {
@@ -1216,6 +1278,16 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
             if (entry.name === itemId) { entry.name = targetId; }
             break;
         }
+        case 'assistPrompts': {
+            const entry = (config.assistPrompts?.templates ?? []).find((t) => t.id === itemId);
+            if (!entry) { return; }
+            entry.id = targetId;
+            if (entry.name === itemId) { entry.name = targetId; }
+            // The uses that chose it follow the rename.
+            const selected = config.assistPrompts!.selected ?? {};
+            for (const use of ASSIST_PROMPT_USES) { if (selected[use] === itemId) { selected[use] = targetId; } }
+            break;
+        }
     }
 
     // Fix up profile → configuration cross-references when renaming a
@@ -1282,6 +1354,14 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
         case 'interactiveQuestions':
             if (config.anthropic?.interactiveQuestionsTemplates) {
                 config.anthropic.interactiveQuestionsTemplates = config.anthropic.interactiveQuestionsTemplates.filter(t => t.id !== itemId);
+            }
+            break;
+        case 'assistPrompts':
+            if (config.assistPrompts?.templates) {
+                config.assistPrompts.templates = config.assistPrompts.templates.filter(t => t.id !== itemId);
+                // A use that chose it runs its default again.
+                const selected = config.assistPrompts.selected ?? {};
+                for (const use of ASSIST_PROMPT_USES) { if (selected[use] === itemId) { delete selected[use]; } }
             }
             break;
     }

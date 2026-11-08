@@ -11,6 +11,7 @@
  * - Telegram Settings
  */
 
+import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, resolveAssistPrompt, type AssistPromptUse } from '../utils/assistPrompts';
 import { checkBuildStatus } from '../services/buildStatusService';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
@@ -1463,6 +1464,53 @@ export async function handleStatusAction(action: string, message: any): Promise<
             }
             break;
         }
+        case 'updateAssistPrompts': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            const section = (stcConfig.assistPrompts ??= {});
+            const selected = (section.selected ??= {});
+            const chosen = (message.selected || {}) as Record<string, unknown>;
+            for (const use of ASSIST_PROMPT_USES) {
+                const id = typeof chosen[use] === 'string' ? (chosen[use] as string).trim() : '';
+                if (id) { selected[use] = id; } else { delete selected[use]; }
+            }
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('Assist prompts saved');
+            break;
+        }
+        case 'editAssistPrompt': {
+            // The template the row runs: the one chosen in its dropdown, else the use's default.
+            const use = ASSIST_PROMPT_USES.find((u) => u === message.use);
+            const itemId = String(message.itemId || '').trim()
+                || (use ? resolveAssistPrompt(loadSendToChatConfig()?.assistPrompts, use).id : '');
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'assistPrompts',
+                itemId: itemId || undefined,
+            });
+            break;
+        }
+        case 'addAssistPrompt': {
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'assistPrompts',
+            });
+            break;
+        }
+        case 'deleteAssistPrompt': {
+            const itemId = String(message.itemId || '').trim();
+            if (!itemId) {
+                vscode.window.showWarningMessage('Choose an Assist prompt in the dropdown first; a use\'s default template is not deleted from here.');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            const section = stcConfig.assistPrompts;
+            if (section?.templates) {
+                section.templates = section.templates.filter(t => t.id !== itemId);
+                // The uses that chose it run their default again.
+                for (const use of ASSIST_PROMPT_USES) { if (section.selected?.[use] === itemId) { delete section.selected[use]; } }
+                saveSendToChatConfig(stcConfig);
+                vscode.window.showInformationMessage(`Deleted Assist prompt: ${itemId}`);
+            }
+            break;
+        }
         case 'editTransportRetryTemplate': {
             await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
                 category: 'transportRetry',
@@ -1771,6 +1819,10 @@ export interface StatusData {
     };
     /** Templates available for the transport-retry continuation-prompt `<select>`. */
     transportRetryTemplateChoices: Array<{ id: string; name: string }>;
+    /** The Assist prompts: each use with the template chosen for it ('' = its default) and what runs. */
+    assistPrompts: Array<{ use: AssistPromptUse; label: string; purpose: string; selected: string; defaultName: string; runs: string }>;
+    /** Templates available for the Assist prompt `<select>`s. */
+    assistPromptChoices: Array<{ id: string; name: string }>;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
     /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
@@ -2021,6 +2073,19 @@ export async function gatherStatusData(): Promise<StatusData> {
             };
         })(),
         transportRetryTemplateChoices: (getAnthropicSection().transportRetry?.templates || []).map((t) => ({
+            id: t.id, name: t.name || t.id,
+        })),
+        assistPrompts: ASSIST_PROMPT_USES.map((use) => {
+            const info = ASSIST_PROMPT_INFO[use];
+            const resolved = resolveAssistPrompt(sendToChatConfig?.assistPrompts, use);
+            return {
+                use, label: info.label, purpose: info.purpose,
+                selected: sendToChatConfig?.assistPrompts?.selected?.[use] ?? '',
+                defaultName: info.defaultName,
+                runs: resolved.source === 'builtIn' ? `${resolved.name} (built in)` : resolved.name,
+            };
+        }),
+        assistPromptChoices: (sendToChatConfig?.assistPrompts?.templates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
         ...(() => {
@@ -2767,6 +2832,35 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateTransportRetrySettings">Save Transport Retry Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assist prompts (src/utils/assistPrompts.ts): the template each use runs -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="assistPrompts">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🧭 Assist prompts</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-assistPrompts-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                The prompts the extension runs to help you: Grill me and Explain in detail on an open question in the MD Browser,
+                Explain a decision at a process decision, Finish review round at a review, and the prompt a queue item continues
+                with on another profile when its profile ran out of credit. Choose the template each one runs; the templates
+                are edited in the Global Template Editor (category <strong>Assist Prompts</strong>), which lists each use's
+                placeholders. <em>(default)</em> runs the use's own default template.
+            </p>
+            ${status.assistPrompts.map(a => `<div class="sp-settings-row">
+                <label title="${escapeHtml(a.purpose)}">${escapeHtmlContent(a.label)}:</label>
+                <select id="sp-assist-${a.use}" title="Runs now: ${escapeHtml(a.runs)}">
+                    <option value="">(default: ${escapeHtmlContent(a.defaultName)})</option>
+                    ${status.assistPromptChoices.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === a.selected ? 'selected' : ''}>${escapeHtmlContent(t.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editAssistPrompt" data-assist-use="${a.use}">✏️ Edit</button>
+                <button class="sp-btn small" data-status-action="addAssistPrompt" data-assist-use="${a.use}">➕</button>
+                <button class="sp-btn small danger" data-status-action="deleteAssistPrompt" data-assist-use="${a.use}">🗑️</button>
+            </div>`).join('')}
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateAssistPrompts">Save Assist Prompts</button>
             </div>
         </div>
     </div>

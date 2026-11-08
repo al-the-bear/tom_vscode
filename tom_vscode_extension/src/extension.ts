@@ -587,6 +587,13 @@ export async function activate(context: vscode.ExtensionContext) {
                     stcDirty = true;
                     bridgeLog('Seeded "Explain TODO" Anthropic user-message template', 'INFO');
                 }
+                // The Assist prompts' default templates (Grill me, Explain in detail,
+                // Explain a decision, Finish review round, Out of budget), by id.
+                const { ensureDefaultAssistPrompts } = await import('./utils/assistPrompts.js');
+                if (ensureDefaultAssistPrompts(stcConfig)) {
+                    stcDirty = true;
+                    bridgeLog('Seeded the default Assist prompt templates', 'INFO');
+                }
                 if (stcDirty) {
                     saveSendToChatConfig(stcConfig);
                 }

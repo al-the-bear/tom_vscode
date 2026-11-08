@@ -3850,7 +3850,8 @@ export class PromptQueueManager {
         if (!item) { throw new Error(`Queue item ${id} not found`); }
         const last = item.lastDispatched;
         if (!last) { throw new Error(`Queue item ${id} has no previously-dispatched prompt to continue`); }
-        const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+        const config = loadSendToChatConfig();
+        const section = config?.anthropic as ProfileSection | undefined;
         const target = (section?.profiles ?? []).find((p) => p?.id === profileId) as { id?: string; name?: string } | undefined;
         if (!target) { throw new Error(`There is no Anthropic profile "${profileId}"`); }
         const resolved = this.resolveStageTransport(item);
@@ -3868,7 +3869,7 @@ export class PromptQueueManager {
             toProfileName: target.name || profileId,
             runsInSession,
             originalPrompt: resolveResendText(last, item.expandedText),
-        });
+        }, config?.assistPrompts);
         item.budgetFallback = {
             fromProfileId: mark.profileId,
             toProfileId: profileId,

@@ -18,6 +18,7 @@ import { WsPaths } from './workspacePaths';
 import { TomAiConfiguration } from './tomAiConfiguration';
 import { logConfigAccess } from './toolLog';
 import { asMcpToolsMode, type McpToolsMode } from './mcpToolsMode';
+import type { AssistPromptsSection } from './assistPrompts';
 
 // ============================================================================
 // Configuration Interface
@@ -476,6 +477,15 @@ export interface SendToChatConfig {
      * `processActionPrompt.ts`); an empty string queues nothing.
      */
     processActionTemplates?: { proceed?: string };
+
+    /**
+     * The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in
+     * detail, Explain a decision, Finish review round, Out of budget.
+     * `templates` are edited in the Global Template Editor (category Assist
+     * Prompts); `selected.<use>` is the template the Status Page chose for
+     * that use — empty: the use's default template, else its built-in text.
+     */
+    assistPrompts?: AssistPromptsSection;
 
 }
 

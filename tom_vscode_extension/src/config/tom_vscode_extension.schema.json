@@ -19,6 +19,39 @@
             },
             "additionalProperties": false
         },
+        "assistPrompts": {
+            "type": "object",
+            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Finish review round, Out of budget. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, finish-review-round, out-of-budget, seeded at activation), else the built-in text.",
+            "properties": {
+                "selected": {
+                    "type": "object",
+                    "description": "The template id each use runs. Empty or missing: the use's default template.",
+                    "properties": {
+                        "grillMe": { "type": "string" },
+                        "explainInDetail": { "type": "string" },
+                        "explainDecision": { "type": "string" },
+                        "finishReviewRound": { "type": "string" },
+                        "outOfBudget": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                },
+                "templates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "name", "template"],
+                        "properties": {
+                            "id": { "type": "string" },
+                            "name": { "type": "string" },
+                            "description": { "type": "string" },
+                            "template": { "type": "string", "description": "The prompt. Each use fills its own placeholders first (listed in the Global Template Editor); the rest expand as in any prompt." }
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
         "questRefresh": {
             "type": "object",
             "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
