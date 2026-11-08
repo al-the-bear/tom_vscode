@@ -31,7 +31,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
-import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep } from '../services/processActionService';
+import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog } from '../services/processActionService';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
@@ -158,14 +158,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     }
                     const def = store.currentDefinition();
                     // A decision runs nothing: the user picks how the process goes on.
-                    const decide = def ? decisionDialog(def, store.state) : null;
-                    if (decide) {
-                        const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail: decide.detail }, ...decide.options.map((o) => o.label));
-                        const option = decide.options.find((o) => o.label === picked);
-                        if (option) {
-                            const result = await confirmProcessAction(option.kind, option.level, '');
-                            this.report(result.ok ? { ok: true } : result);
-                        }
+                    if (def && decisionDialog(def, store.state)) {
+                        const { result } = await decideInDialog();
+                        if (result) { this.report(result.ok ? { ok: true } : result); }
                         break;
                     }
                     // A user action runs no prompt: the user confirms it is done.

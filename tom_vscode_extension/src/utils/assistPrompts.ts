@@ -85,14 +85,29 @@ const EXPLAIN_DECISION_BODY = [
 ].join('\n');
 
 const FINISH_REVIEW_ROUND_BODY = [
-    '**Finish review round** of step ${step} (process ${process}).',
+    '**Finish review round** — put the results in front of the user for the review, ${step} of process ${process}.',
     '',
-    'The review\'s results are in `${resultsFile}`.',
-    '',
-    '1. Show them with tomAi_askInMdBrowser and the button `finish` (Finish review round); Keep this file is mine to decide.',
-    '2. Wait for the click. On Finish review round the review is done: say so in one line and end your answer.',
+    '1. Show ${resultsFile} with tomAi_askInMdBrowser: `finishReviewRound: true`, the title `Review: ${step}`; Keep this file is the user\'s to decide. If the call is refused (no review follows), open the document with tomAi_openInMdBrowser instead and say so.',
+    '2. Wait for the answer. On `finish` the extension has confirmed the review, closed that panel and moved the process on — the next step\'s prompt is queued, or the decision is open: report its `summary` in one line and end your answer. Do not move the process or queue anything yourself.',
     '3. On anything else (the panel closed, a timeout) report it and end without moving the process.',
 ].join('\n');
+
+/**
+ * Earlier built-in defaults, by use: a default template on disk whose text is
+ * still exactly one of them was never edited, so seeding replaces it with the
+ * current default. An edited one is kept.
+ */
+const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
+    finishReviewRound: [[
+        '**Finish review round** of step ${step} (process ${process}).',
+        '',
+        'The review\'s results are in `${resultsFile}`.',
+        '',
+        '1. Show them with tomAi_askInMdBrowser and the button `finish` (Finish review round); Keep this file is mine to decide.',
+        '2. Wait for the click. On Finish review round the review is done: say so in one line and end your answer.',
+        '3. On anything else (the panel closed, a timeout) report it and end without moving the process.',
+    ].join('\n')],
+};
 
 /** The out-of-budget prompt, as the code built it before it became a template. */
 const OUT_OF_BUDGET_BODY = [
@@ -140,12 +155,12 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
     },
     finishReviewRound: {
         label: 'Finish review round',
-        purpose: 'A review step\'s closing item: shows the results in the MD Browser with the Finish review round button.',
+        purpose: 'A step\'s closing item before a review: shows the results in the MD Browser with the Finish review round button (in a process step\'s prompt as `${finish-review-round}`).',
         defaultId: 'finish-review-round', defaultName: 'Finish review round', defaultBody: FINISH_REVIEW_ROUND_BODY,
         placeholders: {
             process: 'the process id',
-            step: 'the review step',
-            resultsFile: 'the review\'s results document',
+            step: 'the review (the user-action step the results are reviewed in)',
+            resultsFile: 'the document to review (`the document this step produced` in a process step\'s prompt)',
         },
     },
     outOfBudget: {
@@ -208,8 +223,10 @@ export function buildAssistPrompt(section: AssistPromptsSection | undefined, use
 
 /**
  * Seed the five default templates that are missing (by id), so each use has
- * an editable template on disk. Idempotent; never touches an existing one or
- * the choices. Returns whether it changed the section.
+ * an editable template on disk, and bring a default template still holding an
+ * earlier built-in text (never edited) to the current one. Idempotent; an
+ * edited template and the choices are never touched. Returns whether it
+ * changed the section.
  */
 export function ensureDefaultAssistPrompts(config: { assistPrompts?: AssistPromptsSection }): boolean {
     const section = (config.assistPrompts ??= {});
@@ -217,7 +234,15 @@ export function ensureDefaultAssistPrompts(config: { assistPrompts?: AssistPromp
     let changed = false;
     for (const use of ASSIST_PROMPT_USES) {
         const info = ASSIST_PROMPT_INFO[use];
-        if (templates.some((t) => t.id === info.defaultId)) { continue; }
+        const existing = templates.find((t) => t.id === info.defaultId);
+        if (existing) {
+            if ((PREVIOUS_DEFAULT_BODIES[use] ?? []).includes(existing.template)) {
+                existing.template = info.defaultBody;
+                existing.description = info.purpose;
+                changed = true;
+            }
+            continue;
+        }
         templates.push({ id: info.defaultId, name: info.defaultName, description: info.purpose, template: info.defaultBody });
         changed = true;
     }

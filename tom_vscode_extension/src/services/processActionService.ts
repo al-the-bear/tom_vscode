@@ -24,8 +24,11 @@ import { ensureSession } from './agentSdkSessionStore';
 import { lookupProfile, type ProfileSection } from '../utils/sessionSpecs';
 import { normalizeSessionMode } from '../utils/agentSdkSessions';
 import { TwoTierMemoryService } from './memory-service';
+import { buildAssistPrompt } from '../utils/assistPrompts';
+import { finishReviewRound, finishReviewUnavailable, type FinishReviewDeps, type FinishReviewOutcome } from './finishReviewRound';
 import {
     actionSession,
+    decisionDialog,
     DEFAULT_PROCESS_ACTION_TEMPLATES,
     PROCESS_TEMPLATE_KINDS,
     processActionTemplate,
@@ -77,6 +80,14 @@ export function buildProcessActionPrompt(
     const values = processActionValues(def, store.state, move, customInstructions, store.processDescription());
     // `${session}`: the session the prompt is queued in (picked on the page or named by the process).
     values.session = actionSession(def, store.state, sessionOverride).name;
+    // `${finish-review-round}`: the Assist prompt a closing item shows the results with
+    // (tomAi_askInMdBrowser + Finish review round). The review is the position this move leads to.
+    const review = userActionAt(def, move.target) ? move.target : store.state;
+    values['finish-review-round'] = buildAssistPrompt(loadSendToChatConfig()?.assistPrompts, 'finishReviewRound', {
+        process: def.id,
+        step: positionText(def, review),
+        resultsFile: 'the document this step produced',
+    });
     return resolveVariables(template, { values }).trim();
 }
 
@@ -199,3 +210,54 @@ export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
     const result = marker ? await applyProcessMoveMarker(marker) : { ok: false as const, error: 'the marker is gone' };
     return result.ok ? { ok: true, queued: false, label: running.move.label } : result;
 }
+
+/**
+ * The decision dialog of the PROCESS view: the options of the decision the
+ * quest is at, one picked and made. Answers the label picked (undefined when
+ * dismissed, or when the quest is at no decision) and what the move did.
+ */
+export async function decideInDialog(): Promise<{ picked?: string; result?: ProcessActionResult }> {
+    const store = await ProcessStateStore.ready;
+    const def = store.currentDefinition();
+    const decide = def ? decisionDialog(def, store.state) : null;
+    if (!decide) { return {}; }
+    const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail: decide.detail }, ...decide.options.map((o) => o.label));
+    const option = decide.options.find((o) => o.label === picked);
+    if (!option) { return {}; }
+    return { picked: option.label, result: await confirmProcessAction(option.kind, option.level, '') };
+}
+
+/** Finish review round's live collaborators: the process store, the queue, the decision dialog. */
+export function liveFinishReviewDeps(store: ProcessStateStore): FinishReviewDeps {
+    const queue = (): PromptQueueManager | undefined => { try { return PromptQueueManager.instance; } catch { return undefined; } };
+    return {
+        definition: () => store.currentDefinition(),
+        state: () => store.state,
+        runningStepTarget: () => {
+            const run = queue()?.stepRunProgress(store.activeQuest);
+            const marker = run ? queue()?.items.find((i) => i.id === run.markerId) : undefined;
+            const spec = marker?.processMove;
+            return spec ? store.findMove(spec.kind, spec.level)?.target : undefined;
+        },
+        completeRunningStep: async () => moveOnFromHeldStep(),
+        proceed: () => confirmProcessAction('proceed', undefined, ''),
+        decide: async () => {
+            const { picked, result } = await decideInDialog();
+            if (result && !result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
+            return picked;
+        },
+        where: (state) => { const def = store.currentDefinition(); return def ? positionText(def, state) : ''; },
+    };
+}
+
+/** Why Finish review round cannot be offered now (undefined: it can). */
+export function finishReviewUnavailableNow(): string | undefined {
+    const store = ProcessStateStore.instance;
+    return store ? finishReviewUnavailable(liveFinishReviewDeps(store)) : 'the process store is not initialised';
+}
+
+/** The Finish review round click. */
+export async function runFinishReviewRound(): Promise<FinishReviewOutcome> {
+    return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready));
+}
+

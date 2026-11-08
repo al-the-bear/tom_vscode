@@ -21,6 +21,10 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
+import { finishReviewSummary, type FinishReviewOutcome } from '../services/finishReviewRound';
+
+/** The button `finishReviewRound` adds; its click confirms the review and moves the process on. */
+export const FINISH_REVIEW_BUTTON: AskMdButton = { id: 'finish', label: 'Finish review round' };
 
 /** At most this many buttons in the bar. */
 export const MAX_ASK_MD_BUTTONS = 8;
@@ -61,6 +65,12 @@ export interface AskInMdBrowserDeps {
     setTimer?(ms: number, cb: () => void): TimerHandle;
     clearTimer?(handle: TimerHandle): void;
     genId?(): string;
+    /**
+     * Finish review round (`finishReviewRound`): why the button cannot be
+     * offered now, and the click — confirm the review, move the process on,
+     * queue the next step's prompt or open the decision.
+     */
+    finishReview?: { unavailable(): string | undefined; run(): Promise<FinishReviewOutcome> };
 }
 
 interface OpenAsk {
@@ -72,6 +82,8 @@ interface OpenAsk {
     askedAt: number;
     timer: TimerHandle | undefined;
     deps: AskInMdBrowserDeps;
+    /** Set when the ask carries the Finish review round button. */
+    finishReview?: () => Promise<FinishReviewOutcome>;
     resolve(answer: string): void;
 }
 
@@ -111,8 +123,38 @@ export class MdBrowserAskSlot {
         const button = this.open.bar.buttons.find((b) => b.id === buttonId);
         if (!button) { return false; }
         this.open.keepFile = keepFile;
+        if (button.id === FINISH_REVIEW_BUTTON.id && this.open.finishReview) {
+            this.finishReviewClick(this.open, button);
+            return true;
+        }
         this.finish('click', button);
         return true;
+    }
+
+    /**
+     * Finish review round: the panel clicked closes (only that one; an
+     * unchecked file goes with it), then the review is confirmed and the
+     * process moved on; the answer reports what happened.
+     */
+    private finishReviewClick(ask: OpenAsk, button: AskMdButton): void {
+        this.open = undefined;
+        const deps = ask.deps;
+        if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
+        let fileDeleted = false;
+        let deleteError: string | undefined;
+        try { deps.closePanel(ask.panelId); } catch { /* already gone */ }
+        if (!ask.keepFile) {
+            try { deps.deleteFile(ask.absPath); fileDeleted = true; } catch (e) { deleteError = (e as Error).message; }
+        }
+        const run = ask.finishReview!;
+        void run().catch((e): FinishReviewOutcome => ({ ok: false, error: (e as Error).message })).then((review) => {
+            journal(ask, 'click', button);
+            ask.resolve(JSON.stringify({
+                button: button.id, keepFile: ask.keepFile, label: button.label, fileDeleted,
+                ...(deleteError ? { deleteError } : {}),
+                panelClosed: true, review, summary: finishReviewSummary(review), file: ask.file, panelId: ask.panelId,
+            }));
+        });
     }
 
     /** The panel carrying the ask was closed. */
@@ -200,7 +242,9 @@ export const mdBrowserAskSlot = new MdBrowserAskSlot();
 
 export interface AskInMdBrowserInput {
     filePath: string;
-    buttons: AskMdButton[];
+    buttons?: AskMdButton[];
+    /** Add the Finish review round button (only while the process is at a review, or the running step leads to one). */
+    finishReviewRound?: boolean;
     keepFile?: boolean;
     title?: string;
     timeoutMinutes?: number;
@@ -222,7 +266,15 @@ export async function askInMdBrowserImpl(
 
     const raw = Array.isArray(input.buttons) ? input.buttons : [];
     const buttons = raw.map((b) => ({ id: String(b?.id ?? '').trim(), label: String(b?.label ?? '').trim() }));
-    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}`.'); }
+    const finishReview = input.finishReviewRound === true;
+    if (finishReview) {
+        if (buttons.some((b) => b.id === FINISH_REVIEW_BUTTON.id)) { return err('With `finishReviewRound` the button id `finish` is the Finish review round button; name yours otherwise.'); }
+        if (!deps.finishReview) { return err('Finish review round is not available here.'); }
+        const unavailable = deps.finishReview.unavailable();
+        if (unavailable) { return err(`Finish review round cannot be offered: ${unavailable}. Open the document with tomAi_openInMdBrowser instead.`); }
+        buttons.push({ ...FINISH_REVIEW_BUTTON });
+    }
+    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound`).'); }
     if (buttons.length > MAX_ASK_MD_BUTTONS) { return err(`Too many buttons (${buttons.length}); the maximum is ${MAX_ASK_MD_BUTTONS}.`); }
     if (buttons.some((b) => !b.id || !b.label)) { return err('Every button needs a non-empty `id` and `label`.'); }
     if (new Set(buttons.map((b) => b.id)).size !== buttons.length) { return err('Button ids must be unique.'); }
@@ -247,6 +299,7 @@ export async function askInMdBrowserImpl(
     return new Promise<string>((resolve) => {
         const ask: OpenAsk = {
             bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve,
+            ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
         };
         // In the slot before the panel opens, so a fast answer finds it.
         slot.begin(ask);
@@ -272,11 +325,14 @@ export async function askInMdBrowserImpl(
 
 export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'Ask the user through a document: `filePath` (a .md file in the workspace) opens in the MD Browser with ' +
-    '`buttons` (`[{id, label}]`, 1–8, e.g. Continue / Cancel) and a *Keep this file* checkbox (`keepFile`, ' +
+    '`buttons` (`[{id, label}]`, up to 8, e.g. Continue / Cancel) and a *Keep this file* checkbox (`keepFile`, ' +
     'default on) in its top area. For questionnaires, choices, confirmations, reviews: write the document ' +
     'first, then ask. BLOCKING like tomAi_askUser — the queue is held until a button is clicked; one such ask ' +
     'at a time; no deadline unless `timeoutMinutes`. Answers `{button, label, keepFile, fileDeleted, file, ' +
     'panelId}` (`button` the id clicked; null with `timedOut`, `closed` (the panel was closed) or `cancelled`). ' +
+    '`finishReviewRound: true` adds the Finish review round button (id `finish`), only at a review (a user-action step, or the running ' +
+    'step leads to one): its click closes that panel, confirms the review, moves the process on and queues the next step or opens the ' +
+    'decision; `review` / `summary` report it — move nothing yourself. ' +
     'When the box is unchecked as the flow goes on, the file is deleted and its panel closed; otherwise the ' +
     'panel stays open with the answer in place of the bar. Logged to the quest questions journal.';
 
@@ -289,13 +345,12 @@ export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> =
     requiresApproval: false,
     inputSchema: {
         type: 'object',
-        required: ['filePath', 'buttons'],
+        required: ['filePath'],
         properties: {
             filePath: { type: 'string', description: 'The .md file to show, workspace-relative or absolute (inside the workspace).' },
             buttons: {
                 type: 'array',
-                description: `1–${MAX_ASK_MD_BUTTONS} buttons for the top area, in order.`,
-                minItems: 1,
+                description: `Up to ${MAX_ASK_MD_BUTTONS} buttons for the top area, in order (the Finish review round button counts too); at least one unless \`finishReviewRound\`.`,
                 maxItems: MAX_ASK_MD_BUTTONS,
                 items: {
                     type: 'object',
@@ -307,6 +362,7 @@ export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> =
                 },
             },
             keepFile: { type: 'boolean', description: 'The *Keep this file* checkbox\'s initial state. Default true.' },
+            finishReviewRound: { type: 'boolean', description: 'Add the Finish review round button (id `finish`); only at a review. `buttons` may then be left out.' },
             title: { type: 'string', description: 'A line shown beside the buttons.' },
             timeoutMinutes: {
                 type: 'number',

@@ -13,6 +13,8 @@
  *   AM-5 input: a .md file in the workspace that exists, 1–8 buttons with unique non-empty ids and labels;
  *        a panel that does not open frees the slot
  *   AM-6 journal, registration and the documentation row
+ *   AM-7 Finish review round (i-5): `finishReviewRound` adds the button (id `finish`) when the process is at a review,
+ *        refused otherwise; its click closes only that panel and answers what the review's move did
  */
 
 import test, { describe } from 'node:test';
@@ -215,7 +217,7 @@ describe('tomAi_askInMdBrowser', () => {
         assert.equal(f.logs[0].source, 'vscode');
 
         assert.equal(ASK_IN_MD_BROWSER_TOOL.requiresApproval, false, 'asking needs no approval, like tomAi_askUser');
-        assert.deepEqual(ASK_IN_MD_BROWSER_TOOL.inputSchema.required, ['filePath', 'buttons']);
+        assert.deepEqual(ASK_IN_MD_BROWSER_TOOL.inputSchema.required, ['filePath'], '`buttons` may be left out with `finishReviewRound`');
         const ext = path.join(__dirname, '..', '..', '..');
         const src = (rel: string) => readFileSync(path.join(ext, 'src', rel), 'utf-8');
         assert.match(src('tools/tool-executors.ts'), /askInMdBrowserImpl\(mdBrowserAskDeps, input\)/);
@@ -225,4 +227,52 @@ describe('tomAi_askInMdBrowser', () => {
         }
         assert.match(readFileSync(path.join(ext, 'doc', 'llm_tools.md'), 'utf-8'), /^\| `tomAi_askInMdBrowser` \|/m, 'the llm_tools.md row');
     });
+
+    test('AM-7: Finish review round', async () => {
+        const outcome = { ok: true as const, confirmed: 'Confirm done', next: 'queued' as const, where: 'p1 › refine' };
+        let runs = 0;
+        const review = (unavailable?: string) => ({ unavailable: () => unavailable, run: async () => { runs++; return outcome; } });
+        const slot = new MdBrowserAskSlot();
+        // Refused: not available here, not at a review, a clashing id.
+        assert.match(JSON.parse(await askInMdBrowserImpl(fake().deps, { filePath: 'notes/ask.md', finishReviewRound: true }, slot)).error, /not available here/);
+        assert.match(JSON.parse(await askInMdBrowserImpl(fake({ finishReview: review('the process is not at a review') }).deps, { filePath: 'notes/ask.md', finishReviewRound: true }, slot)).error,
+            /Finish review round cannot be offered: the process is not at a review\. Open the document with tomAi_openInMdBrowser instead\./);
+        assert.match(JSON.parse(await askInMdBrowserImpl(fake({ finishReview: review() }).deps, { filePath: 'notes/ask.md', finishReviewRound: true, buttons: [{ id: 'finish', label: 'Mine' }] }, slot)).error, /button id `finish`/);
+        assert.match(JSON.parse(await askInMdBrowserImpl(fake().deps, { filePath: 'notes/ask.md' }, slot)).error, /or set `finishReviewRound`/);
+        assert.equal(slot.hasOpen(), false);
+        // Offered: the button is added (no other needed); the click closes that panel, runs the review, answers.
+        const f = fake({ finishReview: review() });
+        const call = askInMdBrowserImpl(f.deps, { filePath: 'notes/ask.md', finishReviewRound: true, keepFile: false }, slot);
+        await tick();
+        assert.deepEqual(f.bars[0].bar.buttons, [{ id: 'finish', label: 'Finish review round' }]);
+        assert.equal(slot.click('req1', 'finish', false), true);
+        assert.equal(slot.click('req1', 'finish', false), false, 'once');
+        const answer = JSON.parse(await call);
+        assert.equal(runs, 1, 'the review is confirmed and the process moved on');
+        assert.deepEqual(f.closed, ['p1'], 'only the panel clicked closes');
+        assert.deepEqual(f.cleared, [], 'no bar to clear: the panel is gone');
+        assert.deepEqual(f.deleted, ['/ws/notes/ask.md'], 'an unchecked file goes with it');
+        assert.deepEqual([answer.button, answer.panelClosed, answer.fileDeleted], ['finish', true, true]);
+        assert.deepEqual(answer.review, outcome);
+        assert.equal(answer.summary, 'The review is confirmed; the process is at p1 › refine and its prompt is queued.');
+        assert.equal(slot.hasOpen(), false);
+        // Another button of the same ask answers as always and runs nothing.
+        const g = fake({ finishReview: review() });
+        const other = askInMdBrowserImpl(g.deps, { filePath: 'notes/ask.md', finishReviewRound: true, buttons: [{ id: 'later', label: 'Later' }] }, slot);
+        await tick();
+        assert.deepEqual(g.bars[0].bar.buttons.map((b) => b.id), ['later', 'finish']);
+        slot.click('req1', 'later', true);
+        assert.equal(JSON.parse(await other).button, 'later');
+        assert.equal(runs, 1);
+        assert.deepEqual(g.closed, [], 'the panel stays');
+        // A failing review run is reported, not thrown.
+        const h = fake({ finishReview: { unavailable: () => undefined, run: async () => { throw new Error('store gone'); } } });
+        const failing = askInMdBrowserImpl(h.deps, { filePath: 'notes/ask.md', finishReviewRound: true }, slot);
+        await tick();
+        slot.click('req1', 'finish', true);
+        const failed = JSON.parse(await failing);
+        assert.deepEqual(failed.review, { ok: false, error: 'store gone' });
+        assert.equal(failed.summary, 'Finish review round failed: store gone');
+    });
 });
+

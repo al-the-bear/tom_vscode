@@ -1240,7 +1240,17 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     deleteFile(absPath) { fs.unlinkSync(absPath); },
     ceilingMinutes: () => readChatQuestionsConfig().maxWaitMinutes,
     log: (entry) => appendQuestionLogEntry(entry),
+    // Finish review round: the process service, loaded on first use (it pulls in the queue and the stores).
+    finishReview: {
+        unavailable: () => processActions().finishReviewUnavailableNow(),
+        run: () => processActions().runFinishReviewRound(),
+    },
 };
+
+function processActions(): typeof import('../services/processActionService') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../services/processActionService.js') as typeof import('../services/processActionService');
+}
 
 /**
  * Register the "@T: Open in MD Browser" command and the live variant.
