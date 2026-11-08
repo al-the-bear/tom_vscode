@@ -58,6 +58,7 @@ interface Parser {
     mdbQuoteDepth(line: string): number;
     mdbProposedAnswerAt(lines: string[], line: number): { source: string; date: string; text: string; line: number; endLine: number } | null;
     mdbProposedAnswerLines(prefix: string, source: string, date: string, text: string): string[];
+    mdbProposalEdit(lines: string[], proposalLine: number, action: 'accept' | 'discard', text?: string): { startLine: number; endLine: number; expected: string; replacement: string } | null;
 }
 
 let parser: Parser | undefined;
@@ -235,6 +236,26 @@ export function proposeMdAnswer(
         if (after !== undefined && !isSeparator(after)) { insert.push(separator); }
         doc.lines.splice(at, 0, ...insert);
     }
+    const next = doc.lines.join(doc.eol);
+    return { text: next, question: pick(locate(split(next)), id, target.question.line).question };
+}
+
+/**
+ * Settle the proposed answer under question `id` — what the MD Browser's
+ * Accept / Edit / Discard do, on the same parser: `accept` writes it (or
+ * `text`, as edited) into the Answer line and removes it; `discard` removes it.
+ */
+export function settleProposedAnswer(
+    text: string, id: string, action: 'accept' | 'discard', opts: { line?: number; text?: string } = {},
+): { text: string; question: MdQuestion } {
+    const doc = split(text);
+    const target = pick(locate(doc), id, opts.line);
+    if (!target.proposal) {
+        throw new MdQuestionError('unknownQuestion', `Question ${id} has no proposed answer.`);
+    }
+    const edit = load().mdbProposalEdit(doc.lines, target.proposal.line, action, opts.text);
+    if (!edit) { throw new MdQuestionError('noAnswerLine', `The proposed answer of ${id} is not right under its Answer line.`); }
+    doc.lines.splice(edit.startLine, edit.endLine - edit.startLine, ...edit.replacement.split('\n'));
     const next = doc.lines.join(doc.eol);
     return { text: next, question: pick(locate(split(next)), id, target.question.line).question };
 }

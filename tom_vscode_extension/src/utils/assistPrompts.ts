@@ -42,7 +42,8 @@ export interface AssistPromptUseInfo {
     placeholders: Record<string, string>;
 }
 
-const GRILL_ME_BODY = [
+/** Grill me as i-3 seeded it (no document kind). */
+const GRILL_ME_BODY_V1 = [
     '**Grill me** on question ${questionId} in `${file}`.',
     '',
     'The question as written:',
@@ -57,7 +58,8 @@ const GRILL_ME_BODY = [
     '4. End with one short paragraph: what you proposed and why.',
 ].join('\n');
 
-const EXPLAIN_IN_DETAIL_BODY = [
+/** Explain in detail as i-3 seeded it. */
+const EXPLAIN_IN_DETAIL_BODY_V1 = [
     '**Explain in detail** question ${questionId} in `${file}`.',
     '',
     'The question as written:',
@@ -69,6 +71,47 @@ const EXPLAIN_IN_DETAIL_BODY = [
     '3. Show it with tomAi_askInMdBrowser and the buttons `deeper` (Dig deeper), `propose` (Propose an answer) and `done` (Done); Keep this file is mine to decide.',
     '   - Dig deeper: ask me which point (tomAi_askUser), extend the explanation, and show it again.',
     '   - Propose an answer: propose it under the question with tomAi_mdProposeAnswer (source `explain in detail`).',
+    '   - Done: stop.',
+    '4. Never write the Answer line yourself.',
+].join('\n');
+
+/** How a question is read and an answer proposed, by document kind — both kinds named, the prompt says which this is. */
+const READ_AND_PROPOSE = [
+    'This document is ${documentKind}. In plain Markdown read the question (its options and recommendation) with tomAi_mdQuestions and propose with tomAi_mdProposeAnswer;',
+    'in a TomSpecs specification read it with tomAi_specAnnotations and propose as a reviewer comment under the question with tomAi_specInsertComment, its text starting `Proposed answer:`.',
+].join(' ');
+
+const GRILL_ME_BODY = [
+    '**Grill me** on question ${questionId} in `${file}`.',
+    '',
+    'The question as written:',
+    '',
+    '${questionBlock}',
+    '',
+    READ_AND_PROPOSE,
+    '',
+    'Help me answer it by asking — do not answer it for me:',
+    '',
+    '1. Read the document around the question so you know its context.',
+    '2. Ask me narrowing questions through tomAi_askUser — a few at a time, each saying what it settles; offer the likely answers as `choices` — until the question can be answered. Never ask in your reply text.',
+    '3. Then propose the answer under the question (source `grill me`). Do not write the Answer line: I accept, edit or discard the proposal in the MD Browser.',
+    '4. End with one short paragraph: what you proposed and why.',
+].join('\n');
+
+const EXPLAIN_IN_DETAIL_BODY = [
+    '**Explain in detail** question ${questionId} in `${file}`.',
+    '',
+    'The question as written:',
+    '',
+    '${questionBlock}',
+    '',
+    READ_AND_PROPOSE,
+    '',
+    '1. Read the document around the question so you know its context.',
+    '2. Write the explanation to `${explanationFile}`: what the question decides and why it matters; each option at length — what it means, what follows from it, what it costs and risks; how the recommendation was reached. End with the points worth digging deeper into.',
+    '3. Show it with tomAi_askInMdBrowser and the buttons `deeper` (Dig deeper), `propose` (Propose an answer) and `done` (Done); Keep this file is mine to decide.',
+    '   - Dig deeper: ask which point through tomAi_askUser, the points as `choices` (kind `answer`), extend the explanation, and show it again.',
+    '   - Propose an answer: propose it under the question (source `explain in detail`).',
     '   - Done: stop.',
     '4. Never write the Answer line yourself.',
 ].join('\n');
@@ -98,6 +141,8 @@ const FINISH_REVIEW_ROUND_BODY = [
  * current default. An edited one is kept.
  */
 const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
+    grillMe: [GRILL_ME_BODY_V1],
+    explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1],
     finishReviewRound: [[
         '**Finish review round** of step ${step} (process ${process}).',
         '',
@@ -124,6 +169,7 @@ const OUT_OF_BUDGET_BODY = [
 ].join('\n');
 
 const QUESTION_PLACEHOLDERS = {
+    documentKind: '`plain Markdown` or `a TomSpecs specification` — which tools read and propose',
     file: 'the document holding the question (workspace-relative)',
     questionId: 'the question id, e.g. `CC-125`',
     questionBlock: 'the question block as written in the document',

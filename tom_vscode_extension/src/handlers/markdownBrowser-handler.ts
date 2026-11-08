@@ -71,6 +71,8 @@ import {
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
+import { runQuestionAssist, type QuestionAssistDeps } from '../services/questionAssist.js';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
@@ -670,6 +672,19 @@ class MdBrowserPanel {
                     // The webview's open in-place editors: text not yet saved.
                     mdBrowserRegistry.update(this._panelId, { unsavedEdits: Number(msg.openEditors) > 0 });
                     break;
+                case 'assistQuestion': {
+                    // Grill me / Explain in detail on an open question of the shown document.
+                    const current = this._history.current;
+                    const use = msg.use === 'grillMe' || msg.use === 'explainInDetail' ? msg.use : undefined;
+                    if (!current || !use || msg.filePath !== current.filePath) { break; }
+                    void runQuestionAssist(liveQuestionAssistDeps(this._context), {
+                        use, filePath: current.filePath, questionId: String(msg.questionId || ''),
+                        ...(Number.isInteger(msg.answerLine) ? { answerLine: msg.answerLine } : {}),
+                    }).then((outcome) => {
+                        if (!outcome.ok) { void vscode.window.showWarningMessage(`${use === 'grillMe' ? 'Grill me' : 'Explain in detail'}: ${outcome.error}`); }
+                    });
+                    break;
+                }
                 case 'askAnswer':
                     mdBrowserAskSlot.click(String(msg.requestId || ''), String(msg.button || ''), msg.keepFile !== false);
                     break;
@@ -1246,6 +1261,46 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
         run: () => processActions().runFinishReviewRound(),
     },
 };
+
+/**
+ * Grill me / Explain in detail's live collaborators: the config, the quest's
+ * sessions, the ANTHROPIC panel's send. The base session is the one the
+ * process runs its current position in, else the queue's default.
+ */
+function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssistDeps {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sessions = require('../services/agentSdkSessionStore.js') as typeof import('../services/agentSdkSessionStore');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const memory = require('../services/memory-service.js') as typeof import('../services/memory-service');
+    return {
+        workspaceRoot: WsPaths.wsRoot ?? '',
+        readText: (abs) => fs.readFileSync(abs, 'utf8'),
+        assistPrompts: () => loadSendToChatConfig()?.assistPrompts,
+        baseSession: () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const store = require('../managers/processStateStore.js').ProcessStateStore.instance as import('../managers/processStateStore').ProcessStateStore | undefined;
+                const def = store?.currentDefinition();
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { actionSession } = require('../utils/processActionPrompt.js') as typeof import('../utils/processActionPrompt');
+                const name = store && def && store.state.process ? actionSession(def, store.state).name : '';
+                return name || 'default';
+            } catch {
+                return 'default';
+            }
+        },
+        sessionsFolder: () => memory.TwoTierMemoryService.instance.agentSdkSessionsFolder(),
+        hasSession: (folder, name) => sessions.readSession(folder, name) !== undefined,
+        createSession: (folder, name, opts) => sessions.createSession(folder, name, opts),
+        deleteSession: (folder, name) => { sessions.deleteSession(folder, name); },
+        send: async (prompt, session, source) => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { runAnthropicSend } = require('./sendToChatRouter.js') as typeof import('./sendToChatRouter');
+            const outcome = await runAnthropicSend(context, prompt, { session, source });
+            return { ok: outcome.ok, error: outcome.error, rejected: outcome.rejected };
+        },
+    };
+}
 
 function processActions(): typeof import('../services/processActionService') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

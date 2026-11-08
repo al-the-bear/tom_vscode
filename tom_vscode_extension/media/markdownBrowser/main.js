@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -1207,6 +1207,79 @@
                     if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }
                 }
             }
+            // Proposed answers (Grill me, Explain in detail): Accept / Edit / Discard.
+            var proposalStrongs = null;
+            var proposalIndex = 0;
+            for (var pl = block.startLine; pl < block.endLine; pl++) {
+                lines = lines || shownLines();
+                if (lines[pl] === undefined || lines[pl].indexOf('**Proposed answer**') < 0 || !mdbProposedAnswerAt(lines, pl)) { continue; }
+                proposalStrongs = proposalStrongs || Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
+                    return (s.textContent || '').trim() === 'Proposed answer';
+                });
+                var pStrong = proposalStrongs[proposalIndex++];
+                if (pStrong) { addProposalButtons(pStrong, block, pl - block.startLine); }
+            }
+        }
+
+        /**
+         * Accept (into the Answer line), Edit (then accept) and Discard after a
+         * `**Proposed answer**`; `offset` is its line within the block, read on click.
+         */
+        function addProposalButtons(strong, block, offset) {
+            var accept = iconButton('mdb-proposal-btn mdb-proposal-accept', 'check', 'Accept — write the proposed answer into the Answer line');
+            var edit = iconButton('mdb-proposal-btn mdb-proposal-edit', 'edit', 'Edit the proposed answer, then write it into the Answer line');
+            var discard = iconButton('mdb-proposal-btn mdb-proposal-discard', 'trash', 'Discard the proposed answer');
+            strong.insertAdjacentElement('afterend', discard);
+            strong.insertAdjacentElement('afterend', edit);
+            strong.insertAdjacentElement('afterend', accept);
+            function settle(action, text) {
+                var lines = shownLines();
+                return mdbProposalEdit(lines, block.startLine + offset, action, text);
+            }
+            accept.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var change = settle('accept');
+                if (change) { postEdit(change); }
+            });
+            discard.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var change = settle('discard');
+                if (change) { postEdit(change); }
+            });
+            edit.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var prop = mdbProposedAnswerAt(shownLines(), block.startLine + offset);
+                if (!prop) { return; }
+                openEditor(edit, edit, prop.text, function(value) {
+                    if (!value.trim()) { return null; }
+                    return settle('accept', value);
+                });
+            });
+        }
+
+        /**
+         * Grill me and Explain in detail after an open question's answer button:
+         * each runs its Assist prompt in the ANTHROPIC panel (the host builds it).
+         */
+        function addAssistButtons(after, where) {
+            var defs = [
+                ['grillMe', 'flame', 'Grill me — the agent asks you narrowing questions until this can be answered, then proposes the answer'],
+                ['explainInDetail', 'book', 'Explain in detail — the agent explains the question and each option in a note beside this document'],
+            ];
+            for (var d = defs.length - 1; d >= 0; d--) {
+                (function(def) {
+                    var b = iconButton('mdb-assist-btn mdb-assist-' + def[0], def[1], def[2]);
+                    b.dataset.assist = def[0];
+                    b.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var w = where();
+                        if (!w.question) { return; }
+                        b.classList.add('mdb-assist-started');
+                        vscode.postMessage({ type: 'assistQuestion', use: def[0], filePath: currentFilePath, questionId: w.question.id, answerLine: w.line });
+                    });
+                    after.insertAdjacentElement('afterend', b);
+                })(defs[d]);
+            }
         }
 
         /**
@@ -1407,6 +1480,10 @@
                 showOptions(btn, w.question, function(letter) { postEdit(editFor(w, mdbOptionAnswer(letter))); });
             });
             btn.addEventListener('mouseleave', function() { scheduleHideOptions(); });
+            // An open question offers Grill me and Explain in detail.
+            if (btn.dataset.unanswered === '1' && mdbQuestionAt(startLines, block.startLine + offset, runtimeQuestions())) {
+                addAssistButtons(btn, where);
+            }
         }
 
         // ---- The options popup of an answer button ----

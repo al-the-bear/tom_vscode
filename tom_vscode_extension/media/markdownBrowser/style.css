@@ -543,3 +543,10 @@ body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
 .ask-bar-btn:disabled { opacity: 0.5; cursor: default; }
 .ask-bar-keep { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .ask-bar-deadline, .ask-bar-note { color: var(--vscode-descriptionForeground); }
+
+/* Grill me / Explain in detail after an open question's answer button; Accept / Edit / Discard after a proposed answer. */
+.mdb-assist-btn { opacity: 0.7; }
+.mdb-assist-btn:hover { opacity: 1; }
+.mdb-assist-btn.mdb-assist-started { color: var(--vscode-focusBorder); }
+.mdb-proposal-accept { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.mdb-proposal-discard { color: var(--vscode-errorForeground); }

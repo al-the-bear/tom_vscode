@@ -12,7 +12,7 @@
 // takes the declarations from there (src/utils/mdQuestions.ts), so the browser
 // and the agents' tools (tomAi_mdQuestions, tomAi_mdSetAnswer,
 // tomAi_mdProposeAnswer) read a document the same way.
-/* exported MDB_ANSWER_MARKER, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines */
+/* exported MDB_ANSWER_MARKER, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines, mdbProposalEdit */
 
 /** The review-answer marker an answer is written after. */
 var MDB_ANSWER_MARKER = '**Answer:**';
@@ -321,3 +321,40 @@ function mdbProposedAnswerLines(prefix, source, date, text) {
     var headLine = prefix + '**Proposed answer** (' + who + ', ' + date + '): ' + (body[0] || '');
     return [headLine.replace(/\s+$/, '')].concat(body.slice(1).map(function(l) { return prefix + l; }));
 }
+
+/**
+ * The edit that settles the proposed answer starting on `lines[proposalLine]`:
+ * `accept` writes it (or `text`, the proposal as the user edited it) into the
+ * question's Answer line and removes the proposal; `discard` removes it and
+ * leaves the answer as it is. Both take the bare quote line between answer and
+ * proposal with them. Null when no proposal starts there or no answer is found
+ * right above it.
+ *
+ * @param {string[]} lines
+ * @param {number} proposalLine
+ * @param {'accept'|'discard'} action
+ * @param {string} [text]
+ * @returns {{startLine: number, endLine: number, expected: string, replacement: string}|null}
+ */
+function mdbProposalEdit(lines, proposalLine, action, text) {
+    var prop = mdbProposedAnswerAt(lines, proposalLine);
+    if (!prop) { return null; }
+    var last = proposalLine - 1;
+    if (last >= 0 && /^\s*(?:>\s*)*$/.test(lines[last])) { last--; }
+    for (var i = last; i >= 0 && i > last - 60; i--) {
+        var at = lines[i].lastIndexOf(MDB_ANSWER_MARKER);
+        if (at < 0) { continue; }
+        var column = at + MDB_ANSWER_MARKER.length;
+        var answer = mdbAnswerAt(lines, i, column);
+        if (answer.endLine !== last + 1) { return null; }
+        var expected = lines.slice(i, prop.endLine).join('\n');
+        if (action === 'accept') {
+            var value = text === undefined ? prop.text : String(text);
+            return { startLine: i, endLine: prop.endLine, expected: expected, replacement: mdbWriteAnswer(lines, i, column, value) };
+        }
+        // Discard: the answer's lines stay as they are; separator and proposal go.
+        return { startLine: i, endLine: prop.endLine, expected: expected, replacement: lines.slice(i, answer.endLine).join('\n') };
+    }
+    return null;
+}
+

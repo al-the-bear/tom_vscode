@@ -96,7 +96,13 @@ function defaultUserMessageTemplate(): string | undefined {
 export async function runAnthropicSend(
     context: vscode.ExtensionContext,
     prompt: string,
-    opts?: { cancellationToken?: vscode.CancellationToken; userMessageTemplate?: string; source?: string },
+    opts?: {
+        cancellationToken?: vscode.CancellationToken;
+        userMessageTemplate?: string;
+        source?: string;
+        /** The session the turn runs in; default the panel's chat session (a temporary assist session, for one). */
+        session?: string;
+    },
 ): Promise<SendToChatOutcome> {
     if (!prompt || !prompt.trim()) {
         return { target: 'anthropic', ok: false, error: 'Empty prompt.' };
@@ -139,15 +145,17 @@ export async function runAnthropicSend(
         );
 
         // No session picker on this path (the editor's Send to Anthropic/LLM, a todo's Send and
-        // Guide me, Telegram): always the chat session. The send is shown in the prompt queue.
+        // Guide me, Telegram): the chat session, unless the caller names one (an assist prompt's
+        // temporary session). The send is shown in the prompt queue.
+        const sessionKey = opts?.session || ANTHROPIC_CHAT_SESSION_KEY;
         const result = await trackChatSend(
-            { text: prompt, profileId: profile.id, session: ANTHROPIC_CHAT_SESSION_KEY, source: opts?.source ?? 'send to chat' },
+            { text: prompt, profileId: profile.id, session: sessionKey, source: opts?.source ?? 'send to chat' },
             () => AnthropicHandler.instance.sendMessage({
                 userText: prompt,
                 profile,
                 configuration,
                 tools,
-                sessionKey: ANTHROPIC_CHAT_SESSION_KEY,
+                sessionKey,
                 cancellationToken,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             }),
