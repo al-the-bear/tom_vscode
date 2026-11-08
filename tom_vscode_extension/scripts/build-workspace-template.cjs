@@ -55,7 +55,17 @@ const SOURCES = [
     { path: '_ai/schemas', kind: 'dir' },
     { path: '_ai/prompt', kind: 'dir' },
     { path: '_ai/format-version.yaml', kind: 'file' },
-    { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true },
+    // A quest that is used on this machine collects files of its use (history,
+    // session todos, the host's config, its process position): left out, not refused.
+    { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true, leaveOutUse: true },
+];
+
+/** The files a quest's use writes into its folder, relative to the quest folder. */
+const QUEST_USE_RULES = [
+    /^history\//,
+    /^session-todo[^/]*$/,
+    /^extension_config\.[^/]+\.[^/]+\.yaml$/,
+    /^process-state\.[^/]+\.yaml$/,
 ];
 
 /** The template's own description, written into the zip. */
@@ -99,19 +109,25 @@ function walk(root, rel) {
 
 /**
  * The files the template takes from `workspace`.
- * @returns {{ files: string[], missing: string[], skipped: string[] }}
- *   `missing`: required sources not there; `skipped`: optional ones not there.
+ * @returns {{ files: string[], missing: string[], skipped: string[], leftOut: string[] }}
+ *   `missing`: required sources not there; `skipped`: optional ones not there;
+ *   `leftOut`: files of a quest's use (QUEST_USE_RULES) in a `leaveOutUse` source.
  */
 function collectTemplateFiles(workspace) {
     const files = [];
     const missing = [];
     const skipped = [];
+    const leftOut = [];
     for (const src of SOURCES) {
         const abs = path.join(workspace, src.path);
         if (!fs.existsSync(abs)) { (src.optional ? skipped : missing).push(src.path); continue; }
-        if (src.kind === 'dir') { files.push(...walk(workspace, src.path)); } else { files.push(src.path); }
+        if (src.kind !== 'dir') { files.push(src.path); continue; }
+        for (const f of walk(workspace, src.path)) {
+            const inQuest = f.slice(src.path.length + 1);
+            if (src.leaveOutUse && QUEST_USE_RULES.some((re) => re.test(inQuest))) { leftOut.push(f); } else { files.push(f); }
+        }
     }
-    return { files: [...new Set(files)].sort(), missing, skipped };
+    return { files: [...new Set(files)].sort(), missing, skipped, leftOut };
 }
 
 /** Whether `rel` is inside what SOURCES allows. */
@@ -222,10 +238,10 @@ function writeZip(entries) {
 
 /**
  * Collect, check and zip the template of `workspace`.
- * @returns {{ ok: true, zip: Buffer, files: string[], skipped: string[] } | { ok: false, errors: string[] }}
+ * @returns {{ ok: true, zip: Buffer, files: string[], skipped: string[], leftOut: string[] } | { ok: false, errors: string[] }}
  */
 function buildTemplate(workspace) {
-    const { files, missing, skipped } = collectTemplateFiles(workspace);
+    const { files, missing, skipped, leftOut } = collectTemplateFiles(workspace);
     if (missing.length > 0) {
         return { ok: false, errors: missing.map((m) => `${m}: missing in ${workspace}`) };
     }
@@ -236,7 +252,7 @@ function buildTemplate(workspace) {
     ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const findings = checkTemplate(entries);
     if (findings.length > 0) { return { ok: false, errors: findings }; }
-    return { ok: true, zip: writeZip(entries), files: entries.map((e) => e.path), skipped };
+    return { ok: true, zip: writeZip(entries), files: entries.map((e) => e.path), skipped, leftOut };
 }
 
 function parseArgs(argv) {
@@ -263,6 +279,7 @@ function main() {
     fs.writeFileSync(args.out, result.zip);
     console.log(`✅ Workspace template (${TEMPLATE_TYPE}): ${result.files.length} files, ${(result.zip.length / 1024).toFixed(0)} KB → ${args.out}`);
     for (const s of result.skipped) { console.log(`   ℹ not in the workspace yet, left out: ${s}`); }
+    if (result.leftOut.length > 0) { console.log(`   ℹ left out ${result.leftOut.length} file(s) of the introduction quest's use on this machine (history, session todos, host config, process state)`); }
     if (args.copyTo) {
         const copy = path.join(args.copyTo, path.basename(args.out));
         fs.copyFileSync(args.out, copy);
@@ -271,7 +288,7 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
+module.exports = { SOURCES, QUEST_USE_RULES, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
 
 if (require.main === module) {
     process.exitCode = main();

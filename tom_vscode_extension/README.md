@@ -264,6 +264,17 @@ executable the bridge profile names (`bridge.profiles.<profile>.executable`).
 After configuring, **@T: Restart Bridge** picks up `tom_bs`; no reload is
 needed.
 
+### After installing: set up a workspace, start with the introduction quest
+
+In a folder without `.tom/`, the extension's panels offer **Setup new
+workspace folder** (also `@T: Setup New Workspace Folder` and the top of the
+Status Page): it unpacks the workspace template the VSIX carries into a
+folder. The template brings the quest **tomai_introduction**, the workspace's
+starting quest: open `_ai/quests/tomai_introduction/tomai_introduction.code-workspace`
+(the setup offers to). Its overview describes every feature and links to a
+page about each, and its todos are a guided first tour, run in the prompt
+queue (a todo walk over `intro*`) or one by one in the chat.
+
 ### After installing: the `_ai` format migration
 
 The `_ai` files carry a format version in `_ai/format-version.yaml`. When a

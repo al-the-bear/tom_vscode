@@ -6,8 +6,9 @@
  *        _copilot_guidelines/, CLAUDE.md, .github/copilot-instructions.md, _ai roles / processes / schemas /
  *        prompt / format-version.yaml, the tomai_introduction quest once it exists) plus
  *        .tom/workspace_template.json, each byte for byte; nothing else of _ai; the same bytes twice
- *   WT-2 personal paths are refused: extension_config.<host>.<quest>.yaml, session-todo.*, history/;
- *        the quest's own extension_config.<quest>.yaml is not
+ *   WT-2 personal paths: in the introduction quest the files of its use on this machine
+ *        (extension_config.<host>.<quest>.yaml, session-todo.*, history/, process-state.*) are left out;
+ *        anywhere else they are refused; the quest's own extension_config.<quest>.yaml is packed
  *   WT-3 literal secrets are refused (Anthropic key, GitHub tokens, Telegram bot token), anywhere in a text
  *        file; the command line exits 1 and writes nothing
  *   WT-4 a file outside the list is refused; a missing required source stops the build
@@ -32,9 +33,10 @@ const SCRIPT = path.join(EXT, 'scripts', 'build-workspace-template.cjs');
 interface Entry { path: string; data: Buffer }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const tpl = require(SCRIPT) as {
-    SOURCES: Array<{ path: string; kind: 'file' | 'dir'; optional?: boolean }>; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    SOURCES: Array<{ path: string; kind: 'file' | 'dir'; optional?: boolean; leaveOutUse?: boolean }>; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    QUEST_USE_RULES: RegExp[]; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     TEMPLATE_INFO_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
-    buildTemplate(ws: string): { ok: true; zip: Buffer; files: string[]; skipped: string[] } | { ok: false; errors: string[] };
+    buildTemplate(ws: string): { ok: true; zip: Buffer; files: string[]; skipped: string[]; leftOut: string[] } | { ok: false; errors: string[] };
     checkTemplate(entries: Entry[]): string[];
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -80,7 +82,10 @@ describe('the workspace template', () => {
         for (const src of tpl.SOURCES) {
             const abs = path.join(WS, src.path);
             if (!fs.existsSync(abs)) { assert.equal(src.optional, true, `${src.path} is required`); continue; }
-            for (const f of src.kind === 'dir' ? filesUnder(WS, src.path) : [src.path]) { expected.add(f); }
+            for (const f of src.kind === 'dir' ? filesUnder(WS, src.path) : [src.path]) {
+                const used = src.leaveOutUse && tpl.QUEST_USE_RULES.some((re) => re.test(f.slice(src.path.length + 1)));
+                if (!used) { expected.add(f); }
+            }
         }
         const entries = readZip(r.zip);
         assert.deepEqual(entries.map((e) => e.path).sort(), [...expected].sort());
@@ -104,10 +109,26 @@ describe('the workspace template', () => {
         const names = readZip((ok as { zip: Buffer }).zip).map((e) => e.path);
         assert.ok(names.includes('_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml'), 'the quest\'s own config is fine');
         assert.ok(!names.some((n) => n.startsWith('_ai/quests/other/') || n.startsWith('_ai/memory/')), 'other quests and memory are not taken');
+        // The introduction quest's use on this machine is left out, not refused.
+        const used = fakeWorkspace();
+        const usedFiles = [
+            '_ai/quests/tomai_introduction/extension_config.my-host.tomai_introduction.yaml',
+            '_ai/quests/tomai_introduction/session-todo.my-host.tomai_introduction.todo.yaml',
+            '_ai/quests/tomai_introduction/history/sessions/default/live-trail.md',
+            '_ai/quests/tomai_introduction/process-state.tomai_introduction.yaml',
+        ];
+        for (const f of usedFiles) { fs.mkdirSync(path.dirname(path.join(used, f)), { recursive: true }); fs.writeFileSync(path.join(used, f), 'x\n'); }
+        const usedBuild = tpl.buildTemplate(used);
+        assert.ok(usedBuild.ok, usedBuild.ok ? '' : usedBuild.errors.join('\n'));
+        assert.deepEqual((usedBuild as { leftOut: string[] }).leftOut, [...usedFiles].sort());
+        const usedNames = readZip((usedBuild as { zip: Buffer }).zip).map((e) => e.path);
+        assert.ok(usedFiles.every((f) => !usedNames.includes(f)), 'not in the zip');
+        assert.ok(usedNames.includes('_ai/quests/tomai_introduction/overview.tomai_introduction.md'), 'the quest itself is');
+        // Anywhere else such a file is refused.
         for (const [planted, why] of [
-            ['_ai/quests/tomai_introduction/extension_config.my-host.tomai_introduction.yaml', /host-specific quest config/],
-            ['_ai/quests/tomai_introduction/session-todo.my-host.tomai_introduction.todo.yaml', /session todo file/],
-            ['_ai/quests/tomai_introduction/history/live-trail.md', /history folder/],
+            ['_ai/processes/extension_config.my-host.tomai_introduction.yaml', /host-specific quest config/],
+            ['_ai/roles/session-todo.my-host.x.todo.yaml', /session todo file/],
+            ['_copilot_guidelines/history/live-trail.md', /history folder/],
         ] as const) {
             const w = fakeWorkspace();
             fs.mkdirSync(path.dirname(path.join(w, planted)), { recursive: true });
