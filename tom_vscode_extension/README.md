@@ -120,13 +120,17 @@ It runs end to end:
 5. Ensures the host's Claude Agent SDK native CLI is present (its npm
    package); with `--all-platforms` it also fetches the fleet's other CLIs
    with `npm pack` and bundles them as `bin/<platform>/claude[.exe]`.
-6. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
+6. Builds the workspace template (`npm run template:build`): the workspace's
+   config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
+   personal files and literal secrets, as `resources/workspace_template.zip`
+   (in the VSIX) and a copy beside it.
+7. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
    which of `tom_bs` / `validate_codespecs` it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
    and installs it via the `code` CLI (without `code` it is only packaged).
-7. Prints the VSIX's path, to install the same file on other machines with
+8. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
 
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`

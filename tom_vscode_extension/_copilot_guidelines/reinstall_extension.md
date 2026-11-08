@@ -107,6 +107,16 @@ win32-x64 (minus the host) with `npm pack` into `.cache/agent-sdk-cli/`
 `pathToClaudeCodeExecutable`. A default build carries the host's CLI only
 (about 150 MB); with all three the VSIX is about 380 MB.
 
+Before packaging, both installers build the workspace template
+(`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
+workspace, the config, all of `_copilot_guidelines/`, CLAUDE.md,
+`.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
+prompt / format-version.yaml (and the `tomai_introduction` quest once it
+exists), plus `.tom/workspace_template.json` (its type, `dart`). It refuses
+host-bound files and literal secrets and then writes nothing; the result is
+`resources/workspace_template.zip` (in the VSIX, required by
+`check-vsix-contents.cjs`) and a copy beside the VSIX.
+
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from
 `node scripts/vsix-base-url.cjs content|images`, which reads package.json's
