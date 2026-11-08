@@ -17,6 +17,11 @@
  *        check requires it, git ignores both copies, the copy beside the VSIX is not packed again
  *   WT-7 the template's config: the issue / test panels' repositories and the command lines emptied, everything
  *        else as in the workspace, whose file is not changed
+ *   WT-8 `<!-- workspace-specific -->` blocks are left out of the packed Markdown (CLAUDE.md, its mirror, guidelines);
+ *        unbalanced markers refuse the build
+ *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
+ *        them are dropped
+ *   WT-10 the Active Quests table keeps its header and the rows of the quests the template carries
  */
 
 import test, { describe } from 'node:test';
@@ -42,6 +47,11 @@ const tpl = require(SCRIPT) as {
     checkTemplate(entries: Entry[]): string[];
     CONFIG_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     genericConfig(data: Buffer): Buffer;
+    EXCLUDED_PATHS: Set<string>; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    stripWorkspaceSpecific(text: string, file: string): string;
+    dropLinksTo(text: string, file: string, excluded: Set<string>): string;
+    activeQuestsFor(text: string, carried: string[]): string;
+    templateFileData(file: string, data: Buffer): Buffer;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { readCentralDirectory } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { readCentralDirectory(b: Buffer): Array<{ name: string; isSymlink: boolean }> };
@@ -88,7 +98,7 @@ describe('the workspace template', () => {
             if (!fs.existsSync(abs)) { assert.equal(src.optional, true, `${src.path} is required`); continue; }
             for (const f of src.kind === 'dir' ? filesUnder(WS, src.path) : [src.path]) {
                 const used = src.leaveOutUse && tpl.QUEST_USE_RULES.some((re) => re.test(f.slice(src.path.length + 1)));
-                if (!used) { expected.add(f); }
+                if (!used && !tpl.EXCLUDED_PATHS.has(f) && !f.split('/').includes('__pycache__') && !f.endsWith('.pyc')) { expected.add(f); }
             }
         }
         const entries = readZip(r.zip);
@@ -96,9 +106,8 @@ describe('the workspace template', () => {
         assert.deepEqual(readCentralDirectory(r.zip).map((e) => e.name).sort(), [...expected].sort(), 'readable by the VSIX check\'s reader too');
         for (const e of entries) {
             if (e.path === tpl.TEMPLATE_INFO_PATH) { continue; }
-            const source = fs.readFileSync(path.join(WS, e.path));
-            const expected = e.path === tpl.CONFIG_PATH ? tpl.genericConfig(source) : source;
-            assert.ok(e.data.equals(expected), `${e.path} byte for byte${e.path === tpl.CONFIG_PATH ? ' (the generic config)' : ''}`);
+            const expected = tpl.templateFileData(e.path, fs.readFileSync(path.join(WS, e.path)));
+            assert.ok(e.data.equals(expected), `${e.path} byte for byte as templateFileData makes it`);
         }
         assert.ok(entries.every((e) => !e.path.startsWith('_ai/') || /^_ai\/(roles|processes|schemas|prompt|quests\/tomai_introduction)\/|^_ai\/format-version\.yaml$/.test(e.path)),
             'nothing else of _ai');
@@ -235,5 +244,58 @@ describe('the workspace template', () => {
         const packed = JSON.parse(readZip(r.zip).find((e) => e.path === tpl.CONFIG_PATH)!.data.toString('utf8'));
         assert.deepEqual(packed.commandlines, []);
         assert.equal(fs.readFileSync(path.join(ws, '.tom', 'tom_vscode_extension.json'), 'utf8'), text);
+    });
+    test('WT-8: workspace-specific blocks are left out', () => {
+        const text = '# Rules\n\nGeneric.\n\n<!-- workspace-specific -->\n## This workspace\n\nMine.\n<!-- /workspace-specific -->\n\nAfter.\n';
+        assert.equal(tpl.stripWorkspaceSpecific(text, 'CLAUDE.md'), '# Rules\n\nGeneric.\n\nAfter.\n');
+        assert.throws(() => tpl.stripWorkspaceSpecific('<!-- workspace-specific -->\nx\n', 'a.md'), /never closed/);
+        assert.throws(() => tpl.stripWorkspaceSpecific('x\n<!-- /workspace-specific -->\n', 'a.md'), /without an opening marker/);
+        const ws = fakeWorkspace();
+        fs.writeFileSync(path.join(ws, 'CLAUDE.md'), text);
+        fs.writeFileSync(path.join(ws, '_copilot_guidelines', 'broken.md'), '<!-- workspace-specific -->\nopen\n');
+        const refused = tpl.buildTemplate(ws);
+        assert.equal(refused.ok, false);
+        assert.match((refused as { errors: string[] }).errors.join('\n'), /broken\.md:1: .*never closed/);
+        fs.rmSync(path.join(ws, '_copilot_guidelines', 'broken.md'));
+        const r = tpl.buildTemplate(ws) as { zip: Buffer };
+        assert.equal(readZip(r.zip).find((e) => e.path === 'CLAUDE.md')!.data.toString('utf8'), '# Rules\n\nGeneric.\n\nAfter.\n');
+        if (present) {
+            const live = tpl.templateFileData('CLAUDE.md', fs.readFileSync(path.join(WS, 'CLAUDE.md'))).toString('utf8');
+            assert.doesNotMatch(live, /workspace-specific|tom_build_base|al_the_bear|Multi-repo workflow|Run Dart tests with `testkit`/, 'the live CLAUDE.md packs only its generic part');
+            assert.match(live, /## Quick Reference/);
+        }
+    });
+
+    test('WT-9: left-out files and the links to them', () => {
+        const ws = fakeWorkspace();
+        const put = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true }); fs.writeFileSync(path.join(ws, rel), text); };
+        put('_copilot_guidelines/projects_and_repos.md', '# Projects\n');
+        put('_copilot_guidelines/workspace_checks.md', '# Checks\n');
+        put('_ai/schemas/__pycache__/x.cpython-312.pyc', 'bytes');
+        put('_ai/schemas/stray.pyc', 'bytes');
+        put('_ai/prompt/bot.chat-history.prompt.md', 'a chat log\n');
+        put('_copilot_guidelines/dart/setup.md', '# Setup\n\n- [Projects](../projects_and_repos.md) - ids\n- [Kept](../index.md)\n\n| [workspace_checks.md](../workspace_checks.md) | x |\n\nSee [projects](../projects_and_repos.md) in a paragraph.\n');
+        const r = tpl.buildTemplate(ws) as { zip: Buffer };
+        const names = readZip(r.zip).map((e) => e.path);
+        for (const gone of ['_copilot_guidelines/projects_and_repos.md', '_copilot_guidelines/workspace_checks.md', '_ai/schemas/__pycache__/x.cpython-312.pyc', '_ai/schemas/stray.pyc', '_ai/prompt/bot.chat-history.prompt.md']) {
+            assert.ok(!names.includes(gone), gone);
+        }
+        const setup = readZip(r.zip).find((e) => e.path === '_copilot_guidelines/dart/setup.md')!.data.toString('utf8');
+        assert.equal(setup, '# Setup\n\n- [Kept](../index.md)\n\n\nSee [projects](../projects_and_repos.md) in a paragraph.\n', 'list items and table rows dropped; a paragraph is marked by hand');
+        assert.ok(names.includes('_ai/prompt/p.md'), 'other prompts packed');
+    });
+
+    test('WT-10: the Active Quests table keeps the carried quests', () => {
+        const text = '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| mine | Mine | x | `_ai/quests/mine/` |\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n| other | Other | z | `_ai/quests/other/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n';
+        assert.equal(tpl.activeQuestsFor(text, ['tomai_introduction']), '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n');
+        assert.equal(tpl.activeQuestsFor('# No table\n', ['x']), '# No table\n');
+        if (present) {
+            const live = tpl.templateFileData('_copilot_guidelines/quests_and_processes.md', fs.readFileSync(path.join(WS, '_copilot_guidelines/quests_and_processes.md'))).toString('utf8');
+            const after = live.slice(live.indexOf('## Active Quests')).split('\n').slice(1);
+            const start = after.findIndex((l) => l.startsWith('|'));
+            const end = after.findIndex((l, k) => k > start && !l.startsWith('|'));
+            const rows = after.slice(start + 2, end);
+            assert.deepEqual(rows.map((l) => l.split('|')[1].trim()), ['tomai_introduction']);
+        }
     });
 });

@@ -110,7 +110,8 @@ win32-x64 (minus the host) with `npm pack` into `.cache/agent-sdk-cli/`
 Before packaging, both installers build the workspace template
 (`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
 workspace, the config (its issue / test panel repositories and command lines
-emptied: `genericConfig`), all of `_copilot_guidelines/`, CLAUDE.md,
+emptied: `genericConfig`), `_copilot_guidelines/` without this workspace's
+projects and checks guidelines, CLAUDE.md,
 `.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
 prompt / format-version.yaml and the starting quest `tomai_introduction`,
 plus `.tom/workspace_template.json` (its type, `dart`). From the quest it
@@ -119,7 +120,11 @@ the host's `extension_config`, `process-state`); anywhere else such host-bound
 files, and literal secrets, make it refuse and write nothing. The result is
 `resources/workspace_template.zip` (in the VSIX, required by
 `check-vsix-contents.cjs`) and a copy beside the VSIX; @T: Setup New Workspace
-Folder unpacks it.
+Folder unpacks it. Markdown is packed without its `<!-- workspace-specific -->`
+blocks (CLAUDE.md and its mirror end with the workspace's own part, which the
+template leaves out) and without list items or table rows linking to a
+left-out file, and the Active Quests table keeps only `tomai_introduction`
+(`templateFileData`, `EXCLUDED_PATHS`).
 
 **Packaging without installing** (private distribution): `create_vsix.sh` /
 `.ps1` build from source with the Dart binaries for this platform,

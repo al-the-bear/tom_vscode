@@ -10,10 +10,15 @@
  * install scripts take it), at build time, and nothing else:
  *   - .tom/tom_vscode_extension.json      the workspace's config, its repositories
  *                                          and command lines emptied (genericConfig)
- *   - _copilot_guidelines/                 all of it
+ *   - _copilot_guidelines/                 all but EXCLUDED_PATHS
  *   - CLAUDE.md, .github/copilot-instructions.md
  *   - _ai/roles/, _ai/processes/, _ai/schemas/, _ai/prompt/,
- *     _ai/format-version.yaml
+ *     _ai/format-version.yaml              all but EXCLUDED_PATHS and Python byte code
+ * Markdown is packed without its `<!-- workspace-specific -->` blocks (the
+ * workspace's own part of CLAUDE.md and its mirror, guideline passages about
+ * this workspace) and without list items / table rows linking to a left-out
+ * file; the Active Quests table keeps only the quests the template carries
+ * (templateFileData).
  *   - _ai/quests/tomai_introduction/      the starting quest, without the files its
  *                                          use on this machine writes
  * plus `.tom/workspace_template.json`, which names the template's type (a
@@ -94,12 +99,109 @@ function genericConfig(data) {
     return Buffer.from(JSON.stringify(config, null, 2) + (text.endsWith('\n') ? '\n' : ''), 'utf8');
 }
 
+/** Text without its `<!-- workspace-specific -->` blocks (markers included); throws on unbalanced markers. */
+function stripWorkspaceSpecific(text, file) {
+    const out = [];
+    let open = 0;
+    text.split('\n').forEach((line, i) => {
+        if (SPECIFIC_OPEN.test(line)) {
+            if (open) { throw new Error(`${file}:${i + 1}: <!-- workspace-specific --> inside an open one (line ${open})`); }
+            open = i + 1;
+            return;
+        }
+        if (SPECIFIC_CLOSE.test(line)) {
+            if (!open) { throw new Error(`${file}:${i + 1}: <!-- /workspace-specific --> without an opening marker`); }
+            open = 0;
+            return;
+        }
+        if (!open) { out.push(line); }
+    });
+    if (open) { throw new Error(`${file}:${open}: <!-- workspace-specific --> never closed`); }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+/** Text without its list items and table rows that link to one of `excluded` (paths relative to the workspace). */
+function dropLinksTo(text, file, excluded) {
+    const dir = path.posix.dirname(file);
+    const targets = (line) => [...line.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)]
+        .map((m) => m[1])
+        .filter((t) => !/^[a-z]+:/i.test(t))
+        .map((t) => path.posix.normalize(path.posix.join(dir, decodeURI(t))));
+    return text.split('\n')
+        .filter((line) => !(/^\s*(?:[-*+] |\d+\. |\|)/.test(line) && targets(line).some((t) => excluded.has(t))))
+        .join('\n');
+}
+
+/** The Active Quests table cut to its header and the rows of the quests the template carries. */
+function activeQuestsFor(text, carried) {
+    const lines = text.split('\n');
+    const heading = lines.findIndex((l) => l.trim() === '## Active Quests');
+    if (heading < 0) { return text; }
+    let i = heading + 1;
+    while (i < lines.length && !lines[i].startsWith('|') && !lines[i].startsWith('#')) { i++; }
+    if (i >= lines.length || !lines[i].startsWith('|')) { return text; }
+    const header = i;
+    const out = [];
+    for (let k = 0; k < lines.length; k++) {
+        const isRow = k > header + 1 && lines[k].startsWith('|') && lines.slice(header, k).every((l) => l.startsWith('|'));
+        if (isRow && !carried.some((q) => lines[k].includes(`_ai/quests/${q}/`))) { continue; }
+        out.push(lines[k]);
+    }
+    return out.join('\n');
+}
+
+/** The quests the template carries (from SOURCES). */
+const CARRIED_QUESTS = SOURCES.filter((s) => s.path.startsWith('_ai/quests/')).map((s) => s.path.split('/')[2]);
+
+/**
+ * A source file as the template packs it: the config through genericConfig;
+ * Markdown without its workspace-specific blocks and its links to left-out
+ * files, the Active Quests table cut to the carried quests; everything else as
+ * it is.
+ * @param {string} file workspace-relative posix path
+ * @param {Buffer} data
+ */
+function templateFileData(file, data) {
+    if (file === CONFIG_PATH) { return genericConfig(data); }
+    if (!file.endsWith('.md')) { return data; }
+    let text = stripWorkspaceSpecific(data.toString('utf8'), file);
+    text = dropLinksTo(text, file, EXCLUDED_PATHS);
+    if (file === QUEST_REGISTRY_PATH) { text = activeQuestsFor(text, CARRIED_QUESTS); }
+    return Buffer.from(text, 'utf8');
+}
+
 /** The template's own description, written into the zip. */
 const TEMPLATE_INFO_PATH = '.tom/workspace_template.json';
 const TEMPLATE_TYPE = 'dart';
 
-/** Files never worth carrying (OS litter, VCS folders). */
-const IGNORED_NAMES = new Set(['.DS_Store', 'Thumbs.db', '.git', 'node_modules']);
+/** Files never worth carrying (OS litter, VCS folders, Python byte code). */
+const IGNORED_NAMES = new Set(['.DS_Store', 'Thumbs.db', '.git', 'node_modules', '__pycache__']);
+const IGNORED_EXTENSIONS = new Set(['.pyc']);
+
+/**
+ * Files of the sources that are this workspace's own and stay out of the
+ * template: the guidelines on this workspace's projects and its `_bin/` checks
+ * (the template carries no `_bin/`), the Tom analyzer's schema, and prompts
+ * written for one quest or tool. List items and table rows linking to them are
+ * dropped from the packed Markdown (dropLinksTo).
+ */
+const EXCLUDED_PATHS = new Set([
+    '_copilot_guidelines/projects_and_repos.md',
+    '_copilot_guidelines/workspace_checks.md',
+    '_ai/schemas/yaml/tom_analyzer_analysis.schema.json',
+    '_ai/prompt/Create GOOD tests.prompt.md',
+    '_ai/prompt/D4rt_Good_Demo_Test.prompt.md',
+    '_ai/prompt/bot.chat-history.prompt.md',
+    '_ai/prompt/execute-quest-todos-with-follow-up.prompt.md',
+    '_ai/prompt/execute_todo_list.prompt.md',
+]);
+
+/** Markdown between these marker lines is this workspace's own: the template leaves it out (CLAUDE.md, its mirror, guidelines). */
+const SPECIFIC_OPEN = /^\s*<!--\s*workspace-specific\s*-->\s*$/;
+const SPECIFIC_CLOSE = /^\s*<!--\s*\/workspace-specific\s*-->\s*$/;
+
+/** The guideline holding the Active Quests table. */
+const QUEST_REGISTRY_PATH = '_copilot_guidelines/quests_and_processes.md';
 
 /** Paths that are personal or bound to one machine. */
 const PERSONAL_PATH_RULES = [
@@ -123,7 +225,7 @@ function walk(root, rel) {
     const out = [];
     const visit = (r) => {
         for (const name of fs.readdirSync(path.join(root, r)).sort()) {
-            if (IGNORED_NAMES.has(name)) { continue; }
+            if (IGNORED_NAMES.has(name) || IGNORED_EXTENSIONS.has(path.extname(name))) { continue; }
             const childRel = `${r}/${name}`;
             const st = fs.statSync(path.join(root, childRel));
             if (st.isDirectory()) { visit(childRel); } else if (st.isFile()) { out.push(childRel); }
@@ -149,6 +251,7 @@ function collectTemplateFiles(workspace) {
         if (!fs.existsSync(abs)) { (src.optional ? skipped : missing).push(src.path); continue; }
         if (src.kind !== 'dir') { files.push(src.path); continue; }
         for (const f of walk(workspace, src.path)) {
+            if (EXCLUDED_PATHS.has(f)) { continue; }
             const inQuest = f.slice(src.path.length + 1);
             if (src.leaveOutUse && QUEST_USE_RULES.some((re) => re.test(inQuest))) { leftOut.push(f); } else { files.push(f); }
         }
@@ -272,11 +375,14 @@ function buildTemplate(workspace) {
         return { ok: false, errors: missing.map((m) => `${m}: missing in ${workspace}`) };
     }
     const info = { type: TEMPLATE_TYPE, sources: SOURCES.map((s) => s.path) };
+    const packed = [];
+    const markerErrors = [];
+    for (const f of files) {
+        try { packed.push({ path: f, data: templateFileData(f, fs.readFileSync(path.join(workspace, f))) }); } catch (e) { markerErrors.push(e.message); }
+    }
+    if (markerErrors.length > 0) { return { ok: false, errors: markerErrors }; }
     const entries = [
-        ...files.map((f) => {
-            const data = fs.readFileSync(path.join(workspace, f));
-            return { path: f, data: f === CONFIG_PATH ? genericConfig(data) : data };
-        }),
+        ...packed,
         { path: TEMPLATE_INFO_PATH, data: Buffer.from(`${JSON.stringify(info, null, 2)}\n`, 'utf8') },
     ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const findings = checkTemplate(entries);
@@ -317,7 +423,7 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, genericConfig, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
+module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, genericConfig, stripWorkspaceSpecific, dropLinksTo, activeQuestsFor, templateFileData, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
 
 if (require.main === module) {
     process.exitCode = main();
