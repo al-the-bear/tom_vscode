@@ -34,6 +34,15 @@ workspace folder**) and at the top of the Status Page.
 5. **Open it.** **Open the introduction quest** (when the template has it) or
    **Open the folder** opens a new window; **Stay here** keeps this one.
 
+## Your First Quest
+
+A quest is a larger piece of work with its own folder `_ai/quests/<id>/`;
+you work on it in its workspace `_ai/quests/<id>/<id>.code-workspace`. While
+no quest is open, the panels say so and offer **Create new quest**
+(**@T: Create New Quest**): it asks the quest's id and name, creates its files
+and one todo that defines the quest with you, and offers to open the quest's
+workspace. Run that todo there, in the prompt queue or the chat.
+
 ---
 
 ## Setting Up by Hand

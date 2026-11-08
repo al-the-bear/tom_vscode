@@ -30,6 +30,7 @@
  * View: `tomAi.sessions`. Assets: `media/sessionsView/`.
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 
@@ -78,6 +79,8 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
             },
         });
         webviewView.webview.onDidReceiveMessage((msg) => void this.handle(msg), undefined, this.context.subscriptions);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this.context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
         webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this.send(); } });
         webviewView.onDidDispose(() => { this.unwatch(); this.view = undefined; });
     }

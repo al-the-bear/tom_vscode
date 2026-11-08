@@ -6,6 +6,8 @@
 /* global acquireVsCodeApi */
 (function () {
     var vscode = acquireVsCodeApi();
+    // Shared components (media/shared/questHint.js) reuse it: acquireVsCodeApi() may be called only once.
+    window.__tomVscodeApi = vscode;
     var INIT = window.__INIT__ || {};
     if (INIT.codiconsUri) {
         var link = document.createElement('link');

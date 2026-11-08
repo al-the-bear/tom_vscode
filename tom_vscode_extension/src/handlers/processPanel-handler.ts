@@ -23,6 +23,7 @@
  * Assets: `media/processPanel/`.
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 
 import { ProcessStateStore } from '../managers/processStateStore';
@@ -70,6 +71,8 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             },
         });
         webviewView.webview.onDidReceiveMessage((msg) => void this.handle(msg), undefined, this.context.subscriptions);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this.context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
         webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this.send(); } });
         webviewView.onDidDispose(() => { this.subscription?.dispose(); this.queueSubscription?.dispose(); this.view = undefined; });
         // A running step's progress follows the queue.

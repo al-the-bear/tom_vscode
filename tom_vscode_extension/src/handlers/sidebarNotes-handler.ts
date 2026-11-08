@@ -14,6 +14,7 @@
  * `state`), so there is no inline HTML in this file.
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -412,6 +413,8 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
         };
         webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'sidebarNotes/questNotes');
         wireCompletionMessages(webviewView.webview);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -492,6 +495,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     const questTodosProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
         mode: 'fixed-file',
         fixedQuestId: resolvedQuestId,
+        questHint: true,
         // Pre-select the quest's primary file but leave the picker active so the
         // user can switch to any *.todo.yaml in the quest — including newly
         // created structured files (Bug 4 + Bug 5).
@@ -504,6 +508,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     const sessionTodosProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
         mode: 'session',
         fixedFileLabel: 'Session (*.todo.yaml)',
+        questHint: true,
         hideQuestSelect: true,
         hideFileSelect: true,
     });

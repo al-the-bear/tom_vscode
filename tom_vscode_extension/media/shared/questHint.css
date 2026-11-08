@@ -1,0 +1,39 @@
+/* The "no quest is open" banner of media/shared/questHint.js. */
+.tom-quest-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--vscode-foreground);
+    background: var(--vscode-inputValidation-infoBackground, var(--vscode-editorWidget-background));
+    border: 1px solid var(--vscode-inputValidation-infoBorder, var(--vscode-focusBorder));
+    border-radius: 3px;
+}
+
+.tom-quest-hint-text {
+    flex: 1 1 200px;
+}
+
+.tom-quest-hint-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tom-quest-hint-buttons button {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: none;
+    padding: 3px 10px;
+    border-radius: 2px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.tom-quest-hint-buttons button:hover {
+    background: var(--vscode-button-hoverBackground);
+}

@@ -435,7 +435,7 @@ Tools are registered with `tomAi_` prefix.
 |------|---------|
 | `.tom/tom_vscode_extension.json` | Main extension config |
 | `workspace.todo.yaml` | Workspace-level todos |
-| `_ai/quests/{quest}/todos.{quest}.yaml` | Quest todos |
+| `_ai/quests/{quest}/todos.{quest}.todo.yaml` | Quest todos |
 
 ### Key Configuration Sections
 

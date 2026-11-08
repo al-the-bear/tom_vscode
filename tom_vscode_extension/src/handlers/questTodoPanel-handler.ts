@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -110,6 +111,11 @@ export interface QuestTodoViewConfig {
     hideQuestSelect?: boolean;
     hideFileSelect?: boolean;
     disableFileActions?: boolean;
+    /**
+     * Show the "no quest is open" banner (media/shared/questHint.js) — the
+     * @TOM views that need a quest (QUEST TODOS, SESSION TODOS).
+     */
+    questHint?: boolean;
 }
 
 /** Call once from extension.ts / wsPanel to store the extension context. */
@@ -2289,12 +2295,16 @@ function _getEmbeddedQuestTodoHtml(
     const completionUri = webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, 'media', 'shared', 'completion.js'),
     );
+    const shared = (file: string): string => webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'shared', file)).toString();
+    const questHintCss = config?.questHint ? `<link rel="stylesheet" href="${shared('questHint.css')}">` : '';
+    const questHintJs = config?.questHint ? `<script src="${shared('questHint.js')}"></script>` : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${codiconsUri}">
+${questHintCss}
 <style>
 body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
     font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
@@ -2310,6 +2320,7 @@ window.addEventListener('message', function(event) { qtHandleMessage(event.data)
 ${getQuestTodoScript(config)}
 </script>
 <script src="${completionUri}"></script>
+${questHintJs}
 </body>
 </html>`;
 }
@@ -2338,6 +2349,9 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
             await handleQuestTodoMessage(message, webviewView.webview);
         }, undefined, this.context.subscriptions);
         this.context.subscriptions.push(wireCompletionMessages(webviewView.webview));
+        if (this.config?.questHint) {
+            this.context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
+        }
 
         const cfgMode = this.config?.mode;
         const watcher = setupQuestTodoWatcher(() => {

@@ -7,6 +7,8 @@
 /* global acquireVsCodeApi, marked */
 (function () {
     var vscode = acquireVsCodeApi();
+    // Shared components (media/shared/questHint.js) reuse it: acquireVsCodeApi() may be called only once.
+    window.__tomVscodeApi = vscode;
     var INIT = window.__INIT__ || {};
     var nonce = (document.currentScript && document.currentScript.nonce) || '';
 

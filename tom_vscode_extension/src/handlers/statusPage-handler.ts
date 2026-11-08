@@ -13,7 +13,7 @@
 
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, resolveAssistPrompt, type AssistPromptUse } from '../utils/assistPrompts';
 import { checkBuildStatus } from '../services/buildStatusService';
-import { SETUP_WORKSPACE_COMMAND } from './setupWorkspaceFolder-handler';
+import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';

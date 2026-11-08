@@ -30,7 +30,7 @@
  * 14:00 expects the 14:00 letter regardless of the machine's UTC offset.
  */
 
-import { SharedToolDefinition } from './shared-tool-registry';
+import type { SharedToolDefinition } from './shared-tool-registry';
 
 // ===========================================================================
 // Alphabets

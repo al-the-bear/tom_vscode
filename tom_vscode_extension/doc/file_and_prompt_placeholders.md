@@ -107,7 +107,7 @@ ${role-senior_engineer}    → _ai/roles/senior_engineer.md, …
 ```text
 ${quest-overview}       → _ai/quests/<quest>/overview.<quest>.md
 ${quest-copilot_todos}  → _ai/quests/<quest>/copilot_todos.<quest>.md
-${quest-todos}          → _ai/quests/<quest>/todos.<quest>.yaml
+${quest-todos}          → _ai/quests/<quest>/todos.<quest>.todo.yaml
 ${quest-references}     → _ai/quests/<quest>/references.<quest>.md
 ```
 

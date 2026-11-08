@@ -16,6 +16,7 @@ media/
   shared/
     base.css     # shared base styles (migrated from getBaseStyles)
     completion.js  # (Phase A.4) reusable textarea-completion client
+    questHint.js   # the "no quest is open" banner (+ questHint.css)
 ```
 
 ## Loader contract

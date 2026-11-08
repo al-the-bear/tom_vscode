@@ -17,8 +17,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { readZip, type ZipEntry } from '../utils/zipArchive';
 import { folderEntries, unpackReport, unpackSummary, unpackTemplate, type ExistingFileChoice, type UnpackResult } from '../utils/workspaceSetup';
+import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 
-export const SETUP_WORKSPACE_COMMAND = 'tomAi.setupWorkspaceFolder';
+export { SETUP_WORKSPACE_COMMAND };
+
 /** The template inside the installed extension. */
 export const TEMPLATE_ZIP = path.join('resources', 'workspace_template.zip');
 /** The configuration in the unpacked folder: it carries the build machine's settings. */

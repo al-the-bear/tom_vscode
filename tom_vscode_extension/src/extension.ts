@@ -79,6 +79,7 @@ import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowS
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
+import { registerCreateQuestCommand } from './handlers/createQuest-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import {
     McpServerController,
@@ -882,6 +883,8 @@ export function deactivate() {
 function registerCommands(context: vscode.ExtensionContext) {
     // Setup New Workspace Folder: unpack the bundled workspace template (minimal mode too)
     registerSetupWorkspaceFolderCommand(context);
+    // Create New Quest: the quest's files under _ai/quests/<id>/
+    registerCreateQuestCommand(context);
 
     // Send to Anthropic/LLM - the @CHAT Anthropic panel's current profile and session
     registerSendToLlmCommands(context);

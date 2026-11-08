@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import { ApprovalRelay } from '../utils/approvalRelay';
 import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody, userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
@@ -420,6 +421,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // chosen `insertCompletion` back. Registered as its own listener so it
         // coexists with the panel's message switch below.
         wireCompletionMessages(webviewView.webview);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(

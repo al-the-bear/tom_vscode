@@ -285,7 +285,8 @@ Clicking the wrench icon opens a floating popup panel (VS Code `QuickPick`-style
 
 ##### d) Todo File Picker
 - Dropdown listing YAML todo files from the current quest folder
-- Options: "All files" (default, aggregates), `todos.{quest-id}.yaml`, session files
+- Options: "All files" (default, aggregates), `todos.{quest-id}.todo.yaml`,
+  session files
 - Refreshes on quest change or file creation/deletion (file watcher)
 
 ##### e) Todo Selector
@@ -567,7 +568,7 @@ interface QueuedPrompt {
 - **Quest dropdown** — Same as COPILOT panel (synced via `ChatVariablesStore`)
 - **File dropdown** — List of todo files in quest folder:
   - "All files" — read-only aggregate view (no add button)
-  - `todos.{quest-id}.yaml` — persistent file
+  - `todos.{quest-id}.todo.yaml` — persistent file
   - Session files (`{timestamp}_{window}.todos.yaml`)
 - **📄 Open YAML** — Opens the selected YAML file directly in the text editor
 - **➕ Add Todo** — Only visible when a specific file is selected (not "All files"). Creates a new todo with auto-generated ID and opens the detail panel
@@ -581,7 +582,7 @@ interface QueuedPrompt {
   - Blocked: orange
   - Completed: grey/strikethrough
   - Cancelled: grey/italic
-- For session file items in "All files" view: show a **➡️ Move to quest** icon button that moves the todo from the session file to the persistent `todos.{quest-id}.yaml`
+- For session file items in "All files" view: show a **➡️ Move to quest** icon button that moves the todo from the session file to the persistent `todos.{quest-id}.todo.yaml`
 - Source file indicator (small label) when viewing "All files"
 
 **Todo detail (right pane):**

@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BaseWebviewProvider } from '../utils/baseWebviewProvider';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { SETUP_WORKSPACE_COMMAND } from './setupWorkspaceFolder-handler';
+import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 
 // All webview view IDs declared in package.json that need a provider in minimal mode
 const MINIMAL_VIEW_IDS = [

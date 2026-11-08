@@ -7,6 +7,7 @@
  * issuesPanel-handler; the QUEST TODO section embeds from questTodoPanel-handler.
  */
 
+import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -116,6 +117,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         // `insertCompletion` back. Registered as its own listener so it coexists
         // with _handleMessage below.
         wireCompletionMessages(webviewView.webview);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this._extensionContext.subscriptions.push(wireQuestHintMessages(webviewView.webview));
 
         webviewView.webview.onDidReceiveMessage(
             async (message) => {
@@ -352,6 +355,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             getDocumentPickerCss(),
             readMediaText('wsPanel', 'style.css'),
             getEmbeddedStatusStyles(),
+            readMediaText('shared', 'questHint.css'),
         ].join('\n');
 
         const additionalScript = [
@@ -363,6 +367,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             getStatusPanelListenersScript(),
             readMediaText('wsPanel', 'main.js'),
             readMediaText('shared', 'completion.js'),
+            // The "no quest is open" banner above the accordion; like completion.js it reads window.__tomVscodeApi.
+            readMediaText('shared', 'questHint.js'),
         ].join('\n');
 
         return getAccordionHtml({

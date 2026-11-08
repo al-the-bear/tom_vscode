@@ -100,6 +100,10 @@
 ## Utility Commands
 
 - `tomAi.statusPage`
+- `tomAi.createQuest` — Create New Quest: `_ai/quests/<id>/` with the quest's
+  files and the todo that defines the quest with you (also the **Create new
+  quest** button of the *No quest is open* banner the panels show while no
+  quest is open)
 - `tomAi.setupWorkspaceFolder` — Setup New Workspace Folder: unpack the
   workspace template the VSIX carries into a folder (also a button on the
   placeholder panels of a folder without `.tom/` and at the top of the Status
