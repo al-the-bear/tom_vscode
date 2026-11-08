@@ -111,7 +111,8 @@ Before packaging, both installers build the workspace template
 (`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
 workspace, the config (its issue / test panel repositories and command lines
 emptied: `genericConfig`), `_copilot_guidelines/` without this workspace's
-projects and checks guidelines, CLAUDE.md,
+projects and checks guidelines and the ones that only point into its packages,
+CLAUDE.md,
 `.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
 prompt / format-version.yaml and the starting quest `tomai_introduction`,
 plus `.tom/workspace_template.json` (its type, `dart`). From the quest it

@@ -22,6 +22,7 @@
  *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
  *        them are dropped
  *   WT-10 the Active Quests table keeps its header and the rows of the quests the template carries
+ *   WT-11 built from this workspace, no relative link in the packed Markdown points outside the template
  */
 
 import test, { describe } from 'node:test';
@@ -297,5 +298,25 @@ describe('the workspace template', () => {
             const rows = after.slice(start + 2, end);
             assert.deepEqual(rows.map((l) => l.split('|')[1].trim()), ['tomai_introduction']);
         }
+    });
+    test('WT-11: no relative link in the packed Markdown leaves the template', { skip: present ? false : 'no workspace around this checkout' }, () => {
+        const entries = readZip((tpl.buildTemplate(WS) as { zip: Buffer }).zip);
+        const names = new Set(entries.map((e) => e.path));
+        const dirs = new Set<string>();
+        for (const n of names) { for (let d = path.posix.dirname(n); d && d !== '.'; d = path.posix.dirname(d)) { dirs.add(d); } }
+        const dead: string[] = [];
+        for (const e of entries.filter((x) => x.path.endsWith('.md'))) {
+            let fence = false;
+            e.data.toString('utf8').split('\n').forEach((line, i) => {
+                if (/^\s*```/.test(line)) { fence = !fence; return; }
+                if (fence) { return; }
+                for (const m of line.replace(/`[^`]*`/g, '').matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)) {
+                    if (/^[a-z]+:/i.test(m[1])) { continue; }
+                    const target = path.posix.normalize(path.posix.join(path.posix.dirname(e.path), decodeURI(m[1])));
+                    if (!names.has(target) && !dirs.has(target.replace(/\/$/, ''))) { dead.push(`${e.path}:${i + 1}: ${m[1]}`); }
+                }
+            });
+        }
+        assert.deepEqual(dead, [], 'mark the passage <!-- workspace-specific --> or leave the file out (EXCLUDED_PATHS)');
     });
 });

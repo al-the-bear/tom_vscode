@@ -181,13 +181,21 @@ const IGNORED_EXTENSIONS = new Set(['.pyc']);
 /**
  * Files of the sources that are this workspace's own and stay out of the
  * template: the guidelines on this workspace's projects and its `_bin/` checks
- * (the template carries no `_bin/`), the Tom analyzer's schema, and prompts
- * written for one quest or tool. List items and table rows linking to them are
+ * (the template carries no `_bin/`), the guidelines that only point into this
+ * workspace's packages, the Tom analyzer's schema, and prompts written for one
+ * quest or tool. Passages of other files that point into this workspace are
+ * marked `<!-- workspace-specific -->` in the files themselves. List items and table rows linking to them are
  * dropped from the packed Markdown (dropLinksTo).
  */
 const EXCLUDED_PATHS = new Set([
     '_copilot_guidelines/projects_and_repos.md',
     '_copilot_guidelines/workspace_checks.md',
+    // Written around this workspace's packages: the D4rt pointer files, and the
+    // README guideline whose exemplars are this workspace's D4rt files.
+    '_copilot_guidelines/component_module_readme_example.md',
+    '_copilot_guidelines/d4rt/BRIDGING_GUIDE.md',
+    '_copilot_guidelines/d4rt/generator_strategies.md',
+    '_copilot_guidelines/d4rt/d4rt_interpreter_vs_d4rt_generator.md',
     '_ai/schemas/yaml/tom_analyzer_analysis.schema.json',
     '_ai/prompt/Create GOOD tests.prompt.md',
     '_ai/prompt/D4rt_Good_Demo_Test.prompt.md',
