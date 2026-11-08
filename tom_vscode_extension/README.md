@@ -98,6 +98,13 @@ bash compile_and_install.sh      # macOS / Linux
 pwsh compile_and_install.ps1     # Windows
 ```
 
+Options (bash / PowerShell):
+
+- `--no-dart` / `-NoDart` (or `TOM_NO_DART=1`): builds as on a machine
+  without a Dart SDK (below);
+- `--all-platforms` / `-AllPlatforms` (or `TOM_ALL_PLATFORMS=1`): bundles the
+  Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64.
+
 It runs end to end:
 
 1. Checks Node (switches via nvm if below 20), builds the TomSpecs SOM packages
@@ -110,11 +117,14 @@ It runs end to end:
    `bin/<platform>/` — it never writes to `tom_binaries`, relies on
    `$TOM_BINARY_PATH`, or needs any tool on `PATH` — and the same for
    `validate_codespecs` from `tom_specs_clitool` (`npm run codespecs:build`).
-5. Ensures the host's Claude Agent SDK native CLI binary is present.
+5. Ensures the host's Claude Agent SDK native CLI is present (its npm
+   package); with `--all-platforms` it also fetches the fleet's other CLIs
+   with `npm pack` and bundles them as `bin/<platform>/claude[.exe]`.
 6. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
-   which of `tom_bs` / `validate_codespecs` it carries per platform is listed),
+   which of `tom_bs` / `validate_codespecs` it carries per platform is listed,
+   and for which platforms it carries the Agent SDK CLI),
    and installs it via the `code` CLI (without `code` it is only packaged).
 7. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
@@ -122,7 +132,20 @@ It runs end to end:
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
 (`.\compile_and_install.ps1 -NoDart`), steps 2–4 are skipped: the VSIX has no
 `tom_bs` and no `validate_codespecs` for the host, and a red warning before and
-after the closing line says so.
+after the closing line says so. Such a VSIX lacks two things only:
+
+- **DartScript** (`tom_bs`): the Dart bridge, running `.dart` / D4rt scripts,
+  the CLI integration server, the bridge-side Agent SDK, the bridge debug
+  logging, process monitor, Print Configuration and Run Tests;
+- **CodeSpecs validation** (`validate_codespecs`): `tomAi_specCodeSpecsValidate`,
+  the back-link agreement of `tomAi_specCodeSpecsTrace` and the validation
+  stage of `tomAi_specCodeSpecsStatus`.
+
+Everything else works: the chat panels and their transports, the prompt queue,
+the tools, quests, todos and processes, TomSpecs editing.
+
+A VSIX is about 150 MB; `--all-platforms` adds about 110 MB per added platform
+(about 380 MB with all three).
 
 After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
 
@@ -134,20 +157,81 @@ compile the bridge). **Those binaries are not kept current**: they were last
 built on 2026-10-02 and lag the bridge sources, so a script using a newer part
 of the scripting API (the todo API on `tom_todo_model`, for one) can fail
 through them. `compile_and_install` is the install route on every host; this
-one is for a machine without the d4rt and bridge checkouts. It needs the Dart
-SDK as well (it compiles `validate_codespecs`), and it says which bridge source
-the bundled `tom_bs` was built from (`npm run check:tom-bs`) and that it lags:
+one is for a machine without the d4rt and bridge checkouts. It compiles
+`validate_codespecs` when a Dart SDK is found (without one, or with
+`--no-dart`, it leaves it out as above), takes `--all-platforms` too, and it
+says which bridge source the bundled `tom_bs` was built from
+(`npm run check:tom-bs`) and that it lags:
 
 ```bash
 bash install_extension.sh        # macOS / Linux
 pwsh install_extension.ps1       # Windows
 ```
 
-### Alternative: install a prebuilt VSIX
+### Installing the VSIX on another machine
+
+Both installers end with the VSIX's path. Copy that file to another machine
+and install it there (no checkout, Node or Dart needed):
 
 ```bash
-code --install-extension tom-ai-extension-0.1.0.vsix
+code --install-extension <path-to>/tom-ai-extension-0.1.0.vsix
 ```
+
+What runs there depends on the binaries the VSIX carries for that machine's
+platform. The extension checks them when it starts, for the platform it runs
+on:
+
+- `tom_bs` (DartScript) and `validate_codespecs` (CodeSpecs validation): for
+  the build machine's platform, when it had a Dart SDK;
+- `claude`, the Agent SDK CLI (the Agent SDK transport): for the build
+  machine's platform; with `--all-platforms` for darwin-arm64, linux-x64 and
+  win32-x64.
+
+A VSIX built on macOS and installed on Windows therefore has no DartScript
+and no CodeSpecs validation there, and the Agent SDK transport only if it was
+built with `--all-platforms`; everything else works. When something is
+missing:
+
+- **DartScript / CodeSpecs validation:** the page
+  **@T: Missing Dart Binaries (DartScript / CodeSpecs validation)** opens once
+  per build and platform, filled for that machine (what is missing, how to
+  install Dart, build or configure the binaries); a status-bar item
+  *Dart binaries missing* opens it again, and the Status Page has a
+  **Dart binaries** section. A DartScript command answers *"Restart Bridge
+  needs DartScript, which is not available on win32-x64: the tom_bs binary is
+  missing."* (its own name and platform) with a **What does this mean?**
+  button.
+  `tomAi_specCodeSpecsValidate` answers `binaryMissing` with how to get the
+  binary; Trace and Status skip validation and warn, the user once per tool
+  and window session.
+- **Agent SDK CLI:** an Agent SDK prompt fails before it runs, naming the
+  missing CLI, with **What does this mean?** opening
+  **@T: Missing Agent SDK CLI (Claude CLI for this platform)**. Use another
+  transport (direct API, VS Code LM, Copilot, a local model) or a VSIX built
+  with `--all-platforms`.
+
+**Prebuilt binaries for such a machine** (built there, or copied from a
+machine of the same platform) are configured per platform in the workspace's
+`.tom/tom_vscode_extension.json`; a configured file that exists is used before
+the bundled one:
+
+```json
+{
+  "bridge": {
+    "executables": {
+      "tom_bs": { "win32-x64": "C:\\tom\\tom_bs.exe" },
+      "validate_codespecs": { "win32-x64": "C:\\tom\\validate_codespecs.exe" }
+    }
+  }
+}
+```
+
+The keys are platforms (`darwin-arm64`, `linux-x64`, `win32-x64`, …), a family
+wildcard (`darwin-*`) or `*`; values may use `~`, `${home}`,
+`${workspaceFolder}`, `${env:NAME}` and `${binaryPath}`. `tom_bs` is the
+executable the bridge profile names (`bridge.profiles.<profile>.executable`).
+After configuring, **@T: Restart Bridge** picks up `tom_bs`; no reload is
+needed.
 
 ### After installing: the `_ai` format migration
 

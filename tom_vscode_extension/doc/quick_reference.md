@@ -100,6 +100,8 @@
 ## Utility Commands
 
 - `tomAi.statusPage`
+- `tomAi.showDartBinariesHelp` — the Missing Dart Binaries page (DartScript / CodeSpecs validation on this platform; also the status-bar item *Dart binaries missing* and the Status Page's **Dart binaries** section)
+- `tomAi.showAgentSdkCliHelp` — the Missing Agent SDK CLI page (the Agent SDK transport on this platform)
 - `tomAi.showQuickReference`
 - `tomAi.openConfig`
 - `tomAi.openSettings`

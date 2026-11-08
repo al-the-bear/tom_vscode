@@ -603,7 +603,9 @@ Bridge and automation commands:
 - `@T: Switch Bridge Profile...`
 - `@T: Start Tom CLI Integration Server`
 - `@T: Stop Tom CLI Integration Server`
-- `@T: Start Process Monitor`
+- `@T: Start Tom Process Monitor`
+
+They need DartScript, the `tom_bs` bridge binary, for the platform the window runs on. A VSIX carries it only for the platform it was built on, and only when that build had a Dart SDK. Without it the bridge is not started (one line in the bridge log, no message), and every DartScript command — these, `@T: Execute File`, `@T: Execute as Script`, `@T: Toggle Bridge Debug Logging`, `@T: Print Configuration`, `@T: Run Tests`, Telegram `/bridge restart`, `/bridge mode` and `/cli-integration start` — stops with `"<feature> needs DartScript, which is not available on <platform>: the tom_bs binary is missing."` (its name and platform filled in) and a **What does this mean?** button that opens the Missing Dart Binaries page (§7). A `tom_bs` configured or copied in later works on the next `@T: Restart Bridge`, without a reload.
 
 ## 7) Status, config, and diagnostics
 
@@ -613,6 +615,18 @@ Use:
 - `@T: Open Extension Settings`
 - `@T: Open Config File`
 - `@T: Toggle Bridge Debug Logging`
+
+### Missing binaries on this platform
+
+Three features run programs a VSIX carries only for some platforms: DartScript (`tom_bs`), CodeSpecs validation (`validate_codespecs`) and the Agent SDK transport (the Claude CLI). The extension checks them when it starts, for the platform it runs on, so the same VSIX gives the right answer on every machine.
+
+- **`@T: Missing Dart Binaries (DartScript / CodeSpecs validation)`** opens a page filled for this machine: what is missing, what does not work and what keeps working, how to install the Dart SDK, how to build the binaries there, and how to configure prebuilt ones (`bridge.executables.tom_bs` / `bridge.executables.validate_codespecs` per platform in `.tom/tom_vscode_extension.json`) or copy them into the extension's `bin/<platform>/`. It opens by itself once per extension build and platform when a binary is missing.
+- The status bar shows **Dart binaries missing** while one is; a click opens the page.
+- The Status Page has a **Dart binaries** section: the platform, each binary as *configured*, *bundled* or *missing* (warned), and **Open the page**. The bridge row says *Not available (tom_bs missing)* instead of *Disconnected*.
+- Without `validate_codespecs`, `tomAi_specCodeSpecsValidate` answers that it is missing; Trace and Status skip validation and a warning `"CodeSpecs validation skipped: validate_codespecs is not available on <platform>."` with **What does this mean?** shows once per tool and window session.
+- **`@T: Missing Agent SDK CLI (Claude CLI for this platform)`**: without the CLI an Agent SDK prompt fails before it runs, and the error (once per window session) has **What does this mean?** opening this page. Use another transport, or install a VSIX built with `--all-platforms` (README § Installing the VSIX on another machine).
+
+WINDOW STATUS marks a window with **no Dart binaries**; agents read the same as `dartBinaries` in `tomAi_getWorkspaceInfo` and `tomAi_getQuestWindowStatus`.
 
 ### Assist prompts
 

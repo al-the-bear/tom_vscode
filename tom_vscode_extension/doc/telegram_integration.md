@@ -81,6 +81,11 @@ Registered only while a live-conversation forwarder is active for the window.
 | `bridge <restart\|stop\|mode>` | | Control the Dart scripting bridge. |
 | `cli-integration <start\|stop> [port]` | | Control the CLI integration server. |
 
+On a platform without the `tom_bs` bridge binary (README § Installing the
+VSIX on another machine), `bridge restart`, `bridge mode` and
+`cli-integration start` reply `❌ <feature> needs DartScript, …` (the
+platform and the missing `tom_bs` named) and start nothing.
+
 Commands are parsed in `telegram-cmd-parser.ts`, dispatched by the
 `TelegramCommandRegistry` in `telegram-cmd-handlers.ts`, and rendered by
 `telegram-cmd-response.ts`. Multi-line messages are parsed per line.

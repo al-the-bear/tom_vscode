@@ -114,11 +114,31 @@ tom_agent_container root a search through every file takes about 10 s
 | `tomAi_openFile` | `showTextDocument` with optional selection. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_closeEditor` | Close every text / diff tab of a file (every group, or the active one) without focusing anything; a tab with unsaved changes is kept and reported, or saved first with `save: true` — never discarded. Approval. | ✅ | ✅ | ✅ | ✅ |
 
+**DartScript commands without `tom_bs`.** A command that needs the Dart bridge
+(`tomAi.bridge.restart`, `tomAi.bridge.switchProfile`, `tomAi.executeFile`,
+`tomAi.executeScript`, `tomAi.cliServer.start`, `tomAi.cliServer.startCustomPort`,
+`tomAi.bridge.toggleDebug`, `tomAi.startProcessMonitor`,
+`tomAi.printConfiguration`, `tomAi.runTests`) run through
+`tomAi_runVscodeCommand` on a platform without `tom_bs` (neither bundled nor
+configured in `bridge.executables`) returns, as its `result`,
+`{ok: false, code: "dartScriptUnavailable", error, help, page}`: `error` is
+`"<feature> needs DartScript, which is not available on <platform>: the tom_bs binary is missing."`
+(the feature's name and the platform filled in), `help` is `Run command tomAi.showDartBinariesHelp`, `page`
+the page that command opens. Nothing is started; the user sees the same error
+with a **What does this mean?** button. `tomAi_getWorkspaceInfo` (`dartBinaries`)
+says beforehand whether `tom_bs` is there.
+
+**The Agent SDK transport without its CLI.** A VSIX carries the Agent SDK's
+Claude CLI for the platform it was built on (with `--all-platforms` also for
+darwin-arm64, linux-x64 and win32-x64). On another platform a prompt on an
+Agent SDK profile fails before it runs, naming the missing package and the
+page `tomAi.showAgentSdkCliHelp` opens; other transports are not affected.
+
 ### 4.5 Editor and workspace context
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ |
@@ -451,7 +471,7 @@ Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sen
 | `tomAi_listSessions` | The quest's named sessions: mode, base, whether they have a conversation, how the next prompt in each starts. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_createSession` | Create a session, fresh or based on another, with a lifetime (`continue`, `per-prompt`, `per-iteration`) and optionally a `profile` (stored with its model). No approval prompt. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_setQueueItemStatus` | Toggle staged / pending. | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_getQuestWindowStatus` | The windows on this machine (alive, servers, role, process position, panel profile and session, queue summary with the item being sent), each quest's sessions with their profiles, and the Anthropic profiles. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_getQuestWindowStatus` | The windows on this machine (alive, servers, role, process position, panel profile and session, queue summary with the item being sent, `build`, `dartBinaries`), each quest's sessions with their profiles, and the Anthropic profiles. Reads only. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_sendItemToQuest` | Queue a prompt in another quest's window on this machine (inbox file), optionally with a profile, an existing or new session of that quest, a done-notification prompt and pause-after; answers `targetRunning`. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_removeQueueItem` | Delete. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updateQueueFollowUp` | Patch follow-up incl. repeat / answerWait. | ⚪ | ⚪ | ⚪ | ⚪ |
@@ -765,10 +785,10 @@ these tools refuse it rather than return 27 empty extracts.
 | `tomAi_specCodeSpecsVerdicts` | The Stage-B gate record (`gate.verdicts.yaml` beside the extracts): each area's verdict, resolution and note, the active areas still missing, and whether record and extracts agree. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsSetVerdict` | Record one area's verdict (approval), validated by the runtime's record rules (`resolution: descoped` only on insufficient). The record's leading comments are kept, and an unchanged verdict rewrites it byte-identically. An insufficient verdict comes with what is owed next. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsQueryExtracts` | Entries of a written run (by this tool or the Dart CLI), filtered by area, token, path or text, each with its provenance and verbatim value. An extract in an unknown format is listed as unreadable, never misread. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specCodeSpecsValidate` | The 41 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message) and `usageError` apart; `notRun` names each check whose corroborating input was not given. tom_code_specs' vocabulary — the hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need — ships with the extension and is passed by default; `csVocabulary` overrides it. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsTrace` | Spec path, token, code location or declaration to the other end, by section-id token (the unit `@CodeSpec` / `@DocSpec` back-links cite), plus the heading `codeSpec=` forward links. With back-links it adds `agreement`, the uncited and dangling tokens (the shape of `validate_codespecs` checks 35 and 36). Without `validate_codespecs` on this platform, `codeDirs` gives no back-links: no `agreement`, `warnings` and `help` instead. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsValidate` | The 41 `codespecs_derivation_contract.md` §6 checks over a generated trio (shared, client, server; client and server default to the shared folder's siblings), through the bundled `validate_codespecs --json`. `outcome` keeps `clean`, `violations` (each with check number and title, defining section, file, line, token or area, message), `usageError` and `binaryMissing` (no binary for this platform; with `expected`, `help` and `page`) apart; `notRun` names each check whose corroborating input was not given. tom_code_specs' vocabulary — the hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need — ships with the extension and is passed by default; `csVocabulary` overrides it. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsStepContext` | Everything authoring step `csgen<n>` (1–31) may read (§2.9): its title, slice, placement and areas; those areas' extracts, entry by entry; the §3 contract entries for the markers they emit, with text; §2's section list (or its text); the output project. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specCodeSpecsStatus` | Where a document is in Phase 4, in one call: every stage in order — `gate` (Stage A), `extraction` (are the extracts current?), `verdicts` (Stage B), `todoTree` (Stage C, in `questId`, default the active quest), `authoring` (the tree's todos done, and the next), `validation` (with `shared`) — each `done`, `notStarted`, `outdated`, `incomplete`, `failing`, `blocked` or `notChecked`, with a summary, its tool and details; and `next`. Built from each stage tool's own dry run. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCodeSpecsStatus` | Where a document is in Phase 4, in one call: every stage in order — `gate` (Stage A), `extraction` (are the extracts current?), `verdicts` (Stage B), `todoTree` (Stage C, in `questId`, default the active quest), `authoring` (the tree's todos done, and the next), `validation` (with `shared`) — each `done`, `notStarted`, `outdated`, `incomplete`, `failing`, `blocked` or `notChecked`, with a summary, its tool and details; and `next`. Built from each stage tool's own dry run. Without `validate_codespecs` on this platform the validation stage is `notChecked` and the answer carries `warnings`, `help` and `page`; `next` is the same as without `shared`. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsGuide` | The workflow guides packaged with the extension — `prompt` (codespecs_prompt.md) and `mapping` (codespecs_mapping.md) — as an overview, an outline, or one numbered section with its subsections; and the stage runbooks (`runbook`, with `file` / `questId` / `step` / `shared` filled in). The MCP server serves the same as resources and prompts. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsPlanTodos` | Stage C: propose (`dryRun`) or create the todo tree from the gate record (approval). `csopen<n>` (decision-needed) per insufficient area not descoped, carrying its gate note; `csproj1`, the trio scaffolding (decision-needed without `appName`); `csgen1`–`csgen31`, one per authoring step, each naming its areas and verdicts, extracts, output project and the step-context call. Refused without a verdict for every active area, or, with `file`, when Stage A fails. Idempotent per item. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCodeSpecsWriteExtracts` | Write every area's `.extract.yaml` / `.extract.md` to `<document folder>/generated-doc/codespecs_extracts/` (approval). Unchanged files are left alone; `dryRun` reports the file statuses. | ✅ | ✅ | ⚪ | ✅ |
@@ -781,10 +801,29 @@ the authoring step's judgement, and the tools do not decide it.
 
 **Validation.** The binary is built by `npm run codespecs:build`
 (`scripts/build-validate-codespecs.cjs`, which `install_extension.sh` /
-`.ps1` run; a from-source install fails without it). It needs a Dart SDK at
-build time only. When it is absent, validation answers `binaryMissing` and the
-trace with `codeDirs` answers `binaryMissing`, both naming that command. The
-build writes `validate_codespecs.build.json` beside the binary — a hash of the
+`.ps1` run when they find a Dart SDK). It needs a Dart SDK at build time only.
+A VSIX carries it for the platform it was built on; on another platform, or
+from a build without Dart, it is missing unless one is configured
+(`bridge.executables.validate_codespecs`, per platform; a configured file that
+exists is used before the bundled one). Without it:
+
+- `tomAi_specCodeSpecsValidate` answers `{ok: false, outcome: "binaryMissing",
+  error, expected, help, page}`; the error names the platform, the
+  configuration key, the build command and the page;
+- `tomAi_specCodeSpecsTrace` with `codeDirs` traces from the extracts without
+  back-links: no `agreement`, and `warnings: ["validate_codespecs missing on
+  <platform>: no back-link agreement (checks 35, 36)"]` with `help` and `page`
+  (an explicit `backlinks` index still works; tracing from `codeFile` or
+  `declaration` answers `binaryMissing`, as it has nothing to start from);
+- `tomAi_specCodeSpecsStatus` with `shared` reports the validation stage
+  `notChecked`, with `warnings`, `help` and `page`.
+
+`help` is `Run command tomAi.showDartBinariesHelp`, `page` the page that
+command opens. The user sees `"CodeSpecs validation skipped: validate_codespecs is not available on <platform>."`
+once per tool and window session when Trace
+or Status skipped it. The runbook `codespecs-validate` says what a process step
+does then: record "validation not run" and carry on; gate G4 is not passed
+until validation has run on a host that has the binary. The build writes `validate_codespecs.build.json` beside the binary — a hash of the
 tom_specs_clitool source it was built from (and of the siblings its
 `pubspec_overrides.yaml` resolves by path); `npm run codespecs:check` and the
 test CV-8 compare it with the source as it is now and name the rebuild when it
@@ -1137,7 +1176,7 @@ Check a DocSpecs Markdown document against its schema. The schema is the one its
 
 ### `tomAi_getQuestWindowStatus`
 
-The VS Code windows running on THIS machine and what is active in each, the sessions of each quest, and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: per window its workspace, quest, `alive` (a heartbeat within 90 s) and the heartbeat's age, pid, CLI and MCP server (running, port), the subsystems with a prompt out, the role, the process position, the ANTHROPIC/LLM panel's profile and session, the queue (auto-send, paused, counts per status, default transport / profile / session, the item being sent with its stage, profile and session), `build` (the extension build the window runs and the one installed, each `{commit, dirty, builtAt}`; `reloadNeeded: true` when a newer build is installed and the window still runs the older one) and `isThisWindow`; windows without a live heartbeat are left out unless `includeGone`. `quests`: per quest with a live window, and the `quest` asked for even when none runs, its sessions (base, lifetime, profile, last model, whether it has a conversation, temporary `tmp-*` ones flagged, the implicit `default` and `chat`) with the profile an item without its own runs with in each (session, else queue default), and the queue's default session. `profiles`: the profiles a sent item may name (`isDefault`, `noApiKey`). Every profile is `{id, name, model, transport}`; an id the config no longer holds is `unknownProfile: true`. `quest` narrows the answer to that quest; an unknown quest is refused. Reads only.
+The VS Code windows running on THIS machine and what is active in each, the sessions of each quest, and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: per window its workspace, quest, `alive` (a heartbeat within 90 s) and the heartbeat's age, pid, CLI and MCP server (running, port), the subsystems with a prompt out, the role, the process position, the ANTHROPIC/LLM panel's profile and session, the queue (auto-send, paused, counts per status, default transport / profile / session, the item being sent with its stage, profile and session), `build` (the extension build the window runs and the one installed, each `{commit, dirty, builtAt}`; `reloadNeeded: true` when a newer build is installed and the window still runs the older one), `dartBinaries` (the window's platform, `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`, and the `missing` list) and `isThisWindow`; windows without a live heartbeat are left out unless `includeGone`. `quests`: per quest with a live window, and the `quest` asked for even when none runs, its sessions (base, lifetime, profile, last model, whether it has a conversation, temporary `tmp-*` ones flagged, the implicit `default` and `chat`) with the profile an item without its own runs with in each (session, else queue default), and the queue's default session. `profiles`: the profiles a sent item may name (`isDefault`, `noApiKey`). Every profile is `{id, name, model, transport}`; an id the config no longer holds is `unknownProfile: true`. `quest` narrows the answer to that quest; an unknown quest is refused. Reads only.
 
 ### `tomAi_listPromptPairs`
 
@@ -1222,11 +1261,11 @@ The CodeSpecs (Phase 4) workflow guides and stage runbooks, packaged with the ex
 
 ### `tomAi_specCodeSpecsTrace`
 
-Trace between a specification and the code generated from it, by section-id TOKEN — the unit the generated code's back-links (`@CodeSpec(source: […])`, `@DocSpec([DocRef(token)])`) cite. Start from exactly one of: `specPath` (its entries' tokens, the declarations citing them, and with `file` the heading `codeSpec=` forward links of the node and its ancestors), `token`, `codeFile` + `line` (the declaration at or above that line) or `declaration` (a @CodeSpec id or a name) — each token with its extract entries (spec path, verbatim value). With back-links, `agreement` lists the tokens the two ends disagree on: extracted but cited by no declaration (uncited) and cited but held by no in-scope extract (dangling) — the shape of validate_codespecs checks 35 and 36. Which declaration should carry a token is not decided. The back-links come from `codeDirs` (the generated trio, read by the validate_codespecs binary bundled with the extension) or from `backlinks`, a JSON index `validate_codespecs --backlinks` wrote.
+Trace between a specification and the code generated from it, by section-id TOKEN — the unit the generated code's back-links (`@CodeSpec(source: […])`, `@DocSpec([DocRef(token)])`) cite. Start from exactly one of: `specPath` (its entries' tokens, the declarations citing them, and with `file` the heading `codeSpec=` forward links of the node and its ancestors), `token`, `codeFile` + `line` (the declaration at or above that line) or `declaration` (a @CodeSpec id or a name) — each token with its extract entries (spec path, verbatim value). With back-links, `agreement` lists the tokens the two ends disagree on: extracted but cited by no declaration (uncited) and cited but held by no in-scope extract (dangling) — the shape of validate_codespecs checks 35 and 36. Which declaration should carry a token is not decided. The back-links come from `codeDirs` (the generated trio, read by the validate_codespecs binary bundled with the extension) or from `backlinks`, a JSON index `validate_codespecs --backlinks` wrote. Without validate_codespecs on this platform, `codeDirs` gives none: the trace from `specPath` or `token` goes on from the extracts, without `agreement`, and carries `warnings` (`validate_codespecs missing on <platform>: no back-link agreement (checks 35, 36)`) and `help`; from `codeFile` or `declaration` it answers `binaryMissing`.
 
 ### `tomAi_specCodeSpecsValidate`
 
-Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server packages), through the validate_codespecs binary bundled with the extension (no Dart SDK needed). `outcome` is `clean` or `violations` (both ok: the checks ran) or, with ok false, `usageError` (the input was refused: a missing folder, a partial regenerated trio) or `binaryMissing`. Each violation: check number and title, the section that defines it, file and line, section-id token or area, message. `notRun` names each check whose corroborating input was not given (extracts for 19 and 32–36, migrations for 13, coreSource for 9, regenerated for 31) — a check that did not run is not a pass. tom_code_specs' vocabulary, whose hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need, ships with the extension and is passed unless `csVocabulary` names another; `inputs` then shows it as `(bundled) resources/codespecs/vocabulary.dart`.
+Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server packages), through the validate_codespecs binary bundled with the extension (no Dart SDK needed) or configured (`bridge.executables.validate_codespecs`). `outcome` is `clean` or `violations` (both ok: the checks ran) or, with ok false, `usageError` (the input was refused: a missing folder, a partial regenerated trio) or `binaryMissing` (no binary for this platform: `expected` is where the bundled one would be, `help` and `page` say how to get or configure one). Each violation: check number and title, the section that defines it, file and line, section-id token or area, message. `notRun` names each check whose corroborating input was not given (extracts for 19 and 32–36, migrations for 13, coreSource for 9, regenerated for 31) — a check that did not run is not a pass. tom_code_specs' vocabulary, whose hook catalogue checks 40 and 41 (protocol-feature hooks, reserved protocol paths) need, ships with the extension and is passed unless `csVocabulary` names another; `inputs` then shows it as `(bundled) resources/codespecs/vocabulary.dart`.
 
 ### `tomAi_specCommentChange`
 

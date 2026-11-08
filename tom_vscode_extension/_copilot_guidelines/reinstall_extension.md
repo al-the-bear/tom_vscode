@@ -92,7 +92,20 @@ needs `npm run codespecs:build` again. The stamp is not packaged. After packagin
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and no symlinks, and lists per platform which of
 `tom_bs` / `validate_codespecs` it carries (informational: a VSIX without them
-is valid).
+is valid) and for which platforms it carries the Agent SDK's Claude CLI. Both
+help pages it requires (`resources/dart_binaries/missing_dart_binaries.md`,
+`resources/agent_sdk/missing_agent_sdk_cli.md`) are what a window shows when
+one of those is missing on its platform.
+
+The Agent SDK's Claude CLI is an npm package per platform, and only the host's
+may be in `node_modules` (vsce's `npm list` refuses another platform's as
+invalid): the scripts remove any other. `--all-platforms` / `-AllPlatforms`
+(`TOM_ALL_PLATFORMS=1`) fetches the CLIs of darwin-arm64, linux-x64 and
+win32-x64 (minus the host) with `npm pack` into `.cache/agent-sdk-cli/`
+(gitignored, reused per SDK version) and bundles each as
+`bin/<platform>/claude[.exe]`; the transport passes it to the SDK as
+`pathToClaudeCodeExecutable`. A default build carries the host's CLI only
+(about 150 MB); with all three the VSIX is about 380 MB.
 
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from
