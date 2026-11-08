@@ -29,7 +29,9 @@ const PROCESS = path.join(WS, '_ai', 'processes', 'idea_to_todos');
 const present = fs.existsSync(path.join(PROCESS, 'idea_to_todos.process.yaml'));
 // A workspace without a config: the prompts are built from the built-in Assist prompts,
 // not from whatever the user's config holds.
+// `_ai` is linked in, so the shared prompts (`$${file-_ai/processes/_prompts/…}`) resolve.
 const BARE = fs.mkdtempSync(path.join(os.tmpdir(), 'idea-to-todos-'));
+if (present) { fs.symlinkSync(path.join(WS, '_ai'), path.join(BARE, '_ai')); }
 installVscodeStub({ workspaceFolders: [BARE] });
 
 import { checkProcessDraft } from '../../tools/process-write-tools.js';
@@ -64,7 +66,8 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         const roles = new Set(def!.phases.flatMap((p) => phaseSteps(p).flatMap((e) => [e.step.role, ...(e.step.substeps ?? []).map((x) => x.role)])).filter(Boolean));
         assert.deepEqual([...roles].sort(), ['idea_author', 'idea_reviewer', 'todo_planner']);
         for (const role of roles) { assert.ok(fs.existsSync(path.join(WS, '_ai', 'roles', role!, 'role.md')), `${role}/role.md`); }
-        assert.match(step('idea', 'questions').prompt!, /tomAi_writeChatVariable \(`idea`\)[\s\S]*tomAi_askUser[\s\S]*`choices`/, 'phase 1 settles the name and asks through the question panel');
+        assert.match(step('idea', 'questions').prompt!, /tomAi_writeChatVariable \(`idea`\)[\s\S]*\$\{file-_ai\/processes\/_prompts\/question_round\.md\}/, 'phase 1 settles the name, then the shared question round');
+        assert.match(step('blueprint', 'iteration').substeps![0].prompt!, /\$\{file-_ai\/processes\/_prompts\/review_round\.md\}/, 'the shared review round');
         assert.match(step('todos', 'file').prompt!, /tomAi_createQuestTodo[\s\S]*tomAi_sendItemToQuest[\s\S]*doneNotificationPrompt/);
     });
 
@@ -75,6 +78,9 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
             const move = availableMoves(def!, state).find((m) => m.kind === 'proceed')!;
             return unescapePlaceholders(buildProcessActionPrompt(store as never, move, ''));
         };
+        const questions = prompt({ ...at('idea', 'questions'), stepIteration: 1 });
+        assert.match(questions, /Question round 1 of the idea/);
+        assert.match(questions, /How a question round goes \(shared by idea_to_todos and process_design[\s\S]*tomAi_askUser[\s\S]*`choices` \(kind `answer`\)/, 'the shared question round, included');
         const initial = prompt(at('blueprint', 'initial'));
         assert.ok(!initial.includes('${finish-review-round}'), 'filled in');
         assert.match(initial, /\*\*Finish review round\*\* — put the results in front of the user for the review, Phase 2 — Blueprint › Review the Initial Version of process idea_to_todos\./);
@@ -82,6 +88,7 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         const revise = prompt(at('blueprint', 'iteration', 'revise'));
         assert.match(revise, /Iteration 2 of the blueprint/);
         assert.match(revise, /02_Blueprint\/02_<NN>_Iteration\//);
+        assert.match(revise, /How a review is taken in \(shared by idea_to_todos and process_design/, 'the shared review round, included');
         assert.match(revise, /`finishReviewRound: true`/, 'the revision ends with the review too');
         const deepen = prompt(at('deepening', 'deepen'));
         assert.match(deepen, /ideadeep2-<n>_<date code>-<section id>/);
