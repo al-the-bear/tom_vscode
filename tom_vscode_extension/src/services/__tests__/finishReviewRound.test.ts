@@ -156,7 +156,7 @@ describe('Finish review round', () => {
             const yaml = fs.readFileSync(path.join(proc, 'tom_specs.process.yaml'), 'utf8');
             assert.equal((yaml.match(/\$\{finish-review-round\}/g) ?? []).length, 17, 'every closing item that shows the result');
             assert.ok(!yaml.includes('then open the working document\'s current rendition with `tomAi_openInMdBrowser`'), 'no closing item opens it without the button');
-            assert.match(fs.readFileSync(path.join(proc, 'tom_specs.md'), 'utf8'), /\*\*Showing the result\.\*\*[\s\S]*?`\$\{finish-review-round\}`[\s\S]*?finishReviewRound: true/);
+            assert.match(fs.readFileSync(path.join(proc, 'tom_specs.md'), 'utf8'), /\*\*Showing the result\.\*\*[\s\S]*?`\$\$\{finish-review-round\}`[\s\S]*?finishReviewRound: true/);
         }
         // The Assist prompt uses the Finish button; an unedited earlier default is upgraded, an edited one kept.
         assert.match(ASSIST_PROMPT_INFO.finishReviewRound.defaultBody, /`finishReviewRound: true`/);
