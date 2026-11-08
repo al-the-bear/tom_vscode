@@ -2271,6 +2271,16 @@ export class PromptQueueManager {
         return status === 'staged';
     }
 
+    /**
+     * May the item's session change: staged or pending. Unlike the other
+     * edits, the session changes nothing already built into the item (text,
+     * expansion, repetitions) — the run loop reads it when the item is
+     * dispatched — so a pending item can change it until it starts sending.
+     */
+    private canChangeSession(status: QueuedPromptStatus): boolean {
+        return status === 'staged' || status === 'pending';
+    }
+
     async updateText(id: string, newText: string): Promise<void> {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return; }
@@ -5215,7 +5225,7 @@ export class PromptQueueManager {
      */
     updateItemSession(id: string, session: string | Record<string, unknown> | undefined): boolean {
         const item = this._items.find(i => i.id === id);
-        if (!item || !this.isEditableStatus(item.status)) { return false; }
+        if (!item || !this.canChangeSession(item.status)) { return false; }
         const spec = this.parseItemSession(session);
         const next = { ...item, session: spec?.name, sessionCreate: spec ? specExtras(spec) : undefined };
         const refusal = this.sessionRefusal(next);
