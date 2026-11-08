@@ -43,6 +43,9 @@ no quest is open, the panels say so and offer **Create new quest**
 and one todo that defines the quest with you, and offers to open the quest's
 workspace. Run that todo there, in the prompt queue or the chat.
 
+The first time a quest's window opens on a machine, its overview opens in
+the MD Browser; later it is in **@WS › Documentation › Quest Overview**.
+
 ---
 
 ## Setting Up by Hand

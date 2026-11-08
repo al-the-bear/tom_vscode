@@ -80,6 +80,7 @@ import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { registerCreateQuestCommand } from './handlers/createQuest-handler';
+import { openQuestOverviewOnce } from './handlers/questOverviewOnOpen-handler';
 import { initTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import {
     McpServerController,
@@ -523,6 +524,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Markdown Browser
     stepStart = performance.now();
     registerMarkdownBrowser(context);
+    // A quest window shows its overview once per quest and machine (after the MD Browser registered its restored tabs).
+    void openQuestOverviewOnce(context).catch((err) => debugLog(`[QuestOverview] opening the quest overview failed: ${err}`, 'WARN', 'extension.activate'));
     // Every send's usage block, summed for the Status Page.
     registerUsageLedger(context);
     timeStep('markdownBrowser', stepStart);
