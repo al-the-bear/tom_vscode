@@ -38,3 +38,7 @@ vendor/**
 # The Agent SDK CLI tarballs --all-platforms fetches (install_extension.*); the
 # binaries themselves ship as bin/<platform>/claude[.exe].
 .cache/**
+
+# The copy of the workspace template beside the VSIX (the one in resources/
+# ships)
+workspace_template.zip

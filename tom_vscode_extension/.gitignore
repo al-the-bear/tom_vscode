@@ -9,3 +9,8 @@ resources/codespecs
 
 # The Agent SDK CLI tarballs --all-platforms fetches (install_extension.*)
 .cache/
+
+# The workspace template (scripts/build-workspace-template.cjs): built into
+# resources/ for the VSIX, and a copy beside the VSIX
+resources/workspace_template.zip
+/workspace_template.zip

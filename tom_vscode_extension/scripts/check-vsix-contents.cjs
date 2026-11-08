@@ -67,6 +67,8 @@ const REQUIRED = [
     'extension/resources/dart_binaries/missing_dart_binaries.md',
     // The page the Agent SDK transport points to when this platform has no CLI.
     'extension/resources/agent_sdk/missing_agent_sdk_cli.md',
+    // What @T: Setup New Workspace Folder unpacks (scripts/build-workspace-template.cjs).
+    'extension/resources/workspace_template.zip',
 ];
 
 const SOM_PREFIXES = [

@@ -431,6 +431,18 @@ else
     echo "  ⚠️  @anthropic-ai/claude-agent-sdk not found in node_modules — run 'npm install' first"
 fi
 
+# ── The workspace template ───────────────────────────────────────────────────
+# What @T: Setup New Workspace Folder unpacks: the workspace's config,
+# guidelines, CLAUDE.md and the generic _ai folders, checked for personal files
+# and literal secrets. Built into resources/ (packed into the VSIX) and copied
+# beside the VSIX (scripts/build-workspace-template.cjs).
+echo ""
+echo "📦 Building the workspace template..."
+( cd "$SCRIPT_DIR" && node scripts/build-workspace-template.cjs --copy-to "$SCRIPT_DIR" ) || {
+    echo "❌ Building the workspace template failed (see above)"
+    exit 1
+}
+
 # Package as VSIX
 echo ""
 echo "📦 Packaging extension as VSIX..."

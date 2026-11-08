@@ -1,0 +1,186 @@
+/**
+ * The workspace template (scripts/build-workspace-template.cjs, vsc_setup-2):
+ * what a new workspace folder is set up from.
+ *
+ *   WT-1 built from this workspace: the zip holds exactly the listed sources (the config, all of
+ *        _copilot_guidelines/, CLAUDE.md, .github/copilot-instructions.md, _ai roles / processes / schemas /
+ *        prompt / format-version.yaml, the tomai_introduction quest once it exists) plus
+ *        .tom/workspace_template.json, each byte for byte; nothing else of _ai; the same bytes twice
+ *   WT-2 personal paths are refused: extension_config.<host>.<quest>.yaml, session-todo.*, history/;
+ *        the quest's own extension_config.<quest>.yaml is not
+ *   WT-3 literal secrets are refused (Anthropic key, GitHub tokens, Telegram bot token), anywhere in a text
+ *        file; the command line exits 1 and writes nothing
+ *   WT-4 a file outside the list is refused; a missing required source stops the build
+ *   WT-5 the config in the zip parses and passes the extension's config schema
+ *   WT-6 it ships: both install scripts build it before packaging and copy it beside the VSIX, the VSIX
+ *        check requires it, git ignores both copies, the copy beside the VSIX is not packed again
+ */
+
+import test, { describe } from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { spawnSync } from 'child_process';
+// eslint-disable-next-line @typescript-eslint/naming-convention
+import Ajv from 'ajv';
+
+const EXT = path.resolve(__dirname, '..', '..', '..');
+const WS = path.resolve(EXT, '..', '..', '..');
+const SCRIPT = path.join(EXT, 'scripts', 'build-workspace-template.cjs');
+interface Entry { path: string; data: Buffer }
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const tpl = require(SCRIPT) as {
+    SOURCES: Array<{ path: string; kind: 'file' | 'dir'; optional?: boolean }>; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    TEMPLATE_INFO_PATH: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    buildTemplate(ws: string): { ok: true; zip: Buffer; files: string[]; skipped: string[] } | { ok: false; errors: string[] };
+    checkTemplate(entries: Entry[]): string[];
+    readZip(buf: Buffer): Entry[];
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { readCentralDirectory } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { readCentralDirectory(b: Buffer): Array<{ name: string; isSymlink: boolean }> };
+
+const present = fs.existsSync(path.join(WS, '.tom', 'tom_vscode_extension.json')) && fs.existsSync(path.join(WS, '_copilot_guidelines'));
+const IGNORED = new Set(['.DS_Store', 'Thumbs.db', '.git', 'node_modules']);
+
+/** Every file under a folder, posix paths relative to `root` (an independent walk). */
+function filesUnder(root: string, rel: string): string[] {
+    return (fs.readdirSync(path.join(root, rel), { recursive: true }) as string[])
+        .map((p) => p.split(path.sep).join('/'))
+        .filter((p) => !p.split('/').some((seg) => IGNORED.has(seg)))
+        .filter((p) => fs.statSync(path.join(root, rel, p)).isFile())
+        .map((p) => `${rel}/${p}`);
+}
+
+/** A small workspace with every required source. */
+function fakeWorkspace(): string {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-template-'));
+    const put = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true }); fs.writeFileSync(path.join(ws, rel), text); };
+    put('.tom/tom_vscode_extension.json', '{"anthropic": {"apiKeyEnvVar": "ANTHROPIC_API_KEY"}}\n');
+    put('_copilot_guidelines/index.md', '# Index\n');
+    put('CLAUDE.md', '# Rules\n');
+    put('.github/copilot-instructions.md', '# Rules\n');
+    put('_ai/roles/default/role.md', '# Role\n');
+    put('_ai/processes/README.md', '# Processes\n');
+    put('_ai/schemas/todo.schema.json', '{}\n');
+    put('_ai/prompt/p.md', 'prompt\n');
+    put('_ai/format-version.yaml', 'version: 7\n');
+    put('_ai/quests/tomai_introduction/overview.tomai_introduction.md', '# Introduction\n');
+    put('_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml', 'telegram: {}\n');
+    put('_ai/quests/other/overview.other.md', '# not in the template\n');
+    put('_ai/memory/x.md', 'not in the template\n');
+    return ws;
+}
+
+describe('the workspace template', () => {
+    test('WT-1: built from this workspace', { skip: present ? false : 'no workspace around this checkout' }, () => {
+        const r = tpl.buildTemplate(WS);
+        assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
+        const expected = new Set<string>([tpl.TEMPLATE_INFO_PATH]);
+        for (const src of tpl.SOURCES) {
+            const abs = path.join(WS, src.path);
+            if (!fs.existsSync(abs)) { assert.equal(src.optional, true, `${src.path} is required`); continue; }
+            for (const f of src.kind === 'dir' ? filesUnder(WS, src.path) : [src.path]) { expected.add(f); }
+        }
+        const entries = tpl.readZip(r.zip);
+        assert.deepEqual(entries.map((e) => e.path).sort(), [...expected].sort());
+        assert.deepEqual(readCentralDirectory(r.zip).map((e) => e.name).sort(), [...expected].sort(), 'readable by the VSIX check\'s reader too');
+        for (const e of entries) {
+            if (e.path === tpl.TEMPLATE_INFO_PATH) { continue; }
+            assert.ok(e.data.equals(fs.readFileSync(path.join(WS, e.path))), `${e.path} byte for byte`);
+        }
+        assert.ok(entries.every((e) => !e.path.startsWith('_ai/') || /^_ai\/(roles|processes|schemas|prompt|quests\/tomai_introduction)\/|^_ai\/format-version\.yaml$/.test(e.path)),
+            'nothing else of _ai');
+        const info = JSON.parse(entries.find((e) => e.path === tpl.TEMPLATE_INFO_PATH)!.data.toString('utf8'));
+        assert.equal(info.type, 'dart');
+        const again = tpl.buildTemplate(WS) as { zip: Buffer };
+        assert.ok(again.zip.equals(r.zip), 'deterministic');
+    });
+
+    test('WT-2: personal paths', () => {
+        const ws = fakeWorkspace();
+        const ok = tpl.buildTemplate(ws);
+        assert.ok(ok.ok, ok.ok ? '' : ok.errors.join('\n'));
+        const names = tpl.readZip((ok as { zip: Buffer }).zip).map((e) => e.path);
+        assert.ok(names.includes('_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml'), 'the quest\'s own config is fine');
+        assert.ok(!names.some((n) => n.startsWith('_ai/quests/other/') || n.startsWith('_ai/memory/')), 'other quests and memory are not taken');
+        for (const [planted, why] of [
+            ['_ai/quests/tomai_introduction/extension_config.my-host.tomai_introduction.yaml', /host-specific quest config/],
+            ['_ai/quests/tomai_introduction/session-todo.my-host.tomai_introduction.todo.yaml', /session todo file/],
+            ['_ai/quests/tomai_introduction/history/live-trail.md', /history folder/],
+        ] as const) {
+            const w = fakeWorkspace();
+            fs.mkdirSync(path.dirname(path.join(w, planted)), { recursive: true });
+            fs.writeFileSync(path.join(w, planted), 'x\n');
+            const r = tpl.buildTemplate(w);
+            assert.equal(r.ok, false, planted);
+            assert.match((r as { errors: string[] }).errors.join('\n'), why);
+        }
+    });
+
+    test('WT-3: literal secrets', () => {
+        for (const [file, text, why] of [
+            ['.tom/tom_vscode_extension.json', '{"anthropic": {"apiKey": "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123"}}', /Anthropic API key/],
+            ['_copilot_guidelines/index.md', 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789', /GitHub token \(ghp_/],
+            ['CLAUDE.md', 'github_pat_11ABCDEFG0123456789_abcdefghij', /GitHub token \(github_pat_/],
+            ['_ai/prompt/p.md', 'bot 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawq', /Telegram bot token/],
+        ] as const) {
+            const ws = fakeWorkspace();
+            fs.writeFileSync(path.join(ws, file), text);
+            const r = tpl.buildTemplate(ws);
+            assert.equal(r.ok, false, file);
+            assert.match((r as { errors: string[] }).errors.join('\n'), why);
+        }
+        const ws = fakeWorkspace();
+        fs.writeFileSync(path.join(ws, 'CLAUDE.md'), 'key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123');
+        const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ws-template-out-')), 'workspace_template.zip');
+        const run = spawnSync(process.execPath, [SCRIPT, '--workspace', ws, '--out', out], { encoding: 'utf8' });
+        assert.equal(run.status, 1);
+        assert.match(run.stderr, /CLAUDE\.md: contains an Anthropic API key/);
+        assert.ok(!fs.existsSync(out), 'nothing written');
+        const docs = fakeWorkspace();
+        fs.writeFileSync(path.join(docs, 'CLAUDE.md'), 'Keys look like `sk-ant-…`; name the variable, e.g. ANTHROPIC_API_KEY.');
+        assert.equal(tpl.buildTemplate(docs).ok, true, 'a mention is not a key');
+    });
+
+    test('WT-4: outside the list, missing sources', () => {
+        assert.deepEqual(tpl.checkTemplate([{ path: '_ai/memory/x.md', data: Buffer.from('x') }]), ['_ai/memory/x.md: outside the template\'s list']);
+        assert.deepEqual(tpl.checkTemplate([{ path: '_ai/roles/default/role.md', data: Buffer.from('x') }]), []);
+        const ws = fakeWorkspace();
+        fs.rmSync(path.join(ws, 'CLAUDE.md'));
+        fs.rmSync(path.join(ws, '_ai', 'quests', 'tomai_introduction'), { recursive: true });
+        const r = tpl.buildTemplate(ws);
+        assert.equal(r.ok, false);
+        assert.deepEqual((r as { errors: string[] }).errors, [`CLAUDE.md: missing in ${ws}`], 'only required sources stop it');
+        fs.writeFileSync(path.join(ws, 'CLAUDE.md'), '# Rules\n');
+        const without = tpl.buildTemplate(ws) as { ok: true; skipped: string[] };
+        assert.deepEqual(without.skipped, ['_ai/quests/tomai_introduction'], 'the introduction quest is optional until it exists');
+    });
+
+    test('WT-5: the config passes the schema', { skip: present ? false : 'no workspace around this checkout' }, () => {
+        const r = tpl.buildTemplate(WS) as { zip: Buffer };
+        const config = JSON.parse(tpl.readZip(r.zip).find((e) => e.path === '.tom/tom_vscode_extension.json')!.data.toString('utf8'));
+        const schema = JSON.parse(fs.readFileSync(path.join(EXT, 'src', 'config', 'tom_vscode_extension.schema.json'), 'utf8'));
+        const validate = new Ajv({ strict: false, allErrors: true }).compile(schema);
+        assert.ok(validate(config), JSON.stringify(validate.errors));
+    });
+
+    test('WT-6: it ships', () => {
+        const read = (f: string): string => fs.readFileSync(path.join(EXT, f), 'utf8');
+        const sh = read('install_extension.sh');
+        assert.ok(sh.indexOf('node scripts/build-workspace-template.cjs --copy-to "$SCRIPT_DIR"') > 0);
+        assert.ok(sh.indexOf('node scripts/build-workspace-template.cjs') < sh.indexOf('$VSCE_CMD package'), '.sh: before packaging');
+        const ps1 = read('install_extension.ps1');
+        assert.ok(ps1.indexOf('Invoke-Native { node scripts/build-workspace-template.cjs --copy-to $ExtensionDir }') > 0);
+        assert.ok(ps1.indexOf('build-workspace-template.cjs') < ps1.indexOf('cmd /c vsce package'), '.ps1: before packaging');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/naming-convention
+        const { REQUIRED } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { REQUIRED: string[] };
+        assert.ok(REQUIRED.includes('extension/resources/workspace_template.zip'));
+        const gitignore = read('.gitignore').split('\n');
+        assert.ok(gitignore.includes('resources/workspace_template.zip') && gitignore.includes('/workspace_template.zip'));
+        const vscodeignore = read('.vscodeignore').split('\n');
+        assert.ok(vscodeignore.includes('workspace_template.zip'), 'the copy beside the VSIX is not packed');
+        assert.ok(!vscodeignore.some((l) => l.startsWith('resources/')), 'the one in resources/ is');
+        assert.match(read('package.json'), /"template:build": "node scripts\/build-workspace-template\.cjs"/);
+    });
+});

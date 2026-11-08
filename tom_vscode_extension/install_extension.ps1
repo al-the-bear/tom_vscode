@@ -512,6 +512,19 @@ if ($Result -match "^[Yy]") {
     }
     Write-Host ""
 
+    # ── The workspace template ───────────────────────────────────────────
+    # What @T: Setup New Workspace Folder unpacks: the workspace's config,
+    # guidelines, CLAUDE.md and the generic _ai folders, checked for personal
+    # files and literal secrets. Built into resources/ (packed into the VSIX)
+    # and copied beside the VSIX (scripts/build-workspace-template.cjs).
+    Write-Host "Building the workspace template..."
+    Invoke-Native { node scripts/build-workspace-template.cjs --copy-to $ExtensionDir }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Building the workspace template failed (see above)"
+        exit 1
+    }
+    Write-Host ""
+
     # The README's relative links are rewritten against the package's folder in
     # its repository (package.json `repository`; vsce itself drops the folder).
     $BaseContentUrl = Invoke-Native { node scripts/vsix-base-url.cjs content }

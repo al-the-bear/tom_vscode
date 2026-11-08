@@ -3005,6 +3005,7 @@
     "check:tom-bs": "node scripts/check-tom-bs-provenance.cjs",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
+    "template:build": "node scripts/build-workspace-template.cjs",
     "codespecs:check": "node scripts/codespecs-binary-stamp.cjs",
     "som:check": "node scripts/check-som-installed.cjs",
     "lint": "eslint src --ext ts",
