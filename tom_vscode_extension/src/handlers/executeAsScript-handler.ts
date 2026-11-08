@@ -16,6 +16,7 @@ import {
     getWorkspaceRoot,
     getLanguageFromFilename
 } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
  * Execute Dart file as inline script using executeScript method
@@ -23,7 +24,9 @@ import {
 export async function executeAsScriptHandler(
     uri: vscode.Uri | undefined,
     context: vscode.ExtensionContext
-): Promise<void> {
+): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('Execute as Script');
+    if (blocked) { return blocked; }
     try {
         // Get file path
         const filePath = getFilePath(uri);

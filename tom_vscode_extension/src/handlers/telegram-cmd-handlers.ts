@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { bridgeLog, getWorkspaceRoot, getBridgeClient, getConfigPath } from './handler_shared';
+import { dartScriptUnavailableText, isDartScriptAvailable } from './dartScriptGuard';
 import {
     TelegramCommandRegistry,
     TelegramCommandResult,
@@ -421,9 +422,12 @@ async function bridgeHandler(cmd: ParsedTelegramCommand): Promise<TelegramComman
     }
 
     switch (cmd.subcommand) {
-        case 'restart':
+        case 'restart': {
+            const unavailable = dartScriptUnavailableText('Restart Bridge');
+            if (unavailable) { return { text: `❌ ${unavailable}` }; }
             await vscode.commands.executeCommand('tomAi.bridge.restart');
             return { text: '🔄 *Bridge restart* initiated.' };
+        }
 
         case 'stop': {
             const client = getBridgeClient();
@@ -443,6 +447,8 @@ async function bridgeHandler(cmd: ParsedTelegramCommand): Promise<TelegramComman
             if (!mode || !['development', 'production', 'dev', 'prod'].includes(mode)) {
                 return { text: '❌ Usage: bridge mode <development|production>' };
             }
+            const unavailable = dartScriptUnavailableText('Switch Bridge Profile');
+            if (unavailable) { return { text: `❌ ${unavailable}` }; }
             // Map short names to profile keys
             const profileKey = (mode === 'dev' || mode === 'development') ? 'development' : 'production';
 
@@ -480,6 +486,8 @@ async function cliIntegrationHandler(cmd: ParsedTelegramCommand): Promise<Telegr
 
     switch (cmd.subcommand) {
         case 'start': {
+            const unavailable = dartScriptUnavailableText('The CLI integration server');
+            if (unavailable) { return { text: `❌ ${unavailable}` }; }
             if (cmd.args.length > 0) {
                 // Custom port — delegates to startCliServerCustomPort which uses an input box.
                 // We can't easily pass the port, so just trigger the standard start.
@@ -514,8 +522,9 @@ async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramComma
     ];
 
     // Check bridge status
+    // The client object exists from activation on; whether its process runs is what counts.
     const client = getBridgeClient();
-    lines.push(`*Bridge:* ${client ? 'running' : 'not running'}`);
+    lines.push(`*Bridge:* ${client?.isRunning() ? 'running' : isDartScriptAvailable() ? 'not running' : 'not available (tom_bs missing on this platform)'}`);
 
     return { text: lines.join('\n') };
 }

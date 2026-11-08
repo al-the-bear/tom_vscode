@@ -19,6 +19,7 @@ import {
     HELP_PAGE_TEMPLATE,
     helpPageKey,
     rememberHelpPage,
+    setDartBinariesExtensionRoot,
     setFilledHelpPagePath,
     shouldOpenHelpPage,
     type DartBinariesStatus,
@@ -83,6 +84,7 @@ function updateStatusBar(status: DartBinariesStatus): void {
  */
 export function initDartBinariesHelp(context: vscode.ExtensionContext): void {
     extensionRoot = context.extensionPath;
+    setDartBinariesExtensionRoot(extensionRoot);
     storageDir = context.globalStorageUri.fsPath;
     context.subscriptions.push(vscode.commands.registerCommand(HELP_COMMAND, showDartBinariesHelp));
     item = vscode.window.createStatusBarItem('tomAi.dartBinaries', vscode.StatusBarAlignment.Left, 49);

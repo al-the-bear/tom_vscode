@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { getBridgeClient, bridgeLog } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
  * Response from printConfiguration command
@@ -23,7 +24,9 @@ interface PrintConfigurationResponse {
  * interpreter configuration including all imports, classes, methods,
  * constructors, global variables, and getters.
  */
-export async function printConfigurationHandler(): Promise<void> {
+export async function printConfigurationHandler(): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('Print Configuration');
+    if (blocked) { return blocked; }
     const bridgeClient = getBridgeClient();
     if (!bridgeClient) {
         vscode.window.showErrorMessage('VS Code Bridge is not running. Please restart the bridge first.');

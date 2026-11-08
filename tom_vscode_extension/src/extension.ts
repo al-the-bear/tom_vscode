@@ -92,6 +92,7 @@ import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
 import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
 import { initDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
+import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/dartScriptGuard';
 import { loadSendToChatConfig } from './utils/sendToChatConfig';
 import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
@@ -408,6 +409,7 @@ export async function activate(context: vscode.ExtensionContext) {
     initializeBridgeClient(context);
     timeStep('bridgeClient', stepStart);
 
+    // Without tom_bs on this platform this logs one line and starts nothing.
     stepStart = performance.now();
     await restartBridgeHandler(context, false);
     timeStep('restartBridgeHandler', stepStart);
@@ -630,7 +632,11 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (e: any) {
             bridgeLog(`Extension-config migration failed: ${e?.message ?? e}`, 'ERROR');
         }
-        if (getCliServerAutostart()) {
+        if (getCliServerAutostart() && !isDartScriptAvailable()) {
+            // No tom_bs on this platform: nothing to start, and no error at start
+            // (the Dart binaries page and its status-bar hint are the notice).
+            bridgeLog(`[DartScript] ${dartScriptUnavailableMessage('The CLI integration server autostart')}`, 'INFO');
+        } else if (getCliServerAutostart()) {
             // Small delay to let bridge fully settle before starting CLI server
             setTimeout(async () => {
                 try {
@@ -881,7 +887,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const executeInTomAiBuildCmd = vscode.commands.registerCommand(
         'tomAi.executeFile',
         async (uri?: vscode.Uri) => {
-            await executeInTomAiBuildHandler(uri, context);
+            return await executeInTomAiBuildHandler(uri, context);
         }
     );
 
@@ -889,7 +895,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const executeAsScriptInTomAiBuildCmd = vscode.commands.registerCommand(
         'tomAi.executeScript',
         async (uri?: vscode.Uri) => {
-            await executeAsScriptHandler(uri, context);
+            return await executeAsScriptHandler(uri, context);
         }
     );
 
@@ -897,7 +903,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const restartBridgeCmd = vscode.commands.registerCommand(
         'tomAi.bridge.restart',
         async () => {
-            await restartBridgeHandler(context, true);
+            return await restartBridgeHandler(context, true);
         }
     );
 
@@ -905,7 +911,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const switchBridgeProfileCmd = vscode.commands.registerCommand(
         'tomAi.bridge.switchProfile',
         async () => {
-            await switchBridgeProfileHandler(context);
+            return await switchBridgeProfileHandler(context);
         }
     );
 
@@ -967,14 +973,14 @@ function registerCommands(context: vscode.ExtensionContext) {
     const startCliServerCmd = vscode.commands.registerCommand(
         'tomAi.cliServer.start',
         async () => {
-            await startCliServerHandler();
+            return await startCliServerHandler();
         }
     );
 
     const startCliServerCustomPortCmd = vscode.commands.registerCommand(
         'tomAi.cliServer.startCustomPort',
         async () => {
-            await startCliServerCustomPortHandler();
+            return await startCliServerCustomPortHandler();
         }
     );
 
@@ -1030,7 +1036,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const startProcessMonitorCmd = vscode.commands.registerCommand(
         'tomAi.startProcessMonitor',
         async () => {
-            await startProcessMonitorHandler();
+            return await startProcessMonitorHandler();
         }
     );
 
@@ -1038,7 +1044,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const toggleDebugLoggingCmd = vscode.commands.registerCommand(
         'tomAi.bridge.toggleDebug',
         async () => {
-            await toggleBridgeDebugLoggingHandler();
+            return await toggleBridgeDebugLoggingHandler();
         }
     );
 
@@ -1046,7 +1052,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     const printConfigurationCmd = vscode.commands.registerCommand(
         'tomAi.printConfiguration',
         async () => {
-            await printConfigurationHandler();
+            return await printConfigurationHandler();
         }
     );
 

@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { getBridgeClient, bridgeLog } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
  * Response from Process Monitor start command
@@ -23,7 +24,9 @@ interface ProcessMonitorResponse {
 /**
  * Start the Tom Process Monitor and verify all related processes are running
  */
-export async function startProcessMonitorHandler(): Promise<void> {
+export async function startProcessMonitorHandler(): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('The process monitor');
+    if (blocked) { return blocked; }
     const bridgeClient = getBridgeClient();
     if (!bridgeClient) {
         vscode.window.showErrorMessage('VS Code Bridge is not running. Please restart the bridge first.');

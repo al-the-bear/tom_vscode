@@ -49,8 +49,13 @@ export const HELP_COMMAND = 'tomAi.showDartBinariesHelp';
 /** The `help` value tools put in an answer about a missing binary. */
 export const HELP_HINT = `Run command ${HELP_COMMAND}`;
 
-/** The extension root: this file is out/services/. */
-const EXTENSION_ROOT = path.resolve(__dirname, '..', '..');
+/** The extension root: this file is out/services/ (the window's extensionPath replaces it at activation). */
+let defaultRoot = path.resolve(__dirname, '..', '..');
+
+/** The extension root the `current…` lookups read (context.extensionPath at activation; a fake one in a test). */
+export function setDartBinariesExtensionRoot(root: string): void {
+    defaultRoot = root;
+}
 
 /** The page template inside the extension. */
 export const HELP_PAGE_TEMPLATE = path.join('resources', 'dart_binaries', 'missing_dart_binaries.md');
@@ -144,14 +149,14 @@ export function setDartBinariesConfigSource(source: () => DartBinariesConfig): v
 }
 
 /** The status for this window, read now (the configuration may have changed). */
-export function currentDartBinariesStatus(extensionRoot: string = EXTENSION_ROOT): DartBinariesStatus {
+export function currentDartBinariesStatus(extensionRoot: string = defaultRoot): DartBinariesStatus {
     let config: DartBinariesConfig = {};
     try { config = configSource(); } catch { /* an unreadable config configures nothing */ }
     return dartBinariesStatus(extensionRoot, config);
 }
 
 /** One binary for this window, read now. */
-export function currentDartBinary(name: DartBinaryName, extensionRoot: string = EXTENSION_ROOT): DartBinaryState {
+export function currentDartBinary(name: DartBinaryName, extensionRoot: string = defaultRoot): DartBinaryState {
     let config: DartBinariesConfig = {};
     try { config = configSource(); } catch { /* an unreadable config configures nothing */ }
     return resolveDartBinary(name, extensionRoot, config);
@@ -163,7 +168,7 @@ export function setFilledHelpPagePath(file: string): void {
 }
 
 /** What a tool answer about a missing binary carries: the command and the page to read. */
-export function dartBinariesHelp(extensionRoot: string = EXTENSION_ROOT): { help: string; page: string } {
+export function dartBinariesHelp(extensionRoot: string = defaultRoot): { help: string; page: string } {
     return { help: HELP_HINT, page: filledPagePath ?? path.join(extensionRoot, HELP_PAGE_TEMPLATE) };
 }
 

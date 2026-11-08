@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { getBridgeClient, bridgeLog } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /** Default port for CLI integration server (must match Dart side) */
 const DEFAULT_CLI_SERVER_PORT = 19900;
@@ -37,7 +38,8 @@ interface CliServerStatusResponse {
  */
 export async function getCliServerStatus(): Promise<CliServerStatusResponse> {
     const bridgeClient = getBridgeClient();
-    if (!bridgeClient) {
+    // Asked on every heartbeat: a bridge that is not running has no server to ask about.
+    if (!bridgeClient || !bridgeClient.isRunning()) {
         return { running: false };
     }
 
@@ -54,14 +56,18 @@ export async function getCliServerStatus(): Promise<CliServerStatusResponse> {
  * Start the CLI integration server on auto-selected port (19900-19909)
  * The Dart bridge will find an available port starting from 19900.
  */
-export async function startCliServerHandler(): Promise<void> {
+export async function startCliServerHandler(): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('The CLI integration server');
+    if (blocked) { return blocked; }
     await startCliServerWithPort(undefined);
 }
 
 /**
  * Start the CLI integration server with a custom port (prompts user)
  */
-export async function startCliServerCustomPortHandler(): Promise<void> {
+export async function startCliServerCustomPortHandler(): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('The CLI integration server');
+    if (blocked) { return blocked; }
     const portString = await vscode.window.showInputBox({
         prompt: 'Enter port number for CLI integration server',
         value: DEFAULT_CLI_SERVER_PORT.toString(),

@@ -14,6 +14,7 @@ import {
     getWorkspaceRoot,
     getLanguageFromFilename
 } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
  * Execute Dart file using executeFile method (loads file with execute() function)
@@ -21,7 +22,9 @@ import {
 export async function executeInTomAiBuildHandler(
     uri: vscode.Uri | undefined,
     context: vscode.ExtensionContext
-): Promise<void> {
+): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('Execute File');
+    if (blocked) { return blocked; }
     try {
         // Get file path
         const filePath = getFilePath(uri);

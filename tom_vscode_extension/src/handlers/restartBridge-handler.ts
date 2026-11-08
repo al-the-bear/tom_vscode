@@ -18,6 +18,7 @@ import {
     bridgeLog
 } from './handler_shared';
 import { DartBridgeClient } from '../vscode-bridge';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 // ────────────────────────────────────────────────────────────────
 // Bridge Profile Types
@@ -125,7 +126,13 @@ function saveBridgeCurrentProfile(profileKey: string): void {
 export async function restartBridgeHandler(
     context: vscode.ExtensionContext,
     showMessages: boolean = true
-): Promise<void> {
+): Promise<void | DartScriptUnavailableAnswer> {
+    // Without tom_bs on this platform nothing is started: one log line, and an
+    // error only when asked (at activation the Dart binaries page and its
+    // status-bar hint are the notice). Read again on every call, so a binary
+    // configured or copied in later starts on the next restart.
+    const blocked = guardDartScript('Restart Bridge', { silent: !showMessages });
+    if (blocked) { return blocked; }
     try {
         bridgeLog('[Bridge] restartBridgeHandler called (showMessages=' + showMessages + ')');
         const workspaceRoot = getWorkspaceRoot();
@@ -225,7 +232,9 @@ export async function restartBridgeHandler(
  */
 export async function switchBridgeProfileHandler(
     context: vscode.ExtensionContext
-): Promise<void> {
+): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('Switch Bridge Profile');
+    if (blocked) { return blocked; }
     const bridgeConfig = loadBridgeConfig();
     if (!bridgeConfig) {
         vscode.window.showWarningMessage(

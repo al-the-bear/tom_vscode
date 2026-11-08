@@ -6,6 +6,7 @@
 
 import * as vscode from 'vscode';
 import { getBridgeClient, bridgeLog } from './handler_shared';
+import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
  * Response from debug logging commands
@@ -22,7 +23,9 @@ let debugLoggingEnabled = false;
 /**
  * Toggle debug logging in the VS Code Bridge
  */
-export async function toggleBridgeDebugLoggingHandler(): Promise<void> {
+export async function toggleBridgeDebugLoggingHandler(): Promise<void | DartScriptUnavailableAnswer> {
+    const blocked = guardDartScript('Bridge debug logging');
+    if (blocked) { return blocked; }
     const bridgeClient = getBridgeClient();
     if (!bridgeClient) {
         vscode.window.showErrorMessage('VS Code Bridge is not running. Please restart the bridge first.');

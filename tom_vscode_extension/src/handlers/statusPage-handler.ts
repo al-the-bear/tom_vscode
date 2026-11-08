@@ -1963,7 +1963,8 @@ export async function gatherStatusData(): Promise<StatusData> {
             };
         })(),
         bridge: {
-            connected: bridgeClient !== null,
+            // The client object exists from activation on; whether its process runs is what counts.
+            connected: bridgeClient?.isRunning() ?? false,
             currentProfile: bridgeConfig?.current ?? 'default',
             profiles: bridgeConfig ? Object.keys(bridgeConfig.profiles) : ['default'],
         },
@@ -2230,7 +2231,9 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     const cliStatusText = status.cliServer.running 
         ? `Running on port ${status.cliServer.port}` 
         : 'Stopped';
-    const bridgeStatusText = status.bridge.connected ? 'Connected' : 'Disconnected';
+    const bridgeStatusText = status.bridge.connected
+        ? 'Connected'
+        : status.dartBinaries?.missing.includes('tom_bs') ? 'Not available (tom_bs missing)' : 'Disconnected';
     const profileOptions = status.bridge.profiles.map(p => 
         `<option value="${p}" ${p === status.bridge.currentProfile ? 'selected' : ''}>${p}</option>`
     ).join('');
