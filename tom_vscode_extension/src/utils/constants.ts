@@ -72,6 +72,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_getProcess',
     'tomAi_getProcessState',
     'tomAi_setProcessState',
+    'tomAi_validateProcess',
+    'tomAi_writeProcess',
     // Memory
     'tomAi_readMemory',
     'tomAi_listMemory',

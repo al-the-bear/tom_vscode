@@ -30,6 +30,8 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_getProcess',
         'tomAi_getProcessState',
         'tomAi_setProcessState',
+        'tomAi_validateProcess',
+        'tomAi_writeProcess',
     ],
     'Diagnostics': [
         'tomAi_getErrors',

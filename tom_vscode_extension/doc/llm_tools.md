@@ -857,6 +857,8 @@ and not to move past it.
 | `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_validateProcess` | Check a draft definition (`yaml` text or a `file`) before writing it: YAML, `process.schema.json`, the process editor's rules (a gate ends every phase, `onFail` inside its phase, no prompt on a user-action step, unique ids, profiles that exist) and the roles (existing under `_ai/roles/` or listed in `draftRoles`). Answers every finding with its source and path. Read-only. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_writeProcess` | Create a process: writes `_ai/processes/<id>/<id>.process.yaml` and `<id>.md` (`description`) only when the draft passes tomAi_validateProcess's checks; an existing id is refused unless `replace: true`; opens the result in the process editor (`open: false` not to). Approval. | ✅ | ✅ | ⚪ | ✅ |
 
 ### 4.27 Tool help
 
