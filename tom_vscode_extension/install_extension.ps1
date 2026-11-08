@@ -2,9 +2,32 @@
 .SYNOPSIS
     Tom AI Build - VS Code Extension Installation Script
     This script sets up and installs the VS Code extension for development.
+.DESCRIPTION
+    install_extension.ps1 [-NoDart | --no-dart]
+
+    -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
+    Dart SDK: no Dart step runs, and the VSIX carries no validate_codespecs and,
+    from source, no tom_bs. Without the option the same happens when no Dart
+    SDK is found (scripts/find-dart.cjs). The extension then loses only
+    DartScript and CodeSpecs validation; everything else works.
 #>
+param([switch]$NoDart)
 
 $ErrorActionPreference = "Stop"
+
+. (Join-Path $PSScriptRoot 'scripts/install_summary.ps1')
+
+foreach ($Arg in $args) {
+    if ($Arg -eq '--no-dart') { $NoDart = $true }
+    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart])"; exit 1 }
+}
+if ($NoDart) {
+    $env:TOM_NO_DART = '1'
+    if (-not $env:TOM_NO_DART_REASON) { $env:TOM_NO_DART_REASON = '--no-dart given' }
+}
+$NoDartMode = ($env:TOM_NO_DART -eq '1')
+if ($NoDartMode -and -not $env:TOM_NO_DART_REASON) { $env:TOM_NO_DART_REASON = 'TOM_NO_DART=1' }
+$FromSource = ($env:TOM_BRIDGE_FROM_SOURCE -eq '1')
 
 # Runs a native program (npm, dart, node, vsce, code, ...) so that what it
 # writes to stderr is logged rather than fatal.
@@ -98,19 +121,26 @@ Write-Host "npm version: $NpmVersion"
 Write-Host ""
 
 # The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
-# below, and the VSIX check refuses a package without validate_codespecs. Find
-# it now - also when `dart` is not on PATH (Flutter's Dart, DART_SDK,
-# FLUTTER_ROOT, known locations; scripts/find-dart.cjs) - so a missing SDK stops
-# the install before anything is built, naming where it looked.
-Write-Host "Looking for the Dart SDK..."
-$DartDir = Invoke-Native { node scripts/find-dart.cjs }
-if ($LASTEXITCODE -ne 0 -or -not $DartDir) {
-    Write-Error "Dart SDK not found (see the places listed above)"
-    exit 1
+# below. Find it now - also when `dart` is not on PATH (Flutter's Dart,
+# DART_SDK, FLUTTER_ROOT, known locations; scripts/find-dart.cjs). Without one
+# the install goes on in no-Dart mode: every Dart step is skipped, and the
+# closing warning says what the VSIX lacks.
+if ($NoDartMode) {
+    Write-Warning "No-Dart mode ($($env:TOM_NO_DART_REASON)): the Dart steps are skipped."
+} else {
+    Write-Host "Looking for the Dart SDK..."
+    $DartDir = Invoke-Native { node scripts/find-dart.cjs }
+    if ($LASTEXITCODE -ne 0 -or -not $DartDir) {
+        $NoDartMode = $true
+        $env:TOM_NO_DART = '1'
+        $env:TOM_NO_DART_REASON = 'no Dart SDK found'
+        Write-Warning "No Dart SDK found: building without DartScript and CodeSpecs validation (see the warning at the end)."
+    } else {
+        $DartDir = ($DartDir | Select-Object -Last 1).ToString().Trim()
+        $env:Path = "$DartDir;$env:Path"
+        Write-Host "Dart SDK: $DartDir"
+    }
 }
-$DartDir = ($DartDir | Select-Object -Last 1).ToString().Trim()
-$env:Path = "$DartDir;$env:Path"
-Write-Host "Dart SDK: $DartDir"
 Write-Host ""
 
 # From source: the bridge is compiled against its pubspec.lock, which is
@@ -118,7 +148,7 @@ Write-Host ""
 # releases the regenerated bridges need fails only at `dart compile exe`, after
 # the whole build - so upgrade the bridge's frozen tom_* packages now, in
 # seconds (pub.dev, else the pub cache; scripts/bridge-lock-preflight.cjs).
-if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
+if ($FromSource -and -not $NoDartMode) {
     Write-Host "Checking the bridge's tom_* resolutions..."
     Invoke-Native { node scripts/bridge-lock-preflight.cjs --fix }
     if ($LASTEXITCODE -ne 0) {
@@ -166,282 +196,297 @@ Write-Host ""
 Write-Host "Extension compiled successfully!"
 Write-Host ""
 
-# Check if VS Code CLI is installed
+# The VS Code CLI installs the VSIX. Without it the VSIX is still built (its
+# path is printed at the end), only the install is skipped.
 $CodeCli = ""
 if (Get-Command code -ErrorAction SilentlyContinue) {
     $CodeCli = "code"
     Write-Host "VS Code CLI detected"
 } else {
-    Write-Warning "VS Code CLI 'code' not found in PATH."
-    Write-Host "To assume VS Code is installed, we can try to find it, but it's recommended to add 'code' to your PATH."
+    Write-Warning "VS Code CLI 'code' not found in PATH: the VSIX is built but not installed."
 }
 
 Write-Host ""
 
-if ($CodeCli) {
-    # Ask if user wants to package and install as VSIX. compile_and_install.ps1
-    # sets TOM_BRIDGE_FROM_SOURCE=1 to run unattended (auto-confirm).
-    if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
-        $Result = 'y'
-    } else {
-        $Result = Read-Host "Do you want to package and install the extension (VSIX)? (y/n)"
-    }
-    Write-Host ""
-    
-    if ($Result -match "^[Yy]") {
-        # Check if vsce is installed
-        if (-not (Get-Command vsce -ErrorAction SilentlyContinue)) {
-            Write-Host "Installing @vscode/vsce globally..."
-            Invoke-Native { npm install -g @vscode/vsce }
-            
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "Failed to install vsce."
-                Write-Host "After installing vsce, run this script again."
-                exit 1
-            }
-        }
+$VsixBuilt = $false
+# Ask if user wants to package (and install) as VSIX. compile_and_install.ps1
+# sets TOM_BRIDGE_FROM_SOURCE=1 to run unattended (auto-confirm).
+if ($FromSource) {
+    $Result = 'y'
+} else {
+    $Result = Read-Host "Do you want to package (and install) the extension (VSIX)? (y/n)"
+}
+Write-Host ""
+
+if ($Result -match "^[Yy]") {
+    # Check if vsce is installed
+    if (-not (Get-Command vsce -ErrorAction SilentlyContinue)) {
+        Write-Host "Installing @vscode/vsce globally..."
+        Invoke-Native { npm install -g @vscode/vsce }
         
-        Write-Host ""
-        Write-Host "Packaging extension as VSIX..."
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install vsce."
+            Write-Host "After installing vsce, run this script again."
+            exit 1
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Packaging extension as VSIX..."
 
-        # ── Bundle bridge binaries ───────────────────────────────────────
-        # Default: copy prebuilt binaries for all 5 platforms out of the
-        # binaries layer (tom_binaries). When TOM_BRIDGE_FROM_SOURCE=1 (set by
-        # compile_and_install.ps1): resolve deps, regenerate the d4rt bridges,
-        # and compile the bridge for THIS host from source - bundling only that
-        # one binary, built into the extension's local bin/ (never a shared or
-        # PATH-resolved location).
-        $WorkspaceRoot = (Resolve-Path (Join-Path $ExtensionDir '..\..\..')).Path
-        $TomBinDir = Join-Path (Join-Path $WorkspaceRoot 'tom_binaries') 'tom'
-        $BridgeDir = Join-Path $WorkspaceRoot 'tom_ai/vscode/tom_vscode_bridge'
-        $BundledBinaries = @('tom_bs')
+    # ── Bundle bridge binaries ───────────────────────────────────────
+    # Default: copy prebuilt binaries for all 5 platforms out of the
+    # binaries layer (tom_binaries). When TOM_BRIDGE_FROM_SOURCE=1 (set by
+    # compile_and_install.ps1): resolve deps, regenerate the d4rt bridges,
+    # and compile the bridge for THIS host from source - bundling only that
+    # one binary, built into the extension's local bin/ (never a shared or
+    # PATH-resolved location).
+    $WorkspaceRoot = (Resolve-Path (Join-Path $ExtensionDir '..\..\..')).Path
+    $TomBinDir = Join-Path (Join-Path $WorkspaceRoot 'tom_binaries') 'tom'
+    $BridgeDir = Join-Path $WorkspaceRoot 'tom_ai/vscode/tom_vscode_bridge'
+    $BundledBinaries = @('tom_bs')
 
-        $ExtBinDir = Join-Path $ExtensionDir 'bin'
-        if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
+    $ExtBinDir = Join-Path $ExtensionDir 'bin'
+    if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
 
-        if ($env:TOM_BRIDGE_FROM_SOURCE -eq '1') {
-            if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
-                Write-Error "Dart SDK not found - cannot compile the bridge from source"
-                exit 1
-            }
-            $GenDir = Join-Path $WorkspaceRoot 'tom_ai/d4rt/tom_d4rt_generator'
-            $GenPkgConfig = Join-Path $GenDir '.dart_tool/package_config.json'
-            $GenEntrypoint = Join-Path $GenDir 'bin/d4rtgen.dart'
+    if ($FromSource -and $NoDartMode) {
+        # Without Dart there is nothing to compile tom_bs with: this VSIX
+        # carries no bridge for the host, and the extension runs without
+        # DartScript.
+        Write-Host "No Dart: no tom_bs is built for this host (DartScript will not be available)."
+    } elseif ($FromSource) {
+        if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
+            Write-Error "Dart SDK not found - cannot compile the bridge from source"
+            exit 1
+        }
+        $GenDir = Join-Path $WorkspaceRoot 'tom_ai/d4rt/tom_d4rt_generator'
+        $GenPkgConfig = Join-Path $GenDir '.dart_tool/package_config.json'
+        $GenEntrypoint = Join-Path $GenDir 'bin/d4rtgen.dart'
 
-            $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
-                'ARM64' { 'arm64' }
-                default { 'x64' }
-            }
-            $HostPlat = "win32-$arch"
-            $dstDir = Join-Path $ExtBinDir $HostPlat
-            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+        $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+            'ARM64' { 'arm64' }
+            default { 'x64' }
+        }
+        $HostPlat = "win32-$arch"
+        $dstDir = Join-Path $ExtBinDir $HostPlat
+        New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
 
-            # 1) Versioner: increment the bridge build number and (re)generate
-            #    lib/src/version.versioner.dart (compilation fails if missing).
-            #    The versioner lives only inside buildkit, so prefer a prebuilt
-            #    buildkit binary (PATH, then the tom_binaries layer); fall back to
-            #    running it from buildkit's source via dart so a fresh checkout
-            #    with only the Dart SDK still works. -R --project targets the
-            #    bridge from the workspace root without cd-ing into it.
-            Write-Host "Running versioner (build number + version.versioner.dart)..."
-            $BuildkitBin = $null
-            if (Get-Command buildkit -ErrorAction SilentlyContinue) {
-                $BuildkitBin = 'buildkit'
-            } elseif ($env:TOM_BINARY_PATH -and (Test-Path (Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"))) {
-                $BuildkitBin = Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"
-            } elseif (Test-Path (Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe")) {
-                $BuildkitBin = Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe"
-            }
-            if ($BuildkitBin) {
-                Push-Location $WorkspaceRoot
-                Invoke-Native { & $BuildkitBin -R --project tom_vscode_bridge :versioner }
-                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
-                Pop-Location
-            } else {
-                Write-Host "  buildkit binary not found - running versioner from source"
-                $BuildkitDir = Join-Path $WorkspaceRoot 'tom_ai/basics/tom_build_kit'
-                Push-Location $BuildkitDir
-                Invoke-Native { dart pub get }
-                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BuildkitDir"; exit 1 }
-                Pop-Location
-                $BuildkitPkgConfig = Join-Path $BuildkitDir '.dart_tool/package_config.json'
-                $BuildkitEntrypoint = Join-Path $BuildkitDir 'bin/buildkit.dart'
-                Push-Location $WorkspaceRoot
-                Invoke-Native { dart --packages="$BuildkitPkgConfig" "$BuildkitEntrypoint" -R --project tom_vscode_bridge :versioner }
-                if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
-                Pop-Location
-            }
-
-            # 2) Resolve dependencies for both the generator and the bridge.
-            Write-Host "Resolving Dart dependencies (generator + bridge)..."
-            Push-Location $GenDir
-            Invoke-Native { dart pub get }
-            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $GenDir"; exit 1 }
+        # 1) Versioner: increment the bridge build number and (re)generate
+        #    lib/src/version.versioner.dart (compilation fails if missing).
+        #    The versioner lives only inside buildkit, so prefer a prebuilt
+        #    buildkit binary (PATH, then the tom_binaries layer); fall back to
+        #    running it from buildkit's source via dart so a fresh checkout
+        #    with only the Dart SDK still works. -R --project targets the
+        #    bridge from the workspace root without cd-ing into it.
+        Write-Host "Running versioner (build number + version.versioner.dart)..."
+        $BuildkitBin = $null
+        if (Get-Command buildkit -ErrorAction SilentlyContinue) {
+            $BuildkitBin = 'buildkit'
+        } elseif ($env:TOM_BINARY_PATH -and (Test-Path (Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"))) {
+            $BuildkitBin = Join-Path $env:TOM_BINARY_PATH "$HostPlat/buildkit.exe"
+        } elseif (Test-Path (Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe")) {
+            $BuildkitBin = Join-Path $HOME "tac/tom_binaries/tom/$HostPlat/buildkit.exe"
+        }
+        if ($BuildkitBin) {
+            Push-Location $WorkspaceRoot
+            Invoke-Native { & $BuildkitBin -R --project tom_vscode_bridge :versioner }
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
             Pop-Location
-            Push-Location $BridgeDir
-            Invoke-Native { dart pub get }
-            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BridgeDir"; exit 1 }
-
-            # 3) Regenerate the d4rt bridges. d4rtgen processes the project in its
-            #    current directory, so run it from the bridge dir; --packages runs
-            #    the generator's entrypoint directly from its source, without
-            #    requiring it on PATH or as a dependency of the bridge.
-            Write-Host "Regenerating d4rt bridges..."
-            Invoke-Native { dart --packages="$GenPkgConfig" "$GenEntrypoint" }
-            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "d4rt bridge generation failed"; exit 1 }
-
-            # 4) Compile the bridge binary for THIS host straight into the
-            #    extension's local bin/ - no shared location, no PATH lookup.
-            Write-Host "Compiling bridge binary from source for $HostPlat ..."
-            foreach ($bin in $BundledBinaries) {
-                $dst = Join-Path $dstDir "$bin.exe"
-                Invoke-Native { dart compile exe (Join-Path 'bin' "$bin.dart") -o $dst }
-                if ($LASTEXITCODE -ne 0) {
-                    Pop-Location
-                    Write-Error "Failed to compile $bin from source"
-                    exit 1
-                }
-                Write-Host "  $HostPlat/$bin.exe (from source)"
-            }
-            Pop-Location
-
-            # 5) Put back what changed only by its time stamp (the bridges'
-            #    `// Generated:` line, the version stamp when the version is the
-            #    same); name what really changed, to be committed.
-            Write-Host "Checking what the regeneration changed..."
-            Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-generated-churn.cjs') $BridgeDir }
         } else {
-            $Platforms = @(
-                @{ Id = 'darwin-arm64'; Ext = '' },
-                @{ Id = 'darwin-x64';   Ext = '' },
-                @{ Id = 'linux-x64';    Ext = '' },
-                @{ Id = 'linux-arm64';  Ext = '' },
-                @{ Id = 'win32-x64';    Ext = '.exe' }
-            )
-
-            Write-Host "Bundling bridge binaries..."
-            # The prebuilt tom_bs binaries are not rebuilt: compile_and_install.ps1
-            # is the install route on every host, and this one serves a machine
-            # without the d4rt and bridge checkouts.
-            Write-Host "  The prebuilt tom_bs binaries in tom_binaries are not kept current; compile_and_install.ps1 builds a current one for this host."
-            $TotalBundled = 0
-            foreach ($plat in $Platforms) {
-                $srcDir = Join-Path $TomBinDir $plat.Id
-                $dstDir = Join-Path $ExtBinDir $plat.Id
-                if (-not (Test-Path $srcDir)) {
-                    Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
-                    continue
-                }
-                New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
-                foreach ($bin in $BundledBinaries) {
-                    $src = Join-Path $srcDir "$bin$($plat.Ext)"
-                    if (Test-Path $src) {
-                        Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
-                        $TotalBundled++
-                    }
-                }
-            }
-            Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
-            # The prebuilt binaries are only as fresh as the bridges they were
-            # built from: with Dart at hand, warn when the committed bridges lag
-            # behind the scripting API (BRIDGE-FRESH-01). Not a stop.
-            if (Get-Command dart -ErrorAction SilentlyContinue) {
-                # The bridge's lock decides what the bridge's tests run against:
-                # name frozen tom_* resolutions (a warning; from source upgrades them).
-                Write-Host "Checking the bridge's tom_* resolutions..."
-                $LockReport = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-lock-preflight.cjs') --warn }
-                foreach ($line in @($LockReport)) { Write-Host "$line" }
-                Write-Host "Checking that the committed d4rt bridges are fresh..."
-                $null = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-bridge-fresh.cjs') 2>&1 }
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "  The committed bridges match the scripting API"
-                } else {
-                    Write-Host "  Warning: the committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.ps1 rebuilds them."
-                }
-            }
-            # Which bridge source the host's prebuilt tom_bs was built from (the
-            # versioner stamp it prints on start), against the committed bridge
-            # sources: a warning when it is older; compile_and_install.ps1
-            # builds a fresh one.
-            Write-Host "Checking which bridge source the prebuilt tom_bs was built from..."
-            $Provenance = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-tom-bs-provenance.cjs') }
-            foreach ($line in @($Provenance)) { Write-Host "  $line" }
+            Write-Host "  buildkit binary not found - running versioner from source"
+            $BuildkitDir = Join-Path $WorkspaceRoot 'tom_ai/basics/tom_build_kit'
+            Push-Location $BuildkitDir
+            Invoke-Native { dart pub get }
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BuildkitDir"; exit 1 }
+            Pop-Location
+            $BuildkitPkgConfig = Join-Path $BuildkitDir '.dart_tool/package_config.json'
+            $BuildkitEntrypoint = Join-Path $BuildkitDir 'bin/buildkit.dart'
+            Push-Location $WorkspaceRoot
+            Invoke-Native { dart --packages="$BuildkitPkgConfig" "$BuildkitEntrypoint" -R --project tom_vscode_bridge :versioner }
+            if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "versioner failed"; exit 1 }
+            Pop-Location
         }
 
-        # ── Bundle validate_codespecs for THIS host ──────────────────────────
-        # The CodeSpecs tools run tom_specs_clitool's validate_codespecs as a
-        # compiled binary from bin/<platform>/ - never via `dart run`. It is
-        # compiled here from tom_ai/ai_build, like tom_bs in from-source mode.
-        # The Dart SDK was found at the start of this script.
+        # 2) Resolve dependencies for both the generator and the bridge.
+        Write-Host "Resolving Dart dependencies (generator + bridge)..."
+        Push-Location $GenDir
+        Invoke-Native { dart pub get }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $GenDir"; exit 1 }
+        Pop-Location
+        Push-Location $BridgeDir
+        Invoke-Native { dart pub get }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "dart pub get failed in $BridgeDir"; exit 1 }
+
+        # 3) Regenerate the d4rt bridges. d4rtgen processes the project in its
+        #    current directory, so run it from the bridge dir; --packages runs
+        #    the generator's entrypoint directly from its source, without
+        #    requiring it on PATH or as a dependency of the bridge.
+        Write-Host "Regenerating d4rt bridges..."
+        Invoke-Native { dart --packages="$GenPkgConfig" "$GenEntrypoint" }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "d4rt bridge generation failed"; exit 1 }
+
+        # 4) Compile the bridge binary for THIS host straight into the
+        #    extension's local bin/ - no shared location, no PATH lookup.
+        Write-Host "Compiling bridge binary from source for $HostPlat ..."
+        foreach ($bin in $BundledBinaries) {
+            $dst = Join-Path $dstDir "$bin.exe"
+            Invoke-Native { dart compile exe (Join-Path 'bin' "$bin.dart") -o $dst }
+            if ($LASTEXITCODE -ne 0) {
+                Pop-Location
+                Write-Error "Failed to compile $bin from source"
+                exit 1
+            }
+            Write-Host "  $HostPlat/$bin.exe (from source)"
+        }
+        Pop-Location
+
+        # 5) Put back what changed only by its time stamp (the bridges'
+        #    `// Generated:` line, the version stamp when the version is the
+        #    same); name what really changed, to be committed.
+        Write-Host "Checking what the regeneration changed..."
+        Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-generated-churn.cjs') $BridgeDir }
+    } else {
+        $Platforms = @(
+            @{ Id = 'darwin-arm64'; Ext = '' },
+            @{ Id = 'darwin-x64';   Ext = '' },
+            @{ Id = 'linux-x64';    Ext = '' },
+            @{ Id = 'linux-arm64';  Ext = '' },
+            @{ Id = 'win32-x64';    Ext = '.exe' }
+        )
+
+        Write-Host "Bundling bridge binaries..."
+        # The prebuilt tom_bs binaries are not rebuilt: compile_and_install.ps1
+        # is the install route on every host, and this one serves a machine
+        # without the d4rt and bridge checkouts.
+        Write-Host "  The prebuilt tom_bs binaries in tom_binaries are not kept current; compile_and_install.ps1 builds a current one for this host."
+        $TotalBundled = 0
+        foreach ($plat in $Platforms) {
+            $srcDir = Join-Path $TomBinDir $plat.Id
+            $dstDir = Join-Path $ExtBinDir $plat.Id
+            if (-not (Test-Path $srcDir)) {
+                Write-Host "  Warning: Source not found: $($plat.Id) - skipping"
+                continue
+            }
+            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+            foreach ($bin in $BundledBinaries) {
+                $src = Join-Path $srcDir "$bin$($plat.Ext)"
+                if (Test-Path $src) {
+                    Copy-Item -Path $src -Destination (Join-Path $dstDir "$bin$($plat.Ext)") -Force
+                    $TotalBundled++
+                }
+            }
+        }
+        Write-Host "Bundled $TotalBundled binaries across $($Platforms.Count) platforms"
+        # The prebuilt binaries are only as fresh as the bridges they were
+        # built from: with Dart at hand, warn when the committed bridges lag
+        # behind the scripting API (BRIDGE-FRESH-01). Not a stop.
+        if (-not $NoDartMode -and (Get-Command dart -ErrorAction SilentlyContinue)) {
+            # The bridge's lock decides what the bridge's tests run against:
+            # name frozen tom_* resolutions (a warning; from source upgrades them).
+            Write-Host "Checking the bridge's tom_* resolutions..."
+            $LockReport = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/bridge-lock-preflight.cjs') --warn }
+            foreach ($line in @($LockReport)) { Write-Host "$line" }
+            Write-Host "Checking that the committed d4rt bridges are fresh..."
+            $null = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-bridge-fresh.cjs') 2>&1 }
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  The committed bridges match the scripting API"
+            } else {
+                Write-Host "  Warning: the committed bridges of tom_vscode_bridge are stale or could not be checked (npm run check:bridges): tom_bs may lack scripting-API members. compile_and_install.ps1 rebuilds them."
+            }
+        }
+        # Which bridge source the host's prebuilt tom_bs was built from (the
+        # versioner stamp it prints on start), against the committed bridge
+        # sources: a warning when it is older; compile_and_install.ps1
+        # builds a fresh one.
+        Write-Host "Checking which bridge source the prebuilt tom_bs was built from..."
+        $Provenance = Invoke-Native { node (Join-Path $PSScriptRoot 'scripts/check-tom-bs-provenance.cjs') }
+        foreach ($line in @($Provenance)) { Write-Host "  $line" }
+    }
+
+    # ── Bundle validate_codespecs for THIS host ──────────────────────────
+    # The CodeSpecs tools run tom_specs_clitool's validate_codespecs as a
+    # compiled binary from bin/<platform>/ - never via `dart run`. It is
+    # compiled here from tom_ai/ai_build, like tom_bs in from-source mode.
+    # The Dart SDK was found at the start of this script. Without Dart the
+    # VSIX carries none and CodeSpecs validation is unavailable.
+    if ($NoDartMode) {
+        Write-Host "No Dart: validate_codespecs is not built (CodeSpecs validation will not be available)."
+    } else {
         Push-Location $ExtensionDir
         Invoke-Native { node scripts/build-validate-codespecs.cjs }
         if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building validate_codespecs failed"; exit 1 }
         Pop-Location
-        Write-Host ""
+    }
+    Write-Host ""
 
-        # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────
-        # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native
-        # binary via optional deps (@anthropic-ai/claude-agent-sdk-<platform>)
-        # rather than a bundled cli.js. `vsce package` only includes what is
-        # physically present in node_modules, so a vsix is portable only for the
-        # host it was built on. We build and install on the same machine, so we
-        # only ensure the host binary is present. Older SDKs that still bundle
-        # cli.js need nothing. Missing it yields at runtime:
-        #   "Native CLI binary for <platform>-<arch> not found ..."
-        Write-Host "Ensuring Claude Agent SDK native CLI binary for this host..."
-        $SdkPkgDir = Join-Path $ExtensionDir 'node_modules/@anthropic-ai/claude-agent-sdk'
-        if (Test-Path (Join-Path $SdkPkgDir 'cli.js')) {
-            Write-Host "  SDK bundles cli.js - no per-platform binary needed"
-        } elseif (Test-Path $SdkPkgDir) {
-            $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
-                'ARM64' { 'arm64' }
-                default { 'x64' }
-            }
-            $HostPlat = "win32-$arch"
-            $SdkPkgJson = ($SdkPkgDir -replace '\\', '/') + '/package.json'
-            $SdkVer = Invoke-Native { node -p "require('$SdkPkgJson').version" }
-            $HostPkg = "@anthropic-ai/claude-agent-sdk-$HostPlat"
-            $HostPkgDir = Join-Path $ExtensionDir "node_modules/@anthropic-ai/claude-agent-sdk-$HostPlat"
-            if (Test-Path $HostPkgDir) {
-                Write-Host "  $HostPkg already present"
-            } else {
-                Write-Host "  Installing $HostPkg@$SdkVer ..."
-                # --no-save / --no-package-lock keep the committed manifests
-                # untouched; we only need the binary in node_modules to package.
-                Invoke-Native { npm install --no-save --no-package-lock "$HostPkg@$SdkVer" }
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Error "Failed to install $HostPkg@$SdkVer - the packaged extension would fail at runtime on this host."
-                    exit 1
-                }
-            }
-        } else {
-            Write-Warning "@anthropic-ai/claude-agent-sdk not found in node_modules - run 'npm install' first"
+    # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────
+    # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native
+    # binary via optional deps (@anthropic-ai/claude-agent-sdk-<platform>)
+    # rather than a bundled cli.js. `vsce package` only includes what is
+    # physically present in node_modules, so a vsix is portable only for the
+    # host it was built on. We build and install on the same machine, so we
+    # only ensure the host binary is present. Older SDKs that still bundle
+    # cli.js need nothing. Missing it yields at runtime:
+    #   "Native CLI binary for <platform>-<arch> not found ..."
+    Write-Host "Ensuring Claude Agent SDK native CLI binary for this host..."
+    $SdkPkgDir = Join-Path $ExtensionDir 'node_modules/@anthropic-ai/claude-agent-sdk'
+    if (Test-Path (Join-Path $SdkPkgDir 'cli.js')) {
+        Write-Host "  SDK bundles cli.js - no per-platform binary needed"
+    } elseif (Test-Path $SdkPkgDir) {
+        $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+            'ARM64' { 'arm64' }
+            default { 'x64' }
         }
-        Write-Host ""
+        $HostPlat = "win32-$arch"
+        $SdkPkgJson = ($SdkPkgDir -replace '\\', '/') + '/package.json'
+        $SdkVer = Invoke-Native { node -p "require('$SdkPkgJson').version" }
+        $HostPkg = "@anthropic-ai/claude-agent-sdk-$HostPlat"
+        $HostPkgDir = Join-Path $ExtensionDir "node_modules/@anthropic-ai/claude-agent-sdk-$HostPlat"
+        if (Test-Path $HostPkgDir) {
+            Write-Host "  $HostPkg already present"
+        } else {
+            Write-Host "  Installing $HostPkg@$SdkVer ..."
+            # --no-save / --no-package-lock keep the committed manifests
+            # untouched; we only need the binary in node_modules to package.
+            Invoke-Native { npm install --no-save --no-package-lock "$HostPkg@$SdkVer" }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Failed to install $HostPkg@$SdkVer - the packaged extension would fail at runtime on this host."
+                exit 1
+            }
+        }
+    } else {
+        Write-Warning "@anthropic-ai/claude-agent-sdk not found in node_modules - run 'npm install' first"
+    }
+    Write-Host ""
 
-        # The README's relative links are rewritten against the package's folder in
-        # its repository (package.json `repository`; vsce itself drops the folder).
-        $BaseContentUrl = Invoke-Native { node scripts/vsix-base-url.cjs content }
-        $BaseImagesUrl = Invoke-Native { node scripts/vsix-base-url.cjs images }
-        Invoke-Native { cmd /c vsce package --skip-license --baseContentUrl $BaseContentUrl --baseImagesUrl $BaseImagesUrl }
+    # The README's relative links are rewritten against the package's folder in
+    # its repository (package.json `repository`; vsce itself drops the folder).
+    $BaseContentUrl = Invoke-Native { node scripts/vsix-base-url.cjs content }
+    $BaseImagesUrl = Invoke-Native { node scripts/vsix-base-url.cjs images }
+    Invoke-Native { cmd /c vsce package --skip-license --baseContentUrl $BaseContentUrl --baseImagesUrl $BaseImagesUrl }
+    
+    if ($LASTEXITCODE -eq 0) {
+        # Find the generated VSIX file
+        $VsixFile = Get-ChildItem -Filter "*.vsix" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         
-        if ($LASTEXITCODE -eq 0) {
-            # Find the generated VSIX file
-            $VsixFile = Get-ChildItem -Filter "*.vsix" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            
-            if ($VsixFile) {
+        if ($VsixFile) {
+            Write-Host ""
+            Write-Host "Package created: $($VsixFile.Name)"
+            # The VSIX must be self-contained: SOM packages as real files, no symlinks.
+            Invoke-Native { node scripts/check-vsix-contents.cjs "$($VsixFile.FullName)" }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "The VSIX is not self-contained; not installing it"
+                exit 1
+            }
+            $VsixBuilt = $true
+            if (-not $CodeCli) {
                 Write-Host ""
-                Write-Host "Package created: $($VsixFile.Name)"
-                # The VSIX must be self-contained: SOM packages as real files, no symlinks.
-                Invoke-Native { node scripts/check-vsix-contents.cjs "$($VsixFile.FullName)" }
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Error "The VSIX is not self-contained; not installing it"
-                    exit 1
-                }
+                Write-Warning "Not installed: VS Code CLI 'code' not found (install the VSIX by hand, path below)."
+            } else {
                 Write-Host ""
                 Write-Host "Installing extension in VS Code..."
                 Invoke-Native { & $CodeCli --install-extension "$($VsixFile.FullName)" }
-                
+
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host ""
                     Write-Host "Extension installed successfully!"
@@ -459,23 +504,25 @@ if ($CodeCli) {
                     Write-Host "  2. Ctrl+Shift+P -> 'Extensions: Install from VSIX...'"
                     Write-Host "  3. Select: $($VsixFile.FullName)"
                 }
-            } else {
-                Write-Error "Could not find generated VSIX file"
             }
         } else {
-            Write-Error "Failed to package extension"
-            Write-Host "Try running: vsce package"
+            Write-Error "Could not find generated VSIX file"
         }
     } else {
-        Write-Host ""
-        Write-Host "To run the extension in development mode:"
-        Write-Host "  1. Open the extension folder in VS Code:"
-        Write-Host "     cd $ExtensionDir"
-        Write-Host "     code ."
-        Write-Host "  2. Press F5 to launch the extension in a new VS Code window"
-        Write-Host ""
-        
-        # Ask if user wants to open in VS Code for development
+        Write-Error "Failed to package extension"
+        Write-Host "Try running: vsce package"
+    }
+} else {
+    Write-Host ""
+    Write-Host "To run the extension in development mode:"
+    Write-Host "  1. Open the extension folder in VS Code:"
+    Write-Host "     cd $ExtensionDir"
+    Write-Host "     code ."
+    Write-Host "  2. Press F5 to launch the extension in a new VS Code window"
+    Write-Host ""
+    
+    # Ask if user wants to open in VS Code for development
+    if ($CodeCli) {
         $OpenDev = Read-Host "Do you want to open the extension in VS Code now? (y/n)"
         Write-Host ""
         if ($OpenDev -match "^[Yy]") {
@@ -483,19 +530,6 @@ if ($CodeCli) {
             Invoke-Native { & $CodeCli "$ExtensionDir" }
         }
     }
-} else {
-    Write-Host "Manual installation steps:"
-    Write-Host ""
-    Write-Host "Option 1: Package and install as VSIX"
-    Write-Host "  1. Install vsce: Invoke-Native { npm install -g @vscode/vsce }"
-    Write-Host "  2. Package: cd $ExtensionDir; vsce package"
-    Write-Host "  3. In VS Code: Ctrl+Shift+P -> 'Extensions: Install from VSIX...'"
-    Write-Host "  4. Select the .vsix file"
-    Write-Host ""
-    Write-Host "Option 2: Development mode"
-    Write-Host "  1. Open Visual Studio Code"
-    Write-Host "  2. File -> Open Folder -> Select: $ExtensionDir"
-    Write-Host "  3. Press F5 to launch the extension in a new window"
 }
 
 Pop-Location
@@ -504,8 +538,13 @@ Write-Host ""
 Write-Host "================================================"
 Write-Host "Installation complete!"
 Write-Host "================================================"
-# Finish timestamp as the last line of output. A wrapper (compile_and_install.ps1)
-# sets TOM_SKIP_FINISH_TS=1 and prints its own, so the timestamp appears once.
+# The closing lines: the VSIX path, the no-Dart warning, the finish time and
+# the warning again, so it is the last thing on screen. A wrapper
+# (compile_and_install.ps1) sets TOM_SKIP_FINISH_TS=1 and prints them itself,
+# so they appear once.
 if ($env:TOM_SKIP_FINISH_TS -ne '1') {
+    if ($VsixBuilt) { Write-TomVsixPath $ExtensionDir }
+    if ($NoDartMode) { Write-TomNoDartWarning $env:TOM_NO_DART_REASON $FromSource }
     Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    if ($NoDartMode) { Write-TomNoDartWarning $env:TOM_NO_DART_REASON $FromSource }
 }

@@ -22,6 +22,10 @@
  *      /usr/local/bin, /usr/lib/dart/bin; on Windows ~\flutter\bin,
  *      ~\Desktop\development\flutter\bin, C:\src\flutter\bin,
  *      C:\tools\dart-sdk\bin, C:\tools\flutter\bin
+ *
+ * TOM_FIND_DART_DISABLE=1 makes it find nothing, wherever Dart is: the way to
+ * take the install scripts' "no Dart SDK found" route on a machine that has one.
+ * (Their `--no-dart` option skips the lookup altogether.)
  */
 'use strict';
 
@@ -61,7 +65,7 @@ function fixedDirs(platform, home) {
  * Where the Dart SDK is. Everything the lookup reads is injectable for tests:
  * `env`, `platform`, `home` and `isFile(path)`.
  *
- * @returns {{ found: { dart: string, dir: string, via: string } | null, looked: Array<{ via: string, dir: string }> }}
+ * @returns {{ found: { dart: string, dir: string, via: string } | null, looked: Array<{ via: string, dir: string }>, disabled?: true }}
  */
 function findDart({
     env = process.env,
@@ -69,6 +73,7 @@ function findDart({
     home = os.homedir(),
     isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } },
 } = {}) {
+    if (env.TOM_FIND_DART_DISABLE === '1') { return { found: null, looked: [], disabled: true }; }
     const p = platform === 'win32' ? path.win32 : path.posix;
     const pathDirs = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : ':').filter(Boolean);
     const looked = [];
@@ -99,7 +104,8 @@ function findDart({
 }
 
 /** The message when no Dart SDK was found: every place looked, and what to set. */
-function notFoundMessage(looked) {
+function notFoundMessage(looked, disabled = false) {
+    if (disabled) { return 'Dart SDK lookup disabled (TOM_FIND_DART_DISABLE=1).'; }
     const lines = ['Dart SDK not found. Looked in:'];
     const pathCount = looked.filter((l) => l.via === 'PATH').length;
     if (pathCount > 0) { lines.push(`  - the ${pathCount} folders on PATH`); }
@@ -112,12 +118,12 @@ function notFoundMessage(looked) {
 module.exports = { findDart, notFoundMessage, fixedDirs };
 
 if (require.main === module) {
-    const { found, looked } = findDart();
+    const { found, looked, disabled } = findDart();
     if (found) {
         process.stdout.write(`${found.dir}\n`);
         if (found.via !== 'PATH') { process.stderr.write(`ℹ️  Dart SDK: ${found.dart} (${found.via})\n`); }
     } else {
-        process.stderr.write(`❌ ${notFoundMessage(looked)}\n`);
+        process.stderr.write(`❌ ${notFoundMessage(looked, disabled)}\n`);
         process.exitCode = 1;
     }
 }

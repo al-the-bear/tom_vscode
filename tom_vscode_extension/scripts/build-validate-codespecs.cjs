@@ -76,9 +76,9 @@ function main() {
         return 1;
     }
     // The Dart SDK, also when `dart` is not on PATH (find-dart.cjs).
-    const { found, looked } = findDart();
+    const { found, looked, disabled } = findDart();
     if (!found) {
-        console.error(`❌ ${notFoundMessage(looked)}`);
+        console.error(`❌ ${notFoundMessage(looked, disabled)}`);
         return 1;
     }
     const dart = found.dart;

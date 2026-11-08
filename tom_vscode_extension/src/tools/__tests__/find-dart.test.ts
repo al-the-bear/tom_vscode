@@ -8,8 +8,11 @@
  *   FD-4 Windows: dart.exe / dart.bat, `;`-separated Path, the Windows locations
  *   FD-5 nothing found: every place looked is reported, and the message names DART_SDK and FLUTTER_ROOT
  *   FD-6 the script as the install scripts run it: prints the folder (exit 0) or stops with the message (exit 1)
- *   FD-7 both install scripts look for Dart before their first build step and put the folder on PATH; the
- *        validate_codespecs build always runs (no 'Dart not found, not bundled' branch is left)
+ *   FD-7 both install scripts look for Dart before their first build step and put the folder on PATH; without
+ *        one (or with --no-dart / -NoDart / TOM_NO_DART=1) they go on in no-Dart mode: the lookup is skipped or its
+ *        failure tolerated, and the Dart steps (bridge-lock preflight, from-source bridge build, validate_codespecs)
+ *        are skipped; the wrappers settle the mode before calling them and print the closing warning
+ *   FD-8 TOM_FIND_DART_DISABLE=1 finds nothing, wherever Dart is, and says why
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- environment variable names (PATH, DART_SDK, …) are data here */
@@ -98,20 +101,53 @@ describe('finding the Dart SDK', () => {
         assert.match(found.stderr, /DART_SDK/);
     });
 
-    test('FD-7: the install scripts look first', () => {
+    test('FD-7: the install scripts look first, and go on without Dart', () => {
         const read = (name: string): string => fs.readFileSync(path.join(EXT_ROOT, name), 'utf8');
         const sh = read('install_extension.sh');
         const ps1 = read('install_extension.ps1');
-        for (const [name, text, onPath] of [
-            ['install_extension.sh', sh, /export PATH="\$DART_DIR:\$PATH"/],
-            ['install_extension.ps1', ps1, /\$env:Path = "\$DartDir;\$env:Path"/],
+        for (const [name, text, onPath, noDartOn, gated] of [
+            ['install_extension.sh', sh, /export PATH="\$DART_DIR:\$PATH"/, /--no-dart\) export TOM_NO_DART=1/,
+                /if \[ "\$NO_DART" = "1" \]; then\s+echo "📦 No Dart: validate_codespecs is not built[^"]*"\s+else\s+\( cd "\$SCRIPT_DIR" && node scripts\/build-validate-codespecs\.cjs \)/],
+            ['install_extension.ps1', ps1, /\$env:Path = "\$DartDir;\$env:Path"/, /if \(\$Arg -eq '--no-dart'\) \{ \$NoDart = \$true \}/,
+                /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: validate_codespecs is not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
         ] as const) {
             const find = text.indexOf('node scripts/find-dart.cjs');
             assert.ok(find > 0, `${name} runs find-dart.cjs`);
             assert.ok(find < text.indexOf('scripts/build-som-packages.cjs'), `${name} looks before its first build step`);
             assert.match(text, onPath, `${name} puts the found folder on PATH`);
-            assert.doesNotMatch(text, /validate_codespecs not bundled/, `${name} never packages without validate_codespecs`);
+            assert.match(text, noDartOn, `${name} takes --no-dart`);
+            assert.match(text, gated, `${name} skips the validate_codespecs build without Dart`);
+            assert.match(text, /no Dart SDK found/, `${name} goes on when no Dart SDK is found`);
+            assert.doesNotMatch(text, /DART_DIR="\$\(node scripts\/find-dart\.cjs\)" \|\| exit 1/, `${name} does not stop without Dart`);
         }
+        // The bridge-lock preflight (--fix) and the from-source bridge build are skipped without Dart.
+        assert.match(sh, /if \[ "\$FROM_SOURCE" = "1" \] && \[ "\$NO_DART" != "1" \]; then\s+echo "🔎 Checking the bridge's tom_\* resolutions\.\.\."/);
+        assert.match(sh, /if \[ "\$FROM_SOURCE" = "1" \] && \[ "\$NO_DART" = "1" \]; then[\s\S]{0,300}No Dart: no tom_bs is built/);
+        assert.match(ps1, /if \(\$FromSource -and -not \$NoDartMode\) \{\s+Write-Host "Checking the bridge's tom_\* resolutions\.\.\."/);
+        assert.match(ps1, /if \(\$FromSource -and \$NoDartMode\) \{[\s\S]{0,300}No Dart: no tom_bs is built/);
         assert.match(ps1, /Invoke-Native \{ node scripts\/find-dart\.cjs \}/, 'the .ps1 calls it through Invoke-Native');
+        // The wrappers settle the mode, then own the closing lines: VSIX path, warning, Finished, warning.
+        for (const [name, closing, call] of [
+            ['compile_and_install.sh', /tom_print_vsix_path "\$SCRIPT_DIR"\n\[ "\$\{TOM_NO_DART:-0\}" = "1" \] && tom_print_no_dart_warning [^\n]+\necho "🕒 Finished at [^\n]+\n\[ "\$\{TOM_NO_DART:-0\}" = "1" \] && tom_print_no_dart_warning/, '"$SCRIPT_DIR/install_extension.sh"'],
+            ['compile_and_install.ps1', /Write-TomVsixPath \$ScriptDir\nif \(\$NoDartMode\) \{ Write-TomNoDartWarning [^\n]+\nWrite-Host "🕒 Finished at [^\n]+\nif \(\$NoDartMode\) \{ Write-TomNoDartWarning/, "& (Join-Path $ScriptDir 'install_extension.ps1')"],
+        ] as const) {
+            const text = read(name);
+            assert.match(text, /--no-dart/, `${name} takes --no-dart`);
+            assert.ok(text.indexOf('node scripts/find-dart.cjs') > 0, `${name} looks for Dart itself`);
+            assert.ok(text.indexOf('node scripts/find-dart.cjs') < text.indexOf(call), `${name} settles the mode before the base runs`);
+            assert.match(text, closing, `${name} closes with the VSIX path and the warning around the Finished line`);
+        }
+    });
+
+    test('FD-8: TOM_FIND_DART_DISABLE=1', () => {
+        const r = findDart({ env: { PATH: '/opt/dart/bin', TOM_FIND_DART_DISABLE: '1' }, platform: 'darwin', home: HOME,
+            isFile: files('/opt/dart/bin/dart') });
+        assert.equal(r.found, null);
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-dart-'));
+        fs.writeFileSync(path.join(dir, 'dart'), '');
+        const run = spawnSync(process.execPath, [SCRIPT], { env: { PATH: dir, HOME: '/nonexistent-home', TOM_FIND_DART_DISABLE: '1' }, encoding: 'utf8' });
+        assert.equal(run.status, 1);
+        assert.equal(run.stdout, '');
+        assert.match(run.stderr, /lookup disabled \(TOM_FIND_DART_DISABLE=1\)/);
     });
 });

@@ -16,7 +16,8 @@
  *         package can be held by what the bridge's own dev dependencies pin) and exits 0; no lock is fine;
  *         without a mode it refuses
  *   BLP-6 the installers: from source, `--fix` runs right after the Dart SDK is found, before anything is built,
- *         and stops the install when it fails; the prebuilt route warns; PowerShell through Invoke-Native
+ *         and stops the install when it fails; skipped in no-Dart mode; the prebuilt route warns; PowerShell
+ *         through Invoke-Native
  *   BLP-7 without a folder argument it looks at the bridge's lock and, when the checkout is there, the d4rt
  *         generator's, which the from-source build runs the generator with
  *   BLP-8 how `dart` is started: through the shell on Windows, never under a quoted name — cmd resolves a quoted
@@ -151,7 +152,9 @@ describe('bridge lock preflight', () => {
         assert.ok(fixSh > 0, '.sh: from source upgrades and stops on failure');
         assert.ok(fixSh > sh.indexOf('DART_DIR="$(node scripts/find-dart.cjs)"'), '.sh: after the Dart SDK is found');
         assert.ok(fixSh < sh.indexOf('node scripts/build-som-packages.cjs'), '.sh: before anything is built');
-        assert.match(sh.slice(sh.lastIndexOf('if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]', fixSh), fixSh), /TOM_BRIDGE_FROM_SOURCE/);
+        // Only from source, and only with Dart (vsc_nodart-1: no-Dart mode skips it).
+        assert.match(sh.slice(sh.lastIndexOf('if [ "$FROM_SOURCE" = "1" ]', fixSh), fixSh), /^if \[ "\$FROM_SOURCE" = "1" \] && \[ "\$NO_DART" != "1" \]; then/);
+        assert.match(sh, /FROM_SOURCE="\$\{TOM_BRIDGE_FROM_SOURCE:-0\}"/);
         assert.match(sh, /node scripts\/bridge-lock-preflight\.cjs --warn \) \|\| true/, '.sh: the prebuilt route warns');
 
         const ps = readFileSync(join(ROOT, 'install_extension.ps1'), 'utf8');
@@ -160,6 +163,7 @@ describe('bridge lock preflight', () => {
         assert.ok(fixPs > ps.indexOf('$DartDir = Invoke-Native { node scripts/find-dart.cjs }'));
         assert.ok(fixPs < ps.indexOf('Invoke-Native { node scripts/build-som-packages.cjs }'));
         assert.match(ps.slice(fixPs, fixPs + 200), /if \(\$LASTEXITCODE -ne 0\) \{\s*Write-Error[^\n]*\n\s*exit 1/, '.ps1: stops on failure');
+        assert.match(ps.slice(ps.lastIndexOf('if (', fixPs), fixPs), /^if \(\$FromSource -and -not \$NoDartMode\) \{/, '.ps1: only from source, and only with Dart');
         assert.match(ps, /Invoke-Native \{ node \(Join-Path \$PSScriptRoot 'scripts\/bridge-lock-preflight\.cjs'\) --warn \}/, '.ps1: the prebuilt route warns');
     });
     test('BLP-7: the locks it looks at', () => {

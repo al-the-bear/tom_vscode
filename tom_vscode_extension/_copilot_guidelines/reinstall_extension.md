@@ -71,19 +71,28 @@ Between installs, the CodeSpecs freshness test (CS-2b) fails once ai_build's
 model moves on; `npm run som:pack && npm install` (what every install does)
 brings the checkout level. The install
 scripts also compile `validate_codespecs` (tom_specs_clitool) into
-`bin/<platform>/` (`npm run codespecs:build`), so every install needs the Dart
-SDK. Both install scripts look for it first (`scripts/find-dart.cjs`): `dart` on
+`bin/<platform>/` (`npm run codespecs:build`) with the Dart SDK. Both install
+scripts look for it first (`scripts/find-dart.cjs`): `dart` on
 PATH, then `DART_SDK`, `FLUTTER_ROOT`, the folder of `flutter` on PATH, and
 known locations (`~/Desktop/development/flutter/bin`, `~/flutter/bin`,
 `/opt/homebrew/bin`, …; on Windows `~\flutter\bin`, `C:\src\flutter\bin`,
 `C:\tools\dart-sdk\bin`, …), and put the found folder on PATH for the rest of
-the install. When none holds `dart`, the install stops before building
-anything and names every place it looked. Beside the binary the build writes
+the install. When none holds `dart` (or `--no-dart` / `-NoDart` is given,
+or `TOM_NO_DART=1`), the install goes on in no-Dart mode: the bridge-lock
+preflight, the from-source bridge build, the bridge freshness checks and the
+`validate_codespecs` build are skipped, and the scripts end with a red warning
+before and after the Finished line. `TOM_FIND_DART_DISABLE=1` makes
+`find-dart.cjs` find nothing, to take the not-found route on a machine with
+Dart. The wrappers (`compile_and_install.*`) settle the mode before calling the
+base script and print the closing lines (`scripts/install_summary.sh` / `.ps1`):
+the VSIX path, the warning, the finish time, the warning again. Beside the binary the build writes
 `validate_codespecs.build.json`, a hash of its source; `npm run codespecs:check`
 (and the test CV-8) say when tom_specs_clitool moved on since, so the binary
 needs `npm run codespecs:build` again. The stamp is not packaged. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
-packages as real files and the host's `validate_codespecs`.
+packages as real files and no symlinks, and lists per platform which of
+`tom_bs` / `validate_codespecs` it carries (informational: a VSIX without them
+is valid).
 
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from

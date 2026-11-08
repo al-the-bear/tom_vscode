@@ -1,11 +1,32 @@
 #!/bin/bash
 
 # Install script for tom_vscode_extension extension
+#
+#   ./install_extension.sh [--no-dart]
+#
+# --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1):
+# no Dart step runs, and the VSIX carries no validate_codespecs and, from
+# source, no tom_bs. Without the option the same happens when no Dart SDK is
+# found (scripts/find-dart.cjs). The extension then loses only DartScript and
+# CodeSpecs validation; everything else works.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+# shellcheck source=scripts/install_summary.sh
+source "$SCRIPT_DIR/scripts/install_summary.sh"
+
+for ARG in "$@"; do
+    case "$ARG" in
+        --no-dart) export TOM_NO_DART=1; TOM_NO_DART_REASON="${TOM_NO_DART_REASON:---no-dart given}" ;;
+        -h|--help) sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart])"; exit 1 ;;
+    esac
+done
+NO_DART="${TOM_NO_DART:-0}"
+[ "$NO_DART" = "1" ] && TOM_NO_DART_REASON="${TOM_NO_DART_REASON:-TOM_NO_DART=1}"
+FROM_SOURCE="${TOM_BRIDGE_FROM_SOURCE:-0}"
 
 echo "🔧 Installing tom_vscode_extension..."
 
@@ -57,14 +78,24 @@ fi
 echo ""
 
 # The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
-# below, and the VSIX check refuses a package without validate_codespecs. Find
-# it now — also when `dart` is not on PATH (Flutter's Dart, DART_SDK,
-# FLUTTER_ROOT, known locations; scripts/find-dart.cjs) — so a missing SDK stops
-# the install before anything is built, naming where it looked.
-echo "🔎 Looking for the Dart SDK..."
-DART_DIR="$(node scripts/find-dart.cjs)" || exit 1
-export PATH="$DART_DIR:$PATH"
-echo "✅ Dart SDK: $DART_DIR"
+# below. Find it now — also when `dart` is not on PATH (Flutter's Dart,
+# DART_SDK, FLUTTER_ROOT, known locations; scripts/find-dart.cjs). Without one
+# the install goes on in no-Dart mode: every Dart step is skipped, and the
+# closing warning says what the VSIX lacks.
+if [ "$NO_DART" = "1" ]; then
+    echo "⚠️  No-Dart mode ($TOM_NO_DART_REASON): the Dart steps are skipped."
+else
+    echo "🔎 Looking for the Dart SDK..."
+    if DART_DIR="$(node scripts/find-dart.cjs)"; then
+        export PATH="$DART_DIR:$PATH"
+        echo "✅ Dart SDK: $DART_DIR"
+    else
+        NO_DART=1
+        export TOM_NO_DART=1
+        TOM_NO_DART_REASON="no Dart SDK found"
+        echo "⚠️  No Dart SDK found: building without DartScript and CodeSpecs validation (see the warning at the end)."
+    fi
+fi
 echo ""
 
 # From source: the bridge is compiled against its pubspec.lock, which is
@@ -72,7 +103,7 @@ echo ""
 # releases the regenerated bridges need fails only at `dart compile exe`, after
 # the whole build — so upgrade the bridge's frozen tom_* packages now, in
 # seconds (pub.dev, else the pub cache; scripts/bridge-lock-preflight.cjs).
-if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
+if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" != "1" ]; then
     echo "🔎 Checking the bridge's tom_* resolutions..."
     node scripts/bridge-lock-preflight.cjs --fix || exit 1
     echo ""
@@ -114,14 +145,13 @@ fi
 echo ""
 echo "✅ Extension compiled successfully!"
 
-# Check if VS Code CLI is available
+# The VS Code CLI installs the VSIX. Without it the VSIX is still built (its
+# path is printed at the end), only the install is skipped.
 CODE_CLI=""
 if command -v code &> /dev/null; then
     CODE_CLI="code"
 else
-    echo "⚠️  VS Code CLI not found. Extension compiled but not installed."
-    echo "   Press F5 to test in Extension Development Host"
-    exit 0
+    echo "⚠️  VS Code CLI \`code\` not found: the VSIX is built but not installed."
 fi
 
 # Check if vsce is available (globally or via npx)
@@ -133,10 +163,12 @@ else
 fi
 
 # Uninstall old version(s)
-echo ""
-echo "🗑️  Uninstalling old version..."
-"$CODE_CLI" --uninstall-extension tom.dartscript-vscode 2>/dev/null || true
-"$CODE_CLI" --uninstall-extension tom.tom-ai-extension 2>/dev/null || true
+if [ -n "$CODE_CLI" ]; then
+    echo ""
+    echo "🗑️  Uninstalling old version..."
+    "$CODE_CLI" --uninstall-extension tom.dartscript-vscode 2>/dev/null || true
+    "$CODE_CLI" --uninstall-extension tom.tom-ai-extension 2>/dev/null || true
+fi
 
 # Remove old VSIX files to prevent stale packaging
 rm -f *.vsix
@@ -155,7 +187,11 @@ BUNDLED_BINARIES="tom_bs"
 # Clean previous bin/ to avoid stale binaries
 rm -rf "$SCRIPT_DIR/bin"
 
-if [ "${TOM_BRIDGE_FROM_SOURCE:-0}" = "1" ]; then
+if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" = "1" ]; then
+    # Without Dart there is nothing to compile tom_bs with: this VSIX carries no
+    # bridge for the host, and the extension runs without DartScript.
+    echo "📦 No Dart: no tom_bs is built for this host (DartScript will not be available)."
+elif [ "$FROM_SOURCE" = "1" ]; then
     if ! command -v dart &> /dev/null; then
         echo "❌ Error: Dart SDK not found — cannot compile the bridge from source"
         exit 1
@@ -263,7 +299,7 @@ else
     # The prebuilt binaries are only as fresh as the bridges they were built
     # from. With Dart at hand, say when the committed bridges lag behind the
     # scripting API (BRIDGE-FRESH-01, ~6 s); a warning, not a stop.
-    if command -v dart &> /dev/null; then
+    if [ "$NO_DART" != "1" ] && command -v dart &> /dev/null; then
         # The bridge's lock decides what the bridge's tests run against: name
         # frozen tom_* resolutions (a warning; from source upgrades them).
         echo "📦 Checking the bridge's tom_* resolutions..."
@@ -285,10 +321,15 @@ fi
 # validate_codespecs as a compiled binary from bin/<platform>/ — never via
 # `dart run`. It is compiled here from tom_ai/ai_build, like tom_bs above in
 # from-source mode, with the Dart SDK found at the start of this script.
-( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
-    echo "❌ Error: building validate_codespecs failed"
-    exit 1
-}
+# Without Dart the VSIX carries none and CodeSpecs validation is unavailable.
+if [ "$NO_DART" = "1" ]; then
+    echo "📦 No Dart: validate_codespecs is not built (CodeSpecs validation will not be available)."
+else
+    ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
+        echo "❌ Error: building validate_codespecs failed"
+        exit 1
+    }
+fi
 
 # ── Ensure Claude Agent SDK native CLI binary for THIS host ──────────────────
 # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native binary
@@ -359,19 +400,22 @@ if [ $? -eq 0 ]; then
             echo "❌ The VSIX is not self-contained; not installing it"
             exit 1
         fi
-        echo ""
-        echo "🚀 Installing extension in VS Code..."
-        "$CODE_CLI" --install-extension "$VSIX_FILE"
-        
-        if [ $? -eq 0 ]; then
+        if [ -n "$CODE_CLI" ]; then
             echo ""
-            echo "✅ Extension installed successfully!"
-            echo ""
-            echo "🔄 Reloading VS Code window..."
-            echo "   Please manually reload: Cmd+Shift+P → 'Developer: Reload Window'"
+            echo "🚀 Installing extension in VS Code..."
+            if "$CODE_CLI" --install-extension "$VSIX_FILE"; then
+                echo ""
+                echo "✅ Extension installed successfully!"
+                echo ""
+                echo "🔄 Reloading VS Code window..."
+                echo "   Please manually reload: Cmd+Shift+P → 'Developer: Reload Window'"
+            else
+                echo "❌ Failed to install extension"
+                exit 1
+            fi
         else
-            echo "❌ Failed to install extension"
-            exit 1
+            echo ""
+            echo "⚠️  Not installed: VS Code CLI \`code\` not found (install the VSIX by hand, path below)."
         fi
     else
         echo "❌ Could not find generated VSIX file"
@@ -382,8 +426,14 @@ else
     exit 1
 fi
 
-# Finish timestamp as the last line of output. A wrapper (compile_and_install.sh)
-# sets TOM_SKIP_FINISH_TS=1 and prints its own, so the timestamp appears once.
+# The closing lines: the VSIX path, the no-Dart warning, the finish time and
+# the warning again, so it is the last thing on screen. A wrapper
+# (compile_and_install.sh) sets TOM_SKIP_FINISH_TS=1 and prints them itself,
+# so they appear once.
 if [ "${TOM_SKIP_FINISH_TS:-0}" != "1" ]; then
+    tom_print_vsix_path "$SCRIPT_DIR"
+    [ "$NO_DART" = "1" ] && tom_print_no_dart_warning "$TOM_NO_DART_REASON" "$FROM_SOURCE"
     echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    [ "$NO_DART" = "1" ] && tom_print_no_dart_warning "$TOM_NO_DART_REASON" "$FROM_SOURCE"
 fi
+exit 0

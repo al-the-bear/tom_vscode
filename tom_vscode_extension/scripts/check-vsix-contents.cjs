@@ -13,11 +13,15 @@
  *
  * Checked, from the zip's central directory (no unzip, no dependency, the same
  * on every platform):
- *   - every REQUIRED entry is present, the validate_codespecs binary for this
- *     host included;
+ *   - every REQUIRED entry is present;
  *   - no entry under the SOM packages is a symlink (a Unix-made zip entry whose
  *     mode is S_IFLNK);
  *   - no symlink anywhere in the VSIX (reported; vsctsa1 forbids them).
+ *
+ * Reported, not checked: which Dart-built binaries (tom_bs, validate_codespecs)
+ * the VSIX carries for which platform. A VSIX built without a Dart SDK has none
+ * for its host and is still a valid package: the extension then runs without
+ * DartScript and CodeSpecs validation on that platform.
  *
  * Exit codes: 0 ok, 1 a check failed (each failure is listed), 2 no VSIX or an
  * unreadable zip.
@@ -29,11 +33,9 @@ const path = require('path');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
 
-/**
- * The validate_codespecs binary for the host that packaged the VSIX: the
- * install scripts compile it for that host only (scripts/build-validate-codespecs.cjs).
- */
-const VALIDATE_CODESPECS_BINARY = `extension/bin/${process.platform}-${process.arch}/validate_codespecs${process.platform === 'win32' ? '.exe' : ''}`;
+/** The Dart-built binaries under bin/<platform>/, reported per platform. */
+const DART_BINARIES = ['tom_bs', 'validate_codespecs'];
+const HOST_PLATFORM = `${process.platform}-${process.arch}`;
 
 /** Entries the SOM and CodeSpecs tools load at run time. */
 const REQUIRED = [
@@ -57,7 +59,6 @@ const REQUIRED = [
     // tomAi_describeTool reads the tool documentation at run time.
     'extension/doc/llm_tools.md',
     'extension/out/tools/describe-tool.js',
-    VALIDATE_CODESPECS_BINARY,
 ];
 
 const SOM_PREFIXES = [
@@ -116,6 +117,34 @@ function readCentralDirectory(buf) {
     return entries;
 }
 
+/**
+ * Which Dart-built binaries the VSIX carries, per platform: the platforms that
+ * have a `extension/bin/<platform>/` entry, plus `host` (always listed).
+ *
+ * @returns {Array<{ platform: string, binaries: Record<string, boolean> }>}
+ */
+function dartBinaryReport(names, host = HOST_PLATFORM) {
+    const platforms = new Set([host]);
+    for (const name of names) {
+        const m = /^extension\/bin\/([^/]+)\//.exec(name);
+        if (m) { platforms.add(m[1]); }
+    }
+    return [...platforms].sort().map((platform) => {
+        const exe = platform.startsWith('win32') ? '.exe' : '';
+        const binaries = {};
+        for (const bin of DART_BINARIES) { binaries[bin] = names.has(`extension/bin/${platform}/${bin}${exe}`); }
+        return { platform, binaries };
+    });
+}
+
+function printDartBinaryReport(report, host = HOST_PLATFORM) {
+    console.log('   Dart-built binaries (informational):');
+    for (const { platform, binaries } of report) {
+        const cells = DART_BINARIES.map((bin) => `${bin} ${binaries[bin] ? '✔' : '— missing'}`).join(', ');
+        console.log(`     ${platform}${platform === host ? ' (this host)' : ''}: ${cells}`);
+    }
+}
+
 function main() {
     const vsixPath = process.argv[2] ? path.resolve(process.argv[2]) : newestVsix();
     if (!vsixPath || !fs.existsSync(vsixPath)) {
@@ -144,11 +173,12 @@ function main() {
         for (const f of failures) { console.error(`   ${f}`); }
         process.exit(1);
     }
-    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), validate_codespecs for this host, no symlinks.`);
+    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks.`);
+    printDartBinaryReport(dartBinaryReport(names));
 }
 
 if (require.main === module) {
     main();
 }
 
-module.exports = { readCentralDirectory };
+module.exports = { readCentralDirectory, dartBinaryReport, REQUIRED };

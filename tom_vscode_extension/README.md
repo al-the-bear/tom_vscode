@@ -42,7 +42,7 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 
 | Software | Version | Notes |
 | --- | --- | --- |
-| Dart SDK | ≥ 3.10.4 (< 4.0) | Compiles `validate_codespecs` and the `tom_bs` bridge binary, runs the d4rt generator. Need not be on `PATH`: the installer also finds Flutter's Dart, `DART_SDK`, `FLUTTER_ROOT` and the usual install folders (`scripts/find-dart.cjs`), and stops early naming where it looked |
+| Dart SDK | ≥ 3.10.4 (< 4.0) | Compiles `validate_codespecs` and the `tom_bs` bridge binary, runs the d4rt generator. Need not be on `PATH`: the installer also finds Flutter's Dart, `DART_SDK`, `FLUTTER_ROOT` and the usual install folders (`scripts/find-dart.cjs`). Without one the build goes on without `tom_bs` and `validate_codespecs` (no DartScript, no CodeSpecs validation) and ends with a warning; `--no-dart` (PowerShell `-NoDart`) builds that way on purpose |
 | Node.js | ≥ 20 (LTS) | Enforced by the installer; the extension targets Node v25 — install/switch with nvm |
 | nvm | latest | Recommended — lets the installer install/switch to a supported Node automatically |
 | VS Code | ≥ 1.96.0 | `engines.vscode` in `package.json` |
@@ -113,9 +113,16 @@ It runs end to end:
 5. Ensures the host's Claude Agent SDK native CLI binary is present.
 6. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
-   packages present as real files, the host's `validate_codespecs`, no symlinks;
-   the install stops otherwise), and installs it via
-   the `code` CLI.
+   packages present as real files, no symlinks; the install stops otherwise;
+   which of `tom_bs` / `validate_codespecs` it carries per platform is listed),
+   and installs it via the `code` CLI (without `code` it is only packaged).
+7. Prints the VSIX's path, to install the same file on other machines with
+   `code --install-extension <file>`.
+
+Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
+(`.\compile_and_install.ps1 -NoDart`), steps 2–4 are skipped: the VSIX has no
+`tom_bs` and no `validate_codespecs` for the host, and a red warning before and
+after the closing line says so.
 
 After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
 
