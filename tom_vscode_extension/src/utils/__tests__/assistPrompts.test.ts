@@ -27,9 +27,9 @@ const ROOT = join(__dirname, '..', '..', '..');
 
 describe('Assist prompts', () => {
     test('AP-1: each use resolves its chosen template', () => {
-        assert.deepEqual([...ASSIST_PROMPT_USES], ['grillMe', 'explainInDetail', 'explainDecision', 'finishReviewRound', 'outOfBudget']);
+        assert.deepEqual([...ASSIST_PROMPT_USES], ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'outOfBudget']);
         assert.deepEqual(ASSIST_PROMPT_USES.map((u) => ASSIST_PROMPT_INFO[u].label),
-            ['Grill me', 'Explain in detail', 'Explain a decision', 'Finish review round', 'Out of budget']);
+            ['Grill me', 'Explain in detail', 'Explain a decision', 'Grill me at a decision', 'Finish review round', 'Out of budget']);
         const config: { assistPrompts?: AssistPromptsSection } = {};
         ensureDefaultAssistPrompts(config);
         const section = config.assistPrompts!;
@@ -71,7 +71,7 @@ describe('Assist prompts', () => {
     test('AP-3: seeding the defaults', () => {
         const config: { assistPrompts?: AssistPromptsSection } = { assistPrompts: { selected: { grillMe: 'mine' }, templates: [{ id: 'grill-me', name: 'Grill me', template: 'edited' }] } };
         assert.equal(ensureDefaultAssistPrompts(config), true);
-        assert.deepEqual(config.assistPrompts!.templates!.map((t) => t.id), ['grill-me', 'explain-in-detail', 'explain-decision', 'finish-review-round', 'out-of-budget']);
+        assert.deepEqual(config.assistPrompts!.templates!.map((t) => t.id), ['grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'out-of-budget']);
         assert.equal(config.assistPrompts!.templates![0].template, 'edited', 'an existing one is kept');
         assert.deepEqual(config.assistPrompts!.selected, { grillMe: 'mine' }, 'the choices stay');
         assert.equal(ensureDefaultAssistPrompts(config), false, 'once');

@@ -72,7 +72,7 @@ import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
 import { runQuestionAssist, type QuestionAssistDeps } from '../services/questionAssist.js';
-import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
+import { liveAssistDeps } from '../services/assistLiveDeps.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
@@ -1258,48 +1258,18 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     // Finish review round: the process service, loaded on first use (it pulls in the queue and the stores).
     finishReview: {
         unavailable: () => processActions().finishReviewUnavailableNow(),
-        run: () => processActions().runFinishReviewRound(),
+        run: () => processActions().runFinishReviewRound(mdBrowserContext),
+    },
+    // Back to the decision: an advice note's button (the decision helpers).
+    reopenDecision: {
+        unavailable: () => (mdBrowserContext ? processActions().reopenDecisionUnavailableNow() : 'the extension is not ready'),
+        run: async () => { if (mdBrowserContext) { await processActions().reopenDecision(mdBrowserContext); } },
     },
 };
 
-/**
- * Grill me / Explain in detail's live collaborators: the config, the quest's
- * sessions, the ANTHROPIC panel's send. The base session is the one the
- * process runs its current position in, else the queue's default.
- */
+/** Grill me / Explain in detail's live collaborators: the shared assist deps and the file. */
 function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssistDeps {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sessions = require('../services/agentSdkSessionStore.js') as typeof import('../services/agentSdkSessionStore');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const memory = require('../services/memory-service.js') as typeof import('../services/memory-service');
-    return {
-        workspaceRoot: WsPaths.wsRoot ?? '',
-        readText: (abs) => fs.readFileSync(abs, 'utf8'),
-        assistPrompts: () => loadSendToChatConfig()?.assistPrompts,
-        baseSession: () => {
-            try {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
-                const store = require('../managers/processStateStore.js').ProcessStateStore.instance as import('../managers/processStateStore').ProcessStateStore | undefined;
-                const def = store?.currentDefinition();
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
-                const { actionSession } = require('../utils/processActionPrompt.js') as typeof import('../utils/processActionPrompt');
-                const name = store && def && store.state.process ? actionSession(def, store.state).name : '';
-                return name || 'default';
-            } catch {
-                return 'default';
-            }
-        },
-        sessionsFolder: () => memory.TwoTierMemoryService.instance.agentSdkSessionsFolder(),
-        hasSession: (folder, name) => sessions.readSession(folder, name) !== undefined,
-        createSession: (folder, name, opts) => sessions.createSession(folder, name, opts),
-        deleteSession: (folder, name) => { sessions.deleteSession(folder, name); },
-        send: async (prompt, session, source) => {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { runAnthropicSend } = require('./sendToChatRouter.js') as typeof import('./sendToChatRouter');
-            const outcome = await runAnthropicSend(context, prompt, { session, source });
-            return { ok: outcome.ok, error: outcome.error, rejected: outcome.rejected };
-        },
-    };
+    return { ...liveAssistDeps(context), readText: (abs) => fs.readFileSync(abs, 'utf8') };
 }
 
 function processActions(): typeof import('../services/processActionService') {

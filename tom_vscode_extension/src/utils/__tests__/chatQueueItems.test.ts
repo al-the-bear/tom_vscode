@@ -11,7 +11,8 @@
  *        listQueue's "without sent" treat `chat-sent` like `sent`
  *   CQ-4 both chat send paths (the panel's Send and runAnthropicSend) record the item around the send
  *   CQ-5 runAnthropicSend (no session picker: editor, todo panel, Telegram) uses `chat` unless the caller names
- *        a session — only Grill me / Explain in detail do (their temporary session); the panel's Send uses the
+ *        a session — only the assist runs do (Grill me / Explain on questions and decisions, their temporary
+ *        session, through services/assistLiveDeps.ts); the panel's Send uses the
  *        session picked in the panel
  */
 
@@ -97,8 +98,8 @@ describe('chat sends in the prompt queue', () => {
         assert.doesNotMatch(send.slice(0, 4000), /chatSessionFor\(/, 'no session picker: always chat');
         assert.match(send.slice(0, 4000), /const sessionKey = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/, 'chat unless the caller names a session');
         // The one caller that names one: the assist run's temporary session.
-        const callers = ['handlers/markdownBrowser-handler.ts', 'handlers/questTodoPanel-handler.ts', 'handlers/telegram-cmd-handlers.ts', 'handlers/sendToChatRouter.ts']
+        const callers = ['services/assistLiveDeps.ts', 'handlers/markdownBrowser-handler.ts', 'handlers/questTodoPanel-handler.ts', 'handlers/telegram-cmd-handlers.ts', 'handlers/sendToChatRouter.ts']
             .filter((f) => /runAnthropicSend\(\w+, [^)]*\{[^}]*\bsession\b/.test(src(...f.split('/'))));
-        assert.deepEqual(callers, ['handlers/markdownBrowser-handler.ts']);
+        assert.deepEqual(callers, ['services/assistLiveDeps.ts'], 'the assist runs (questions, decisions) share the one send');
     });
 });

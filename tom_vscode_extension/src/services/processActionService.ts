@@ -24,7 +24,14 @@ import { ensureSession } from './agentSdkSessionStore';
 import { lookupProfile, type ProfileSection } from '../utils/sessionSpecs';
 import { normalizeSessionMode } from '../utils/agentSdkSessions';
 import { TwoTierMemoryService } from './memory-service';
+import * as fs from 'fs';
 import { buildAssistPrompt } from '../utils/assistPrompts';
+import { liveAssistDeps } from './assistLiveDeps';
+import {
+    DECISION_HELPER_LABELS, decisionDialogButtons, decisionText, interpretDecisionPick, runDecisionHelper,
+    type DecisionHelperDeps, type DecisionHelperUse,
+} from './decisionHelpers';
+import { WsPaths } from '../utils/workspacePaths';
 import { finishReviewRound, finishReviewUnavailable, type FinishReviewDeps, type FinishReviewOutcome } from './finishReviewRound';
 import {
     actionSession,
@@ -216,19 +223,57 @@ export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
  * quest is at, one picked and made. Answers the label picked (undefined when
  * dismissed, or when the quest is at no decision) and what the move did.
  */
-export async function decideInDialog(): Promise<{ picked?: string; result?: ProcessActionResult }> {
+export async function decideInDialog(context?: vscode.ExtensionContext): Promise<{ picked?: string; result?: ProcessActionResult; helper?: DecisionHelperUse }> {
     const store = await ProcessStateStore.ready;
     const def = store.currentDefinition();
     const decide = def ? decisionDialog(def, store.state) : null;
     if (!decide) { return {}; }
-    const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail: decide.detail }, ...decide.options.map((o) => o.label));
-    const option = decide.options.find((o) => o.label === picked);
-    if (!option) { return {}; }
-    return { picked: option.label, result: await confirmProcessAction(option.kind, option.level, '') };
+    // With the extension's context the dialog also offers the helpers (Grill me, Explain a decision).
+    const labels = decide.options.map((o) => o.label);
+    const buttons = context ? decisionDialogButtons(labels) : labels;
+    const detail = context ? `${decide.detail} Grill me and Explain a decision give advice in a note; the decision stays yours and opens again.` : decide.detail;
+    const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail }, ...buttons);
+    const pick = interpretDecisionPick(picked, decide.options);
+    if (pick.kind === 'helper' && context) {
+        void runDecisionHelper(liveDecisionHelperDeps(context), pick.use).then((outcome) => {
+            if (!outcome.ok) { void vscode.window.showWarningMessage(`${DECISION_HELPER_LABELS[pick.use]}: ${outcome.error}`); }
+        });
+        return { helper: pick.use };
+    }
+    if (pick.kind !== 'option') { return {}; }
+    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '') };
+}
+
+/** Reopen the decision (the note's button, the end of a helper's turn); a failed move is reported. */
+export async function reopenDecision(context: vscode.ExtensionContext): Promise<void> {
+    const { result } = await decideInDialog(context);
+    if (result && !result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
+}
+
+/** The decision helpers' live collaborators: the shared assist deps, the process store, the dialog. */
+export function liveDecisionHelperDeps(context: vscode.ExtensionContext): DecisionHelperDeps {
+    const store = (): ProcessStateStore | undefined => ProcessStateStore.instance;
+    const dialog = () => {
+        const s = store();
+        const def = s?.currentDefinition();
+        return s && def ? { s, def, decide: decisionDialog(def, s.state) } : undefined;
+    };
+    return {
+        ...liveAssistDeps(context),
+        context: () => {
+            const d = dialog();
+            if (!d?.decide) { return undefined; }
+            return { quest: d.s.activeQuest, process: d.def.id, position: positionText(d.def, d.s.state), decision: decisionText(d.decide.message, d.decide.options) };
+        },
+        questFolder: (quest) => WsPaths.ai('quests', quest) ?? '',
+        ensureDir: (abs) => { fs.mkdirSync(abs, { recursive: true }); },
+        reopenDecision: () => reopenDecision(context),
+        isAtDecision: () => !!dialog()?.decide,
+    };
 }
 
 /** Finish review round's live collaborators: the process store, the queue, the decision dialog. */
-export function liveFinishReviewDeps(store: ProcessStateStore): FinishReviewDeps {
+export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.ExtensionContext): FinishReviewDeps {
     const queue = (): PromptQueueManager | undefined => { try { return PromptQueueManager.instance; } catch { return undefined; } };
     return {
         definition: () => store.currentDefinition(),
@@ -242,7 +287,7 @@ export function liveFinishReviewDeps(store: ProcessStateStore): FinishReviewDeps
         completeRunningStep: async () => moveOnFromHeldStep(),
         proceed: () => confirmProcessAction('proceed', undefined, ''),
         decide: async () => {
-            const { picked, result } = await decideInDialog();
+            const { picked, result } = await decideInDialog(context);
             if (result && !result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
             return picked;
         },
@@ -257,7 +302,15 @@ export function finishReviewUnavailableNow(): string | undefined {
 }
 
 /** The Finish review round click. */
-export async function runFinishReviewRound(): Promise<FinishReviewOutcome> {
-    return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready));
+export async function runFinishReviewRound(context?: vscode.ExtensionContext): Promise<FinishReviewOutcome> {
+    return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready, context));
+}
+
+/** Why the decision cannot be reopened from a note now (undefined: it can). */
+export function reopenDecisionUnavailableNow(): string | undefined {
+    const store = ProcessStateStore.instance;
+    const def = store?.currentDefinition();
+    if (!store || !def) { return 'the quest has no process set'; }
+    return decisionDialog(def, store.state) ? undefined : 'the process is not at a decision';
 }
 

@@ -159,7 +159,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     const def = store.currentDefinition();
                     // A decision runs nothing: the user picks how the process goes on.
                     if (def && decisionDialog(def, store.state)) {
-                        const { result } = await decideInDialog();
+                        const { result } = await decideInDialog(this.context);
                         if (result) { this.report(result.ok ? { ok: true } : result); }
                         break;
                     }

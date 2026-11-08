@@ -21,7 +21,7 @@
         },
         "assistPrompts": {
             "type": "object",
-            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Finish review round, Out of budget. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, finish-review-round, out-of-budget, seeded at activation), else the built-in text.",
+            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Out of budget. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, out-of-budget, seeded at activation), else the built-in text.",
             "properties": {
                 "selected": {
                     "type": "object",
@@ -30,6 +30,7 @@
                         "grillMe": { "type": "string" },
                         "explainInDetail": { "type": "string" },
                         "explainDecision": { "type": "string" },
+                        "grillMeDecision": { "type": "string" },
                         "finishReviewRound": { "type": "string" },
                         "outOfBudget": { "type": "string" }
                     },

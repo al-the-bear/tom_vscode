@@ -14,7 +14,7 @@
  * vscode-free.
  */
 
-export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'finishReviewRound', 'outOfBudget'] as const;
+export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'outOfBudget'] as const;
 export type AssistPromptUse = typeof ASSIST_PROMPT_USES[number];
 
 export interface AssistPromptTemplate {
@@ -116,7 +116,8 @@ const EXPLAIN_IN_DETAIL_BODY = [
     '4. Never write the Answer line yourself.',
 ].join('\n');
 
-const EXPLAIN_DECISION_BODY = [
+/** Explain a decision as i-3 seeded it (the button without the reopen). */
+const EXPLAIN_DECISION_BODY_V1 = [
     '**Explain a decision** of process ${process}, at ${position}.',
     '',
     'The decision: ${decision}',
@@ -125,6 +126,36 @@ const EXPLAIN_DECISION_BODY = [
     '2. Write your advice to `${noteFile}`: each choice — what happens next if it is taken, what speaks for and against it given the work so far — and which one you would take and why. The decision stays mine.',
     '3. Show it with tomAi_askInMdBrowser and the button `back` (Back to the decision); Keep this file is mine to decide.',
     '4. Do not move the process yourself.',
+].join('\n');
+
+/** How the advice is shown: the note with the button that reopens the decision; or briefly in the question panel. */
+const SHOW_DECISION_ADVICE = [
+    '3. Show the note with tomAi_askInMdBrowser and `reopenDecision: true`: its button **Back to the decision** reopens the decision for me; Keep this file is mine to decide.',
+    '   When your advice fits in a few sentences, you may instead give it through tomAi_askUser and skip the note; the decision reopens when your turn ends.',
+    '4. Do not move the process and do not decide: the decision stays mine.',
+].join('\n');
+
+const EXPLAIN_DECISION_BODY = [
+    '**Explain a decision** of process ${process}, at ${position}.',
+    '',
+    'The decision: ${decision}',
+    '',
+    '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
+    '2. Write your advice to `${noteFile}`: each choice — what happens next if it is taken, what speaks for and against it given the work so far — and which one you would take and why.',
+    SHOW_DECISION_ADVICE,
+].join('\n');
+
+const GRILL_ME_DECISION_BODY = [
+    '**Grill me** on a decision of process ${process}, at ${position}.',
+    '',
+    'The decision: ${decision}',
+    '',
+    'Help me decide by asking — do not decide for me:',
+    '',
+    '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
+    '2. Ask me narrowing questions through tomAi_askUser — a few at a time, each saying what it settles; offer the likely answers as `choices` (kind `answer`) — until it is clear which choice fits. Never ask in your reply text.',
+    '   Then write your advice to `${noteFile}`: what my answers settled, the choice you would take and why, and what speaks against the others.',
+    SHOW_DECISION_ADVICE,
 ].join('\n');
 
 const FINISH_REVIEW_ROUND_BODY = [
@@ -141,6 +172,7 @@ const FINISH_REVIEW_ROUND_BODY = [
  * current default. An edited one is kept.
  */
 const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
+    explainDecision: [EXPLAIN_DECISION_BODY_V1],
     grillMe: [GRILL_ME_BODY_V1],
     explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1],
     finishReviewRound: [[
@@ -192,6 +224,17 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
         label: 'Explain a decision',
         purpose: 'A process decision (Decide…): advice on each choice in a note in the quest\'s process folder.',
         defaultId: 'explain-decision', defaultName: 'Explain a decision', defaultBody: EXPLAIN_DECISION_BODY,
+        placeholders: {
+            process: 'the process id',
+            position: 'where the process is (phase, step, sub-step)',
+            decision: 'what is to be decided, with its choices',
+            noteFile: 'the note to write the advice to',
+        },
+    },
+    grillMeDecision: {
+        label: 'Grill me at a decision',
+        purpose: 'A process decision (Decide…): asks you narrowing questions until it is clear which choice fits, then advice in a note in the quest\'s process folder.',
+        defaultId: 'grill-me-decision', defaultName: 'Grill me at a decision', defaultBody: GRILL_ME_DECISION_BODY,
         placeholders: {
             process: 'the process id',
             position: 'where the process is (phase, step, sub-step)',

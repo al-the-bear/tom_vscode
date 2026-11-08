@@ -22,9 +22,13 @@ import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
 import { finishReviewSummary, type FinishReviewOutcome } from '../services/finishReviewRound';
+import { markDecisionReopened } from '../services/decisionHelpers';
 
 /** The button `finishReviewRound` adds; its click confirms the review and moves the process on. */
 export const FINISH_REVIEW_BUTTON: AskMdButton = { id: 'finish', label: 'Finish review round' };
+
+/** The button `reopenDecision` adds; its click opens the process decision again (the advice note stays open). */
+export const REOPEN_DECISION_BUTTON: AskMdButton = { id: 'decide', label: 'Back to the decision' };
 
 /** At most this many buttons in the bar. */
 export const MAX_ASK_MD_BUTTONS = 8;
@@ -71,6 +75,8 @@ export interface AskInMdBrowserDeps {
      * queue the next step's prompt or open the decision.
      */
     finishReview?: { unavailable(): string | undefined; run(): Promise<FinishReviewOutcome> };
+    /** Back to the decision (`reopenDecision`): why it cannot be offered now, and reopening the decision. */
+    reopenDecision?: { unavailable(): string | undefined; run(): Promise<void> };
 }
 
 interface OpenAsk {
@@ -84,6 +90,10 @@ interface OpenAsk {
     deps: AskInMdBrowserDeps;
     /** Set when the ask carries the Finish review round button. */
     finishReview?: () => Promise<FinishReviewOutcome>;
+    /** Set when the ask carries the Back to the decision button. */
+    reopenDecision?: () => Promise<void>;
+    /** The Back to the decision button was clicked. */
+    decisionReopened?: boolean;
     resolve(answer: string): void;
 }
 
@@ -125,6 +135,15 @@ export class MdBrowserAskSlot {
         this.open.keepFile = keepFile;
         if (button.id === FINISH_REVIEW_BUTTON.id && this.open.finishReview) {
             this.finishReviewClick(this.open, button);
+            return true;
+        }
+        if (button.id === REOPEN_DECISION_BUTTON.id && this.open.reopenDecision) {
+            // The advice note stays open beside the dialog; the decision is the user's again.
+            const reopen = this.open.reopenDecision;
+            this.open.decisionReopened = true;
+            markDecisionReopened();
+            this.finish('click', button);
+            void reopen().catch(() => undefined);
             return true;
         }
         this.finish('click', button);
@@ -193,6 +212,7 @@ export class MdBrowserAskSlot {
             keepFile: ask.keepFile,
         };
         if (button) { answer.label = button.label; }
+        if (ask.decisionReopened) { answer.decisionReopened = true; }
         if (source === 'timeout') { answer.timedOut = true; }
         if (source === 'closed') { answer.closed = true; }
         if (source === 'cancel') { answer.cancelled = true; }
@@ -245,6 +265,8 @@ export interface AskInMdBrowserInput {
     buttons?: AskMdButton[];
     /** Add the Finish review round button (only while the process is at a review, or the running step leads to one). */
     finishReviewRound?: boolean;
+    /** Add the Back to the decision button (only while the process is at a decision). */
+    reopenDecision?: boolean;
     keepFile?: boolean;
     title?: string;
     timeoutMinutes?: number;
@@ -274,7 +296,15 @@ export async function askInMdBrowserImpl(
         if (unavailable) { return err(`Finish review round cannot be offered: ${unavailable}. Open the document with tomAi_openInMdBrowser instead.`); }
         buttons.push({ ...FINISH_REVIEW_BUTTON });
     }
-    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound`).'); }
+    const reopenDecision = input.reopenDecision === true;
+    if (reopenDecision) {
+        if (buttons.some((b) => b.id === REOPEN_DECISION_BUTTON.id)) { return err('With `reopenDecision` the button id `decide` is the Back to the decision button; name yours otherwise.'); }
+        if (!deps.reopenDecision) { return err('Back to the decision is not available here.'); }
+        const unavailable = deps.reopenDecision.unavailable();
+        if (unavailable) { return err(`Back to the decision cannot be offered: ${unavailable}.`); }
+        buttons.push({ ...REOPEN_DECISION_BUTTON });
+    }
+    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound` / `reopenDecision`).'); }
     if (buttons.length > MAX_ASK_MD_BUTTONS) { return err(`Too many buttons (${buttons.length}); the maximum is ${MAX_ASK_MD_BUTTONS}.`); }
     if (buttons.some((b) => !b.id || !b.label)) { return err('Every button needs a non-empty `id` and `label`.'); }
     if (new Set(buttons.map((b) => b.id)).size !== buttons.length) { return err('Button ids must be unique.'); }
@@ -300,6 +330,7 @@ export async function askInMdBrowserImpl(
         const ask: OpenAsk = {
             bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve,
             ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
+            ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run() } : {}),
         };
         // In the slot before the panel opens, so a fast answer finds it.
         slot.begin(ask);
@@ -325,16 +356,16 @@ export async function askInMdBrowserImpl(
 
 export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'Ask the user through a document: `filePath` (a .md file in the workspace) opens in the MD Browser with ' +
-    '`buttons` (`[{id, label}]`, up to 8, e.g. Continue / Cancel) and a *Keep this file* checkbox (`keepFile`, ' +
-    'default on) in its top area. For questionnaires, choices, confirmations, reviews: write the document ' +
-    'first, then ask. BLOCKING like tomAi_askUser — the queue is held until a button is clicked; one such ask ' +
-    'at a time; no deadline unless `timeoutMinutes`. Answers `{button, label, keepFile, fileDeleted, file, ' +
-    'panelId}` (`button` the id clicked; null with `timedOut`, `closed` (the panel was closed) or `cancelled`). ' +
-    '`finishReviewRound: true` adds the Finish review round button (id `finish`), only at a review (a user-action step, or the running ' +
-    'step leads to one): its click closes that panel, confirms the review, moves the process on and queues the next step or opens the ' +
-    'decision; `review` / `summary` report it — move nothing yourself. ' +
-    'When the box is unchecked as the flow goes on, the file is deleted and its panel closed; otherwise the ' +
-    'panel stays open with the answer in place of the bar. Logged to the quest questions journal.';
+    '`buttons` (`[{id, label}]`, up to 8) and a *Keep this file* checkbox (`keepFile`, default on) in its top ' +
+    'area. For questionnaires, choices, confirmations, reviews: write the document first, then ask. BLOCKING ' +
+    'like tomAi_askUser (the queue holds); one such ask at a time; no deadline unless `timeoutMinutes`. ' +
+    'Answers `{button, label, keepFile, fileDeleted, file, panelId}` (`button` null with `timedOut`, `closed` ' +
+    'or `cancelled`). `finishReviewRound: true` adds Finish review round (id `finish`; only at a review, or ' +
+    'when the running step leads to one): its click closes that panel, confirms the review, moves the process ' +
+    'on and queues the next step or opens the decision; `review` / `summary` report it — move nothing ' +
+    'yourself. `reopenDecision: true` adds Back to the decision (id `decide`; only at a decision): it reopens ' +
+    'the decision for the user. An unchecked file is deleted, and its panel closed, as the flow goes on; else ' +
+    'the panel stays with the answer in place of the bar. Logged to the quest questions journal.';
 
 export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> = {
     name: 'tomAi_askInMdBrowser',
@@ -363,6 +394,7 @@ export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> =
             },
             keepFile: { type: 'boolean', description: 'The *Keep this file* checkbox\'s initial state. Default true.' },
             finishReviewRound: { type: 'boolean', description: 'Add the Finish review round button (id `finish`); only at a review. `buttons` may then be left out.' },
+            reopenDecision: { type: 'boolean', description: 'Add the Back to the decision button (id `decide`); only at a process decision. `buttons` may then be left out.' },
             title: { type: 'string', description: 'A line shown beside the buttons.' },
             timeoutMinutes: {
                 type: 'number',

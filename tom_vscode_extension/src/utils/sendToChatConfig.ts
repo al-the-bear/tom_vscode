@@ -480,7 +480,8 @@ export interface SendToChatConfig {
 
     /**
      * The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in
-     * detail, Explain a decision, Finish review round, Out of budget.
+     * detail, Explain a decision, Grill me at a decision, Finish review round,
+     * Out of budget.
      * `templates` are edited in the Global Template Editor (category Assist
      * Prompts); `selected.<use>` is the template the Status Page chose for
      * that use — empty: the use's default template, else its built-in text.
