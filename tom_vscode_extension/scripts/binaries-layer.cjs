@@ -29,8 +29,8 @@
  *   into the extension's bin/<platform>/ for packaging, with their build
  *   stamps (.vscodeignore keeps the stamps out of the VSIX; in the checkout
  *   they say what the binaries were built from — `npm run codespecs:check`,
- *   the CV-8 test). Default platforms: the ones the extension resolves
- *   binaries for (DEFAULT_PLATFORMS) that the layer has.
+ *   the CV-8 test). Default platforms: the ones the binaries are built for
+ *   (DEFAULT_PLATFORMS: darwin-arm64, linux-x64, win32-x64) that the layer has.
  * report — per platform: each binary's build stamp and whether it is older
  *   than the sources here (tom_bs: the bridge files changed since the commit
  *   it was built from, check-tom-bs-provenance.cjs; validate_codespecs: the
@@ -54,8 +54,8 @@ const provenance = require('./check-tom-bs-provenance.cjs');
 const codespecsStamp = require('./codespecs-binary-stamp.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
-/** The platforms the extension resolves bin/<platform>/ for (executableResolver.ts). */
-const DEFAULT_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64'];
+/** The platforms the binaries are built for and a VSIX carries them for: the fleet's build platforms (macOS ARM, Linux x64, Windows x64; fleet-binaries.cjs builds them). */
+const DEFAULT_PLATFORMS = ['darwin-arm64', 'linux-x64', 'win32-x64'];
 const BINARIES = ['tom_bs', 'validate_codespecs'];
 const TOM_BS_STAMP = 'tom_bs.build.json';
 const CODESPECS_STAMP = 'validate_codespecs.build.json';

@@ -319,7 +319,7 @@ else
     # the d4rt and bridge checkouts.
     echo "  ℹ The prebuilt tom_bs binaries in tom_binaries are not kept current; compile_and_install.sh builds a current one for this host."
     TOTAL_BUNDLED=0
-    for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
+    for PLAT_SPEC in "darwin-arm64:" "linux-x64:" "win32-x64:.exe"; do
         PLAT_ID="${PLAT_SPEC%%:*}"
         PLAT_EXT="${PLAT_SPEC#*:}"
         SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"

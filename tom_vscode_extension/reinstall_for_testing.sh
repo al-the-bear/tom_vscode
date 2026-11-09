@@ -123,7 +123,7 @@ echo "📦 Bundling bridge binaries..."
 rm -rf "$SCRIPT_DIR/bin"
 
 TOTAL_BUNDLED=0
-for PLAT_SPEC in "darwin-arm64:" "darwin-x64:" "linux-x64:" "linux-arm64:" "win32-x64:.exe"; do
+for PLAT_SPEC in "darwin-arm64:" "linux-x64:" "win32-x64:.exe"; do
     PLAT_ID="${PLAT_SPEC%%:*}"
     PLAT_EXT="${PLAT_SPEC#*:}"
     SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"

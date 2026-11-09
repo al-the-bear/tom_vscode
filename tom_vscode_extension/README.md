@@ -444,8 +444,8 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
     └── tom/<platform>/                # tom_bs, validate_codespecs and their *.build.json stamps
 ```
 
-`<platform>` is VS Code's platform-vs id: `darwin-arm64`, `darwin-x64`,
-`linux-x64`, `linux-arm64`, or `win32-x64`.
+`<platform>` is VS Code's platform id: `darwin-arm64`, `linux-x64` or `win32-x64`, the
+platforms the binaries are built for (a VSIX carries them for no other).
 
 ---
 

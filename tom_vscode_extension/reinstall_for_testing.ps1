@@ -119,9 +119,7 @@ $BundledBinaries = @('tom_bs')
 # Platforms and their executable extension
 $Platforms = @(
     @{ Id = 'darwin-arm64'; Ext = '' },
-    @{ Id = 'darwin-x64';   Ext = '' },
     @{ Id = 'linux-x64';    Ext = '' },
-    @{ Id = 'linux-arm64';  Ext = '' },
     @{ Id = 'win32-x64';    Ext = '.exe' }
 )
 

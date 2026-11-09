@@ -43,8 +43,8 @@ const WORKSPACE_ROOT = path.resolve(EXT_ROOT, '..', '..', '..');
 const SOURCE_REPOS = ['tom_ai/vscode', 'tom_ai/d4rt', 'tom_ai/ai_build'];
 const WIN_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
 const SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
-/** The platforms of the fleet's build hosts: what a fleet-compiled VSIX carries binaries for. */
-const FLEET_PLATFORMS = ['darwin-arm64', 'linux-x64', 'win32-x64'];
+/** The platforms of the fleet's build hosts: what a fleet-compiled VSIX carries binaries for (the binaries layer's default set). */
+const FLEET_PLATFORMS = require('./binaries-layer.cjs').DEFAULT_PLATFORMS;
 
 /** The `fleet_hosts:` entries of repo_structure.md: [{id, ssh, root, shell, build}]. */
 function parseRegistry(text) {

@@ -173,7 +173,7 @@ describe('binaries layer', () => {
         assert.match(fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8'), /^bin\/\*\/\*\.build\.json$/m);
         assert.match(r.stdout, /darwin-x64: no tom_bs or validate_codespecs in the binaries layer/);
         assert.match(r.stdout, /Bundled 2 binaries from the binaries layer/);
-        assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64']);
+        assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'linux-x64', 'win32-x64'], "the fleet's build platforms only");
     });
 
     test('BL-4: report verdicts', () => {
