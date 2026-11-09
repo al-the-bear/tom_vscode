@@ -344,6 +344,10 @@ Design note: the spec's original sketch envisioned an always-visible collapsible
 
 No checkbox to disable it. See §2 decision 7.
 
+**An item waiting for the user**: while a prompt of a sending item waits for the user — a question (`tomAi_askUser`, the picker, the MD Browser ask, the Agent SDK's `AskUserQuestion`) or a tool approval — the item has its own colour (`waiting-for-user`) and the badge *waiting for your reply* / *waiting for your approval*. The waits are attributed to the item through an `AsyncLocalStorage` context around its dispatch (`services/userWaits.ts`), so a question from a chat send marks no queue item.
+
+**Answers of every repetition**: a repeated item keeps each repetition's main-prompt answer (`repetitionAnswers`, entry-file key `repetition-answers`, at most 200, `utils/repetitionAnswers.ts`), keyed by the walked todo's id (a `<prefix>*` walk) or the repetition number. The Answer block shows a chip per repetition, the latest active; a click shows that answer. A resent repetition replaces its entry.
+
 **Display of direct responses**: when `item.answerText` exists (anthropic transport), show it inline under the item (truncated preview + expand-to-full button, and two buttons that show it rendered as Markdown over the queue or in the markdown preview editor). The authoritative trail is the Anthropic trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
 
 ### 4.11 ANTHROPIC/LLM panel — queueing buttons

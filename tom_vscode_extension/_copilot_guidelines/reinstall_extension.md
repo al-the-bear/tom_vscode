@@ -192,6 +192,16 @@ the run before anything is built: the reconcile is the user's. Tests:
 `createVsixScripts.test.ts` (CS-6 – CS-10), `binariesLayer.test.ts` (BL-1 –
 BL-4 against throw-away git repositories, FB-1 – FB-3 the fleet helpers).
 
+For a machine without Dart there is `create_layerbinaries_vsix.sh` / `.ps1`:
+it builds the VSIX from source with no Dart step, bundling every platform's
+`tom_bs` and `validate_codespecs` from a binaries layer — the workspace's
+`tom_binaries` checkout, `--layer <dir>` (`-Layer`), or with `--clone`
+(`-Clone`) a shallow clone of the public `al-the-bear/tom_binaries` into
+`.tom_binaries/`. The layer is public, so its build stamps and commit messages
+name the platform, never the host. Binaries are built and bundled for the
+fleet's build platforms only — darwin-arm64, linux-x64, win32-x64
+(`binaries-layer.cjs` `DEFAULT_PLATFORMS`, which `fleet-binaries.cjs` reads).
+
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from
 `node scripts/vsix-base-url.cjs content|images`, which reads package.json's
