@@ -94,20 +94,33 @@ needs `npm run codespecs:build` again. The stamp is not packaged. After packagin
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and no symlinks, and lists per platform which of
 `tom_bs` / `validate_codespecs` it carries (informational: a VSIX without them
-is valid) and for which platforms it carries the Agent SDK's Claude CLI. Both
-help pages it requires (`resources/dart_binaries/missing_dart_binaries.md`,
+is valid). It fails a VSIX that carries a provider SDK (anything under
+`node_modules/@anthropic-ai/`, or a `bin/<platform>/claude[.exe]`). Both help
+pages it requires (`resources/dart_binaries/missing_dart_binaries.md`,
 `resources/agent_sdk/missing_agent_sdk_cli.md`) are what a window shows when
-one of those is missing on its platform.
+one of those is missing; it also requires the provider manifest and the
+Provider SDKs page.
 
-The Agent SDK's Claude CLI is an npm package per platform, and only the host's
-may be in `node_modules` (vsce's `npm list` refuses another platform's as
-invalid): the scripts remove any other. `--all-platforms` / `-AllPlatforms`
-(`TOM_ALL_PLATFORMS=1`) fetches the CLIs of darwin-arm64, linux-x64 and
-win32-x64 (minus the host) with `npm pack` into `.cache/agent-sdk-cli/`
-(gitignored, reused per SDK version) and bundles each as
-`bin/<platform>/claude[.exe]`; the transport passes it to the SDK as
-`pathToClaudeCodeExecutable`. A default build carries the host's CLI only
-(about 150 MB); with all three the VSIX is about 380 MB.
+**Provider SDKs are not packaged.** `@anthropic-ai/sdk` and
+`@anthropic-ai/claude-agent-sdk` are devDependencies (types, tests), which
+vsce leaves out. The extension installs them on request (Provider SDKs page,
+`src/handlers/providerSdks-handler.ts`; `src/services/providerInstaller.ts`:
+tarballs from the npm registry, integrity-checked, unpacked into a staging
+folder, swapped in, recorded in `providers-state.json`) into
+`<globalStorage>/providers/<provider>/node_modules`, at the versions of
+`resources/providers/providers.json`. That manifest is written from
+`package-lock.json` by `npm run providers:manifest`
+(`scripts/build-provider-manifest.cjs`): every provider's roots, their
+dependency closure, the per-platform CLI packages (os / cpu / libc), each with
+tarball URL and integrity. After an `npm install` that moves an SDK version,
+run it again and commit the manifest (`npm run providers:check`, test PS-1).
+At run time `src/services/providerRuntime.ts` loads `@anthropic-ai/sdk` with a
+`require` rooted in the provider folder and the Agent SDK by its `sdk.mjs` file
+URL; the CLI is handed to the SDK as `pathToClaudeCodeExecutable`. In a
+development checkout, when no provider is installed, the devDependencies
+stand in (`TOM_PROVIDER_SDKS_NO_DEV_FALLBACK=1` turns that off, as a VSIX
+runs). Tests: `providerSdks.test.ts` (PS-1 – PS-6, a local registry),
+`providerSdksPage.test.ts` (PP-1 – PP-4), `agentSdkCli.test.ts` (AC-1 – AC-5).
 
 Before packaging, both installers build the workspace template
 (`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
@@ -131,9 +144,8 @@ left-out file, and the Active Quests table keeps only `tomai_introduction`
 
 **Packaging without installing** (private distribution): `create_vsix.sh` /
 `.ps1` build from source with the Dart binaries for this platform,
-`create_vsix_nodart.sh` / `.ps1` without the Dart step; both always bundle the
-three Claude CLIs (`TOM_ALL_PLATFORMS=1`) and run `install_extension.*` in its
-package-only mode (`--package-only` / `-PackageOnly` / `TOM_PACKAGE_ONLY=1`:
+`create_vsix_nodart.sh` / `.ps1` without the Dart step; both run
+`install_extension.*` in its package-only mode (`--package-only` / `-PackageOnly` / `TOM_PACKAGE_ONLY=1`:
 no uninstall, no prompt, no `code --install-extension`). They end with the
 VSIX path, the template path and the per-platform report of
 `check-vsix-contents.cjs`. Tests: `createVsixScripts.test.ts` (CS-1 – CS-5).

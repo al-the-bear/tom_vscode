@@ -128,11 +128,12 @@ the page that command opens. Nothing is started; the user sees the same error
 with a **What does this mean?** button. `tomAi_getWorkspaceInfo` (`dartBinaries`)
 says beforehand whether `tom_bs` is there.
 
-**The Agent SDK transport without its CLI.** A VSIX carries the Agent SDK's
-Claude CLI for the platform it was built on (with `--all-platforms` also for
-darwin-arm64, linux-x64 and win32-x64). On another platform a prompt on an
-Agent SDK profile fails before it runs, naming the missing package and the
-page `tomAi.showAgentSdkCliHelp` opens; other transports are not affected.
+**The Anthropic transports without their SDK.** No VSIX carries the provider
+SDKs: the Provider SDKs page (`tomAi.providerSdks`) installs the Anthropic
+provider — the direct API SDK, the Agent SDK and its Claude CLI for this
+platform. Without it a prompt on an Anthropic profile fails before it runs,
+naming the missing SDK (or the CLI) and the page `tomAi.showAgentSdkCliHelp`
+opens; other transports are not affected.
 
 ### 4.5 Editor and workspace context
 

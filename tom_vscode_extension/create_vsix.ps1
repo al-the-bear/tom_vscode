@@ -8,14 +8,13 @@
       - tom_bs and validate_codespecs for THIS host's platform (compiled from
         source, as compile_and_install.ps1; a Dart binary cannot be built for
         another platform);
-      - the Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
-        (-AllPlatforms), so the Agent SDK transport runs on all three;
       - the workspace template (resources/workspace_template.zip), which
         @T: Setup New Workspace Folder unpacks; a copy is written beside the VSIX.
     -NoDart (create_vsix_nodart.ps1) builds without the Dart binaries.
 
-    A thin wrapper over install_extension.ps1 (TOM_BRIDGE_FROM_SOURCE=1,
-    TOM_ALL_PLATFORMS=1, TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
+    No provider SDK: the extension installs them on request (Provider SDKs
+    page). A thin wrapper over install_extension.ps1 (TOM_BRIDGE_FROM_SOURCE=1,
+    TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
     template path and the binaries the VSIX carries per platform.
 #>
 param([switch]$NoDart)
@@ -31,7 +30,6 @@ foreach ($Arg in $args) {
 }
 
 $env:TOM_BRIDGE_FROM_SOURCE = '1'
-$env:TOM_ALL_PLATFORMS = '1'
 $env:TOM_PACKAGE_ONLY = '1'
 # Settle the no-Dart mode here, so this wrapper and install_extension.ps1
 # agree on it. On purpose (-NoDart) it is a plain note at the end; without a
@@ -60,7 +58,7 @@ $env:TOM_SKIP_FINISH_TS = '1'
 try {
     & (Join-Path $ScriptDir 'install_extension.ps1')
 } finally {
-    foreach ($name in @('TOM_BRIDGE_FROM_SOURCE', 'TOM_ALL_PLATFORMS', 'TOM_PACKAGE_ONLY', 'TOM_SKIP_FINISH_TS', 'TOM_NO_DART', 'TOM_NO_DART_REASON')) {
+    foreach ($name in @('TOM_BRIDGE_FROM_SOURCE', 'TOM_PACKAGE_ONLY', 'TOM_SKIP_FINISH_TS', 'TOM_NO_DART', 'TOM_NO_DART_REASON')) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
 }

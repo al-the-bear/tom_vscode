@@ -16,15 +16,15 @@
  *   - every REQUIRED entry is present;
  *   - no entry under the SOM packages is a symlink (a Unix-made zip entry whose
  *     mode is S_IFLNK);
- *   - no symlink anywhere in the VSIX (reported; vsctsa1 forbids them).
+ *   - no symlink anywhere in the VSIX (reported; vsctsa1 forbids them);
+ *   - no provider SDK (`node_modules/@anthropic-ai/…`, a bundled Claude CLI):
+ *     the extension installs them on request (Provider SDKs page), it never
+ *     carries them.
  *
  * Reported, not checked: which Dart-built binaries (tom_bs, validate_codespecs)
  * the VSIX carries for which platform. A VSIX built without a Dart SDK has none
  * for its host and is still a valid package: the extension then runs without
- * DartScript and CodeSpecs validation on that platform. Likewise for which
- * platforms it carries the Agent SDK's native Claude CLI (the host's; with
- * --all-platforms also the fleet's): elsewhere the Agent SDK transport says it
- * cannot run.
+ * DartScript and CodeSpecs validation on that platform.
  *
  * Exit codes: 0 ok, 1 a check failed (each failure is listed), 2 no VSIX or an
  * unreadable zip.
@@ -65,8 +65,12 @@ const REQUIRED = [
     // The page a window shows when a Dart-built binary is missing on its platform
     // (src/handlers/dartBinariesHelp-handler.ts).
     'extension/resources/dart_binaries/missing_dart_binaries.md',
-    // The page the Agent SDK transport points to when this platform has no CLI.
+    // The page the Agent SDK transport points to when the provider SDK or its CLI is not installed.
     'extension/resources/agent_sdk/missing_agent_sdk_cli.md',
+    // What the Provider SDKs page installs (scripts/build-provider-manifest.cjs) and the page itself.
+    'extension/resources/providers/providers.json',
+    'extension/media/providerSdks/main.js',
+    'extension/out/services/providerInstaller.js',
     // What @T: Setup New Workspace Folder unpacks (scripts/build-workspace-template.cjs).
     'extension/resources/workspace_template.zip',
 ];
@@ -156,18 +160,14 @@ function printDartBinaryReport(report, host = HOST_PLATFORM) {
 }
 
 /**
- * The platforms whose Agent SDK native CLI the VSIX carries: the host's package
- * (`@anthropic-ai/claude-agent-sdk-<platform>/claude[.exe]`) and the binaries
- * --all-platforms bundles (`bin/<platform>/claude[.exe]`).
+ * Entries of provider SDKs the VSIX must not carry (the extension installs
+ * them on request; their licences do not let it redistribute them): anything
+ * under a provider package prefix, or a Claude CLI bundled as a binary.
  */
-function agentSdkCliPlatforms(names) {
-    const platforms = new Set();
-    for (const name of names) {
-        const m = /^extension\/node_modules\/@anthropic-ai\/claude-agent-sdk-([^/]+)\/claude(\.exe)?$/.exec(name)
-            ?? /^extension\/bin\/([^/]+)\/claude(\.exe)?$/.exec(name);
-        if (m) { platforms.add(m[1]); }
-    }
-    return [...platforms].sort();
+const PROVIDER_PREFIXES = ['extension/node_modules/@anthropic-ai/'];
+
+function providerSdkEntries(names) {
+    return [...names].filter((n) => PROVIDER_PREFIXES.some((p) => n.startsWith(p)) || /^extension\/bin\/[^/]+\/claude(\.exe)?$/.test(n)).sort();
 }
 
 function main() {
@@ -188,6 +188,10 @@ function main() {
     for (const required of REQUIRED) {
         if (!names.has(required)) { failures.push(`missing: ${required}`); }
     }
+    const providerEntries = providerSdkEntries(names);
+    if (providerEntries.length > 0) {
+        failures.push(`provider SDK in the VSIX (it is installed on request, never packaged): ${providerEntries.length} entries, e.g. ${providerEntries[0]}`);
+    }
     for (const e of entries.filter((x) => x.isSymlink)) {
         const som = SOM_PREFIXES.some((prefix) => e.name.startsWith(prefix));
         failures.push(`symlink${som ? ' in a SOM package' : ''}: ${e.name}`);
@@ -198,14 +202,12 @@ function main() {
         for (const f of failures) { console.error(`   ${f}`); }
         process.exit(1);
     }
-    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks.`);
+    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks, no provider SDK.`);
     printDartBinaryReport(dartBinaryReport(names));
-    const cli = agentSdkCliPlatforms(names);
-    console.log(`   Agent SDK CLI (informational): ${cli.length > 0 ? cli.join(', ') : 'none'}${cli.includes(HOST_PLATFORM) ? '' : ` — not for this host (${HOST_PLATFORM})`}`);
 }
 
 if (require.main === module) {
     main();
 }
 
-module.exports = { readCentralDirectory, dartBinaryReport, agentSdkCliPlatforms, REQUIRED };
+module.exports = { readCentralDirectory, dartBinaryReport, providerSdkEntries, REQUIRED };

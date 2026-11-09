@@ -18,8 +18,8 @@
 #    others' binaries are packaged as the layer holds them).
 # 2. Packages the VSIX through install_extension.sh --package-only, taking
 #    tom_bs and validate_codespecs for darwin-arm64, linux-x64 and win32-x64
-#    from the layer, with the Agent SDK's Claude CLI for the three and the
-#    workspace template, as create_vsix.sh.
+#    from the layer, with the workspace template, as create_vsix.sh (no
+#    provider SDK: the extension installs them on request).
 # It ends with the VSIX path, the template path, the binaries the VSIX carries
 # per platform and each binary's build stamp and freshness
 # (scripts/binaries-layer.cjs report).
@@ -51,7 +51,6 @@ echo ""
 echo "──────── 2/2 The VSIX, with the fleet's binaries from the layer ────────"
 export TOM_LAYER_BINARIES=1
 export TOM_LAYER_PLATFORMS="$PLATFORMS"
-export TOM_ALL_PLATFORMS=1
 export TOM_PACKAGE_ONLY=1
 export TOM_SKIP_FINISH_TS=1
 "$SCRIPT_DIR/install_extension.sh"

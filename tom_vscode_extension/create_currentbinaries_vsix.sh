@@ -11,8 +11,8 @@
 #    commit). A Dart SDK is needed; without one use create_vsix_nodart.sh.
 # 2. Packages the VSIX through install_extension.sh --package-only, taking
 #    tom_bs and validate_codespecs for every platform from the layer
-#    (TOM_LAYER_BINARIES=1), with the Agent SDK's Claude CLI for darwin-arm64,
-#    linux-x64 and win32-x64 and the workspace template, as create_vsix.sh.
+#    (TOM_LAYER_BINARIES=1), with the workspace template, as create_vsix.sh
+#    (no provider SDK: the extension installs them on request).
 # It ends with the VSIX path, the template path, the binaries the VSIX carries
 # per platform and, per platform, each binary's build stamp and whether it is
 # older than the sources here (scripts/binaries-layer.cjs report). A platform
@@ -43,7 +43,6 @@ echo "──────── 1/2 This host's binaries into the binaries layer 
 echo ""
 echo "──────── 2/2 The VSIX, with every platform's binaries from the layer ────────"
 export TOM_LAYER_BINARIES=1
-export TOM_ALL_PLATFORMS=1
 export TOM_PACKAGE_ONLY=1
 export TOM_SKIP_FINISH_TS=1
 "$SCRIPT_DIR/install_extension.sh"

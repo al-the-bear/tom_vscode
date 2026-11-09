@@ -90,8 +90,8 @@ Ignored fields on the `agentSdk` path: `apiKeyEnvVar`, `promptCachingEnabled`, `
 
 The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `transport: "agentSdk"`:
 
-- **Green** — `claude --version` succeeded at panel load.
-- **Red** — `claude` CLI not found on PATH or exited non-zero. Install Claude Code and run `claude login` or `claude setup-token`, then reload the window.
+- **Green** — the Anthropic provider's Agent SDK and its Claude CLI for this platform are installed (Provider SDKs page; `agentSdkAvailable()` and `locateAgentSdkCli()` at panel load).
+- **Red** — not installed: install the Anthropic provider on the Provider SDKs page (`@T: Provider SDKs`). The SDK signs in with the Claude Code login (`claude login` or `claude setup-token`).
 - **Hidden** — no configuration uses the Agent SDK transport.
 
 A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic/LLM — Configurations** section.

@@ -337,7 +337,7 @@ function getSectionContent(id) {
                 // profile.configurationId → isDefault → first. Pick a
                 // different configuration by switching profile.
                 '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>' +
-                '<span id="anthropic-claude-dot" class="api-status-dot" title="Claude Code install status (Agent SDK transport)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>' +
+                '<span id="anthropic-claude-dot" class="api-status-dot" title="Agent SDK transport: the Anthropic provider&#39;s Agent SDK and Claude CLI installed (Provider SDKs page)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>' +
                 // User-message template dropdown + inline edit icon (§7.3)
                 '<label>User Prompt:</label><select id="anthropic-userMessage" style="width:40%" title="Anthropic user-message template"><option value="">(None)</option></select>' +
                 '<button class="icon-btn" data-action="editAnthropicUserMessage" data-id="anthropic" title="Edit Anthropic user-message template"><span class="codicon codicon-edit"></span></button>',

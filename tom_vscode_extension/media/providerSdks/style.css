@@ -1,0 +1,46 @@
+/* Provider SDKs — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    margin: 0;
+}
+.ps-wrap { max-width: 1000px; margin: 0 auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.ps-title { margin: 0; font-size: 1.3em; }
+.ps-intro, .ps-muted, .ps-desc { color: var(--vscode-descriptionForeground); }
+.ps-intro { margin: 0; }
+.ps-desc { font-size: 0.9em; }
+.ps-name { font-weight: 600; }
+.ps-none {
+    padding: 8px 10px;
+    border-left: 3px solid var(--vscode-inputValidation-warningBorder);
+    background: var(--vscode-inputValidation-warningBackground);
+}
+.ps-bar { display: flex; align-items: center; gap: 8px; }
+button {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    padding: 4px 10px;
+    cursor: pointer;
+}
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.ps-update { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; }
+button.ps-update.major { background: var(--vscode-inputValidation-warningBackground); color: var(--vscode-foreground); border: 1px solid var(--vscode-inputValidation-warningBorder); }
+.ps-pending { font-size: 0.85em; padding: 1px 5px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.ps-table { border-collapse: collapse; width: 100%; }
+.ps-table th, .ps-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; }
+.ps-message { padding: 6px 10px; }
+.ps-message.info { border-left: 3px solid var(--vscode-charts-green); }
+.ps-message.error { border-left: 3px solid var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+.ps-log {
+    margin: 0;
+    max-height: 40vh;
+    overflow: auto;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    background: var(--vscode-textCodeBlock-background);
+    padding: 8px 10px;
+}

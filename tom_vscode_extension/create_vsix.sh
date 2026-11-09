@@ -8,14 +8,13 @@
 #   - tom_bs and validate_codespecs for THIS host's platform (compiled from
 #     source, as compile_and_install.sh; a Dart binary cannot be built for
 #     another platform);
-#   - the Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
-#     (--all-platforms), so the Agent SDK transport runs on all three;
 #   - the workspace template (resources/workspace_template.zip), which
 #     @T: Setup New Workspace Folder unpacks; a copy is written beside the VSIX.
 # --no-dart (create_vsix_nodart.sh) builds without the Dart binaries.
 #
+# No provider SDK: the extension installs them on request (Provider SDKs page).
 # A thin wrapper over install_extension.sh (TOM_BRIDGE_FROM_SOURCE=1,
-# TOM_ALL_PLATFORMS=1, TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
+# TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
 # template path and the binaries the VSIX carries per platform.
 
 set -e
@@ -28,13 +27,12 @@ NO_DART_ON_PURPOSE=0
 for ARG in "$@"; do
     case "$ARG" in
         --no-dart) NO_DART_ON_PURPOSE=1 ;;
-        -h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart])"; exit 1 ;;
     esac
 done
 
 export TOM_BRIDGE_FROM_SOURCE=1
-export TOM_ALL_PLATFORMS=1
 export TOM_PACKAGE_ONLY=1
 
 # Settle the no-Dart mode here, so this wrapper and install_extension.sh agree

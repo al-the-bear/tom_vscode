@@ -185,11 +185,19 @@ export async function loadSdk(): Promise<AgentSdkModule> {
         // `new Function('m', 'return import(m)')` keeps the `import()` out
         // of the TS emit — otherwise `tsc --module commonjs` would rewrite
         // it to `require()` and the ESM-only SDK would fail to load.
-        cachedSdk = (new Function('m', 'return import(m)') as (m: string) => Promise<AgentSdkModule>)(
-            '@anthropic-ai/claude-agent-sdk',
-        );
+        // The installed Anthropic provider's SDK (Provider SDKs page), as a
+        // file URL; in a development checkout the extension's own package.
+        // Not installed: ProviderSdkMissing, before anything is cached.
+        const specifier = agentSdkImportSpecifier();
+        cachedSdk = (new Function('m', 'return import(m)') as (m: string) => Promise<AgentSdkModule>)(specifier);
+        cachedSdk.catch(() => { cachedSdk = undefined; });
     }
     return cachedSdk;
+}
+
+/** Forget the loaded SDK: the next query loads it again (after the provider was installed, updated or removed). */
+export function resetAgentSdkCache(): void {
+    cachedSdk = undefined;
 }
 
 /**
@@ -200,10 +208,19 @@ export function __setAgentSdkForTests(sdk: unknown): void {
     cachedSdk = Promise.resolve(sdk as AgentSdkModule);
     // A fake SDK runs no CLI.
     cliFinder = () => ({ path: 'fake-sdk', source: 'package' });
+    sdkFinder = () => undefined;
 }
 
 /** Where the native CLI is for this platform (null: none); a test may stand in. */
 let cliFinder: () => AgentSdkCliLocation | null = () => locateAgentSdkCli();
+
+/** Throws ProviderSdkMissing when the Agent SDK is not installed; a test may stand in. */
+let sdkFinder: () => void = () => { agentSdkImportSpecifier(); };
+
+/** Test seam: how the SDK's presence is checked. */
+export function __setAgentSdkFinderForTests(finder: () => void): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam, named like __setAgentSdkForTests
+    sdkFinder = finder;
+}
 
 /** Test seam: how the CLI is looked up. */
 export function __setAgentSdkCliFinderForTests(finder: () => AgentSdkCliLocation | null): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam, named like __setAgentSdkForTests
@@ -211,29 +228,37 @@ export function __setAgentSdkCliFinderForTests(finder: () => AgentSdkCliLocation
 }
 
 /**
- * Before a query: the SDK needs its native CLI, which a VSIX carries only for
- * the platforms it was built with. Without it here, fail with what is missing
- * and how to get it (instead of the SDK's "Native CLI binary for … not
- * found"), and tell the user once per window session. Answers the path the
- * SDK must be given (`pathToClaudeCodeExecutable`) when the CLI is the binary
- * bundled in bin/<platform>/ rather than the package the SDK finds itself.
+ * Before a query: the SDK and its native CLI come from the installed
+ * Anthropic provider (Provider SDKs page; the VSIX carries neither). When the
+ * SDK is not installed, or has no CLI for this platform, fail with what is
+ * missing and how to get it (instead of a module-not-found or the SDK's
+ * "Native CLI binary for … not found"), and tell the user once per window
+ * session, offering the install. Answers the CLI path the SDK is given
+ * (`pathToClaudeCodeExecutable`) when it is the installed provider's.
  */
 export function requireAgentSdkCli(): string | undefined {
+    try {
+        sdkFinder();
+    } catch (e) {
+        if (e instanceof ProviderSdkMissing) { noteAgentSdkCliMissing(e.message); }
+        throw e;
+    }
     const cli = cliFinder();
-    if (cli) { return cli.source === 'bundled' ? cli.path : undefined; }
+    if (cli) { return cli.source === 'provider' ? cli.path : undefined; }
     const err = new AgentSdkCliMissing(undefined, agentSdkCliHelpPage());
     noteAgentSdkCliMissing(err.message);
     throw err;
 }
 
-/** The bundled CLI's path for this platform, when the SDK must be given it. */
-function bundledCliOption(): Record<string, unknown> {
+/** The installed provider's CLI path, which the SDK is given. */
+function cliOption(): Record<string, unknown> {
     const cli = cliFinder();
-    return cli?.source === 'bundled' ? { pathToClaudeCodeExecutable: cli.path } : {};
+    return cli?.source === 'provider' ? { pathToClaudeCodeExecutable: cli.path } : {};
 }
 
 import { SharedToolDefinition, summarizeToolInput } from '../tools/shared-tool-registry';
 import { AgentSdkCliMissing, locateAgentSdkCli, type AgentSdkCliLocation } from '../services/agentSdkCli';
+import { agentSdkImportSpecifier, ProviderSdkMissing } from '../services/providerRuntime';
 import { agentSdkCliHelpPage, noteAgentSdkCliMissing } from './agentSdkCliHelp-handler';
 import { TrailService } from '../services/trailService';
 import { ToolTrail } from '../services/tool-trail';
@@ -1080,8 +1105,8 @@ async function runAgentSdkAttempt(
             tools: toolsOption,
             ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
             ...(Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {}),
-            // A CLI bundled for this platform by --all-platforms (no package the SDK would find).
-            ...bundledCliOption(),
+            // The installed Anthropic provider's Claude CLI for this platform.
+            ...cliOption(),
             // Makes the CLI report `session_state_changed`, whose `idle` is the
             // signal the input channel closes on. `env` replaces the
             // subprocess environment, so the inherited one is spread in.

@@ -2,7 +2,7 @@
 
 # Install script for tom_vscode_extension extension
 #
-#   ./install_extension.sh [--no-dart] [--all-platforms] [--package-only]
+#   ./install_extension.sh [--no-dart] [--package-only]
 #                          [--binaries-only] [--layer-binaries] [--no-layer]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1):
@@ -10,10 +10,6 @@
 # source, no tom_bs. Without the option the same happens when no Dart SDK is
 # found (scripts/find-dart.cjs). The extension then loses only DartScript and
 # CodeSpecs validation; everything else works.
-# --all-platforms (also TOM_ALL_PLATFORMS=1) bundles the Agent SDK's Claude CLI
-# for darwin-arm64, linux-x64 and win32-x64, not only for this host, so the
-# Agent SDK transport also runs where the VSIX is installed on another
-# platform (about 110 MB more per platform).
 # --package-only (also TOM_PACKAGE_ONLY=1) builds and checks the VSIX but does
 # not uninstall the old one or install it (create_vsix*.sh use it).
 # --binaries-only (also TOM_BINARIES_ONLY=1; from source only) builds tom_bs and
@@ -39,16 +35,14 @@ source "$SCRIPT_DIR/scripts/install_summary.sh"
 for ARG in "$@"; do
     case "$ARG" in
         --no-dart) export TOM_NO_DART=1; TOM_NO_DART_REASON="${TOM_NO_DART_REASON:---no-dart given}" ;;
-        --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
         --package-only) export TOM_PACKAGE_ONLY=1 ;;
         --binaries-only) export TOM_BINARIES_ONLY=1 ;;
         --layer-binaries) export TOM_LAYER_BINARIES=1 ;;
         --no-layer) export TOM_NO_LAYER=1 ;;
-        -h|--help) sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--package-only] [--binaries-only] [--layer-binaries] [--no-layer])"; exit 1 ;;
+        -h|--help) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--package-only] [--binaries-only] [--layer-binaries] [--no-layer])"; exit 1 ;;
     esac
 done
-ALL_PLATFORMS="${TOM_ALL_PLATFORMS:-0}"
 PACKAGE_ONLY="${TOM_PACKAGE_ONLY:-0}"
 NO_DART="${TOM_NO_DART:-0}"
 [ "$NO_DART" = "1" ] && TOM_NO_DART_REASON="${TOM_NO_DART_REASON:-TOM_NO_DART=1}"
@@ -159,8 +153,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Install / update dependencies (incl. the host-platform Claude Agent SDK
-# native CLI binary, which ships as an optional dependency).
+# Install / update dependencies (the provider SDKs among the devDependencies:
+# for the types and the tests; they do not go into the VSIX).
 echo "📦 Installing npm dependencies..."
 npm install
 
@@ -412,99 +406,9 @@ if [ "$BINARIES_ONLY" = "1" ]; then
     exit 0
 fi
 
-# ── Claude Agent SDK native CLI: this host's, or the fleet's ──────────────────
-# Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native binary
-# via optional deps (@anthropic-ai/claude-agent-sdk-<platform>) rather than a
-# bundled cli.js. `vsce package` only includes what is physically present in
-# node_modules, and only the host's package may be there (vsce's `npm list`
-# refuses another platform's as invalid), so by default the VSIX runs the Agent
-# SDK transport only on this platform; elsewhere the transport says the CLI is
-# missing (resources/agent_sdk/missing_agent_sdk_cli.md). With --all-platforms
-# the fleet's other CLIs (darwin-arm64, linux-x64, win32-x64) are fetched with
-# `npm pack` (no platform check) into .cache/agent-sdk-cli/ and bundled as
-# bin/<platform>/claude[.exe], which the transport hands to the SDK
-# (pathToClaudeCodeExecutable). bin/ was emptied above, so a default build
-# carries none of them. Older SDKs that still bundle cli.js need nothing.
-echo ""
-if [ "$ALL_PLATFORMS" = "1" ]; then
-    echo "📦 Ensuring the Claude Agent SDK native CLI for this host and the fleet (--all-platforms)..."
-else
-    echo "📦 Ensuring the Claude Agent SDK native CLI for this host (only; --all-platforms adds the fleet's)..."
-fi
-SDK_PKG_DIR="$SCRIPT_DIR/node_modules/@anthropic-ai/claude-agent-sdk"
-if [ -f "$SDK_PKG_DIR/cli.js" ]; then
-    echo "  ✔ SDK bundles cli.js — no per-platform binary needed"
-elif [ -d "$SDK_PKG_DIR" ]; then
-    # Map the running host to the SDK's platform package suffix.
-    case "$(uname -s)" in
-        Linux)  SDK_OS="linux" ;;
-        Darwin) SDK_OS="darwin" ;;
-        *)      SDK_OS="unknown" ;;
-    esac
-    case "$(uname -m)" in
-        x86_64|amd64)   SDK_ARCH="x64" ;;
-        arm64|aarch64)  SDK_ARCH="arm64" ;;
-        *)              SDK_ARCH="unknown" ;;
-    esac
-    HOST_PLAT="$SDK_OS-$SDK_ARCH"
-    # musl libc (e.g. Alpine) uses a distinct binary package.
-    if [ "$SDK_OS" = "linux" ] && ldd --version 2>&1 | grep -qi musl; then
-        HOST_PLAT="$HOST_PLAT-musl"
-    fi
-    SDK_VER="$(node -p "require('$SDK_PKG_DIR/package.json').version")"
-    HOST_PKG="@anthropic-ai/claude-agent-sdk-$HOST_PLAT"
-    # Only the host's package: another platform's would fail vsce's npm list.
-    for DIR in "$SCRIPT_DIR"/node_modules/@anthropic-ai/claude-agent-sdk-*; do
-        [ -d "$DIR" ] || continue
-        PLAT="${DIR##*/claude-agent-sdk-}"
-        if [ "$PLAT" != "$HOST_PLAT" ]; then
-            rm -rf "$DIR"
-            echo "  🗑  removed the $PLAT package (only the host's may be in node_modules)"
-        fi
-    done
-    if [ -d "$SCRIPT_DIR/node_modules/@anthropic-ai/claude-agent-sdk-$HOST_PLAT" ]; then
-        echo "  ✔ $HOST_PKG already present"
-    else
-        echo "  ⬇  installing $HOST_PKG@$SDK_VER ..."
-        # --no-save / --no-package-lock keep the committed manifests untouched;
-        # we only need the binary physically in node_modules for packaging.
-        if npm install --no-save --no-package-lock "$HOST_PKG@$SDK_VER"; then
-            echo "  ✔ $HOST_PKG@$SDK_VER"
-        else
-            echo "  ❌ Failed to install $HOST_PKG@$SDK_VER"
-            echo "     The packaged extension will fail at runtime on this host."
-            exit 1
-        fi
-    fi
-    if [ "$ALL_PLATFORMS" = "1" ]; then
-        CLI_CACHE="$SCRIPT_DIR/.cache/agent-sdk-cli"
-        mkdir -p "$CLI_CACHE"
-        for PLAT in darwin-arm64 linux-x64 win32-x64; do
-            [ "$PLAT" = "$HOST_PLAT" ] && continue
-            EXE=""
-            case "$PLAT" in win32-*) EXE=".exe" ;; esac
-            PKG="@anthropic-ai/claude-agent-sdk-$PLAT@$SDK_VER"
-            TGZ="$CLI_CACHE/anthropic-ai-claude-agent-sdk-$PLAT-$SDK_VER.tgz"
-            if [ ! -f "$TGZ" ]; then
-                echo "  ⬇  fetching $PKG ..."
-                ( cd "$CLI_CACHE" && npm pack "$PKG" --silent > /dev/null ) || {
-                    echo "  ❌ Failed to fetch $PKG"
-                    exit 1
-                }
-            fi
-            UNPACK="$CLI_CACHE/unpacked-$PLAT"
-            rm -rf "$UNPACK" && mkdir -p "$UNPACK"
-            tar -xzf "$TGZ" -C "$UNPACK"
-            mkdir -p "$SCRIPT_DIR/bin/$PLAT"
-            cp "$UNPACK/package/claude$EXE" "$SCRIPT_DIR/bin/$PLAT/claude$EXE"
-            chmod +x "$SCRIPT_DIR/bin/$PLAT/claude$EXE"
-            rm -rf "$UNPACK"
-            echo "  ✔ bin/$PLAT/claude$EXE ($PKG)"
-        done
-    fi
-else
-    echo "  ⚠️  @anthropic-ai/claude-agent-sdk not found in node_modules — run 'npm install' first"
-fi
+# The provider SDKs (the Anthropic SDK and the Agent SDK with its Claude CLI)
+# are not in the VSIX: they are devDependencies, which vsce leaves out, and the
+# extension installs them on request (Provider SDKs page).
 
 # ── The workspace template ───────────────────────────────────────────────────
 # What @T: Setup New Workspace Folder unpacks: the workspace's config,

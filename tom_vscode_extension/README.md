@@ -102,8 +102,6 @@ Options (bash / PowerShell):
 
 - `--no-dart` / `-NoDart` (or `TOM_NO_DART=1`): builds as on a machine
   without a Dart SDK (below);
-- `--all-platforms` / `-AllPlatforms` (or `TOM_ALL_PLATFORMS=1`): bundles the
-  Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64;
 - `--binaries-only` / `-BinariesOnly`: builds `tom_bs` and `validate_codespecs`
   for this host, puts them into the binaries layer (step 5) and stops — no
   npm, no TypeScript, no VSIX, nothing installed;
@@ -131,20 +129,17 @@ It runs end to end:
    multi-platform VSIXes take (below). A push the remote refuses (the layer is
    behind it) leaves the commit local and the install goes on; nothing pulls
    the layer on its own.
-6. Ensures the host's Claude Agent SDK native CLI is present (its npm
-   package); with `--all-platforms` it also fetches the fleet's other CLIs
-   with `npm pack` and bundles them as `bin/<platform>/claude[.exe]`.
-7. Builds the workspace template (`npm run template:build`): the workspace's
+6. Builds the workspace template (`npm run template:build`): the workspace's
    config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
    personal files and literal secrets, as `resources/workspace_template.zip`
    (in the VSIX) and a copy beside it.
-8. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
+7. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
    which of `tom_bs` / `validate_codespecs` it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
    and installs it via the `code` CLI (without `code` it is only packaged).
-9. Prints the VSIX's path, to install the same file on other machines with
+8. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
 
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
@@ -162,8 +157,10 @@ after the closing line says so. Such a VSIX lacks two things only:
 Everything else works: the chat panels and their transports, the prompt queue,
 the tools, quests, todos and processes, TomSpecs editing.
 
-A VSIX is about 150 MB; `--all-platforms` adds about 110 MB per added platform
-(about 380 MB with all three).
+The VSIX carries no model provider's SDK: the Anthropic SDK and the Agent SDK
+with its Claude CLI are devDependencies (for the types and the tests), which
+vsce leaves out, and the extension installs them on request (see
+[Provider SDKs](#provider-sdks) below).
 
 After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window**.
 
@@ -178,7 +175,7 @@ through it (`npm run binaries:report` says, per platform).
 `compile_and_install` is the install route on every host; this one is for a
 machine without the d4rt and bridge checkouts. It compiles
 `validate_codespecs` when a Dart SDK is found (without one, or with
-`--no-dart`, it leaves it out as above), takes `--all-platforms` too, and it
+`--no-dart`, it leaves it out as above), and it
 says which bridge source the bundled `tom_bs` was built from
 (`npm run check:tom-bs`) and that it lags:
 
@@ -227,14 +224,11 @@ pwsh create_currentbinaries_vsix.ps1  # Windows (create_fleetcompiled_vsix.ps1 l
   check; `--hosts mbp,bigbeast` / `-Hosts` builds on those hosts only.
 
 Both package through `install_extension --package-only` with
-`TOM_LAYER_BINARIES=1` (no second build), with the Agent SDK's Claude CLI for
-the three platforms and the workspace template, and end like `create_vsix`
-plus the layer report.
+`TOM_LAYER_BINARIES=1` (no second build), with the workspace template, and end
+like `create_vsix` plus the layer report.
 
 `create_vsix` builds like `compile_and_install` (`--package-only` of
-`install_extension.*`: no uninstall, no install) and always bundle the Agent
-SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
-(`--all-platforms`; about 370 MB). They end with:
+`install_extension.*`: no uninstall, no install). They end with:
 
 - the VSIX's path;
 - the workspace template's path (`workspace_template.zip`, beside the VSIX and
@@ -248,6 +242,37 @@ from the binaries layer (`create_currentbinaries_vsix`,
 `create_fleetcompiled_vsix`, above), or configure binaries per platform
 (below). Without a Dart SDK it builds as `create_vsix_nodart.sh` and
 says so in red.
+
+### Provider SDKs
+
+The extension does not carry the model providers' SDKs (their licences do not
+let it redistribute them, and most users need one or two providers). It
+installs them on request into its global storage
+(`<globalStorage>/providers/<provider>/node_modules`), where they stay across
+extension updates:
+
+- **The Provider SDKs page** (`@T: Provider SDKs`, the **Provider SDKs** button
+  on the Status Page) lists every provider with a checkbox, the installed
+  versions and the versions this build is tested with. Checking or unchecking
+  and **Install / Uninstall** installs or removes them; **Check for updates**
+  asks the npm registry for newer releases, shown as an **update to …** tag
+  (marked *(new major)* when the API may change) that installs that update;
+  **Update all** installs every one found; **install this build's versions**
+  goes back. Nothing updates by itself.
+- **When no provider is installed** the page opens when the extension starts.
+- **The Anthropic provider** is the direct API SDK (`@anthropic-ai/sdk`, also
+  used for history compaction and memory extraction) and the Agent SDK
+  (`@anthropic-ai/claude-agent-sdk`) with its Claude CLI for this platform,
+  plus their dependencies — about ten packages.
+- **How:** the packages are downloaded straight from the npm registry (no npm
+  or Node needed on the machine), each checked against its integrity, unpacked
+  into a staging folder and swapped in when all are there; a failure leaves
+  the installed provider as it was. The pinned set is
+  `resources/providers/providers.json`, written from `package-lock.json` by
+  `npm run providers:manifest` (`npm run providers:check` compares). What is
+  installed, at which versions, is recorded in `providers-state.json` there.
+- A development checkout (tests, F5) uses its own devDependencies when no
+  provider is installed.
 
 ### Installing the VSIX on another machine
 
@@ -264,14 +289,13 @@ on:
 
 - `tom_bs` (DartScript) and `validate_codespecs` (CodeSpecs validation): for
   the build machine's platform, when it had a Dart SDK;
-- `claude`, the Agent SDK CLI (the Agent SDK transport): for the build
-  machine's platform; with `--all-platforms` for darwin-arm64, linux-x64 and
-  win32-x64.
+- the provider SDKs (the Anthropic API and Agent SDK transports): never in
+  the VSIX; each machine installs them on its own Provider SDKs page, for its
+  own platform.
 
 A VSIX built on macOS and installed on Windows therefore has no DartScript
-and no CodeSpecs validation there, and the Agent SDK transport only if it was
-built with `--all-platforms`; everything else works. When something is
-missing:
+and no CodeSpecs validation there; everything else works once the provider
+SDKs are installed. When something is missing:
 
 - **DartScript / CodeSpecs validation:** the page
   **@T: Missing Dart Binaries (DartScript / CodeSpecs validation)** opens once
@@ -285,11 +309,10 @@ missing:
   `tomAi_specCodeSpecsValidate` answers `binaryMissing` with how to get the
   binary; Trace and Status skip validation and warn, the user once per tool
   and window session.
-- **Agent SDK CLI:** an Agent SDK prompt fails before it runs, naming the
-  missing CLI, with **What does this mean?** opening
-  **@T: Missing Agent SDK CLI (Claude CLI for this platform)**. Use another
-  transport (direct API, VS Code LM, Copilot, a local model) or a VSIX built
-  with `--all-platforms`.
+- **Provider SDK:** an Anthropic prompt fails before it runs, naming the
+  missing SDK (or the Agent SDK's CLI for this platform), with **Install
+  provider SDKs** (the Provider SDKs page) and **What does this mean?**
+  (**@T: Missing Agent SDK (provider SDK or Claude CLI not installed)**).
 
 **Prebuilt binaries for such a machine** (built there, or copied from a
 machine of the same platform) are configured per platform in the workspace's

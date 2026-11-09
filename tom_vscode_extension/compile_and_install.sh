@@ -3,15 +3,12 @@
 # Compile the bridge binary for the LOCAL platform from source, then build and
 # install the extension bundling only that single host-platform executable.
 #
-#   ./compile_and_install.sh [--no-dart] [--all-platforms] [--binaries-only] [--no-layer]
+#   ./compile_and_install.sh [--no-dart] [--binaries-only] [--no-layer]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1): no
 # tom_bs and no validate_codespecs are built, so the VSIX lacks DartScript and
 # CodeSpecs validation. The same happens when no Dart SDK is found. The VSIX
 # path is printed at the end, to install it on other machines.
-# --all-platforms (also TOM_ALL_PLATFORMS=1) bundles the Agent SDK's Claude CLI
-# for darwin-arm64, linux-x64 and win32-x64, so the Agent SDK transport runs
-# on those platforms too (by default only on this one).
 # The binaries it builds also go into the binaries layer,
 # tom_binaries/tom/<platform>/ (committed there and pushed), so the layer holds
 # the latest build of every host; --no-layer (also TOM_NO_LAYER=1) skips that.
@@ -24,8 +21,8 @@
 # "run the versioner, resolve deps, regenerate the d4rt bridges, and dart
 # compile exe the bridge for this host only" — built straight into the
 # extension's local bin/, with no reliance on $TOM_BINARY_PATH or any tool on
-# PATH. Everything else (Node check, npm install, TypeScript compile, Claude
-# Agent SDK host binary, vsce package, install) is shared with
+# PATH. Everything else (Node check, npm install, TypeScript compile, the
+# workspace template, vsce package, install) is shared with
 # install_extension.sh.
 
 set -e
@@ -39,11 +36,10 @@ export TOM_BRIDGE_FROM_SOURCE=1
 for ARG in "$@"; do
     case "$ARG" in
         --no-dart) export TOM_NO_DART=1; export TOM_NO_DART_REASON="--no-dart given" ;;
-        --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
         --binaries-only) export TOM_BINARIES_ONLY=1 ;;
         --no-layer) export TOM_NO_LAYER=1 ;;
-        -h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--binaries-only] [--no-layer])"; exit 1 ;;
+        -h|--help) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--binaries-only] [--no-layer])"; exit 1 ;;
     esac
 done
 

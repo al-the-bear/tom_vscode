@@ -11,6 +11,8 @@
  * - Copilot
  */
 
+import { agentSdkAvailable } from '../services/providerRuntime';
+import { locateAgentSdkCli } from '../services/agentSdkCli';
 import { wireQuestHintMessages } from './questHint-handler';
 import { ApprovalRelay } from '../utils/approvalRelay';
 import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody, userMessageTemplateOptions } from '../utils/copilotTemplates';
@@ -19,8 +21,6 @@ import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
@@ -764,23 +764,22 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      */
     private static claudeCliOk: boolean | null = null;
     private static _claudeCliProbe: Promise<boolean> | undefined;
+    /**
+     * Whether the Agent SDK transport can run here: the Anthropic provider's
+     * Agent SDK and its Claude CLI for this platform are installed (Provider
+     * SDKs page). The 🤖 dot shows it.
+     */
     private static async probeClaudeCli(): Promise<boolean> {
         if (!ChatPanelViewProvider._claudeCliProbe) {
-            const execFileAsync = promisify(execFile);
             ChatPanelViewProvider._claudeCliProbe = (async () => {
-                try {
-                    await execFileAsync('claude', ['--version'], { timeout: 1500 });
-                    ChatPanelViewProvider.claudeCliOk = true;
-                    return true;
-                } catch {
-                    ChatPanelViewProvider.claudeCliOk = false;
-                    return false;
-                }
+                const ok = agentSdkAvailable() && locateAgentSdkCli() !== null;
+                ChatPanelViewProvider.claudeCliOk = ok;
+                return ok;
             })();
         }
         return ChatPanelViewProvider._claudeCliProbe;
     }
-    /** Re-run the `claude --version` probe on next access (e.g. after config save). */
+    /** Re-run the Agent SDK probe on next access (e.g. after config save). */
     static resetClaudeCliProbe(): void {
         ChatPanelViewProvider.claudeCliOk = null;
         ChatPanelViewProvider._claudeCliProbe = undefined;
@@ -2356,9 +2355,9 @@ export function registerChatPanel(context: vscode.ExtensionContext): void {
  * fires a fresh `models.list()` so the Model dropdown reflects the new
  * `apiKeyEnvVar` without requiring a reload-window.
  *
- * Also resets the cached Anthropic SDK client and the `claude --version`
- * probe so the next request reads the new env var name and the 🤖 dot
- * re-checks against the host install.
+ * Also resets the cached Anthropic SDK client and the Agent SDK probe so
+ * the next request reads the new env var name and the 🤖 dot re-checks what
+ * the Provider SDKs page installed (it calls this after every change).
  */
 export function notifyAnthropicConfigChanged(): void {
     AnthropicHandler.instance.resetClient();

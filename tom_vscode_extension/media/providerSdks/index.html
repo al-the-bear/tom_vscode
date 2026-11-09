@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Provider SDKs (src/handlers/providerSdks-handler.ts): a row per provider with
+  a checkbox (checked = installed, or to be installed), its installed version
+  and an "update to …" tag after Check for updates; Install / Uninstall applies
+  the checkbox changes, Update all installs every update found. First paint from
+  window.__INIT__, then `state` / `log` messages. No inline handlers (nonce CSP).
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="ps-wrap">
+    <h2 class="ps-title">Provider SDKs</h2>
+    <p class="ps-intro">The extension does not carry the model providers' SDKs: each provider is installed here, into
+        the extension's storage (it stays across extension updates). An install takes the versions this build is
+        tested with; <b>Check for updates</b> looks for newer releases, which you install yourself — nothing
+        updates by itself.</p>
+    <div id="psNone" class="ps-none" hidden>No provider SDK is installed: the ANTHROPIC/LLM chat and the prompt queue
+        cannot reach a model through the Anthropic API or the Agent SDK until one is. Check the provider below and
+        click <b>Install / Uninstall</b>.</div>
+    <div class="ps-bar">
+        <button id="psApply" class="primary" disabled>Install / Uninstall</button>
+        <button id="psUpdateAll" disabled>Update all</button>
+        <button id="psCheck">Check for updates</button>
+        <span id="psChecked" class="ps-muted"></span>
+    </div>
+    <div id="psMessage" class="ps-message" hidden></div>
+    <table class="ps-table">
+        <thead><tr><th></th><th>Provider</th><th>Installed</th><th>This build's versions</th><th></th></tr></thead>
+        <tbody id="psRows"></tbody>
+    </table>
+    <p class="ps-muted">Folder: <span id="psFolder"></span> · Platform: <span id="psPlatform"></span></p>
+    <pre id="psLog" class="ps-log" hidden></pre>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

@@ -195,7 +195,12 @@
       },
       {
         "command": "tomAi.showAgentSdkCliHelp",
-        "title": "@T: Missing Agent SDK CLI (Claude CLI for this platform)",
+        "title": "@T: Missing Agent SDK (provider SDK or Claude CLI not installed)",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.providerSdks",
+        "title": "@T: Provider SDKs (install, update, remove)",
         "category": "@Tom"
       },
       {
@@ -3013,6 +3018,8 @@
     "check:bridges": "node scripts/check-bridge-fresh.cjs",
     "check:bridge-lock": "node scripts/bridge-lock-preflight.cjs --warn",
     "check:tom-bs": "node scripts/check-tom-bs-provenance.cjs",
+    "providers:manifest": "node scripts/build-provider-manifest.cjs",
+    "providers:check": "node scripts/build-provider-manifest.cjs --check",
     "binaries:report": "node scripts/binaries-layer.cjs report",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
@@ -3024,6 +3031,8 @@
     "typecheck:media": "tsc -p tsconfig.media.json"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.282",
+    "@anthropic-ai/sdk": "^0.124.0",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^18.x",
     "@types/vscode": "1.96.0",
@@ -3034,8 +3043,6 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.282",
-    "@anthropic-ai/sdk": "^0.124.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/codicons": "^0.0.45",
     "tom_som_typescript_runtime": "file:vendor/tom_som/tom_som_typescript_runtime.tgz",

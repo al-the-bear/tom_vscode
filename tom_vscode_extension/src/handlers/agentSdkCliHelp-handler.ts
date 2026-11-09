@@ -1,15 +1,17 @@
 /**
- * The page about a missing Agent SDK CLI (services/agentSdkCli.ts): the
- * command tomAi.showAgentSdkCliHelp, and the notice the Agent SDK transport
- * gives when it cannot run on this platform (an error with "What does this
- * mean?", at most once per window session — every prompt still fails with the
- * message in its answer).
+ * The page about a missing Agent SDK (services/agentSdkCli.ts): the command
+ * tomAi.showAgentSdkCliHelp, and the notice the Agent SDK transport gives when
+ * the Anthropic provider's SDK or its Claude CLI for this platform is not
+ * installed (an error with "Install provider SDKs" and "What does this
+ * mean?", at most once per window session — every prompt still fails with
+ * the message in its answer).
  */
 
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AGENT_SDK_CLI_HELP_COMMAND, AGENT_SDK_CLI_HELP_PAGE, fillAgentSdkCliPage } from '../services/agentSdkCli';
-import { previewPage, showWithHelpButton, writeFilledPage } from './helpPages';
+import { HELP_BUTTON_LABEL, previewPage, writeFilledPage } from './helpPages';
+import { PROVIDER_SDKS_COMMAND } from '../services/providerRuntime';
 
 /** The extension root (this file is out/handlers/) until activation names it. */
 let extensionRoot = path.resolve(__dirname, '..', '..');
@@ -25,11 +27,22 @@ export async function showAgentSdkCliHelp(): Promise<void> {
     await previewPage(agentSdkCliHelpPage());
 }
 
-/** Tell the user the transport cannot run here: once per window session. */
+/** The notice's button that opens the Provider SDKs page. */
+export const INSTALL_PROVIDER_BUTTON = 'Install provider SDKs';
+
+/**
+ * Tell the user the transport cannot run here (the provider SDK or its CLI is
+ * not installed): once per window session, with **Install provider SDKs**
+ * (the Provider SDKs page) and "What does this mean?" (the page about it).
+ */
 export function noteAgentSdkCliMissing(message: string): void {
     if (noticeShown) { return; }
     noticeShown = true;
-    void showWithHelpButton('error', message, showAgentSdkCliHelp);
+    void (async () => {
+        const picked = await vscode.window.showErrorMessage(message, INSTALL_PROVIDER_BUTTON, HELP_BUTTON_LABEL);
+        if (picked === INSTALL_PROVIDER_BUTTON) { await vscode.commands.executeCommand(PROVIDER_SDKS_COMMAND); }
+        if (picked === HELP_BUTTON_LABEL) { await showAgentSdkCliHelp(); }
+    })();
 }
 
 /** A test's fresh window session. */

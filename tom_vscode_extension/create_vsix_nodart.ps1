@@ -5,9 +5,9 @@
     create_vsix_nodart.ps1
 
     No tom_bs, no validate_codespecs (no DartScript, no CodeSpecs validation),
-    no Dart SDK needed. Otherwise as create_vsix.ps1: the Agent SDK's Claude
-    CLI for darwin-arm64, linux-x64 and win32-x64, the workspace template
-    inside the VSIX and beside it, nothing installed.
+    no Dart SDK needed. Otherwise as create_vsix.ps1: the workspace template
+    inside the VSIX and beside it, no provider SDK (installed on request),
+    nothing installed.
 #>
 $ErrorActionPreference = "Stop"
 

@@ -671,15 +671,25 @@ Use:
 - `@T: Open Config File`
 - `@T: Toggle Bridge Debug Logging`
 
+### Provider SDKs
+
+The extension does not carry the model providers' SDKs; it installs them on request into its own storage, where they stay across extension updates. **`@T: Provider SDKs`** (also the **Provider SDKs** button in the Status Page's first section, which names the providers installed) opens the page:
+
+- a row per provider with a checkbox, the installed versions and the versions this build is tested with; check or uncheck and click **Install / Uninstall**;
+- **Check for updates** asks the npm registry for newer releases; a provider with one shows **update to …** (with *(new major)* when the API may change), which installs it; **Update all** installs every update found; **install this build's versions** goes back. Nothing updates by itself;
+- the log of the last run and its outcome.
+
+When no provider is installed, the page opens when the extension starts. The **Anthropic** provider is the direct API SDK (`@anthropic-ai/sdk`, also used by history compaction and memory extraction) and the Agent SDK with its Claude CLI for this platform. An install downloads the packages from the npm registry (no npm or Node needed), checks each one's integrity, and is used by the next prompt without a reload. The 🤖 dot of the ANTHROPIC/LLM panel shows whether the Agent SDK and its CLI are installed.
+
 ### Missing binaries on this platform
 
-Three features run programs a VSIX carries only for some platforms: DartScript (`tom_bs`), CodeSpecs validation (`validate_codespecs`) and the Agent SDK transport (the Claude CLI). The extension checks them when it starts, for the platform it runs on, so the same VSIX gives the right answer on every machine.
+Two features run programs a VSIX carries only for some platforms: DartScript (`tom_bs`) and CodeSpecs validation (`validate_codespecs`). The extension checks them when it starts, for the platform it runs on, so the same VSIX gives the right answer on every machine. The Anthropic transports need the provider SDKs, which no VSIX carries: see [Provider SDKs](#provider-sdks).
 
 - **`@T: Missing Dart Binaries (DartScript / CodeSpecs validation)`** opens a page filled for this machine: what is missing, what does not work and what keeps working, how to install the Dart SDK, how to build the binaries there, and how to configure prebuilt ones (`bridge.executables.tom_bs` / `bridge.executables.validate_codespecs` per platform in `.tom/tom_vscode_extension.json`) or copy them into the extension's `bin/<platform>/`. It opens by itself once per extension build and platform when a binary is missing.
 - The status bar shows **Dart binaries missing** while one is; a click opens the page.
 - The Status Page has a **Dart binaries** section: the platform, each binary as *configured*, *bundled* or *missing* (warned), and **Open the page**. The bridge row says *Not available (tom_bs missing)* instead of *Disconnected*.
 - Without `validate_codespecs`, `tomAi_specCodeSpecsValidate` answers that it is missing; Trace and Status skip validation and a warning `"CodeSpecs validation skipped: validate_codespecs is not available on <platform>."` with **What does this mean?** shows once per tool and window session.
-- **`@T: Missing Agent SDK CLI (Claude CLI for this platform)`**: without the CLI an Agent SDK prompt fails before it runs, and the error (once per window session) has **What does this mean?** opening this page. Use another transport, or install a VSIX built with `--all-platforms` (README § Installing the VSIX on another machine).
+- **`@T: Missing Agent SDK (provider SDK or Claude CLI not installed)`**: without the Anthropic provider (or with no Claude CLI for this platform) an Anthropic prompt fails before it runs, and the error (once per window session) has **Install provider SDKs** (the Provider SDKs page) and **What does this mean?** (this page).
 
 WINDOW STATUS marks a window with **no Dart binaries**; agents read the same as `dartBinaries` in `tomAi_getWorkspaceInfo` and `tomAi_getQuestWindowStatus`.
 

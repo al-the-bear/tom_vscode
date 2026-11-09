@@ -3,18 +3,13 @@
     Compile the bridge binary for the LOCAL platform from source, then build and
     install the extension bundling only that single host-platform executable.
 .DESCRIPTION
-    compile_and_install.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms]
+    compile_and_install.ps1 [-NoDart | --no-dart]
                             [-BinariesOnly | --binaries-only] [-NoLayer | --no-layer]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
     Dart SDK: no tom_bs and no validate_codespecs are built, so the VSIX lacks
     DartScript and CodeSpecs validation. The same happens when no Dart SDK is
     found. The VSIX path is printed at the end, to install it on other machines.
-
-    -AllPlatforms (or --all-platforms, or TOM_ALL_PLATFORMS=1) bundles the
-    Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64, so the
-    Agent SDK transport runs on those platforms too (by default only on this
-    one).
 
     The binaries it builds also go into the binaries layer,
     tom_binaries/tom/<platform>/ (committed there and pushed), so the layer
@@ -30,10 +25,10 @@
     extension's local bin/, with no reliance on a shared binary location or any
     tool on PATH - and
     auto-confirms the package/install prompt so the script runs unattended.
-    Everything else (Node check, npm install, TypeScript compile, Claude Agent
-    SDK host binary, vsce package, install) is shared with install_extension.ps1.
+    Everything else (Node check, npm install, TypeScript compile, workspace
+    template, vsce package, install) is shared with install_extension.ps1.
 #>
-param([switch]$NoDart, [switch]$AllPlatforms, [switch]$BinariesOnly, [switch]$NoLayer)
+param([switch]$NoDart, [switch]$BinariesOnly, [switch]$NoLayer)
 
 $ErrorActionPreference = "Stop"
 
@@ -42,12 +37,10 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
-    elseif ($Arg -eq '--all-platforms') { $AllPlatforms = $true }
     elseif ($Arg -eq '--binaries-only') { $BinariesOnly = $true }
     elseif ($Arg -eq '--no-layer') { $NoLayer = $true }
-    else { Write-Error "Unknown option: $Arg (usage: compile_and_install.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-BinariesOnly | --binaries-only] [-NoLayer | --no-layer])"; exit 1 }
+    else { Write-Error "Unknown option: $Arg (usage: compile_and_install.ps1 [-NoDart | --no-dart] [-BinariesOnly | --binaries-only] [-NoLayer | --no-layer])"; exit 1 }
 }
-if ($AllPlatforms) { $env:TOM_ALL_PLATFORMS = '1' }
 if ($BinariesOnly) { $env:TOM_BINARIES_ONLY = '1' }
 if ($NoLayer) { $env:TOM_NO_LAYER = '1' }
 
@@ -88,7 +81,6 @@ try {
     Remove-Item Env:TOM_SKIP_FINISH_TS -ErrorAction SilentlyContinue
     Remove-Item Env:TOM_NO_DART -ErrorAction SilentlyContinue
     Remove-Item Env:TOM_NO_DART_REASON -ErrorAction SilentlyContinue
-    if ($AllPlatforms) { Remove-Item Env:TOM_ALL_PLATFORMS -ErrorAction SilentlyContinue }
     if ($BinariesOnly) { Remove-Item Env:TOM_BINARIES_ONLY -ErrorAction SilentlyContinue }
     if ($NoLayer) { Remove-Item Env:TOM_NO_LAYER -ErrorAction SilentlyContinue }
 }

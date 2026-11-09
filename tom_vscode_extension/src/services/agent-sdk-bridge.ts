@@ -74,10 +74,10 @@ export interface AgentSdkBridgeDeps {
     /** Lazily loads (and caches) the ESM-only Agent SDK module. */
     loadSdk: () => Promise<AgentSdkLike>;
     /**
-     * Throws when the SDK's native CLI is missing on this platform (the
-     * extension: transport's requireAgentSdkCli); answers the bundled CLI's
-     * path when the SDK must be given it. Not asked when the caller names its
-     * own `pathToClaudeCodeExecutable`.
+     * Throws when the SDK or its native CLI is missing on this platform (the
+     * extension: transport's requireAgentSdkCli); answers the installed
+     * provider's CLI path, which the SDK is given. Not asked when the caller
+     * names its own `pathToClaudeCodeExecutable`.
      */
     requireCli?: () => string | undefined;
     /** Emits a JSON-RPC notification back to the Dart client. */

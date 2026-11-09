@@ -19,8 +19,8 @@
        layer holds them).
     2. Packages the VSIX through install_extension.ps1 -PackageOnly, taking
        tom_bs and validate_codespecs for darwin-arm64, linux-x64 and win32-x64
-       from the layer, with the Agent SDK's Claude CLI for the three and the
-       workspace template, as create_vsix.ps1.
+       from the layer, with the workspace template, as create_vsix.ps1 (no
+       provider SDK: the extension installs them on request).
     It ends with the VSIX path, the template path, the binaries the VSIX
     carries per platform and each binary's build stamp and freshness
     (scripts/binaries-layer.cjs report).
@@ -56,13 +56,12 @@ Write-Host ""
 Write-Host "-------- 2/2 The VSIX, with the fleet's binaries from the layer --------"
 $env:TOM_LAYER_BINARIES = '1'
 $env:TOM_LAYER_PLATFORMS = "$Platforms"
-$env:TOM_ALL_PLATFORMS = '1'
 $env:TOM_PACKAGE_ONLY = '1'
 $env:TOM_SKIP_FINISH_TS = '1'
 try {
     & (Join-Path $ScriptDir 'install_extension.ps1')
 } finally {
-    foreach ($name in @('TOM_LAYER_BINARIES', 'TOM_LAYER_PLATFORMS', 'TOM_ALL_PLATFORMS', 'TOM_PACKAGE_ONLY', 'TOM_SKIP_FINISH_TS')) {
+    foreach ($name in @('TOM_LAYER_BINARIES', 'TOM_LAYER_PLATFORMS', 'TOM_PACKAGE_ONLY', 'TOM_SKIP_FINISH_TS')) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
 }

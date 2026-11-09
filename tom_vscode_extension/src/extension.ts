@@ -96,6 +96,7 @@ import { checkBuildStatus, initBuildStatus } from './services/buildStatusService
 import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
 import { initDartBinariesHelp, showWithDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
 import { initAgentSdkCliHelp } from './handlers/agentSdkCliHelp-handler';
+import { initProviderSdks } from './handlers/providerSdks-handler';
 import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/dartScriptGuard';
 import { loadSendToChatConfig } from './utils/sendToChatConfig';
 import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
@@ -426,9 +427,12 @@ export async function activate(context: vscode.ExtensionContext) {
         return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: getWorkspaceRoot(), bridgeExecutable };
     });
     initDartBinariesHelp(context);
-    // The page the Agent SDK transport points to when the VSIX carries no native
-    // Claude CLI for this platform.
+    // The page the Agent SDK transport points to when the Anthropic provider's
+    // SDK or its Claude CLI for this platform is not installed.
     initAgentSdkCliHelp(context);
+    // Provider SDKs (not in the VSIX): their folder, the page, and the page
+    // opened now when no provider is installed.
+    initProviderSdks(context);
     timeStep('dartBinariesHelp', stepStart);
 
     // Initialize bridge client and immediately start the bridge process.

@@ -25,7 +25,9 @@ import { CATEGORY_MAP } from '../utils/toolCategories';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
 import { planSessionStartIn } from '../services/agentSdkSessionStore';
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
+import { ProviderSdkMissing } from '../services/providerRuntime';
+import { noteAgentSdkCliMissing } from './agentSdkCliHelp-handler';
 import * as vscode from 'vscode';
 import {
     executeToolCall,
@@ -859,9 +861,10 @@ export class AnthropicHandler {
         // Eager init per spec §17 Step 1.8; falls back to lazy creation in
         // `getClient()` if the env var was unset at activation time.
         try {
-            this.getClient();
+            this.getClient(false);
         } catch {
-            // ignore — getClient already returns undefined when env var missing
+            // ignore — no key yet, or the provider SDK is not installed (the
+            // Provider SDKs page opens at start then; a send says so).
         }
     }
 
@@ -1881,8 +1884,23 @@ export class AnthropicHandler {
         });
     }
 
-    private getClient(): Anthropic | undefined {
-        return this.clientCache.get(directApiKeyEnvVar(loadSendToChatConfig()?.anthropic), process.env);
+    /**
+     * The direct transport's client. Its SDK is the installed Anthropic
+     * provider's: not installed, this throws ProviderSdkMissing and (with
+     * `notify`) tells the user once per window session, offering the install.
+     */
+    private getClient(notify = true): Anthropic | undefined {
+        try {
+            return this.clientCache.get(directApiKeyEnvVar(loadSendToChatConfig()?.anthropic), process.env);
+        } catch (e) {
+            if (notify && e instanceof ProviderSdkMissing) { noteAgentSdkCliMissing(e.message); }
+            throw e;
+        }
+    }
+
+    /** Forget the client of a running window, if there is one (the provider was installed, updated or removed). */
+    static resetClientIfStarted(): void {
+        AnthropicHandler._instance?.resetClient();
     }
 
     /** Forget the client; the next call makes a new one. */
