@@ -252,7 +252,7 @@ function countsOf(notes: SpecReviewAnnotations): Record<string, number> {
 }
 
 function commentView(a: SpecReviewAnnotation): Record<string, unknown> {
-    return { id: a.id, qualifiedId: a.qualifiedId, author: a.author, text: a.text, context: a.context, path: a.path, field: a.field, line: a.line };
+    return { id: a.id, qualifiedId: a.qualifiedId, author: a.author, changedAt: a.changedAt, text: a.text, context: a.context, path: a.path, field: a.field, line: a.line };
 }
 
 function questionView(a: SpecReviewAnnotation): Record<string, unknown> {
@@ -584,7 +584,7 @@ export async function specRemoveAllAnnotationsImpl(deps: SpecToolDeps, input: Sp
 // ---------------------------------------------------------------------------
 
 const NOTATION =
-    ' Notation (SOM §11.9): comment `> ⬆️ **C-12** (author): text`; question `> **❓ BQ-81 — topic:** …` with options and `> **Answer:**`; inline marks `{++…++}` `{--…--}` `{~~…~>…~~}` `{==…==}{>>…<<}` `{>>…<<}`; a change comment `{>>[~~…~>…~~] …<<}` quotes its change.';
+    ' Notation (SOM §11.9): comment `> ⬆️ **C-12** (author, change time): text`; question `> **❓ BQ-81 — topic:** …` with options and `> **Answer:**`; inline marks `{++…++}` `{--…--}` `{~~…~>…~~}` `{==…==}{>>…<<}` `{>>…<<}`; a change comment `{>>[~~…~>…~~] …<<}` quotes its change.';
 const PARAGRAPHS =
     'Paragraphs are the value\'s blank-line separated blocks, from 0 (-1 = the start); or name one by `afterTextStart` / `afterTextContains` (no match, or more than one, is refused with the candidates).';
 const ANCHOR_PARAMS = {
@@ -636,7 +636,7 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
 
 export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
     { name: 'tomAi_specInsertComment', displayName: 'Spec: Insert Comment' },
-    'Insert a reviewer comment `> ⬆️ **C-<n>** (author): text` after a paragraph of a value; the id is `id`, else the next free one (answered as `id`). '
+    'Insert a reviewer comment `> ⬆️ **C-<n>** (author, time): text` after a paragraph; its id `id` or the next free one (answered). '
     + 'Signed `agent_<role>` by default; `___check here___` + why flags what needs the reviewer. ' + PARAGRAPHS + NOTATION + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS, ...TARGET_PARAMS,
@@ -680,7 +680,7 @@ export const SPEC_SET_ANSWER_TOOL = editTool<SpecSetAnswerInput>(
 
 export const SPEC_EDIT_COMMENT_TOOL = editTool<SpecEditCommentInput>(
     { name: 'tomAi_specEditComment', displayName: 'Spec: Edit Comment' },
-    'Replace the text of a comment block; its marker, id and author stay as written (SpecReviewAnnotations.editComment). '
+    'Replace the text of a comment block; its marker, id and author stay as written, its change time becomes the edit\'s (SpecReviewAnnotations.editComment). '
     + 'A qualified id (`SBP C-12`) is accepted; an unknown one is refused (`annotationRefused`).' + FIRST_LOOK + RESULT_NOTE,
     {
         ...EDIT_PARAMS,
@@ -738,7 +738,7 @@ export const SPEC_COMMENT_CHANGE_TOOL = editTool<SpecCommentChangeInput>(
         ...EDIT_PARAMS,
         markId: { type: 'string', description: 'The change mark\'s id, e.g. `M-3` (from tomAi_specAnnotations).' },
         text: { type: 'string', description: 'The comment.' },
-        author: { type: 'string', description: 'A review member id, written as an attribution token `{@author}` after the comment (§11.9.8). Default `agent_<role>` (the role you work in).' },
+        author: { type: 'string', description: 'A review member id, written in the attribution token `{@author time}` after the comment (§11.9.8, §11.9.10). Default `agent_<role>` (the role you work in).' },
         marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
     },
     ['file', 'markId', 'text'],
@@ -749,7 +749,7 @@ export const SPEC_EDIT_MARK_COMMENT_TOOL = editTool<SpecEditMarkCommentInput>(
     { name: 'tomAi_specEditMarkComment', displayName: 'Spec: Edit Inline Comment' },
     'Replace the comment of an inline mark by its `M-<n>` id (SpecReviewAnnotations.editMarkComment): a `{>> comment <<}`, '
     + 'a change comment (its quote, outcome included, stays as written) or a commented highlight; an attribution token '
-    + 'stays. Refused, nothing changed: an unknown id or a stale `marksRevision`, a mark holding no comment, an empty text '
+    + 'keeps its authors and takes the edit\'s change time. Refused, nothing changed: an unknown id or a stale `marksRevision`, a mark holding no comment, an empty text '
     + 'or one holding a mark delimiter or a blank line. Comment blocks (`C-<n>`) are edited with tomAi_specEditComment.'
     + FIRST_LOOK + RESULT_NOTE,
     {

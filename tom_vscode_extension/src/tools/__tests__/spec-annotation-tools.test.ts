@@ -8,12 +8,13 @@
  *   SA-1  tomAi_specAnnotations lists comments (id, author, text, the paragraph before), questions (topic,
  *         options, recommended, answer, open) and marks (M-<n>, kind, old / new text) with counts and the
  *         marks revision; `kinds`, `openOnly` and `path` narrow it; a path that does not resolve is refused
- *   SA-2  insertComment after a paragraph: the next free id (or the one given) and the author; dryRun
+ *   SA-2  insertComment after a paragraph: the next free id (or the one given), the author and the change time
+ *         (SOM §11.9.10; the listing answers it as `changedAt`); dryRun
  *         writes nothing and returns the diff; a stale expectedRevision, a missing paragraph and a path
  *         that is no value are refused, the file unchanged
  *   SA-3  insertQuestion after a paragraph or directly after a comment: the recommended option bold
  *   SA-4  setAnswer answers a question, "" reopens it; an unknown question id is refused
- *   SA-5  editComment replaces a comment's text, its id and author kept
+ *   SA-5  editComment replaces a comment's text, its id and author kept, the change time the edit's
  *   SA-6  assignCommentIds gives the comment without an id the next one
  *   SA-7  resolveAnnotation removes a comment (a qualified id `SBP C-3` too) or a question
  *   SA-8  decideMarks: one mark by id at the marks revision; a stale marks revision is refused; `all`
@@ -44,10 +45,11 @@
  *   SA-19 comments on changes (SOM §11.9.3): tomAi_specCommentChange writes a change comment quoting the change
  *         and answers its id; the listing links them (commentId / changeId / quotedChange); a second comment, a
  *         mark that is not a change and an empty text are refused; tomAi_specEditMarkComment keeps the quote;
- *         deciding the change records the outcome in the quote; both are batch ops of tomAi_specApplyEdits
+ *         deciding the change records the outcome in the quote; both are batch ops of tomAi_specApplyEdits;
+ *         each write records its change time after the comment
  *   SA-20 an agent signs what it writes: insertComment and commentChange without `author` (single tools and
  *         batch ops) are signed with the deps' agentAuthor (`agent_<role>`); a given author is kept; without
- *         agentAuthor they stay unsigned (SA-2)
+ *         agentAuthor they stay unsigned (SA-2); editing a signed change comment keeps its author
  */
 
 import test, { before, describe } from 'node:test';
@@ -58,6 +60,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
+import { withoutChangeTimes } from './_reviewTimes.js';
 installVscodeStub({});
 
 import { SomModelService } from '../../services/som-model-service.js';
@@ -153,11 +156,12 @@ describe('TomSpecs annotation tools', () => {
     test('SA-2: inserting a comment', async () => {
         const file = await annotated();
         const before = read(file);
+        const since = new Date();
         const dry = await run(specInsertCommentImpl, { file, path: VALUE, afterParagraph: 4, text: 'Finance means SAP?', author: 'Eve', dryRun: true });
         assert.equal(dry.ok, true, JSON.stringify(dry));
         assert.equal(dry.written, false);
         assert.equal(dry.id, 'C-4', 'the next free id');
-        assert.match(dry.diff, /^\+\s*> ⬆️ \*\*C-4\*\* \(Eve\): Finance means SAP\?/m);
+        assert.match(withoutChangeTimes(dry.diff, since), /^\+\s*> ⬆️ \*\*C-4\*\* \(Eve, <time>\): Finance means SAP\?/m);
         assert.equal(read(file), before, 'a dry run writes nothing');
 
         const revision = (await list(file)).document.revision;
@@ -169,6 +173,8 @@ describe('TomSpecs annotation tools', () => {
         const c10 = (await list(file)).comments.find((c: Json) => c.id === 'C-10');
         assert.equal(c10.context, 'The order system replaces the spreadsheets.');
         assert.equal(c10.author, null);
+        assert.equal(withoutChangeTimes(String(c10.changedAt), since), '<time>', 'the listing answers the change time');
+        assert.equal((await list(file)).comments.find((c: Json) => c.id === 'C-3').changedAt, null, 'a comment written without one');
 
         const now = read(file);
         assert.equal((await run(specInsertCommentImpl, { file, path: VALUE, afterParagraph: 0, text: 'x', expectedRevision: 'stale' })).code, 'revisionConflict');
@@ -211,9 +217,10 @@ describe('TomSpecs annotation tools', () => {
 
     test('SA-5: editing a comment', async () => {
         const file = await annotated();
+        const since = new Date();
         const r = JSON.parse(await withTiming('tomAi_specEditComment:typical', () => specEditCommentImpl(deps, { file, commentId: 'C-3', text: 'What about returns and refunds?' })));
         assert.equal(r.ok, true, JSON.stringify(r));
-        assert.match(read(file), /> ⬆️ \*\*C-3\*\* \(Bob\): What about returns and refunds\?/);
+        assert.match(withoutChangeTimes(read(file), since), /> ⬆️ \*\*C-3\*\* \(Bob, <time>\): What about returns and refunds\?/);
     });
 
     test('SA-6: assigning comment ids', async () => {
@@ -296,12 +303,13 @@ describe('TomSpecs annotation tools', () => {
         assert.equal((await list(file)).counts.comments, 2);
         const r = await run(specSetAnswerImpl, { file, questionId: 'BQ-01', answer: '(a)' });
         assert.equal(r.ok, true, JSON.stringify(r));
+        const since = new Date();
         const c = await run(specInsertCommentImpl, { file, path: VALUE, afterParagraph: 4, text: 'Check SAP.' });
         assert.equal(c.id, 'C-4');
-        const text = read(file);
+        const text = withoutChangeTimes(read(file), since);
         assert.match(text, /^# /m, 'still Markdown');
         assert.match(text, /> \*\*Answer:\*\* \(a\)/);
-        assert.match(text, /> ⬆️ \*\*C-4\*\* Check SAP\./, 'no author: none written');
+        assert.match(text, /> ⬆️ \*\*C-4\*\* \(<time>\): Check SAP\./, 'no author: only the change time');
         assert.equal((await list(file)).counts.answeredQuestions, 1, 'reads back from the Markdown');
     });
 
@@ -571,12 +579,13 @@ describe('TomSpecs annotation tools', () => {
     /* eslint-disable @typescript-eslint/naming-convention */
     test('SA-19: comments on changes', async () => {
         const file = await annotated();
+        const since = new Date();
         const r = JSON.parse(await withTiming('tomAi_specCommentChange:typical', () =>
             specCommentChangeImpl(deps, { file, markId: 'M-2', text: 'why longer?' })));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.markId, 'M-2');
         assert.match(String(r.commentId), /^M-\d+$/);
-        assert.match(read(file), /Orders are \{\+\+ always \+\+\} kept \{~~ two ~> three ~~\}\{>> \[~~ two ~> three ~~\] why longer\? <<\} years\./);
+        assert.match(withoutChangeTimes(read(file), since), /Orders are \{\+\+ always \+\+\} kept \{~~ two ~> three ~~\}\{>> \[~~ two ~> three ~~\] why longer\? <<\}\{@<time>\} years\./);
         const marks = (await list(file, { kinds: ['mark'] })).marks as Json[];
         const change = marks.find((m) => m.markup === '{~~ two ~> three ~~}');
         const comment = marks.find((m) => m.id === r.commentId);
@@ -591,12 +600,12 @@ describe('TomSpecs annotation tools', () => {
         const edited = JSON.parse(await withTiming('tomAi_specEditMarkComment:typical', () =>
             specEditMarkCommentImpl(deps, { file, markId: r.commentId, text: 'is three enough?' })));
         assert.equal(edited.ok, true, JSON.stringify(edited));
-        assert.match(read(file), /\{>> \[~~ two ~> three ~~\] is three enough\? <<\}/, 'the quote stays');
+        assert.match(withoutChangeTimes(read(file), since), /\{>> \[~~ two ~> three ~~\] is three enough\? <<\}\{@<time>\} years/, 'the quote stays');
         assert.equal((await run(specEditMarkCommentImpl, { file, markId: 'M-1', text: 'x' })).code, 'annotationRefused', 'a change holds no comment');
 
         const decided = await run(specDecideMarksImpl, { file, decisions: { [change.id]: 'accept' } });
         assert.equal(decided.ok, true, JSON.stringify(decided));
-        assert.match(read(file), /kept three\{>> \[~~ two ~> three ~~ \| accepted\] is three enough\? <<\} years\./, 'the outcome recorded');
+        assert.match(withoutChangeTimes(read(file), since), /kept three\{>> \[~~ two ~> three ~~ \| accepted\] is three enough\? <<\}\{@<time>\} years\./, 'the outcome recorded, the comment\'s time kept');
 
         // The same through tomAi_specApplyEdits.
         const batchFile = await annotated();
@@ -612,22 +621,27 @@ describe('TomSpecs annotation tools', () => {
     test('SA-20: an agent signs its comments', async () => {
         const signed: SpecToolDeps = { ...deps, agentAuthor: () => 'agent_spec_author' };
         const file = await annotated();
+        const since = new Date();
+        const timed = (f: string): string => withoutChangeTimes(read(f), since);
         const own = JSON.parse(await specInsertCommentImpl(signed, { file, path: VALUE, afterParagraph: 0, text: 'Agent remark.' }));
         assert.equal(own.ok, true, JSON.stringify(own));
-        assert.match(read(file), /> ⬆️ \*\*C-\d+\*\* \(agent_spec_author\): Agent remark\./);
+        assert.match(timed(file), /> ⬆️ \*\*C-\d+\*\* \(agent_spec_author, <time>\): Agent remark\./);
         const given = JSON.parse(await specInsertCommentImpl(signed, { file, path: VALUE, afterParagraph: 0, text: 'For the user.', author: 'Alexis' }));
         assert.equal(given.ok, true);
-        assert.match(read(file), /\(Alexis\): For the user\./, 'a given author is kept');
+        assert.match(timed(file), /\(Alexis, <time>\): For the user\./, 'a given author is kept');
         const change = JSON.parse(await specCommentChangeImpl(signed, { file, markId: 'M-2', text: 'why longer?' }));
         assert.equal(change.ok, true, JSON.stringify(change));
-        assert.match(read(file), /\{>> \[~~ two ~> three ~~\] why longer\? <<\}\{@agent_spec_author\}/);
+        assert.match(timed(file), /\{>> \[~~ two ~> three ~~\] why longer\? <<\}\{@agent_spec_author <time>\}/);
+        const edited = JSON.parse(await specEditMarkCommentImpl(deps, { file, markId: change.commentId, text: 'why three?' }));
+        assert.equal(edited.ok, true, JSON.stringify(edited));
+        assert.match(timed(file), /\] why three\? <<\}\{@agent_spec_author <time>\}/, 'an edit keeps the author');
         const batchFile = await annotated();
         const batch = JSON.parse(await specApplyEditsImpl(signed, {
             file: batchFile,
             edits: [{ op: 'insertComment', path: VALUE, afterParagraph: 0, text: 'In a batch.' }, { op: 'commentChange', markId: 'M-1', text: 'always?' }],
         }));
         assert.equal(batch.ok, true, JSON.stringify(batch));
-        assert.match(read(batchFile), /\(agent_spec_author\): In a batch\./);
-        assert.match(read(batchFile), /\] always\? <<\}\{@agent_spec_author\}/);
+        assert.match(timed(batchFile), /\(agent_spec_author, <time>\): In a batch\./);
+        assert.match(timed(batchFile), /\] always\? <<\}\{@agent_spec_author <time>\}/);
     });
 });

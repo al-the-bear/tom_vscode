@@ -73,6 +73,10 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    work in, e.g. `agent_spec_author`): `tomAi_specInsertComment` and
    `tomAi_specCommentChange` (and their batch ops) sign so when you give no
    `author`; give the user's name only when writing down what the user said.
+   Every comment you write or edit also records its change time (SOM
+   §11.9.10): `> ⬆️ **C-12** (agent_spec_author, 2026-11-07T14:05+01:00): …`,
+   `{>> … <<}{@agent_spec_author 2026-11-07T14:05+01:00}`; the listing answers
+   it as `changedAt`.
    A comment that especially needs the reviewer starts with `___check here___`
    and says why; the MD Browser steps through those markers and through agent
    comments first.
