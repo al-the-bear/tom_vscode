@@ -35,6 +35,9 @@ function renderEntry(item, idx) {
   // Yellow left border for items carrying an interruption warning
   // (rate limit / quota / overloaded / cancelled / interrupted).
   if ((item.warning && item.warning.kind) || (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0)) cls.push('warned');
+  // Its running prompt waits for the user (a question or an approval is open): a colour of its own.
+  var waitingForUser = Array.isArray(item.waitingForUser) && item.waitingForUser.length > 0;
+  if (waitingForUser) cls.push('waiting-for-user');
   var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
   var isPending = safeStatus === 'pending';
@@ -297,9 +300,12 @@ function renderEntry(item, idx) {
   }
   /* Process position: the step the item belongs to (a Proceed prompt, what it
    * queued, or the process-move marker that moves the process on after them). */
-  var processBadge = item.sendBetween
-    ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
+  var userWaitBadge = waitingForUser
+    ? '  <span class="waiting-user-badge" title="The running prompt waits for your reply: answer the open ' + (item.waitingForUser.indexOf('approval') !== -1 && item.waitingForUser.indexOf('question') === -1 ? 'tool approval' : 'question') + ' (@CHAT panel, MD Browser or Telegram)">[\u23f3 waiting for your ' + (item.waitingForUser.indexOf('question') !== -1 ? 'reply' : 'approval') + ']</span>'
     : '';
+  var processBadge = userWaitBadge + (item.sendBetween
+    ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
+    : '');
   // A chat send runs in the session this item runs in: it waits and goes once that send ended.
   if (item.waitingForSession) {
     processBadge += '  <span class="waiting-session-badge" style="background:#3794ff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="A chat send runs in this session: the item goes once it has ended (two prompts never share a conversation)">[waiting for session ' + escapeHtml(String(item.waitingForSession)) + ']</span>';
@@ -521,11 +527,52 @@ function renderEntry(item, idx) {
  * practical at-a-glance view. Truncated to 600 chars by default
  * with a toggle to expand to full; the two markdown preview buttons show the
  * full answer. Shared by renderEntry and renderChatEntry. */
+/**
+ * The answer chips of a repeated item (repetitionAnswers): one per repetition,
+ * the todo id for a todo walk or the repetition number; the one shown is
+ * active. A click shows that repetition's answer (showRepetitionAnswer).
+ */
+function renderRepetitionChips(item, reps, shownKey) {
+  if (!reps.length) return '';
+  return '<div class="rep-answer-chips" title="The answer of each repetition: click one to show it">' +
+    reps.map(function(r) {
+      var active = r.key === shownKey;
+      return '<button type="button" class="rep-answer-chip' + (active ? ' active' : '') + '"' +
+        ' data-qid="' + escapeHtml(String(item.id)) + '" data-rep-key="' + escapeHtml(String(r.key)) + '"' +
+        ' title="' + escapeHtml('The answer of ' + (/^[0-9]+$/.test(String(r.key)) ? 'repetition ' : 'todo ') + r.key + (r.at ? ' (' + new Date(r.at).toLocaleString() + ')' : '')) + '">' +
+        escapeHtml(String(r.key)) + '</button>';
+    }).join('') +
+  '</div>';
+}
+
+/** Show the answer of repetition `key` of item `id` (the editor redraws). */
+function showRepetitionAnswer(id, key) {
+  window.__queueRepSelected = window.__queueRepSelected || {};
+  window.__queueRepSelected[id] = key;
+  if (typeof render === 'function') { render(); }
+}
+
+/* The chips: one delegated listener (no inline handler). */
+document.addEventListener('click', function(e) {
+  var chip = e.target && e.target.closest ? e.target.closest('.rep-answer-chip') : null;
+  if (!chip) return;
+  e.preventDefault();
+  showRepetitionAnswer(chip.getAttribute('data-qid'), chip.getAttribute('data-rep-key'));
+});
+
 function renderAnswerBlock(item, safeId) {
   var answerBlock = '';
-  if (typeof item.answerText === 'string' && item.answerText.length > 0) {
+  var reps = Array.isArray(item.repetitionAnswers) ? item.repetitionAnswers.filter(function(r) { return r && typeof r.text === 'string'; }) : [];
+  var selectedKey = window.__queueRepSelected ? window.__queueRepSelected[item.id] : undefined;
+  var selected = reps.filter(function(r) { return r.key === selectedKey; })[0];
+  // The answer shown: the chosen repetition's, else the latest (answerText, else the last repetition's).
+  var shownText = selected ? selected.text
+    : (typeof item.answerText === 'string' && item.answerText.length > 0 ? item.answerText : (reps.length ? reps[reps.length - 1].text : ''));
+  var shownKey = selected ? selected.key
+    : (reps.length && (reps[reps.length - 1].text === shownText) ? reps[reps.length - 1].key : undefined);
+  if (shownText.length > 0) {
     var ansId = 'ans-' + safeId;
-    var fullText = item.answerText;
+    var fullText = shownText;
     var truncated = fullText.length > 600 ? fullText.slice(0, 600) + '…' : fullText;
     /* The full answer for the markdown preview buttons (queueAnswerMarkdown), by item id. */
     var promptLine = String(item.originalText || item.expandedText || '').split('\n')[0].trim();
@@ -537,7 +584,7 @@ function renderAnswerBlock(item, safeId) {
       '</span>';
     answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
-        '<strong style="color:#4a9eff;">Answer</strong>' +
+        '<strong style="color:#4a9eff;">Answer' + (shownKey !== undefined && reps.length > 1 ? ' \u2014 ' + escapeHtml(String(shownKey)) : '') + '</strong>' +
         '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
         mdBtns +
         (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\'' + ansId + '\')" title="Expand / collapse"></span>' : '') +
@@ -545,6 +592,7 @@ function renderAnswerBlock(item, safeId) {
       '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
         escapeHtml(truncated) +
       '</div>' +
+      renderRepetitionChips(item, reps, shownKey) +
     '</div>';
   }
 

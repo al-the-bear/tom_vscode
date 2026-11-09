@@ -8,6 +8,8 @@
  *        editor's numbers and the tooltip (a walk its open todos only); when the queue changes the webview is
  *        told (qtQueueChanged) and the list it loads again has no stale marks
  *   TP-4 tomAi_addQueueItem takes todoIdPattern; tomAi_listQueue shows each item's pattern, a walk's too
+ *   TP-5 a repeated item's answers per repetition (repetitionAnswers) are kept in its entry file
+ *        (`repetition-answers`) and read back after a reload
  */
 
 import test, { after, describe } from 'node:test';
@@ -160,6 +162,21 @@ describe('the todo id pattern of queue items', () => {
         const patterns = (listed.items as Json[]).map((i) => i.todoIdPattern).sort();
         assert.deepEqual(patterns, ['solo1_akiw-alone', 'walk*']);
         assert.match(JSON.stringify((ADD_TO_PROMPT_QUEUE_TOOL as Json).inputSchema), /todo panel marks them queued/);
+        clear();
+    });
+
+    test('TP-5: the answers of every repetition are kept', async () => {
+        clear();
+        const item = await queue().enqueue({ originalText: 'the walk', repeatCount: 'walk*', deferSend: true });
+        item.repetitionAnswers = [{ key: 'walk1_akiw-first', text: 'first answer', at: '2026-11-09T10:00:00.000Z' }, { key: 'walk3_x', text: 'third answer', at: '2026-11-09T11:00:00.000Z' }];
+        await queue().updateText(item.id, 'the walk, edited');
+        const folder = path.join(WS, '_ai', 'queue');
+        const file = fs.readdirSync(folder).map((f) => fs.readFileSync(path.join(folder, f), 'utf8')).find((t) => t.includes(item.id));
+        assert.match(file ?? '', /repetition-answers:/);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (queue() as any)._reloadFromDisk();
+        await wait(400);
+        assert.deepEqual(queue().getById(item.id)?.repetitionAnswers, item.repetitionAnswers, 'read back');
         clear();
     });
 });

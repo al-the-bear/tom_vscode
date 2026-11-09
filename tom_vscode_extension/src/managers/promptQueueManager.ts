@@ -66,6 +66,8 @@ import {
 } from '../utils/queueStep4Utils';
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
+import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
+import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
@@ -466,6 +468,12 @@ export interface QueuedPrompt {
      * todos as queued while the item has not finished (utils/todoQueueMarks.ts).
      */
     todoIdPattern?: string;
+    /**
+     * A repeated item's main-prompt answer per repetition (the walked todo's
+     * id, or the repetition number), shown as chips under the Answer in the
+     * queue editor (utils/repetitionAnswers.ts). `answerText` is the latest.
+     */
+    repetitionAnswers?: RepetitionAnswer[];
     /**
      * Queued right after this item when it is finished — done, or ended in an
      * error that will not recover (src/utils/doneNotification.ts).
@@ -980,6 +988,9 @@ export class PromptQueueManager {
             m._reloadFromDisk();
         });
         PromptQueueManager._inst = m;
+        // A prompt starts or stops waiting for the user: the editor shows it on the item.
+        const stopWaits = onUserWaitsChanged(() => m._onDidChange.fire());
+        ctx.subscriptions?.push({ dispose: stopWaits });
         // Items other quests' windows sent while this window was not running, and from now on as they arrive.
         m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
         void m.takeInbox();
@@ -1659,7 +1670,10 @@ export class PromptQueueManager {
         const answerMarkdown = answer && typeof answer === 'object' && typeof (answer as { generatedMarkdown?: unknown }).generatedMarkdown === 'string'
             ? String((answer as { generatedMarkdown: string }).generatedMarkdown) : '';
         const answerStage = resolveAnswerContainer(sending);
-        if (answerStage && answerMarkdown.trim()) { answerStage.answerText = answerMarkdown; }
+        if (answerStage && answerMarkdown.trim()) {
+            answerStage.answerText = answerMarkdown;
+            if (answerStage === sending) { recordRepetitionAnswer(sending, answerMarkdown, resolveRepeatCount); }
+        }
 
         // At this point the answer is relevant for the active sending item.
         this.propagateAnswerResponseValues(answer);
@@ -2945,6 +2959,7 @@ export class PromptQueueManager {
             const answer = AnthropicHandler.instance.lastAssistantText;
             if (answer && answer.length > 0) {
                 container.answerText = answer;
+                if (container === sending) { recordRepetitionAnswer(sending, answer, resolveRepeatCount); }
                 logQueue(`Captured most-recent LLM answer (${answer.length} chars) for ${sending.id} stage=${last.kind}`);
             }
         } catch (err) {
@@ -3300,6 +3315,11 @@ export class PromptQueueManager {
      * Who holds `session`: a queue item running in it or a chat send running
      * in it (this or another window of the quest); undefined when it is free.
      */
+    /** What item `id`'s running dispatch waits for the user for (a question, an approval); none when it waits for nothing. */
+    waitingForUserOf(id: string): Array<'question' | 'approval'> {
+        return queueItemsWaitingForUser().get(id) ?? [];
+    }
+
     sessionHolder(session: string, exceptId?: string): SessionHolder | undefined {
         return sessionHolderOf(this._items as unknown as SessionBusyItem[], session, {
             queueSession: (i) => this.anthropicSessionOf(i as unknown as QueuedPrompt),
@@ -4441,7 +4461,8 @@ export class PromptQueueManager {
         this._activeAnthropicCts = cts;
         try {
             // The prompt runs as the process position it belongs to (processRunContext).
-            const result = await runInProcessPosition(resolved.processRun, () => AnthropicHandler.instance.sendMessage({
+            // Its tool calls run as this item: a wait for the user they open is shown on it (userWaits).
+            const result = await runAsQueueItem(waitItem?.id, () => runInProcessPosition(resolved.processRun, () => AnthropicHandler.instance.sendMessage({
                 userText: expandedText,
                 profile: coercedProfile,
                 configuration,
@@ -4454,9 +4475,10 @@ export class PromptQueueManager {
                 // The queue iteration (a per-iteration session keeps one conversation per key).
                 ...(resolved.iterationKey ? { iterationKey: resolved.iterationKey } : {}),
                 onRetryWait: (wait) => this._showSendWait(waitItem, wait),
-            }));
+            })));
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
+                if (waitItem && stageForAnswer === waitItem) { recordRepetitionAnswer(waitItem, result.text, resolveRepeatCount); }
             }
             if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
             // Propagate responseValues on EVERY direct answer — pre-prompt,
@@ -5766,6 +5788,7 @@ export class PromptQueueManager {
                 chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
+                ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
 
@@ -5908,6 +5931,7 @@ export class PromptQueueManager {
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
+            ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({ key: a.key, text: a.text, at: a.at })) } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

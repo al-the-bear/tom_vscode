@@ -17,7 +17,8 @@
  *     in a parent folder carries a `(in <relative-skills-dir>)` note so the
  *     user knows it is not directly addressable by the Agent SDK.
  *   - **Files** (`@` trigger): the current workspace only, ranked
- *     open-editors → current-quest-folder → everything else.
+ *     the quest folder's files only — the user's (open ones first), then
+ *     the technical ones (history/, configuration and state files).
  *
  * The text after the trigger filters both kinds (case-insensitive):
  * skills by **name prefix**, files by **basename substring**.
@@ -127,7 +128,11 @@ export interface FileCompletion {
     name: string;
     /** Workspace-relative path (POSIX separators). */
     relativePath: string;
-    /** 1 = open editor, 2 = current quest folder, 3 = other. */
+    /**
+     * With a quest: 1 = an open user file, 2 = another user file, 3 = a
+     * technical file (isTechnicalQuestFile). Without one: 1 = an open editor,
+     * 3 = any other file.
+     */
     tier: number;
 }
 
@@ -155,11 +160,30 @@ function isUnder(folder: string, file: string): boolean {
 }
 
 /**
- * Rank workspace files for the `@` completion: open editors first, then
- * files inside the current quest folder, then everything else. Filtering
- * is a case-insensitive **basename substring** match (empty = all). Files
- * are de-duplicated across tiers (first/highest tier wins) and sorted by
- * basename within each tier.
+ * Whether a file of the quest folder is a technical one — what the extension
+ * keeps there for itself rather than the user's documents: the `history/`
+ * folder (trails, sessions, compacted history), the per-quest configuration
+ * and state (`extension_config.*`, `process-state.*`, `quest-refresh.yaml`,
+ * `telegram.*.json`, `*.session.json`, `tool_timings.md`, `last_request*`),
+ * the archived and deleted todos, and dot-files. `rel` is relative to the
+ * quest folder, POSIX separators.
+ */
+export function isTechnicalQuestFile(rel: string): boolean {
+    const parts = rel.split('/');
+    const name = parts[parts.length - 1];
+    if (parts.slice(0, -1).includes('history') || parts.some((p) => p.startsWith('.'))) { return true; }
+    return /^(extension_config\.|process-state\.|telegram\.[^/]*\.json$|quest-refresh\.yaml$|tool_timings\.md$|last_request)/.test(name)
+        || /\.session\.json$/.test(name)
+        || /^[^.]+-(archived|deleted)\..*\.todo\.yaml$/.test(name);
+}
+
+/**
+ * Rank files for the `@` completion. With a quest folder: only the files
+ * inside it — the user's files first (those open in an editor first), the
+ * technical ones ({@link isTechnicalQuestFile}) after them. Without one: open
+ * editors first, then every other file. Filtering is a case-insensitive
+ * **basename substring** match (empty = all). Files are de-duplicated (the
+ * highest tier wins) and sorted by basename within each tier.
  */
 export function rankFiles(input: RankFilesInput): FileCompletion[] {
     const needle = input.query.trim().toLowerCase();
@@ -170,9 +194,10 @@ export function rankFiles(input: RankFilesInput): FileCompletion[] {
     const questFolder = input.questFolder ? path.resolve(input.questFolder) : null;
 
     const tierOf = (abs: string): number => {
-        if (openSet.has(path.resolve(abs))) { return 1; }
-        if (questFolder && isUnder(questFolder, abs)) { return 2; }
-        return 3;
+        const open = openSet.has(path.resolve(abs));
+        if (!questFolder) { return open ? 1 : 3; }
+        if (isTechnicalQuestFile(toRelPosix(questFolder, abs))) { return 3; }
+        return open ? 1 : 2;
     };
 
     // Union of all sources, de-duplicated by absolute path.
@@ -183,6 +208,8 @@ export function rankFiles(input: RankFilesInput): FileCompletion[] {
         if (seen.has(resolved)) { continue; }
         seen.add(resolved);
         if (!matches(abs)) { continue; }
+        // With a quest, its folder only: not the queue, not other quests, not the code.
+        if (questFolder && !isUnder(questFolder, resolved)) { continue; }
         candidates.push({
             absolutePath: abs,
             name: path.basename(abs),

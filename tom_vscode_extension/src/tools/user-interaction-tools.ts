@@ -45,6 +45,7 @@
  *     Leaving it up would let the user pick into a void after the model moved on.
  */
 
+import { whileWaitingForUser } from '../services/userWaits';
 import * as vscode from 'vscode';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
@@ -370,17 +371,17 @@ function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPick
 export function createLiveUserPrompter(win: LiveWindow): UserPrompter {
     return {
         showQuickPick(items, opts) {
-            return showLiveQuickPick(win, items, opts);
+            return whileWaitingForUser('question', () => showLiveQuickPick(win, items, opts));
         },
         async showInputBox(opts) {
-            return win.showInputBox({
+            return whileWaitingForUser('question', async () => win.showInputBox({
                 prompt: opts.prompt,
                 placeHolder: opts.placeHolder,
                 value: opts.value,
                 password: opts.password,
                 title: opts.title,
                 ignoreFocusOut: opts.ignoreFocusOut,
-            });
+            }));
         },
     };
 }

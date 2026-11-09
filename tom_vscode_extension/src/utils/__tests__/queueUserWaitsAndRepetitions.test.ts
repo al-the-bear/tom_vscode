@@ -1,0 +1,151 @@
+/**
+ * The prompt queue: an item whose prompt waits for the user (services/userWaits.ts), and the answers of every
+ * repetition of a repeated item (utils/repetitionAnswers.ts), with the queue editor's rendering of both.
+ *
+ *   UW-1 a wait opened inside a queue item's dispatch (runAsQueueItem) is that item's; one opened outside names no
+ *        item; it closes (once), also when what it waits for throws; listeners are told
+ *   UW-2 the waits are opened where a prompt waits for the user: the ask registry's question (tomAi_askUser, the
+ *        Agent SDK's AskUserQuestion), the picker's and input box's prompter, the MD Browser ask, tool approvals —
+ *        and the queue runs its Anthropic dispatch as the item, re-firing its change event when a wait changes
+ *   UW-3 the queue editor: a sending item that waits gets its own colour (waiting-for-user) and a badge naming
+ *        a reply or an approval
+ *   RP-1 the repetition key: the walked todo's id, else the repetition number, else the template repetition
+ *        number; none for an item that does not repeat
+ *   RP-2 recording: one answer per repetition, a repetition answered again replaces its entry in place, empty
+ *        answers and non-repeated items record nothing; read back from the entry file's list
+ *   RP-3 the queue editor: a chip per repetition under the Answer (the latest active); a click shows that
+ *        repetition's answer, its key in the title, and the Markdown buttons take it
+ */
+
+import test, { describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { JSDOM } from 'jsdom';
+
+import { beginUserWait, hasUserWaits, onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem, whileWaitingForUser } from '../../services/userWaits.js';
+import { AskUserRegistry } from '../../services/askUserRegistry.js';
+import { recordRepetitionAnswer, repetitionAnswersFromYaml, repetitionKeyOf } from '../repetitionAnswers.js';
+
+const ROOT = join(__dirname, '..', '..', '..');
+const media = (...p: string[]): string => readFileSync(join(ROOT, 'media', ...p), 'utf-8');
+const src = (...p: string[]): string => readFileSync(join(ROOT, 'src', ...p), 'utf-8');
+const count = (raw: number | string | undefined): number => (typeof raw === 'number' ? raw : Number(raw) || 0);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Win = any;
+
+function queueEditor(items: unknown[]): Win {
+    const html = media('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+    const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
+    w.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
+    w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
+    w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
+    return w;
+}
+const base = { type: 'normal', transport: 'anthropic', template: '(None)', createdAt: new Date().toISOString(), expandedText: '', prePrompts: [], followUps: [] };
+
+describe('queue: waits for the user', () => {
+    test('UW-1: whose wait it is', async () => {
+        let told = 0;
+        const stop = onUserWaitsChanged(() => { told++; });
+        let close!: () => void;
+        await runAsQueueItem('item-1', async () => {
+            await Promise.resolve();
+            close = beginUserWait('question');
+        });
+        const outside = beginUserWait('approval');
+        assert.deepEqual(Object.fromEntries(queueItemsWaitingForUser()), { 'item-1': ['question'] }, 'the item\'s; the outside one names none');
+        assert.equal(hasUserWaits(), true);
+        close();
+        close();
+        outside();
+        assert.equal(queueItemsWaitingForUser().size, 0);
+        assert.equal(hasUserWaits(), false);
+        await assert.rejects(runAsQueueItem('item-2', () => whileWaitingForUser('approval', async () => { throw new Error('gone'); })));
+        assert.equal(hasUserWaits(), false, 'closed although it threw');
+        assert.equal(told, 6, 'every open and close told once');
+        stop();
+    });
+
+    test('UW-2: where the waits are opened', async () => {
+        const registry = new AskUserRegistry({ genId: () => 'ask-1' });
+        const answer = runAsQueueItem('item-3', () => registry.begin({ questions: ['Which?'], fallbackPrompt: 'f', onOpen: () => undefined, onResolve: () => undefined }));
+        await Promise.resolve();
+        assert.deepEqual(Object.fromEntries(queueItemsWaitingForUser()), { 'item-3': ['question'] }, 'an open question');
+        registry.submit('ask-1', 'that one', 'vscode');
+        assert.equal(await answer, 'that one');
+        assert.equal(hasUserWaits(), false, 'answered: closed');
+        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', \(\) => showLiveQuickPick/);
+        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', async \(\) => win\.showInputBox/);
+        assert.match(src('tools', 'ask-in-md-browser-tool.ts'), /return whileWaitingForUser\('question', \(\) => new Promise<string>/);
+        assert.match(src('handlers', 'anthropic-handler.ts'), /return whileWaitingForUser\('approval', \(\) => new Promise<boolean>/);
+        const queue = src('managers', 'promptQueueManager.ts');
+        assert.match(queue, /runAsQueueItem\(waitItem\?\.id, \(\) => runInProcessPosition/);
+        assert.match(queue, /onUserWaitsChanged\(\(\) => m\._onDidChange\.fire\(\)\)/);
+    });
+
+    test('UW-3: the editor shows the waiting item', () => {
+        const w = queueEditor([
+            { ...base, id: 'w1', status: 'sending', originalText: 'prompt-waits', waitingForUser: ['question'] },
+            { ...base, id: 'w2', status: 'sending', originalText: 'prompt-approval', waitingForUser: ['approval'] },
+            { ...base, id: 'w3', status: 'pending', originalText: 'prompt-free' },
+        ]);
+        try {
+            const el = (text: string): Win => [...w.document.querySelectorAll('.queue-item')].find((e: Win) => e.textContent.includes(text));
+            assert.ok(el('prompt-waits').classList.contains('waiting-for-user'));
+            assert.match(el('prompt-waits').querySelector('.waiting-user-badge').textContent, /waiting for your reply/);
+            assert.match(el('prompt-approval').querySelector('.waiting-user-badge').textContent, /waiting for your approval/);
+            assert.equal(el('prompt-free').classList.contains('waiting-for-user'), false);
+            assert.match(media('shared', 'queueEntryStyles.css'), /\.queue-item\.waiting-for-user \{[^}]*background/);
+        } finally {
+            w.close();
+        }
+    });
+});
+
+describe('queue: the answers of every repetition', () => {
+    test('RP-1: the repetition key', () => {
+        assert.equal(repetitionKeyOf({ repeatCount: 'chat*', repeatTodoId: 'chat7_x', repeatIndex: 7 }, count), 'chat7_x', 'a walk: the todo id');
+        assert.equal(repetitionKeyOf({ repeatCount: 3, repeatIndex: 2 }, count), '2');
+        assert.equal(repetitionKeyOf({ repeatCount: 1, templateRepeatCount: 4, templateRepeatIndex: 3 }, count), '3');
+        assert.equal(repetitionKeyOf({ repeatCount: 1, repeatIndex: 1 }, count), undefined, 'not repeated');
+        assert.equal(repetitionKeyOf({ repeatCount: 3, repeatIndex: 0 }, count), undefined, 'not sent yet');
+    });
+
+    test('RP-2: recording', () => {
+        const item: Parameters<typeof recordRepetitionAnswer>[0] = { repeatCount: 3, repeatIndex: 1 };
+        recordRepetitionAnswer(item, 'first', count, new Date('2026-11-09T10:00:00Z'));
+        item.repeatIndex = 2;
+        recordRepetitionAnswer(item, 'second', count);
+        item.repeatIndex = 1;
+        recordRepetitionAnswer(item, 'first again', count);
+        recordRepetitionAnswer(item, '   ', count);
+        assert.deepEqual(item.repetitionAnswers!.map((a) => [a.key, a.text]), [['1', 'first again'], ['2', 'second']], 'replaced in place');
+        const once: Parameters<typeof recordRepetitionAnswer>[0] = { repeatCount: 1, repeatIndex: 1 };
+        recordRepetitionAnswer(once, 'x', count);
+        assert.equal(once.repetitionAnswers, undefined);
+        assert.deepEqual(repetitionAnswersFromYaml([{ key: 2, text: 't', at: 'a' }, { nope: 1 }, 'x']), [{ key: '2', text: 't', at: 'a' }]);
+        assert.equal(repetitionAnswersFromYaml(undefined), undefined);
+    });
+
+    test('RP-3: the chips', () => {
+        const reps = [
+            { key: 'chat7_x', text: 'answer of chat7', at: '2026-11-09T10:00:00Z' },
+            { key: 'chat8_y', text: 'answer of chat8', at: '2026-11-09T11:00:00Z' },
+        ];
+        const w = queueEditor([{ ...base, id: 'r1', status: 'sending', originalText: 'prompt-walk', repeatCount: 'chat*', answerText: 'answer of chat8', repetitionAnswers: reps }]);
+        try {
+            const chips = (): Win[] => [...w.document.querySelectorAll('.rep-answer-chip')];
+            assert.deepEqual(chips().map((c) => c.textContent), ['chat7_x', 'chat8_y']);
+            assert.deepEqual(chips().map((c) => c.classList.contains('active')), [false, true], 'the latest is shown');
+            chips()[0].click();
+            assert.match(w.document.querySelector('.answer-preview').textContent, /answer of chat7/);
+            assert.match(w.document.querySelector('.answer-preview strong').textContent, /Answer — chat7_x/);
+            assert.deepEqual(chips().map((c) => c.classList.contains('active')), [true, false]);
+            assert.equal(w.__queueAnswers.r1.text, 'answer of chat7', 'the Markdown buttons take it');
+        } finally {
+            w.close();
+        }
+    });
+});

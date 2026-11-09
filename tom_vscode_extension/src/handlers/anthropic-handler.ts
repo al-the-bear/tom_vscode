@@ -10,6 +10,7 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { whileWaitingForUser } from '../services/userWaits';
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
@@ -1844,10 +1845,11 @@ export class AnthropicHandler {
      * `requiresApproval: false`) to avoid hanging.
      */
     private awaitApproval(req: AnthropicToolApprovalRequest): Promise<boolean> {
-        return new Promise<boolean>((resolve) => {
+        // Open as a wait for the user until the approval is answered (the queue editor shows the item waiting).
+        return whileWaitingForUser('approval', () => new Promise<boolean>((resolve) => {
             this.pendingApprovals.set(req.toolUseId, { resolve, toolName: req.toolName });
             this._onApprovalNeeded.fire(req);
-        });
+        }));
     }
 
     /**

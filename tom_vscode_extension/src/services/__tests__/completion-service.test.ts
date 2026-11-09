@@ -5,8 +5,9 @@
  *   - discoverSkills walks parents, marks direct vs note, prefix-filters,
  *     closest-wins on name collisions, sorts direct-first then alpha
  *   - formatSkillInsertion renders `/name` and `/name (in dir)`
- *   - rankFiles tiers open-editors → quest-folder → other, de-dups,
- *     substring-filters, sorts by basename within tier
+ *   - rankFiles: with a quest, its folder's files only — user files (open first), then the technical ones
+ *     (history/, configuration and state, archived / deleted todos); without one, open editors, then all;
+ *     de-dups, substring-filters, sorts by basename within tier; isTechnicalQuestFile
  *   - formatFileInsertion renders `@name (relpath)`
  *   - detectToken finds `/` and `@` tokens, respects whitespace boundary
  *
@@ -21,6 +22,7 @@ import {
     discoverSkills,
     formatSkillInsertion,
     rankFiles,
+    isTechnicalQuestFile,
     formatFileInsertion,
     detectToken,
     type SkillStore,
@@ -107,47 +109,65 @@ describe('completion-service.rankFiles', () => {
     const quest = path.join(wsRoot, '_ai', 'quests', 'demo');
     const f = (...segs: string[]) => path.join(wsRoot, ...segs);
 
+    const q = (...segs: string[]) => f('_ai', 'quests', 'demo', ...segs);
     const allFiles = [
         f('src', 'index.ts'),
         f('src', 'live-helper.ts'),
-        f('_ai', 'quests', 'demo', 'live-trail.md'),
-        f('_ai', 'quests', 'demo', 'overview.demo.md'),
+        f('_ai', 'queue', 'host_ws_261109-abc.normal.entry.queue.yaml'),
+        f('_ai', 'quests', 'other', 'notes.md'),
+        q('overview.demo.md'),
+        q('notes.demo.md'),
+        q('history', 'sessions', 'default', 'live-trail.md'),
+        q('extension_config.demo.yaml'),
+        q('process-state.demo.yaml'),
+        q('todos-archived.demo.todo.yaml'),
+        q('todos.demo.todo.yaml'),
         f('README.md'),
     ];
-    const openEditors = [f('src', 'index.ts')];
+    const openEditors = [f('src', 'index.ts'), q('todos.demo.todo.yaml')];
 
-    test('open editors rank above quest-folder above other', () => {
+    test('with a quest: its folder only, user files (open first) before the technical ones', () => {
         const out = rankFiles({ wsRoot, questFolder: quest, openEditors, allFiles, query: '' });
-        assert.equal(out[0].relativePath, 'src/index.ts');      // tier 1 (open)
-        assert.equal(out[0].tier, 1);
-        // tier 2 = quest-folder files, sorted by basename
-        const tier2 = out.filter((c) => c.tier === 2).map((c) => c.relativePath);
-        assert.deepEqual(tier2, [
-            '_ai/quests/demo/live-trail.md',
-            '_ai/quests/demo/overview.demo.md',
-        ]);
-        // Sorted by basename via localeCompare: `live-helper.ts` < `README.md`.
-        const tier3 = out.filter((c) => c.tier === 3).map((c) => c.relativePath);
-        assert.deepEqual(tier3, ['src/live-helper.ts', 'README.md']);
+        assert.deepEqual(out.map((c) => [c.tier, c.relativePath.replace('_ai/quests/demo/', '')]), [
+            [1, 'todos.demo.todo.yaml'],
+            [2, 'notes.demo.md'],
+            [2, 'overview.demo.md'],
+            [3, 'extension_config.demo.yaml'],
+            [3, 'history/sessions/default/live-trail.md'],
+            [3, 'process-state.demo.yaml'],
+            [3, 'todos-archived.demo.todo.yaml'],
+        ], 'no queue file, no other quest, no code — not even an open one');
+    });
+
+    test('technical quest files', () => {
+        for (const rel of ['history/x.md', 'a/history/b.json', 'extension_config.mbp.demo.yaml', 'process-state.demo.yaml', 'quest-refresh.yaml',
+            'telegram.demo.json', 'chat.session.json', 'tool_timings.md', 'last_request_agentsdk.json', 'todos-deleted.demo.todo.yaml', '.hidden.md']) {
+            assert.equal(isTechnicalQuestFile(rel), true, rel);
+        }
+        for (const rel of ['overview.demo.md', 'todos.demo.todo.yaml', 'session-todo.mbp.demo.todo.yaml', 'docs/history.md', 'notes/plan.md']) {
+            assert.equal(isTechnicalQuestFile(rel), false, rel);
+        }
     });
 
     test('substring filter is case-insensitive and matches basenames', () => {
         const out = rankFiles({ wsRoot, questFolder: quest, openEditors, allFiles, query: 'LIVE' });
-        assert.deepEqual(
-            out.map((c) => c.relativePath).sort(),
-            ['_ai/quests/demo/live-trail.md', 'src/live-helper.ts'],
-        );
+        assert.deepEqual(out.map((c) => c.relativePath), ['_ai/quests/demo/history/sessions/default/live-trail.md']);
     });
 
     test('de-dups a file that is both open and in allFiles', () => {
         const out = rankFiles({
             wsRoot, questFolder: quest,
-            openEditors: [f('src', 'index.ts')],
-            allFiles: [f('src', 'index.ts')],
-            query: 'index',
+            openEditors: [q('notes.demo.md')],
+            allFiles: [q('notes.demo.md')],
+            query: 'notes',
         });
         assert.equal(out.length, 1);
         assert.equal(out[0].tier, 1);
+    });
+
+    test('without a quest: open editors first, then every file', () => {
+        const out = rankFiles({ wsRoot, questFolder: null, openEditors: [f('src', 'index.ts')], allFiles: [f('README.md'), f('src', 'index.ts')], query: '' });
+        assert.deepEqual(out.map((c) => [c.tier, c.relativePath]), [[1, 'src/index.ts'], [3, 'README.md']]);
     });
 
     test('relative paths use POSIX separators', () => {

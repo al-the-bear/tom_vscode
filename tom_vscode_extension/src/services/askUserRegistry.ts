@@ -38,6 +38,7 @@
  * race and timeout are unit-testable without real timers.
  */
 
+import { whileWaitingForUser } from './userWaits';
 import { layoutChoices, type AskChoice, type QuestionLayout } from '../utils/askChoices';
 
 export type AskAnswerSource = 'vscode' | 'telegram' | 'timeout' | 'cancel';
@@ -143,6 +144,11 @@ export class AskUserRegistry {
      * into an error reply so the model knows it must not call again concurrently.
      */
     begin(params: BeginAskParams): Promise<string> {
+        // Open as a wait for the user while the question stands (the queue editor shows the item waiting).
+        return whileWaitingForUser('question', () => this.beginAsk(params));
+    }
+
+    private beginAsk(params: BeginAskParams): Promise<string> {
         if (this.active) {
             return Promise.reject(new Error('An askUser request is already pending — only one may be in flight at a time.'));
         }

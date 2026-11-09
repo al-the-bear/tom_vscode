@@ -29,6 +29,7 @@ import {
 } from '../services/completion-service';
 import { fsSkillStore } from '../services/skills';
 import { commandTakesArguments, expandSlashCommand, listSlashCommands, type SlashCommand } from '../services/slashCommands';
+import * as fs from 'fs';
 import * as path from 'path';
 
 // ===========================================================================
@@ -52,6 +53,26 @@ function collectOpenEditorPaths(): string[] {
     return out;
 }
 
+/** Every file under `folder` (linked files included, linked folders not followed, `.git` / `node_modules` skipped), at most `max`. */
+function listFilesUnder(folder: string, max: number): string[] {
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+            if (out.length >= max) { return; }
+            if (e.name === '.git' || e.name === 'node_modules') { continue; }
+            const abs = path.join(dir, e.name);
+            if (e.isDirectory()) { walk(abs); continue; }
+            if (e.isFile()) { out.push(abs); continue; }
+            // A link to a file is listed; one to a folder is not followed (no cycles).
+            if (e.isSymbolicLink()) { try { if (fs.statSync(abs).isFile()) { out.push(abs); } } catch { /* dangling */ } }
+        }
+    };
+    walk(folder);
+    return out;
+}
+
 /** Gather + rank current-workspace files for the `@` completion. */
 async function gatherFileCompletions(query: string): Promise<FileCompletion[]> {
     const wsRoot = WsPaths.wsRoot;
@@ -59,10 +80,13 @@ async function gatherFileCompletions(query: string): Promise<FileCompletion[]> {
     const questId = WsPaths.getWorkspaceQuestId();
     const questFolder = WsPaths.ai('quests', questId) ?? null;
     const openEditors = collectOpenEditorPaths();
-    // `undefined` exclude honours the user's files.exclude / search.exclude.
-    const uris = await vscode.workspace.findFiles('**/*', undefined, 5000);
-    const allFiles = uris.map((u) => u.fsPath);
-    return rankFiles({ wsRoot, questFolder, openEditors, allFiles, query });
+    // With a quest: its folder only, walked directly (no workspace-wide search, so
+    // the queue's files and the code never crowd it). Without one: the workspace,
+    // honouring files.exclude / search.exclude.
+    const allFiles = questFolder && fs.existsSync(questFolder)
+        ? listFilesUnder(questFolder, 5000)
+        : (await vscode.workspace.findFiles('**/*', undefined, 5000)).map((u) => u.fsPath);
+    return rankFiles({ wsRoot, questFolder: questFolder && fs.existsSync(questFolder) ? questFolder : null, openEditors, allFiles, query });
 }
 
 // ===========================================================================

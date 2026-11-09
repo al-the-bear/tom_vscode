@@ -16,6 +16,7 @@
  * the live wiring is in `handlers/markdownBrowser-handler.ts`.
  */
 
+import { whileWaitingForUser } from '../services/userWaits';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
@@ -326,7 +327,8 @@ export async function askInMdBrowserImpl(
         timeoutAt: timeoutMs ? askedAt + timeoutMs : undefined,
     };
 
-    return new Promise<string>((resolve) => {
+    // Open as a wait for the user until a button (or the timeout) answers it.
+    return whileWaitingForUser('question', () => new Promise<string>((resolve) => {
         const ask: OpenAsk = {
             bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve,
             ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
@@ -351,7 +353,7 @@ export async function askInMdBrowserImpl(
         if (timeoutMs) {
             ask.timer = (deps.setTimer ?? ((ms, cb) => setTimeout(cb, ms)))(timeoutMs, () => slot.finish('timeout'));
         }
-    });
+    }));
 }
 
 export const ASK_IN_MD_BROWSER_DESCRIPTION =

@@ -1012,6 +1012,15 @@ function waitingForSessionOf(item: QueuedPrompt): string | undefined {
     try { return PromptQueueManager.instance.chatHoldingSessionOf(item)?.session; } catch { return undefined; }
 }
 
+/** What a sending item's prompt waits for the user for, or undefined. */
+function waitingForUserOf(item: QueuedPrompt): Array<'question' | 'approval'> | undefined {
+    if (item.status !== 'sending') { return undefined; }
+    try {
+        const kinds = PromptQueueManager.instance.waitingForUserOf(item.id);
+        return kinds.length ? kinds : undefined;
+    } catch { return undefined; }
+}
+
 /** Whether a `chat` item's send still runs (it holds its session). */
 function chatSendAlive(item: QueuedPrompt): boolean {
     try { return PromptQueueManager.instance.sessionHolder(item.session ?? 'chat')?.id === item.id; } catch { return false; }
@@ -1135,6 +1144,8 @@ function buildState(): Record<string, unknown> {
                 ...(waitingForSessionOf(item) ? { waitingForSession: waitingForSessionOf(item) } : {}),
                 // A chat send whose send still runs (Remove stops it).
                 ...(item.status === 'chat' && chatSendAlive(item) ? { chatActive: true } : {}),
+                // Its running prompt waits for the user: a question or an approval is open.
+                ...(waitingForUserOf(item) ? { waitingForUser: waitingForUserOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };

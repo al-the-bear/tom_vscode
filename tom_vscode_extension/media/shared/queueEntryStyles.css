@@ -105,6 +105,9 @@
      mid-stream interrupt. Distinct from the red .queue-item.error border so
      the user can tell a recoverable send apart from a hard failure. */
   .queue-item.warned { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #e9a700); }
+  /* The running prompt waits for the user's reply (a question or an approval is open). */
+  .queue-item.waiting-for-user { border-left: 3px solid #d18616; background: rgba(209, 134, 22, 0.14); }
+  .waiting-user-badge { background: #d18616; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
   .warning-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
     padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600;
     background: rgba(233, 167, 0, 0.15); color: var(--vscode-inputValidation-warningBorder, #e9a700);
@@ -147,3 +150,7 @@
   .chat-badge.running { background: #3794ff; }
   .chat-item-meta { opacity: 0.75; font-size: 11px; }
   .chat-item-spacer { flex: 1; }
+  /* A repeated item's answers, one chip per repetition (the todo id or the repetition number). */
+  .rep-answer-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .rep-answer-chip { font-size: 10px; padding: 1px 6px; border-radius: 9px; border: 1px solid #4a9eff; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+  .rep-answer-chip.active { background: #4a9eff; color: #fff; }

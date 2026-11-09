@@ -190,6 +190,8 @@ export interface QueuePromptYaml {
     'chat-window-id'?: string;
     /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
     'todo-id-pattern'?: string;
+    /** A repeated item's main-prompt answer per repetition (the todo id or the repetition number). */
+    'repetition-answers'?: Array<{ key: string; text: string; at: string }>;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */
