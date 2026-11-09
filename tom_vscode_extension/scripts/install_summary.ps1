@@ -4,6 +4,7 @@
 #
 #   Write-TomVsixPath <extension dir>
 #   Write-TomNoDartWarning <reason> <from-source $true|$false>
+#   Write-TomLayerVsixSummary <extension dir> <platforms>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -61,4 +62,28 @@ function Write-TomNoDartWarning([string]$Reason, [bool]$FromSource) {
         Write-Host ('!! {0,-70} !!' -f $line) -ForegroundColor Red
     }
     Write-Host $rule -ForegroundColor Red
+}
+
+# The closing block of a VSIX packaged with binaries from the binaries layer
+# (create_currentbinaries_vsix.ps1, create_fleetcompiled_vsix.ps1): the VSIX
+# and template paths, the binaries it carries per platform, and each binary's
+# build stamp and freshness. $Platforms: comma-separated, '' for the default set.
+function Write-TomLayerVsixSummary([string]$Dir, [string]$Platforms) {
+    Write-Host ""
+    Write-Host "-------- Private distribution VSIX --------"
+    Write-TomVsixPath $Dir
+    $vsix = Get-TomNewestVsix $Dir
+    Push-Location $Dir
+    $ErrorActionPreference = 'Continue'
+    if ($vsix) {
+        $contents = & node scripts/check-vsix-contents.cjs $vsix
+        foreach ($line in @($contents | Select-Object -Skip 1)) { Write-Host "$line" }
+    }
+    if ($Platforms) {
+        $layer = & node scripts/binaries-layer.cjs report --platforms $Platforms
+    } else {
+        $layer = & node scripts/binaries-layer.cjs report
+    }
+    foreach ($line in @($layer)) { Write-Host "$line" }
+    Pop-Location
 }

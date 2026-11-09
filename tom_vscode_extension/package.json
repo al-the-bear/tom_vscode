@@ -3013,6 +3013,7 @@
     "check:bridges": "node scripts/check-bridge-fresh.cjs",
     "check:bridge-lock": "node scripts/bridge-lock-preflight.cjs --warn",
     "check:tom-bs": "node scripts/check-tom-bs-provenance.cjs",
+    "binaries:report": "node scripts/binaries-layer.cjs report",
     "som:pack": "node scripts/build-som-packages.cjs",
     "codespecs:build": "node scripts/build-validate-codespecs.cjs",
     "template:build": "node scripts/build-workspace-template.cjs",

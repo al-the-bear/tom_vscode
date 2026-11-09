@@ -7,11 +7,13 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 1. Typecheck: `npx tsc --noEmit`. Fix all errors and Problems-pane warnings first.
 2. Install the updated extension in the target VS Code host with
    `compile_and_install.sh` / `.ps1` — the install route on every host. It
-   builds `tom_bs` from the bridge sources for that host. The prebuilt
-   `tom_bs` binaries in `tom_binaries` are not kept current (last built
-   2026-10-02), so `install_extension.*`, which bundles them, is only for a
-   machine without the d4rt and bridge checkouts, and its bridge may lack newer
-   scripting-API members.
+   builds `tom_bs` from the bridge sources for that host and puts it, with
+   `validate_codespecs`, into the binaries layer (below). The prebuilt `tom_bs`
+   binaries in `tom_binaries` are only as current as the last from-source build
+   on each platform's host, so `install_extension.*`, which bundles them, is
+   only for a machine without the d4rt and bridge checkouts, and its bridge may
+   lack newer scripting-API members (`npm run binaries:report` says per
+   platform).
 3. Reload the VS Code window (`Developer: Reload Window`). Until it is reloaded, a window runs the build it started with: its status bar says **Reload: newer Tom AI build**, and `tomAi_getWorkspaceInfo` answers `build.reloadNeeded: true` (`tomAi_getQuestWindowStatus` per window). A live check of a new feature reads that first and stops with "reload first" instead of testing old code.
 4. Re-run the affected command or open the affected view.
 
@@ -135,6 +137,48 @@ package-only mode (`--package-only` / `-PackageOnly` / `TOM_PACKAGE_ONLY=1`:
 no uninstall, no prompt, no `code --install-extension`). They end with the
 VSIX path, the template path and the per-platform report of
 `check-vsix-contents.cjs`. Tests: `createVsixScripts.test.ts` (CS-1 – CS-5).
+
+**The binaries layer** (`tom_binaries/tom/<platform>/`): every from-source build
+(`TOM_BRIDGE_FROM_SOURCE=1`: `compile_and_install.*`, `create_vsix.*`) ends its
+Dart part with `node scripts/binaries-layer.cjs publish`: it copies this host's
+`tom_bs`, `validate_codespecs` and `validate_codespecs.build.json` there, writes
+`tom_bs.build.json` (the versioner stamp `tom_bs` prints on start, its build
+time, the host, and `bridgeSourceHash`: the bridge's lib/ and bin/ Dart files
+and pubspec.yaml as built, without the versioner file and the `// Generated:`
+lines, CRLF normalised; kept when the binary is byte-identical), commits exactly those
+files (`git commit -- <paths>`, nothing else in the layer) and pushes. A refused
+push exits 3: the commit stays local, the install goes on, and nothing pulls
+the layer. `--no-layer` / `-NoLayer` / `TOM_NO_LAYER=1` skips it.
+`--binaries-only` / `-BinariesOnly` (`TOM_BINARIES_ONLY=1`) builds only the two
+binaries and publishes them: SOM pack, npm, TypeScript, the Agent SDK CLI, the
+template and vsce are skipped. `--layer-binaries` / `-LayerBinaries`
+(`TOM_LAYER_BINARIES=1`, `TOM_LAYER_PLATFORMS=a,b`) builds nothing with Dart
+and bundles every platform's two binaries from the layer
+(`binaries-layer.cjs bundle`; the stamps stay out of the VSIX).
+`binaries-layer.cjs report` (`npm run binaries:report`) gives, per platform,
+each binary's stamp and whether it is older than the sources here: `tom_bs`
+is current when its `bridgeSourceHash` is the bridge sources' hash here
+(uncommitted edits included), else `check-tom-bs-provenance.cjs`'s
+`changedSince` on its stamp's commit decides,
+`validate_codespecs` through its stamp's source hash against
+`codespecs-binary-stamp.cjs`'s `sourceHash` now.
+
+On top of it, two private-distribution scripts:
+`create_currentbinaries_vsix.sh` / `.ps1` (this host's binaries built with
+`--binaries-only`, then one `--package-only` run with `TOM_LAYER_BINARIES=1`)
+and `create_fleetcompiled_vsix.sh` / `.ps1`, which first runs
+`scripts/fleet-binaries.cjs`: the `build: true` hosts of the `fleet_hosts`
+registry (`al_the_bear/repo_structure.md`), a read-only preflight over SSH
+(reached; `tom_ai/vscode`, `tom_ai/d4rt`, `tom_ai/ai_build` at this host's
+commits; a Dart SDK found by `find-dart.cjs`; Node), then
+`compile_and_install --binaries-only` with `TOM_LAYER_FF=1` on each — this
+host first, Linux at nice 10, Windows as `powershell -File
+compile_and_install.ps1 -BinariesOnly` — where `publish --ff` fast-forwards
+the layer first (refused when it has commits of its own) and every failure is
+fatal; then this host's layer is fast-forwarded. A host that is not level stops
+the run before anything is built: the reconcile is the user's. Tests:
+`createVsixScripts.test.ts` (CS-6 – CS-10), `binariesLayer.test.ts` (BL-1 –
+BL-4 against throw-away git repositories, FB-1 – FB-3 the fleet helpers).
 
 `vsce package` rewrites the README's relative links into absolute ones for the
 extension's details page. Every installer passes the base URLs from

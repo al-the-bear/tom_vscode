@@ -4,6 +4,7 @@
     This script sets up and installs the VS Code extension for development.
 .DESCRIPTION
     install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-PackageOnly | --package-only]
+                          [-BinariesOnly | --binaries-only] [-LayerBinaries | --layer-binaries] [-NoLayer | --no-layer]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
     Dart SDK: no Dart step runs, and the VSIX carries no validate_codespecs and,
@@ -19,8 +20,24 @@
     -PackageOnly (or --package-only, or TOM_PACKAGE_ONLY=1) builds and checks
     the VSIX without the prompt and does not install it (create_vsix*.ps1 use
     it).
+
+    -BinariesOnly (or --binaries-only, or TOM_BINARIES_ONLY=1; from source
+    only) builds tom_bs and validate_codespecs for this host and puts them into
+    the binaries layer - no npm, no TypeScript, no VSIX (the fleet build of
+    create_fleetcompiled_vsix.* runs it on every fleet host).
+
+    -LayerBinaries (or --layer-binaries, or TOM_LAYER_BINARIES=1) builds
+    nothing with Dart: tom_bs and validate_codespecs for every platform come
+    from the binaries layer (TOM_LAYER_PLATFORMS=a,b,... narrows them;
+    create_*binaries_vsix.*).
+
+    A from-source build puts the binaries it built into the binaries layer,
+    tom_binaries/tom/<platform>/, commits them there and pushes
+    (scripts/binaries-layer.cjs publish; TOM_LAYER_FF=1 fast-forwards the
+    layer first, as the fleet build does). -NoLayer (or --no-layer, or
+    TOM_NO_LAYER=1) leaves the layer alone.
 #>
-param([switch]$NoDart, [switch]$AllPlatforms, [switch]$PackageOnly)
+param([switch]$NoDart, [switch]$AllPlatforms, [switch]$PackageOnly, [switch]$BinariesOnly, [switch]$LayerBinaries, [switch]$NoLayer)
 
 $ErrorActionPreference = "Stop"
 
@@ -30,8 +47,17 @@ foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
     elseif ($Arg -eq '--all-platforms') { $AllPlatforms = $true }
     elseif ($Arg -eq '--package-only') { $PackageOnly = $true }
-    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-PackageOnly | --package-only])"; exit 1 }
+    elseif ($Arg -eq '--binaries-only') { $BinariesOnly = $true }
+    elseif ($Arg -eq '--layer-binaries') { $LayerBinaries = $true }
+    elseif ($Arg -eq '--no-layer') { $NoLayer = $true }
+    else { Write-Error "Unknown option: $Arg (usage: install_extension.ps1 [-NoDart | --no-dart] [-AllPlatforms | --all-platforms] [-PackageOnly | --package-only] [-BinariesOnly | --binaries-only] [-LayerBinaries | --layer-binaries] [-NoLayer | --no-layer])"; exit 1 }
 }
+if ($BinariesOnly) { $env:TOM_BINARIES_ONLY = '1' }
+if ($LayerBinaries) { $env:TOM_LAYER_BINARIES = '1' }
+if ($NoLayer) { $env:TOM_NO_LAYER = '1' }
+$BinariesOnlyMode = ($env:TOM_BINARIES_ONLY -eq '1')
+$LayerBinariesMode = ($env:TOM_LAYER_BINARIES -eq '1')
+$NoLayerMode = ($env:TOM_NO_LAYER -eq '1')
 if ($AllPlatforms) { $env:TOM_ALL_PLATFORMS = '1' }
 if ($PackageOnly) { $env:TOM_PACKAGE_ONLY = '1' }
 $PackageOnlyMode = ($env:TOM_PACKAGE_ONLY -eq '1')
@@ -43,6 +69,14 @@ if ($NoDart) {
 $NoDartMode = ($env:TOM_NO_DART -eq '1')
 if ($NoDartMode -and -not $env:TOM_NO_DART_REASON) { $env:TOM_NO_DART_REASON = 'TOM_NO_DART=1' }
 $FromSource = ($env:TOM_BRIDGE_FROM_SOURCE -eq '1')
+if ($BinariesOnlyMode -and (-not $FromSource -or $NoDartMode -or $LayerBinariesMode)) {
+    Write-Error "-BinariesOnly builds the binaries from source with Dart (compile_and_install.ps1 -BinariesOnly)"
+    exit 1
+}
+if ($LayerBinariesMode -and $FromSource) {
+    Write-Error "-LayerBinaries takes the binaries from the layer; it does not build from source"
+    exit 1
+}
 
 # Runs a native program (npm, dart, node, vsce, code, ...) so that what it
 # writes to stderr is logged rather than fatal.
@@ -173,6 +207,10 @@ if ($FromSource -and -not $NoDartMode) {
     Write-Host ""
 }
 
+# Binaries only: none of the extension's own build - straight to the Dart
+# binaries below.
+$CodeCli = ""
+if (-not $BinariesOnlyMode) {
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -214,7 +252,6 @@ Write-Host ""
 # The VS Code CLI installs the VSIX. Without it (or with -PackageOnly) the
 # VSIX is still built (its path is printed at the end), only the install is
 # skipped.
-$CodeCli = ""
 if ($PackageOnlyMode) {
     Write-Host "Package only: the VSIX is built and checked, not installed."
 } elseif (Get-Command code -ErrorAction SilentlyContinue) {
@@ -223,6 +260,7 @@ if ($PackageOnlyMode) {
 } else {
     Write-Warning "VS Code CLI 'code' not found in PATH: the VSIX is built but not installed."
 }
+} # BinariesOnlyMode
 
 Write-Host ""
 
@@ -230,7 +268,7 @@ $VsixBuilt = $false
 # Ask if user wants to package (and install) as VSIX. compile_and_install.ps1
 # sets TOM_BRIDGE_FROM_SOURCE=1, create_vsix*.ps1 TOM_PACKAGE_ONLY=1, to run
 # unattended (auto-confirm).
-if ($FromSource -or $PackageOnlyMode) {
+if ($FromSource -or $PackageOnlyMode -or $LayerBinariesMode) {
     $Result = 'y'
 } else {
     $Result = Read-Host "Do you want to package (and install) the extension (VSIX)? (y/n)"
@@ -239,7 +277,7 @@ Write-Host ""
 
 if ($Result -match "^[Yy]") {
     # Check if vsce is installed
-    if (-not (Get-Command vsce -ErrorAction SilentlyContinue)) {
+    if (-not $BinariesOnlyMode -and -not (Get-Command vsce -ErrorAction SilentlyContinue)) {
         Write-Host "Installing @vscode/vsce globally..."
         Invoke-Native { npm install -g @vscode/vsce }
         
@@ -268,7 +306,19 @@ if ($Result -match "^[Yy]") {
     $ExtBinDir = Join-Path $ExtensionDir 'bin'
     if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
 
-    if ($FromSource -and $NoDartMode) {
+    if ($LayerBinariesMode) {
+        # Every platform's tom_bs and validate_codespecs from the binaries
+        # layer, as its hosts left them (create_fleetcompiled_vsix.ps1,
+        # create_currentbinaries_vsix.ps1); how current each is, is reported
+        # there.
+        Write-Host "Bundling tom_bs and validate_codespecs from the binaries layer..."
+        if ($env:TOM_LAYER_PLATFORMS) {
+            Invoke-Native { node scripts/binaries-layer.cjs bundle --platforms $env:TOM_LAYER_PLATFORMS }
+        } else {
+            Invoke-Native { node scripts/binaries-layer.cjs bundle }
+        }
+        if ($LASTEXITCODE -ne 0) { Write-Error "Bundling the binaries from the layer failed"; exit 1 }
+    } elseif ($FromSource -and $NoDartMode) {
         # Without Dart there is nothing to compile tom_bs with: this VSIX
         # carries no bridge for the host, and the extension runs without
         # DartScript.
@@ -428,7 +478,9 @@ if ($Result -match "^[Yy]") {
     # compiled here from tom_ai/ai_build, like tom_bs in from-source mode.
     # The Dart SDK was found at the start of this script. Without Dart the
     # VSIX carries none and CodeSpecs validation is unavailable.
-    if ($NoDartMode) {
+    if ($LayerBinariesMode) {
+        # taken from the binaries layer above
+    } elseif ($NoDartMode) {
         Write-Host "No Dart: validate_codespecs is not built (CodeSpecs validation will not be available)."
     } else {
         Push-Location $ExtensionDir
@@ -437,6 +489,35 @@ if ($Result -match "^[Yy]") {
         Pop-Location
     }
     Write-Host ""
+
+    # ── Put the binaries built from source into the binaries layer ───────
+    # tom_binaries/tom/<platform>/ always holds the latest build of the host
+    # that built it, so a VSIX for several platforms can take theirs from
+    # there (scripts/binaries-layer.cjs publish: copy, build stamps, commit
+    # those files, push). A refused push leaves the commit local and is not
+    # fatal here; in the fleet build (TOM_LAYER_FF=1) the layer is
+    # fast-forwarded first and every failure is.
+    if ($FromSource -and -not $NoDartMode -and -not $NoLayerMode) {
+        Write-Host "Putting this host's binaries into the binaries layer..."
+        Push-Location $ExtensionDir
+        if ($env:TOM_LAYER_FF -eq '1') {
+            Invoke-Native { node scripts/binaries-layer.cjs publish --ff }
+        } else {
+            Invoke-Native { node scripts/binaries-layer.cjs publish }
+        }
+        $PublishStatus = $LASTEXITCODE
+        Pop-Location
+        if ($PublishStatus -eq 1 -or ($PublishStatus -ne 0 -and $env:TOM_LAYER_FF -eq '1')) {
+            Write-Error "Putting the binaries into the binaries layer failed (see above)"
+            exit 1
+        }
+        Write-Host ""
+    }
+    if ($BinariesOnlyMode) {
+        Pop-Location
+        Write-Host "Binaries built for this host and put into the binaries layer (no VSIX: -BinariesOnly)."
+        exit 0
+    }
 
     # ── Claude Agent SDK native CLI: this host's, or the fleet's ──────────
     # Since SDK >=0.2.13x the Claude CLI ships as a platform-specific native

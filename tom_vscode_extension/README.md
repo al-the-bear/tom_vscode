@@ -103,7 +103,12 @@ Options (bash / PowerShell):
 - `--no-dart` / `-NoDart` (or `TOM_NO_DART=1`): builds as on a machine
   without a Dart SDK (below);
 - `--all-platforms` / `-AllPlatforms` (or `TOM_ALL_PLATFORMS=1`): bundles the
-  Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64.
+  Agent SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64;
+- `--binaries-only` / `-BinariesOnly`: builds `tom_bs` and `validate_codespecs`
+  for this host, puts them into the binaries layer (step 5) and stops — no
+  npm, no TypeScript, no VSIX, nothing installed;
+- `--no-layer` / `-NoLayer` (or `TOM_NO_LAYER=1`): leaves the binaries layer
+  alone (step 5 skipped).
 
 It runs end to end:
 
@@ -114,27 +119,36 @@ It runs end to end:
 2. `dart pub get` for the generator and the bridge.
 3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
 4. `dart compile exe bin/tom_bs.dart` straight into the extension's local
-   `bin/<platform>/` — it never writes to `tom_binaries`, relies on
-   `$TOM_BINARY_PATH`, or needs any tool on `PATH` — and the same for
-   `validate_codespecs` from `tom_specs_clitool` (`npm run codespecs:build`).
-5. Ensures the host's Claude Agent SDK native CLI is present (its npm
+   `bin/<platform>/` — it never relies on `$TOM_BINARY_PATH` or needs any tool
+   on `PATH` — and the same for `validate_codespecs` from `tom_specs_clitool`
+   (`npm run codespecs:build`).
+5. Puts both into the binaries layer, `tom_binaries/tom/<platform>/`, with
+   their build stamps (`tom_bs.build.json`: the versioner stamp, build time,
+   host and a hash of the bridge sources it was built from;
+   `validate_codespecs.build.json`: the source hash), commits exactly
+   those files there and pushes (`scripts/binaries-layer.cjs publish`). The
+   layer so always holds the latest build of each platform's host, which
+   multi-platform VSIXes take (below). A push the remote refuses (the layer is
+   behind it) leaves the commit local and the install goes on; nothing pulls
+   the layer on its own.
+6. Ensures the host's Claude Agent SDK native CLI is present (its npm
    package); with `--all-platforms` it also fetches the fleet's other CLIs
    with `npm pack` and bundles them as `bin/<platform>/claude[.exe]`.
-6. Builds the workspace template (`npm run template:build`): the workspace's
+7. Builds the workspace template (`npm run template:build`): the workspace's
    config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
    personal files and literal secrets, as `resources/workspace_template.zip`
    (in the VSIX) and a copy beside it.
-7. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
+8. Packages the VSIX (bundling only the host `tom_bs` and `validate_codespecs`),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
    which of `tom_bs` / `validate_codespecs` it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
    and installs it via the `code` CLI (without `code` it is only packaged).
-8. Prints the VSIX's path, to install the same file on other machines with
+9. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
 
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
-(`.\compile_and_install.ps1 -NoDart`), steps 2–4 are skipped: the VSIX has no
+(`.\compile_and_install.ps1 -NoDart`), steps 2–5 are skipped: the VSIX has no
 `tom_bs` and no `validate_codespecs` for the host, and a red warning before and
 after the closing line says so. Such a VSIX lacks two things only:
 
@@ -157,11 +171,12 @@ After install, reload VS Code: `Cmd/Ctrl+Shift+P` → **Developer: Reload Window
 
 `install_extension.sh` / `.ps1` builds the same VSIX but bundles prebuilt
 `tom_bs` binaries copied from `tom_binaries/tom/<platform>/` (it does **not**
-compile the bridge). **Those binaries are not kept current**: they were last
-built on 2026-10-02 and lag the bridge sources, so a script using a newer part
-of the scripting API (the todo API on `tom_todo_model`, for one) can fail
-through them. `compile_and_install` is the install route on every host; this
-one is for a machine without the d4rt and bridge checkouts. It compiles
+compile the bridge). **They are only as current as the last from-source build
+on each platform's host** (step 5 above); a platform nobody rebuilt lags the
+bridge sources, so a script using a newer part of the scripting API can fail
+through it (`npm run binaries:report` says, per platform).
+`compile_and_install` is the install route on every host; this one is for a
+machine without the d4rt and bridge checkouts. It compiles
 `validate_codespecs` when a Dart SDK is found (without one, or with
 `--no-dart`, it leaves it out as above), takes `--all-platforms` too, and it
 says which bridge source the bundled `tom_bs` was built from
@@ -172,7 +187,7 @@ bash install_extension.sh        # macOS / Linux
 pwsh install_extension.ps1       # Windows
 ```
 
-### Private distribution: `create_vsix`
+### Private distribution: `create_vsix` and the multi-platform VSIXes
 
 To hand the extension to other machines, package a VSIX without installing
 it:
@@ -183,7 +198,40 @@ bash create_vsix_nodart.sh       # without the Dart binaries, no Dart SDK needed
 pwsh create_vsix.ps1             # Windows (create_vsix_nodart.ps1 likewise)
 ```
 
-Both build like `compile_and_install` (`--package-only` of
+For a VSIX that carries `tom_bs` and `validate_codespecs` for several
+platforms, the binaries come from the binaries layer:
+
+```bash
+bash create_currentbinaries_vsix.sh   # this host's binaries built now, the others' as the layer holds them
+bash create_fleetcompiled_vsix.sh     # every fleet platform's binaries built now, each on its own host
+pwsh create_currentbinaries_vsix.ps1  # Windows (create_fleetcompiled_vsix.ps1 likewise)
+```
+
+- `create_currentbinaries_vsix` builds this host's binaries
+  (`compile_and_install --binaries-only`, into the layer), then packages with
+  every platform's `tom_bs` and `validate_codespecs` from the layer. Its report
+  names each platform's binaries with their build stamps and says which are
+  older than the sources here.
+- `create_fleetcompiled_vsix` is for a reconciled, quiet fleet (the reconcile
+  is yours to start; the script never reconciles or pulls a host). It checks
+  that every `build: true` host of the `fleet_hosts` registry
+  (`al_the_bear/repo_structure.md`: mbp darwin-arm64, bigbeast linux-x64,
+  legiondary01 win32-x64) is reached and at this host's commits of
+  `tom_ai/vscode`, `tom_ai/d4rt` and `tom_ai/ai_build` — a host that is not is
+  named and nothing is built. Then each host runs its own
+  `compile_and_install --binaries-only` (over SSH; PowerShell on Windows; nice
+  10 on Linux), fast-forwards its binaries layer (only the layer, only when it
+  has no commits of its own), commits its platform's binaries and pushes; this
+  host's layer is fast-forwarded to hold them all, and the VSIX is packaged
+  with the three platforms' binaries. `--dry-run` / `-DryRun` stops after the
+  check; `--hosts mbp,bigbeast` / `-Hosts` builds on those hosts only.
+
+Both package through `install_extension --package-only` with
+`TOM_LAYER_BINARIES=1` (no second build), with the Agent SDK's Claude CLI for
+the three platforms and the workspace template, and end like `create_vsix`
+plus the layer report.
+
+`create_vsix` builds like `compile_and_install` (`--package-only` of
 `install_extension.*`: no uninstall, no install) and always bundle the Agent
 SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
 (`--all-platforms`; about 370 MB). They end with:
@@ -195,8 +243,10 @@ SDK's Claude CLI for darwin-arm64, linux-x64 and win32-x64
 
 `create_vsix.sh` carries `tom_bs` and `validate_codespecs` for the platform it
 runs on only: a Dart binary cannot be built for another platform, so build the
-VSIX on the platform that needs DartScript most, or configure binaries per
-platform (below). Without a Dart SDK it builds as `create_vsix_nodart.sh` and
+VSIX on the platform that needs DartScript most, take the other platforms'
+from the binaries layer (`create_currentbinaries_vsix`,
+`create_fleetcompiled_vsix`, above), or configure binaries per platform
+(below). Without a Dart SDK it builds as `create_vsix_nodart.sh` and
 says so in red.
 
 ### Installing the VSIX on another machine
@@ -338,8 +388,8 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 │   └── ai_build/                      # ai_build repo (sibling of vscode/)
 │       ├── tom_som_typescript_runtime/ # SOM runtime → vendor/tom_som/*.tgz
 │       └── tom_som_typescript_v0/     # SOM typed facade, meta, schemas
-└── tom_binaries/                      # prebuilt binaries layer (install_extension only; not kept current)
-    └── tom/<platform>/tom_bs
+└── tom_binaries/                      # binaries layer: each platform's latest from-source build
+    └── tom/<platform>/                # tom_bs, validate_codespecs and their *.build.json stamps
 ```
 
 `<platform>` is VS Code's platform-vs id: `darwin-arm64`, `darwin-x64`,
@@ -473,6 +523,7 @@ npm run som:pack     # first, on a fresh checkout or after the SOM packages chan
 npm run codespecs:build  # compile validate_codespecs into bin/<platform>/ (needs a Dart SDK); the CodeSpecs tests run it
 npm run codespecs:check  # is that binary built from tom_specs_clitool's current source? (its build stamp)
 npm run check:tom-bs     # which bridge source the prebuilt tom_bs was built from, and whether the bridge changed since
+npm run binaries:report  # per platform in tom_binaries: tom_bs / validate_codespecs build stamps and whether they are older than the sources
 npm run compile      # tsc -p ./ + copy config json to out/config/
 npm run watch        # incremental rebuild
 npm test             # every stage: lint media, each test:<area> suite, tool-coverage audit; a summary per stage at the end

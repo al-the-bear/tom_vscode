@@ -3,6 +3,7 @@
 # Install script for tom_vscode_extension extension
 #
 #   ./install_extension.sh [--no-dart] [--all-platforms] [--package-only]
+#                          [--binaries-only] [--layer-binaries] [--no-layer]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1):
 # no Dart step runs, and the VSIX carries no validate_codespecs and, from
@@ -15,6 +16,18 @@
 # platform (about 110 MB more per platform).
 # --package-only (also TOM_PACKAGE_ONLY=1) builds and checks the VSIX but does
 # not uninstall the old one or install it (create_vsix*.sh use it).
+# --binaries-only (also TOM_BINARIES_ONLY=1; from source only) builds tom_bs and
+# validate_codespecs for this host and puts them into the binaries layer —
+# no npm, no TypeScript, no VSIX (create_fleetcompiled_vsix.sh runs it on
+# every fleet host).
+# --layer-binaries (also TOM_LAYER_BINARIES=1) builds nothing with Dart: tom_bs
+# and validate_codespecs for every platform come from the binaries layer
+# (TOM_LAYER_PLATFORMS=a,b,... narrows them; create_*binaries_vsix.sh).
+# A from-source build puts the binaries it built into the binaries layer,
+# tom_binaries/tom/<platform>/, commits them there and pushes
+# (scripts/binaries-layer.cjs publish; TOM_LAYER_FF=1 fast-forwards the layer
+# first, as the fleet build does). --no-layer (also TOM_NO_LAYER=1) leaves the
+# layer alone.
 
 set -e
 
@@ -28,8 +41,11 @@ for ARG in "$@"; do
         --no-dart) export TOM_NO_DART=1; TOM_NO_DART_REASON="${TOM_NO_DART_REASON:---no-dart given}" ;;
         --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
         --package-only) export TOM_PACKAGE_ONLY=1 ;;
-        -h|--help) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--package-only])"; exit 1 ;;
+        --binaries-only) export TOM_BINARIES_ONLY=1 ;;
+        --layer-binaries) export TOM_LAYER_BINARIES=1 ;;
+        --no-layer) export TOM_NO_LAYER=1 ;;
+        -h|--help) sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--package-only] [--binaries-only] [--layer-binaries] [--no-layer])"; exit 1 ;;
     esac
 done
 ALL_PLATFORMS="${TOM_ALL_PLATFORMS:-0}"
@@ -37,6 +53,17 @@ PACKAGE_ONLY="${TOM_PACKAGE_ONLY:-0}"
 NO_DART="${TOM_NO_DART:-0}"
 [ "$NO_DART" = "1" ] && TOM_NO_DART_REASON="${TOM_NO_DART_REASON:-TOM_NO_DART=1}"
 FROM_SOURCE="${TOM_BRIDGE_FROM_SOURCE:-0}"
+BINARIES_ONLY="${TOM_BINARIES_ONLY:-0}"
+LAYER_BINARIES="${TOM_LAYER_BINARIES:-0}"
+NO_LAYER="${TOM_NO_LAYER:-0}"
+if [ "$BINARIES_ONLY" = "1" ] && { [ "$FROM_SOURCE" != "1" ] || [ "$NO_DART" = "1" ] || [ "$LAYER_BINARIES" = "1" ]; }; then
+    echo "❌ --binaries-only builds the binaries from source with Dart (compile_and_install.sh --binaries-only)"
+    exit 1
+fi
+if [ "$LAYER_BINARIES" = "1" ] && [ "$FROM_SOURCE" = "1" ]; then
+    echo "❌ --layer-binaries takes the binaries from the layer; it does not build from source"
+    exit 1
+fi
 
 echo "🔧 Installing tom_vscode_extension..."
 
@@ -119,6 +146,9 @@ if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" != "1" ]; then
     echo ""
 fi
 
+# Binaries only: none of the extension's own build — straight to the Dart
+# binaries below.
+if [ "$BINARIES_ONLY" != "1" ]; then
 # Build the TomSpecs SOM TypeScript pair (tom_ai/ai_build) into the two
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
@@ -185,6 +215,7 @@ fi
 
 # Remove old VSIX files to prevent stale packaging
 rm -f *.vsix
+fi # BINARIES_ONLY
 
 # ── Bundle bridge binaries ───────────────────────────────────────────────────
 # Default: copy prebuilt binaries for all 5 platforms out of the binaries layer
@@ -200,7 +231,15 @@ BUNDLED_BINARIES="tom_bs"
 # Clean previous bin/ to avoid stale binaries
 rm -rf "$SCRIPT_DIR/bin"
 
-if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" = "1" ]; then
+if [ "$LAYER_BINARIES" = "1" ]; then
+    # Every platform's tom_bs and validate_codespecs from the binaries layer, as
+    # its hosts left them (create_fleetcompiled_vsix.sh,
+    # create_currentbinaries_vsix.sh); how current each is, is reported there.
+    echo "📦 Bundling tom_bs and validate_codespecs from the binaries layer..."
+    LAYER_ARGS=()
+    [ -n "${TOM_LAYER_PLATFORMS:-}" ] && LAYER_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")
+    node scripts/binaries-layer.cjs bundle "${LAYER_ARGS[@]}" || exit 1
+elif [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" = "1" ]; then
     # Without Dart there is nothing to compile tom_bs with: this VSIX carries no
     # bridge for the host, and the extension runs without DartScript.
     echo "📦 No Dart: no tom_bs is built for this host (DartScript will not be available)."
@@ -335,13 +374,42 @@ fi
 # `dart run`. It is compiled here from tom_ai/ai_build, like tom_bs above in
 # from-source mode, with the Dart SDK found at the start of this script.
 # Without Dart the VSIX carries none and CodeSpecs validation is unavailable.
-if [ "$NO_DART" = "1" ]; then
+if [ "$LAYER_BINARIES" = "1" ]; then
+    : # taken from the binaries layer above
+elif [ "$NO_DART" = "1" ]; then
     echo "📦 No Dart: validate_codespecs is not built (CodeSpecs validation will not be available)."
 else
     ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
         echo "❌ Error: building validate_codespecs failed"
         exit 1
     }
+fi
+
+# ── Put the binaries built from source into the binaries layer ──────────────
+# tom_binaries/tom/<platform>/ always holds the latest build of the host that
+# built it, so a VSIX for several platforms can take theirs from there
+# (scripts/binaries-layer.cjs publish: copy, build stamps, commit those files,
+# push). A refused push leaves the commit local and is not fatal here; in the
+# fleet build (TOM_LAYER_FF=1) the layer is fast-forwarded first and every
+# failure is.
+if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" != "1" ] && [ "$NO_LAYER" != "1" ]; then
+    echo ""
+    echo "📦 Putting this host's binaries into the binaries layer..."
+    PUBLISH_ARGS=()
+    [ "${TOM_LAYER_FF:-0}" = "1" ] && PUBLISH_ARGS=(--ff)
+    set +e
+    ( cd "$SCRIPT_DIR" && node scripts/binaries-layer.cjs publish "${PUBLISH_ARGS[@]}" )
+    PUBLISH_STATUS=$?
+    set -e
+    if [ "$PUBLISH_STATUS" = "1" ] || { [ "$PUBLISH_STATUS" != "0" ] && [ "${TOM_LAYER_FF:-0}" = "1" ]; }; then
+        echo "❌ Putting the binaries into the binaries layer failed (see above)"
+        exit 1
+    fi
+fi
+if [ "$BINARIES_ONLY" = "1" ]; then
+    echo ""
+    echo "✅ Binaries built for this host and put into the binaries layer (no VSIX: --binaries-only)."
+    exit 0
 fi
 
 # ── Claude Agent SDK native CLI: this host's, or the fleet's ──────────────────

@@ -3,7 +3,7 @@
 # Compile the bridge binary for the LOCAL platform from source, then build and
 # install the extension bundling only that single host-platform executable.
 #
-#   ./compile_and_install.sh [--no-dart] [--all-platforms]
+#   ./compile_and_install.sh [--no-dart] [--all-platforms] [--binaries-only] [--no-layer]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1): no
 # tom_bs and no validate_codespecs are built, so the VSIX lacks DartScript and
@@ -12,6 +12,12 @@
 # --all-platforms (also TOM_ALL_PLATFORMS=1) bundles the Agent SDK's Claude CLI
 # for darwin-arm64, linux-x64 and win32-x64, so the Agent SDK transport runs
 # on those platforms too (by default only on this one).
+# The binaries it builds also go into the binaries layer,
+# tom_binaries/tom/<platform>/ (committed there and pushed), so the layer holds
+# the latest build of every host; --no-layer (also TOM_NO_LAYER=1) skips that.
+# --binaries-only builds tom_bs and validate_codespecs, puts them into the layer
+# and stops: no VSIX, nothing installed (create_fleetcompiled_vsix.sh runs it on
+# every fleet host).
 #
 # Thin wrapper over install_extension.sh: TOM_BRIDGE_FROM_SOURCE=1 switches the
 # bundling step from "copy all prebuilt platforms out of tom_binaries" to
@@ -34,8 +40,10 @@ for ARG in "$@"; do
     case "$ARG" in
         --no-dart) export TOM_NO_DART=1; export TOM_NO_DART_REASON="--no-dart given" ;;
         --all-platforms) export TOM_ALL_PLATFORMS=1 ;;
-        -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms])"; exit 1 ;;
+        --binaries-only) export TOM_BINARIES_ONLY=1 ;;
+        --no-layer) export TOM_NO_LAYER=1 ;;
+        -h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--all-platforms] [--binaries-only] [--no-layer])"; exit 1 ;;
     esac
 done
 
@@ -48,6 +56,11 @@ elif ! ( cd "$SCRIPT_DIR" && node scripts/find-dart.cjs > /dev/null ); then
     export TOM_NO_DART_REASON="no Dart SDK found"
 fi
 
+if [ "${TOM_BINARIES_ONLY:-0}" = "1" ] && [ "${TOM_NO_DART:-0}" = "1" ]; then
+    echo "❌ --binaries-only needs a Dart SDK ($TOM_NO_DART_REASON)"
+    exit 1
+fi
+
 # Own the closing lines so they reflect this wrapper's completion and print
 # exactly once (install_extension.sh skips its own when this is set). Not
 # `exec`, so control returns here; set -e propagates a base-script failure
@@ -55,6 +68,11 @@ fi
 export TOM_SKIP_FINISH_TS=1
 "$SCRIPT_DIR/install_extension.sh"
 
+if [ "${TOM_BINARIES_ONLY:-0}" = "1" ]; then
+    ( cd "$SCRIPT_DIR" && node scripts/binaries-layer.cjs report --platforms "$(node -p "process.platform + '-' + process.arch")" )
+    echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    exit 0
+fi
 tom_print_vsix_path "$SCRIPT_DIR"
 [ "${TOM_NO_DART:-0}" = "1" ] && tom_print_no_dart_warning "$TOM_NO_DART_REASON" 1
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

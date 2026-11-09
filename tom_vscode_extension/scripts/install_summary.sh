@@ -4,6 +4,7 @@
 #
 #   tom_print_vsix_path <extension dir>
 #   tom_print_no_dart_warning <reason> <from-source 0|1>
+#   tom_print_layer_vsix_summary <extension dir> <platforms>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -64,4 +65,25 @@ tom_print_no_dart_warning() {
         printf '%s!! %-70s !!%s\n' "$red" "$line" "$reset"
     done
     printf '%s%s%s\n' "$red" "$rule" "$reset"
+}
+
+# The closing block of a VSIX packaged with binaries from the binaries layer
+# (create_currentbinaries_vsix.sh, create_fleetcompiled_vsix.sh): the VSIX and
+# template paths, the binaries it carries per platform, and each binary's build
+# stamp and freshness. <platforms>: comma-separated, "" for the default set.
+#
+#   tom_print_layer_vsix_summary <extension dir> <platforms>
+tom_print_layer_vsix_summary() {
+    local dir="$1"
+    local vsix
+    vsix="$(tom_newest_vsix "$dir")"
+    echo ""
+    echo "──────── Private distribution VSIX ────────"
+    tom_print_vsix_path "$dir"
+    [ -n "$vsix" ] && ( cd "$dir" && node scripts/check-vsix-contents.cjs "$vsix" | sed -n '2,$p' )
+    if [ -n "$2" ]; then
+        ( cd "$dir" && node scripts/binaries-layer.cjs report --platforms "$2" )
+    else
+        ( cd "$dir" && node scripts/binaries-layer.cjs report )
+    fi
 }
