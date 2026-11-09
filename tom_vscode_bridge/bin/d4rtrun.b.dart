@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Test runner for tom_vscode_bridge
-// Generated: 2026-11-03T17:19:57.518327 by tom_d4rt_generator 1.51.0
+// Generated: 2026-11-09T13:59:43.288068 by tom_d4rt_generator 1.57.0
 
 // ignore_for_file: avoid_print
 
@@ -23,13 +23,17 @@ import 'package:tom_vscode_bridge/src/d4rt_bridges/tom_vscode_bridge_bridges.b.d
 
 /// Init script source that imports all bridged modules.
 const String _initSource = '''
+import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';
 
 void main() {}
 ''';
 
 /// Registers all bridges with the given D4rt interpreter.
 void _registerBridges(D4rt d4rt) {
-  all_bridges.AllBridge.registerBridges(d4rt, 'tom_vscode_bridge.dart');
+  all_bridges.AllBridge.registerBridges(
+    d4rt,
+    'package:tom_vscode_bridge/tom_vscode_bridge.dart',
+  );
 }
 
 Future<void> main(List<String> args) async {
