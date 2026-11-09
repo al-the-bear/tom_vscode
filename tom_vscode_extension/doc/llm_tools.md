@@ -573,7 +573,11 @@ enum name outside its domain, a child the model does not allow, or a section id
 that breaks its pattern or collides is refused, and a refused edit writes
 nothing. Each call loads, edits and saves the file in its own format. It takes
 `expectedRevision` (refused when the file changed since it was read) and
-`dryRun` (returns a `diff`, writes nothing).
+`dryRun` (returns a `diff`, writes nothing). A YAML file keeps its own layout:
+only the values an edit changes (and the `modelVersion` stamp) are written
+anew; every other key keeps its place and every other value its text and scalar
+style, even in a file another encoder wrote. Large documents work the same: on
+the 16 MB Tom UAM Blueprint a write tool takes a few seconds.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |

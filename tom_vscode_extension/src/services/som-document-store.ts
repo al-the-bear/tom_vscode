@@ -28,6 +28,15 @@
  *   - revision: a file changed since it was loaded is never overwritten;
  *   - a document open and dirty in an editor is not written under the editor.
  *
+ * A YAML save keeps the file's own layout where nothing changed: the fresh
+ * encoding is merged into the file's text (mergeYamlLayout — the file's key
+ * order, and its text for every value that reads the same), so a file written
+ * by another encoder (the Dart runtime, a project's tool) is not rewritten
+ * wholesale for an edit of one value. The merge is used only when it decodes to
+ * exactly the document the encoding holds, otherwise the encoding is written.
+ * Where the edit reordered keys (a list item moved), the merge follows the
+ * encoding's order; it finds those places by encoding the file as loaded too.
+ *
  * vscode-free: the file access is a {@link SomDocumentIo}. nodeSomDocumentIo
  * writes atomically; the extension supplies one that writes through the open
  * editor when there is one (som-document-io-vscode.ts).
@@ -49,6 +58,7 @@ import type { SpecMarkdownRejection, SpecRoot } from 'tom_som_typescript_runtime
 
 import { SomModelService } from './som-model-service';
 import { unifiedDiff } from '../utils/unifiedDiff';
+import { mergeYamlLayout } from '../utils/yamlLayoutMerge';
 
 export type SomDocumentFormat = 'yaml' | 'markdown';
 
@@ -352,7 +362,7 @@ export class SomDocumentStore {
         if (loaded.readOnlyReason) {
             throw new SomDocumentError('readOnly', loaded.readOnlyReason);
         }
-        const text = this.render(loaded);
+        const text = this.keepLayout(loaded, this.render(loaded));
         const written = await this.writeText(loaded.filePath, text, {
             baseRevision: loaded.revision,
             expectedRevision: options.expectedRevision,
@@ -371,6 +381,37 @@ export class SomDocumentStore {
         loaded.stamp = this.service.modelVersion;
         loaded.editability = SomEditability.editable;
         return result;
+    }
+
+    /**
+     * `encoded` (the document as the encoder writes it) with the file's own text
+     * wherever it holds the same values; `encoded` for Markdown, for a file
+     * without a document yet, and whenever the merged text would not decode to
+     * the same document.
+     */
+    private keepLayout(loaded: LoadedSomDocument, encoded: string): string {
+        if (loaded.format !== 'yaml' || !loaded.text) { return encoded; }
+        const meta = this.service.metaTree(loaded.root.type);
+        const holdsTheDocument = (text: string): boolean => {
+            try {
+                const back = yamlDecode(text, meta);
+                return yamlEncode(back.document, meta, back.modelVersion, back.review ?? null) === encoded;
+            } catch {
+                return false;
+            }
+        };
+        // The document before the edit, by this encoder: where its key order and
+        // the encoding's differ, the edit reordered (a list item moved) and the
+        // merge follows the encoding there.
+        let before: string | undefined;
+        try {
+            const original = yamlDecode(loaded.text, meta);
+            before = yamlEncode(original.document, meta, this.service.modelVersion, original.review ?? null);
+        } catch {
+            before = undefined;
+        }
+        const merged = mergeYamlLayout(loaded.text, encoded, before);
+        return merged !== encoded && holdsTheDocument(merged) ? merged : encoded;
     }
 
     /**

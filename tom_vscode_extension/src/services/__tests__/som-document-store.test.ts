@@ -8,7 +8,8 @@
  *   SD-1   a YAML file loads: format, root, stamp, editability, revision
  *   SD-2   rendering with the file's own stamp and review is byte-identical
  *   SD-3   the review pass: absent stays absent, `review: {}` stays, entries stay
- *   SD-3b  the pass's presence is the runtime's decode, not a text match: a quoted `"review": {}` key survives a save
+ *   SD-3b  the pass's presence is the runtime's decode, not a text match: a quoted `"review": {}` key survives a save,
+ *          written as the file wrote it (a save keeps the file's layout where nothing changed)
  *   SD-4   save writes the file, stamps the model version, returns the revision
  *   SD-5   a file changed since load is never overwritten (revision conflict)
  *   SD-6   dryRun writes nothing and returns the diff
@@ -21,6 +22,9 @@
  *   SD-13  save reports review entries whose path no longer resolves
  *   SD-14  peek identifies a document from its header, null for anything else
  *   SD-15  create writes an empty document that loads again, in both formats; an emptied YAML keeps its root
+ *   SD-16  a save keeps the file's layout: in a file another encoder wrote (other key order, `|2-` blocks where
+ *          this encoder writes plain), an edit changes only the edited value's lines and the stamp
+ *   SD-17  an edit that reorders (a list item moved) writes the new order, the other values' text kept
  */
 
 import test, { describe } from 'node:test';
@@ -43,6 +47,22 @@ const SAMPLE_STAMP = stampOf(MERIDIAN_YAML);
 
 const service = new SomModelService();
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'som-store-'));
+
+/**
+ * Meridian as another encoder writes it: its one-line workflow steps as `|2-`
+ * blocks, and the first user category's `userType` before its `description`.
+ */
+function foreignMeridian(): string {
+    return MERIDIAN_YAML
+        .replace(/^( +)(SYTS-WORK-\d+): (.+)$/gm, '$1$2: |2-\n$1  $3')
+        .replace(/^( +)(description: \|2-\n +Back-office staff[^\n]*\n)(\1userType: \|2-\n +Internal\n)/m, '$3$1$2');
+}
+
+/** The numbers of the lines of `before` that `after` does not have, by a line-set comparison. */
+function linesGone(before: string, after: string): number[] {
+    const kept = new Set(after.split('\n'));
+    return before.split('\n').flatMap((l, i) => (kept.has(l) ? [] : [i]));
+}
 
 function write(name: string, text: string): string {
     const p = path.join(tmp, name);
@@ -105,8 +125,10 @@ describe('SomDocumentStore', () => {
             const p = write(name, `${MERIDIAN_YAML}${key}: {}\n`);
             const doc = s.load(p);
             assert.notEqual(doc.review, null, `${key}: the pass is present`);
+            SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
             await s.save(doc);
-            assert.match(fs.readFileSync(p, 'utf8'), /\nreview: \{\}\n$/, `${key}: the saved file keeps the pass`);
+            assert.ok(fs.readFileSync(p, 'utf8').endsWith(`\n${key}: {}\n`), `${key}: the saved file keeps the pass as written`);
+            assert.notEqual(s.load(p).review, null, `${key}: and it reads back as present`);
         }
     });
 
@@ -250,6 +272,43 @@ describe('SomDocumentStore', () => {
         assert.equal(s.peek(write('sd14-unknown.docspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))), null);
         assert.equal(s.peek(path.join(tmp, 'missing.docspecs.yaml')), null);
         assert.equal(s.peek(write('sd14.txt', 'x')), null);
+    });
+
+    test('SD-16: a save keeps the file layout', async () => {
+        const s = store();
+        const foreign = foreignMeridian();
+        assert.notEqual(foreign, MERIDIAN_YAML);
+        assert.match(foreign, /SYTS-WORK-1: \|2-\n/);
+        const p = write('sd16.docspecs.yaml', foreign);
+        const doc = s.load(p);
+        assert.notEqual(s.render(doc, { stamp: doc.stamp }), foreign, 'the encoder alone would rewrite it');
+        SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
+        const result = await s.save(doc, { dryRun: true });
+        assert.equal(result.diff.split('\n').filter((l) => /^[-+]/.test(l) && !/^(---|\+\+\+) /.test(l)).length, 2 + 7 + 1, 'the stamp (2) and the value (7 out, 1 in)');
+        await s.save(doc);
+        const after = fs.readFileSync(p, 'utf8');
+        const lines = foreign.split('\n');
+        const stampLine = lines.findIndex((l) => l.startsWith('modelVersion: '));
+        const value = new Set(Array.from({ length: 7 }, (_, k) => lines.indexOf('    content: |2-') + 1 + k));
+        assert.deepEqual(linesGone(foreign, after).filter((i) => i !== stampLine && !value.has(i)), [], 'nothing else changed');
+        assert.match(after, /SYTS-WORK-1: \|2-\n/, 'the file\'s scalar style');
+        assert.ok(after.indexOf('userType: |2-') < after.indexOf('description: |2-\n                Back-office'), 'the file\'s key order');
+        assert.equal(s.load(p).document.content('SBP/content'), 'Replaced summary.');
+    });
+
+    test('SD-17: a moved list item', async () => {
+        const s = store();
+        const foreign = foreignMeridian();
+        const p = write('sd17.docspecs.yaml', foreign);
+        const doc = s.load(p);
+        const list = 'SBP/introductionAndScope/systemDescription/UCE-USER-LST-1/SYTS-SYST-LST-1';
+        doc.document.moveListItem(service.model, `${list}/SYTS-WORK-LST-3`, 0, null);
+        await s.save(doc);
+        const after = fs.readFileSync(p, 'utf8');
+        assert.ok(after.indexOf('SYTS-WORK-3: |2-') < after.indexOf('SYTS-WORK-1: |2-'), 'the new order, in the file\'s style');
+        assert.ok(after.indexOf('userType: |2-') < after.indexOf('description: |2-\n                Back-office'), 'the other values keep the file\'s layout');
+        const again = s.load(p);
+        assert.equal(s.render(again), s.render(doc), 'the file holds the edited document');
     });
 
     test('SD-15: create, and an empty YAML document keeps its root', async () => {
