@@ -2,7 +2,10 @@
  * Before a chat send starts: is its session busy (src/utils/sessionBusy.ts)?
  *
  * Free: the send goes. Busy — a queue item or another chat send runs in it —
- * the user chooses (VS Code's quick pick): **Run next in session X** (queued
+ * the user chooses (VS Code's quick pick): **Send now as an update to the
+ * running prompt** when that prompt is an Agent SDK query (another user message
+ * into the running conversation, services/agentSdkLiveInputs.ts; shown in the
+ * queue as a chat send that ends with the update's own answer), **Run next in session X** (queued
  * directly under the running item, between its iterations when it repeats),
  * **Run after the current item** (queued after it, once all its iterations
  * are done), or **Send now in session Y** for every session that is free.
@@ -17,10 +20,13 @@ import { busySessionChoices, type BusyChoice, type SessionHolder } from '../util
 import { listSessions } from '../services/agentSdkSessionStore';
 import { sessionsFolder } from './sessionPicker';
 import { WsPaths } from '../utils/workspacePaths';
+import { canUpdateRunningPrompt, sendUpdateToRunningPrompt } from '../services/agentSdkLiveInputs';
+import { trackChatSend } from './chatQueueTracking';
 
 export type BusySessionOutcome =
     | { kind: 'free' }
     | { kind: 'send'; session: string }
+    | { kind: 'update'; session: string }
     | { kind: 'queued'; how: 'next' | 'after'; session: string }
     | { kind: 'cancelled'; message: string };
 
@@ -67,6 +73,8 @@ export async function resolveBusySession(params: {
     /** Whether a person can be asked (not on Telegram). */
     interactive: boolean;
     questId?: string;
+    /** Whether a send could start now in another session; false while this caller's one send slot is taken. Default true. */
+    canSendElsewhere?: boolean;
 }): Promise<BusySessionOutcome> {
     let queue: PromptQueueManager;
     try { queue = PromptQueueManager.instance; } catch { return { kind: 'free' }; }
@@ -75,10 +83,11 @@ export async function resolveBusySession(params: {
     if (!params.interactive) {
         return { kind: 'cancelled', message: `Not sent: ${holderText(params.session, holder)}. Two prompts never share a conversation; send it again when it has ended, or queue it.` };
     }
-    const free = queue.freeSessions(candidateSessions(params.questId ?? WsPaths.getWorkspaceQuestId(), params.session));
-    const choice = await pick(busySessionChoices(params.session, holder, free), `Session ${params.session} is busy: ${holderText(params.session, holder)}`);
+    const free = params.canSendElsewhere === false ? [] : queue.freeSessions(candidateSessions(params.questId ?? WsPaths.getWorkspaceQuestId(), params.session));
+    const choice = await pick(busySessionChoices(params.session, holder, free, canUpdateRunningPrompt(params.session)), `Session ${params.session} is busy: ${holderText(params.session, holder)}`);
     if (!choice) { return { kind: 'cancelled', message: `Not sent: session ${params.session} is busy.` }; }
     if (choice.kind === 'session') { return { kind: 'send', session: choice.session! }; }
+    if (choice.kind === 'update') { return sendAsUpdate(params.session, params.send); }
     const opts = {
         originalText: params.send.text,
         transport: 'anthropic' as const,
@@ -89,4 +98,21 @@ export async function resolveBusySession(params: {
     };
     if (choice.kind === 'next') { await queue.enqueueNext(opts); } else { await queue.enqueueAfterCurrent(opts); }
     return { kind: 'queued', how: choice.kind, session: params.session };
+}
+
+/**
+ * Send `send` into the prompt running in `session` as an update. Shown in the
+ * queue as a chat send (source `update`) that ends with the update's own
+ * answer, or with why it got none (the running prompt ended first).
+ */
+function sendAsUpdate(session: string, send: ChatSendForQueue): BusySessionOutcome {
+    const pushed = sendUpdateToRunningPrompt(session, send.text);
+    if (!pushed) {
+        return { kind: 'cancelled', message: `Not sent: the prompt in session ${session} has just ended. Send it again.` };
+    }
+    void trackChatSend(
+        { text: send.text, ...(send.profileId ? { profileId: send.profileId } : {}), session, source: 'update' },
+        () => pushed.answer.then((text) => ({ text })),
+    ).catch(() => undefined);
+    return { kind: 'update', session };
 }

@@ -69,7 +69,7 @@ export function sessionHolderOf(
 
 /** What the user can do with a chat send whose session is busy. */
 export interface BusyChoice {
-    kind: 'next' | 'after' | 'session';
+    kind: 'update' | 'next' | 'after' | 'session';
     /** For `session`: the free session to send in now. */
     session?: string;
     label: string;
@@ -77,13 +77,20 @@ export interface BusyChoice {
 }
 
 /**
- * The choices for a chat send into the busy `session`: run it next there (the
- * queue's Send between iterations), run it after the current item, or send it
- * now in each session in `free` (in the order given).
+ * The choices for a chat send into the busy `session`: when the prompt running
+ * there takes updates (an Agent SDK query, `canUpdate`), send it in as an update
+ * to that prompt, first; run it next there (the queue's Send between
+ * iterations), run it after the current item, or send it now in each session in
+ * `free` (in the order given).
  */
-export function busySessionChoices(session: string, holder: SessionHolder, free: readonly string[]): BusyChoice[] {
+export function busySessionChoices(session: string, holder: SessionHolder, free: readonly string[], canUpdate = false): BusyChoice[] {
     const running = holder.kind === 'queue' ? `the queue item "${holder.label}"` : `the chat send "${holder.label}"`;
     return [
+        ...(canUpdate ? [{
+            kind: 'update' as const,
+            label: `Send now as an update to the running prompt in session ${session}`,
+            description: `another message into ${running}, while it runs`,
+        }] : []),
         {
             kind: 'next',
             label: `Run next in session ${session}`,

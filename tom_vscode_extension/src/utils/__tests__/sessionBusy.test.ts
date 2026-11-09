@@ -3,7 +3,8 @@
  *
  *   SY-1 a sending queue item holds the session it runs in (Anthropic only: queueSession answers undefined
  *        otherwise); a `chat` item holds its session only while its send is alive; exceptId is skipped
- *   SY-2 the label: the first non-empty line, cut at 60 characters; the choices in their order
+ *   SY-2 the label: the first non-empty line, cut at 60 characters; the choices in their order; when the
+ *        running prompt takes updates, "Send now as an update to the running prompt" comes first
  */
 
 import test, { describe } from 'node:test';
@@ -38,5 +39,9 @@ describe('busy sessions (rules)', () => {
         assert.deepEqual(choices.map((c) => [c.kind, c.session]), [['next', undefined], ['after', undefined], ['session', 'chat'], ['session', 'default']]);
         assert.match(choices[0].description, /directly under the queue item "queue work"; between its iterations when it repeats/);
         assert.match(choices[1].description, /when it has finished all its iterations/);
+        const withUpdate = busySessionChoices('walk', { kind: 'chat', id: 'c1', label: 'the chat' }, [], true);
+        assert.deepEqual(withUpdate.map((c) => c.kind), ['update', 'next', 'after']);
+        assert.match(withUpdate[0].label, /^Send now as an update to the running prompt in session walk$/);
+        assert.match(withUpdate[0].description, /the chat send "the chat"/);
     });
 });

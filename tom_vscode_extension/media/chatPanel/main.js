@@ -615,7 +615,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic' && !anthropicSending) { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
         case 'clearText': {
             if (!id) {break;}
@@ -1004,7 +1004,12 @@ function updateAnthropicSendButton() {
     // 'Anthropic client not available — set the configured API key env
     // var', which the catch in _handleSendAnthropic forwards as an
     // anthropicError message and the webview shows in the status line.
-    btn.disabled = !!anthropicSending;
+    // Not disabled while a send runs: a second Send asks whether to send it as
+    // an update to the running prompt, or queue it (the host decides).
+    btn.disabled = false;
+    btn.title = anthropicSending
+        ? 'A prompt is running: Send offers to send this as an update to it, or to queue it'
+        : 'Send to Anthropic';
 }
 
 function setAnthropicStatus(text) {
@@ -1303,8 +1308,9 @@ window.addEventListener('message', function(e) {
         var startedSlot = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
         if (startedSlot >= 1 && startedSlot <= 9) { clearSlotUnlessKept('anthropic', startedSlot); }
     } else if (msg.type === 'anthropicNotSent') {
-        // Its session was busy: queued instead (the slot is cleared unless it keeps its text), or not sent.
-        anthropicSending = false;
+        // Its session was busy: queued or sent as an update instead (the slot is cleared unless it
+        // keeps its text), or not sent. With panelBusy a send of this panel still runs: it stays "sending".
+        if (!msg.panelBusy) { anthropicSending = false; }
         updateAnthropicSendButton();
         setAnthropicStatus(msg.message || 'Not sent.');
         if (msg.queued) {

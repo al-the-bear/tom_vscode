@@ -4,8 +4,9 @@
  *   CQ-1 a chat send becomes a `chat` item (anthropic, the profile and session it ran with, its source);
  *        finishing it makes it `chat-sent` with the answer, or with the error
  *   CQ-2 a `chat` item that can no longer report back is settled as `chat-sent` with a note: an older one
- *        of this window, one of a window that is gone, one of no window; a send still running in another
- *        live window, and `chat-sent` items, are left alone
+ *        of this window whose send no longer runs, one of a window that is gone, one of no window; a send
+ *        still running in this window (a send and an update can run at once) or in another live window, and
+ *        `chat-sent` items, are left alone
  *   CQ-3 the queue ignores chat items: no path that picks, sends, retries or counts pending items
  *        names the chat statuses, and the queue's storage, crash recovery, Clear sent, trimming and
  *        listQueue's "without sent" treat `chat-sent` like `sent`
@@ -68,6 +69,12 @@ describe('chat sends in the prompt queue', () => {
         assert.equal(items[1].error, undefined, 'a finished item is left alone');
         assert.equal(settleRunningChatItems(items, { ownWindowId: 'me', liveWindowIds: live }), 1, 'without keepId this window\'s own goes too');
         assert.equal(items[4].status, 'chat', 'another live window\'s send is never touched');
+        const running = [
+            { id: 'own-running', status: 'chat', chatWindowId: 'me' },
+            { id: 'own-ended', status: 'chat', chatWindowId: 'me' },
+        ] as Array<{ id: string; status: string; error?: string; chatWindowId?: string }>;
+        assert.equal(settleRunningChatItems(running, { ownWindowId: 'me', liveWindowIds: live, keepId: 'new', isActive: (id) => id === 'own-running' }), 1);
+        assert.deepEqual(running.map((i) => i.status), ['chat', 'chat-sent'], 'a send still running in this window is not stale');
     });
 
     test('CQ-3: the queue ignores them', () => {

@@ -15,6 +15,13 @@
  *        removed and its send stopped — trackChatSend ends with the removal error and runs the send's cancel
  *   BS-4 the timeout: a chat send without a result in time is stopped (cancel runs) and its item is `chat-sent`
  *        with the timeout error
+ *   BS-5 chat sends one after another, with the queue reloaded from disk between them: each is listed while it
+ *        runs and ends `chat-sent` with its answer
+ *   BS-6 an update to the running prompt: offered first when the prompt in the session takes updates (an Agent
+ *        SDK query registered in agentSdkLiveInputs), and "Send now in session Y" is not offered while the
+ *        caller cannot start a second send; choosing it pushes the text into the running query, answers
+ *        `update`, and lists it as a chat send (source update) that ends `chat-sent` with the update's own
+ *        answer — the running send's item stays `chat`; a prompt that ended meanwhile refuses it
  */
 
 import test, { after, describe } from 'node:test';
@@ -49,6 +56,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { chatTimeoutError, CHAT_REMOVED_ERROR, isChatSendActive, trackChatSend } from '../../handlers/chatQueueTracking.js';
 import { resolveBusySession, __setBusySessionPickForTests } from '../../handlers/busySessionChoice.js';
+import { registerLiveQuery } from '../../services/agentSdkLiveInputs.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -206,6 +214,82 @@ describe('busy sessions', () => {
         assert.equal(item.status, 'chat-sent');
         assert.match(String(item.error), /no result within/);
         assert.equal(chatTimeoutError(60), "no result within 60 minutes (the prompt queue's response timeout): the send was stopped");
+        clear();
+    });
+    test('BS-5: chat sends one after another, with the queue reloaded from disk between them', async () => {
+        clear();
+        queue().autoSendEnabled = false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const reload = async (): Promise<void> => { (queue() as any)._reloadFromDisk(); await wait(400); };
+        const ids: string[] = [];
+        for (const n of [1, 2, 3]) {
+            let finish!: () => void;
+            const answer = new Promise<{ text: string }>((r) => { finish = () => r({ text: `answer ${n}` }); });
+            const done = trackChatSend({ text: `chat ${n}`, session: 'chat', source: 'panel' }, () => answer);
+            await reload();
+            const item = queue().items.find((i) => i.originalText === `chat ${n}`);
+            assert.ok(item, `chat ${n} is listed while it runs`);
+            assert.equal(item.status, 'chat', `chat ${n} runs`);
+            ids.push(item.id);
+            finish();
+            await done;
+            await reload();
+        }
+        for (const [k, id] of ids.entries()) {
+            const item = queue().getById(id);
+            assert.ok(item, `chat ${k + 1} is still listed`);
+            assert.equal(item.status, 'chat-sent', `chat ${k + 1} ended`);
+            assert.equal(item.answerText, `answer ${k + 1}`);
+        }
+        clear();
+    });
+
+    test('BS-6: an update to the running prompt', async () => {
+        clear();
+        queue().autoSendEnabled = false;
+        const chat = runningChat('walk');
+        await wait(20);
+        const runningId = chat.id();
+        // The prompt running in walk takes updates.
+        const pushedTexts: string[] = [];
+        let answerUpdate!: (text: string) => void;
+        let closed = false;
+        const unregister = registerLiveQuery('walk', {
+            get closed() { return closed; },
+            push: (text: string) => {
+                pushedTexts.push(text);
+                return { uuid: 'u1', answer: new Promise<string>((r) => { answerUpdate = r; }) };
+            },
+        });
+        let offered: string[] = [];
+        __setBusySessionPickForTests(async (choices) => {
+            offered = choices.map((c) => c.label);
+            return choices.find((c) => c.kind === 'update');
+        });
+        try {
+            const r = await resolveBusySession({ session: 'walk', send: { text: 'also check X' }, interactive: true, questId: QUEST, canSendElsewhere: false });
+            assert.deepEqual(r, { kind: 'update', session: 'walk' });
+            assert.deepEqual(offered, ['Send now as an update to the running prompt in session walk', 'Run next in session walk', 'Run after the current item in session walk'], 'first, and no other session while a send runs');
+            assert.deepEqual(pushedTexts, ['also check X']);
+            await wait(20);
+            const update = queue().items.find((i) => i.originalText === 'also check X')!;
+            assert.ok(update, 'listed in the queue');
+            assert.equal(update.status, 'chat');
+            assert.equal((update as { chatSource?: string }).chatSource, 'update');
+            assert.equal(queue().getById(runningId!)?.status, 'chat', 'the running send is not settled by it');
+            answerUpdate('X is fine');
+            await wait(20);
+            assert.equal(queue().getById(update.id)?.status, 'chat-sent');
+            assert.equal(queue().getById(update.id)?.answerText, 'X is fine');
+            closed = true;
+            const late = await resolveBusySession({ session: 'walk', send: { text: 'too late' }, interactive: true, questId: QUEST });
+            assert.notEqual(late.kind, 'update', 'an ended prompt offers no update');
+        } finally {
+            unregister();
+            __setBusySessionPickForTests(async () => undefined);
+            chat.finish();
+            await chat.done;
+        }
         clear();
     });
 });

@@ -3248,7 +3248,7 @@ export class PromptQueueManager {
             followUps: [],
         };
         this._items.push(item);
-        settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id });
+        settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id, isActive: isChatSendActive });
         this.trimSentHistory();
         this.persist();
         this._onDidChange.fire();

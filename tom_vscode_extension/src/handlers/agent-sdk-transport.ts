@@ -23,6 +23,7 @@
  * our MCP server when the configuration enables them.
  */
 
+import { registerLiveQuery } from '../services/agentSdkLiveInputs';
 import type { AgentSdkThinkingOptions } from '../utils/thinkingAndEffort';
 import { shouldForkAttempt } from '../utils/agentSdkSessions';
 import * as vscode from 'vscode';
@@ -443,6 +444,13 @@ export interface AgentSdkSendParams {
      * trailing turns of a cancelled stream, not the whole session.
      */
     onSessionIdCaptured?: (sessionId: string) => void;
+    /**
+     * The session the query runs in, when it takes updates: while it runs, a
+     * chat send into this session can go in as another user message of the
+     * running prompt (services/agentSdkLiveInputs.ts). Omitted for internal
+     * one-shot calls.
+     */
+    liveInputSession?: string;
     /**
      * When true, automatically include `'project'` in `settingSources` if
      * a CLAUDE.md exists at the workspace root. This is how the SDK picks
@@ -981,6 +989,8 @@ async function runAgentSdkAttempt(
         },
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
+    // While it runs, a chat send into its session can be an update to it.
+    const unregisterLive = params.liveInputSession ? registerLiveQuery(params.liveInputSession, input) : undefined;
     const abortController = new AbortController();
     let stopPlanFollow: (() => void) | undefined;
     const cancelSub = cancellationToken?.onCancellationRequested(() => {
@@ -1405,6 +1415,7 @@ async function runAgentSdkAttempt(
         throw err;
     } finally {
         input.close('stream-ended');
+        unregisterLive?.();
         cancelSub?.dispose();
         stopPlanFollow?.();
     }

@@ -44,6 +44,7 @@ import {
 import { showAnthropicResultInPanel } from './chatPanel-handler';
 import {
     tryBeginAnthropicSend,
+    isAnthropicSendInFlight,
     endAnthropicSend,
 } from './sendToChatState';
 import { trackChatSend } from './chatQueueTracking';
@@ -124,12 +125,16 @@ export async function runAnthropicSend(
         session: targetSession,
         send: { text: prompt, ...(context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') ? { profileId: context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') } : {}) },
         interactive,
+        // One interactive turn at a time: while one runs, no send starts elsewhere either.
+        canSendElsewhere: !isAnthropicSendInFlight(),
     });
     if (busy.kind === 'cancelled') {
         return { target: 'anthropic', ok: false, error: busy.message };
     }
-    if (busy.kind === 'queued') {
-        const queued = busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`;
+    if (busy.kind === 'queued' || busy.kind === 'update') {
+        const queued = busy.kind === 'update'
+            ? `Sent as an update to the running prompt in session ${busy.session}.`
+            : busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`;
         void vscode.window.showInformationMessage(queued);
         return { target: 'anthropic', ok: true, queued };
     }

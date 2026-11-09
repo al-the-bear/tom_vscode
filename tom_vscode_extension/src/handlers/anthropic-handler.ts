@@ -2465,6 +2465,8 @@ export class AnthropicHandler {
                     resumeSessionId,
                     forkSession: sessionStart.fork,
                     onSessionIdCaptured,
+                    // A chat send into this session while it runs can be an update to it.
+                    ...(options.isolated ? {} : { liveInputSession: options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY }),
                     retry: retryParam,
                     interactiveQuestions: interactiveQuestionsParam,
                     autoLoadProjectSettings: useSdkManagedContinuity,

@@ -20,6 +20,9 @@
  *   CB-9 a busy session: the panel's send not sent (anthropicNotSent) frees the Send button and keeps the text;
  *        queued instead clears an unkept slot; in the queue editor a pending item waiting for its session shows
  *        "[waiting for session X]", and a running chat item's Remove is enabled (stops the send)
+ *   CB-10 a second Send while a send runs: the button stays enabled (its title says it offers an update or the
+ *        queue), the second Send is posted and does not reset the status; the host's reply with panelBusy
+ *        (sent as an update, queued, not sent) keeps the running send's state, a reply without it ends it
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
  *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
@@ -248,6 +251,30 @@ describe('chat sends and the queue buttons', () => {
         assert.match(entry('c2').querySelector('.answer-preview').textContent, /partial answer/);
     });
 
+    test('CB-10: a second Send while a send runs', () => {
+        const { w, posted } = chatPanel();
+        const doc = w.document;
+        const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+        fire({ type: 'draftsLoaded', sections: { anthropic: { activeSlot: 1, slots: { '1': 'first' }, slotKeep: { '1': true } } } });
+        const sendBtn = doc.getElementById('anthropic-send-btn');
+        const status = (): string => doc.getElementById('anthropic-status')?.textContent ?? '';
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.match(status(), /Sending/);
+        assert.equal(sendBtn.disabled, false, 'not disabled while it runs');
+        assert.match(sendBtn.title, /Send offers to send this as an update to it, or to queue it/);
+        fire({ type: 'anthropicStatus', text: 'Working on it' });
+        doc.getElementById('anthropic-text').value = 'also check X';
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'sendAnthropic').length, 2, 'the second Send is posted');
+        assert.match(status(), /Working on it/, 'the running send\'s status stays');
+        fire({ type: 'anthropicNotSent', message: 'Sent as an update to the running prompt in session chat.', queued: true, panelBusy: true, slot: 1 });
+        assert.match(sendBtn.title, /A prompt is running/, 'still running');
+        fire({ type: 'anthropicStatus', text: 'Still working' });
+        assert.match(status(), /Still working/, 'status updates of the running send still show');
+        fire({ type: 'anthropicResult', text: 'done', turnsUsed: 1, toolCallCount: 0 });
+        assert.equal(sendBtn.title, 'Send to Anthropic', 'ended by its result');
+    });
+
     test('CB-9: a busy session', () => {
         const { w } = chatPanel();
         const doc = w.document;
@@ -256,9 +283,9 @@ describe('chat sends and the queue buttons', () => {
         const text = doc.getElementById('anthropic-text');
         const sendBtn = doc.getElementById('anthropic-send-btn');
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
-        assert.equal(sendBtn.disabled, true, 'sending');
+        assert.match(sendBtn.title, /A prompt is running/, 'sending');
         fire({ type: 'anthropicNotSent', message: 'Not sent: session walk is busy.' });
-        assert.equal(sendBtn.disabled, false, 'free again');
+        assert.equal(sendBtn.title, 'Send to Anthropic', 'free again');
         assert.equal(text.value, 'one', 'not sent: the text stays even in an unkept slot');
         assert.match(doc.getElementById('anthropic-status')?.textContent ?? doc.body.textContent, /Not sent: session walk is busy\./);
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();

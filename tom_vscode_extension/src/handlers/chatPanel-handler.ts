@@ -48,7 +48,7 @@ import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import type { SessionRecord } from '../utils/agentSdkSessions';
 import { sessionLabel } from '../utils/sessionPickerPlan';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
-import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel } from './sendToChatState';
+import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel, isAnthropicSendInFlight } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -1370,20 +1370,27 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // or another chat send runs in it) makes the user choose — queue it
         // next or after the current item, or send it in a free session.
         let targetSession = this._chatSessionKey();
+        // A send of this panel still runs: the replies below must not end its "sending" state,
+        // and no second send can start now (one interactive turn at a time).
+        const panelBusy = isAnthropicSendInFlight();
         const busy = await resolveBusySession({
             session: targetSession,
             send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}) },
             interactive: true,
+            canSendElsewhere: !panelBusy,
         });
         if (busy.kind === 'cancelled') {
-            this._view?.webview.postMessage({ type: 'anthropicNotSent', message: busy.message });
+            this._view?.webview.postMessage({ type: 'anthropicNotSent', message: busy.message, ...(panelBusy ? { panelBusy } : {}) });
             return;
         }
-        if (busy.kind === 'queued') {
+        if (busy.kind === 'queued' || busy.kind === 'update') {
             this._view?.webview.postMessage({
                 type: 'anthropicNotSent',
-                message: busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`,
+                message: busy.kind === 'update'
+                    ? `Sent as an update to the running prompt in session ${busy.session}.`
+                    : busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`,
                 queued: true,
+                ...(panelBusy ? { panelBusy } : {}),
                 ...(slot ? { slot } : {}),
             });
             return;
@@ -1394,8 +1401,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // blocks a concurrent Send-to-Chat / scripting turn — and vice versa.
         if (!tryBeginAnthropicSend()) {
             this._view?.webview.postMessage({
-                type: 'anthropicError',
-                message: 'An Anthropic chat request is already running.',
+                type: 'anthropicNotSent',
+                message: 'Not sent: an Anthropic chat request is already running here, and its prompt takes no updates.',
+                panelBusy: true,
             });
             return;
         }

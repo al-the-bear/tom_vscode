@@ -82,20 +82,22 @@ export function finishChatItem(item: ChatQueueItem, result: { answerText?: strin
 
 /**
  * Settle running chat items that can no longer report back as `chat-sent` with
- * CHAT_NOT_FINISHED_ERROR: those of this window other than `keepId` (a window
- * runs one chat send at a time, so an older one of its own is stale), and those
- * of a window that is not alive any more (or of none). A send still running in
- * another live window is left alone. Answers how many it settled.
+ * CHAT_NOT_FINISHED_ERROR: those of this window other than `keepId` whose send
+ * no longer runs (`isActive`: a window can run a send and updates to running
+ * prompts at the same time), and those of a window that is not alive any more
+ * (or of none). A send still running in another live window is left alone.
+ * Answers how many it settled.
  */
 export function settleRunningChatItems(
     items: Array<{ id?: string; status: string; error?: string; chatWindowId?: string }>,
-    opts: { ownWindowId: string; liveWindowIds: ReadonlySet<string>; keepId?: string },
+    opts: { ownWindowId: string; liveWindowIds: ReadonlySet<string>; keepId?: string; isActive?: (id: string) => boolean },
 ): number {
     let n = 0;
     for (const item of items) {
         if (item.status !== CHAT_STATUS || (opts.keepId && item.id === opts.keepId)) { continue; }
         const win = item.chatWindowId;
-        const stale = !win || win === opts.ownWindowId || !opts.liveWindowIds.has(win);
+        const own = !win || win === opts.ownWindowId;
+        const stale = own ? !(item.id && opts.isActive?.(item.id)) : !opts.liveWindowIds.has(win);
         if (!stale) { continue; }
         item.status = CHAT_SENT_STATUS;
         item.error = item.error || CHAT_NOT_FINISHED_ERROR;

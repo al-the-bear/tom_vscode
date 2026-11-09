@@ -29,6 +29,14 @@
  *   IC-8  isChannelDeadToolResult recognises the SDK's interrupted-call text only.
  *   IC-9  a result with user_message_uuid (singular) also answers.
  *   IC-10 the transport uses the channel: stream prompt, env flag, observe, close.
+ *   UP-1  push: the next message of the stream, with its own uuid; nothing after close.
+ *   UP-2  the channel stays open until the pushed message is answered too; the pushed
+ *         message's answer is the text of the result naming it (batched or on its own).
+ *   UP-3  closing before a pushed message is answered rejects its answer, naming why.
+ *   UP-4  a push while the CLI is idle restarts the grace period: running again keeps the channel open,
+ *         and a CLI that does not run for it lets the channel close.
+ *   UP-5  the transport registers the running query's channel under its session (liveInputSession) and
+ *         removes it at the end; the handler passes the send's session, none for an isolated send.
  *
  * Background tasks that outlive the model's turn (BG-*): a background Bash
  * does not hold the turn open, so the CLI goes idle while it runs; closing
@@ -99,6 +107,72 @@ describe('QueryInputChannel', () => {
         });
         ch.close('test');
         assert.equal((await it.next()).done, true);
+    });
+
+    test('UP-1: a pushed message is the next one in the stream', async () => {
+        const ch = new QueryInputChannel('first', { uuid: UUID });
+        const { it } = await firstMessage(ch);
+        const pending = it.next();
+        const pushed = ch.push('an update');
+        assert.ok(pushed);
+        const second = await pending;
+        assert.equal(second.done, false);
+        assert.deepEqual(second.value?.message, { role: 'user', content: 'an update' });
+        assert.equal(second.value?.uuid, pushed.uuid);
+        assert.notEqual(pushed.uuid, UUID);
+        ch.close('test');
+        assert.equal((await it.next()).done, true);
+        assert.equal(ch.push('too late'), undefined, 'a closed channel takes nothing');
+    });
+
+    test('UP-2: open until the pushed message is answered; its answer is its result', async () => {
+        for (const batched of [true, false]) {
+            const ch = new QueryInputChannel('first', { uuid: UUID });
+            const pushed = ch.push('an update')!;
+            ch.observe(running);
+            if (batched) {
+                ch.observe({ ...resultFor([UUID, pushed.uuid]), result: 'both answered' });
+            } else {
+                ch.observe({ ...resultFor([UUID]), result: 'first answered' });
+                ch.observe(idle);
+                assert.equal(ch.closed, false, 'the update is not answered yet');
+                ch.observe(running);
+                ch.observe({ ...resultFor([pushed.uuid]), result: 'update answered' });
+            }
+            ch.observe(idle);
+            assert.equal(ch.closed, true);
+            assert.equal(await pushed.answer, batched ? 'both answered' : 'update answered');
+        }
+    });
+
+    test('UP-3: closed before the update was answered', async () => {
+        const ch = new QueryInputChannel('first', { uuid: UUID });
+        const pushed = ch.push('an update')!;
+        ch.close('cancelled');
+        await assert.rejects(pushed.answer, /ended before it answered this update \(cancelled\)/);
+    });
+
+    test('UP-4: a push in the idle grace period keeps the channel open', async () => {
+        const ch = new QueryInputChannel('first', { uuid: UUID, graceMs: 30 });
+        ch.observe(running);
+        ch.observe(idle);
+        const pushed = ch.push('an update')!;
+        ch.observe(running);
+        await new Promise((r) => setTimeout(r, 60));
+        assert.equal(ch.closed, false, 'running again cleared the grace timer');
+        ch.observe({ ...resultFor([UUID, pushed.uuid]), result: 'ok' });
+        ch.observe(idle);
+        assert.equal(ch.closed, true);
+        const quiet = new QueryInputChannel('first', { uuid: UUID, graceMs: 30 });
+        quiet.observe(running);
+        quiet.observe({ ...resultFor([UUID]), result: 'ok' });
+        quiet.observe({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't', task_type: 'bash', description: 'b' }] });
+        quiet.observe(idle);
+        const ignored = quiet.push('an update')!;
+        await new Promise((r) => setTimeout(r, 60));
+        assert.equal(quiet.closed, true, 'a CLI that does not run for the update lets the channel close');
+        await assert.rejects(ignored.answer);
+        quiet.close('test');
     });
 
     test('IC-2: a result answering our uuid, then idle → closes', () => {
@@ -227,6 +301,12 @@ describe('agent-sdk-transport wiring (IC-10)', () => {
         assert.match(src, /input\.observe\(msg\)/);
         assert.match(src, /input\.close\('cancelled'\)/);
         assert.match(src, /finally\s*\{\s*input\.close\('stream-ended'\)/);
+    });
+    test('UP-5: the running query takes updates under its session', () => {
+        assert.match(src, /registerLiveQuery\(params\.liveInputSession, input\)/);
+        assert.match(src, /input\.close\('stream-ended'\);\s*unregisterLive\?\.\(\);/);
+        const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'anthropic-handler.ts'), 'utf-8');
+        assert.match(handler, /options\.isolated \? \{\} : \{ liveInputSession: options\.sessionKey \?\? DEFAULT_AGENT_SDK_SESSION_KEY \}/);
     });
 });
 

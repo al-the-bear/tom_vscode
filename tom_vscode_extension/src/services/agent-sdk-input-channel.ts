@@ -32,6 +32,11 @@
  * `task_progress` message, or an output file that grew) extends it by another
  * cap, and one that shows none is abandoned and named.
  *
+ * More user messages can go in while the query runs (push: an "update" to the
+ * running prompt, the SDK's streaming input). The stream then stays open until
+ * every message has its answering result, and each pushed message's own answer
+ * is the text of the result that answers it.
+ *
  * Two fallbacks keep a query from hanging on a CLI that behaves differently:
  * a CLI that emits no session-state events closes at the answering result
  * (the old behaviour), and an `idle` while our message is still unanswered
@@ -121,6 +126,13 @@ export interface QueryInputChannelOptions {
 }
 
 const DEFAULT_GRACE_MS = 10_000;
+
+/** A pushed message's answer, or why it has none. */
+export interface PushedMessage {
+    uuid: string;
+    /** The text of the result that answers it; rejected when the stream closes first. */
+    answer: Promise<string>;
+}
 export const DEFAULT_BACKGROUND_WAIT_MS = 30 * 60_000;
 
 /** The Bash tool's result for a command it moved to the background. */
@@ -140,7 +152,14 @@ export class QueryInputChannel {
     private readonly progressOf?: (task: BackgroundTaskInfo) => number | undefined;
     private readonly onClose?: (reason: InputCloseReason) => void;
     private readonly onEvent?: (event: InputChannelEvent) => void;
-    private answered = false;
+    /** Messages without their answering result yet: the first, then each pushed one. */
+    private readonly unanswered = new Set<string>();
+    /** Pushed messages not yet yielded to the SDK. */
+    private readonly outbox: SdkPromptMessage[] = [];
+    /** The answer of each pushed message, by uuid. */
+    private readonly answerOf = new Map<string, { resolve(text: string): void; reject(e: Error): void }>();
+    /** Wakes the prompt stream when a message is pushed or the channel closes. */
+    private wake: (() => void) | undefined;
     private sawSessionState = false;
     private state: 'running' | 'idle' | undefined;
     private graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -164,6 +183,27 @@ export class QueryInputChannel {
         this.onClose = options.onClose;
         this.onEvent = options.onEvent;
         this.closedPromise = new Promise<void>((resolve) => { this.resolveClosed = resolve; });
+        this.unanswered.add(this.uuid);
+    }
+
+    /** Whether every message has its answering result. */
+    private get answered(): boolean { return this.unanswered.size === 0; }
+
+    /**
+     * Send another user message into the running query (an update to the
+     * running prompt). Undefined when the channel is closed: the query is over.
+     */
+    push(text: string): PushedMessage | undefined {
+        if (this.closed) { return undefined; }
+        const uuid = randomUUID();
+        this.unanswered.add(uuid);
+        const answer = new Promise<string>((resolve, reject) => { this.answerOf.set(uuid, { resolve, reject }); });
+        answer.catch(() => undefined);
+        this.outbox.push({ type: 'user', uuid, message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' });
+        // An idle CLI runs again for it; one that does not lets the grace period close the stream.
+        if (this.state === 'idle') { this.startGrace(); }
+        this.wake?.();
+        return { uuid, answer };
     }
 
     get closed(): boolean { return this.reason !== undefined; }
@@ -174,7 +214,7 @@ export class QueryInputChannel {
         return [...this.liveTasks.values()].map((t) => this.info(t));
     }
 
-    /** The prompt stream: our one message, then open until {@link close}. */
+    /** The prompt stream: our message, each pushed one as it comes, open until {@link close}. */
     async *messages(): AsyncGenerator<SdkPromptMessage, void, unknown> {
         yield {
             type: 'user',
@@ -183,7 +223,12 @@ export class QueryInputChannel {
             parent_tool_use_id: null,
             session_id: '',
         };
-        await this.closedPromise;
+        while (!this.closed) {
+            const next = this.outbox.shift();
+            if (next) { yield next; continue; }
+            await Promise.race([this.closedPromise, new Promise<void>((resolve) => { this.wake = resolve; })]);
+            this.wake = undefined;
+        }
     }
 
     /** Feed every message of the query's output stream through here. */
@@ -214,8 +259,7 @@ export class QueryInputChannel {
             this.recordOutputFiles(msg);
             return;
         }
-        if (m.type === 'result' && this.answers(msg)) {
-            this.answered = true;
+        if (m.type === 'result' && this.settleAnswers(msg) && this.answered) {
             if (!this.sawSessionState) {
                 this.close('result-without-session-state');
             }
@@ -228,6 +272,10 @@ export class QueryInputChannel {
         this.reason = reason;
         this.clearGrace();
         this.clearBackgroundWait();
+        for (const [uuid, waiter] of this.answerOf) {
+            waiter.reject(new Error(`the running prompt ended before it answered this update (${reason})`));
+            this.answerOf.delete(uuid);
+        }
         this.resolveClosed();
         try { this.onClose?.(reason); } catch { /* diagnostics only */ }
     }
@@ -341,10 +389,26 @@ export class QueryInputChannel {
         }
     }
 
-    private answers(msg: object): boolean {
-        const r = msg as { user_message_uuid?: unknown; user_message_uuids?: unknown };
-        if (Array.isArray(r.user_message_uuids) && r.user_message_uuids.includes(this.uuid)) { return true; }
-        return r.user_message_uuid === this.uuid;
+    /**
+     * Mark the messages a result answers (its `user_message_uuid(s)`) as
+     * answered, and give a pushed one the result's text. Answers whether it
+     * answered any of ours.
+     */
+    private settleAnswers(msg: object): boolean {
+        const r = msg as { user_message_uuid?: unknown; user_message_uuids?: unknown; result?: unknown };
+        const named = [
+            ...(Array.isArray(r.user_message_uuids) ? r.user_message_uuids : []),
+            ...(typeof r.user_message_uuid === 'string' ? [r.user_message_uuid] : []),
+        ].filter((u): u is string => typeof u === 'string' && this.unanswered.has(u));
+        for (const uuid of named) {
+            this.unanswered.delete(uuid);
+            const waiter = this.answerOf.get(uuid);
+            if (waiter) {
+                waiter.resolve(typeof r.result === 'string' ? r.result : '');
+                this.answerOf.delete(uuid);
+            }
+        }
+        return named.length > 0;
     }
 
     private startGrace(reason: InputCloseReason = 'idle-unanswered-timeout'): void {
