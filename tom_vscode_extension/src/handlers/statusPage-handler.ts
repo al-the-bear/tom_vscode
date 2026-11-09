@@ -80,6 +80,7 @@ function getMcpReadOnlyToolNames(): ReadonlySet<string> {
 }
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { resolveTodoButtonTemplate, todoButtonTemplateId, TODO_BUTTON_TEMPLATE_INFO, TODO_BUTTON_TEMPLATE_USES, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
 /**
@@ -125,6 +126,8 @@ interface AnthropicSectionForStatusPage {
         templateId?: string;
         templates?: Array<{ id: string; name: string; description?: string; template: string }>;
     };
+    userMessageTemplates?: Array<{ id: string; name: string; template: string }>;
+    todoButtonTemplates?: { userAction?: string; other?: string };
 }
 
 function getAnthropicSection(): AnthropicSectionForStatusPage {
@@ -1531,6 +1534,32 @@ export async function handleStatusAction(action: string, message: any): Promise<
             }
             break;
         }
+        case 'updateTodoButtonTemplates': {
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            const anthropic = (stcConfig.anthropic ??= {});
+            const section = (anthropic.todoButtonTemplates ??= {});
+            const chosen = (message.selected || {}) as Record<string, unknown>;
+            for (const use of TODO_BUTTON_TEMPLATE_USES) {
+                const id = typeof chosen[use] === 'string' ? (chosen[use] as string).trim() : '';
+                if (id) { section[use] = id; } else { delete section[use]; }
+            }
+            if (!Object.keys(section).length) { delete anthropic.todoButtonTemplates; }
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage('Todo buttons templates saved');
+            await refreshStatusPage();
+            break;
+        }
+        case 'editTodoButtonTemplate': {
+            // The template the row runs: the one chosen in its dropdown, else the setting / default.
+            const use = TODO_BUTTON_TEMPLATE_USES.find((u) => u === message.use);
+            const itemId = String(message.itemId || '').trim()
+                || (use ? todoButtonTemplateId(loadSendToChatConfig()?.anthropic?.todoButtonTemplates, use) : '');
+            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
+                category: 'anthropicUserMessage',
+                itemId: itemId || undefined,
+            });
+            break;
+        }
         case 'editTransportRetryTemplate': {
             await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
                 category: 'transportRetry',
@@ -1845,6 +1874,10 @@ export interface StatusData {
     assistPrompts: Array<{ use: AssistPromptUse; label: string; purpose: string; selected: string; defaultName: string; runs: string }>;
     /** Templates available for the Assist prompt `<select>`s. */
     assistPromptChoices: Array<{ id: string; name: string }>;
+    /** The todo detail's Send / Queue buttons: each use with its chosen template ('' = its default) and what runs. */
+    todoButtonTemplates: Array<{ use: TodoButtonTemplateUse; label: string; selected: string; defaultName: string; runs: string; missing: boolean }>;
+    /** The Anthropic user-message templates, for the Todo buttons `<select>`s. */
+    todoButtonTemplateChoices: Array<{ id: string; name: string }>;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
     /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
@@ -2110,6 +2143,20 @@ export async function gatherStatusData(): Promise<StatusData> {
             };
         }),
         assistPromptChoices: (sendToChatConfig?.assistPrompts?.templates || []).map((t) => ({
+            id: t.id, name: t.name || t.id,
+        })),
+        todoButtonTemplates: TODO_BUTTON_TEMPLATE_USES.map((use) => {
+            const anthropic = getAnthropicSection();
+            const resolved = resolveTodoButtonTemplate(anthropic.todoButtonTemplates, anthropic.userMessageTemplates, use);
+            return {
+                use, label: TODO_BUTTON_TEMPLATE_INFO[use].label,
+                selected: anthropic.todoButtonTemplates?.[use] ?? '',
+                defaultName: TODO_BUTTON_TEMPLATE_INFO[use].defaultName,
+                runs: resolved.missing ? `${resolved.id} (missing)` : resolved.name,
+                missing: resolved.missing === true,
+            };
+        }),
+        todoButtonTemplateChoices: (getAnthropicSection().userMessageTemplates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
         ...(() => {
@@ -2932,6 +2979,33 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>`).join('')}
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateAssistPrompts">Save Assist Prompts</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Todo buttons (src/utils/todoButtonTemplates.ts): the templates of the todo detail's Send / Queue buttons -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="todoButtons">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 📝 Todo buttons</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-todoButtons-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                The templates the todo detail's <strong>Send</strong> and <strong>Queue</strong> buttons wrap the todo in, so you
+                don't pick one per send: one for todos marked 👤 user action (also used by the Guide me buttons), one for every
+                other todo. The buttons always send on Anthropic, whatever the queue's transport. Both offer the Anthropic
+                templates, edited in the Global Template Editor (category <strong>Anthropic — User Message</strong>).
+            </p>
+            ${status.todoButtonTemplates.map(t => `<div class="sp-settings-row">
+                <label>${escapeHtmlContent(t.label)}:</label>
+                <select id="sp-todobtn-${t.use}" title="Runs now: ${escapeHtml(t.runs)}">
+                    <option value="">(default: ${escapeHtmlContent(t.defaultName)})</option>
+                    ${status.todoButtonTemplateChoices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === t.selected ? 'selected' : ''}>${escapeHtmlContent(c.name)}</option>`).join('')}
+                </select>
+                <button class="sp-btn small" data-status-action="editTodoButtonTemplate" data-todobtn-use="${t.use}">✏️ Edit</button>
+                ${t.missing ? `<span style="color:var(--vscode-errorForeground);font-size:11px">⚠️ ${escapeHtmlContent(t.runs)}: not among the templates</span>` : ''}
+            </div>`).join('')}
+            <div class="sp-settings-row">
+                <button class="sp-btn primary" data-status-action="updateTodoButtonTemplates">Save Todo Buttons</button>
             </div>
         </div>
     </div>

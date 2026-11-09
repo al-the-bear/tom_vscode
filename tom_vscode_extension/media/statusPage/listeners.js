@@ -151,6 +151,14 @@ function attachStatusPanelListeners(skipEditorInit) {
             } else if (action === 'editAssistPrompt' || action === 'deleteAssistPrompt' || action === 'addAssistPrompt') {
                 msgData.use = el.getAttribute('data-assist-use') || '';
                 msgData.itemId = (document.getElementById('sp-assist-' + msgData.use) || {}).value || '';
+            } else if (action === 'updateTodoButtonTemplates') {
+                msgData.selected = {};
+                panel.querySelectorAll('select[id^="sp-todobtn-"]').forEach(function(sel) {
+                    msgData.selected[sel.id.slice('sp-todobtn-'.length)] = sel.value || '';
+                });
+            } else if (action === 'editTodoButtonTemplate') {
+                msgData.use = el.getAttribute('data-todobtn-use') || '';
+                msgData.itemId = (document.getElementById('sp-todobtn-' + msgData.use) || {}).value || '';
             } else if (action === 'editTransportRetryTemplate' || action === 'deleteTransportRetryTemplate') {
                 msgData.itemId = (document.getElementById('sp-retry-templateId') || {}).value || '';
             } else if (action === 'saveMcpServer') {

@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
@@ -1231,9 +1232,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             return true;
         }
-        case 'qtGuideUserAction': {
-            // The todo with the "Guide me through a user action" template, on
-            // Anthropic: sent now in the @CHAT panel, or added to the queue (staged).
+        case 'qtGuideUserAction':
+        case 'qtTodoButton': {
+            // The todo detail's buttons, always on Anthropic: Send runs the todo now
+            // in the @CHAT panel (its profile and session), Queue adds it to the
+            // prompt queue (staged). The template is the Status Page's Todo buttons
+            // setting: the user-action one for Guide me and for a user-action todo,
+            // the other one for every other todo (todoButtonTemplates.ts).
             const questId = effectiveQuestId(msg.questId);
             const todoId = String(msg.todoId || '');
             const todo = todoId ? _findTodoForPromptAction(questId, todoId, msg.sourceFile) : undefined;
@@ -1241,40 +1246,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`Todo not found: ${todoId || '(none selected)'}`);
                 return true;
             }
-            const tplBody = loadSendToChatConfig()?.anthropic?.userMessageTemplates?.find((t) => t.id === GUIDE_USER_ACTION_TEMPLATE_ID)?.template;
-            if (!tplBody) {
-                vscode.window.showWarningMessage(`The user-message template "${GUIDE_USER_ACTION_TEMPLATE_ID}" (Guide me through a user action) is missing from the Anthropic templates.`);
-                return true;
-            }
-            if (msg.target === 'queue') {
-                try {
-                    const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-                    await PromptQueueManager.instance.enqueue({
-                        originalText: _todoPromptFragment(todo, questId, msg.sourceFile).yaml,
-                        todoIdPattern: todo.id,
-                        template: GUIDE_USER_ACTION_TEMPLATE_ID,
-                        transport: 'anthropic',
-                        deferSend: true,
-                    });
-                    vscode.window.showInformationMessage(`Added todo ${todoId} to the prompt queue with the Guide me template (staged).`);
-                } catch {
-                    vscode.window.showWarningMessage('Prompt queue not available');
-                }
-                return true;
-            }
-            const ctx = _extensionContext;
-            if (!ctx) {
-                vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
-                return true;
-            }
-            const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
-            const { runAnthropicSend } = await import('./sendToChatRouter.js');
-            const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tplBody, source: 'todo panel: guide me' });
-            if (outcome.rejected) {
-                vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
-            } else if (!outcome.ok && outcome.error) {
-                vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
-            }
+            const use = msg.type === 'qtGuideUserAction' ? 'userAction' : todoButtonTemplateUse(todo);
+            await _runTodoButton(todo, questId, msg.sourceFile, use, msg.target === 'queue' ? 'queue' : 'chat');
             return true;
         }
         case 'qtOpenMarkdownPreview':
@@ -2170,8 +2143,54 @@ function _openYamlFile(questId: string, file: string): void {
  * default (transport-scoped) message-template id. Defaults to copilot when the
  * queue manager is unavailable.
  */
-/** The Anthropic user-message template the todo detail's Guide me buttons use. */
-const GUIDE_USER_ACTION_TEMPLATE_ID = 'guide-user-action';
+/**
+ * A todo detail button (Send / Queue, Guide me): the todo with the template of
+ * `use` (the Status Page's Todo buttons setting), on Anthropic whatever the
+ * queue's transport — sent now in the @CHAT panel, or added to the queue staged.
+ */
+async function _runTodoButton(
+    todo: questTodo.QuestTodoItem,
+    questId: string | undefined,
+    sourceFile: string | undefined,
+    use: TodoButtonTemplateUse,
+    target: 'chat' | 'queue',
+): Promise<void> {
+    const anthropic = loadSendToChatConfig()?.anthropic;
+    const tpl = resolveTodoButtonTemplate(anthropic?.todoButtonTemplates, anthropic?.userMessageTemplates, use);
+    if (tpl.missing || !tpl.body) {
+        vscode.window.showWarningMessage(`The Todo buttons template "${tpl.id}" (${TODO_BUTTON_TEMPLATE_INFO[use].label}) is not among the Anthropic templates: choose one on the Status Page (Todo buttons).`);
+        return;
+    }
+    if (target === 'queue') {
+        try {
+            const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+            await PromptQueueManager.instance.enqueue({
+                originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
+                todoIdPattern: todo.id,
+                template: tpl.id,
+                transport: 'anthropic',
+                deferSend: true,
+            });
+            vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
+        } catch {
+            vscode.window.showWarningMessage('Prompt queue not available');
+        }
+        return;
+    }
+    const ctx = _extensionContext;
+    if (!ctx) {
+        vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
+        return;
+    }
+    const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, sourceFile)]);
+    const { runAnthropicSend } = await import('./sendToChatRouter.js');
+    const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}` });
+    if (outcome.rejected) {
+        vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+    } else if (!outcome.ok && outcome.error) {
+        vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+    }
+}
 
 /**
  * The newest answer in the quest's session trails that reported the todo

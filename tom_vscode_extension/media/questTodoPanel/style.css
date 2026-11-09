@@ -117,6 +117,8 @@
 .qt-user-action-line { display: flex; align-items: center; gap: 8px; }
 .qt-guide-btns { display: inline-flex; gap: 2px; }
 .qt-guide-btns .icon-btn { padding: 0 3px; height: 18px; line-height: 18px; }
+.qt-todo-buttons { display: inline-flex; gap: 4px; }
+.qt-todo-buttons .icon-btn { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; }
 .qt-popup .qt-form-row { margin-bottom: 6px; }
 .qt-popup-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
 .qt-tag-picker-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }

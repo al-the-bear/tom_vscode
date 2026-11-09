@@ -1264,6 +1264,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         '</div>' +
+        qtTodoButtonsRow(todo) +
         qtUserActionRow(todo.user_action === true, true) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
@@ -2349,21 +2350,54 @@ function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + l
 /**
  * The "Your to do" checkbox (`user_action`), the same in the new-todo and the
  * detail form. On a saved todo (`withGuide`) two buttons follow it: Guide me
- * through the todo in the chat, or via the prompt queue, both with the
- * "Guide me through a user action" template (qtGuideUserAction).
+ * through the todo in the chat, or via the prompt queue, both with the Status
+ * Page's Todo buttons template for user-action todos (default "Guide me through
+ * a user action", qtGuideUserAction).
  */
 function qtUserActionRow(checked, withGuide) {
     var guide = withGuide
         ? '<span class="qt-guide-btns">' +
-            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="chat" title="Guide me through this todo in the chat (ANTHROPIC/LLM panel, template &quot;Guide me through a user action&quot;)">' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="chat" title="Guide me through this todo in the chat (ANTHROPIC/LLM panel, the Todo buttons template for user-action todos)">' +
                 '<span class="codicon codicon-comment-discussion"></span></button>' +
-            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="queue" title="Add this todo to the prompt queue with the &quot;Guide me through a user action&quot; template (staged)">' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="queue" title="Add this todo to the prompt queue with the Todo buttons template for user-action todos (staged)">' +
                 '<span class="codicon codicon-list-ordered"></span></button>' +
           '</span>'
         : '';
     return qtFormRow('Your to do', '<div class="qt-user-action-line"><label title="A prefix* queue walk passes this todo and goes on with the next one">' +
         '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>' + guide + '</div>');
 }
+
+/**
+ * The Send and Queue buttons of a saved todo (qtTodoButton): Send runs the todo
+ * now in the @CHAT ANTHROPIC/LLM panel, Queue adds it to the prompt queue
+ * (staged), both on Anthropic whatever the queue's transport, with the template
+ * the Status Page's Todo buttons setting names for the todo — the user-action
+ * one for a 👤 user-action todo, the other one for the rest.
+ */
+function qtTodoButtonsRow(todo) {
+    var which = todo && todo.user_action === true ? 'user-action' : 'other';
+    return qtFormRow('Run', '<div class="qt-todo-buttons">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in the ANTHROPIC/LLM panel (its profile and session), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+            '<span class="codicon codicon-send"></span> Send</button>' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to the prompt queue (staged, Anthropic), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+            '<span class="codicon codicon-list-ordered"></span> Queue</button>' +
+        '</div>');
+}
+
+/** The Send and Queue buttons (qtTodoButtonsRow): one delegated handler. */
+function qtHandleTodoButtonClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-todo-btn') : null;
+    if (!btn || !qtDetailTodo) return;
+    e.preventDefault();
+    vscode.postMessage({
+        type: 'qtTodoButton',
+        target: btn.getAttribute('data-qt-todo-btn') === 'queue' ? 'queue' : 'chat',
+        questId: qtCurrentQuestId,
+        todoId: qtDetailTodo.id,
+        sourceFile: qtDetailTodo._sourceFile || undefined,
+    });
+}
+document.addEventListener('click', qtHandleTodoButtonClick);
 
 /** The Guide me buttons (qtUserActionRow): one delegated handler. */
 function qtHandleGuideButtonClick(e) {

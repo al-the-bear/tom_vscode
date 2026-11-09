@@ -281,11 +281,16 @@ The **Agent answer** row (every saved todo) posts `qtShowAgentAnswer` with the
 stored `last_answer` as fallback; the host takes the newest trail answer that
 reports the todo (`todoAgentAnswer.latestTodoAnswer` over the quest's trail
 sets, the TODO Log's reader) and answers `qtMarkdownHtml` or opens the preview
-editor. The **Guide me** buttons beside the user-action checkbox
-(`qtUserActionRow(checked, true)`) post `qtGuideUserAction` (`chat` / `queue`):
-the todo's prompt fragment with the `guide-user-action` Anthropic template,
-sent by `runAnthropicSend` or enqueued staged on Anthropic. Tests:
-`questTodoAgentAnswerAndGuide.dom.test.ts` AG-1–5.
+editor. The **Send** / **Queue** buttons of every saved todo (`qtTodoButtonsRow`,
+the Run row) post `qtTodoButton` (`chat` / `queue`), the **Guide me** buttons
+beside the user-action checkbox (`qtUserActionRow(checked, true)`) post
+`qtGuideUserAction`. Both run `_runTodoButton`: the todo's prompt fragment with
+the template `todoButtonTemplates.resolveTodoButtonTemplate` gives
+(`anthropic.todoButtonTemplates`: `userAction` for Guide me and a user-action
+todo, `other` for the rest; defaults `guide-user-action` / `execute-todo`),
+always on Anthropic — sent by `runAnthropicSend` or enqueued staged with
+`transport: 'anthropic'`; a template missing from the store warns. Tests:
+`questTodoAgentAnswerAndGuide.dom.test.ts` AG-1–5, `todoButtons.test.ts` TB-1–6.
 
 The filter state also carries `blocking` (`[]` all, `['yes']` blocks an open todo by
 `qtOpenBlockedTodos`, `['no']`) and the date bounds `createdFrom`/`To`, `updatedFrom`/`To`,

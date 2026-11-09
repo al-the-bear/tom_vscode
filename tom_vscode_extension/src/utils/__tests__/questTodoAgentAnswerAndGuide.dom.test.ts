@@ -12,7 +12,7 @@
  *   AG-4 beside the "Your to do" checkbox of a saved todo: "Guide me" in the chat and via the queue;
  *        they post qtGuideUserAction with target chat / queue; the new-todo form has neither
  *   AG-5 the host looks the answer up in the trails (falling back to last_answer) and renders it safely,
- *        and sends / queues with the guide-user-action template on Anthropic
+ *        and sends / queues on Anthropic with the Todo buttons template for user-action todos
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- `last_answer`, `_sourceFile` are the todo's keys */
@@ -108,10 +108,10 @@ describe('todo detail: agent answer and guide me', () => {
         assert.match(host, /case 'qtShowAgentAnswer':[\s\S]{0,1500}_latestAgentAnswer\([\s\S]{0,1500}renderQuestLogMarkdown/);
         assert.match(host, /function _latestAgentAnswer[\s\S]{0,800}latestTodoAnswer\(loadTrailSet/);
         assert.match(host, /case 'qtShowAgentAnswer':[\s\S]{0,2500}showMarkdownHtmlPreview/);
-        assert.match(host, /GUIDE_USER_ACTION_TEMPLATE_ID = 'guide-user-action'/);
         const guide = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
-        assert.match(guide, /GUIDE_USER_ACTION_TEMPLATE_ID/);
-        assert.match(guide, /template: GUIDE_USER_ACTION_TEMPLATE_ID,\s*transport: 'anthropic',\s*deferSend: true/, 'queued staged on Anthropic');
-        assert.match(guide, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tplBody, source: 'todo panel: guide me' \}\)/, 'sent in the chat with the template');
+        assert.match(guide, /const use = msg\.type === 'qtGuideUserAction' \? 'userAction' : todoButtonTemplateUse\(todo\)/, 'Guide me: the user-action template setting');
+        const run = host.slice(host.indexOf('async function _runTodoButton('));
+        assert.match(run, /template: tpl\.id,\s*transport: 'anthropic',\s*deferSend: true/, 'queued staged on Anthropic');
+        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}` \}\)/, 'sent in the chat with the template');
     });
 });

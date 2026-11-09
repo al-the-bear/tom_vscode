@@ -244,6 +244,13 @@ export interface SendToChatConfig {
             template: string;
             isDefault?: boolean;
         }>;
+        /**
+         * The templates the todo detail's Send / Queue (and Guide me) buttons
+         * use (src/utils/todoButtonTemplates.ts): ids of `userMessageTemplates`,
+         * one for user-action todos, one for the others. Unset: Guide me through
+         * a user action / Execute TODO.
+         */
+        todoButtonTemplates?: { userAction?: string; other?: string };
         /** Memory subsystem cross-config defaults (anthropic_sdk_integration.md §10). */
         memory?: {
             memoryToolsEnabled?: boolean;

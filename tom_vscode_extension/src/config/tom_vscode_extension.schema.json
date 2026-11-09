@@ -154,6 +154,15 @@
                     "description": "The prompt templates, the one template store: Anthropic and Copilot sends both take their templates from here (template editor category Anthropic — User Message).",
                     "items": { "$ref": "#/definitions/userMessageTemplate" }
                 },
+                "todoButtonTemplates": {
+                    "type": "object",
+                    "description": "The templates of the todo detail's Send / Queue (and Guide me) buttons, which always send on Anthropic: ids of userMessageTemplates. Chosen on the Status Page (Todo buttons).",
+                    "properties": {
+                        "userAction": { "type": "string", "description": "For a todo marked user action. Empty: guide-user-action (Guide me through a user action)." },
+                        "other": { "type": "string", "description": "For every other todo. Empty: execute-todo (Execute TODO)." }
+                    },
+                    "additionalProperties": false
+                },
                 "memory": { "$ref": "#/definitions/anthropicMemory" },
                 "transportRetry": {
                     "type": "object",
