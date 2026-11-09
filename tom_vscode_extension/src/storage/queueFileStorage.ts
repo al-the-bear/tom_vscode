@@ -188,6 +188,8 @@ export interface QueuePromptYaml {
     /** A chat send shown in the queue: where it came from and the window that ran it. */
     'chat-source'?: string;
     'chat-window-id'?: string;
+    /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
+    'todo-id-pattern'?: string;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */

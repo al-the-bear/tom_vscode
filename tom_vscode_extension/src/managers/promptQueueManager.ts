@@ -66,6 +66,7 @@ import {
 } from '../utils/queueStep4Utils';
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
+import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
 import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
@@ -458,6 +459,13 @@ export interface QueuedPrompt {
      * `utils/queueTodoClaim.ts`.
      */
     todoClaim?: TodoClaim;
+    /**
+     * The todos this item runs: a todo's id when one todo was queued,
+     * `<prefix>*` for a todo-group walk (taken from a `<prefix>*` repeat count
+     * when not given), several separated by commas. The todo panel marks those
+     * todos as queued while the item has not finished (utils/todoQueueMarks.ts).
+     */
+    todoIdPattern?: string;
     /**
      * Queued right after this item when it is finished — done, or ended in an
      * error that will not recover (src/utils/doneNotification.ts).
@@ -2008,6 +2016,8 @@ export class PromptQueueManager {
      */
     async enqueue(opts: {
         originalText: string;
+        /** The todos it runs (QueuedPrompt.todoIdPattern); a `<prefix>*` repeat count gives it when omitted. */
+        todoIdPattern?: string;
         template?: string;
         answerWrapper?: boolean;
         type?: QueuedPromptType;
@@ -2159,6 +2169,7 @@ export class PromptQueueManager {
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
+            ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
@@ -5754,6 +5765,7 @@ export class PromptQueueManager {
                 chatSource: main['chat-source'] || undefined,
                 chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
+                ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
 
@@ -5895,6 +5907,7 @@ export class PromptQueueManager {
             ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
+            ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

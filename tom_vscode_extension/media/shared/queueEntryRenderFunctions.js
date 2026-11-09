@@ -434,6 +434,10 @@ function renderEntry(item, idx) {
           (item.notificationOf
             ? '<span class="queue-from-chip" title="' + escapeHtml('The done-notification of item ' + item.notificationOf) + '"><span class="codicon codicon-bell"></span> notification of ' + escapeHtml(String(item.notificationOf).slice(0, 8)) + '</span>'
             : '') +
+          // The todos it runs (todoIdPattern): a todo id, a group walk prefix*, or several.
+          (item.todoIdPattern
+            ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'
+            : '') +
           '#' + queuePos + '  ' + time + (sentTime ? ' \u2192 ' + sentTime : '') +
           ' <span class="codicon ' + typeIconClass + '" style="color:#000;"></span>' +
         '</span>' +

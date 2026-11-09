@@ -585,6 +585,16 @@ function qtBlockingMark(t) {
 }
 
 /** One todo row of the list pane. */
+/**
+ * The prompt queue will run this todo: the number of the queue item that runs
+ * it first (as the queue editor shows it), the tooltip naming every one
+ * (`queued` / `queuedTitle`, set by the host from the items' todo id patterns).
+ */
+function qtQueuedMark(t) {
+    if (!Array.isArray(t.queued) || t.queued.length === 0) return '';
+    return '<span class="qt-queued" title="' + qtEsc(t.queuedTitle || ('Queued: #' + t.queued.join(', #'))) + '">⏵#' + qtEsc(String(t.queued[0])) + '</span>';
+}
+
 function qtRenderTodoRow(t) {
     var icon = qtStatusIcon(t.status);
     var cls = 'qt-todo-item status-' + (t.status || 'not-started');
@@ -620,6 +630,7 @@ function qtRenderTodoRow(t) {
         '<div class="qt-todo-item-row1">' +
         '<span class="status-icon">' + icon + '</span>' +
         (t.user_action === true ? '<span class="qt-user-action" title="Your to do: a prefix* queue walk passes it">👤</span>' : '') +
+        qtQueuedMark(t) +
         qtBlockingMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
@@ -628,6 +639,26 @@ function qtRenderTodoRow(t) {
         priorityDot +
         '<span class="tid">' + qtEsc(t.id) + '</span>' +
         srcLabel + '</div></div>';
+}
+
+/**
+ * A group with queued todos (a collapsed group hides its rows' marks): the
+ * first queue item that runs any of them, the tooltip naming every item and
+ * how many of the group's todos are queued.
+ */
+function qtGroupQueuedMark(group) {
+    var numbers = [];
+    var queuedTodos = 0;
+    group.todos.forEach(function(t) {
+        if (!Array.isArray(t.queued) || !t.queued.length) return;
+        queuedTodos++;
+        t.queued.forEach(function(n) { if (numbers.indexOf(n) === -1) numbers.push(n); });
+    });
+    if (!numbers.length) return '';
+    numbers.sort(function(a, b) { return a - b; });
+    var title = 'Queued: ' + numbers.map(function(n, k) { return '#' + n + (k === 0 && numbers.length > 1 ? ' (first)' : ''); }).join(', ') +
+        ' \u2014 ' + queuedTodos + ' of ' + group.todos.length + ' todos';
+    return '<span class="qt-queued qt-group-queued" title="' + qtEsc(title) + '">\u23f5#' + numbers[0] + '</span>';
 }
 
 /** The thin separator line that heads one prefix group. */
@@ -639,6 +670,7 @@ function qtRenderGroupHeader(group, expanded) {
         '<span class="codicon codicon-chevron-down"></span>' +
         '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
+        qtGroupQueuedMark(group) +
         (group.prefix
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
@@ -2426,6 +2458,10 @@ function qtHandleMessage(msg) {
                 // Explicitly set value after innerHTML rebuild to ensure selection sticks
                 if (curFile && curFile !== 'all') fsel.value = curFile;
             }
+            break;
+        case 'qtQueueChanged':
+            // Queued todos changed: load the list shown again, with its marks.
+            vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
             break;
         case 'qtTodos':
             qtTodos = msg.todos || [];

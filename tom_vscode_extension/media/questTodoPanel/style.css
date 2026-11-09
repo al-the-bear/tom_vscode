@@ -185,8 +185,10 @@
 .qt-trash-btn:hover { opacity: 1; color: var(--vscode-errorForeground); }
 .qt-reopen-btn:hover { opacity: 1; color: var(--vscode-testing-iconPassed); }
 .qt-todo-item .qt-user-action { flex-shrink: 0; font-size: 0.9em; }
+.qt-todo-item .qt-queued { flex-shrink: 0; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); cursor: default; }
 /* A todo that blocks open todos (its `blocking`): ⛓️ beside the status icon. */
 .qt-todo-item .qt-blocking { flex-shrink: 0; font-size: 0.9em; }
 /* The user's own todos (user_action: true): 👤 before the title and a purple title,
    a colour no status uses (blocked's border is the warning yellow, in-progress's the info blue). */
 .qt-todo-item.user-action .ttitle { color: var(--vscode-charts-purple, #b180d7); }
+.qt-group-header .qt-group-queued { margin-left: 6px; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }

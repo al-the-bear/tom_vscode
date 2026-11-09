@@ -424,6 +424,8 @@ transport: anthropic                    # 'copilot' or 'anthropic'
 anthropic-profile-id: software-engineer # string (profile id)
 anthropic-config-id: claude-sonnet-46   # string — anthropic OR localLlm config id
 answer-text: "…returned response…"      # direct-transport response captured by dispatcher
+todo-id-pattern: chat*                  # the todos it runs: a todo id, <prefix>* (a walk), several comma-separated;
+                                        # the todo panel marks them queued (utils/todoQueueMarks.ts)
 ```
 
 **Queue-level default** persists to `queue-settings.yaml` via `QueueSettings`:

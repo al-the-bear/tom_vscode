@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
@@ -44,6 +45,65 @@ import { ChatVariablesStore } from '../managers/chatVariablesStore';
 let _extensionContext: vscode.ExtensionContext | undefined;
 let _popoutPanel: vscode.WebviewPanel | undefined;
 const _webviewConfigs = new WeakMap<vscode.Webview, QuestTodoViewConfig>();
+
+// ---- Queued todos (utils/todoQueueMarks.ts) --------------------------------
+// Every todo list posted to a webview carries, on each todo the prompt queue
+// will run, `queued` (the numbers of those queue items, as the queue editor
+// shows them) and `queuedTitle` (the mark's tooltip). When the queued patterns
+// or their numbers change, the webviews are told (`qtQueueChanged`) and load
+// their list again.
+
+/** The webviews a todo list was posted to. */
+const _markedWebviews = new Set<vscode.Webview>();
+let _queueMarksSignature = '';
+let _queueMarksListener: { dispose(): void } | undefined;
+
+/** The prompt queue's items, or none when the queue is not up (tests, early start). */
+function _queueItemsForMarks(): QueueItemForMarks[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded lazily: the queue manager imports this module's neighbours
+        const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
+        return PromptQueueManager.instance.items as unknown as QueueItemForMarks[];
+    } catch {
+        return [];
+    }
+}
+
+function _ensureQueueMarksListener(): void {
+    if (_queueMarksListener) { return; }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- see _queueItemsForMarks
+        const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
+        _queueMarksSignature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
+        _queueMarksListener = PromptQueueManager.instance.onDidChange(() => {
+            const signature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
+            if (signature === _queueMarksSignature) { return; }
+            _queueMarksSignature = signature;
+            for (const view of [..._markedWebviews]) {
+                Promise.resolve(view.postMessage({ type: 'qtQueueChanged' })).then(
+                    (delivered) => { if (delivered === false) { _markedWebviews.delete(view); } },
+                    () => _markedWebviews.delete(view),
+                );
+            }
+        });
+    } catch { /* no queue: no marks to keep current */ }
+}
+
+/** `m` with the queue marks on its todos when it is a todo list. */
+function _withQueueMarks(m: any, webview: vscode.Webview): any {
+    if (!m || m.type !== 'qtTodos' || !Array.isArray(m.todos)) { return m; }
+    _markedWebviews.add(webview);
+    _ensureQueueMarksListener();
+    const marks = todoQueueMarks(_queueItemsForMarks(), m.todos, { walks: m.questId === WsPaths.getWorkspaceQuestId() });
+    if (marks.size === 0) { return m; }
+    return {
+        ...m,
+        todos: m.todos.map((t: { id: string }) => {
+            const numbers = marks.get(t.id);
+            return numbers ? { ...t, queued: numbers, queuedTitle: todoQueueMarkTitle(numbers) } : t;
+        }),
+    };
+}
 
 /** Storage key for persisting Quest TODO panel state per workspace. */
 const QT_STATE_KEY = 'tomAi.questTodo.panelState';
@@ -230,7 +290,7 @@ export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
 
 /** Handle Quest TODO messages from the webview. Call from WS panel message handler. */
 export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promise<boolean> {
-    const post = (m: any) => webview.postMessage(m);
+    const post = (m: any) => webview.postMessage(_withQueueMarks(m, webview));
     const cfg = _webviewConfigs.get(webview) || {};
 
     const isSessionMode = cfg.mode === 'session';
@@ -1158,6 +1218,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
                     await PromptQueueManager.instance.enqueue({
                         originalText: _todoPromptFragment(todo, questId, msg.sourceFile).yaml,
+                        todoIdPattern: todo.id,
                         template: GUIDE_USER_ACTION_TEMPLATE_ID,
                         transport: 'anthropic',
                         deferSend: true,
@@ -1384,6 +1445,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const queue = PromptQueueManager.instance;
                 await queue.enqueue({
                     originalText: wrappedText,
+                    todoIdPattern: todo.id,
                     template: selectedTemplate,
                     deferSend: true,
                 });
@@ -1426,7 +1488,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
-            const prepared: string[] = [];
+            const prepared: Array<{ text: string; todoId: string }> = [];
             const missing: string[] = [];
             for (const entry of entries) {
                 const todoId = String(entry?.todoId || '');
@@ -1435,7 +1497,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     missing.push(todoId || '?');
                     continue;
                 }
-                prepared.push(_todoPromptFragment(todo, questId, entry?.sourceFile).yaml);
+                prepared.push({ text: _todoPromptFragment(todo, questId, entry?.sourceFile).yaml, todoId: todo.id });
             }
             if (!prepared.length) {
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
@@ -1444,9 +1506,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             try {
                 const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
                 const queue = PromptQueueManager.instance;
-                for (const originalText of prepared) {
+                for (const { text: originalText, todoId } of prepared) {
                     await queue.enqueue({
                         originalText,
+                        todoIdPattern: todoId,
                         template: selectedTemplate,
                         deferSend: true,
                     });
@@ -1622,7 +1685,7 @@ export function setupQuestTodoWatcher(refreshFn: () => void): vscode.Disposable 
 export function sendQuestTodoRefresh(webview: vscode.Webview): void {
     const activeQuest = WsPaths.getWorkspaceQuestId();
     if (activeQuest === 'default') return;
-    const post = (m: any) => webview.postMessage(m);
+    const post = (m: any) => webview.postMessage(_withQueueMarks(m, webview));
     _sendTodoList(activeQuest, 'all', post);
 }
 

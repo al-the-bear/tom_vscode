@@ -251,6 +251,12 @@ The list opens **fully collapsed** — after a window reload or a VS Code restar
 
 A todo marked `user_action: true` is yours to do — a review, an answer, a look at a screen. Its title is **purple** in every todo list and it carries 👤. (A row's left border shows its status, not this mark: **blue** for in progress, **yellow** for blocked.) The **👤 toolbar button** shows only those todos and opens every prefix group, so none hides in a collapsed one; press it again to see all todos. The filter (funnel button) has a **User action** section for the same choice: your own todos, the others, or (nothing ticked) both. Set the mark with the *Your to do* checkbox when you create the todo (the new-todo form) or later in its detail form, where you can also clear it.
 
+#### Queued todos (⏵#N)
+
+A todo the prompt queue will run carries **⏵#N**: N is the number the Prompt Queue editor shows the queue item with (#1 at the top). Hover over it to see every queue item that will run the todo — `Queued: #2` or `Queued: #2 (first), #5`. A prefix group's header carries the mark too when any of its todos is queued (the tooltip says how many), so a collapsed group still shows it. The marks follow the queue: when an item is added, finished or removed, the list updates.
+
+A queue item knows its todos by its **todo id pattern**: the todo's id when you add one todo to the queue (*Add to queue*, the stack's *Queue each*, *Guide me* into the queue), `<prefix>*` for a todo-group walk, several separated by commas. The queue editor shows it on the item (*todos …*). An item marks its todos until it has finished; a walk marks its open todos (not completed or cancelled), only in the quest whose queue it is.
+
 Work that has to wait for you — a check that can only run after you reload the window, say — is written as a 👤 todo for your part plus the work itself, `status: blocked` with `blocked_by` naming the 👤 todo. A `prefix*` queue walk passes both; once you complete the 👤 todo, the walk releases the blocked one and sends it.
 
 #### Todos that block others (⛓️)

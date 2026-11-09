@@ -8,6 +8,7 @@
  * Opened via `tomAi.editor.promptQueue` command.
  */
 
+import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { pickAgentSdkSession, sessionsFolder } from './sessionPicker';
 import { listSessions } from '../services/agentSdkSessionStore';
 import { sessionInfoOf } from '../utils/sessionSpecs';
@@ -1134,6 +1135,8 @@ function buildState(): Record<string, unknown> {
                 ...(waitingForSessionOf(item) ? { waitingForSession: waitingForSessionOf(item) } : {}),
                 // A chat send whose send still runs (Remove stops it).
                 ...(item.status === 'chat' && chatSendAlive(item) ? { chatActive: true } : {}),
+                // The todos it runs: a walk queued before items carried the field shows it too.
+                ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),

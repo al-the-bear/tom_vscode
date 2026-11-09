@@ -52,6 +52,7 @@
  * dispatched stage without touching repetition counters).
  */
 
+import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 import { parseSessionSpec } from '../utils/sessionSpecs';
@@ -98,6 +99,8 @@ export interface FollowUpItem extends FollowUpSpec {
 export interface QueueItemSnapshot {
     id: string;
     status: QueueStatus;
+    /** The todos it runs: a todo id, `<prefix>*`, or several separated by commas. */
+    todoIdPattern?: string;
     type?: string;
     originalText: string;
     template?: string;
@@ -152,7 +155,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
-    'answerText', 'lastDispatched', 'warning', 'error', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from',
+    'answerText', 'lastDispatched', 'warning', 'error', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -174,6 +177,7 @@ export function projectQueueItem(item: object): QueueItemSnapshot {
 
 export interface EnqueueInput {
     originalText: string;
+    todoIdPattern?: string;
     template?: string;
     answerWrapper?: boolean;
     position?: number;
@@ -375,6 +379,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         followUpIndex: i.followUpIndex || 0,
         followUpCount: i.followUps?.length ?? 0,
         textPreview: String(i.originalText || '').slice(0, 160),
+        ...(todoIdPatternOf(i) ? { todoIdPattern: todoIdPatternOf(i) } : {}),
         transport: i.transport || 'copilot',
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
@@ -393,6 +398,8 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
 
 export interface AddQueueItemInput {
     text: string;
+    /** The todos it runs (marked as queued in the todo panel); a `<prefix>*` repeatCount gives it when omitted. */
+    todoIdPattern?: string;
     template?: string;
     answerWrapper?: boolean;
     position?: number;
@@ -437,6 +444,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         if (badSession) { return badSession; }
         const item = await access.enqueue({
             originalText: input.text,
+            ...(input.todoIdPattern?.trim() ? { todoIdPattern: input.todoIdPattern.trim() } : {}),
             template: input.template,
             answerWrapper: input.answerWrapper,
             position: input.position,
@@ -506,6 +514,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             answerWrapper: { type: 'boolean' },
             position: { type: 'number', description: 'Insert index. -1 appends.' },
             deferSend: { type: 'boolean', description: 'Default true → staged. False → enqueue as pending.' },
+            todoIdPattern: { type: 'string', description: 'The todos it runs: a todo id, `<prefix>*`, or several, comma-separated; the todo panel marks them queued. Default: a `<prefix>*` repeatCount.' },
             prePrompts: { type: 'array', items: { type: 'object', additionalProperties: true } },
             followUps: { type: 'array', items: { type: 'object', additionalProperties: true } },
             repeatCount: { description: REPEAT_COUNT_DOC },
