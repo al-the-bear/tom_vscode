@@ -176,6 +176,21 @@ export function clearSessionId(folder: string, name: string): void {
     write(folder, { ...kept, updatedAt: new Date().toISOString() });
 }
 
+/**
+ * Forget the SDK session id `sessionId` wherever a session of `folder` holds
+ * it — as its own conversation, as the current iteration's, or (for the
+ * sessions based on it) as the base it forks from: each such session is reset
+ * like {@link clearSessionId}. For a conversation Claude Code no longer has
+ * ("No conversation found with session ID"): the next prompt starts a new one
+ * instead of failing the same way. Answers the sessions it reset.
+ */
+export function forgetSessionId(folder: string, sessionId: string): string[] {
+    if (!sessionId) { return []; }
+    const holders = listSessions(folder).filter((r) => r.sessionId === sessionId || r.iteration?.sessionId === sessionId);
+    for (const r of holders) { clearSessionId(folder, r.name); }
+    return holders.map((r) => r.name);
+}
+
 /** The sessions that are based on `name`. */
 export function sessionsBasedOn(folder: string, name: string): string[] {
     return listSessions(folder).filter((s) => s.basedOn === name).map((s) => s.name);

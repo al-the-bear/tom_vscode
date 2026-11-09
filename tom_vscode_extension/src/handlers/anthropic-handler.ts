@@ -24,7 +24,7 @@ import { planRequestTools, stripToolsDirectives, toolsDirectiveEntries, withTool
 import { CATEGORY_MAP } from '../utils/toolCategories';
 import { resolveCompactionTarget, type CompactionTarget } from '../utils/compactionTarget';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../utils/anthropicApiKeyCheck';
-import { planSessionStartIn } from '../services/agentSdkSessionStore';
+import { forgetSessionId, planSessionStartIn } from '../services/agentSdkSessionStore';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ProviderSdkMissing } from '../services/providerRuntime';
 import { noteAgentSdkCliMissing } from './agentSdkCliHelp-handler';
@@ -2465,6 +2465,13 @@ export class AnthropicHandler {
                     resumeSessionId,
                     forkSession: sessionStart.fork,
                     onSessionIdCaptured,
+                    // A resumed id Claude Code has no conversation for: forget it where it is stored.
+                    ...(useSdkManagedContinuity ? {
+                        onStaleSession: (sid: string) => {
+                            const reset = forgetSessionId(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), sid);
+                            debugLog(`[AgentSDK] session ${sid} not found by Claude Code: forgotten in ${reset.length ? reset.join(', ') : '(no session file)'}; starting a new session`, 'WARN', 'anthropic');
+                        },
+                    } : {}),
                     // A chat send into this session while it runs can be an update to it.
                     ...(options.isolated ? {} : { liveInputSession: options.sessionKey ?? DEFAULT_AGENT_SDK_SESSION_KEY }),
                     retry: retryParam,

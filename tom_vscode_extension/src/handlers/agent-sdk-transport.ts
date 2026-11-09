@@ -445,6 +445,13 @@ export interface AgentSdkSendParams {
      */
     onSessionIdCaptured?: (sessionId: string) => void;
     /**
+     * The id passed as `resume` names a conversation Claude Code does not have
+     * ("No conversation found with session ID", isUnknownSessionError): the
+     * caller forgets the stored id. The transport then retries once on a fresh
+     * session with the original prompt, whatever `retry` allows.
+     */
+    onStaleSession?: (sessionId: string) => void;
+    /**
      * The session the query runs in, when it takes updates: while it runs, a
      * chat send into this session can go in as another user message of the
      * running prompt (services/agentSdkLiveInputs.ts). Omitted for internal
@@ -800,6 +807,9 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
     let firstBusyFailureAt: number | undefined;
     let busyRetryIndex = 0;
     let authRetriesMade = 0;
+    // A resume of a conversation Claude Code no longer has is recovered once,
+    // outside the retry budget: forget the id, start a fresh session.
+    let staleSessionRecovered = false;
 
     for (;;) {
         attemptsMade++;
@@ -814,6 +824,20 @@ export async function runAgentSdkQuery(params: AgentSdkSendParams): Promise<Agen
             });
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
+            if (attemptResumeSessionId && !staleSessionRecovered && isUnknownSessionError(errorMessage)
+                && params.cancellationToken?.isCancellationRequested !== true) {
+                staleSessionRecovered = true;
+                const stale = attemptResumeSessionId;
+                try { params.onStaleSession?.(stale); } catch { /* forgetting the id is best-effort; the retry goes on */ }
+                const status = `The session ${stale} no longer exists in Claude Code — starting a new session (the stored id is forgotten)`;
+                params.retry?.onRetryStatus?.(status);
+                params.liveTrail?.appendRetry(status, errorMessage);
+                toolLog(`[retry] ${status} — cause: ${errorMessage}`);
+                attemptResumeSessionId = undefined;
+                attemptPrompt = params.userText;
+                attemptsMade--;
+                continue;
+            }
             const now = Date.now();
             // What the stream said before the child exited (see
             // agent-sdk-failure.ts); `err` already leads with it.

@@ -1850,6 +1850,8 @@ Two fallbacks prevent a hang:
 
 Cancellation and the end of the stream always close the channel. If a `tomAi_*` call still fails this way, the Tom Tool Log records `[agent-sdk] tom-ai unreachable: <tool> in request <id> — input open|closed (<reason>)`, and `tom-ai status at init: …` when the server is not connected at startup.
 
+**A resumed session Claude Code no longer has.** Resuming a stored session id can fail with *No conversation found with session ID: <id>* — Claude Code keeps conversations per machine and working directory, while the session files under `_ai/quests/<quest>/history/` travel with the `_ai` sync, so an id written on another host (or before the CLI's own conversation store was cleared) is unknown here. `runAgentSdkQuery` recovers from it once, whatever the profile's retry settings: it reports the id through `onStaleSession` — the handler forgets it wherever a session of the quest holds it (`forgetSessionId` in `src/services/agentSdkSessionStore.ts`: the session's own conversation, an iteration's, a base the session forks from) — and sends the prompt again on a fresh session with the original text. The live trail and the Tom Tool Log say so. A fresh attempt that fails the same way is not recovered again. The new session's id is saved as usual, so the next prompt continues it.
+
 ### 18.6 Auth status indicator
 
 The ANTHROPIC/LLM panel toolbar gets a second status dot next to the existing 🔑 (env-var) dot:

@@ -10,13 +10,15 @@
 /**
  * Classify an Agent SDK error message as a "session unusable" failure —
  * the resumed session id is not recognised by the SDK ("no session" /
- * "unknown session id"). On such an error the only sane retry is a fresh
+ * "unknown session id" / Claude Code's "No conversation found with session ID"). On such an error the only sane retry is a fresh
  * session (no `resume`), so {@link planAgentSdkRetry} routes to
  * `retry-fresh` regardless of whether a session id was captured.
  */
 export function isUnknownSessionError(message: string): boolean {
     const m = message.toLowerCase();
-    return m.includes('no session') || m.includes('unknown session');
+    // Claude Code's own wording for a resume id it has no conversation for:
+    // "No conversation found with session ID: <id>".
+    return m.includes('no session') || m.includes('unknown session') || m.includes('no conversation found');
 }
 
 /** Outcome of {@link planAgentSdkRetry}. */
