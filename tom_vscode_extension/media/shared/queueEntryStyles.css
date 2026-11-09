@@ -146,4 +146,4 @@
   .chat-badge { background: #b180d7; color: #fff; padding: 0 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
   .chat-badge.running { background: #3794ff; }
   .chat-item-meta { opacity: 0.75; font-size: 11px; }
-  .chat-item-prompt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item-spacer { flex: 1; }

@@ -13,6 +13,10 @@
  *        enqueueNext, pending; queueAdded names the section and slot; the Logs actions go to the chat
  *        panel's runSessionAction
  *   CB-6 Queue next (+ and the send-between icon) posts addToQueue with next, on Anthropic, nothing pinned
+ *   CB-8 a chat send in the queue shown like a normal entry: the complete prompt (every line, nothing cut, as
+ *        mainprompt-content), the header without a prompt excerpt; a long answer's first 600 characters with
+ *        the expand / collapse toggle opening the whole answer in place and the two Markdown buttons; a running
+ *        `chat` item without an answer has the prompt and no answer block, and the answer block once it arrived
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared after Send and after the
  *        host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
@@ -190,4 +194,52 @@ describe('chat sends and the queue buttons', () => {
         const src2 = media('chatPanel', 'main.js');
         assert.match(src2, /slotKeep: anthrSectionState\.keep \|\| \{\}/, 'saved with the drafts');
     });
+
+    test('CB-8: a chat send shown like a normal entry', () => {
+        const html = media('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+        const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
+        open.push(w);
+        const posted: Array<Record<string, unknown>> = [];
+        w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(m), setState: () => undefined, getState: () => undefined });
+        const longLine = 'word '.repeat(60).trim();
+        const prompt = `First line of the prompt\n${longLine}\nthird line`;
+        const answer = `# Answer\n\n${'x'.repeat(700)}\nTHE-END`;
+        const base = { type: 'normal', transport: 'anthropic', template: '(none)', anthropicProfileId: 'opus-direct', session: 'chat', chatSource: 'panel', createdAt: new Date().toISOString() };
+        const items = [
+            { ...base, id: 'c1', status: 'chat-sent', originalText: prompt, expandedText: prompt, answerText: answer, sendUsageLine: 'in 10 · out 20' },
+            { ...base, id: 'c2', status: 'chat', originalText: 'still running\nsecond line', expandedText: 'still running' },
+        ];
+        w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
+        w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
+        const entry = (id: string): Win => w.document.querySelector(`.queue-item.chat-item[data-qid="${id}"]`);
+        const sent = entry('c1');
+        // The complete prompt, every line, nothing cut; the header keeps its meta and no excerpt.
+        const text = sent.querySelector('.mainprompt-content');
+        assert.equal(text.textContent, prompt);
+        assert.equal(text.getAttribute('style'), 'margin:4px 0; white-space:pre-wrap;');
+        assert.equal(sent.querySelector('.chat-item-prompt'), null);
+        assert.match(sent.querySelector('.chat-item-meta').textContent, /panel · opus-direct · session chat · Σ in 10 · out 20/);
+        // The answer: the first 600 characters, the toggle, the two Markdown buttons.
+        const ans = sent.querySelector('.answer-preview');
+        assert.ok(ans, 'the answer block');
+        assert.ok(!ans.textContent.includes('THE-END'), 'cut at 600 characters');
+        assert.ok(ans.querySelector('.qe-md-btn[data-qe-md-mode="overlay"]') && ans.querySelector('.qe-md-btn[data-qe-md-mode="editor"]'), 'both Markdown buttons');
+        const toggle = ans.querySelector('.answer-toggle-icon');
+        assert.ok(toggle, 'the expand / collapse toggle');
+        const ansId = /toggleAnswerExpand\('([^']+)'\)/.exec(toggle.getAttribute('onclick'))![1];
+        w.toggleAnswerExpand(ansId);
+        assert.ok(entry('c1').querySelector('.answer-preview').textContent.includes('THE-END'), 'the whole answer in place');
+        w.toggleAnswerExpand(ansId);
+        assert.ok(!entry('c1').querySelector('.answer-preview').textContent.includes('THE-END'), 'collapsed again');
+        // A running chat send without an answer: the prompt, no answer block, no error.
+        const running = entry('c2');
+        assert.equal(running.querySelector('.chat-badge').textContent, 'CHAT');
+        assert.equal(running.querySelector('.mainprompt-content').textContent, 'still running\nsecond line');
+        assert.equal(running.querySelector('.answer-preview'), null);
+        assert.equal(running.querySelector('.chat-error'), null);
+        // Its answer arrives while it still runs: the answer block appears.
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: [items[0], { ...items[1], answerText: 'partial answer' }], autoSend: false } }));
+        assert.match(entry('c2').querySelector('.answer-preview').textContent, /partial answer/);
+    });
 });
+

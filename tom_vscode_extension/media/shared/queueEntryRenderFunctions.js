@@ -546,7 +546,11 @@ function renderAnswerBlock(item, safeId) {
 /**
  * A chat send shown in the queue (status `chat` while it runs, `chat-sent`
  * once it ended; src/utils/chatQueueItems.ts): read-only. The queue never
- * sends it, so it has none of the queue's controls, only Remove.
+ * sends it, so it has none of the queue's controls, only Remove. Like a
+ * normal sent entry: the header (time, source, profile, session, usage), an
+ * error as the warning chip, the complete prompt (`mainprompt-content`), and
+ * the answer once it arrived (renderAnswerBlock: its first 600 characters,
+ * the expand / collapse toggle, the two Markdown buttons).
  */
 function renderChatEntry(item, idx) {
   var safeId = escapeJsSingleQuoted(item.id);
@@ -555,15 +559,15 @@ function renderChatEntry(item, idx) {
   var profile = item.anthropicProfileId ? escapeHtml(String(item.anthropicProfileId)) : '';
   var session = item.session ? escapeHtml(String(item.session)) : 'chat';
   var source = item.chatSource ? escapeHtml(String(item.chatSource)) : 'chat';
-  var promptLine = String(item.originalText || '').split('\n')[0];
   var header = '<div class="item-header chat-item-header">' +
       '<span class="status-badge chat-badge' + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + (running ? 'CHAT' : 'CHAT SENT') + '</span>' +
       '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
-      '<span class="chat-item-prompt" title="' + escapeHtml(String(item.originalText || '')) + '">' + escapeHtml(promptLine.length > 120 ? promptLine.slice(0, 120) + '\u2026' : promptLine) + '</span>' +
+      '<span class="chat-item-spacer"></span>' +
       '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="Remove from the list"' + (running ? ' disabled' : '') + '><span class="codicon codicon-trash"></span></button>' +
     '</div>';
   var errorChip = item.error ? '<div class="warning-chip chat-error">' + escapeHtml(String(item.error)) + '</div>' : '';
-  return '<div class="queue-item chat-item ' + (running ? 'chat' : 'chat-sent') + '" data-qid="' + escapeHtml(String(item.id)) + '">' + header + errorChip + renderAnswerBlock(item, safeId) + '</div>';
+  var prompt = '<div class="mainprompt-content chat-item-text" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(String(item.originalText || '')) + '</div>';
+  return '<div class="queue-item chat-item ' + (running ? 'chat' : 'chat-sent') + '" data-qid="' + escapeHtml(String(item.id)) + '">' + header + errorChip + prompt + renderAnswerBlock(item, safeId) + '</div>';
 }
 
 function renderDoneNotification(item, safeId, safeStatus) {
