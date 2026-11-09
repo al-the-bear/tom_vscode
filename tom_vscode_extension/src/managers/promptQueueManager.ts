@@ -26,6 +26,7 @@ import {
     onInboxChanged,
     getQueueFolder,
     trimSentEntries,
+    countEntryFiles,
     readQueueSettings,
     writeQueueSettings,
     type QueueEntryFile,
@@ -5560,14 +5561,30 @@ export class PromptQueueManager {
     }
 
     /** Persist all items to individual entry files. */
+    /**
+     * What each item's file was last written from (item id → fingerprint):
+     * the quest, the item's place in the queue and the item itself as JSON —
+     * everything `_queuedPromptToDoc` builds the file from. An item whose
+     * fingerprint is unchanged is not serialised or written again.
+     */
+    private readonly _writtenFingerprints = new Map<string, string>();
+
+    /**
+     * Write the queue to its entry files: only the items that changed since
+     * their file was last written (a dispatch changes one item; serialising
+     * every item with the yaml package held the extension host for hundreds of
+     * ms on a long queue), and delete the files of removed items.
+     */
     private _persistToFiles(): void {
         try {
             let quest: string | undefined;
             try { quest = (await_import_ChatVariablesStore())?.quest || ''; } catch { /* */ }
 
-            // Write each item
+            // Write each item that changed
             for (let index = 0; index < this._items.length; index++) {
                 const item = this._items[index];
+                const fingerprint = `${quest ?? ''}\u0000${index}\u0000${JSON.stringify(item)}`;
+                if (this._fileNameMap.has(item.id) && this._writtenFingerprints.get(item.id) === fingerprint) { continue; }
                 const doc = this._queuedPromptToDoc(item, quest, index);
                 let fileName = this._fileNameMap.get(item.id);
                 if (!fileName) {
@@ -5579,7 +5596,11 @@ export class PromptQueueManager {
                     fileName = generateEntryFileName(quest, item.type, new Date(item.createdAt), token);
                     this._fileNameMap.set(item.id, fileName);
                 }
-                writeEntry(entryIdFromFileName(fileName), doc, fileName);
+                if (writeEntry(entryIdFromFileName(fileName), doc, fileName)) {
+                    this._writtenFingerprints.set(item.id, fingerprint);
+                } else {
+                    this._writtenFingerprints.delete(item.id);
+                }
             }
 
             // Delete files for items no longer in memory
@@ -5588,10 +5609,15 @@ export class PromptQueueManager {
                 if (!currentIds.has(itemId)) {
                     deleteEntry(entryIdFromFileName(fileName));
                     this._fileNameMap.delete(itemId);
+                    this._writtenFingerprints.delete(itemId);
                 }
             }
 
-            trimSentEntries();
+            // The sent history on disk: the items in memory are trimmed already
+            // (trimSentHistory), so only entry files this window does not own
+            // can push it over the limit — and only then is it worth reading
+            // and parsing every file.
+            if (countEntryFiles() > this._fileNameMap.size) { trimSentEntries(); }
         } catch (err) {
             debugLog(`[PromptQueueManager] _persistToFiles error: ${err}`, 'ERROR', 'queue');
         }

@@ -411,7 +411,9 @@ Removers (`tomAi_removeQueueItem` at [:1566](../src/tools/chat-enhancement-tools
 
 ### 4.14 Persistence / compatibility
 
-Queue state is persisted to `_ai/local/*.prompt-panel.yaml` via `panelYamlStore.ts` ([:68-72](../src/utils/panelYamlStore.ts#L68-L72), read/write at [:151](../src/utils/panelYamlStore.ts#L151) / [:164](../src/utils/panelYamlStore.ts#L164)).
+Queue state is persisted as one entry file per item in the queue folder (`_ai/queue/<host>_<workspace>_<time>-<id>_<quest>.<type>.entry.queue.yaml`, `src/storage/queueFileStorage.ts`), queue-level settings in `queue-settings.yaml` beside them.
+
+**Only what changed is written.** `PromptQueueManager._persistToFiles` keeps, per item, the fingerprint its file was last written from — the quest, the item's place in the queue and the item as JSON, all that `_queuedPromptToDoc` builds the file from — and serialises and writes only the items whose fingerprint changed (a dispatch changes one item; removing or moving one changes the places after it); removed items' files are deleted. Before, every persist serialised every item with the yaml package on the extension host's thread (with 50 items of real prompts and answers, 274 KB: a median 112 ms and up to 400 ms per persist, 50 files written; now a median 4.5 ms, one file). The sent-history trim on disk (`trimSentEntries`, which reads and parses every entry file) runs only when the folder holds entry files of this host and workspace that the queue does not own (`countEntryFiles()` above the files it wrote): its own sent items are trimmed in memory already (`trimSentHistory`, 50). Tests: `queuePersistChanged.queue.test.ts` QP-1 – QP-3.
 
 The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to the queue-level default (which itself defaults to `'copilot'` when unset) — identical to current behaviour for queues that haven't opted into the new default.
 

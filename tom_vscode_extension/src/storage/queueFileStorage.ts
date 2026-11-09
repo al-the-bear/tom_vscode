@@ -557,19 +557,35 @@ export function readEntry(filePath: string): QueueEntryFile | undefined {
  * Read all queue entries from the queue folder.
  * Sorted by filename (timestamp-based, oldest first).
  */
+/** The entry file names of this host and workspace (what readAllEntries reads), sorted. */
+function entryFileNames(folder: string): string[] {
+    const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
+    const wsName = getWorkspaceName().replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const fullPrefix = `${hostPrefix}${wsName}_`;
+    return fs
+        .readdirSync(folder)
+        .filter(f => f.endsWith(ENTRY_SUFFIX) && f.startsWith(fullPrefix))
+        .sort();
+}
+
+/** How many entry files of this host and workspace there are — a directory listing, nothing parsed. */
+export function countEntryFiles(): number {
+    try {
+        const folder = getQueueFolder();
+        if (!folder || !fs.existsSync(folder)) { return 0; }
+        return entryFileNames(folder).length;
+    } catch {
+        return 0;
+    }
+}
+
 export function readAllEntries(): QueueEntryFile[] {
     try {
         const folder = getQueueFolder();
         if (!folder || !fs.existsSync(folder)) return [];
 
         const entries: QueueEntryFile[] = [];
-        const hostPrefix = `${sanitizeHostnameForFile(os.hostname())}_`;
-        const wsName = getWorkspaceName().replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-        const fullPrefix = `${hostPrefix}${wsName}_`;
-        const files = fs
-            .readdirSync(folder)
-            .filter(f => f.endsWith(ENTRY_SUFFIX) && f.startsWith(fullPrefix))
-            .sort();
+        const files = entryFileNames(folder);
 
         for (const fileName of files) {
             const entry = readEntry(path.join(folder, fileName));
