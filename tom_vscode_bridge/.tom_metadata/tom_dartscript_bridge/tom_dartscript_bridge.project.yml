@@ -1,7 +1,0 @@
-# Project: Tom Dartscript Bridge
-name: tom_dartscript_bridge
-displayName: Tom Dartscript Bridge
-type: dart_console
-parts:
-  - bin
-  - lib
