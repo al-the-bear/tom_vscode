@@ -78,6 +78,38 @@ function setSlotText(sectionId, slot, text) {
     sectionState.slots[String(slot)] = text || '';
 }
 
+/* Per prompt slot: does its text stay after a send or a queue add (Keep), or is
+ * it cleared? A slot without an entry keeps it. Persisted with the drafts
+ * (slotKeep), so it survives a window reload. */
+function getSlotKeep(sectionId, slot) {
+    var sectionState = ensureSlotState(sectionId);
+    if (!sectionState.keep) { sectionState.keep = {}; }
+    return sectionState.keep[String(slot)] !== false;
+}
+
+function setSlotKeep(sectionId, slot, keep) {
+    var sectionState = ensureSlotState(sectionId);
+    if (!sectionState.keep) { sectionState.keep = {}; }
+    sectionState.keep[String(slot)] = !!keep;
+}
+
+/* The Keep checkbox shows the active slot's flag. */
+function updateSlotKeepUI(sectionId) {
+    var cb = document.getElementById(sectionId + '-keep-slot');
+    if (cb) { cb.checked = getSlotKeep(sectionId, ensureSlotState(sectionId).activeSlot); }
+}
+
+/* After a send or a queue add from `slot`: clear that slot's text unless it keeps it. */
+function clearSlotUnlessKept(sectionId, slot) {
+    if (getSlotKeep(sectionId, slot)) { return; }
+    setSlotText(sectionId, slot, '');
+    if (ensureSlotState(sectionId).activeSlot === slot) {
+        var ta = document.getElementById(sectionId + '-text');
+        if (ta) { ta.value = ''; }
+    }
+    saveDrafts();
+}
+
 function getPanelSlotButtonsHtml(sectionId) {
     if (slotEnabledSections.indexOf(sectionId) < 0) {
         return '';
@@ -117,6 +149,7 @@ function switchPanelSlot(sectionId, slot) {
         textarea.value = getSlotText(sectionId, slot);
     }
     updateSlotButtonsUI(sectionId);
+    updateSlotKeepUI(sectionId);
     if (sectionId === 'copilot') {
         refreshCopilotAnswerToolbarVisibility();
     }
@@ -318,11 +351,16 @@ function getSectionContent(id) {
                 // Queue-only repeat count — applied when staging via "Save to Queue";
                 // ignored by the inline send button.
                 '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
+                // Per prompt slot: keep the text after Send / a queue add, or clear it (kept over a reload).
+                '<label class="checkbox-label compact-keep" title="Keep this prompt slot&#39;s text after Send or adding to the queue (unchecked: the slot is cleared). Set per slot 1–9."><input type="checkbox" id="anthropic-keep-slot" checked> Keep</label>' +
                 // Queue buttons. Save to Queue stages the prompt on the prompt queue's own
                 // profile and session; the second pins this panel's profile and session.
                 // Both keep the panel's user-message template and repeat count.
                 '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue — runs with the prompt queue&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
+                // Queue next: pending at the front of the queue, sent next — between two
+                // iterations when the item sending is a loop. The queue's profile and session.
+                '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — sent next, with the prompt queue&#39;s profile and session; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-debug-step-into"></span></button>' +
                 // The trail, history and memory buttons are in the @WS Logs panel, behind its session switch.
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
 
@@ -577,7 +615,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); if (id === 'anthropic') { clearSlotUnlessKept('anthropic', slotNo); } break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
         case 'clearText': {
             if (!id) {break;}
@@ -678,6 +716,7 @@ function handleAction(action, id, slot) {
             else { addCopilotToQueue(); }
             break;
         case 'addToQueuePanelTarget': addAnthropicToQueue(true); break;
+        case 'addToQueueNext': addAnthropicToQueue(false, true); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
@@ -1342,6 +1381,10 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'contextSummary') {
         var summaryEl = document.getElementById('copilot-context-summary');
         if (summaryEl) {summaryEl.textContent = msg.text || '';}
+    } else if (msg.type === 'queueAdded' && msg.section === 'anthropic') {
+        // The ANTHROPIC slot the prompt was queued from: cleared unless it keeps its text.
+        var queuedSlot = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
+        if (queuedSlot >= 1 && queuedSlot <= 9) { clearSlotUnlessKept('anthropic', queuedSlot); }
     } else if (msg.type === 'queueAdded') {
         // Clear textarea after successful queue add (respecting keep checkbox)
         var keepCb = document.getElementById('copilot-keep-content');
@@ -1386,6 +1429,7 @@ window.addEventListener('message', function(e) {
             var anthrSectionState = ensureSlotState('anthropic');
             if (da.slots && typeof da.slots === 'object') { anthrSectionState.slots = da.slots; }
             if (da.activeSlot && da.activeSlot >= 1 && da.activeSlot <= 9) { anthrSectionState.activeSlot = da.activeSlot; }
+            if (da.slotKeep && typeof da.slotKeep === 'object') { anthrSectionState.keep = da.slotKeep; }
             var anthrTa = document.getElementById('anthropic-text');
             if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
             var anthrProfile = document.getElementById('anthropic-profile');
@@ -1394,6 +1438,7 @@ window.addEventListener('message', function(e) {
             var anthrUserMsg = document.getElementById('anthropic-userMessage');
             if (anthrUserMsg && da.userMessageTemplate) { anthrUserMsg.value = da.userMessageTemplate; }
             updateSlotButtonsUI('anthropic');
+            updateSlotKeepUI('anthropic');
         }
         refreshCopilotAnswerToolbarVisibility();
         _draftsLoaded = true;
@@ -1441,10 +1486,12 @@ function addCopilotToQueue() {
     if (repeatEl) { repeatEl.value = '1'; }
 }
 
-function addAnthropicToQueue(usePanelTarget) {
+function addAnthropicToQueue(usePanelTarget, next) {
     // Stage a queue item with transport='anthropic' and the panel's
     // user-message template. Profile and session: the prompt queue's own,
-    // unless usePanelTarget pins this panel's profile and session.
+    // unless usePanelTarget pins this panel's profile and session. `next`
+    // queues it pending at the front instead (sent next; between the
+    // iterations of a repeating item that is sending).
     var text = document.getElementById('anthropic-text');
     text = text ? text.value : '';
     if (!text.trim()) {return;}
@@ -1460,7 +1507,10 @@ function addAnthropicToQueue(usePanelTarget) {
         template: templateName,
         repeatCount: repeatCount,
         transport: 'anthropic',
+        section: 'anthropic',
+        slot: ensureSlotState('anthropic').activeSlot,
         ...(usePanelTarget ? { anthropicProfileId: profileId, usePanelTarget: true } : {}),
+        ...(next ? { next: true } : {}),
     });
     // Reset the repeat count to 1 so the next simple prompt isn't accidentally
     // queued again with a leftover (high) repeat count.
@@ -1660,6 +1710,7 @@ function saveDrafts() {
             userMessageTemplate: anthrUserMsg ? anthrUserMsg.value : '',
             activeSlot: anthrSectionState.activeSlot,
             slots: anthrSectionState.slots,
+            slotKeep: anthrSectionState.keep || {},
         };
         vscode.postMessage({ type: 'saveDrafts', drafts: drafts });
     }, 1000);
@@ -1677,3 +1728,13 @@ function saveDrafts() {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
 });
+// The Keep checkbox sets the active slot's flag.
+(function() {
+    var keepCb = document.getElementById('anthropic-keep-slot');
+    if (keepCb) {
+        keepCb.addEventListener('change', function() {
+            setSlotKeep('anthropic', ensureSlotState('anthropic').activeSlot, keepCb.checked);
+            saveDrafts();
+        });
+    }
+})();

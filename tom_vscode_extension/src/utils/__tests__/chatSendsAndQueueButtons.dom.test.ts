@@ -9,10 +9,16 @@
  *        (and the markdown buttons) or its error; no queue controls; the count line says a chat runs
  *   CB-4 the @WS Logs panel shows the six session actions behind the session switch; each posts
  *        qlogSessionAction with the selected session; the host runs runChatSessionAction
- *   CB-5 the host: Save to Queue pins nothing unless usePanelTarget; the Logs actions go to the chat
+ *   CB-5 the host: Save to Queue pins nothing unless usePanelTarget; Queue next goes through
+ *        enqueueNext, pending; queueAdded names the section and slot; the Logs actions go to the chat
  *        panel's runSessionAction
+ *   CB-6 Queue next (+ and the send-between icon) posts addToQueue with next, on Anthropic, nothing pinned
+ *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared after Send and after the
+ *        host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
+ *        slot, is saved with the drafts (slotKeep) and restored from them
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- prompt slots "1"-"9" are the keys the drafts store */
 import test, { afterEach, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -121,9 +127,67 @@ describe('chat sends and the queue buttons', () => {
 
     test('CB-5: the hosts', () => {
         const panel = src('handlers', 'chatPanel-handler.ts');
-        assert.match(panel, /transport === 'anthropic' && transportOpts\?\.usePanelTarget\s*\?\s*\{ anthropicProfileId: transportOpts\.anthropicProfileId, anthropicConfigId: transportOpts\.anthropicConfigId, session: this\._chatSessionKey\(\) \}/);
+        assert.match(panel, /transport === 'anthropic' && transportOpts\?\.usePanelTarget && !next\s*\?\s*\{ anthropicProfileId: transportOpts\.anthropicProfileId, anthropicConfigId: transportOpts\.anthropicConfigId, session: this\._chatSessionKey\(\) \}/);
+        // Queue next goes through enqueueNext, pending (not deferred); the origin is echoed in queueAdded.
+        assert.match(panel, /await \(next \? queue\.enqueueNext\.bind\(queue\) : queue\.enqueue\.bind\(queue\)\)\(\{/);
+        assert.match(panel, /deferSend: !next,/);
+        assert.match(panel, /type: 'queueAdded', count, \.\.\.\(origin\?\.section \? \{ section: origin\.section \} : \{\}\), \.\.\.\(origin\?\.slot \? \{ slot: origin\.slot \} : \{\}\)/);
         assert.match(panel, /export async function runChatSessionAction/);
         const logs = src('handlers', 'questLogs-handler.ts');
         assert.match(logs, /case 'qlogSessionAction':[\s\S]{0,400}runChatSessionAction\(action, session\)/);
+    });
+
+    test('CB-6: Queue next', () => {
+        const { w, posted } = chatPanel();
+        const btn = w.document.querySelector('[data-action="addToQueueNext"][data-id="anthropic"]');
+        assert.ok(btn.querySelector('.codicon-add') && btn.querySelector('.codicon-debug-step-into'), '+ and the send-between icon');
+        w.document.getElementById('anthropic-profile').innerHTML = '<option value="opus-direct" selected>Opus</option>';
+        w.document.getElementById('anthropic-text').value = 'Now';
+        btn.click();
+        const m = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
+        assert.equal(m.next, true);
+        assert.equal(m.transport, 'anthropic');
+        assert.equal(m.anthropicProfileId, undefined, 'the queue\'s profile and session');
+        assert.equal(m.section, 'anthropic');
+        assert.equal(m.slot, 1);
+    });
+
+    test('CB-7: Keep per prompt slot', () => {
+        const { w, posted } = chatPanel();
+        const doc = w.document;
+        const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+        // Slot 2 does not keep its text (as saved before a reload); slot 1 has no entry: it keeps.
+        fire({ type: 'draftsLoaded', sections: { anthropic: { activeSlot: 1, slots: { '1': 'one', '2': 'two' }, slotKeep: { '2': false } } } });
+        const keep = doc.getElementById('anthropic-keep-slot');
+        const text = doc.getElementById('anthropic-text');
+        assert.equal(keep.checked, true, 'slot 1 keeps (the default)');
+        // Send from slot 1: kept.
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(text.value, 'one');
+        fire({ type: 'anthropicResult', toolCallCount: 0 });
+        // Slot 2: the box follows the slot; Send clears it.
+        doc.querySelector('.slot-btn[data-id="anthropic"][data-slot="2"]').click();
+        assert.equal(keep.checked, false);
+        assert.equal(text.value, 'two');
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'sendAnthropic').pop()?.text, 'two', 'sent first');
+        assert.equal(text.value, '', 'then cleared');
+        // A queue add clears the slot it came from once the host confirms — not the Copilot text.
+        text.value = 'queued';
+        doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]').click();
+        assert.equal(text.value, 'queued', 'not before the host confirms');
+        doc.getElementById('copilot-text').value = 'copilot stays';
+        fire({ type: 'queueAdded', count: 1, section: 'anthropic', slot: 2 });
+        assert.equal(text.value, '');
+        assert.equal(doc.getElementById('copilot-text').value, 'copilot stays');
+        // Checking the box on slot 1 sets slot 1 only, and the drafts carry the map.
+        doc.querySelector('.slot-btn[data-id="anthropic"][data-slot="1"]').click();
+        keep.checked = false;
+        keep.dispatchEvent(new w.Event('change'));
+        doc.querySelector('.slot-btn[data-id="anthropic"][data-slot="2"]').click();
+        assert.equal(keep.checked, false);
+        assert.deepEqual(JSON.parse(JSON.stringify(w.ensureSlotState('anthropic').keep)), { '1': false, '2': false });
+        const src2 = media('chatPanel', 'main.js');
+        assert.match(src2, /slotKeep: anthrSectionState\.keep \|\| \{\}/, 'saved with the drafts');
     });
 });

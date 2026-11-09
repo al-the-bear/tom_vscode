@@ -13,7 +13,7 @@
 
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, resolveAssistPrompt, type AssistPromptUse } from '../utils/assistPrompts';
 import { checkBuildStatus } from '../services/buildStatusService';
-import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
+import { CREATE_QUEST_COMMAND, SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
@@ -1022,6 +1022,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Setup New Workspace Folder: the bundled workspace template into a folder.
         case 'setupWorkspaceFolder':
             await vscode.commands.executeCommand(SETUP_WORKSPACE_COMMAND);
+            break;
+        // Create New Quest: a quest's files and the todo that defines it.
+        case 'createQuest':
+            await vscode.commands.executeCommand(CREATE_QUEST_COMMAND);
             break;
         // The page about missing Dart-built binaries.
         case 'showDartBinariesHelp':
@@ -2205,12 +2209,15 @@ export function buildSectionHtml(build: BuildStatus | undefined): string {
 
 /**
  * The first section of the Status Page (and of @WS): set up a new workspace
- * folder from the template the VSIX carries (`tomAi.setupWorkspaceFolder`).
+ * folder from the template the VSIX carries (`tomAi.setupWorkspaceFolder`),
+ * and create a new quest in this workspace (`tomAi.createQuest`).
  */
 export function setupWorkspaceSectionHtml(): string {
     return `<div class="sp-section" data-section="setupWorkspace">
         <div class="sp-settings-row"><label>🆕 A new workspace from the bundled template:</label>
             <div class="sp-controls"><button class="sp-btn" data-status-action="setupWorkspaceFolder" title="Unpack the workspace template (configuration, guidelines, _ai roles and processes) into a folder">Setup new workspace folder</button></div></div>
+        <div class="sp-settings-row"><label>🧭 A new quest in this workspace:</label>
+            <div class="sp-controls"><button class="sp-btn" data-status-action="createQuest" title="Create a quest's folder and files, and the todo that defines the quest with you">Create new quest</button></div></div>
     </div>`;
 }
 

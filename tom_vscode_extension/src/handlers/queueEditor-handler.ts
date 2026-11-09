@@ -190,6 +190,8 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
 
     _panel.onDidDispose(() => {
         _panel = undefined;
+        // An edit left open in the closed editor would hold the queue for good.
+        try { void PromptQueueManager.instance.endTextEdit(undefined); } catch { /* no queue */ }
         _queueListener?.dispose();
         _queueListener = undefined;
         _questRefreshListener?.dispose();
@@ -697,6 +699,18 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             qm.setStatus(msg.id, msg.status);
           }
           break;
+        // Editing a pending (or staged) item's text: the queue waits for it while it is open.
+        case 'beginTextEdit':
+            if (!qm.beginTextEdit(String(msg.id))) {
+                _panel?.webview.postMessage({ type: 'textEditRefused', id: msg.id });
+            }
+            break;
+        case 'saveTextEdit':
+            await qm.endTextEdit(String(msg.id), String(msg.text ?? ''));
+            break;
+        case 'cancelTextEdit':
+            await qm.endTextEdit(String(msg.id));
+            break;
         case 'updateText':
             await qm.updateText(msg.id, msg.text);
             break;
@@ -991,6 +1005,11 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
 // State builder & push
 // ============================================================================
 
+/** Whether the queue holds `id`'s text open for editing (no queue: no). */
+function isTextBeingEdited(id: string): boolean {
+    try { return PromptQueueManager.instance.isTextBeingEdited(id); } catch { return false; }
+}
+
 function buildState(): Record<string, unknown> {
     let items: readonly QueuedPrompt[] = [];
     let autoSend = true;
@@ -1098,6 +1117,8 @@ function buildState(): Record<string, unknown> {
                 ...(item.sendUsage ? { sendUsageLine: itemUsageSummaryLine(item.sendUsage) } : {}),
                 // Directly under a running loop: Send next means "send between iterations".
                 ...(runningLoopAbove(items, item.id) ? { canSendBetween: true } : {}),
+                // Its text is open for editing: the queue waits for it.
+                ...(isTextBeingEdited(item.id) ? { textEditing: true } : {}),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),

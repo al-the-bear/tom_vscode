@@ -611,7 +611,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                                 anthropicProfileId: message.anthropicProfileId,
                                 anthropicConfigId: message.anthropicConfigId,
                                 usePanelTarget: message.usePanelTarget === true,
+                                next: message.next === true,
                             },
+                            { section: typeof message.section === 'string' ? message.section : undefined, slot: typeof message.slot === 'number' ? message.slot : undefined },
                         );
                         break;
                     case 'openQueueEditor':
@@ -2044,14 +2046,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             anthropicConfigId?: string;
             /** Pin this panel's profile and session; without it the queue's own apply. */
             usePanelTarget?: boolean;
+            /** Queue next: pending at the front, between a running loop's iterations (enqueueNext). */
+            next?: boolean;
         },
+        /** Where the prompt came from, echoed in `queueAdded` so that slot is cleared unless it keeps its text. */
+        origin?: { section?: string; slot?: number },
     ): Promise<void> {
         try {
             const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
             const queue = PromptQueueManager.instance;
             if (queue) {
                 const transport = transportOpts?.transport ?? 'copilot';
-                await queue.enqueue({
+                const next = transportOpts?.next === true;
+                await (next ? queue.enqueueNext.bind(queue) : queue.enqueue.bind(queue))({
                     originalText: text,
                     template: template || undefined,
                     // Preserve non-numeric strings (chat variables, `prefix*`
@@ -2064,18 +2071,21 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     answerWaitMinutes: transport === 'copilot' && answerWaitMinutes && answerWaitMinutes > 0
                         ? answerWaitMinutes
                         : undefined,
-                    deferSend: true,
+                    // Queue next goes out on its own (pending); Save to Queue stages it.
+                    deferSend: !next,
                     transport: transport === 'anthropic' ? 'anthropic' : undefined,
                     // Save to Queue: the prompt queue's own profile and session (nothing pinned).
                     // Save to Queue with the panel's target: this panel's profile and session,
                     // so the queued prompt continues the panel's conversation as Send would.
-                    ...(transport === 'anthropic' && transportOpts?.usePanelTarget
+                    ...(transport === 'anthropic' && transportOpts?.usePanelTarget && !next
                         ? { anthropicProfileId: transportOpts.anthropicProfileId, anthropicConfigId: transportOpts.anthropicConfigId, session: this._chatSessionKey() }
                         : {}),
                 });
                 const count = queue.items.length;
-                vscode.window.showInformationMessage(`Added to prompt queue (${count} items, ${transport})`);
-                this._view?.webview.postMessage({ type: 'queueAdded', count });
+                vscode.window.showInformationMessage(next
+                    ? `Queued next (${count} items, ${transport})`
+                    : `Added to prompt queue (${count} items, ${transport})`);
+                this._view?.webview.postMessage({ type: 'queueAdded', count, ...(origin?.section ? { section: origin.section } : {}), ...(origin?.slot ? { slot: origin.slot } : {}) });
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');
             }

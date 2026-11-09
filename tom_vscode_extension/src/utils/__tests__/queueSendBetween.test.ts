@@ -8,12 +8,14 @@
  *   SB-4 at the boundary: the marked pending item, only after an iteration went out and while more are
  *        left (a loop ending after this iteration sends nothing between: the marked item simply runs next)
  *   SB-5 the order: the marked item moves directly in front of the loop item, everything else stays
+ *   SB-6 where Queue next puts an item: directly under the sending item, in front of the first pending
+ *        item when that comes earlier or nothing is sending, at the end when there is neither
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isLoopItem, itemToSendBetween, orderForBetween, runningLoopAbove, toggleSendBetween, type BetweenQueueItem } from '../queueSendBetween.js';
+import { isLoopItem, itemToSendBetween, nextQueuePosition, orderForBetween, runningLoopAbove, toggleSendBetween, type BetweenQueueItem } from '../queueSendBetween.js';
 
 const items = (): BetweenQueueItem[] => [
     { id: 'done', status: 'sent' },
@@ -68,5 +70,13 @@ describe('send between iterations', () => {
     test('SB-5: the order', () => {
         const q = items();
         assert.deepEqual(orderForBetween(q, q[1], q[2]).map((i) => i.id), ['done', 'a', 'loop', 'b']);
+    });
+
+    test('SB-6: where Queue next goes', () => {
+        assert.equal(nextQueuePosition(items()), 2, 'under the sending loop');
+        assert.equal(nextQueuePosition([{ id: 's', status: 'staged' }, { id: 'p', status: 'pending' }, { id: 'x', status: 'sending' }]), 1, 'a pending item before the sending one goes first');
+        assert.equal(nextQueuePosition([{ id: 's', status: 'staged' }, { id: 'p', status: 'pending' }]), 1, 'nothing sending: in front of the first pending');
+        assert.equal(nextQueuePosition([{ id: 's', status: 'staged' }, { id: 'd', status: 'sent' }]), 2, 'neither: at the end');
+        assert.equal(nextQueuePosition([]), 0);
     });
 });

@@ -25,6 +25,20 @@ import { chatProviders, ChatDraftState, ChatSection } from '../handlers/chat/cha
 export const CHAT_SECTIONS: ChatSection[] = ['copilot', 'anthropic'];
 
 /**
+ * The per-slot keep flags as stored: only the slots "1"–"9", only booleans.
+ * Anything else (a missing map, a stray key) is dropped — a slot not listed
+ * keeps its text.
+ */
+export function normalizeSlotKeep(value: unknown): Record<string, boolean> {
+    const out: Record<string, boolean> = {};
+    if (!value || typeof value !== 'object') { return out; }
+    for (const [slot, keep] of Object.entries(value as Record<string, unknown>)) {
+        if (/^[1-9]$/.test(slot) && typeof keep === 'boolean') { out[slot] = keep; }
+    }
+    return out;
+}
+
+/**
  * Persist a per-section draft map to the prompt-panel YAML files.
  * Per-section extras (e.g. Anthropic's model / config /
  * userMessageTemplate) come from the provider registry; sections
@@ -43,6 +57,7 @@ export async function saveChatDrafts(drafts: Record<string, ChatDraftState>): Pr
                     aiSetup: d.aiSetup || '',
                     activeSlot: d.activeSlot || 1,
                     slots: d.slots || {},
+                    slotKeep: normalizeSlotKeep(d.slotKeep),
                 };
                 const extras = chatProviders.get(section)?.persistDraftExtras?.(d);
                 if (extras) {
@@ -75,6 +90,7 @@ export async function loadChatDrafts(): Promise<Record<string, ChatDraftState>> 
                     aiSetup: (data.aiSetup as string) || '',
                     activeSlot: (data.activeSlot as number) || 1,
                     slots: (data.slots as Record<string, string>) || {},
+                    slotKeep: normalizeSlotKeep(data.slotKeep),
                 };
                 const extras = chatProviders.get(section)?.hydrateDraft?.(data) ?? {};
                 loaded[section] = { ...base, ...extras };

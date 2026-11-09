@@ -688,6 +688,24 @@ after the pause gate, before a todo is claimed — the loop item steps back to
 pending with its counters kept, the marked item moves in front of it and is
 sent, and the loop resumes after it (`src/utils/queueSendBetween.ts`).
 
+**Queue next** (the @CHAT ANTHROPIC/LLM subpanel; `addToQueue` with `next`)
+calls `enqueueNext`: the item is enqueued pending (not deferred) at
+`nextQueuePosition` — directly under the sending item, or in front of the
+first pending item when that comes earlier or nothing is sending — with
+nothing pinned (the queue's profile and session), and marked `sendBetween`
+when the item above is a running loop.
+
+**Editing a pending item's text.** `updateText` accepts staged and pending
+items (`canEditText`; a pending item has not been dispatched, so its expansion
+is built again). The queue editor's edit button opens the text
+(`beginTextEdit`; the editor keeps the draft and its focus over redraws); while
+it is open, `sendNext` holds when that item is next (`sendNext: held — item …
+is being edited`), which also covers an item sent between iterations, since
+the loop steps aside and calls `sendNext`. `endTextEdit(id, text?)` saves (or
+cancels) and calls `sendNext` when auto-send is on and nothing sends; the
+editor's dispose calls `endTextEdit(undefined)` so a closed editor never
+leaves the queue held. The state flags an open edit as `textEditing`.
+
 `itemHasInFlightProgress`, `applyErrorTransition`, and `applyResetToPending` are
 all pure (no `vscode` imports) and unit-tested in
 [`queueErrorTransitions.test.ts`](../src/utils/__tests__/queueErrorTransitions.test.ts);

@@ -29,7 +29,7 @@ export type ChatSection = 'anthropic' | 'copilot';
 /**
  * Shape of the persisted prompt-panel draft for a section. Sections
  * share the common core (text, profile, llmConfig, aiSetup,
- * activeSlot, slots) and may contribute additional per-section
+ * activeSlot, slots, slotKeep) and may contribute additional per-section
  * fields via the `extras` hook below. Typed loosely as a record so
  * new fields don't require a cross-file TS change.
  */
@@ -41,6 +41,11 @@ export interface ChatDraftState {
     aiSetup?: string;
     activeSlot?: number;
     slots?: Record<string, string>;
+    /**
+     * Per prompt slot ("1"–"9"): whether the slot's text stays after a send or
+     * a queue add (true) or is cleared (false). A slot not listed keeps it.
+     */
+    slotKeep?: Record<string, boolean>;
     [extra: string]: unknown;
 }
 

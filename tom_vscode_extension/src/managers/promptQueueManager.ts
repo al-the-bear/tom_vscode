@@ -52,7 +52,7 @@ import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeader
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
-import { itemToSendBetween, orderForBetween, toggleSendBetween } from '../utils/queueSendBetween';
+import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
@@ -2205,8 +2205,65 @@ export class PromptQueueManager {
         return item;
     }
 
+    /**
+     * "Queue next" (the @CHAT ANTHROPIC panel): the item is queued pending
+     * where it is sent next (nextQueuePosition) — directly under the item that
+     * is sending — and, when that item is a repeating loop, marked to go
+     * between its iterations (as Send next does in the queue editor). The
+     * other options are enqueue's; `position` and `initialStatus` are set here.
+     */
+    async enqueueNext(opts: Parameters<PromptQueueManager['enqueue']>[0]): Promise<QueuedPrompt> {
+        const item = await this.enqueue({ ...opts, initialStatus: 'pending', position: nextQueuePosition(this._items) });
+        if (item.status === 'pending' && runningLoopAbove(this._items, item.id)) {
+            this.toggleSendBetween(item.id);
+        }
+        return item;
+    }
+
+    // ----- editing a pending item's text ------------------------------------
+
+    /** Pending items whose text the user is editing: the queue holds before sending one. */
+    private readonly _textEdits = new Set<string>();
+
+    /**
+     * The user opened the text of a staged or pending item for editing. While
+     * it is open the item keeps its place, and when its turn comes the queue
+     * waits (sendNext holds) until the edit is saved or cancelled
+     * (endTextEdit). Answers false when the item cannot be edited.
+     */
+    beginTextEdit(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || !this.canEditText(item.status)) { return false; }
+        this._textEdits.add(id);
+        logQueue(`Text edit opened on item ${id} (${item.status}): the queue waits for it`);
+        return true;
+    }
+
+    /** Whether the text of `id` is open for editing. */
+    isTextBeingEdited(id: string): boolean {
+        return this._textEdits.has(id);
+    }
+
+    /**
+     * The edit of `id` is saved (`text` given: the new text) or cancelled;
+     * the queue goes on — if it was waiting for this item, it sends it now.
+     * `id` undefined ends every open edit (the editor closed).
+     */
+    async endTextEdit(id: string | undefined, text?: string): Promise<void> {
+        if (id !== undefined && text !== undefined) { await this.updateText(id, text); }
+        const ended = id === undefined ? [...this._textEdits] : (this._textEdits.has(id) ? [id] : []);
+        for (const e of ended) { this._textEdits.delete(e); }
+        if (ended.length === 0) { return; }
+        logQueue(`Text edit closed on ${ended.join(', ')}${text !== undefined ? ' (saved)' : ''}`);
+        this._onDidChange.fire();
+        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+            await this.sendNext();
+        }
+    }
+
     /** Remove an item by id. */
     remove(id: string): void {
+        this._textEdits.delete(id);
         const removing = this._items.find(i => i.id === id);
         if (removing && (removing.status === 'sending' || removing.status === 'interrupted')) {
             this.releaseQuestTodoClaim(removing, `removed while ${removing.status}`);
@@ -2281,9 +2338,18 @@ export class PromptQueueManager {
         return status === 'staged' || status === 'pending';
     }
 
+    /**
+     * May the item's text change: staged or pending. A pending item has not
+     * been dispatched, so its expansion is simply built again; the queue waits
+     * for an open edit (beginTextEdit).
+     */
+    private canEditText(status: QueuedPromptStatus): boolean {
+        return status === 'staged' || status === 'pending';
+    }
+
     async updateText(id: string, newText: string): Promise<void> {
         const item = this._items.find(i => i.id === id);
-        if (!item || !this.isEditableStatus(item.status)) { return; }
+        if (!item || !this.canEditText(item.status)) { return; }
         item.originalText = newText;
         // Pass the item's effective transport so template lookup hits
         // the right store (spec §4.16). Falls back to the queue default
@@ -3284,6 +3350,12 @@ export class PromptQueueManager {
         // Don't send if something is already sending
         if (this._items.some(i => i.status === 'sending')) {
             logQueue(`sendNext: skipped — another item is already sending`);
+            return;
+        }
+        // Its text is open in the queue editor: wait until it is saved or
+        // cancelled (endTextEdit sends it then).
+        if (this._textEdits.has(next.id)) {
+            logQueue(`sendNext: held — item ${next.id} is being edited`);
             return;
         }
         logQueue(`sendNext: sending item ${next.id}`);

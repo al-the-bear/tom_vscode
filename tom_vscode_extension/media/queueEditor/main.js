@@ -99,6 +99,9 @@ if (__INIT.codiconsUri) {
 }
 
 let currentItems = __INITIAL__.items || [];
+// Pending items whose prompt is open for editing: item id -> the draft text.
+// The host holds the queue for them (beginTextEdit) until Save or Cancel.
+var queueTextEdits = {};
 let autoSend = __INITIAL__.autoSend !== undefined ? __INITIAL__.autoSend : true;
 let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : false;
 let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
@@ -227,8 +230,19 @@ window.addEventListener('message', e => {
       tomMdOverlayShow(msg.title, msg.html);
       return;
     }
+    if (msg.type === 'textEditRefused') {
+      // The item went out (or was removed) before the edit could open.
+      delete queueTextEdits[msg.id];
+      render();
+      return;
+    }
     if (msg.type === 'state') {
       currentItems = msg.items || [];
+      // An open edit of an item that is no longer pending has nothing to save into.
+      Object.keys(queueTextEdits).forEach(function(id) {
+        var it = currentItems.find(function(i) { return i.id === id; });
+        if (!it || it.status !== 'pending') { delete queueTextEdits[id]; }
+      });
       autoSend = msg.autoSend;
       autoStart = msg.autoStart !== undefined ? msg.autoStart : false;
       autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
@@ -420,9 +434,48 @@ function render() {
     })
     .map(function(x) { return x.item; });
 
+  // A prompt being edited survives the redraw a state push causes: its
+  // focus, caret and scroll position are put back.
+  const active = document.activeElement;
+  const editFocus = active && active.classList && active.classList.contains('qe-text-edit')
+    ? { id: active.id, start: active.selectionStart, end: active.selectionEnd, scroll: active.scrollTop }
+    : null;
   list.innerHTML = displayItems.map(function(item, idx) {
     return renderEntry(item, idx);
   }).join('');
+  if (editFocus) {
+    const ta = document.getElementById(editFocus.id);
+    if (ta) {
+      ta.focus();
+      ta.setSelectionRange(editFocus.start, editFocus.end);
+      ta.scrollTop = editFocus.scroll;
+    }
+  }
+}
+
+/* Editing a pending item's prompt: the draft lives here, the host holds the queue. */
+function startTextEdit(id) {
+  const item = currentItems.find(function(i) { return i.id === id; });
+  if (!item) { return; }
+  queueTextEdits[id] = item.originalText || '';
+  detailsExpanded[id] = true;
+  vscode.postMessage({ type: 'beginTextEdit', id });
+  render();
+  const ta = document.getElementById('qe-edit-' + id);
+  if (ta) { ta.focus(); }
+}
+function textEditInput(id, value) { queueTextEdits[id] = value; }
+function saveTextEdit(id) {
+  if (!Object.prototype.hasOwnProperty.call(queueTextEdits, id)) { return; }
+  const text = queueTextEdits[id];
+  delete queueTextEdits[id];
+  vscode.postMessage({ type: 'saveTextEdit', id, text });
+  render();
+}
+function cancelTextEdit(id) {
+  delete queueTextEdits[id];
+  vscode.postMessage({ type: 'cancelTextEdit', id });
+  render();
 }
 
 function toggleDetails(id) {

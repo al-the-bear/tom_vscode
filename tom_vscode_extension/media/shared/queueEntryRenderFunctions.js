@@ -54,6 +54,10 @@ function renderEntry(item, idx) {
   var reminderEnabled = item.reminderEnabled !== false;
   var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
+  // A pending item's text opened for editing in the queue editor (queueTextEdits,
+  // its draft by item id): the queue waits for it until it is saved or cancelled.
+  var textEditDraft = (isPending && typeof queueTextEdits !== 'undefined' && queueTextEdits && Object.prototype.hasOwnProperty.call(queueTextEdits, item.id))
+    ? queueTextEdits[item.id] : undefined;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
   var statusLabel = safeStatus.toUpperCase();
@@ -364,6 +368,10 @@ function renderEntry(item, idx) {
           (item.lastDispatched && !isSending && !isError && !isRetry
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\'' + safeId + '\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
+          // Edit the prompt of a pending item in place (the queue waits while it is open).
+          (isPending && editorMode !== 'template' && textEditDraft === undefined
+            ? '<span class="codicon codicon-edit" style="cursor:pointer;color:#000;" onclick="startTextEdit(\'' + safeId + '\')" title="Edit the prompt (the item keeps its place; the queue waits until you save or cancel)"></span>'
+            : '') +
           (isPending ? '<span class="codicon codicon-arrow-up" style="cursor:pointer;color:#000;" onclick="moveUp(\'' + safeId + '\')" title="Move up (closer to queue top — sent sooner)"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-down" style="cursor:pointer;color:#000;" onclick="moveDown(\'' + safeId + '\')" title="Move down (closer to queue end — sent later)"></span>' : '') +
           // Directly under a running loop, Send next sends the item between two
@@ -472,7 +480,15 @@ function renderEntry(item, idx) {
         + escapeHtml(item.warning.message || '')
         + '</span></div>'
       : '') +
-    (isEditable
+    (textEditDraft !== undefined
+      ? '<div class="qe-text-edit-box">'
+        + '<textarea id="qe-edit-' + safeId + '" class="qe-text-edit" oninput="textEditInput(\'' + safeId + '\', this.value)">' + escapeHtml(textEditDraft) + '</textarea>'
+        + '<div class="qe-text-edit-bar" style="display:flex;align-items:center;gap:6px;margin:2px 0 4px;">'
+        + '<button type="button" onclick="saveTextEdit(\'' + safeId + '\')" title="Save the prompt; the queue goes on">Save</button>'
+        + '<button type="button" onclick="cancelTextEdit(\'' + safeId + '\')" title="Discard the changes; the queue goes on">Cancel</button>'
+        + (item.textEditing ? '<span style="font-size:0.8em;opacity:0.8;">The queue waits for this edit when it is this item&#39;s turn.</span>' : '')
+        + '</div></div>'
+      : isEditable
       ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
       : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
     templateRow +

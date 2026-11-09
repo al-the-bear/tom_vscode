@@ -15,7 +15,8 @@
  *   SW-5 VS Code's dialogs (the vscode stub): the folder dialog, the modal buttons and their answers, the
  *        configuration opened from the note, a dismissed modal is Cancel / Stay here; the command is contributed
  *   SW-6 the buttons: the placeholder page (both buttons, the click posts, the provider runs the command) and the
- *        first section of the Status Page (@WS the same HTML) dispatching to the command
+ *        first section of the Status Page (@WS the same HTML) dispatching to the command, with Create new quest
+ *        beside it (tomAi.createQuest)
  *   SW-7 entries that are no file or would land outside the folder are not written
  */
 
@@ -327,6 +328,15 @@ describe('Setup New Workspace Folder', () => {
         assert.equal(statusPosted[0]?.action, 'setupWorkspaceFolder');
         await handleStatusAction('setupWorkspaceFolder', statusPosted[0]);
         assert.equal(commands().length, before + 2, 'the Status Page runs the command');
+        // Beside it: Create new quest, which runs tomAi.createQuest.
+        const create = first.querySelector('[data-status-action="createQuest"]') as unknown as { textContent: string; click(): void };
+        assert.equal(create.textContent, 'Create new quest');
+        create.click();
+        assert.equal(statusPosted[1]?.action, 'createQuest');
+        const createRuns = (): number => stubbed.spies.byMethod('commands.executeCommand').filter((c) => c.args[0] === 'tomAi.createQuest').length;
+        const createBefore = createRuns();
+        await handleStatusAction('createQuest', statusPosted[1]);
+        assert.equal(createRuns(), createBefore + 1, 'the Status Page runs Create New Quest');
     });
 
     test('SW-7: entries that are no file or would land outside', async () => {

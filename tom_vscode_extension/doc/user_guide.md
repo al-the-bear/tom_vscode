@@ -20,7 +20,7 @@ Both subpanels are queue-compatible.
 
 - **Setup New Workspace Folder** (`@T: Setup New Workspace Folder`; also the
   button on the panels of a folder without `.tom/` and at the top of the Status
-  Page) unpacks the workspace template the VSIX carries — the configuration, the
+  Page, beside **Create new quest**) unpacks the workspace template the VSIX carries — the configuration, the
   guidelines, CLAUDE.md, the `_ai` roles, processes, schemas and prompts, and
   the starting quest `tomai_introduction` — into a folder you pick or create. A
   folder that is not empty shows what is in it first (**Set up anyway** goes
@@ -315,13 +315,15 @@ The profiles are the workspace config's `anthropic.profiles` (`.tom/tom_vscode_e
 - **Agent SDK T&S** — routes through `@anthropic-ai/claude-agent-sdk` but still uses in-extension history compaction. Memory pulled via `tomAi_memory_*` tools on demand.
 - **Agent SDK SDK-MM** — Agent SDK with SDK-managed continuity. The session id persists in a `<name>.session.json` in `_ai/quests/<quest>/history/` (gitignored; `chat` for the panel, `default` for the queue, or a named session) so the next turn resumes in place. Works with Claude Code's session selector.
 
-Around the prompt: the profile picker with its edit button, the session button (below), the user-message template picker, Preview, Send and Stop, and Save to Queue. The status bar holds the Chat Variables and Process editors, the prompt queue and queue templates, the Status Page, Recreate history / Recreate memory, Run Quest Refresh, `history.md`, the quest memory and the shared memory in the MD Browser, and a model list (read-only: the models the API returns; the profile's configuration decides the model). The live trail, the session's history, the raw and summary trails, the memory panel and clearing a session's history are in the @WS **Logs** section, behind its session switch (see [Logs Panel](#logs-panel)).
+Around the prompt: the profile picker with its edit button, the session button (below), the user-message template picker, Preview, Send and Stop, **Keep**, and the three queue buttons (below).
+
+- **Keep** decides, for each prompt slot 1–9 on its own, whether the slot's text stays after **Send** or a queue add (checked, the default) or is cleared. The box shows the active slot's setting; it is saved with the drafts, so it holds over a window reload. A queue add clears the slot only once the queue has taken the prompt. The status bar holds the Chat Variables and Process editors, the prompt queue and queue templates, the Status Page, Recreate history / Recreate memory, Run Quest Refresh, `history.md`, the quest memory and the shared memory in the MD Browser, and a model list (read-only: the models the API returns; the profile's configuration decides the model). The live trail, the session's history, the raw and summary trails, the memory panel and clearing a session's history are in the @WS **Logs** section, behind its session switch (see [Logs Panel](#logs-panel)).
 
 #### Named sessions
 
 A conversation lives in a **session**: a `<name>.session.json` file in the quest's `history/` folder (machine-local, gitignored). On the Agent SDK transport with SDK-managed history it holds the SDK conversation the session continues; on the direct API transport the session has a history of its own (below). The panel uses its own session `chat`, the prompt queue `default` — and any number of named sessions can be created and chosen:
 
-- **The session button** (speech-bubble icon, right of the profile) shows the session the panel sends in — its name, what it is based on, its lifetime when it is not one conversation, and its model when it has a profile (e.g. *walk based on prep (per iteration) · claude-opus-5-5*). A click opens VS Code's picker: the quest's sessions with what each one does, **New session…**, and **New session based on…**. The choice is kept per quest; *The panel's own session (chat)* goes back to the default. Picking a session that has a profile selects that profile in the panel; you can still choose another. **Send** runs in the session picked here. **Save to Queue** queues the prompt with the prompt queue's own profile and session (the queue editor's defaults); the button beside it (add + person icon) queues it with **this panel's** profile and session instead, so it continues the panel's conversation as Send would. Both keep the panel's user-message template and repeat count.
+- **The session button** (speech-bubble icon, right of the profile) shows the session the panel sends in — its name, what it is based on, its lifetime when it is not one conversation, and its model when it has a profile (e.g. *walk based on prep (per iteration) · claude-opus-5-5*). A click opens VS Code's picker: the quest's sessions with what each one does, **New session…**, and **New session based on…**. The choice is kept per quest; *The panel's own session (chat)* goes back to the default. Picking a session that has a profile selects that profile in the panel; you can still choose another. **Send** runs in the session picked here. **Save to Queue** queues the prompt with the prompt queue's own profile and session (the queue editor's defaults); the button beside it (add + person icon) queues it with **this panel's** profile and session instead, so it continues the panel's conversation as Send would. Both keep the panel's user-message template and repeat count. **Queue next** (add + step-into icon) queues the prompt so it is the **next one sent**, always with the prompt queue's profile and session: it goes in pending directly under the item that is sending (in front of the other pending items), and when that item is repeating (a repeat count above 1 or a `prefix*` walk) it is marked to go **between its iterations** — what Save to Queue, Send next and Send between iterations in the queue editor would do.
 - **Chat sends in the prompt queue**: every send to the ANTHROPIC/LLM chat — the panel's Send, *Send to Anthropic/LLM* from the editor, a todo's Send or Guide me, Telegram — is shown in the prompt queue: **CHAT** while it runs, **CHAT SENT** with its answer (and the markdown preview buttons) or its error once it ended. The queue never sends, retries or counts these items; *Clear sent* removes the finished ones. Only one chat send runs at a time. Sends from places without a session picker (the editor command, the todo panel, Telegram) always run in the `chat` session.
 - **New session…** and **New session based on…** (which first asks for the base) ask for the session's lifetime:
   - **Continue** — one conversation. With a base, its first prompt starts from the base's conversation (an SDK fork); later prompts continue the new session, and the base is never changed.
@@ -495,7 +497,18 @@ When the loop has finished its current iteration, it steps aside: the marked
 item is sent, and the loop then goes on with its next iteration. Click the
 icon again to unmark; marking another item moves the mark. If the loop ends
 with its current iteration, the marked item simply runs next. With auto-send
-off the loop holds as usual and the mark stays.
+off the loop holds as usual and the mark stays. **Queue next** in the
+ANTHROPIC/LLM subpanel does all of this in one click for a new prompt.
+
+### Editing a pending item
+
+A pending item has an **edit** button (pencil) in its header. It opens the
+prompt in a text box with **Save** and **Cancel**; the item keeps its place in
+the queue. While the box is open the queue does not send that item: when its
+turn comes (also as the item sent between iterations), the queue waits until
+you save or cancel, then sends it. Typing goes on undisturbed while the queue
+redraws. Closing the queue editor ends an open edit without saving. A staged
+item's prompt is edited in place as before.
 
 ### Pause after this
 

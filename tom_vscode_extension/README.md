@@ -318,7 +318,7 @@ needed.
 
 In a folder without `.tom/`, the extension's panels offer **Setup new
 workspace folder** (also `@T: Setup New Workspace Folder` and the top of the
-Status Page): it unpacks the workspace template the VSIX carries
+Status Page, beside **Create new quest**): it unpacks the workspace template the VSIX carries
 (`resources/workspace_template.zip`) into a folder you pick or create.
 
 - **A folder that is not empty** shows what is in it first; **Set up anyway**

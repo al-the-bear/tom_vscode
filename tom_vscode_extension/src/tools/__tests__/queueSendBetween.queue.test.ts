@@ -11,6 +11,12 @@
  *         the loop resumes with iteration 2 — not iteration 1 again
  *   SBQ-3 paused (auto-send off) at the boundary: the loop holds as before and the mark stays
  *   SBQ-4 the mark survives the queue file (`send-between`)
+ *   SBQ-5 Queue next (enqueueNext): pending directly under the running loop and marked to go between its
+ *         iterations; with nothing sending, in front of the first pending item and unmarked; no profile or
+ *         session pinned (the queue's own apply)
+ *   SBQ-6 editing a pending item's text: it keeps its place, the queue holds before sending it while the
+ *         edit is open (also when it is the marked item between iterations), Save writes the text and sends
+ *         it, Cancel keeps the old text; a sent item cannot be opened; closing the editor ends every edit
  */
 
 import test, { after, describe } from 'node:test';
@@ -157,6 +163,59 @@ describe('send between iterations', () => {
         };
         walk(SANDBOX);
         assert.ok(files.some((f) => /send-between: true/.test(fs.readFileSync(f, 'utf8'))), 'written as meta send-between');
+        clear();
+    });
+
+    test('SBQ-5: Queue next', async () => {
+        const { loop, a } = await loopWithOneIterationDone();
+        const next = await queue().enqueueNext({ originalText: 'urgent', transport: 'anthropic' });
+        assert.equal(next.status, 'pending');
+        assert.deepEqual(ids().slice(0, 3), [loop.id, next.id, a.id], 'directly under the running loop');
+        assert.equal(queue().getById(next.id)?.sendBetween, true, 'marked: sent between the loop\'s iterations');
+        assert.equal(next.anthropicProfileId, undefined, 'the queue\'s profile');
+        assert.equal(next.session, undefined, 'the queue\'s session');
+        // Nothing sending: in front of the pending items, no mark.
+        clear();
+        queue().autoSendEnabled = false;
+        const staged = await queue().enqueue({ originalText: 'staged', transport: 'copilot', deferSend: true, initialStatus: 'staged' });
+        const pending = await queue().enqueue({ originalText: 'pending', transport: 'copilot', deferSend: true });
+        const first = await queue().enqueueNext({ originalText: 'first', transport: 'copilot', deferSend: true });
+        assert.deepEqual(ids(), [staged.id, first.id, pending.id]);
+        assert.equal(queue().getById(first.id)?.sendBetween, undefined);
+        clear();
+    });
+
+    test('SBQ-6: editing a pending item holds the queue for it', async () => {
+        const { loop, a } = await loopWithOneIterationDone();
+        queue().toggleSendBetween(a.id);
+        assert.equal(queue().beginTextEdit(a.id), true);
+        assert.equal(queue().isTextBeingEdited(a.id), true);
+        queue().autoSendEnabled = true;
+        try {
+            assert.equal(await boundary(loop), 'paused', 'the loop steps aside for the marked item');
+            await wait(50);
+            assert.equal(queue().getById(a.id)?.status, 'pending', 'held: it is being edited');
+            assert.equal(queue().getById(loop.id)?.status, 'pending', 'the loop waits behind it');
+            assert.equal(ids().indexOf(a.id), 0, 'it keeps its place');
+            await queue().endTextEdit(a.id, 'between, edited');
+            await wait(50);
+            const sent = queue().getById(a.id)!;
+            assert.equal(sent.originalText, 'between, edited', 'saved');
+            assert.equal(sent.status, 'sending', 'and sent once saved');
+            assert.equal(queue().beginTextEdit(a.id), false, 'a sending item cannot be opened');
+        } finally {
+            queue().autoSendEnabled = false;
+        }
+        // Cancel keeps the text; closing the editor (no id) ends every open edit.
+        clear();
+        const p = await queue().enqueue({ originalText: 'keep me', transport: 'copilot', deferSend: true });
+        assert.equal(queue().beginTextEdit(p.id), true);
+        await queue().endTextEdit(p.id);
+        assert.equal(queue().getById(p.id)?.originalText, 'keep me');
+        assert.equal(queue().isTextBeingEdited(p.id), false);
+        queue().beginTextEdit(p.id);
+        await queue().endTextEdit(undefined);
+        assert.equal(queue().isTextBeingEdited(p.id), false, 'closing the editor ends it');
         clear();
     });
 });

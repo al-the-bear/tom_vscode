@@ -90,3 +90,18 @@ export function orderForBetween<T extends BetweenQueueItem>(items: readonly T[],
     const at = rest.indexOf(loop);
     return at < 0 ? [...items] : [...rest.slice(0, at), between, ...rest.slice(at)];
 }
+
+/**
+ * Where "Queue next" puts a new item so it is the next one sent: directly
+ * under the item sending (where Send next would move it, and where "send
+ * between iterations" applies when that item is a loop), or in front of the
+ * first pending item when that comes earlier or nothing is sending; at the
+ * end when there is neither.
+ */
+export function nextQueuePosition(items: readonly BetweenQueueItem[]): number {
+    const sending = items.findIndex((i) => i.status === 'sending');
+    const firstPending = items.findIndex((i) => i.status === 'pending');
+    if (sending >= 0 && (firstPending < 0 || firstPending > sending)) { return sending + 1; }
+    if (firstPending >= 0) { return firstPending; }
+    return items.length;
+}
