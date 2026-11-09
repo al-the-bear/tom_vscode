@@ -12,7 +12,10 @@
  *   RA-5 a comment longer than 200 characters (block or inline) gets the overlay and preview-editor buttons,
  *        a short one none; they post renderMarkdown / openMarkdownPreview with the whole comment, and the host's
  *        markdownHtml opens the overlay
- *   RA-6 the helpers: mdbCommentAuthor, mdbCommentBody, mdbAttribution, mdbIsAgentAuthor
+ *   RA-6 the helpers: mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, mdbIsAgentAuthor
+ *   RA-7 change times (SOM §11.9.10) are not authors: a comment header's `(agent_x, 2026-11-07T14:05+01:00)`
+ *        and `(2026-11-07T14:05+01:00)`, a token's `{@alice 2026-11-07T14:05+01:00}` and `{@2026-11-07T14:05+01:00}`
+ *        give the authors without the time (none for the time alone); the agent flag holds
  */
 
 import test, { describe } from 'node:test';
@@ -165,9 +168,40 @@ describe('Markdown Browser: review authors, check-here, long comments', () => {
         assert.equal(window.mdbCommentAuthor('> ⬆️ **C-3**: text'), '');
         assert.equal(window.mdbCommentBody('⬆️ **C-12** (Alexis): the text'), 'the text');
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@agent_x +bob -carol} rest'))),
-            { raw: '{@agent_x +bob -carol}', authors: ['agent_x'], voters: ['bob', 'carol'] });
+            { raw: '{@agent_x +bob -carol}', authors: ['agent_x'], voters: ['bob', 'carol'], changedAt: '' });
+        assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@alice +bob 2026-11-07T14:05+01:00}'))),
+            { raw: '{@alice +bob 2026-11-07T14:05+01:00}', authors: ['alice'], voters: ['bob'], changedAt: '2026-11-07T14:05+01:00' });
+        assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@2026-11-08T09:00Z}'))),
+            { raw: '{@2026-11-08T09:00Z}', authors: [], voters: [], changedAt: '2026-11-08T09:00Z' });
+        assert.deepEqual(window.mdbAttribution('{@alice 2026-11-07}').authors, ['alice', '2026-11-07'], 'not of the time\'s shape: a member id');
+        assert.deepEqual(JSON.parse(JSON.stringify(window.mdbCommentHeader('> ⬆️ **C-4** (Eve, 2026-11-09T17:42+01:00): text'))),
+            { author: 'Eve', changedAt: '2026-11-09T17:42+01:00' });
+        assert.deepEqual(JSON.parse(JSON.stringify(window.mdbCommentHeader('> ⬆️ **C-4** (2026-11-09T17:42+01:00): text'))),
+            { author: '', changedAt: '2026-11-09T17:42+01:00' });
+        assert.equal(window.mdbCommentBody('⬆️ **C-4** (Eve, 2026-11-09T17:42+01:00): the text'), 'the text');
         assert.equal(window.mdbAttribution('no token'), null);
         assert.deepEqual(['agent', 'agent_spec_author', 'agent:reviewer', 'Agent_X', 'agentur', 'alice'].map(window.mdbIsAgentAuthor),
             [true, true, true, true, false, false]);
+    });
+
+    test('RA-7: change times are not authors', () => {
+        const { window } = setup();
+        show(window, [
+            '# Review',
+            '',
+            'Kept {~~30~>15~~}{@alice 2026-11-07T14:05+01:00} days and {++ more ++}{@2026-11-07T14:05+01:00}.',
+            '',
+            '> ⬆️ **C-1** (agent_spec_author, 2026-11-07T14:05+01:00): timed.',
+            '',
+            '> ⬆️ **C-2** (2026-11-07T14:05+01:00): time alone.',
+            '',
+            'A change: {++ new ++}{>>[++ new ++] why? <<}{@agent_spec_author 2026-11-08T09:00Z}',
+        ].join('\n'));
+        const blocks = $(window, '.mdb-comment-block');
+        assert.deepEqual(blocks.map((b) => [b.dataset.authors ?? '', b.dataset.agent ?? '']), [['agent_spec_author', '1'], ['', '']]);
+        const changes = $(window, '.mdb-rm[data-kind="change"]');
+        assert.deepEqual(changes.map((c) => c.dataset.authors ?? ''), ['alice', '', '']);
+        const notes = $(window, '.mdb-rm[data-kind="note"]');
+        assert.deepEqual(notes.map((n) => [n.dataset.authors ?? '', n.dataset.agent ?? '']), [['agent_spec_author', '1']]);
     });
 });

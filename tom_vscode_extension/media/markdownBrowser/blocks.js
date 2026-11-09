@@ -6,7 +6,7 @@
 // before main.js; the declarations below are globals main.js calls. The question
 // and answer parser is media/shared/mdQuestions.js, loaded before this file and
 // shared with the extension host (src/utils/mdQuestions.ts).
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, mdbAttribution */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -693,15 +693,38 @@ function mdbIsAgentAuthor(author) {
 }
 
 /**
+ * A change time (SOM §11.9.10): minutes with the writer's UTC offset,
+ * `2026-11-07T14:05+01:00` or `…Z`. Only a word of exactly this shape is a
+ * time; anything else keeps its old meaning (an author, a member id).
+ */
+var MDB_CHANGE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * A comment block's header parentheses (`(Alexis, 2026-11-07T14:05+01:00)`,
+ * `(Alexis)`, `(2026-11-07T14:05+01:00)`): the author and the change time,
+ * each '' when not written. The time is the last `, `-separated part when it
+ * has the time's shape (SOM §11.9.1, §11.9.10).
+ *
+ * @param {string} line the block's first line
+ * @returns {{author: string, changedAt: string}}
+ */
+function mdbCommentHeader(line) {
+    var m = /^ {0,3}> ?⬆️?\s*(?:\*\*C-\d+\*\*\s*)?\(([^()\n]*)\)\s*:/.exec(String(line || ''));
+    if (!m) { return { author: '', changedAt: '' }; }
+    var parts = m[1].split(',').map(function(p) { return p.trim(); });
+    var changedAt = MDB_CHANGE_TIME.test(parts[parts.length - 1]) ? parts.pop() : '';
+    return { author: parts.join(', ').trim(), changedAt: changedAt };
+}
+
+/**
  * The author a comment block's first line names (`> ⬆️ **C-12** (Alexis): text`),
- * or '' when it names none.
+ * or '' when it names none; a change time in the parentheses is not an author.
  *
  * @param {string} line
  * @returns {string}
  */
 function mdbCommentAuthor(line) {
-    var m = /^ {0,3}> ?⬆️?\s*(?:\*\*C-\d+\*\*\s*)?\(([^()\n]*)\)\s*:/.exec(String(line || ''));
-    return m ? m[1].trim() : '';
+    return mdbCommentHeader(line).author;
 }
 
 /**
@@ -719,11 +742,12 @@ function mdbCommentBody(text) {
 
 /**
  * An attribution token at the start of `src` (`{@alice}`, `{@agent_spec_author +bob -carol}`,
- * SOM §11.9.8): its markup, the members it names as authors and those voting.
- * Null when `src` starts with none.
+ * `{@alice 2026-11-07T14:05+01:00}`, `{@2026-11-07T14:05+01:00}`; SOM §11.9.8, §11.9.10): its
+ * markup, the members it names as authors, those voting and its change time (its last word when
+ * that has the time's shape, else ''). Null when `src` starts with none.
  *
  * @param {string} src
- * @returns {{raw: string, authors: string[], voters: string[]} | null}
+ * @returns {{raw: string, authors: string[], voters: string[], changedAt: string} | null}
  */
 function mdbAttribution(src) {
     var m = /^\{@([^{}\n]*)\}/.exec(String(src || ''));
@@ -732,9 +756,10 @@ function mdbAttribution(src) {
     var authors = [];
     /** @type {string[]} */
     var voters = [];
-    m[1].trim().split(/\s+/).forEach(function(part) {
-        if (!part) { return; }
+    var words = m[1].trim().split(/\s+/).filter(function(w) { return w; });
+    var changedAt = words.length && MDB_CHANGE_TIME.test(words[words.length - 1]) ? words.pop() : '';
+    words.forEach(function(part) {
         if (part.charAt(0) === '+' || part.charAt(0) === '-') { voters.push(part.slice(1)); } else { authors.push(part); }
     });
-    return { raw: m[0], authors: authors, voters: voters };
+    return { raw: m[0], authors: authors, voters: voters, changedAt: changedAt };
 }
