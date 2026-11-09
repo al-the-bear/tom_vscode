@@ -12,7 +12,7 @@
  *        publish of the same build commits nothing
  *   BL-2 a refused push leaves the commit local (exit 3); --ff fast-forwards a layer that is only behind
  *        and pushes; --ff refuses a layer with commits of its own (exit 1) and commits nothing
- *   BL-3 bundle: the listed platforms' binaries into the extension's bin/<platform>/, stamps left behind,
+ *   BL-3 bundle: the listed platforms' binaries into the extension's bin/<platform>/ with their stamps,
  *        a platform without binaries named
  *   BL-4 report verdicts: no stamp, a tom_bs commit this checkout lacks, validate_codespecs fresh / stale
  *   BL-5 the bridge source hash in tom_bs's stamp: blind to `// Generated:` lines, CRLF and the versioner
@@ -166,7 +166,8 @@ describe('binaries layer', () => {
         }
         const r = runLayer(t, 'bundle', '--platforms', 'win32-x64,darwin-x64');
         assert.equal(r.status, 0, r.stderr);
-        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['tom_bs.exe', 'validate_codespecs.exe']);
+        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['tom_bs.build.json', 'tom_bs.exe', 'validate_codespecs.build.json', 'validate_codespecs.exe'], 'the stamps too (.vscodeignore keeps them out of the VSIX)');
+        assert.match(fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8'), /^bin\/\*\/\*\.build\.json$/m);
         assert.match(r.stdout, /darwin-x64: no tom_bs or validate_codespecs in the binaries layer/);
         assert.match(r.stdout, /Bundled 2 binaries from the binaries layer/);
         assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64']);

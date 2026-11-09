@@ -26,9 +26,11 @@
  *   hosts' commits follow each other; any failure is then fatal (exit 1).
  *   --no-push commits only.
  * bundle — copy each platform's tom_bs and validate_codespecs from the layer
- *   into the extension's bin/<platform>/ for packaging (the stamps stay in
- *   the layer). Default platforms: the ones the extension resolves binaries
- *   for (DEFAULT_PLATFORMS) that the layer has.
+ *   into the extension's bin/<platform>/ for packaging, with their build
+ *   stamps (.vscodeignore keeps the stamps out of the VSIX; in the checkout
+ *   they say what the binaries were built from — `npm run codespecs:check`,
+ *   the CV-8 test). Default platforms: the ones the extension resolves
+ *   binaries for (DEFAULT_PLATFORMS) that the layer has.
  * report — per platform: each binary's build stamp and whether it is older
  *   than the sources here (tom_bs: the bridge files changed since the commit
  *   it was built from, check-tom-bs-provenance.cjs; validate_codespecs: the
@@ -261,6 +263,9 @@ function bundle(platforms) {
             fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f));
             if (!platform.startsWith('win32')) { fs.chmodSync(path.join(dstDir, f), 0o755); }
             count++;
+        }
+        for (const stamp of [TOM_BS_STAMP, CODESPECS_STAMP]) {
+            if (fs.existsSync(path.join(srcDir, stamp))) { fs.copyFileSync(path.join(srcDir, stamp), path.join(dstDir, stamp)); }
         }
         const missing = BINARIES.map((b) => exe(platform, b)).filter((f) => !found.includes(f));
         console.log(`  ✔ ${platform}: ${found.join(', ')}${missing.length ? ` (no ${missing.join(', ')})` : ''}`);
