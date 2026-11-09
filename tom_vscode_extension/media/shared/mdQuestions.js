@@ -12,10 +12,42 @@
 // takes the declarations from there (src/utils/mdQuestions.ts), so the browser
 // and the agents' tools (tomAi_mdQuestions, tomAi_mdSetAnswer,
 // tomAi_mdProposeAnswer) read a document the same way.
-/* exported MDB_ANSWER_MARKER, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines, mdbProposalEdit */
+/* exported MDB_ANSWER_MARKER, MDB_ANSWER_MARKER_RE, mdbFindAnswerMarker, mdbLastAnswerMarker, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines, mdbProposalEdit */
 
 /** The review-answer marker an answer is written after. */
 var MDB_ANSWER_MARKER = '**Answer:**';
+
+/**
+ * A team answer's marker: `**Answer:**`, or `**Answer (<time>):**` with the
+ * time the answer was last written (SOM §11.9.2, §11.9.10). A parenthesis with
+ * member ids is an individual answer, not a marker.
+ */
+var MDB_ANSWER_MARKER_RE = /\*\*Answer(?: \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})\))?:\*\*/g;
+
+/**
+ * The first team-answer marker in `text` at or after `from`.
+ *
+ * @param {string} text
+ * @param {number} [from]
+ * @returns {{at: number, end: number} | null}
+ */
+function mdbFindAnswerMarker(text, from) {
+    MDB_ANSWER_MARKER_RE.lastIndex = from || 0;
+    var m = MDB_ANSWER_MARKER_RE.exec(text);
+    return m ? { at: m.index, end: m.index + m[0].length } : null;
+}
+
+/**
+ * The last team-answer marker in `text`.
+ *
+ * @param {string} text
+ * @returns {{at: number, end: number} | null}
+ */
+function mdbLastAnswerMarker(text) {
+    var last = null;
+    for (var found = mdbFindAnswerMarker(text, 0); found; found = mdbFindAnswerMarker(text, found.end)) { last = found; }
+    return last;
+}
 
 /**
  * Every `**Answer:**` marker outside fenced code: its line, the column just
@@ -38,10 +70,10 @@ function mdbAnswerMarkers(text) {
         if (fence !== null) { continue; }
         var from = 0;
         for (;;) {
-            var at = lines[i].indexOf(MDB_ANSWER_MARKER, from);
-            if (at < 0) { break; }
-            out.push({ line: i, column: at + MDB_ANSWER_MARKER.length });
-            from = at + MDB_ANSWER_MARKER.length;
+            var found = mdbFindAnswerMarker(lines[i], from);
+            if (!found) { break; }
+            out.push({ line: i, column: found.end });
+            from = found.end;
         }
     }
     return out;
@@ -76,14 +108,14 @@ function mdbQuoteDepth(line) {
  */
 function mdbAnswerAt(lines, line, column) {
     var rest = lines[line].slice(column);
-    var next = rest.indexOf(MDB_ANSWER_MARKER);
-    if (next >= 0) { return { text: rest.slice(0, next).trim(), endLine: line + 1 }; }
+    var nextMarker = mdbFindAnswerMarker(rest, 0);
+    if (nextMarker) { return { text: rest.slice(0, nextMarker.at).trim(), endLine: line + 1 }; }
     var parts = [rest.trim()];
     var depth = mdbQuoteDepth(lines[line]);
     var end = line + 1;
     for (; end < lines.length; end++) {
         var l = lines[end];
-        if (l.indexOf(MDB_ANSWER_MARKER) >= 0 || l.trim() === '' || MDB_PROPOSED_ANSWER.test(l)) { break; }
+        if (mdbFindAnswerMarker(l, 0) || l.trim() === '' || MDB_PROPOSED_ANSWER.test(l)) { break; }
         if (depth > 0) {
             if (mdbQuoteDepth(l) !== depth) { break; }
             var body = l.replace(MDB_QUOTE_PREFIX, '');
@@ -117,9 +149,9 @@ function mdbWriteAnswer(lines, line, column, answer) {
         .map(function(l) { return l.trim(); })
         .filter(function(l) { return l !== ''; });
     var rest = text.slice(column);
-    var next = rest.indexOf(MDB_ANSWER_MARKER);
-    if (next >= 0) {
-        return head + (answerLines.length ? ' ' + answerLines.join(' ') : '') + ' ' + rest.slice(next);
+    var nextMarker = mdbFindAnswerMarker(rest, 0);
+    if (nextMarker) {
+        return head + (answerLines.length ? ' ' + answerLines.join(' ') : '') + ' ' + rest.slice(nextMarker.at);
     }
     if (answerLines.length === 0) { return head; }
     var quote = MDB_QUOTE_PREFIX.exec(text);
@@ -162,8 +194,9 @@ var MDB_RECOMMENDATION = /^\s*\*?Recommendation:\*?\s*\(([a-z])\)/;
 function mdbQuestionAt(lines, answerLine, fromRuntime) {
     var head = -1;
     var id = '';
-    for (var i = answerLine - (lines[answerLine].indexOf(MDB_ANSWER_MARKER) > 0 && MDB_QUESTION_HEAD.test(lines[answerLine]) ? 0 : 1); i >= 0 && i > answerLine - 400; i--) {
-        if (i < answerLine && lines[i].indexOf(MDB_ANSWER_MARKER) >= 0) { break; }
+    var onLine = mdbFindAnswerMarker(lines[answerLine], 0);
+    for (var i = answerLine - (onLine && onLine.at > 0 && MDB_QUESTION_HEAD.test(lines[answerLine]) ? 0 : 1); i >= 0 && i > answerLine - 400; i--) {
+        if (i < answerLine && mdbFindAnswerMarker(lines[i], 0)) { break; }
         if (/^\s*#/.test(lines[i])) { break; }
         var h = MDB_QUESTION_HEAD.exec(lines[i]);
         if (h) { head = i; id = h[1] || h[2]; break; }
@@ -244,8 +277,8 @@ function mdbQuestionHeads(text) {
         var after = lines[i].slice(h.index);
         var t = MDB_QUESTION_TOPIC.exec(after);
         var rest = t ? t[2] : '';
-        var answerAt = rest.indexOf(MDB_ANSWER_MARKER);
-        if (answerAt >= 0) { rest = rest.slice(0, answerAt); }
+        var answerMarker = mdbFindAnswerMarker(rest, 0);
+        if (answerMarker) { rest = rest.slice(0, answerMarker.at); }
         out.push({ id: h[1] || h[2], line: i, topic: t ? t[1].trim() : '', text: rest.trim() });
     }
     return out;
@@ -288,7 +321,7 @@ function mdbProposedAnswerAt(lines, line) {
     var end = line + 1;
     for (; end < lines.length; end++) {
         var l = lines[end];
-        if (l.indexOf(MDB_ANSWER_MARKER) >= 0 || l.trim() === '' || MDB_PROPOSED_ANSWER.test(l)) { break; }
+        if (mdbFindAnswerMarker(l, 0) || l.trim() === '' || MDB_PROPOSED_ANSWER.test(l)) { break; }
         if (depth > 0) {
             if (mdbQuoteDepth(l) !== depth) { break; }
             var body = l.replace(MDB_QUOTE_PREFIX, '');
@@ -342,9 +375,9 @@ function mdbProposalEdit(lines, proposalLine, action, text) {
     var last = proposalLine - 1;
     if (last >= 0 && /^\s*(?:>\s*)*$/.test(lines[last])) { last--; }
     for (var i = last; i >= 0 && i > last - 60; i--) {
-        var at = lines[i].lastIndexOf(MDB_ANSWER_MARKER);
-        if (at < 0) { continue; }
-        var column = at + MDB_ANSWER_MARKER.length;
+        var lastMarker = mdbLastAnswerMarker(lines[i]);
+        if (!lastMarker) { continue; }
+        var column = lastMarker.end;
         var answer = mdbAnswerAt(lines, i, column);
         if (answer.endLine !== last + 1) { return null; }
         var expected = lines.slice(i, prop.endLine).join('\n');

@@ -15,6 +15,9 @@
  *        the workspace; `dryRun` answers the diff and writes nothing; CRLF line endings are kept
  *   MQ-5 one parser: blocks.js no longer holds it, the browser loads the shared file before blocks.js, and
  *        the browser's mdbQuestionAt reads the fixture's questions as the tools do; registration and docs
+ *   MQ-6 change times (SOM §11.9.2, §11.9.10, tom_specs annot10): a header `**❓ BQ-1 (<time>) — topic:**` and a
+ *        team answer `**Answer (<time>):**` are read like the untimed forms; an individual answer
+ *        `**Answer (alice, <time>):**` is no team answer; writing and proposing keep the timed label
  */
 
 import * as fs from 'fs';
@@ -175,6 +178,41 @@ describe('Markdown question tools', () => {
         const text = read(crlf);
         assert.equal(text.split('\r\n').length, text.split('\n').length, 'no bare \\n');
         assert.match(text, />\r\n> \*\*Proposed answer\*\* \(agent, 2026-11-07\): b\r\n/);
+    });
+
+    test('MQ-6: question and team-answer times', async () => {
+        const timed = [
+            '# Timed', '',
+            '> **❓ BQ-1 (2026-11-07T14:05+01:00) — Timeout:** shorter?',
+            '> - (a) 30',
+            '> - **(b)** 15',
+            '>',
+            '> **Answer (alice, 2026-11-07T14:10+01:00):** (a)',
+            '>',
+            '> **Answer (2026-11-07T15:00Z):** (b)',
+            '',
+            '> **❓ BQ-2 (2026-11-07T14:05+01:00) — Kiosks:** also on kiosks?',
+            '>',
+            '> **Answer:**',
+            '',
+        ].join('\n');
+        const file = put('timed.md', timed);
+        const all = await run(mdQuestionsImpl, { file });
+        assert.deepEqual(all.questions.map((x: Json) => x.id), ['BQ-1', 'BQ-2']);
+        assert.equal(q(all, 'BQ-1').topic, 'Timeout', 'the time is not part of the topic');
+        assert.equal(q(all, 'BQ-1').recommended, 'b');
+        assert.equal(q(all, 'BQ-1').answer, '(b)', 'the timed team answer, not the individual one');
+        assert.equal(q(all, 'BQ-1').answerLine, 9);
+        assert.equal(q(all, 'BQ-1').open, false);
+        assert.equal(q(all, 'BQ-2').open, true);
+        // Writing keeps the timed label as written.
+        await run(mdSetAnswerImpl, { file, id: 'BQ-1', option: 'a' });
+        assert.deepEqual(changedLines(timed, read(file)), ['> **Answer (2026-11-07T15:00Z):** (a)']);
+        // A proposal goes under the timed label.
+        await run(mdSetAnswerImpl, { file, id: 'BQ-1', answer: '' });
+        const proposed = await run(mdProposeAnswerImpl, { file, id: 'BQ-1', answer: '(b)' });
+        assert.equal(proposed.question.proposed.text, '(b)');
+        assert.match(read(file), /> \*\*Answer \(2026-11-07T15:00Z\):\*\*\n>\n> \*\*Proposed answer\*\* \(agent, 2026-11-07\): \(b\)/);
     });
 
     test('MQ-5: one parser for browser and host; registration', async () => {

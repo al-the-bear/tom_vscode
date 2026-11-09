@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -1193,17 +1193,18 @@
                 addCommentEditButton(wrapper, block);
                 decorateCommentAuthorship(wrapper, block);
             }
-            // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>.
+            // Answers: the k-th marker of a block is its k-th <strong>Answer:</strong>
+            // (or <strong>Answer (<time>):</strong>, SOM §11.9.10).
             var strongs = null;
             var markerIndex = 0;
             var lines = null;
             for (var line = block.startLine; line < block.endLine; line++) {
                 lines = lines || shownLines();
-                if (lines[line] === undefined || lines[line].indexOf(MDB_ANSWER_MARKER) < 0) { continue; }
+                if (lines[line] === undefined || !mdbFindAnswerMarker(lines[line], 0)) { continue; }
                 var markers = mdbAnswerMarkers(lines[line]);
                 for (var k = 0; k < markers.length; k++) {
                     strongs = strongs || Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
-                        return (s.textContent || '').trim() === 'Answer:';
+                        return /^Answer(?: \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})\))?:$/.test((s.textContent || '').trim());
                     });
                     var strong = strongs[markerIndex++];
                     if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }

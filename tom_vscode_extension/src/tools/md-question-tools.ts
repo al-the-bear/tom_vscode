@@ -128,6 +128,7 @@ const FILE = { type: 'string', description: 'A Markdown (.md) file, workspace-re
 const SYNTAX =
     'Question blocks in the review syntax: `> **❓ ID — topic:** text` (in a block of several also `> **ID — topic:** text`), ' +
     'options `> - (a) …` (the recommended one bold, `**(b)**`, or named by `*Recommendation:* (c)`), and `> **Answer:**`. ' +
+    'A header and the answer may carry their change time: `> **❓ ID (2026-11-07T14:05+01:00) — topic:**`, `> **Answer (2026-11-07T14:05+01:00):**`. ' +
     'Fenced code is not read. TomSpecs documents: the tomAi_spec* tools.';
 const WRITE_NOTE =
     ' Written like every edit: refused when the file is dirty in an editor or has changed since `expectedRevision`; through the editor when open. `dryRun` answers the diff and writes nothing.';
