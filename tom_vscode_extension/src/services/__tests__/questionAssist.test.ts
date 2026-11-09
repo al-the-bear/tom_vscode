@@ -122,7 +122,7 @@ describe('Grill me / Explain in detail', () => {
     test('QA-4: wiring and the default prompts', () => {
         const src = (rel: string) => fs.readFileSync(path.join(EXT, 'src', rel), 'utf8');
         assert.match(src('handlers/markdownBrowser-handler.ts'), /case 'assistQuestion': \{[\s\S]*?void runQuestionAssist\(liveQuestionAssistDeps\(this\._context\)/);
-        assert.match(src('handlers/sendToChatRouter.ts'), /const sessionKey = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/);
+        assert.match(src('handlers/sendToChatRouter.ts'), /let targetSession = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/);
         for (const use of ['grillMe', 'explainInDetail'] as const) {
             const body = ASSIST_PROMPT_INFO[use].defaultBody;
             assert.match(body, /This document is \$\{documentKind\}\./, use);

@@ -96,7 +96,8 @@ describe('chat sends in the prompt queue', () => {
         const router = src('handlers', 'sendToChatRouter.ts');
         const send = router.slice(router.indexOf('export async function runAnthropicSend'));
         assert.doesNotMatch(send.slice(0, 4000), /chatSessionFor\(/, 'no session picker: always chat');
-        assert.match(send.slice(0, 4000), /const sessionKey = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/, 'chat unless the caller names a session');
+        assert.match(send.slice(0, 4000), /let targetSession = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/, 'chat unless the caller names a session');
+        assert.match(send, /const sessionKey = targetSession;/, '(or a free session chosen when it was busy)');
         // The one caller that names one: the assist run's temporary session.
         const callers = ['services/assistLiveDeps.ts', 'handlers/markdownBrowser-handler.ts', 'handlers/questTodoPanel-handler.ts', 'handlers/telegram-cmd-handlers.ts', 'handlers/sendToChatRouter.ts']
             .filter((f) => /runAnthropicSend\(\w+, [^)]*\{[^}]*\bsession\b/.test(src(...f.split('/'))));

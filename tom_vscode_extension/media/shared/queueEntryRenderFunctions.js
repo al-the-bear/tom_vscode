@@ -300,6 +300,10 @@ function renderEntry(item, idx) {
   var processBadge = item.sendBetween
     ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
     : '';
+  // A chat send runs in the session this item runs in: it waits and goes once that send ended.
+  if (item.waitingForSession) {
+    processBadge += '  <span class="waiting-session-badge" style="background:#3794ff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="A chat send runs in this session: the item goes once it has ended (two prompts never share a conversation)">[waiting for session ' + escapeHtml(String(item.waitingForSession)) + ']</span>';
+  }
   if (item.processMove) {
     processBadge += '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
       escapeHtml(item.processPosition || '') + ' → ' + escapeHtml(item.processMove.to) + ').">[⏭ process move]</span>';
@@ -563,7 +567,8 @@ function renderChatEntry(item, idx) {
       '<span class="status-badge chat-badge' + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + (running ? 'CHAT' : 'CHAT SENT') + '</span>' +
       '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
       '<span class="chat-item-spacer"></span>' +
-      '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="Remove from the list"' + (running ? ' disabled' : '') + '><span class="codicon codicon-trash"></span></button>' +
+      // Always removable: a send still running is stopped with its entry; a stale one is only removed.
+      '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="' + (running && item.chatActive ? 'Stop this chat send and remove it from the list' : 'Remove from the list') + '"><span class="codicon codicon-trash"></span></button>' +
     '</div>';
   var errorChip = item.error ? '<div class="warning-chip chat-error">' + escapeHtml(String(item.error)) + '</div>' : '';
   var prompt = '<div class="mainprompt-content chat-item-text" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(String(item.originalText || '')) + '</div>';

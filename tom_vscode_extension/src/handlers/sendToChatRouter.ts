@@ -24,6 +24,7 @@
  *     busy guard (see `sendToChatState.ts`).
  */
 
+import { resolveBusySession } from './busySessionChoice';
 import * as vscode from 'vscode';
 import {
     loadSendToChatConfig,
@@ -60,6 +61,8 @@ export interface SendToChatOutcome {
     answer?: string;
     /** Failure reason when `ok` is false. */
     error?: string;
+    /** The session was busy and the prompt was queued instead (what was done). */
+    queued?: string;
 }
 
 /** The currently configured Send-to-Chat target (defaults to 'anthropic'). */
@@ -111,6 +114,26 @@ export async function runAnthropicSend(
     // menus and the Telegram `send_prompt` path), own a CTS here so the send is
     // interruptible — otherwise `/cancel_chat` would have nothing to cancel. A
     // caller-supplied token (the panel) owns its own cancellation.
+    // Two prompts never share a conversation: a busy session (a queue item or
+    // another chat send runs in it) makes the user choose — queue it next or
+    // after the current item, or send it in a free session. Telegram and
+    // scripts have nobody to ask: refused, naming who runs in it.
+    let targetSession = opts?.session || ANTHROPIC_CHAT_SESSION_KEY;
+    const interactive = !['telegram', 'script'].includes(opts?.source ?? '');
+    const busy = await resolveBusySession({
+        session: targetSession,
+        send: { text: prompt, ...(context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') ? { profileId: context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') } : {}) },
+        interactive,
+    });
+    if (busy.kind === 'cancelled') {
+        return { target: 'anthropic', ok: false, error: busy.message };
+    }
+    if (busy.kind === 'queued') {
+        const queued = busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`;
+        void vscode.window.showInformationMessage(queued);
+        return { target: 'anthropic', ok: true, queued };
+    }
+    if (busy.kind === 'send') { targetSession = busy.session; }
     const ownCts = opts?.cancellationToken ? undefined : new vscode.CancellationTokenSource();
     const cancellationToken = opts?.cancellationToken ?? ownCts!.token;
     // Register the cancel hook atomically with the slot claim so `/cancel_chat`
@@ -147,7 +170,7 @@ export async function runAnthropicSend(
         // No session picker on this path (the editor's Send to Anthropic/LLM, a todo's Send and
         // Guide me, Telegram): the chat session, unless the caller names one (an assist prompt's
         // temporary session). The send is shown in the prompt queue.
-        const sessionKey = opts?.session || ANTHROPIC_CHAT_SESSION_KEY;
+        const sessionKey = targetSession;
         const result = await trackChatSend(
             { text: prompt, profileId: profile.id, session: sessionKey, source: opts?.source ?? 'send to chat' },
             () => AnthropicHandler.instance.sendMessage({
@@ -159,6 +182,8 @@ export async function runAnthropicSend(
                 cancellationToken,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             }),
+            // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
+            { cancel: () => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
         );
 
         // Mirror into the panel UI when it is open, so a Send-to-Chat / script

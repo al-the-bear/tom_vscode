@@ -66,7 +66,9 @@ import {
 } from '../utils/queueStep4Utils';
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
-import { CHAT_SENT_STATUS, finishChatItem, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
+import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
+import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
+import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
 import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
@@ -2266,6 +2268,11 @@ export class PromptQueueManager {
     remove(id: string): void {
         this._textEdits.delete(id);
         const removing = this._items.find(i => i.id === id);
+        // A chat send still running in this window is stopped with its entry
+        // (its send ends with an error and frees the chat send slot).
+        if (removing?.status === CHAT_STATUS && abandonChatSend(id)) {
+            logQueue(`Chat send ${id} stopped: its entry was removed`);
+        }
         if (removing && (removing.status === 'sending' || removing.status === 'interrupted')) {
             this.releaseQuestTodoClaim(removing, `removed while ${removing.status}`);
         }
@@ -3249,14 +3256,68 @@ export class PromptQueueManager {
         return item.id;
     }
 
-    /** The chat send ended: `chat-sent`, with its answer or its error. */
+    /** The chat send ended: `chat-sent`, with its answer or its error. A queue item waiting for its session goes now. */
     completeChatItem(id: string, result: { answerText?: string; error?: string; usage?: LiveTrailTokenCounts }): void {
         const item = this._items.find(i => i.id === id);
-        if (!item) { return; }
-        finishChatItem(item as unknown as ChatQueueItem, result);
-        if (result.usage) { this._addItemSendUsage(item, result.usage); }
-        this.persist();
-        this._onDidChange.fire();
+        if (item) {
+            finishChatItem(item as unknown as ChatQueueItem, result);
+            if (result.usage) { this._addItemSendUsage(item, result.usage); }
+            this.persist();
+            this._onDidChange.fire();
+        }
+        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+            void this.sendNext();
+        }
+    }
+
+    // ----- busy sessions (src/utils/sessionBusy.ts) --------------------------
+
+    /** The session a queue item runs in when it runs on the Anthropic transport, else undefined. */
+    private anthropicSessionOf(item: QueuedPrompt): string | undefined {
+        const resolved = this.resolveStageTransport(item);
+        return resolved.transport === 'anthropic' ? (resolved.session ?? 'default') : undefined;
+    }
+
+    /** Whether a `chat` item's send still runs: this window's active send, or one of another live window. */
+    private chatAlive(item: { id: string; chatWindowId?: string }): boolean {
+        const own = getWindowStatusWindowId();
+        if (!item.chatWindowId || item.chatWindowId === own) { return isChatSendActive(item.id); }
+        return liveWindowIdSet().has(item.chatWindowId);
+    }
+
+    /**
+     * Who holds `session`: a queue item running in it or a chat send running
+     * in it (this or another window of the quest); undefined when it is free.
+     */
+    sessionHolder(session: string, exceptId?: string): SessionHolder | undefined {
+        return sessionHolderOf(this._items as unknown as SessionBusyItem[], session, {
+            queueSession: (i) => this.anthropicSessionOf(i as unknown as QueuedPrompt),
+            chatAlive: (i) => this.chatAlive(i as unknown as { id: string; chatWindowId?: string }),
+            exceptId,
+        });
+    }
+
+    /** The sessions of `candidates` nobody runs in now, in their order. */
+    freeSessions(candidates: readonly string[]): string[] {
+        return candidates.filter((s, i) => candidates.indexOf(s) === i && !this.sessionHolder(s));
+    }
+
+    /** A chat send holding the session `item` would run in, if any: then the item waits. */
+    chatHoldingSessionOf(item: QueuedPrompt): { session: string; holder: SessionHolder } | undefined {
+        if (isChatStatus(item.status)) { return undefined; }
+        const session = this.anthropicSessionOf(item);
+        if (!session) { return undefined; }
+        const holder = this.sessionHolder(session, item.id);
+        return holder?.kind === 'chat' ? { session, holder } : undefined;
+    }
+
+    /**
+     * "Run after the current item" (a chat send into a busy session): queued
+     * pending directly under the item that is sending — after all of its
+     * iterations, not between them — or at the front of the pending items.
+     */
+    async enqueueAfterCurrent(opts: Parameters<PromptQueueManager['enqueue']>[0]): Promise<QueuedPrompt> {
+        return this.enqueue({ ...opts, initialStatus: 'pending', position: nextQueuePosition(this._items) });
     }
 
     clearByStatus(status: QueuedPromptStatus): void {
@@ -3437,6 +3498,14 @@ export class PromptQueueManager {
 
     private async sendItem(item: QueuedPrompt): Promise<void> {
         if (item.status === 'sending') { return; }
+        // A chat send runs in the session this item runs in: it waits (two
+        // prompts never share a conversation). completeChatItem starts it.
+        const waitingFor = this.chatHoldingSessionOf(item);
+        if (waitingFor) {
+            logQueue(`sendItem: held — item ${item.id} waits for session ${waitingFor.session}, where the chat send ${waitingFor.holder.id} runs`);
+            this._onDidChange.fire();
+            return;
+        }
         // Its turn has come: a "send between iterations" mark has done its job.
         if (item.sendBetween) { item.sendBetween = undefined; }
         if (item.processMove) {

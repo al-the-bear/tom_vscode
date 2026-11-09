@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { resolveBusySession } from './busySessionChoice';
 import { agentSdkAvailable } from '../services/providerRuntime';
 import { locateAgentSdkCli } from '../services/agentSdkCli';
 import { wireQuestHintMessages } from './questHint-handler';
@@ -435,7 +436,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._handleSendCopilot(message.text, message.template, message.slot, message.wrap === true);
                         break;
                     case 'sendAnthropic':
-                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate);
+                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate, false, typeof message.slot === 'number' ? message.slot : undefined);
                         break;
                     case 'cancel':
                         this._handleCancel(String(message.section || ''));
@@ -1363,8 +1364,31 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false): Promise<void> {
+    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false, slot?: number): Promise<void> {
         if (!text || !text.trim()) { return; }
+        // Two prompts never share a conversation: a busy session (a queue item
+        // or another chat send runs in it) makes the user choose — queue it
+        // next or after the current item, or send it in a free session.
+        let targetSession = this._chatSessionKey();
+        const busy = await resolveBusySession({
+            session: targetSession,
+            send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}) },
+            interactive: true,
+        });
+        if (busy.kind === 'cancelled') {
+            this._view?.webview.postMessage({ type: 'anthropicNotSent', message: busy.message });
+            return;
+        }
+        if (busy.kind === 'queued') {
+            this._view?.webview.postMessage({
+                type: 'anthropicNotSent',
+                message: busy.how === 'next' ? `Queued to run next in session ${busy.session}.` : `Queued to run after the current item in session ${busy.session}.`,
+                queued: true,
+                ...(slot ? { slot } : {}),
+            });
+            return;
+        }
+        if (busy.kind === 'send') { targetSession = busy.session; }
         // Spec: only one interactive Anthropic turn at a time. The webview
         // already disables Send during a panel turn, but the shared guard also
         // blocks a concurrent Send-to-Chat / scripting turn — and vice versa.
@@ -1429,7 +1453,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         // A profile that keeps its conversation elsewhere than the session's
         // existing one (an Agent SDK session vs. our own history) cannot continue it.
-        const mismatch = sessionTransportMismatch(sessionsFolder(WsPaths.getWorkspaceQuestId()), this._chatSessionKey(), {
+        const mismatch = sessionTransportMismatch(sessionsFolder(WsPaths.getWorkspaceQuestId()), targetSession, {
             id: profile.id,
             ...(cfg.model ? { model: cfg.model } : {}),
             continuity: resolveEffectiveHistoryMode(cfg.historyMode, cfg.transport ?? 'direct') === 'sdk-managed' ? 'sdk' : 'history',
@@ -1470,7 +1494,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         try {
             // The send is shown in the prompt queue (status chat, then chat-sent with its answer).
-            const sessionKey = this._chatSessionKey();
+            // The session picked in the panel, or the free one chosen above.
+            const sessionKey = targetSession;
+            // It has started: the slot it came from is cleared unless it keeps its text.
+            this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
             const result = await trackChatSend(
                 { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel' },
                 () => AnthropicHandler.instance.sendMessage({
@@ -1485,6 +1512,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     skipQuestRefresh,
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
                 }),
+                // Ended by its timeout or by removing its entry: stopped like the Stop button.
+                { cancel: () => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
             );
             this._updateAnthropicWindowStatus('answer-received');
             this._view?.webview.postMessage({

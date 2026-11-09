@@ -1005,6 +1005,17 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
 // State builder & push
 // ============================================================================
 
+/** The session a pending item waits for (a chat send runs in it), or undefined. */
+function waitingForSessionOf(item: QueuedPrompt): string | undefined {
+    if (item.status !== 'pending') { return undefined; }
+    try { return PromptQueueManager.instance.chatHoldingSessionOf(item)?.session; } catch { return undefined; }
+}
+
+/** Whether a `chat` item's send still runs (it holds its session). */
+function chatSendAlive(item: QueuedPrompt): boolean {
+    try { return PromptQueueManager.instance.sessionHolder(item.session ?? 'chat')?.id === item.id; } catch { return false; }
+}
+
 /** Whether the queue holds `id`'s text open for editing (no queue: no). */
 function isTextBeingEdited(id: string): boolean {
     try { return PromptQueueManager.instance.isTextBeingEdited(id); } catch { return false; }
@@ -1119,6 +1130,10 @@ function buildState(): Record<string, unknown> {
                 ...(runningLoopAbove(items, item.id) ? { canSendBetween: true } : {}),
                 // Its text is open for editing: the queue waits for it.
                 ...(isTextBeingEdited(item.id) ? { textEditing: true } : {}),
+                // A chat send runs in its session: it waits for the session.
+                ...(waitingForSessionOf(item) ? { waitingForSession: waitingForSessionOf(item) } : {}),
+                // A chat send whose send still runs (Remove stops it).
+                ...(item.status === 'chat' && chatSendAlive(item) ? { chatActive: true } : {}),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),

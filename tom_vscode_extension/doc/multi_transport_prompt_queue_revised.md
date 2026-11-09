@@ -697,6 +697,16 @@ first pending item when that comes earlier or nothing is sending — with
 nothing pinned (the queue's profile and session), and marked `sendBetween`
 when the item above is a running loop.
 
+**A session a chat send runs in.** `sendItem` does not start an item on the
+Anthropic transport whose resolved session a live chat send holds
+(`chatHoldingSessionOf`, `src/utils/sessionBusy.ts`); it stays pending, the
+editor's state flags it `waitingForSession`, and `completeChatItem` calls
+`sendNext` once the chat send ended. In the other direction, a chat send into a
+session a queue item runs in is not started: `resolveBusySession` offers Run
+next (`enqueueNext`), Run after the current item (`enqueueAfterCurrent`: under
+the running item, unmarked) or a free session. A `chat` item is always
+removable; removing a running one stops its send (`abandonChatSend`).
+
 **Editing a pending item's text.** `updateText` accepts staged and pending
 items (`canEditText`; a pending item has not been dispatched, so its expansion
 is built again). The queue editor's edit button opens the text

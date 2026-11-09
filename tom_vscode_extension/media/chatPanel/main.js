@@ -615,7 +615,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); if (id === 'anthropic') { clearSlotUnlessKept('anthropic', slotNo); } break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic') { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
         case 'clearText': {
             if (!id) {break;}
@@ -1298,6 +1298,19 @@ window.addEventListener('message', function(e) {
         // The send's tokens, cache reads and writes included (usageSummaryLine on the host).
         if (msg.usageLine) {anthropicStatus += ' · ' + msg.usageLine;}
         setAnthropicStatus(anthropicStatus);
+    } else if (msg.type === 'anthropicSendStarted') {
+        // The send started (its session was free, or a free one was chosen): the slot is cleared unless it keeps its text.
+        var startedSlot = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
+        if (startedSlot >= 1 && startedSlot <= 9) { clearSlotUnlessKept('anthropic', startedSlot); }
+    } else if (msg.type === 'anthropicNotSent') {
+        // Its session was busy: queued instead (the slot is cleared unless it keeps its text), or not sent.
+        anthropicSending = false;
+        updateAnthropicSendButton();
+        setAnthropicStatus(msg.message || 'Not sent.');
+        if (msg.queued) {
+            var queuedFrom = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
+            if (queuedFrom >= 1 && queuedFrom <= 9) { clearSlotUnlessKept('anthropic', queuedFrom); }
+        }
     } else if (msg.type === 'anthropicError') {
         anthropicSending = false;
         updateAnthropicSendButton();

@@ -17,8 +17,11 @@
  *        mainprompt-content), the header without a prompt excerpt; a long answer's first 600 characters with
  *        the expand / collapse toggle opening the whole answer in place and the two Markdown buttons; a running
  *        `chat` item without an answer has the prompt and no answer block, and the answer block once it arrived
- *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared after Send and after the
- *        host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
+ *   CB-9 a busy session: the panel's send not sent (anthropicNotSent) frees the Send button and keeps the text;
+ *        queued instead clears an unkept slot; in the queue editor a pending item waiting for its session shows
+ *        "[waiting for session X]", and a running chat item's Remove is enabled (stops the send)
+ *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
+ *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
  */
 
@@ -175,7 +178,10 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(text.value, 'two');
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
         assert.equal(posted.filter((m) => m.type === 'sendAnthropic').pop()?.text, 'two', 'sent first');
+        assert.equal(text.value, 'two', 'not before the send started (its session may be busy)');
+        fire({ type: 'anthropicSendStarted', slot: 2 });
         assert.equal(text.value, '', 'then cleared');
+        fire({ type: 'anthropicResult', toolCallCount: 0 });
         // A queue add clears the slot it came from once the host confirms — not the Copilot text.
         text.value = 'queued';
         doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]').click();
@@ -240,6 +246,44 @@ describe('chat sends and the queue buttons', () => {
         // Its answer arrives while it still runs: the answer block appears.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: [items[0], { ...items[1], answerText: 'partial answer' }], autoSend: false } }));
         assert.match(entry('c2').querySelector('.answer-preview').textContent, /partial answer/);
+    });
+
+    test('CB-9: a busy session', () => {
+        const { w } = chatPanel();
+        const doc = w.document;
+        const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+        fire({ type: 'draftsLoaded', sections: { anthropic: { activeSlot: 1, slots: { '1': 'one' }, slotKeep: { '1': false } } } });
+        const text = doc.getElementById('anthropic-text');
+        const sendBtn = doc.getElementById('anthropic-send-btn');
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(sendBtn.disabled, true, 'sending');
+        fire({ type: 'anthropicNotSent', message: 'Not sent: session walk is busy.' });
+        assert.equal(sendBtn.disabled, false, 'free again');
+        assert.equal(text.value, 'one', 'not sent: the text stays even in an unkept slot');
+        assert.match(doc.getElementById('anthropic-status')?.textContent ?? doc.body.textContent, /Not sent: session walk is busy\./);
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        fire({ type: 'anthropicNotSent', message: 'Queued to run next in session walk.', queued: true, slot: 1 });
+        assert.equal(text.value, '', 'queued instead: an unkept slot is cleared');
+
+        // The queue editor.
+        const html = media('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+        const q = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
+        open.push(q);
+        q.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
+        const base = { type: 'normal', transport: 'anthropic', template: '(none)', createdAt: new Date().toISOString(), expandedText: '' };
+        const items = [
+            { ...base, id: 'c1', status: 'chat', originalText: 'a chat send', session: 'walk', chatActive: true },
+            { ...base, id: 'c2', status: 'chat', originalText: 'a hung chat send', session: 'chat' },
+            { ...base, id: 'p1', status: 'pending', originalText: 'queued in walk', session: 'walk', waitingForSession: 'walk' },
+        ];
+        q.__INIT__ = { state: { items, autoSend: true, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
+        q.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
+        const removeOf = (id: string): Win => q.document.querySelector(`.queue-item.chat-item[data-qid="${id}"] button[onclick^="remove("]`);
+        assert.equal(removeOf('c1').disabled, false, 'a running chat send can be removed');
+        assert.match(removeOf('c1').title, /Stop this chat send and remove it/);
+        assert.equal(removeOf('c2').disabled, false, 'a hung one too');
+        assert.equal(removeOf('c2').title, 'Remove from the list');
+        assert.match(q.document.body.textContent, /\[waiting for session walk\]/);
     });
 });
 
