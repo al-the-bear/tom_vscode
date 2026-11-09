@@ -90,6 +90,27 @@ describe('Markdown Browser links, navigation and search', () => {
         assert.notEqual(heading.style.backgroundColor, '', 'the CRIT under A, not the one under STKG, is flashed');
     });
 
+    test('MN-1b: a single section id of more than four letters', () => {
+        const { w } = setup();
+        show(w, transformMarkdown([
+            '# <!--[SBP]--> Blueprint',
+            '',
+            'Plans in PLTPLN, personas in ASMRE-ASMP-PERSONA-ARCHETYPES; HTTP, CRIT, UNKNOWN and NOPE-NOPE-X stay text.',
+            '',
+            '## <!--[PLTPLN]--> PLTPLN plan',
+            '',
+            '## <!--[CRIT]--> Criteria',
+            '',
+            '### <!--[ASMRE-ASMP-PERSONA-ARCHETYPES]--> Persona archetypes',
+        ].join('\n')));
+        const refs = $(w, 'a.mdb-secref');
+        assert.deepEqual(refs.map((a) => a.dataset.secref), ['PLTPLN', 'ASMRE-ASMP-PERSONA-ARCHETYPES'],
+            'CRIT has four letters, UNKNOWN and NOPE-NOPE-X name no heading, and the heading does not link its own id');
+        refs[1].click();
+        const heading = $(w, 'h3').find((h) => h.textContent.includes('Persona archetypes'));
+        assert.notEqual(heading.style.backgroundColor, '', 'the click goes to the heading');
+    });
+
     test('MN-2: document back / forward', () => {
         const { w } = setup();
         show(w, SPEC);

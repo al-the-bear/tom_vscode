@@ -229,19 +229,27 @@ function mdbGroups(tokens) {
 /** A DocSpecs section id: upper case letters and digits, `-`-separated. */
 var MDB_SECTION_ID = '[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*';
 
+/** A single section id is taken for a reference when it has more letters than this (digits and `-` not counted). */
+var MDB_SINGLE_ID_MIN_LETTERS = 5;
+
 /**
- * The section references in `text`: two or more section ids joined by `>`
- * (`OUTER > INNER`), outer first.
+ * The section references in `text`, outer first: two or more section ids
+ * joined by `>` (`OUTER > INNER`), or a single all-uppercase id with more
+ * than four letters (`PLTPLN`, `ASMRE-ASMP-PERSONA-ARCHETYPES`). Shorter
+ * single words (`HTTP`, `TODO`) are left alone. The caller links only those
+ * that name a heading of the document.
  *
  * @param {string} text
  * @returns {Array<{start: number, end: number, ids: string[]}>}
  */
 function mdbSectionRefs(text) {
-    var re = new RegExp('(?<![A-Za-z0-9-])' + MDB_SECTION_ID + '(?:[ \\t]*>[ \\t]*' + MDB_SECTION_ID + ')+(?![A-Za-z0-9-])', 'g');
+    var re = new RegExp('(?<![A-Za-z0-9-])' + MDB_SECTION_ID + '(?:[ \\t]*>[ \\t]*' + MDB_SECTION_ID + ')*(?![A-Za-z0-9-])', 'g');
     var out = [];
     var m;
     while ((m = re.exec(String(text || ''))) !== null) {
-        out.push({ start: m.index, end: m.index + m[0].length, ids: m[0].split('>').map(function(s) { return s.trim(); }) });
+        var ids = m[0].split('>').map(function(s) { return s.trim(); });
+        if (ids.length === 1 && (ids[0].match(/[A-Z]/g) || []).length < MDB_SINGLE_ID_MIN_LETTERS) { continue; }
+        out.push({ start: m.index, end: m.index + m[0].length, ids: ids });
     }
     return out;
 }

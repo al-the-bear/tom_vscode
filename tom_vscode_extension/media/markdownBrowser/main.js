@@ -530,6 +530,8 @@
             + '</div>';
         /** Rendered HTML that may hold a section reference or a plain-text .md path. */
         var LINKABLE_HTML = /[A-Z0-9][ \t]*&gt;[ \t]*[A-Z]|\.md(?![\w/-])/i;
+        /** Rendered HTML that may hold a single section id (an upper-case run of five or more; mdbSectionRefs decides). */
+        var SINGLE_ID_HTML = /[A-Z][A-Z0-9-]{4,}/;
 
         function piecesToNodes(pieces) {
             var holder = document.createElement('div');
@@ -550,7 +552,7 @@
                     el.__mdbBlock = pieces[k].block;
                     wrappers.push(el);
                     blocks.push(pieces[k].block);
-                    if (LINKABLE_HTML.test(pieces[k].html)) { linkables.push(el); }
+                    if (LINKABLE_HTML.test(pieces[k].html) || SINGLE_ID_HTML.test(pieces[k].html)) { linkables.push(el); }
                     k++;
                 }
             });
@@ -1976,7 +1978,9 @@
             var text = node.nodeValue || '';
             var found = [];
             mdbSectionRefs(text).forEach(function(r) {
-                if (headingForRef(r.ids)) { found.push({ start: r.start, end: r.end, ref: r.ids.join(' > ') }); }
+                var target = headingForRef(r.ids);
+                // A single id inside its own heading is that heading's name, not a reference to it.
+                if (target && !(r.ids.length === 1 && target.contains(node))) { found.push({ start: r.start, end: r.end, ref: r.ids.join(' > ') }); }
             });
             mdbMdPaths(text).forEach(function(m) { found.push({ start: m.start, end: m.end, path: m.path }); });
             if (found.length === 0) { return; }

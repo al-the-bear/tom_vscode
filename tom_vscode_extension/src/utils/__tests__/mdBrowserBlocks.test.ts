@@ -224,8 +224,19 @@ describe('Markdown Browser source mapping', () => {
             { start: 3, end: 15, ids: ['STKG', 'TOENV'] },
             { start: 20, end: 35, ids: ['SYDSC', 'UCE', 'X-1'] },
         ]);
-        assert.deepEqual(plain(api.mdbSectionRefs('a > b, Stkg > TOENV, STKG alone, x STKG > ')), [], 'lower case, single ids and dangling > are no references');
+        assert.deepEqual(plain(api.mdbSectionRefs('a > b, Stkg > TOENV, STKG alone, x STKG > ')).map((r) => r.ids), [['TOENV']],
+            'lower case, a single id of four letters or fewer and dangling > are no references; TOENV is a single id of five letters');
         assert.deepEqual(plain(api.mdbSectionRefs('RFDOC-DOCU-LST > RFDOC-DOCU-PROJECT-IDEA')).map((r) => r.ids), [['RFDOC-DOCU-LST', 'RFDOC-DOCU-PROJECT-IDEA']]);
+    });
+
+    test('MB-11b: a single id of more than four letters', () => {
+        const refs = (s: string): string[][] => plain(api.mdbSectionRefs(s)).map((r) => r.ids);
+        assert.deepEqual(refs('see PLTPLN and ASMRE-ASMP-PERSONA-ARCHETYPES.'), [['PLTPLN'], ['ASMRE-ASMP-PERSONA-ARCHETYPES']]);
+        assert.deepEqual(plain(api.mdbSectionRefs('see PLTPLN.')), [{ start: 4, end: 10, ids: ['PLTPLN'] }]);
+        assert.deepEqual(refs('STKG, ACE-1, HTTP, TODO and X-1-2 are four letters or fewer'), [], 'letters counted, digits and dashes not');
+        assert.deepEqual(refs('ACE-CRIT-1 has seven letters'), [['ACE-CRIT-1']]);
+        assert.deepEqual(refs('PLTPLNx, xPLTPLN, Pltpln, pre-PLTPLN, PLTPLN-x'), [], 'only a whole all-uppercase word');
+        assert.deepEqual(refs('STKG > TOENV then PLTPLN'), [['STKG', 'TOENV'], ['PLTPLN']], 'a chain is one reference, the single id another');
     });
 
     test('MB-12: resolving a section reference', () => {
