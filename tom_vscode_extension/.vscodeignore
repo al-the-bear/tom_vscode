@@ -43,3 +43,6 @@ vendor/**
 # The copy of the workspace template beside the VSIX (the one in resources/
 # ships)
 workspace_template.zip
+
+# create_layerbinaries_vsix's clone of tom_binaries: build input, not shipped.
+.tom_binaries/**

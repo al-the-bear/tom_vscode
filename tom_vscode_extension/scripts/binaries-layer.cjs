@@ -48,7 +48,6 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const provenance = require('./check-tom-bs-provenance.cjs');
@@ -114,7 +113,11 @@ function bridgeSourceHash(bridgeDir = BRIDGE_DIR) {
     return hash.digest('hex');
 }
 
-/** tom_bs's build stamp as written beside it: the versioner stamp, the bridge source hash, when and where it was built. */
+/**
+ * tom_bs's build stamp as written beside it: the versioner stamp, the bridge
+ * source hash, when it was built and for which platform. No host name: the
+ * layer is a public repository.
+ */
 function tomBsStamp(binary, platform, now = new Date()) {
     const stamp = provenance.readStamp(binary);
     return {
@@ -124,7 +127,6 @@ function tomBsStamp(binary, platform, now = new Date()) {
         // The versioner's time is when this build ran; publishing can come later.
         builtAt: stamp && stamp.buildTime ? new Date(stamp.buildTime).toISOString() : now.toISOString(),
         publishedAt: now.toISOString(),
-        builtOn: os.hostname(),
         version: stamp ? stamp.version : null,
         build: stamp ? stamp.build : null,
         commit: stamp ? stamp.commit : null,
@@ -213,7 +215,7 @@ function publish({ ff = false, push = true } = {}) {
             const head = cs && cs.clitool && cs.clitool.head ? ` (clitool ${String(cs.clitool.head).slice(0, 8)}${cs.clitool.dirty ? ', dirty' : ''})` : '';
             parts.push(`validate_codespecs${head}`);
         }
-        const message = `${parts.join(', ')} for ${platform}, built on ${os.hostname()}`;
+        const message = `${parts.join(', ')} for ${platform}`;
         git(['commit', '--quiet', '-m', message, '--', ...rel], repo);
         console.log(`✔ Binaries layer: committed ${message}`);
     } catch (e) {
@@ -285,14 +287,14 @@ function describePlatform(platform, { layer = layerDir(), aiBuild = codespecsSta
             out.tomBs = { state: 'unknown', text: `tom_bs: no build stamp (file from ${mtime.slice(0, 10)}): its source is unknown` };
         } else if (s.bridgeSourceHash && currentBridgeHash && s.bridgeSourceHash === currentBridgeHash) {
             // Built from exactly the bridge sources here, uncommitted edits included.
-            out.tomBs = { state: 'fresh', text: `tom_bs ${s.version}+${s.build} (${s.commit}, built ${s.builtAt.slice(0, 16).replace('T', ' ')} on ${s.builtOn || '?'}): ${label('fresh')}` };
+            out.tomBs = { state: 'fresh', text: `tom_bs ${s.version}+${s.build} (${s.commit}, built ${s.builtAt.slice(0, 16).replace('T', ' ')}): ${label('fresh')}` };
         } else {
             const changed = provenance.changedSince(s.commit);
             const verdict = provenance.judgeProvenance({
                 stamp: { version: s.version, build: s.build, commit: s.commit, buildTime: s.builtAt, dart: s.dart },
                 changedFiles: changed,
             });
-            out.tomBs = { state: verdict.state, text: `tom_bs ${s.version}+${s.build} (${s.commit}, built ${s.builtAt.slice(0, 16).replace('T', ' ')} on ${s.builtOn || '?'}): ${label(verdict.state, changed)}` };
+            out.tomBs = { state: verdict.state, text: `tom_bs ${s.version}+${s.build} (${s.commit}, built ${s.builtAt.slice(0, 16).replace('T', ' ')}): ${label(verdict.state, changed)}` };
         }
     }
     if (fs.existsSync(path.join(dir, exe(platform, 'validate_codespecs')))) {

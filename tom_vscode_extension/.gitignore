@@ -14,3 +14,7 @@ resources/codespecs
 # resources/ for the VSIX, and a copy beside the VSIX
 resources/workspace_template.zip
 /workspace_template.zip
+
+# create_layerbinaries_vsix: a shallow clone of the public tom_binaries when no
+# checkout is at hand (its tom/ folder is the binaries layer).
+.tom_binaries/

@@ -227,6 +227,35 @@ Both package through `install_extension --package-only` with
 `TOM_LAYER_BINARIES=1` (no second build), with the workspace template, and end
 like `create_vsix` plus the layer report.
 
+Without a Dart SDK — on any machine with Node.js 20+, npm and git — the VSIX is
+built from this source with every platform's binaries as the binaries layer
+holds them, nothing compiled with Dart:
+
+```bash
+bash create_layerbinaries_vsix.sh                  # the workspace's tom_binaries checkout, else a clone
+bash create_layerbinaries_vsix.sh --clone          # always a fresh clone of the public repository
+bash create_layerbinaries_vsix.sh --layer <dir>    # another tom_binaries checkout (or its tom/ folder)
+pwsh create_layerbinaries_vsix.ps1                 # Windows (-Clone, -Layer <dir>)
+```
+
+The layer is the public repository
+[al-the-bear/tom_binaries](https://github.com/al-the-bear/tom_binaries)
+(`tom/<platform>/`): the workspace's checkout when there is one, else a
+shallow clone into `.tom_binaries/` beside the script (gitignored, not in the
+VSIX, refreshed on the next run). It packages like the two above, with no Dart
+step even where Dart is installed, and ends with the same report: which
+platforms' `tom_bs` and `validate_codespecs` the VSIX carries, and which of
+them are older than the sources here or have no build stamp. A platform's
+binaries are put there by its own host (`compile_and_install --binaries-only`,
+or `create_fleetcompiled_vsix`).
+
+The layer's build stamps (`tom_bs.build.json`, `validate_codespecs.build.json`)
+and its commit messages name the platform, never the host: the repository is
+public. The Dart binaries are not byte-reproducible across checkouts: a Dart
+executable embeds the absolute path of the checkout it was compiled in (its
+entry-point URI), so the same sources built in another folder differ in those
+bytes; what a binary was built from is what its stamp says.
+
 `create_vsix` builds like `compile_and_install` (`--package-only` of
 `install_extension.*`: no uninstall, no install). They end with:
 

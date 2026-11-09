@@ -9,7 +9,8 @@
  *
  *   BL-1 publish: copies tom_bs, validate_codespecs and its stamp, writes tom_bs.build.json from the stamp
  *        tom_bs prints, commits exactly those files with a message naming the build, pushes; a second
- *        publish of the same build commits nothing
+ *        publish of the same build commits nothing; neither stamp nor message names the host (the layer
+ *        is public)
  *   BL-2 a refused push leaves the commit local (exit 3); --ff fast-forwards a layer that is only behind
  *        and pushes; --ff refuses a layer with commits of its own (exit 1) and commits nothing
  *   BL-3 bundle: the listed platforms' binaries into the extension's bin/<platform>/ with their stamps,
@@ -104,12 +105,14 @@ describe('binaries layer', () => {
         assert.equal(stamp.version, '1.0.0');
         assert.equal(stamp.build, 41);
         assert.equal(stamp.commit, 'abcdef0');
-        assert.equal(stamp.builtOn, os.hostname());
+        assert.equal(stamp.builtOn, undefined, 'no host name: the layer is public');
+        assert.ok(!JSON.stringify(stamp).includes(os.hostname()), 'the host is named nowhere in the stamp');
         assert.equal(stamp.builtAt, '2026-11-09T10:00:00.000Z', 'the versioner time, not the publish time');
         assert.ok(stamp.publishedAt);
         const files = git(t.repo, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort();
         assert.deepEqual(files, ['tom_bs', 'tom_bs.build.json', 'validate_codespecs', 'validate_codespecs.build.json'].map((f) => `tom/${PLATFORM}/${f}`).sort());
-        assert.match(git(t.repo, 'log', '-1', '--format=%s'), new RegExp(`^tom_bs 1\\.0\\.0\\+41 \\(abcdef0\\), validate_codespecs \\(clitool 12345678\\) for ${PLATFORM}, built on `));
+        assert.match(git(t.repo, 'log', '-1', '--format=%s'), new RegExp(`^tom_bs 1\\.0\\.0\\+41 \\(abcdef0\\), validate_codespecs \\(clitool 12345678\\) for ${PLATFORM}$`));
+        assert.ok(!git(t.repo, 'log', '-1', '--format=%B').includes(os.hostname()), 'nor in the commit message');
         assert.equal(git(t.remote, 'rev-parse', 'main'), git(t.repo, 'rev-parse', 'HEAD'), 'pushed');
         assert.match(git(t.repo, 'status', '--porcelain'), /\?\? tom\/unrelated\.txt/, 'other files left alone');
         const head = git(t.repo, 'rev-parse', 'HEAD');
@@ -183,11 +186,11 @@ describe('binaries layer', () => {
         assert.equal(d.tomBs.state, 'unknown');
         assert.match(d.tomBs.text, /no build stamp/);
         assert.equal(d.validateCodespecs.state, 'unknown');
-        fs.writeFileSync(path.join(dir, 'tom_bs.build.json'), JSON.stringify({ version: '1.0.0', build: 7, commit: '0000000', builtAt: '2026-11-09T10:00:00.000Z', builtOn: 'h' }));
+        fs.writeFileSync(path.join(dir, 'tom_bs.build.json'), JSON.stringify({ version: '1.0.0', build: 7, commit: '0000000', builtAt: '2026-11-09T10:00:00.000Z' }));
         fs.writeFileSync(path.join(dir, 'validate_codespecs.build.json'), JSON.stringify({ sourceHash: 'h1', builtAt: '2026-11-09T10:00:00.000Z' }));
         d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHash: 'h1' });
         assert.equal(d.tomBs.state, 'unknown', 'a commit this checkout does not have');
-        assert.match(d.tomBs.text, /^tom_bs 1\.0\.0\+7 \(0000000, built 2026-11-09 10:00 on h\)/);
+        assert.match(d.tomBs.text, /^tom_bs 1\.0\.0\+7 \(0000000, built 2026-11-09 10:00\)/);
         assert.equal(d.validateCodespecs.state, 'fresh');
         d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHash: 'h2' });
         assert.equal(d.validateCodespecs.state, 'stale');
@@ -217,7 +220,7 @@ describe('bridge source hash', () => {
         const dir = path.join(t.layerDir, PLATFORM);
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(dir, 'tom_bs'), 'x');
-        fs.writeFileSync(path.join(dir, 'tom_bs.build.json'), JSON.stringify({ version: '1.0.0', build: 8, commit: '0000000', builtAt: '2026-11-09T10:00:00.000Z', builtOn: 'h', bridgeSourceHash: h0 }));
+        fs.writeFileSync(path.join(dir, 'tom_bs.build.json'), JSON.stringify({ version: '1.0.0', build: 8, commit: '0000000', builtAt: '2026-11-09T10:00:00.000Z', bridgeSourceHash: h0 }));
         assert.equal(layer.describePlatform(PLATFORM, { layer: t.layerDir, currentBridgeHash: h0 }).tomBs.state, 'fresh');
         assert.equal(layer.describePlatform(PLATFORM, { layer: t.layerDir, currentBridgeHash: 'other' }).tomBs.state, 'unknown', 'else the commit decides (not in this checkout here)');
     });
