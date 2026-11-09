@@ -694,7 +694,14 @@ The extension provides dedicated output channels for observability:
 | Tom AI: MCP Server | `mcpServerLog.ts` | MCP server requests |
 | Tom AI Local Log | `localLlm-handler.ts` | Local LLM debug output (endpoint, timing, retries) |
 
-The Tom Extension Debug Log is also written to `ztmp/tom_extension_debug.<quest>.log` in the workspace, one file per quest window, started afresh when the window activates. Its start-up lines show why a panel was slow to appear: how long each step of the activation took, when each view was resolved and first shown (`webview.startup`), every time the extension host was busy for 250 ms or more in the first two minutes (`extension.startup`, whichever extension held it), and every panel message that took 500 ms or more to handle.
+The Tom Extension Debug Log is also written to
+`ztmp/tom_extension_debug.<quest>.log` in the workspace, one file per quest
+window, started afresh when the window activates. Its start-up lines show why a
+panel was slow to appear: how long each step of the activation took, when each
+view was resolved and first shown (`webview.startup`), every time the extension
+host was busy for 250 ms or more in the first two minutes (`extension.startup`,
+whichever extension held it), and every panel message that took 500 ms or more
+to handle.
 
 Queue and timed request channels include ISO timestamps on every log line and can be enabled/disabled at runtime.
 
