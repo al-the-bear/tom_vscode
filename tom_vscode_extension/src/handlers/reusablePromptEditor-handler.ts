@@ -17,7 +17,7 @@ import * as path from 'path';
 import { getWorkspaceRoot } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { projectPromptScopes, scanPromptScopes } from '../utils/promptScopes';
 import { getWorkspaceName } from '../utils/panelYamlStore';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -128,7 +128,7 @@ function bindReusablePromptEditorPanel(
     panel.onDidDispose(() => { _panel = undefined; });
 
     setTimeout(() => {
-        _sendAllData(options?.scope, options?.subScopeId, options?.fileId);
+        void _sendAllData(options?.scope, options?.subScopeId, options?.fileId);
     }, 100);
 }
 
@@ -198,62 +198,6 @@ function _getQuestPromptsDir(questId: string): string | null {
     return WsPaths.ai('quests', questId, 'prompt') || path.join(wsRoot, '_ai', 'quests', questId, 'prompt');
 }
 
-function _getProjectPromptScopes(): ScopeItem[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
-
-    const projects = scanWorkspaceProjectsByDetectors({ traverseWholeWorkspace: true });
-    const scopes = projects
-        .map(p => ({
-            id: encodeURIComponent(p.absolutePath),
-            label: p.name,
-            dir: path.join(p.absolutePath, 'prompt'),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label));
-
-    if (scopes.length > 0) return scopes;
-
-    // Fallback: walk for prompt/ directories
-    const fallback: ScopeItem[] = [];
-    const seen = new Set<string>();
-    const maxDepth = 6;
-
-    const shouldSkip = (name: string) =>
-        name.startsWith('.') || ['node_modules', 'build', 'dist', 'out', '.dart_tool'].includes(name);
-
-    const walk = (dir: string, depth: number): void => {
-        if (depth > maxDepth) return;
-        let entries: fs.Dirent[] = [];
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-
-        if (entries.some(e => e.isDirectory() && e.name === 'prompt')) {
-            const relative = path.relative(wsRoot, dir) || '.';
-            if (
-                relative !== '.' &&
-                !relative.startsWith('_ai') &&
-                !relative.includes(`${path.sep}_ai${path.sep}`) &&
-                !relative.includes(`${path.sep}prompt${path.sep}`)
-            ) {
-                const key = path.resolve(dir);
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    fallback.push({
-                        id: encodeURIComponent(dir),
-                        label: _truncatePath(relative),
-                        dir: path.join(dir, 'prompt'),
-                    });
-                }
-            }
-        }
-        for (const e of entries) {
-            if (!e.isDirectory() || shouldSkip(e.name)) continue;
-            walk(path.join(dir, e.name), depth + 1);
-        }
-    };
-    walk(wsRoot, 0);
-    return fallback.sort((a, b) => a.label.localeCompare(b.label));
-}
-
 function _getQuestPromptScopes(): ScopeItem[] {
     const wsRoot = getWorkspaceRoot();
     if (!wsRoot) return [];
@@ -274,58 +218,6 @@ function _getQuestPromptScopes(): ScopeItem[] {
         .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function _getScanPromptScopes(): ScopeItem[] {
-    const wsRoot = getWorkspaceRoot();
-    return _collectAllPromptDirs().map(promptDir => {
-        const relative = wsRoot ? path.relative(wsRoot, promptDir) : promptDir;
-        return { id: encodeURIComponent(promptDir), label: _truncatePath(relative), dir: promptDir };
-    });
-}
-
-/**
- * Walk the entire workspace tree (up to depth 6) and collect every
- * `prompt/` directory. Unlike the former ancestor-walk approach this
- * does not depend on the active text editor, so it works from webview
- * panels and custom editors too.
- */
-function _collectAllPromptDirs(): string[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
-    const maxDepth = 6;
-    const shouldSkip = (name: string) =>
-        name.startsWith('.') || ['node_modules', 'build', 'dist', 'out', '.dart_tool'].includes(name);
-
-    const unique = new Set<string>();
-    const result: string[] = [];
-
-    const walk = (dir: string, depth: number): void => {
-        if (depth > maxDepth) return;
-        let entries: fs.Dirent[] = [];
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-
-        for (const entry of entries) {
-            if (!entry.isDirectory() || shouldSkip(entry.name)) continue;
-            const childDir = path.join(dir, entry.name);
-            if (entry.name === 'prompt') {
-                const key = path.resolve(childDir);
-                if (!unique.has(key)) { unique.add(key); result.push(childDir); }
-                // Don't recurse into prompt/ itself
-            } else {
-                walk(childDir, depth + 1);
-            }
-        }
-    };
-    walk(wsRoot, 0);
-    return result.sort();
-}
-
-function _truncatePath(fullPath: string, maxLength = 60): string {
-    if (fullPath.length <= maxLength) return fullPath;
-    const tail = fullPath.slice(fullPath.length - maxLength);
-    const sepIdx = tail.indexOf(path.sep);
-    return sepIdx > -1 && sepIdx < tail.length - 1 ? `...${tail.slice(sepIdx)}` : `...${tail}`;
-}
-
 // ============================================================================
 // File listing
 // ============================================================================
@@ -338,12 +230,23 @@ function _listPromptFiles(dir: string): { id: string; label: string }[] {
         .map(f => ({ id: f, label: f }));
 }
 
-function _resolveDir(scope: PromptScope, subScopeId: string): string | null {
+/** The workspace walks behind the project and scan scopes (shared, asynchronous). */
+async function _getProjectPromptScopes(): Promise<ScopeItem[]> {
+    const wsRoot = getWorkspaceRoot();
+    return wsRoot ? projectPromptScopes(wsRoot) : [];
+}
+
+async function _getScanPromptScopes(): Promise<ScopeItem[]> {
+    const wsRoot = getWorkspaceRoot();
+    return wsRoot ? scanPromptScopes(wsRoot) : [];
+}
+
+async function _resolveDir(scope: PromptScope, subScopeId: string): Promise<string | null> {
     switch (scope) {
         case 'global':
             return _getGlobalPromptsDir();
         case 'project': {
-            const scopes = _getProjectPromptScopes();
+            const scopes = await _getProjectPromptScopes();
             const item = scopes.find(s => s.id === subScopeId);
             return item?.dir || null;
         }
@@ -351,7 +254,7 @@ function _resolveDir(scope: PromptScope, subScopeId: string): string | null {
             return _getQuestPromptsDir(subScopeId);
         }
         case 'scan': {
-            const scopes = _getScanPromptScopes();
+            const scopes = await _getScanPromptScopes();
             const item = scopes.find(s => s.id === subScopeId);
             return item?.dir || null;
         }
@@ -365,16 +268,16 @@ function _resolveDir(scope: PromptScope, subScopeId: string): string | null {
 async function _handleMessage(msg: any): Promise<void> {
     switch (msg.type) {
         case 'ready':
-            _sendAllData();
+            await _sendAllData();
             break;
         case 'requestData':
-            _sendAllData(msg.scope, msg.subScopeId, msg.fileId);
+            await _sendAllData(msg.scope, msg.subScopeId, msg.fileId);
             break;
         case 'selectScope':
-            _sendScopeFiles(msg.scope, msg.subScopeId);
+            await _sendScopeFiles(msg.scope, msg.subScopeId);
             break;
         case 'loadFile':
-            _sendFileContent(msg.scope, msg.subScopeId, msg.fileId);
+            await _sendFileContent(msg.scope, msg.subScopeId, msg.fileId);
             break;
         case 'save':
             await _saveFile(msg.scope, msg.subScopeId, msg.fileId, msg.content);
@@ -394,10 +297,9 @@ async function _handleMessage(msg: any): Promise<void> {
     }
 }
 
-function _sendAllData(scope?: string, subScopeId?: string, fileId?: string): void {
-    const projectScopes = _getProjectPromptScopes();
+async function _sendAllData(scope?: string, subScopeId?: string, fileId?: string): Promise<void> {
+    const [projectScopes, scanScopes] = await Promise.all([_getProjectPromptScopes(), _getScanPromptScopes()]);
     const questScopes = _getQuestPromptScopes();
-    const scanScopes = _getScanPromptScopes();
     const preferredQuestId = _getPreferredQuestId();
 
     // Determine preferred project scope
@@ -438,14 +340,14 @@ function _sendAllData(scope?: string, subScopeId?: string, fileId?: string): voi
     });
 }
 
-function _sendScopeFiles(scope: PromptScope, subScopeId: string): void {
-    const dir = _resolveDir(scope, subScopeId);
+async function _sendScopeFiles(scope: PromptScope, subScopeId: string): Promise<void> {
+    const dir = await _resolveDir(scope, subScopeId);
     const files = dir ? _listPromptFiles(dir) : [];
     _panel?.webview.postMessage({ type: 'scopeFiles', scope, subScopeId, files });
 }
 
-function _sendFileContent(scope: PromptScope, subScopeId: string, fileId: string): void {
-    const dir = _resolveDir(scope, subScopeId);
+async function _sendFileContent(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir) {
         _panel?.webview.postMessage({ type: 'fileContent', fileId, content: '' });
         return;
@@ -457,7 +359,7 @@ function _sendFileContent(scope: PromptScope, subScopeId: string, fileId: string
 }
 
 async function _saveFile(scope: PromptScope, subScopeId: string, fileId: string, content: string): Promise<void> {
-    const dir = _resolveDir(scope, subScopeId);
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir) {
         vscode.window.showWarningMessage('Cannot determine prompt directory for this scope.');
         return;
@@ -472,7 +374,7 @@ async function _saveFile(scope: PromptScope, subScopeId: string, fileId: string,
 }
 
 async function _addFile(scope: PromptScope, subScopeId: string): Promise<void> {
-    const dir = _resolveDir(scope, subScopeId);
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir) {
         vscode.window.showWarningMessage('Cannot determine prompt directory for this scope.');
         return;
@@ -502,14 +404,14 @@ async function _addFile(scope: PromptScope, subScopeId: string): Promise<void> {
     fs.writeFileSync(filePath, `# ${name.replace('.prompt.md', '')}\n\n`, 'utf-8');
 
     // Refresh list with new file selected
-    _sendScopeFiles(scope, subScopeId);
+    await _sendScopeFiles(scope, subScopeId);
     setTimeout(() => {
         _panel?.webview.postMessage({ type: 'selectNewFile', fileId: name });
     }, 100);
 }
 
 async function _deleteFile(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = _resolveDir(scope, subScopeId);
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir) return;
     const filePath = path.join(dir, fileId);
 
@@ -519,12 +421,12 @@ async function _deleteFile(scope: PromptScope, subScopeId: string, fileId: strin
     if (confirm !== 'Delete') return;
 
     try { fs.unlinkSync(filePath); } catch { /* ok */ }
-    _sendScopeFiles(scope, subScopeId);
+    await _sendScopeFiles(scope, subScopeId);
     _panel?.webview.postMessage({ type: 'fileDeleted', fileId });
 }
 
 async function _openInVsCode(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = _resolveDir(scope, subScopeId);
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir) return;
     const filePath = path.join(dir, fileId);
     if (!fs.existsSync(filePath)) {
@@ -536,7 +438,7 @@ async function _openInVsCode(scope: PromptScope, subScopeId: string, fileId: str
 }
 
 async function _openInPreview(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = _resolveDir(scope, subScopeId);
+    const dir = await _resolveDir(scope, subScopeId);
     if (!dir || !_context) return;
     const filePath = path.join(dir, fileId);
     if (!fs.existsSync(filePath)) {

@@ -5,7 +5,7 @@ import * as path from 'path';
 const DEBUG_OUTPUT_CHANNEL_NAME = 'Tom Extension Debug Log';
 const DEBUG_LOG_TO_CONSOLE = false;
 const DEBUG_LOG_TO_FILE = true;
-const DEBUG_LOG_FILE_NAME = 'tom_extension_debug.log';
+const DEBUG_LOG_FILE_PREFIX = 'tom_extension_debug';
 
 type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
@@ -32,13 +32,39 @@ function getWorkspaceRoot(): string | undefined {
     return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
-function getDebugFilePath(): string | undefined {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) {
-        return undefined;
-    }
-    return path.join(wsRoot, 'ztmp', DEBUG_LOG_FILE_NAME);
+/**
+ * The window's quest: the open `.code-workspace` file's name, `default`
+ * without one. Kept local (not WsPaths) because the logger loads first.
+ */
+function windowQuestId(): string {
+    const wsFile = vscode.workspace.workspaceFile?.fsPath;
+    const base = wsFile ? path.basename(wsFile).replace(/\.code-workspace$/, '').trim() : '';
+    return base || 'default';
 }
+
+/**
+ * The log file of this window: `<ws>/ztmp/tom_extension_debug.<quest>.log`.
+ *
+ * Why per quest: every quest window opens the same workspace folder, so one
+ * shared file interleaved the windows' lines and each activation truncated
+ * the others' log. Resolved once — the folder and the quest do not change
+ * while the window runs, and logging must not stat the disk per line.
+ */
+let debugFilePath: string | null | undefined;
+function getDebugFilePath(): string | undefined {
+    if (debugFilePath === undefined) {
+        const wsRoot = getWorkspaceRoot();
+        debugFilePath = wsRoot ? debugLogFilePath(wsRoot, windowQuestId()) : null;
+    }
+    return debugFilePath ?? undefined;
+}
+
+/** Where a window of `questId` on `wsRoot` writes its debug log. */
+export function debugLogFilePath(wsRoot: string, questId: string): string {
+    return path.join(wsRoot, 'ztmp', `${DEBUG_LOG_FILE_PREFIX}.${questId}.log`);
+}
+
+let debugDirReady = false;
 
 function ensureDebugOutputChannel(): vscode.OutputChannel {
     if (!debugOutputChannel) {
@@ -70,9 +96,9 @@ function writeToDebugFile(line: string): void {
         return;
     }
     try {
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+        if (!debugDirReady) {
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            debugDirReady = true;
         }
         fs.appendFileSync(filePath, `${line}\n`, 'utf-8');
     } catch {
@@ -161,13 +187,8 @@ export function initializeDebugLogger(context: vscode.ExtensionContext): void {
         const filePath = getDebugFilePath();
         if (filePath) {
             try {
-                const dir = path.dirname(filePath);
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
+                fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                debugDirReady = true;
                 const resetLine = `${new Date().toISOString()} INFO [debugLogger] Debug log reset on extension activation`;
                 fs.writeFileSync(filePath, `${resetLine}\n`, 'utf-8');
                 channel.appendLine(resetLine);

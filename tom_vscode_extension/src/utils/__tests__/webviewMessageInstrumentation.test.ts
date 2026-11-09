@@ -9,6 +9,8 @@
  *        and the error still reaches the caller
  *   WM-4 instrumenting twice changes nothing (one log line, listeners called once)
  *   WM-5 functions in a payload are logged as [Function]
+ *   WM-6 a listener taking `slowHandlerMs` or longer (until its promise settles,
+ *        a failing one too) is logged with its message type; a quick one is not
  */
 
 import test, { describe } from 'node:test';
@@ -97,5 +99,26 @@ describe('webview message instrumentation', () => {
         const w = setup();
         await w.post({ type: 'x', cb: () => 1 });
         assert.match(w.logged[0], /"cb":"\[Function\]"/);
+    });
+
+    test('WM-6: slow handlers are logged with their type', async () => {
+        const fake = fakeWebview();
+        const logged: string[] = [];
+        instrumentWebviewMessages(fake.webview, {
+            source: 'tomAi.wsPanel', slowHandlerMs: 30, log: (l) => { logged.push(l); }, report: () => undefined,
+        });
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        fake.webview.onDidReceiveMessage(async (m) => {
+            const type = (m as { type: string }).type;
+            if (type !== 'quick') { await wait(40); }
+            if (type === 'failing') { throw new Error('boom'); }
+        });
+        await fake.post({ type: 'quick' });
+        await fake.post({ type: 'getGuidelinesGroups' });
+        await fake.post({ type: 'failing' });
+        const slow = logged.filter((l) => l.includes('slow handler'));
+        assert.equal(slow.length, 2, logged.join('\n'));
+        assert.match(slow[0], /^tomAi\.wsPanel slow handler getGuidelinesGroups: \d+ms$/);
+        assert.match(slow[1], /^tomAi\.wsPanel slow handler failing: \d+ms$/);
     });
 });

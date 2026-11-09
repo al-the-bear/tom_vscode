@@ -102,10 +102,12 @@ export function resolveDotPath(
 function addEditorValues(values: Record<string, string>): void {
     const editorValues = buildVariableMap({ includeEditor: true });
 
-    // Merge in editor values from unified resolver
-    for (const [k, v] of Object.entries(editorValues)) {
+    // Merge in editor values from unified resolver. Keys first, then only the
+    // new values are read: reading every value would build the lazy
+    // composite blocks (git commands) whether a template uses them or not.
+    for (const k of Object.keys(editorValues)) {
         if (!(k in values)) {
-            values[k] = v;
+            values[k] = editorValues[k];
         }
     }
 
@@ -139,8 +141,8 @@ function resolvePass(text: string, values: Record<string, string>): string {
     const lookup = (key: string): string | undefined => {
         if (key in values) { return values[key]; }
         const lk = key.toLowerCase();
-        for (const [k, v] of Object.entries(values)) {
-            if (k.toLowerCase() === lk) { return v; }
+        for (const k of Object.keys(values)) {
+            if (k.toLowerCase() === lk) { return values[k]; }
         }
         return resolveDynamicKey(key, values, now);
     };
@@ -160,8 +162,8 @@ function resolvePass(text: string, values: Record<string, string>): string {
         if (key in values) { return values[key]; }
         // Case-insensitive fallback
         const lk = key.toLowerCase();
-        for (const [k, v] of Object.entries(values)) {
-            if (k.toLowerCase() === lk) { return v; }
+        for (const k of Object.keys(values)) {
+            if (k.toLowerCase() === lk) { return values[k]; }
         }
         return ''; // unresolved → empty string
     });

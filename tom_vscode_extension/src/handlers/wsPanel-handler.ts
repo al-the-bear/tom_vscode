@@ -44,7 +44,7 @@ import {
     handleStatusAction,
 } from './statusPage-handler.js';
 import { WsPaths } from '../utils/workspacePaths.js';
-import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector.js';
+import { scanWorkspaceProjectsCached } from '../utils/projectDetector.js';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview.js';
 import { openInExternalApplication } from './handler_shared.js';
 import {
@@ -155,7 +155,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                 await this._sendStatusData();
                 return;
             case 'getGuidelinesGroups':
-                this._sendGuidelinesGroups();
+                await this._sendGuidelinesGroups();
                 return;
             case 'getGuidelinesFiles':
                 this._sendGuidelinesFiles(message.group);
@@ -182,7 +182,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                 await this._openFileExternal(message.file, message.group, 'guidelines');
                 return;
             case 'getDocsGroups':
-                this._sendDocsGroups();
+                await this._sendDocsGroups();
                 return;
             case 'getDocsFiles':
             case 'docsGetFiles': // documentPicker message type
@@ -422,8 +422,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         return null;
     }
 
-    private _collectGuidelinesProjects(): { id: string; label: string }[] {
-        const projects = scanWorkspaceProjectsByDetectors({ traverseWholeWorkspace: true });
+    private async _collectGuidelinesProjects(): Promise<{ id: string; label: string }[]> {
+        // Asynchronous and shared with the other groups' and panels' scans:
+        // the synchronous walk held the extension host for seconds while the
+        // window opened, so every other panel waited for @WS.
+        const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true });
         const result: { id: string; label: string }[] = [];
 
         for (const proj of projects) {
@@ -456,7 +459,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         return result.sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    private _sendGuidelinesGroups(): void {
+    private async _sendGuidelinesGroups(): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             this._view?.webview.postMessage({ type: 'guidelinesGroups', groups: [], projects: [], quests: [] });
@@ -464,7 +467,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         }
         const wsRoot = workspaceFolder.uri.fsPath;
         const groups: { id: string; label: string }[] = [];
-        const projectsWithGuidelines: { id: string; label: string }[] = this._collectGuidelinesProjects();
+        const projectsWithGuidelines: { id: string; label: string }[] = await this._collectGuidelinesProjects();
         const questFolders: { id: string; label: string }[] = this._collectGuidelinesQuests();
 
         const globalDir = WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
@@ -662,8 +665,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         return null;
     }
 
-    private _collectDocsProjects(): { id: string; label: string }[] {
-        const projects = scanWorkspaceProjectsByDetectors({ traverseWholeWorkspace: true });
+    private async _collectDocsProjects(): Promise<{ id: string; label: string }[]> {
+        // Asynchronous and shared with the other groups' and panels' scans:
+        // the synchronous walk held the extension host for seconds while the
+        // window opened, so every other panel waited for @WS.
+        const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true });
         const result: { id: string; label: string }[] = [];
 
         for (const proj of projects) {
@@ -676,7 +682,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         return result.sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    private _sendDocsGroups(): void {
+    private async _sendDocsGroups(): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             this._view?.webview.postMessage({ type: 'docsGroups', groups: [], projects: [] });
@@ -684,7 +690,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         }
         const wsRoot = workspaceFolder.uri.fsPath;
         const groups: { id: string; label: string }[] = [];
-        const projectsWithDocs: { id: string; label: string }[] = this._collectDocsProjects();
+        const projectsWithDocs: { id: string; label: string }[] = await this._collectDocsProjects();
 
         // Offer the Workspace group only when its resolved directory actually
         // holds markdown — otherwise a `doc/` folder that exists only for

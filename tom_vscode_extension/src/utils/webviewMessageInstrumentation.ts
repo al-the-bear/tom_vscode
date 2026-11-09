@@ -23,6 +23,11 @@ export interface WebviewMessageInstrumentation {
     skipTypes?: readonly string[];
     /** Writes one log line (`<source> payload=<json>`). */
     log(line: string): void;
+    /**
+     * A listener that takes at least this long (ms, until its promise
+     * settles) is logged as `<source> slow handler <type>: <ms>ms`. Unset: none.
+     */
+    slowHandlerMs?: number;
     /** Reports a listener's exception; `where` is `<source>.onDidReceiveMessage`. */
     report(where: string, error: unknown, details: { messageType: unknown }): void;
 }
@@ -58,11 +63,17 @@ export function instrumentWebviewMessages(webview: MessageSource, opts: WebviewM
 
     target.onDidReceiveMessage = (listener, thisArgs, disposables) => {
         const wrapped = async (message: unknown): Promise<unknown> => {
+            const started = performance.now();
             try {
                 return await Promise.resolve(listener.call(thisArgs, message));
             } catch (error) {
                 opts.report(where, error, { messageType: messageType(message) });
                 throw error;
+            } finally {
+                const ms = performance.now() - started;
+                if (opts.slowHandlerMs !== undefined && ms >= opts.slowHandlerMs) {
+                    opts.log(`${opts.source} slow handler ${String(messageType(message))}: ${Math.round(ms)}ms`);
+                }
             }
         };
         return subscribe(wrapped, thisArgs, disposables);

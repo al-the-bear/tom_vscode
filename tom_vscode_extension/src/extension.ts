@@ -105,6 +105,7 @@ import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { debounce } from './utils/debounce';
 import { initializeDebugLogger, installConsoleDebugRouting, debugLog } from './utils/debugLogger';
+import { monitorStartupStalls, trackWebviewStartup } from './utils/webviewStartupTiming';
 import { TomAiConfiguration } from './utils/tomAiConfiguration';
 import { WsPaths } from './utils/workspacePaths';
 import { TrailService } from './services/trailService';
@@ -157,6 +158,9 @@ let mcpServerController: McpServerController | undefined;
 
 let instrumentationInstalled = false;
 
+/** When activate() began (performance.now()), for the views' start-up timings. */
+let activationStartedAt: number | undefined;
+
 function installGlobalInstrumentation(): void {
     if (instrumentationInstalled) {
         return;
@@ -201,9 +205,16 @@ function installGlobalInstrumentation(): void {
                             instrumentWebviewMessages(webviewView.webview, {
                                 source: viewId,
                                 skipTypes: ['loadWindowStates', 'poll', 'ping'],
+                                slowHandlerMs: 500,
                                 log: (line) => debugLog(`webview message: ${line}`, 'INFO', 'webview.message'),
                                 report: (where, error, details) => reportException(`webview:${where}`, error, details),
                             });
+                            trackWebviewStartup(
+                                webviewView.webview,
+                                viewId,
+                                activationStartedAt,
+                                (line) => debugLog(line, 'INFO', 'webview.startup'),
+                            );
 
                             provider.resolveWebviewView(webviewView, webviewViewResolveContext, token);
                             const resolveMs = Math.round((performance.now() - resolveStart) * 100) / 100;
@@ -333,6 +344,7 @@ function hasTomWorkspaceConfig(wsRoot: string): boolean {
  */
 export async function activate(context: vscode.ExtensionContext) {
     const activateStart = performance.now();
+    activationStartedAt = activateStart;
     const timings: { step: string; ms: number }[] = [];
     const timeStep = (label: string, start: number) => {
         const elapsed = Math.round((performance.now() - start) * 100) / 100;
@@ -350,6 +362,16 @@ export async function activate(context: vscode.ExtensionContext) {
     installConsoleDebugRouting();
     debugLog('Debug logger initialized', 'INFO', 'extension.activate');
     timeStep('debugLogger + consoleRouting', stepStart);
+
+    // The first two minutes: every stall of the extension host's thread
+    // (ours or another extension's) as a debug-log line with its time.
+    const stopStallMonitor = monitorStartupStalls({
+        durationMs: 120_000,
+        intervalMs: 100,
+        thresholdMs: 250,
+        log: (line) => debugLog(line, 'INFO', 'extension.startup'),
+    });
+    context.subscriptions.push({ dispose: stopStallMonitor });
 
     // Store extension path for bundled binary resolution
     setExtensionPath(context.extensionPath);
@@ -417,9 +439,19 @@ export async function activate(context: vscode.ExtensionContext) {
     timeStep('bridgeClient', stepStart);
 
     // Without tom_bs on this platform this logs one line and starts nothing.
+    // Not awaited: starting tom_bs takes a second or more (spawn, then a
+    // settle wait), and every view waits for activate() to return before it
+    // is resolved. What needs the bridge running waits for `bridgeStarted`.
     stepStart = performance.now();
-    await restartBridgeHandler(context, false);
-    timeStep('restartBridgeHandler', stepStart);
+    const bridgeStartBegin = stepStart;
+    const bridgeStarted: Promise<void> = restartBridgeHandler(context, false).then(
+        () => {
+            const ms = Math.round((performance.now() - bridgeStartBegin) * 100) / 100;
+            debugLog(`restartBridgeHandler finished after activation began: ${ms}ms`, 'INFO', 'extension.activate');
+        },
+        (error) => reportException('activate:restartBridgeHandler', error),
+    );
+    timeStep('restartBridgeHandler (started)', stepStart);
 
     try {
     // Register all commands
@@ -646,15 +678,15 @@ export async function activate(context: vscode.ExtensionContext) {
             // (the Dart binaries page and its status-bar hint are the notice).
             bridgeLog(`[DartScript] ${dartScriptUnavailableMessage('The CLI integration server autostart')}`, 'INFO');
         } else if (getCliServerAutostart()) {
-            // Small delay to let bridge fully settle before starting CLI server
-            setTimeout(async () => {
+            // Once the bridge has started, and a little after, so it has settled.
+            void bridgeStarted.then(() => setTimeout(async () => {
                 try {
                     await startCliServerHandler();
                     bridgeLog('CLI server auto-started', 'INFO');
                 } catch (e: any) {
                     bridgeLog(`CLI server autostart failed: ${e.message}`, 'ERROR');
                 }
-            }, 2000);
+            }, 2000));
         }
         // Telegram autostart is a per-quest setting (see telegram-commands), so it
         // is read from the quest file rather than the shared config.

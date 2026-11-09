@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getWorkspaceRoot } from '../handlers/handler_shared';
+import { TtlPromiseCache } from './ttlPromiseCache';
 import { WsPaths } from './workspacePaths';
 
 export interface DetectorContainsRule {
@@ -75,12 +76,73 @@ function getRegex(pattern: string, flags?: string): RegExp {
     }
 }
 
-function evaluateContainsRule(projectRoot: string, rule: DetectorContainsRule): boolean {
-    const filePath = path.join(projectRoot, rule.file);
-    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+/** What a directory listing says about one entry. */
+type EntryKind = 'file' | 'dir' | 'link';
+
+/**
+ * A directory's entries by name, from the `readdirSync` / `readdir` the walk
+ * does anyway. Detector rules naming a direct child (`pubspec.yaml`, `lib`)
+ * are answered from it instead of an `existsSync` + `statSync` per rule per
+ * directory — on this workspace that was 140,000 stat calls per scan.
+ */
+export type DirListing = ReadonlyMap<string, EntryKind>;
+
+export function listingOf(entries: readonly fs.Dirent[]): DirListing {
+    const listing = new Map<string, EntryKind>();
+    for (const entry of entries) {
+        if (entry.isDirectory()) {
+            listing.set(entry.name, 'dir');
+        } else if (entry.isFile()) {
+            listing.set(entry.name, 'file');
+        } else if (entry.isSymbolicLink()) {
+            listing.set(entry.name, 'link');
+        }
+    }
+    return listing;
+}
+
+function statKind(fullPath: string): 'file' | 'dir' | undefined {
+    try {
+        const stat = fs.statSync(fullPath);
+        return stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** Is `relPath` under `projectRoot` a file or a folder (symlinks followed)? */
+function kindAt(projectRoot: string, relPath: string, listing?: DirListing): 'file' | 'dir' | undefined {
+    const direct = listing && !/[\\/]/.test(relPath) ? relPath : undefined;
+    if (direct !== undefined && listing) {
+        const kind = listing.get(direct);
+        if (kind === undefined) {
+            return undefined;
+        }
+        if (kind !== 'link') {
+            return kind;
+        }
+    }
+    return statKind(path.join(projectRoot, relPath));
+}
+
+function evaluateContainsRule(
+    projectRoot: string,
+    rule: DetectorContainsRule,
+    listing: DirListing | undefined,
+    contents: Map<string, string>,
+): boolean {
+    if (kindAt(projectRoot, rule.file, listing) !== 'file') {
         return false;
     }
-    const content = fs.readFileSync(filePath, 'utf-8');
+    let content = contents.get(rule.file);
+    if (content === undefined) {
+        try {
+            content = fs.readFileSync(path.join(projectRoot, rule.file), 'utf-8');
+        } catch {
+            return false;
+        }
+        contents.set(rule.file, content);
+    }
 
     if (rule.contains) {
         const regex = getRegex(rule.contains, rule.flags);
@@ -97,35 +159,29 @@ function evaluateContainsRule(projectRoot: string, rule: DetectorContainsRule): 
     return true;
 }
 
-function matchesDetector(projectRoot: string, detector: ProjectDetector): boolean {
+function matchesDetector(
+    projectRoot: string,
+    detector: ProjectDetector,
+    listing: DirListing | undefined,
+    contents: Map<string, string>,
+): boolean {
     const rule = detector.detection || {};
 
-    if (rule.hasFile) {
-        for (const relPath of rule.hasFile) {
-            const filePath = path.join(projectRoot, relPath);
-            if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-                return false;
-            }
+    for (const relPath of rule.hasFile ?? []) {
+        if (kindAt(projectRoot, relPath, listing) !== 'file') {
+            return false;
         }
     }
-
-    if (rule.hasFolder) {
-        for (const relPath of rule.hasFolder) {
-            const folderPath = path.join(projectRoot, relPath);
-            if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-                return false;
-            }
+    for (const relPath of rule.hasFolder ?? []) {
+        if (kindAt(projectRoot, relPath, listing) !== 'dir') {
+            return false;
         }
     }
-
-    if (rule.contains) {
-        for (const containsRule of rule.contains) {
-            if (!evaluateContainsRule(projectRoot, containsRule)) {
-                return false;
-            }
+    for (const containsRule of rule.contains ?? []) {
+        if (!evaluateContainsRule(projectRoot, containsRule, listing, contents)) {
+            return false;
         }
     }
-
     return true;
 }
 
@@ -196,18 +252,29 @@ export function loadProjectDetectorConfig(): ProjectDetectorConfig {
     };
 }
 
-export function detectProjectAttributes(projectRoot: string): ProjectDetectionResult {
-    const config = loadProjectDetectorConfig();
-    const detectors = config.projectAnalysis?.projectDetectors || [];
+/** The configured detectors (built-in, merged with the workspace's override). */
+export function loadProjectDetectors(): ProjectDetector[] {
+    return loadProjectDetectorConfig().projectAnalysis?.projectDetectors || [];
+}
 
+/**
+ * The detectors matching `projectRoot`. A walk passes the detectors it loaded
+ * once and the directory's listing; a single call loads them itself.
+ */
+export function detectProjectAttributes(
+    projectRoot: string,
+    detectors: readonly ProjectDetector[] = loadProjectDetectors(),
+    listing?: DirListing,
+): ProjectDetectionResult {
     const matchedDetectors: string[] = [];
     const attrMap: Record<string, Set<string>> = {};
+    const contents = new Map<string, string>();
 
     for (const detector of detectors) {
         if (!detector?.name || !detector?.detection) {
             continue;
         }
-        if (!matchesDetector(projectRoot, detector)) {
+        if (!matchesDetector(projectRoot, detector, listing, contents)) {
             continue;
         }
         matchedDetectors.push(detector.name);
@@ -226,15 +293,22 @@ export function hasDetectedProjectType(projectRoot: string): boolean {
     return (result.attributes.types || []).length > 0;
 }
 
-function isIgnoredFolder(name: string): boolean {
+/**
+ * Folders the project walk never enters: hidden ones, test fixtures, and
+ * build output and scratch (`ztmp`, Rust / Maven `target`), which hold no
+ * projects of their own but most of a workspace's directories — on this
+ * workspace `ztmp/` and two `target/` trees were 8,000 of 11,700.
+ */
+export function isIgnoredWorkspaceFolder(name: string): boolean {
     return (
         name.startsWith('.') ||
         name.startsWith('zom_') ||
         name === 'node_modules' ||
         name === 'build' ||
-        name === '.dart_tool' ||
         name === 'dist' ||
-        name === 'out'
+        name === 'out' ||
+        name === 'target' ||
+        name === 'ztmp'
     );
 }
 
@@ -274,35 +348,35 @@ function globToRegExp(glob: string): RegExp {
     return new RegExp(`^${escaped}$`);
 }
 
-function isExcludedRelativePath(relativePath: string, globs: string[]): boolean {
+function isExcludedRelativePath(relativePath: string, regexes: readonly RegExp[]): boolean {
     const normalized = relativePath.replace(/\\/g, '/');
-    return globs.some((glob) => {
-        const regex = globToRegExp(glob);
-        return regex.test(normalized) || regex.test(`${normalized}/`);
-    });
+    return regexes.some((regex) => regex.test(normalized) || regex.test(`${normalized}/`));
 }
 
-export function scanWorkspaceProjectsByDetectors(maxDepthOrOptions: number | DetectorScanOptions = 5): DetectedWorkspaceProject[] {
+/** Everything a walk needs, resolved once per scan. */
+interface ScanPlan {
+    roots: Array<{ name: string; root: string }>;
+    maxDepth: number;
+    excludes: RegExp[];
+    detectors: ProjectDetector[];
+}
+
+function scanPlan(maxDepthOrOptions: number | DetectorScanOptions): ScanPlan | undefined {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        return [];
+        return undefined;
     }
-    const discoveredRoots: Array<{ name: string; root: string }> = [];
+    const roots: Array<{ name: string; root: string }> = [];
     const seenRoots = new Set<string>();
-
     for (const folder of workspaceFolders) {
-        const folderRoot = folder.uri.fsPath;
-        const rootPath = folderRoot;
-        const rootName = path.basename(rootPath) || folder.name;
+        const rootPath = folder.uri.fsPath;
         const key = path.resolve(rootPath);
         if (seenRoots.has(key)) {
             continue;
         }
         seenRoots.add(key);
-        discoveredRoots.push({ name: rootName, root: rootPath });
+        roots.push({ name: path.basename(rootPath) || folder.name, root: rootPath });
     }
-
-    const workspaceRoots = discoveredRoots;
 
     const options: DetectorScanOptions = typeof maxDepthOrOptions === 'number'
         ? { maxDepth: maxDepthOrOptions }
@@ -313,68 +387,160 @@ export function scanWorkspaceProjectsByDetectors(maxDepthOrOptions: number | Det
     const excludeGlobs = options.excludeGlobs && options.excludeGlobs.length > 0
         ? options.excludeGlobs
         : getConfiguredExcludeGlobs();
+    return { roots, maxDepth, excludes: excludeGlobs.map(globToRegExp), detectors: loadProjectDetectors() };
+}
 
+/**
+ * One directory of a walk, given its entries (undefined when it could not be
+ * read): the project it is, if any, and the child directories to walk next.
+ * A detected project is not descended into, except a workspace root.
+ */
+function visitDirectory(
+    plan: ScanPlan,
+    rootInfo: { name: string; root: string },
+    dir: string,
+    entries: readonly fs.Dirent[] | undefined,
+): { project?: DetectedWorkspaceProject; children: string[] } {
+    const detection = detectProjectAttributes(dir, plan.detectors, entries ? listingOf(entries) : undefined);
+    let project: DetectedWorkspaceProject | undefined;
+    if ((detection.attributes.types || []).length > 0) {
+        const relWithinRoot = path.relative(rootInfo.root, dir) || '.';
+        project = {
+            name: path.basename(dir),
+            relativePath: plan.roots.length > 1 ? `${rootInfo.name}/${relWithinRoot}` : relWithinRoot,
+            absolutePath: dir,
+            attributes: detection.attributes,
+            detectorNames: detection.detectorNames,
+        };
+        if (dir !== rootInfo.root) {
+            return { project, children: [] };
+        }
+    }
+
+    const children: string[] = [];
+    for (const entry of entries ?? []) {
+        if (!entry.isDirectory() || isIgnoredWorkspaceFolder(entry.name)) {
+            continue;
+        }
+        const childDir = path.join(dir, entry.name);
+        const relWithinRoot = path.relative(rootInfo.root, childDir) || '.';
+        const relForMatching = plan.roots.length > 1 ? `${rootInfo.name}/${relWithinRoot}` : relWithinRoot;
+        if (
+            relWithinRoot !== '.' &&
+            (isExcludedRelativePath(relWithinRoot, plan.excludes) || isExcludedRelativePath(relForMatching, plan.excludes))
+        ) {
+            continue;
+        }
+        children.push(childDir);
+    }
+    return { project, children };
+}
+
+function sortedProjects(found: Map<string, DetectedWorkspaceProject>): DetectedWorkspaceProject[] {
+    return [...found.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+/**
+ * The projects of the workspace folders, found by the detectors.
+ *
+ * Synchronous: it holds the extension host for the whole walk (seconds on a
+ * large workspace). Code on a panel's start-up path uses
+ * `scanWorkspaceProjectsCached`, which walks asynchronously and once for
+ * every caller.
+ */
+export function scanWorkspaceProjectsByDetectors(maxDepthOrOptions: number | DetectorScanOptions = 5): DetectedWorkspaceProject[] {
+    const plan = scanPlan(maxDepthOrOptions);
+    if (!plan) {
+        return [];
+    }
     const found = new Map<string, DetectedWorkspaceProject>();
-
-    function walk(rootInfo: { name: string; root: string }, dir: string, depth: number): void {
-        if (depth > maxDepth) {
+    const walk = (rootInfo: { name: string; root: string }, dir: string, depth: number): void => {
+        if (depth > plan.maxDepth) {
             return;
         }
-
-        const detection = detectProjectAttributes(dir);
-        const isDetectedProject = (detection.attributes.types || []).length > 0;
-        if (isDetectedProject) {
-            const relWithinRoot = path.relative(rootInfo.root, dir) || '.';
-            const rel = workspaceRoots.length > 1
-                ? `${rootInfo.name}/${relWithinRoot}`
-                : relWithinRoot;
-            found.set(path.resolve(dir), {
-                name: path.basename(dir),
-                relativePath: rel,
-                absolutePath: dir,
-                attributes: detection.attributes,
-                detectorNames: detection.detectorNames,
-            });
-            // Don't recurse into detected projects (except if this is the workspace root itself)
-            if (dir !== rootInfo.root) {
-                return;
-            }
-        }
-
-        let entries: fs.Dirent[];
+        let entries: fs.Dirent[] | undefined;
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
         } catch {
-            return;
+            entries = undefined;
         }
-
-        for (const entry of entries) {
-            if (!entry.isDirectory()) {
-                continue;
-            }
-            if (isIgnoredFolder(entry.name)) {
-                continue;
-            }
-            const childDir = path.join(dir, entry.name);
-            const relWithinRoot = path.relative(rootInfo.root, childDir) || '.';
-            const relForMatching = workspaceRoots.length > 1
-                ? `${rootInfo.name}/${relWithinRoot}`
-                : relWithinRoot;
-            if (
-                relWithinRoot !== '.' &&
-                (isExcludedRelativePath(relWithinRoot, excludeGlobs) || isExcludedRelativePath(relForMatching, excludeGlobs))
-            ) {
-                continue;
-            }
-            walk(rootInfo, childDir, depth + 1);
+        const { project, children } = visitDirectory(plan, rootInfo, dir, entries);
+        if (project) {
+            found.set(path.resolve(dir), project);
         }
-    }
-
-    for (const rootInfo of workspaceRoots) {
+        for (const child of children) {
+            walk(rootInfo, child, depth + 1);
+        }
+    };
+    for (const rootInfo of plan.roots) {
         walk(rootInfo, rootInfo.root, 0);
     }
+    return sortedProjects(found);
+}
 
-    return [...found.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+/**
+ * The same walk as `scanWorkspaceProjectsByDetectors`, reading every
+ * directory asynchronously, so the extension host serves other panels and
+ * extensions between directories. Same result, same order.
+ */
+export async function scanWorkspaceProjectsByDetectorsAsync(
+    maxDepthOrOptions: number | DetectorScanOptions = 5,
+): Promise<DetectedWorkspaceProject[]> {
+    const plan = scanPlan(maxDepthOrOptions);
+    if (!plan) {
+        return [];
+    }
+    const found = new Map<string, DetectedWorkspaceProject>();
+    const walk = async (rootInfo: { name: string; root: string }, dir: string, depth: number): Promise<void> => {
+        if (depth > plan.maxDepth) {
+            return;
+        }
+        let entries: fs.Dirent[] | undefined;
+        try {
+            entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch {
+            entries = undefined;
+        }
+        const { project, children } = visitDirectory(plan, rootInfo, dir, entries);
+        if (project) {
+            found.set(path.resolve(dir), project);
+        }
+        for (const child of children) {
+            await walk(rootInfo, child, depth + 1);
+        }
+    };
+    for (const rootInfo of plan.roots) {
+        await walk(rootInfo, rootInfo.root, 0);
+    }
+    return sortedProjects(found);
+}
+
+/** How long a finished scan is reused before the next caller walks again. */
+export const PROJECT_SCAN_TTL_MS = 60_000;
+
+const scanCache = new TtlPromiseCache<DetectedWorkspaceProject[]>(PROJECT_SCAN_TTL_MS);
+
+/**
+ * The asynchronous scan, shared: callers asking with the same options while a
+ * walk runs, or within `PROJECT_SCAN_TTL_MS` after it finished, get its
+ * result instead of walking again. @WS's Guidelines and Documentation groups
+ * and the prompt scopes ask at start. `fresh` walks again.
+ */
+export function scanWorkspaceProjectsCached(
+    options: DetectorScanOptions = {},
+    fresh = false,
+): Promise<DetectedWorkspaceProject[]> {
+    const roots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+    return scanCache.get(
+        JSON.stringify({ roots, options }),
+        () => scanWorkspaceProjectsByDetectorsAsync(options),
+        fresh,
+    );
+}
+
+/** Forget every cached scan (tests; a change of workspace folders). */
+export function clearProjectScanCache(): void {
+    scanCache.clear();
 }
 
 export function findNearestDetectedProject(startDir: string): DetectedWorkspaceProject | undefined {

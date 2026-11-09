@@ -572,12 +572,30 @@ function buildContextInfoBlock(values: Record<string, string>): string {
  * Must be called AFTER addChatValues() so chat.* keys are populated.
  */
 function addCompositeBlocks(values: Record<string, string>): void {
-    const chatVarsBlock = buildChatVariablesBlock(values);
-    const contextBlock = buildContextInfoBlock(values);
+    // Lazy: the blocks are built when a template reads them. Building
+    // `contextInfo` runs four synchronous git commands (git status among
+    // them), and every placeholder resolution builds this map — a folder
+    // path, the bridge profile's cwd at activation — so building them eagerly
+    // held the extension host for seconds while a window opened.
+    defineLazyValue(values, 'chatVariables', () => buildChatVariablesBlock(values));
+    defineLazyValue(values, 'contextInfo', () => buildContextInfoBlock(values));
+    defineLazyValue(values, 'contextAndVariables', () => `${values['contextInfo']}\n\n${values['chatVariables']}`);
+}
 
-    values['chatVariables'] = chatVarsBlock;
-    values['contextInfo'] = contextBlock;
-    values['contextAndVariables'] = `${contextBlock}\n\n${chatVarsBlock}`;
+/**
+ * Put `key` into `values` as a value computed on its first read and kept.
+ * An assignment replaces it with a plain value. Exported for its test.
+ */
+export function defineLazyValue(values: Record<string, string>, key: string, compute: () => string): void {
+    let cached: string | undefined;
+    Object.defineProperty(values, key, {
+        enumerable: true,
+        configurable: true,
+        get: () => (cached ??= compute()),
+        set: (value: string) => {
+            Object.defineProperty(values, key, { value, writable: true, enumerable: true, configurable: true });
+        },
+    });
 }
 
 // ============================================================================
@@ -972,8 +990,9 @@ function readFirstMatchingFile(dir: string, prefix: string): string {
 function lookupVariable(key: string, values: Record<string, string>, now: Date): string | undefined {
     if (key in values) { return values[key]; }
     const lk = key.toLowerCase();
-    for (const [k, v] of Object.entries(values)) {
-        if (k.toLowerCase() === lk) { return v; }
+    // Keys, not entries: reading every value would build the lazy blocks.
+    for (const k of Object.keys(values)) {
+        if (k.toLowerCase() === lk) { return values[k]; }
     }
     return resolveDynamicKey(key, values, now);
 }

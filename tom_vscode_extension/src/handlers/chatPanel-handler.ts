@@ -33,7 +33,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { sanitizeQuestSegment } from '../utils/questPaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
-import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { projectPromptScopes, scanPromptScopes } from '../utils/promptScopes';
 import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
@@ -504,7 +504,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         void this._sendAnthropicModels();
                         break;
                     case 'getReusablePrompts':
-                        this._sendReusablePrompts();
+                        await this._sendReusablePrompts();
                         break;
                     case 'sendReusablePrompt':
                         await this._sendReusablePrompt(message.reusableId, message.section, {
@@ -940,78 +940,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return WsPaths.ai('quests', questId, 'prompt') || path.join(wsRoot, '_ai', 'quests', questId, 'prompt');
     }
 
-    private _getProjectPromptScopes(): { id: string; label: string; dir: string }[] {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) {
-            return [];
-        }
-        const projects = scanWorkspaceProjectsByDetectors({ traverseWholeWorkspace: true });
-        const detectedScopes = projects
-            .map((project) => {
-                return {
-                    id: encodeURIComponent(project.absolutePath),
-                    label: project.name,
-                    dir: path.join(project.absolutePath, 'prompt'),
-                };
-            })
-            .sort((a, b) => a.label.localeCompare(b.label));
-
-        if (detectedScopes.length > 0) {
-            return detectedScopes;
-        }
-
-        const fallbackScopes: { id: string; label: string; dir: string }[] = [];
-        const seen = new Set<string>();
-        const maxDepth = 6;
-
-        const shouldSkip = (name: string): boolean => {
-            return name.startsWith('.') || name === 'node_modules' || name === 'build' || name === 'dist' || name === 'out' || name === '.dart_tool';
-        };
-
-        const walk = (dir: string, depth: number): void => {
-            if (depth > maxDepth) {
-                return;
-            }
-            let entries: fs.Dirent[] = [];
-            try {
-                entries = fs.readdirSync(dir, { withFileTypes: true });
-            } catch {
-                return;
-            }
-
-            const hasPromptFolder = entries.some((entry) => entry.isDirectory() && entry.name === 'prompt');
-            if (hasPromptFolder) {
-                const relative = path.relative(wsRoot, dir) || '.';
-                if (
-                    relative !== '.' &&
-                    !relative.startsWith('_ai') &&
-                    !relative.includes(`${path.sep}_ai${path.sep}`) &&
-                    !relative.includes(`${path.sep}prompt${path.sep}`)
-                ) {
-                    const key = path.resolve(dir);
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        fallbackScopes.push({
-                            id: encodeURIComponent(dir),
-                            label: this._truncatePathFromStart(relative),
-                            dir: path.join(dir, 'prompt'),
-                        });
-                    }
-                }
-            }
-
-            for (const entry of entries) {
-                if (!entry.isDirectory() || shouldSkip(entry.name)) {
-                    continue;
-                }
-                walk(path.join(dir, entry.name), depth + 1);
-            }
-        };
-
-        walk(wsRoot, 0);
-        return fallbackScopes.sort((a, b) => a.label.localeCompare(b.label));
-    }
-
     private _getQuestPromptScopes(): { id: string; label: string; dir: string }[] {
         const wsRoot = getWorkspaceRoot();
         if (!wsRoot) {
@@ -1032,74 +960,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 };
             })
             .sort((a, b) => a.label.localeCompare(b.label));
-    }
-
-    private _getScanPromptScopes(): { id: string; label: string; dir: string }[] {
-        const wsRoot = getWorkspaceRoot();
-        return this._collectAllPromptDirs().map((promptDir) => {
-            const relative = wsRoot ? path.relative(wsRoot, promptDir) : promptDir;
-            return {
-                id: encodeURIComponent(promptDir),
-                label: this._truncatePathFromStart(relative),
-                dir: promptDir,
-            };
-        });
-    }
-
-    private _truncatePathFromStart(fullPath: string, maxLength: number = 60): string {
-        if (fullPath.length <= maxLength) {
-            return fullPath;
-        }
-        const tail = fullPath.slice(fullPath.length - maxLength);
-        const sepIndex = tail.indexOf(path.sep);
-        if (sepIndex > -1 && sepIndex < tail.length - 1) {
-            return `...${tail.slice(sepIndex)}`;
-        }
-        return `...${tail}`;
-    }
-
-    /**
-     * Walk the entire workspace tree (up to depth 6) and collect every
-     * `prompt/` directory that contains at least one `.prompt.md` file.
-     * Unlike the former ancestor-walk approach this does not depend on
-     * the active text editor, so it works from webview panels and
-     * custom editors too.
-     */
-    private _collectAllPromptDirs(): string[] {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) {
-            return [];
-        }
-        const maxDepth = 6;
-        const shouldSkip = (name: string): boolean =>
-            name.startsWith('.') || name === 'node_modules' || name === 'build'
-            || name === 'dist' || name === 'out' || name === '.dart_tool';
-
-        const unique = new Set<string>();
-        const result: string[] = [];
-
-        const walk = (dir: string, depth: number): void => {
-            if (depth > maxDepth) { return; }
-            let entries: fs.Dirent[] = [];
-            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-
-            for (const entry of entries) {
-                if (!entry.isDirectory() || shouldSkip(entry.name)) { continue; }
-                const childDir = path.join(dir, entry.name);
-                if (entry.name === 'prompt') {
-                    const key = path.resolve(childDir);
-                    if (!unique.has(key)) {
-                        unique.add(key);
-                        result.push(childDir);
-                    }
-                    // Don't recurse into prompt/ itself
-                } else {
-                    walk(childDir, depth + 1);
-                }
-            }
-        };
-        walk(wsRoot, 0);
-        return result.sort();
     }
 
     private _parseReusablePromptId(reusableId: string): { filePath: string; fileName: string } | null {
@@ -1153,11 +1013,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return null;
     }
 
-    private _sendReusablePrompts(): void {
+    private async _sendReusablePrompts(): Promise<void> {
+        const wsRoot = getWorkspaceRoot();
         const globalDir = this._getGlobalPromptsDir();
-        const projectScopes = this._getProjectPromptScopes();
+        // Both walk the workspace: asynchronously and shared, so asking for
+        // the prompts while the window opens does not hold the extension host.
+        const [projectScopes, scanScopes] = wsRoot
+            ? await Promise.all([projectPromptScopes(wsRoot), scanPromptScopes(wsRoot)])
+            : [[], []];
         const questScopes = this._getQuestPromptScopes();
-        const scanScopes = this._getScanPromptScopes();
         const preferredQuestId = this._getPreferredQuestId();
 
         const listPromptFiles = (dir: string): { id: string; label: string }[] => {
@@ -1369,7 +1233,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         fs.writeFileSync(filePath, text, 'utf-8');
         vscode.window.showInformationMessage(`Saved reusable prompt: ${fileName}`);
-        this._sendReusablePrompts();
+        void this._sendReusablePrompts();
     }
 
     private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
@@ -2166,7 +2030,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
         // Update context summary
         this._sendContextSummary();
-        this._sendReusablePrompts();
+        void this._sendReusablePrompts();
     }
 
     private async _handleAddToQueue(
