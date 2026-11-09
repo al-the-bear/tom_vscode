@@ -17,7 +17,9 @@ export interface TodoMoveOrigin {
 export type TodoMoveChoice =
     | { kind: 'quest'; questId: string }
     | { kind: 'workspace' }
-    | { kind: 'pickQuest' };
+    | { kind: 'pickQuest' }
+    /** Another id group of the todos' own quest (a second picker names it). */
+    | { kind: 'pickGroup'; questId: string };
 
 export interface TodoMoveOption {
     label: string;
@@ -33,6 +35,7 @@ export function todoMovePickerTitle(count: number): string {
 /**
  * The destinations for these todos, in order:
  *   - their quest's todos, when they all belong to one quest and not all are in its own file already;
+ *   - another id group of their quest, when they all belong to one quest (a second picker names it);
  *   - the workspace todos, unless all are there already;
  *   - another quest, always (a second picker names it).
  */
@@ -45,6 +48,13 @@ export function todoMoveOptions(origins: readonly TodoMoveOrigin[]): TodoMoveOpt
             label: '$(checklist) Quest todos',
             description: `todos.${onlyQuest}.todo.yaml`,
             choice: { kind: 'quest', questId: onlyQuest },
+        });
+    }
+    if (quests.size === 1 && onlyQuest) {
+        options.push({
+            label: '$(symbol-number) Move to another group…',
+            description: `renumbered at the end of a group of ${onlyQuest}, before its finalizers (999)`,
+            choice: { kind: 'pickGroup', questId: onlyQuest },
         });
     }
     if (!origins.every((o) => o.inWorkspaceFile)) {
@@ -78,8 +88,15 @@ export function todoIdPrefix(id: string): string {
     return m ? id.slice(0, m.index) : '';
 }
 
+/**
+ * The first index of a group's finalizers: a todo `<prefix>999` (or higher)
+ * closes the group, so todos added to the group are numbered and placed before
+ * it.
+ */
+export const FINALIZER_INDEX = 999;
+
 /** The number after `prefix` in `id` (its first digit run), or undefined when `id` is not in that group. */
-function numberIn(id: string, prefix: string): number | undefined {
+export function numberIn(id: string, prefix: string): number | undefined {
     if (todoIdPrefix(id) !== prefix || !prefix) { return undefined; }
     const m = /^[0-9]+/.exec(id.slice(prefix.length));
     return m ? Number(m[0]) : undefined;
@@ -110,7 +127,8 @@ export function todoPrefixChoices(targetIds: readonly string[]): TodoPrefixOptio
         if (!prefix) { continue; }
         const g = groups.get(prefix) ?? { count: 0, high: 0 };
         g.count++;
-        g.high = Math.max(g.high, numberIn(id, prefix) ?? 0);
+        const n = numberIn(id, prefix) ?? 0;
+        if (n < FINALIZER_INDEX) { g.high = Math.max(g.high, n); }
         groups.set(prefix, g);
     }
     const options: TodoPrefixOption[] = [...groups.entries()]
@@ -151,7 +169,9 @@ export function todoPrefixPreview(movingIds: readonly string[], targetIds: reado
 /**
  * The new id of each moved todo when `prefix` is chosen (empty for "keep"):
  * the prefix with consecutive numbers after the highest the target quest's
- * group holds (a number the quest already has is skipped), each id keeping the
+ * group holds below its finalizers ({@link FINALIZER_INDEX}: `<prefix>999` and
+ * higher are left after the added todos; a number the quest already has is
+ * skipped), each id keeping the
  * tail after its own number (`vscannot3_ajtf-tools` → `annot10_ajtf-tools`);
  * an id without a number keeps itself as the tail (`plain` → `annot13-plain`).
  */
@@ -159,7 +179,7 @@ export function todoRenames(movingIds: readonly string[], targetIds: readonly st
     const renames = new Map<string, string>();
     if (!prefix) { return renames; }
     const taken = new Set(targetIds);
-    let next = Math.max(0, ...targetIds.map((id) => numberIn(id, prefix) ?? 0)) + 1;
+    let next = Math.max(0, ...targetIds.map((id) => numberIn(id, prefix) ?? 0).filter((n) => n < FINALIZER_INDEX)) + 1;
     for (const id of movingIds) {
         const digits = /[0-9]+/.exec(id);
         const tail = digits ? id.slice(digits.index + digits[0].length) : `-${id}`;
@@ -185,4 +205,39 @@ export function todoMoveNeedsIdChoice(
     dest: { kind: 'quest'; questId: string } | { kind: 'workspace' },
 ): boolean {
     return dest.kind === 'quest' && origins.some((o) => o.questId !== dest.questId);
+}
+
+/** Whether some rename numbers a todo into the group's finalizer range (the group has no free number below it). */
+export function renamesReachFinalizer(renames: ReadonlyMap<string, string>, prefix: string): boolean {
+    return [...renames.values()].some((id) => (numberIn(id, prefix) ?? 0) >= FINALIZER_INDEX);
+}
+
+/**
+ * Where a todo added to group `prefix` goes among the todos of one file
+ * (`ids`, in file order): after the group's last todo numbered below its
+ * finalizers, else before its first finalizer, else at the end.
+ */
+export function groupInsertIndex(ids: readonly string[], prefix: string): number {
+    let last = -1;
+    for (const [k, id] of ids.entries()) {
+        const n = numberIn(id, prefix);
+        if (n !== undefined && n < FINALIZER_INDEX) { last = k; }
+    }
+    if (last >= 0) { return last + 1; }
+    const finalizer = ids.findIndex((id) => (numberIn(id, prefix) ?? -1) >= FINALIZER_INDEX);
+    return finalizer >= 0 ? finalizer : ids.length;
+}
+
+/**
+ * Why `input` cannot become the new id of todo `oldId`, or undefined when it
+ * can (the ID edit of the todo panel): one word, not empty, and no other todo
+ * of the quest (`taken`, archived and deleted ones included) has it.
+ */
+export function todoIdInputError(input: string, oldId: string, taken: ReadonlySet<string>): string | undefined {
+    const id = input.trim();
+    if (!id) { return 'Enter the new id.'; }
+    if (/\s/.test(id)) { return 'A todo id is one word: no spaces.'; }
+    if (/[/\\:*?"<>|#]/.test(id)) { return 'A todo id holds no / \\ : * ? " < > | # character.'; }
+    if (id !== oldId && taken.has(id)) { return `The quest already has a todo ${id}.`; }
+    return undefined;
 }

@@ -2,8 +2,8 @@
  * The todo panels' "Move to…" picker: wording and the destinations offered.
  *
  *   DP-1  the title follows the stack wording: one todo, or N stacked todos
- *   DP-2  a session or topic-file todo of a quest: its quest, the workspace, another quest
- *   DP-3  a todo already in its quest's own file: the workspace, another quest
+ *   DP-2  a session or topic-file todo of a quest: its quest, another group of it, the workspace, another quest
+ *   DP-3  a todo already in its quest's own file: another group of its quest, the workspace, another quest
  *   DP-4  a workspace todo: another quest only
  *   DP-5  todos of several quests: the workspace and another quest, no single "quest todos"
  *   DP-6  a workspace-relative path tells its quest and file
@@ -16,12 +16,17 @@
  *   DP-10 the id choice is asked only when a moved todo enters a quest it is not in
  *   DP-11 a prefix of your own: not empty, no digit (the group key ends at the first digit), no
  *         whitespace or path characters; the ids it gives, as a preview
+ *   DP-12 finalizers: `<prefix>999` and higher do not count for the next number — the moved todos are numbered
+ *         after the highest below 999 (choices and renames); a rename into the finalizer range is detected
+ *   DP-13 where a todo added to a group goes in a file: after the group's last todo below 999 (so before its
+ *         finalizer), else before the first finalizer, else at the end
+ *   DP-14 a new todo id: one word, not empty, no path characters, no id the quest already has (its own id is fine)
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
+import { groupInsertIndex, renamesReachFinalizer, todoIdInputError, todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
 
 const kinds = (origins: Parameters<typeof todoMoveOptions>[0]): string[] =>
     todoMoveOptions(origins).map((o) => (o.choice.kind === 'quest' ? `quest:${o.choice.questId}` : o.choice.kind));
@@ -33,15 +38,18 @@ describe('todo destination picker', () => {
     });
 
     test('DP-2: a session todo of a quest', () => {
-        assert.deepEqual(kinds([{ questId: 'q', inQuestMainFile: false, inWorkspaceFile: false }]), ['quest:q', 'workspace', 'pickQuest']);
+        assert.deepEqual(kinds([{ questId: 'q', inQuestMainFile: false, inWorkspaceFile: false }]), ['quest:q', 'pickGroup', 'workspace', 'pickQuest']);
+        const group = todoMoveOptions([{ questId: 'q', inQuestMainFile: false, inWorkspaceFile: false }])[1];
+        assert.match(group.label, /Move to another group…/);
+        assert.deepEqual(group.choice, { kind: 'pickGroup', questId: 'q' });
     });
 
     test('DP-3: already in the quest file', () => {
-        assert.deepEqual(kinds([{ questId: 'q', inQuestMainFile: true, inWorkspaceFile: false }]), ['workspace', 'pickQuest']);
+        assert.deepEqual(kinds([{ questId: 'q', inQuestMainFile: true, inWorkspaceFile: false }]), ['pickGroup', 'workspace', 'pickQuest']);
         assert.deepEqual(kinds([
             { questId: 'q', inQuestMainFile: true, inWorkspaceFile: false },
             { questId: 'q', inQuestMainFile: false, inWorkspaceFile: false },
-        ]), ['quest:q', 'workspace', 'pickQuest'], 'one of them is not there yet');
+        ]), ['quest:q', 'pickGroup', 'workspace', 'pickQuest'], 'one of them is not there yet');
     });
 
     test('DP-4: a workspace todo', () => {
@@ -116,5 +124,34 @@ describe('todo destination picker', () => {
         assert.match(validateTodoPrefix('q/r') ?? '', /character/);
         assert.equal(todoPrefixPreview(['vscannot3_ajtf-tools', 'qrd2'], ['qrm4_x'], 'qrm'), 'vscannot3_ajtf-tools → qrm5_ajtf-tools, qrd2 → qrm6');
         assert.equal(todoPrefixPreview(['a1', 'b2', 'c3', 'd4', 'e5'], [], 'z'), 'a1 → z1, b2 → z2, c3 → z3, … (5 todos)', 'three, then the count');
+    });
+
+    test('DP-12: finalizers', () => {
+        const target = ['qr1_a-x', 'qr2_b-y', 'qr999_c-final', 'qr1000_d-after'];
+        assert.deepEqual([...todoRenames(['chat9_e-move', 'z7_f-other'], target, 'qr')], [['chat9_e-move', 'qr3_e-move'], ['z7_f-other', 'qr4_f-other']], 'after 2, not after 1000');
+        const choice = todoPrefixChoices(target).find((o) => o.prefix === 'qr')!;
+        assert.equal(choice.next, 3);
+        assert.match(choice.description, /qr3, qr4/);
+        assert.equal(renamesReachFinalizer(todoRenames(['m1'], target, 'qr'), 'qr'), false);
+        const full = Array.from({ length: 998 }, (_, k) => `qr${k + 1}`);
+        assert.equal(renamesReachFinalizer(todoRenames(['m1'], full, 'qr'), 'qr'), true, 'no free number below 999');
+    });
+
+    test('DP-13: the place in a file', () => {
+        assert.equal(groupInsertIndex(['qr1', 'qr2', 'qr999', 'other1'], 'qr'), 2, 'after qr2, before the finalizer');
+        assert.equal(groupInsertIndex(['qr1', 'other1', 'qr2', 'other2'], 'qr'), 3, 'after the last of the group');
+        assert.equal(groupInsertIndex(['other1', 'qr999', 'qr1000'], 'qr'), 1, 'only finalizers: before them');
+        assert.equal(groupInsertIndex(['other1', 'other2'], 'qr'), 2, 'a new group: at the end');
+        assert.equal(groupInsertIndex(['qra1', 'qr5'], 'qr'), 2, 'qra is another group');
+    });
+
+    test('DP-14: a new todo id', () => {
+        const taken = new Set(['a1', 'b2']);
+        assert.equal(todoIdInputError('c3_x-new', 'a1', taken), undefined);
+        assert.equal(todoIdInputError(' a1 ', 'a1', taken), undefined, 'its own id');
+        assert.match(String(todoIdInputError('b2', 'a1', taken)), /already has a todo b2/);
+        assert.match(String(todoIdInputError('', 'a1', taken)), /Enter/);
+        assert.match(String(todoIdInputError('two words', 'a1', taken)), /one word/);
+        assert.match(String(todoIdInputError('a/b', 'a1', taken)), /no \//);
     });
 });

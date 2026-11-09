@@ -617,7 +617,7 @@ function qtRenderTodoRow(t) {
         reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
     } else {
         moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
-        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to quest / workspace / another quest…' : 'Move this todo to quest / workspace / another quest…') + '">⬆️</button>';
+        moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to another group / quest / workspace / another quest…' : 'Move this todo to another group / quest / workspace / another quest…') + '">⬆️</button>';
     }
     var priorityBadge = t.priority && (t.priority === 'critical' || t.priority === 'high') ? '<span class="priority-badge ' + t.priority + '">' + t.priority.toUpperCase() + '</span>' : '';
     var priorityDot = t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '">●</span>' : '';
@@ -675,7 +675,7 @@ function qtRenderGroupHeader(group, expanded) {
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
         (qtGroupOpenTodos(group).length
-            ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to quest / workspace / another quest…">⬆️</button>'
+            ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to another group / quest / workspace / another quest…">⬆️</button>'
             : '') +
         '</div>';
 }
@@ -1257,7 +1257,7 @@ function qtRenderDetail(todo) {
     var depsBadges = qtRenderTodoBadges(todo.dependencies || [], 'deps');
 
     pane.innerHTML = '<div class="qt-detail-form">' +
-        qtFormRow('ID', '<input id="qt-d-id" value="' + qtEsc(todo.id) + '" readonly class="qt-readonly">') +
+        qtFormRow('ID', '<span class="qt-id-row"><input id="qt-d-id" value="' + qtEsc(todo.id) + '" readonly class="qt-readonly">' + qtIdEditButton(todo) + '</span>') +
         qtFormRow('Title', '<input id="qt-d-title" value="' + qtEsc(todo.title || '') + '">') +
         qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on">' + qtEsc(todo.description || '') + '</textarea>') +
         '<div class="qt-inline-row">' +
@@ -2331,6 +2331,19 @@ function qtShowNewTodoForm(id) {
     });
 }
 
+/**
+ * The ID field's edit button (quest todos only): asks the host for the new id
+ * (VS Code's input box), which renames the todo and every reference to it in
+ * the quest (questTodoManager.renameQuestTodo).
+ */
+function qtIdEditButton(todo) {
+    var mode = (typeof qtViewConfig !== 'undefined' && qtViewConfig && qtViewConfig.mode) || '';
+    if (mode === 'session' || mode === 'workspace-file' || !qtCurrentQuestId || qtCurrentQuestId.indexOf('__') === 0) return '';
+    return '<button type="button" class="icon-btn qt-id-edit-btn" id="qt-d-id-edit" data-qt-rename="' + qtEsc(todo.id) + '"' +
+        ' data-qt-rename-file="' + qtEsc(todo._sourceFile || todo.sourceFile || '') + '"' +
+        ' title="Rename this todo: a new id, references in the quest follow"><span class="codicon codicon-edit"></span></button>';
+}
+
 function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + label + '</label>' + input + '</div>'; }
 
 /**
@@ -2366,6 +2379,20 @@ function qtHandleGuideButtonClick(e) {
     });
 }
 document.addEventListener('click', qtHandleGuideButtonClick);
+
+/** The ID field's edit button (qtIdEditButton): the host asks for the new id and renames. */
+function qtHandleIdEditClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-id-edit-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    vscode.postMessage({
+        type: 'qtRenameTodo',
+        questId: qtCurrentQuestId,
+        todoId: btn.getAttribute('data-qt-rename') || '',
+        sourceFile: btn.getAttribute('data-qt-rename-file') || undefined,
+    });
+}
+document.addEventListener('click', qtHandleIdEditClick);
 
 function qtShowMassAddOverlay() {
     var overlay = document.getElementById('qt-mass-overlay');
@@ -2493,6 +2520,11 @@ function qtHandleMessage(msg) {
             break;
         case 'qtSaved':
             if (msg.success) qtRenderList();
+            break;
+        case 'qtRenamed':
+            // Renamed by the ID edit button: select it under its new id and load the list again.
+            qtSelectedTodoId = msg.todoId || '';
+            vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
             break;
         case 'qtCreated':
             if (msg.success) {

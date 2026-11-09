@@ -7,7 +7,13 @@
  *   MD-3  a quest todo into another quest: origin noted
  *   MD-4  refusals write nothing: unknown id, target is the source, target already holds the id
  *   MD-5  renamed on the way (a prefix chosen for the target quest): the new id, a note naming the old one,
- *         and `blocked_by` / `dependencies` naming another moved todo follow its new id
+ *         and `blocked_by` / `dependencies` naming another moved todo follow its new id; numbered into a group of
+ *         the target, it lands at the end of the group, before its finalizer (`<prefix>999`)
+ *   MD-6  renameQuestTodo: the new id, a note naming the old one, every `blocked_by` / `dependencies` entry
+ *         naming it in the quest's live files follows (`<old>` and `<quest>/<old>`); the todo keeps its place
+ *   MD-7  into a group: placed after the group's last todo below 999, before its finalizer — moved into the
+ *         group's file when that is another
+ *   MD-8  refusals write nothing: an unknown todo, an id the quest already has (archived ones too), a spaced id
  */
 
 import { describe, test } from 'node:test';
@@ -110,5 +116,56 @@ describe('moveTodoToDestination', () => {
         assert.match(one.notes ?? '', /\[moved from quest: qf as f1_aa-one\]/);
         const two = questTodo.findTodoByIdInFile(target, 'g6_aa-two')!;
         assert.deepEqual([two.blocked_by, two.dependencies], [['g5_aa-one', 'other'], ['g5_aa-one']], 'references to moved todos follow');
+    });
+
+    test('MD-5b: numbered into a group before its finalizer', () => {
+        const src = seed('qm', 'todos.qm.todo.yaml', ['m1_ab-move']);
+        seed('qn', 'todos.qn.todo.yaml', ['grp1_ab-a', 'grp2_ab-b', 'grp999_ab-final']);
+        const r = questTodo.moveTodoToDestination(src, 'm1_ab-move', { kind: 'quest', questId: 'qn' }, 'quest: qm', new Map([['m1_ab-move', 'grp3_ab-move']]));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(questTodo.readAllTodos('qn').map((t) => t.id), ['grp1_ab-a', 'grp2_ab-b', 'grp3_ab-move', 'grp999_ab-final']);
+    });
+
+    test('MD-6: renaming a todo', () => {
+        const fp = seed('qr', 'todos.qr.todo.yaml', ['old1_ac-x', 'dep1_ac-y', 'dep2_ac-z']);
+        const topic = seed('qr', 'topic.qr.todo.yaml', ['t1_ac-w']);
+        questTodo.updateTodoInFile(fp, 'dep1_ac-y', { blocked_by: ['old1_ac-x', 'other'] } as never);
+        questTodo.updateTodoInFile(fp, 'dep2_ac-z', { dependencies: ['qr/old1_ac-x'] } as never);
+        questTodo.updateTodoInFile(topic, 't1_ac-w', { dependencies: ['old1_ac-x'] } as never);
+        const r = questTodo.renameQuestTodo('qr', 'old1_ac-x', 'new7_ac-x');
+        assert.deepEqual(r, { ok: true, file: 'todos.qr.todo.yaml', references: 3 });
+        const renamed = questTodo.findTodoByIdInFile(fp, 'new7_ac-x')!;
+        assert.ok(renamed, 'the new id');
+        assert.equal(questTodo.findTodoByIdInFile(fp, 'old1_ac-x'), undefined);
+        assert.match(renamed.notes ?? '', /\[renamed from old1_ac-x\]/);
+        assert.equal(renamed.title, 'T old1_ac-x', 'every field kept');
+        assert.deepEqual(questTodo.findTodoByIdInFile(fp, 'dep1_ac-y')!.blocked_by, ['new7_ac-x', 'other']);
+        assert.deepEqual(questTodo.findTodoByIdInFile(fp, 'dep2_ac-z')!.dependencies, ['qr/new7_ac-x']);
+        assert.deepEqual(questTodo.findTodoByIdInFile(topic, 't1_ac-w')!.dependencies, ['new7_ac-x'], 'in the other file too');
+        assert.deepEqual(questTodo.readTodoFile(fp).map((t) => t.id), ['new7_ac-x', 'dep1_ac-y', 'dep2_ac-z'], 'its place kept');
+    });
+
+    test('MD-7: into a group', () => {
+        const main = seed('qh', 'todos.qh.todo.yaml', ['a1_ad-a', 'a2_ad-b', 'a999_ad-final', 'b1_ad-move', 'b2_ad-stay']);
+        const r = questTodo.renameQuestTodo('qh', 'b1_ad-move', 'a3_ad-move', { group: 'a' });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(questTodo.readTodoFile(main).map((t) => t.id), ['a1_ad-a', 'a2_ad-b', 'a3_ad-move', 'a999_ad-final', 'b2_ad-stay']);
+        // The group lives in another file: the todo moves there.
+        const topic = seed('qh', 'topic.qh.todo.yaml', ['c1_ad-c', 'c999_ad-cfinal']);
+        const moved = questTodo.renameQuestTodo('qh', 'b2_ad-stay', 'c2_ad-stay', { group: 'c', targetFile: topic });
+        assert.deepEqual(moved, { ok: true, file: 'topic.qh.todo.yaml', references: 0 });
+        assert.deepEqual(questTodo.readTodoFile(topic).map((t) => t.id), ['c1_ad-c', 'c2_ad-stay', 'c999_ad-cfinal']);
+        assert.equal(questTodo.findTodoByIdInFile(main, 'b2_ad-stay'), undefined, 'gone from its file');
+    });
+
+    test('MD-8: refusals', () => {
+        const fp = seed('qx', 'todos.qx.todo.yaml', ['x1_ae-a', 'x2_ae-b']);
+        fs.writeFileSync(questFile('qx', 'todos-archived.qx.todo.yaml'), 'todos:\n  - id: x9_ae-gone\n    title: gone\n    status: completed\n');
+        const before = read(fp);
+        assert.equal(questTodo.renameQuestTodo('qx', 'nope', 'x5').ok, false);
+        assert.match(JSON.stringify(questTodo.renameQuestTodo('qx', 'x1_ae-a', 'x2_ae-b')), /already has a todo x2_ae-b/);
+        assert.match(JSON.stringify(questTodo.renameQuestTodo('qx', 'x1_ae-a', 'x9_ae-gone')), /already has a todo x9_ae-gone/, 'an archived id counts');
+        assert.match(JSON.stringify(questTodo.renameQuestTodo('qx', 'x1_ae-a', 'two words')), /one word/);
+        assert.equal(read(fp), before, 'nothing written');
     });
 });

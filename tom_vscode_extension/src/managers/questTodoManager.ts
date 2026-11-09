@@ -24,6 +24,7 @@ import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as del
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
+import { groupInsertIndex, todoIdPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
@@ -1368,6 +1369,10 @@ export function moveTodoToDestination(
     const moved = dest.kind === 'quest'
         ? createTodo(dest.questId, todo)
         : createTodoInFile(targetPath, todo, { scope: { area: 'workspace' } });
+    // Numbered into a group: at the end of the group, before its finalizers.
+    if (renames?.size && newId !== todoId && todoIdPrefix(newId)) {
+        placeTodoInGroup(targetPath, newId, todoIdPrefix(newId));
+    }
 
     // 2. The source.
     todosNode.items.splice(idx, 1);
@@ -1376,6 +1381,139 @@ export function moveTodoToDestination(
     assertTodoPersisted(sourcePath, todoId, 'absent', 'moveTodoToDestination');
 
     return { ok: true, todo: { ...moved, _sourceFile: path.basename(targetPath) }, targetPath };
+}
+
+/** The ids of a todo file's todos, in file order. */
+function idsOf(seq: YAMLSeq): string[] {
+    return seq.items.map((item) => (isMap(item) ? String((item as YAMLMap).get('id')) : ''));
+}
+
+/**
+ * Move todo `todoId` of `filePath` to the end of group `prefix` in that file:
+ * after the group's last todo numbered below its finalizers (`<prefix>999` and
+ * higher), else before its first finalizer, else to the end
+ * (todoDestinationPicker.groupInsertIndex).
+ */
+export function placeTodoInGroup(filePath: string, todoId: string, prefix: string): void {
+    const doc = loadDocument(filePath);
+    const seq = doc.get('todos', true);
+    if (!isSeq(seq)) { return; }
+    const from = idsOf(seq).indexOf(todoId);
+    if (from === -1) { return; }
+    const [node] = seq.items.splice(from, 1);
+    const at = groupInsertIndex(idsOf(seq), prefix);
+    if (at === from) { seq.items.splice(from, 0, node); return; }
+    seq.items.splice(at, 0, node);
+    saveDocument(filePath, doc);
+    assertTodoPersisted(filePath, todoId, 'present', 'placeTodoInGroup');
+}
+
+/** What renameQuestTodo answers. */
+export type TodoRenameResult =
+    | { ok: true; file: string; references: number }
+    | { ok: false; reason: string };
+
+/** The todo fields that name other todos by id. */
+const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies'] as const;
+
+/**
+ * Rename todo `oldId` of quest `questId` to `newId`. The todo keeps every
+ * field, its notes gain `[renamed from <old>]`, and every `blocked_by` /
+ * `dependencies` entry naming it in the quest's live todo files follows
+ * (`<old>` and `<quest>/<old>`; `blocking` follows by the write's own sync).
+ * With `group`, it moves to the end of that id group, before the group's
+ * finalizers: into `targetFile` when given (a live todo file of the quest), else
+ * within its own file. Refused, nothing written: an unknown todo, an empty or
+ * spaced id, an id some todo of the quest already has (archived or deleted
+ * ones included).
+ */
+export function renameQuestTodo(
+    questId: string,
+    oldId: string,
+    newId: string,
+    opts: { group?: string; targetFile?: string } = {},
+): TodoRenameResult {
+    const id = newId.trim();
+    if (!id || /\s/.test(id)) { return { ok: false, reason: 'A todo id is one word: no spaces, not empty.' }; }
+    const files = listTodoFiles(questId).map((f) => path.join(questFolder(questId), f));
+    const source = files.find((f) => !!findTodoByIdInFile(f, oldId));
+    if (!source) { return { ok: false, reason: `${oldId} is in no live todo file of quest ${questId}.` }; }
+    if (id !== oldId && readAllTodos(questId, ALL_TODO_FILES).some((t) => t.id === id)) {
+        return { ok: false, reason: `Quest ${questId} already has a todo ${id} (archived and deleted todos count).` };
+    }
+    const target = opts.targetFile && path.resolve(opts.targetFile) !== path.resolve(source) ? opts.targetFile : source;
+    if (!files.some((f) => path.resolve(f) === path.resolve(target))) {
+        return { ok: false, reason: `${path.basename(target)} is not a live todo file of quest ${questId}.` };
+    }
+
+    // 1. The todo itself: renamed, and moved into the target file when that is another.
+    const doc = loadDocument(source);
+    const seq = doc.get('todos', true) as YAMLSeq;
+    const at = idsOf(seq).indexOf(oldId);
+    const node = seq.items[at] as YAMLMap;
+    if (id !== oldId) {
+        node.set('id', id);
+        const notes = node.get('notes');
+        node.set('notes', `${typeof notes === 'string' && notes.trim() ? `${notes.trimEnd()}\n` : ''}[renamed from ${oldId}]`);
+        node.set('updated', todayLocalDate());
+    }
+    if (target === source) {
+        saveDocument(source, doc);
+        assertTodoPersisted(source, id, 'present', 'renameQuestTodo');
+    } else {
+        seq.items.splice(at, 1);
+        const targetDoc = loadDocument(target);
+        const targetSeq = targetDoc.get('todos', true);
+        if (!isSeq(targetSeq)) { return { ok: false, reason: `${path.basename(target)} has no todos list.` }; }
+        targetSeq.items.push(node);
+        saveDocument(target, targetDoc);
+        assertTodoPersisted(target, id, 'present', 'renameQuestTodo');
+        saveDocument(source, doc);
+        assertTodoPersisted(source, oldId, 'absent', 'renameQuestTodo');
+    }
+    if (opts.group) { placeTodoInGroup(target, id, opts.group); }
+
+    // 2. The references to it.
+    let references = 0;
+    if (id !== oldId) {
+        const named = new Map([[oldId, id], [`${questId}/${oldId}`, `${questId}/${id}`]]);
+        for (const file of files) {
+            const refDoc = loadDocument(file);
+            const refSeq = refDoc.get('todos', true);
+            if (!isSeq(refSeq)) { continue; }
+            let changed = 0;
+            const written = new Map<string, Record<string, unknown>>();
+            for (const item of refSeq.items) {
+                if (!isMap(item)) { continue; }
+                const before = changed;
+                for (const field of TODO_REFERENCE_FIELDS) {
+                    const list = (item as YAMLMap).get(field, true);
+                    if (!isSeq(list)) { continue; }
+                    list.items.forEach((entry, k) => {
+                        const value = entry instanceof Scalar ? entry.value : entry;
+                        const next = typeof value === 'string' ? named.get(value) : undefined;
+                        if (next === undefined) { return; }
+                        if (entry instanceof Scalar) { entry.value = next; } else { list.items[k] = next; }
+                        changed++;
+                    });
+                }
+                if (changed > before) {
+                    const fields: Record<string, unknown> = {};
+                    for (const field of TODO_REFERENCE_FIELDS) {
+                        const list = (item as YAMLMap).get(field, true);
+                        if (isSeq(list)) { fields[field] = list.toJSON(); }
+                    }
+                    written.set(String((item as YAMLMap).get('id')), fields);
+                }
+            }
+            if (changed) {
+                saveDocument(file, refDoc);
+                for (const [todoId, fields] of written) { assertTodoFieldsPersisted(file, todoId, fields, 'renameQuestTodo'); }
+                references += changed;
+            }
+        }
+    }
+    return { ok: true, file: path.basename(target), references };
 }
 
 /**

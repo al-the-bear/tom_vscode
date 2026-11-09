@@ -192,3 +192,6 @@
    a colour no status uses (blocked's border is the warning yellow, in-progress's the info blue). */
 .qt-todo-item.user-action .ttitle { color: var(--vscode-charts-purple, #b180d7); }
 .qt-group-header .qt-group-queued { margin-left: 6px; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.qt-id-row { display: flex; align-items: center; gap: 4px; flex: 1; }
+.qt-id-row input { flex: 1; }
+.qt-id-edit-btn { flex-shrink: 0; }

@@ -26,7 +26,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
-import { todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
+import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -1035,6 +1035,34 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             post({ type: 'qtArchiveResult', success: moved.length > 0, moved });
             return true;
         }
+        case 'qtRenameTodo': {
+            // The detail pane's ID edit button: the new id from an input box,
+            // the todo renamed and every reference to it in the quest following.
+            const questId = effectiveQuestId(msg.questId);
+            const oldId = String(msg.todoId || '');
+            if (!oldId || isSessionMode || isWorkspaceFileMode) { return true; }
+            const taken = new Set(questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES).map((t) => t.id));
+            if (!taken.has(oldId)) {
+                vscode.window.showErrorMessage(`Todo not found: ${oldId}`);
+                return true;
+            }
+            const typed = await vscode.window.showInputBox({
+                title: `Rename todo ${oldId}`,
+                prompt: `The new id. blocked_by / dependencies entries naming it in quest ${questId} follow; a prompt already queued keeps the old id in its text.`,
+                value: oldId,
+                validateInput: (value) => todoIdInputError(value, oldId, taken),
+            });
+            if (typed === undefined || typed.trim() === oldId) { return true; }
+            const r = questTodo.renameQuestTodo(questId, oldId, typed.trim());
+            if (!r.ok) {
+                vscode.window.showErrorMessage(`Could not rename ${oldId}: ${r.reason}`);
+                return true;
+            }
+            vscode.window.showInformationMessage(`Renamed ${oldId} → ${typed.trim()}${r.references ? ` (${r.references} reference${r.references === 1 ? '' : 's'} updated)` : ''}.`);
+            post({ type: 'qtRenamed', oldId, todoId: typed.trim() });
+            _sendTodoDetail(questId, typed.trim(), post, r.file);
+            return true;
+        }
         case 'qtMoveTodosToDestination': {
             // The row's move button: the clicked todo, or every stacked todo
             // when more than one is stacked. A picker asks where to: the
@@ -1057,6 +1085,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 { title, placeHolder: 'Where should the todos go?' },
             );
             if (!picked) return true;
+            if (picked.choice.kind === 'pickGroup') {
+                await _moveTodosToGroup(picked.choice.questId, found, lost);
+                post({ type: 'qtArchiveResult', success: true, moved: [] });
+                return true;
+            }
             let dest: questTodo.TodoMoveDestination;
             if (picked.choice.kind === 'pickQuest') {
                 const quest = await vscode.window.showQuickPick(
@@ -2002,6 +2035,74 @@ function _moveTodo(questId: string, todoId: string, targetFile: string, post: (m
 }
 
 /** A todo the move picker acts on: its file, its plain id, and where it lives. */
+/**
+ * Move todos into another id group of their quest: a group picked (or a new
+ * prefix typed), each todo renamed to the group's next numbers below its
+ * finalizers (`<prefix>999` and higher), placed at the end of the group before
+ * them — in the file that holds the group's last todo — and every reference to
+ * it in the quest following (questTodoManager.renameQuestTodo).
+ */
+async function _moveTodosToGroup(questId: string, found: readonly MoveSource[], lost: readonly string[]): Promise<void> {
+    const movingIds = found.map((s) => s.todoId);
+    const all = questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES);
+    const otherIds = all.map((t) => t.id).filter((id) => !movingIds.includes(id));
+    const ownGroups = new Set(movingIds.map(todoIdPrefix));
+    const groups = todoPrefixChoices(otherIds)
+        .filter((o) => o.kind !== 'keep' && !(o.kind === 'group' && ownGroups.size === 1 && ownGroups.has(o.prefix ?? '')));
+    const count = found.length === 1 ? 'the todo' : `the ${found.length} todos`;
+    const icon = { group: '$(symbol-number)', custom: '$(edit)', keep: '' };
+    const pick = await vscode.window.showQuickPick(
+        groups.map((o) => ({ label: `${icon[o.kind]} ${o.label}`, description: o.description, option: o })),
+        { title: `Move ${count} to another group of ${questId}`, placeHolder: 'The group they are numbered into, at its end (before its finalizers, 999)' },
+    );
+    if (!pick) { return; }
+    let prefix = pick.option.prefix;
+    if (pick.option.kind === 'custom') {
+        const typed = await vscode.window.showInputBox({
+            title: `Group prefix for ${count} in quest ${questId}`,
+            prompt: 'Each todo gets the prefix and the next free number below 999, keeping the rest of its id.',
+            placeHolder: 'e.g. qrm',
+            validateInput: (value) => {
+                const error = validateTodoPrefix(value);
+                if (error) { return error; }
+                return { message: todoPrefixPreview(movingIds, otherIds, value.trim()), severity: vscode.InputBoxValidationSeverity.Info };
+            },
+        });
+        if (typed === undefined) { return; }
+        prefix = typed.trim();
+    }
+    if (!prefix) { return; }
+    const renames = todoRenames(movingIds, otherIds, prefix);
+    if (renamesReachFinalizer(renames, prefix)) {
+        vscode.window.showErrorMessage(`Group ${prefix} has no free number below its finalizers (999) for ${count}.`);
+        return;
+    }
+    // The group's file: the one holding its last todo below the finalizers, else a finalizer, else the quest's own.
+    const live = all.filter((t) => !movingIds.includes(t.id) && t._sourceFile && !/-(archived|deleted)\./.test(t._sourceFile));
+    const inGroup = live.filter((t) => todoIdPrefix(t.id) === prefix);
+    const below = inGroup.filter((t) => (numberIn(t.id, prefix!) ?? 0) < FINALIZER_INDEX);
+    const holder = (below.length ? below : inGroup).sort((a, b) => (numberIn(b.id, prefix!) ?? 0) - (numberIn(a.id, prefix!) ?? 0))[0];
+    const targetFile = holder?._sourceFile ? questTodo.questTodoFilePath(questId, holder._sourceFile) : questTodo.persistentTodoPath(questId);
+    const moved: string[] = [];
+    const failed: string[] = [];
+    let references = 0;
+    for (const s of found) {
+        const to = renames.get(s.todoId)!;
+        try {
+            const r = questTodo.renameQuestTodo(questId, s.todoId, to, { group: prefix, targetFile });
+            if (r.ok) { moved.push(`${s.todoId} → ${to}`); references += r.references; } else { failed.push(`${s.todoId}: ${r.reason}`); }
+        } catch (e) {
+            failed.push(`${s.todoId}: ${(e as Error).message}`);
+        }
+    }
+    if (moved.length) {
+        vscode.window.showInformationMessage(`Moved to group ${prefix}: ${moved.join(', ')}${references ? ` (${references} reference${references === 1 ? '' : 's'} updated)` : ''}.`);
+    }
+    if (failed.length || lost.length) {
+        vscode.window.showWarningMessage(`Could not move: ${[...failed, ...lost.map((id) => `${id}: not found`)].join('; ')}`);
+    }
+}
+
 interface MoveSource {
     todoId: string;
     path: string;
