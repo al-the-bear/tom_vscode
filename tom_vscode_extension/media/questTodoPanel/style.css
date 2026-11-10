@@ -211,3 +211,7 @@
 .qt-session-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 10px; padding: 1px 8px; cursor: pointer; font-size: 11px; }
 .qt-session-btn.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .qt-session-count { display: inline-block; min-width: 14px; padding: 0 4px; margin-left: 3px; border-radius: 7px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); text-align: center; }
+
+/* A decision-needed todo (open questions for the user): a yellow chip on its row, ❓ with the count on its group. */
+.qt-decision-chip { flex-shrink: 0; font-size: 0.75em; padding: 0 5px; border-radius: 8px; border: 1px solid var(--vscode-editorWarning-foreground, #cca700); color: var(--vscode-editorWarning-foreground, #cca700); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 14%, transparent); cursor: default; white-space: nowrap; }
+.qt-group-header .qt-group-decisions { margin-left: 6px; font-size: 0.8em; }

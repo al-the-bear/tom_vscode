@@ -452,6 +452,26 @@ export function collectDecisionNeededTodos(
     return collectPrefixTodos(prefix, todos).filter(e => e.status === DECISION_NEEDED);
 }
 
+/**
+ * The `decision-needed` todo that holds a `prefix*` walk, as a one-element
+ * list, or `[]` when the walk is not held. The walk is held only when the
+ * todo it would take next is waiting on the user: in series order, the first
+ * todo the walk would run or stop at — walkable, or `decision-needed` — is
+ * a `decision-needed` one. A decision further down the series holds nothing
+ * yet: the todos before it run, and the walk holds when it reaches it.
+ */
+export function decisionHoldingWalk(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix === undefined) {
+        return [];
+    }
+    const next = collectPrefixTodos(prefix, todos).find(e => e.status === DECISION_NEEDED || isWalkable(e));
+    return next && next.status === DECISION_NEEDED ? [next] : [];
+}
+
 /** A todo as the unblock check needs it: its id, status and machine-readable block conditions. */
 export interface BlockableTodo extends TodoIterationSource {
     /** Ids of the todos this one waits for (`<quest>/<id>` for another quest). */
@@ -566,12 +586,14 @@ export type MainStageDispatchPlan =
  * "work on ${repeatTodoId}" prompt with no todo to name is worse than no
  * prompt. The caller logs that case.
  *
- * **Unmade decisions hold the whole series.** A `decision-needed` todo anywhere
- * in the matched set reports `decision-needed`, ahead of both the pick and the
- * exhausted check. Running a *sibling* todo past an open question means working
- * from a guess about the very thing still being decided; and reporting
- * `exhausted` would quietly finish the queue item with the question never
- * surfacing.
+ * **An unmade decision holds the walk when it is next.** When the todo the
+ * walk would take next (series order, lowest number first) is
+ * `decision-needed`, the plan reports `decision-needed` with that todo, ahead
+ * of both the pick and the exhausted check ({@link decisionHoldingWalk}): the
+ * todo is never run, and reporting `exhausted` would quietly finish the queue
+ * item with the question never surfacing. A `decision-needed` todo further
+ * down the series does not hold the todos before it — they run, and the walk
+ * holds when it reaches the open decision.
  *
  * **User-action todos are passed**, not held on: the walk takes the next todo
  * and the plan names the passed ones in `waitingForUser` (present only when
@@ -584,7 +606,7 @@ export function planMainStageDispatch(
     todos: readonly TodoIterationSource[],
 ): MainStageDispatchPlan {
     if (parseTodoPrefixPattern(repeatCountRaw) !== undefined) {
-        const waiting = collectDecisionNeededTodos(repeatCountRaw, todos);
+        const waiting = decisionHoldingWalk(repeatCountRaw, todos);
         if (waiting.length > 0) {
             return { mode: 'decision-needed', todos: waiting };
         }
@@ -721,8 +743,8 @@ export interface DecisionHeldItem {
 }
 
 /**
- * Put back to `pending` every `decision-needed` item whose series no longer has
- * an unanswered todo, and return the ones that moved (so the caller can name
+ * Put back to `pending` every `decision-needed` item whose walk is no longer
+ * held at an unanswered todo, and return the ones that moved (so the caller can name
  * them in the log).
  *
  * **Why the condition matters.** Releasing every held item unconditionally
@@ -733,8 +755,10 @@ export interface DecisionHeldItem {
  * play looks like it does nothing. Releasing only what is genuinely resolved
  * leaves the blocked item held and lets the rest of the queue drain.
  *
- * An item is released when {@link collectDecisionNeededTodos} finds no waiting
- * todo — which also covers the cases where nothing *can* resolve it: a repeat
+ * An item is released when {@link decisionHoldingWalk} finds no todo holding
+ * its walk — the todo it was held at had its decisions answered (a later
+ * `decision-needed` todo of the series holds it again only when the walk
+ * reaches it) — which also covers the cases where nothing *can* resolve it: a repeat
  * count that is not a `prefix*` pattern, or a todo set that came back empty.
  * Both are recoverable (the gate reports `exhausted` and the item finishes);
  * holding such an item forever is not.
@@ -754,7 +778,7 @@ export function releaseResolvedDecisionItems<T extends DecisionHeldItem>(
         if (item.status !== DECISION_NEEDED) {
             continue;
         }
-        if (collectDecisionNeededTodos(item.repeatCount, todos).length > 0) {
+        if (decisionHoldingWalk(item.repeatCount, todos).length > 0) {
             continue;
         }
         item.status = 'pending';

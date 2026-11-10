@@ -10,7 +10,8 @@
  *   count becomes display-only (the size of the series); what actually drives
  *   the loop is whether a `not-started` todo is still left. Since the
  *   dispatcher marks the picked todo `in-progress`, the candidate set shrinks
- *   on every pass and the loop terminates.
+ *   on every pass and the loop terminates. A `decision-needed` todo holds the
+ *   walk when it is the next one (and is never run).
  *
  * The gate is pure so both modes can be pinned without the vscode-coupled
  * PromptQueueManager.
@@ -83,52 +84,65 @@ describe('planMainStageDispatch — todo iteration mode', () => {
 });
 
 describe('planMainStageDispatch — a series with unmade decisions', () => {
-    // A `decision-needed` todo is one the user has not answered yet. Running
-    // *any* todo of the series past it means working from a guess about the
-    // very thing that is still open, so the whole series is held — not just
-    // that one todo.
+    // A `decision-needed` todo is one the user has not answered yet. It is
+    // never run, and the walk holds when it is the todo the walk would take
+    // next (series order, lowest number first). A decision further down the
+    // series does not hold the todos before it: they run, and the walk holds
+    // when it reaches the open decision.
 
-    test('a decision-needed todo blocks the series even when work is available', () => {
-        const todos = [t('dsa1', 'not-started'), t('dsa2', 'decision-needed')];
-        const plan = planMainStageDispatch('dsa*', 0, 2, todos);
-        assert.equal(plan.mode, 'decision-needed');
+    test('a decision at the end of the group: the todos before it run first', () => {
+        const todos = [t('dsa1', 'not-started'), t('dsa2', 'not-started'), t('dsa3', 'decision-needed')];
+        const first = planMainStageDispatch('dsa*', 0, 3, todos);
+        assert.equal(first.mode === 'todo' && first.todo.id, 'dsa1');
+        todos[0].status = 'completed';
+        const second = planMainStageDispatch('dsa*', 1, 3, todos);
+        assert.equal(second.mode === 'todo' && second.todo.id, 'dsa2');
+        todos[1].status = 'completed';
+        const held = planMainStageDispatch('dsa*', 2, 3, todos);
+        assert.equal(held.mode, 'decision-needed', 'then it holds at the open decision');
+        assert.deepEqual(held.mode === 'decision-needed' ? held.todos.map(x => x.id) : [], ['dsa3']);
     });
 
-    test('the block names the todos that are waiting', () => {
-        // The manager logs these and the user has to find them; a bare "queue
+    test('the block names the todo that is waiting', () => {
+        // The manager logs it and the user has to find it; a bare "queue
         // paused" would send them hunting through the whole todo file.
-        const todos = [t('dsa1', 'not-started'), t('dsa3', 'decision-needed', 'Pick a backend')];
+        const todos = [t('dsa1', 'completed'), t('dsa3', 'decision-needed', 'Pick a backend'), t('dsa4', 'not-started')];
         const plan = planMainStageDispatch('dsa*', 0, 3, todos);
         assert.equal(plan.mode === 'decision-needed' && plan.todos.length, 1);
         assert.equal(plan.mode === 'decision-needed' && plan.todos[0].id, 'dsa3');
         assert.equal(plan.mode === 'decision-needed' && plan.todos[0].title, 'Pick a backend');
     });
 
-    test('position in the series is irrelevant — first or last, it blocks', () => {
+    test('only the next todo holds — first holds, last does not yet', () => {
         assert.equal(
             planMainStageDispatch('dsa*', 0, 2, [t('dsa1', 'decision-needed'), t('dsa2', 'not-started')]).mode,
             'decision-needed',
         );
-        assert.equal(
-            planMainStageDispatch('dsa*', 0, 2, [t('dsa1', 'not-started'), t('dsa2', 'decision-needed')]).mode,
-            'decision-needed',
-        );
+        const later = planMainStageDispatch('dsa*', 0, 2, [t('dsa1', 'not-started'), t('dsa2', 'decision-needed')]);
+        assert.equal(later.mode === 'todo' && later.todo.id, 'dsa1');
     });
 
-    test('blocks rather than reporting exhausted when nothing else is left', () => {
+    test('what the walk passes does not shield a decision behind it', () => {
+        // In-progress, blocked, the user's own, completed and cancelled todos
+        // are passed; the first todo the walk would stop at is the decision.
+        const todos = [
+            t('dsa1', 'in-progress'), t('dsa2', 'blocked'), { ...t('dsa3', 'not-started'), userAction: true },
+            t('dsa4', 'cancelled'), t('dsa5', 'decision-needed'), t('dsa6', 'not-started'),
+        ];
+        const plan = planMainStageDispatch('dsa*', 0, 6, todos);
+        assert.deepEqual(plan.mode === 'decision-needed' ? plan.todos.map(x => x.id) : plan.mode, ['dsa5']);
+    });
+
+    test('series order is by number, not by file order', () => {
+        const plan = planMainStageDispatch('dsa*', 0, 2, [t('dsa10', 'decision-needed'), t('dsa2', 'not-started')]);
+        assert.equal(plan.mode === 'todo' && plan.todo.id, 'dsa2');
+    });
+
+    test('holds rather than reporting exhausted when nothing else is left', () => {
         // Reporting `exhausted` here would silently finish the queue item and
         // the open decision would never surface.
         const todos = [t('dsa1', 'completed'), t('dsa2', 'decision-needed')];
         assert.equal(planMainStageDispatch('dsa*', 0, 2, todos).mode, 'decision-needed');
-    });
-
-    test('every waiting todo is reported, not just the first', () => {
-        const todos = [t('dsa1', 'decision-needed'), t('dsa2', 'not-started'), t('dsa3', 'decision-needed')];
-        const plan = planMainStageDispatch('dsa*', 0, 3, todos);
-        assert.deepEqual(
-            plan.mode === 'decision-needed' ? plan.todos.map(x => x.id) : [],
-            ['dsa1', 'dsa3'],
-        );
     });
 
     test('a decision-needed todo outside the prefix does not block', () => {
@@ -184,13 +198,22 @@ describe('releaseResolvedDecisionItems — restarting the queue', () => {
         assert.equal(items[0].status, 'pending');
     });
 
-    test('a held item with an open decision stays held', () => {
+    test('a held item whose next todo still has an open decision stays held', () => {
+        const items = [held('a')];
+        const released = releaseResolvedDecisionItems(items, [
+            t('dsa1', 'completed'), t('dsa2', 'decision-needed'), t('dsa3', 'not-started'),
+        ]);
+        assert.deepEqual(released, []);
+        assert.equal(items[0].status, 'decision-needed');
+    });
+
+    test('a decision further down does not keep it held once the next todo is answered', () => {
         const items = [held('a')];
         const released = releaseResolvedDecisionItems(items, [
             t('dsa1', 'not-started'), t('dsa2', 'decision-needed'),
         ]);
-        assert.deepEqual(released, []);
-        assert.equal(items[0].status, 'decision-needed');
+        assert.deepEqual(released.map(i => i.id), ['a'], 'it runs dsa1 and holds again at dsa2');
+        assert.equal(items[0].status, 'pending');
     });
 
     test('only the resolved item of a mixed set is released', () => {

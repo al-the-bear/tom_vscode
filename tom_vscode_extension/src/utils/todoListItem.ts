@@ -31,6 +31,8 @@ export interface TodoListSource {
     blocking?: string[];
     repeat?: TodoRepeat;
     next_repeat?: string;
+    /** The questions behind a `decision-needed` status; one without a `decision` is open. */
+    decisions?: Array<{ summary?: string; decision?: string }>;
 }
 
 export interface TodoListItem {
@@ -52,6 +54,8 @@ export interface TodoListItem {
     repeat_manual?: true;
     /** When a waiting repeated todo is due again. */
     next_repeat?: string;
+    /** A `decision-needed` todo: the summaries of its open decisions (the row's and its group's yellow chip). */
+    open_decisions?: string[];
     sourceFile: string;
 }
 
@@ -81,5 +85,10 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
         if (todo.repeat.rule === 'manual') { row.repeat_manual = true; }
     }
     if (todo.next_repeat) { row.next_repeat = todo.next_repeat; }
+    if (todo.status === 'decision-needed') {
+        row.open_decisions = (todo.decisions ?? [])
+            .filter((d) => !(typeof d?.decision === 'string' && d.decision.trim()))
+            .map((d) => (typeof d?.summary === 'string' && d.summary.trim() ? d.summary.trim() : '(a decision)'));
+    }
     return row;
 }

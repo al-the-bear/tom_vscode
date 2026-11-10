@@ -686,6 +686,7 @@ function qtRenderTodoRow(t) {
         qtQueuedMark(t) +
         qtBlockingMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
+        qtDecisionChip(t) +
         priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
         stackCircle +
@@ -714,6 +715,33 @@ function qtGroupQueuedMark(group) {
     return '<span class="qt-queued qt-group-queued" title="' + qtEsc(title) + '">\u23f5#' + numbers[0] + '</span>';
 }
 
+/** The open decisions of a `decision-needed` todo, as the tooltips list them. */
+function qtOpenDecisionText(t) {
+    var open = Array.isArray(t.open_decisions) ? t.open_decisions : [];
+    return open.length ? open.join('; ') : 'answer its decisions in the todo';
+}
+
+/**
+ * A `decision-needed` todo's yellow chip: something to answer. A prefix* walk
+ * runs the todos before it and holds only when it reaches this one.
+ */
+function qtDecisionChip(t) {
+    if (!t || t.status !== 'decision-needed') { return ''; }
+    var open = Array.isArray(t.open_decisions) ? t.open_decisions.length : 0;
+    var title = 'Decision needed' + (open ? ' (' + open + ' open)' : '') + ': ' + qtOpenDecisionText(t) +
+        ' \u2014 a prefix* walk holds when it reaches this todo';
+    return '<span class="qt-decision-chip" title="' + qtEsc(title) + '">decision-needed</span>';
+}
+
+/** A group holding `decision-needed` todos: a yellow ❓ with their count, the tooltip naming them. */
+function qtGroupDecisionMark(group) {
+    var waiting = group.todos.filter(function(t) { return t && t.status === 'decision-needed'; });
+    if (!waiting.length) { return ''; }
+    var title = waiting.length + ' todo' + (waiting.length === 1 ? '' : 's') + ' with open decisions: ' +
+        waiting.map(function(t) { return t.id + (t.title ? ' (' + t.title + ')' : '') + ' \u2014 ' + qtOpenDecisionText(t); }).join('; ');
+    return '<span class="qt-decision-chip qt-group-decisions" title="' + qtEsc(title) + '">\u2753' + waiting.length + '</span>';
+}
+
 /** The thin separator line that heads one prefix group. */
 function qtRenderGroupHeader(group, expanded) {
     var count = group.todos.length;
@@ -724,6 +752,7 @@ function qtRenderGroupHeader(group, expanded) {
         '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
         qtGroupQueuedMark(group) +
+        qtGroupDecisionMark(group) +
         (group.prefix
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
@@ -1325,7 +1354,11 @@ function qtRenderDetail(todo) {
         qtFormRow('Title', '<input id="qt-d-title" value="' + qtEsc(todo.title || '') + '">') +
         qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on">' + qtEsc(todo.description || '') + '</textarea>') +
         '<div class="qt-inline-row">' +
-        qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>') +
+        qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>' + qtDecisionChip({
+            status: todo.status,
+            open_decisions: (todo.decisions || []).filter(function(d) { return !(d && typeof d.decision === 'string' && d.decision.trim()); })
+                .map(function(d) { return d && d.summary ? String(d.summary) : '(a decision)'; }),
+        })) +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         '</div>' +
         qtTodoButtonsRow(todo) +

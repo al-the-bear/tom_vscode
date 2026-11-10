@@ -191,8 +191,10 @@ A todo whose approach depends on a choice **the user** has not made yet cannot
 be started: starting it means guessing. Two schema features carry that.
 
 - **`status: decision-needed`** — the todo is waiting on the user. It renders
-  with a **question-mark** icon in the list pane and appears in the status
-  dropdown of the edit form alongside the other statuses.
+  with a **question-mark** icon and a yellow `decision-needed` chip in the list
+  pane (`qtDecisionChip`; its tooltip lists the open decisions, from the row's
+  `open_decisions`), the same chip beside the status in the edit form, and a
+  yellow ❓ with the count on its group header (`qtGroupDecisionMark`).
 - **`decisions[]`** — a list of what has to be settled. Each entry has three
   fields: `summary` (one line, the collapsed label), `decision_needed` (the full
   question with its context and options), and `decision` (the answer, absent
@@ -241,9 +243,10 @@ Two behaviours hang off the status:
   status, and a todo archived half-done was abandoned rather than concluded. An
   unanswered decision on a completed todo is written as `_(not decided)_` rather
   than dropped.
-- **Queue iteration refuses to run the series.** A `prefix*` main prompt whose
-  matched todos include a `decision-needed` one pauses the queue and marks the
-  item `decision-needed` — see `planMainStageDispatch` in
+- **Queue iteration holds at it.** A `prefix*` walk never runs a
+  `decision-needed` todo; when it is the todo the walk would take next it pauses
+  the queue and marks the item `decision-needed` (the todos before it run first)
+  — see `planMainStageDispatch` / `decisionHoldingWalk` in
   `doc/multi_transport_prompt_queue_revised.md` § 5.
 
 ## 2c. The user's own todos — `user_action: true`

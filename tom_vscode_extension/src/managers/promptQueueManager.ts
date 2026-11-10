@@ -115,10 +115,11 @@ import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
 // ============================================================================
 
 /**
- * `'decision-needed'` is the todo-iteration block: the `prefix*` series this
- * item walks contains a todo whose questions the user has not answered, so the
- * item is held rather than run on a guess. Restarting the queue puts it back to
- * `'pending'` once its series has no unanswered todo left (see
+ * `'decision-needed'` is the todo-iteration block: the todo the `prefix*` walk
+ * of this item would take next has questions the user has not answered, so the
+ * item is held rather than run on a guess (a decision further down the series
+ * holds nothing until the walk reaches it). Restarting the queue puts it back to
+ * `'pending'` once that todo's decisions are answered (see
  * `releaseResolvedDecisionItems`); while the decisions are still open the item
  * stays held and the rest of the queue runs past it.
  *
@@ -158,8 +159,8 @@ export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
  *     finishes naturally and callers MUST leave the item in
  *     `'sending'` so the webview can render "SENDING (PAUSED)" and
  *     `set autoSendEnabled(true)` knows where to resume. (b) The
- *     item's `prefix*` todo series has an unanswered `decision-needed`
- *     todo: the gate has already moved the item to `'decision-needed'`
+ *     todo the item's `prefix*` walk would take next is an unanswered
+ *     `decision-needed` todo: the gate has already moved the item to `'decision-needed'`
  *     and switched auto-send off before returning.
  *
  * Both reasons share one outcome deliberately. Every caller of this
@@ -5015,9 +5016,8 @@ export class PromptQueueManager {
             iterationQuestId ? readQuestTodoEntries(iterationQuestId, walkableRepeatIds(item)) : [],
         );
         if (plan.mode === 'decision-needed') {
-            // Some todo of the series is still waiting on the user. Hold the
-            // whole item: running a sibling now would work from a guess about
-            // the very thing being decided. Auto-send goes OFF so the queue
+            // The todo the walk would take next is still waiting on the user:
+            // hold the item there (the todos before it have run). Auto-send goes OFF so the queue
             // does not simply move on to the next item and bury the question.
             const waiting = plan.todos.map(t => (t.title ? `${t.id} (${t.title})` : t.id)).join(', ');
             logQueue(`MP dispatch: todo iteration '${String(item.repeatCount)}' blocked — decision needed on ${waiting}`);
