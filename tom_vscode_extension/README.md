@@ -465,6 +465,40 @@ Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 and the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
 workspace todos, the todo log, window status).
 
+### @TOM VSC: resource-hungry extensions
+
+The **@TOM VSC** sidebar (view RESOURCES, `tomAi.vscResources`) tames the
+extensions that eat memory and CPU — language servers, analysers and other
+helper processes — without the Extensions view. VS Code cannot switch one
+extension off, so the view works on what can be controlled:
+
+- **Processes** — the helper processes of this window's extension host,
+  grouped by the extension that started them (read from their command lines:
+  the Dart analysis server, tsserver, git, an installed extension's server, …),
+  with memory, CPU and age. **Pause** (SIGSTOP) stops one, or all of an
+  extension's: no CPU any more, the system may compress or swap its idle
+  memory, and the extension does not notice, so nothing restarts it — but its
+  editor features (completion, diagnostics, go to definition) wait until you
+  **Resume** (SIGCONT) it, where it stopped. **Kill** (SIGTERM, asks first) is
+  for a hung process; the extension may start it again. On Windows, which has
+  no pause signal, only Kill is offered. Nothing of another window, and never
+  the extension host itself, can be paused or killed.
+- **Profiles** — a VS Code profile has its own set of enabled extensions, so a
+  lean profile is the supported way to turn extensions off: the view opens
+  the profile picker, creates a profile from the current one, or opens the
+  profiles editor. Switching restarts the extension host, not the window.
+- **Settings (this workspace)** — toggles for the biggest consumers:
+  `dart.onlyAnalyzeProjectsWithOpenFiles`, `ztmp` in
+  `dart.analysisExcludedFolders`, `git.autoRepositoryDetection`,
+  `git.repositoryScanMaxDepth`, `git.openRepositoryInParentFolders`, and
+  `ztmp/`, `build/`, `.dart_tool/`, `node_modules/` in `files.watcherExclude`
+  and `search.exclude`; each tooltip says what it saves and the lean value.
+
+The view refreshes every 5 s while it is visible and does nothing while
+hidden. A status-bar item (`$(server-process) 1.6 GB in 3 processes`, the
+largest groups in its tooltip) shows the total of the window's helper
+processes, refreshed every 30 s; a click opens the view.
+
 ### Highlights
 
 | Area | Capabilities |

@@ -126,6 +126,7 @@ import { installProcessMoveMarkers, onSuggestionsDue } from './services/processA
 import { openProcessBranchingEditor } from './handlers/processBranching-handler';
 import { registerNestedProcessCommands } from './services/nestedProcessCommands';
 import { registerSessionsView } from './handlers/sessionsView-handler';
+import { registerVscResourcesView } from './handlers/vscResourcesView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
 import { registerGroupPromptEditor } from './handlers/groupPromptEditor-handler';
@@ -509,6 +510,8 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerProcessView(context);
     registerSessionsView(context);
+    // @TOM VSC: this window's extension helper processes, profiles, heavy settings, and the status-bar total (vscimpb30).
+    registerVscResourcesView(context);
     registerProcessEditor(context);
     registerProcessTemplateEditor(context);
     registerGroupPromptEditor(context);
@@ -1190,6 +1193,13 @@ function registerCommands(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.view.extension.tomAi-ws-sidebar');
         }
     );
+    // Focus @TOM VSC: this window's resource-hungry extension processes, profiles and heavy settings
+    const focusTomVscSidebarCmd = vscode.commands.registerCommand(
+        'tomAi.tomVscSidebar.focus',
+        async () => {
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-vsc-sidebar');
+        }
+    );
 
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
@@ -1310,6 +1320,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         showStatusPageCmd,
         focusTomSidebarCmd,
         focusTomWsSidebarCmd,
+        focusTomVscSidebarCmd,
         openInMdViewerCmd,
         openExtensionSettingsCmd,
         migrateCompactionFormatCmd

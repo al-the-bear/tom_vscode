@@ -1,0 +1,42 @@
+/* @TOM VSC › RESOURCES — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 2px 6px 6px;
+}
+.muted { color: var(--vscode-descriptionForeground); }
+h3 { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; margin: 10px 0 4px; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
+h3 .grow { flex: 1 1 auto; }
+.note { margin: 4px 0; padding: 3px 6px; border-radius: 3px; background: var(--vscode-inputValidation-infoBackground, rgba(0,122,204,0.1)); }
+.note.error { background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.12)); }
+.total { margin: 2px 0 6px; }
+.group { border-bottom: 1px solid var(--vscode-panel-border, transparent); padding: 3px 0; }
+.group-head { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.group-head .name { font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; }
+.proc { display: flex; align-items: center; gap: 4px; padding: 1px 0 1px 14px; font-size: 0.92em; }
+.proc .what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paused { color: var(--vscode-editorWarning-foreground, #cca700); }
+.badge { font-size: 0.8em; padding: 0 4px; border-radius: 3px; border: 1px solid currentColor; }
+.icon {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 1px 2px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+}
+.icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+.icon:disabled { opacity: 0.35; cursor: default; }
+.setting { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.setting label { flex: 1 1 auto; min-width: 0; }
+.setting .ws { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+.setting.unavailable { opacity: 0.55; }
+select, input[type="number"] { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); font-size: 0.92em; }
+input[type="number"] { width: 4em; }
+.profile { margin: 2px 0; }
+.profile button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 2px 8px; border-radius: 2px; cursor: pointer; }
+.profile button:disabled { opacity: 0.5; cursor: default; }

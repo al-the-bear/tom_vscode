@@ -59,6 +59,11 @@
           "id": "tomAi-ws-sidebar",
           "title": "@TOM WS",
           "icon": "resources/tom-ws-sidebar.svg"
+        },
+        {
+          "id": "tomAi-vsc-sidebar",
+          "title": "@TOM VSC",
+          "icon": "resources/tom-vsc-sidebar.svg"
         }
       ],
       "panel": [
@@ -349,6 +354,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.tomVscSidebar.focus",
+        "title": "@T: Focus @TOM VSC Sidebar (resource-hungry extensions)",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.sessions.add",
         "title": "@T: New Session",
         "category": "@Tom",
@@ -535,6 +545,14 @@
           "id": "tomAi.windowStatusTom",
           "name": "WINDOW STATUS",
           "icon": "$(window)"
+        }
+      ],
+      "tomAi-vsc-sidebar": [
+        {
+          "type": "webview",
+          "id": "tomAi.vscResources",
+          "name": "RESOURCES",
+          "icon": "$(server-process)"
         }
       ],
       "explorer": [
