@@ -17,6 +17,7 @@
  */
 
 import { whileWaitingForUser } from '../services/userWaits';
+import { registerAskCancel } from '../services/askOwners';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
@@ -95,6 +96,8 @@ interface OpenAsk {
     reopenDecision?: () => Promise<void>;
     /** The Back to the decision button was clicked. */
     decisionReopened?: boolean;
+    /** Unregisters the cancel from the send that asked (services/askOwners.ts). */
+    unregisterOwner?: () => void;
     resolve(answer: string): void;
 }
 
@@ -113,11 +116,16 @@ export class MdBrowserAskSlot {
     }
 
     /** @internal Used by {@link askInMdBrowserImpl}. */
-    begin(ask: OpenAsk): void { this.open = ask; }
+    begin(ask: OpenAsk): void {
+        this.open = ask;
+        // The prompt that asks owns the question: when it ends unanswered, the ask is cancelled.
+        ask.unregisterOwner = registerAskCancel(() => { if (this.open === ask) { this.finish('cancel'); } });
+    }
 
     /** @internal Free the slot without answering (the panel did not open). */
     abandon(): void {
         if (this.open?.timer !== undefined) { (this.open.deps.clearTimer ?? clearTimeout)(this.open.timer); }
+        this.open?.unregisterOwner?.();
         this.open = undefined;
     }
 
@@ -158,6 +166,7 @@ export class MdBrowserAskSlot {
      */
     private finishReviewClick(ask: OpenAsk, button: AskMdButton): void {
         this.open = undefined;
+        ask.unregisterOwner?.();
         const deps = ask.deps;
         if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
         let fileDeleted = false;
@@ -192,6 +201,7 @@ export class MdBrowserAskSlot {
         const ask = this.open;
         if (!ask) { return; }
         this.open = undefined;
+        ask.unregisterOwner?.();
         const deps = ask.deps;
         if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
         // The flow goes on: an unchecked file goes, and its panel with it.

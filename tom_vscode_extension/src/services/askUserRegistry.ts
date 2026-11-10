@@ -38,8 +38,13 @@
  * race and timeout are unit-testable without real timers.
  */
 
+import { registerAskCancel } from './askOwners';
+
 import { whileWaitingForUser } from './userWaits';
 import { layoutChoices, type AskChoice, type QuestionLayout } from '../utils/askChoices';
+
+/** The answer of a question whose prompt ended before the user answered. */
+export const ASK_OWNER_ENDED_NOTE = 'The prompt that asked this question has ended; the question was closed unanswered.';
 
 export type AskAnswerSource = 'vscode' | 'telegram' | 'timeout' | 'cancel';
 
@@ -99,6 +104,8 @@ interface ActiveAsk {
     onResolve: BeginAskParams['onResolve'];
     timer: TimerHandle | undefined;
     fallbackPrompt: string;
+    /** Unregisters the cancel from the send that asked (services/askOwners.ts). */
+    unregisterOwner: () => void;
 }
 
 export class AskUserRegistry {
@@ -177,6 +184,8 @@ export class AskUserRegistry {
                 onResolve: params.onResolve,
                 timer,
                 fallbackPrompt: params.fallbackPrompt,
+                // The prompt that asks owns the question: when it ends, the question ends with it.
+                unregisterOwner: registerAskCancel(() => this.cancelRequest(pending.requestId, ASK_OWNER_ENDED_NOTE)),
             };
             // Surface UI + Telegram synchronously after state is in place so an
             // immediate submit (fast Telegram reply) always finds the slot.
@@ -186,6 +195,7 @@ export class AskUserRegistry {
                 // Nobody can see this ask, so nobody can answer it: free the slot
                 // (and its timer) instead of refusing every later ask as pending.
                 if (timer !== undefined) { this.clearTimer(timer); }
+                this.active?.unregisterOwner();
                 this.active = undefined;
                 throw err;
             }
@@ -215,11 +225,17 @@ export class AskUserRegistry {
         this.finish('cancel', note);
     }
 
+    /** Cancel the ask `requestId` if it is still the pending one (a later ask is left alone). */
+    cancelRequest(requestId: string, note: string): void {
+        if (this.active?.pending.requestId === requestId) { this.finish('cancel', note); }
+    }
+
     /** Single-shot terminal transition shared by all resolution sources. */
     private finish(source: AskAnswerSource, answer: string): void {
         const active = this.active;
         if (!active) { return; }
         this.active = undefined;            // clear first → guards re-entrancy
+        active.unregisterOwner();
         if (active.timer !== undefined) {
             this.clearTimer(active.timer);
         }

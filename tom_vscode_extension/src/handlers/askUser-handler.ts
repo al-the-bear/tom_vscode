@@ -4,10 +4,11 @@
  * webview panel for answering in VS Code, plus a Telegram notification so the
  * user can answer from their phone. Either channel resolves the one pending ask.
  *
- * The panel is a singleton (the registry allows only one ask in flight); a new
- * ask disposes any stale panel first. When the ask resolves by *any* source
- * (vscode submit, Telegram reply, timeout, cancel) the registry calls
- * {@link onResolve}, which dismisses the panel.
+ * One panel per question (the registry allows only one ask in flight), kept by
+ * request id: when the ask resolves by *any* source (vscode submit, Telegram
+ * reply, timeout, cancel — also the cancel when the prompt that asked ends,
+ * services/askOwners.ts) the registry calls {@link onResolve}, which dismisses
+ * its panel and any stale one; a stale panel that posts an answer closes too.
  */
 
 import * as vscode from 'vscode';
@@ -33,22 +34,39 @@ import { SharedToolDefinition } from '../tools/shared-tool-registry';
 // Singleton webview panel
 // ===========================================================================
 
-let activePanel: vscode.WebviewPanel | undefined;
-let activeRequestId: string | undefined;
+/**
+ * The question panels by request id. Normally one (the registry allows one ask
+ * at a time); a panel whose question is no longer the pending one is stale and
+ * is closed whenever it is found — when a question resolves, when a new one
+ * opens, when a stale panel posts its answer.
+ */
+const askPanels = new Map<string, vscode.WebviewPanel>();
 
-/** Tear down the current panel (if any) without touching the registry. */
-function disposeActivePanel(): void {
-    const panel = activePanel;
-    activePanel = undefined;
-    activeRequestId = undefined;
+/** The open question panels' request ids (tests, diagnostics). */
+export function openAskPanelIds(): string[] {
+    return [...askPanels.keys()];
+}
+
+function disposePanel(requestId: string): void {
+    const panel = askPanels.get(requestId);
+    askPanels.delete(requestId);
     if (panel) {
         try { panel.dispose(); } catch { /* already gone */ }
     }
 }
 
-/** Open (or replace) the ask panel for a pending ask. */
+/** Close every panel whose question is not the pending one (`keep`, when given, stays). */
+function disposeStalePanels(keep?: string): void {
+    const pending = AskUserRegistry.instance.getPending()?.requestId;
+    for (const id of [...askPanels.keys()]) {
+        if (id !== keep && id !== pending) { disposePanel(id); }
+    }
+}
+
+/** Open the ask panel for a pending ask (stale panels go first). */
 function openAskPanel(pending: PendingAsk): void {
-    disposeActivePanel();
+    disposeStalePanels(pending.requestId);
+    disposePanel(pending.requestId);
 
     const extPath = getExtensionPath();
     const localRoots = extPath ? [vscode.Uri.file(path.join(extPath, 'media'))] : undefined;
@@ -64,25 +82,35 @@ function openAskPanel(pending: PendingAsk): void {
         },
     );
 
+    const isPending = (): boolean => AskUserRegistry.instance.getPending()?.requestId === pending.requestId;
     panel.webview.onDidReceiveMessage((msg: { type?: string; requestId?: string; text?: string; choiceId?: string }) => {
-        if (msg?.type === 'submit' && msg.requestId === pending.requestId) {
-            const text = typeof msg.text === 'string' ? msg.text : '';
-            AskUserRegistry.instance.submit(pending.requestId, text, 'vscode');
+        if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice')) { return; }
+        if (!isPending()) {
+            // An answer to a question that is no longer open (answered elsewhere, timed out,
+            // cancelled with its prompt): the panel goes instead of waiting forever.
+            disposePanel(pending.requestId);
+            void vscode.window.showInformationMessage('That question was already closed; your answer was not sent.');
+            return;
         }
-        // A choice button: what it does (a move) is done here, then it answers.
-        if (msg?.type === 'choice' && msg.requestId === pending.requestId && AskUserRegistry.instance.getPending()?.requestId === pending.requestId) {
-            const answer = choiceClickAnswer(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
-            if (answer !== undefined) { AskUserRegistry.instance.submit(pending.requestId, answer, 'vscode'); }
+        if (msg.type === 'submit') {
+            AskUserRegistry.instance.submit(pending.requestId, typeof msg.text === 'string' ? msg.text : '', 'vscode');
+            return;
         }
+        // A choice button: what it does (a move) is done here, then it answers. A move that
+        // throws still answers (with the error), so the panel never stays with its buttons locked.
+        let answer: string | undefined;
+        try {
+            answer = choiceClickAnswer(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
+        } catch (err) {
+            answer = `The choice could not be carried out: ${(err as Error).message}`;
+        }
+        AskUserRegistry.instance.submit(pending.requestId, answer ?? `Unknown choice "${String(msg.choiceId ?? '')}".`, 'vscode');
     });
 
     panel.onDidDispose(() => {
         // Manual close: forget the panel but leave the ask pending so the user
         // can still answer from Telegram / let the timeout fire.
-        if (activeRequestId === pending.requestId) {
-            activePanel = undefined;
-            activeRequestId = undefined;
-        }
+        if (askPanels.get(pending.requestId) === panel) { askPanels.delete(pending.requestId); }
     });
 
     try {
@@ -100,23 +128,20 @@ function openAskPanel(pending: PendingAsk): void {
         bridgeLog(`[askUser] Failed to render panel: ${(err as Error).message}`, 'ERROR');
     }
 
-    activePanel = panel;
-    activeRequestId = pending.requestId;
+    askPanels.set(pending.requestId, panel);
 }
 
-/** Dismiss the panel once the ask resolves by any source. */
+/** Dismiss the question's panel once the ask resolves by any source, and any stale one with it. */
 function closeAskPanel(pending: PendingAsk, source: AskAnswerSource): void {
-    if (activeRequestId === pending.requestId && activePanel) {
-        // Let the webview reflect a non-vscode resolution before it goes away.
-        if (source !== 'vscode') {
-            try {
-                activePanel.webview.postMessage({ type: 'resolved', note: resolvedNote(source) });
-            } catch { /* panel may already be disposing */ }
-        }
+    const panel = askPanels.get(pending.requestId);
+    // Let the webview reflect a non-vscode resolution before it goes away.
+    if (panel && source !== 'vscode') {
+        try {
+            panel.webview.postMessage({ type: 'resolved', note: resolvedNote(source) });
+        } catch { /* panel may already be disposing */ }
     }
-    if (activeRequestId === pending.requestId) {
-        disposeActivePanel();
-    }
+    disposePanel(pending.requestId);
+    disposeStalePanels();
 }
 
 function resolvedNote(source: AskAnswerSource): string {

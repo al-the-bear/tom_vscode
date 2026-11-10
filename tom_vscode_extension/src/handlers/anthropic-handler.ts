@@ -10,6 +10,7 @@
  * the anthropic_sdk_integration spec).
  */
 
+import { runAsAskOwner } from '../services/askOwners';
 import { whileWaitingForUser } from '../services/userWaits';
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
@@ -2027,8 +2028,17 @@ export class AnthropicHandler {
         }
     }
 
-    /** Main entry point — send a message and run the tool-call loop to completion. */
+    /**
+     * Main entry point — send a message and run the tool-call loop to completion.
+     * The send owns the questions its tool calls ask (services/askOwners.ts):
+     * those still open when it ends — stopped, aborted, failed — are cancelled,
+     * so their panels close with it.
+     */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
+        return runAsAskOwner(() => this.sendMessageOwned(options));
+    }
+
+    private async sendMessageOwned(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
         // External MCP servers' tools join the direct and Local LLM loops (CC-16), before the plan.
         options = await this.withExternalMcpTools(options);
         options = withToolPlan(options);
