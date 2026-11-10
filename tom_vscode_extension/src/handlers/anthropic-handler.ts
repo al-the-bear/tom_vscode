@@ -3487,6 +3487,7 @@ export class AnthropicHandler {
                                 .map((p) => (p && typeof p === 'object' && 'type' in p && p.type === 'text' && 'text' in p ? String(p.text) : ''))
                                 .join('')
                             : '';
+                    // eslint-disable-next-line @typescript-eslint/naming-convention -- the retention step's field name
                     const toolResult: VsCodeLmToolResult = { type: 'tool_result', tool_use_id: toolUseId, content: resultText };
                     resultMessageIndex.set(toolResult, messages.length);
                     roundResults.push(toolResult);

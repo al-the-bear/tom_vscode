@@ -27,6 +27,7 @@ import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
 TrailService.init({} as never);
 TomAiConfiguration.init({} as never);
 
+// eslint-disable-next-line @typescript-eslint/naming-convention -- the Ollama message's field name
 type Msg = { role: string; content?: string; tool_calls?: unknown[] };
 /** Each request's messages, copied as they were sent. */
 const seen: Msg[][] = [];
