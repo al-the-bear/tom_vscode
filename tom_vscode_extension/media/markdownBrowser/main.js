@@ -1293,6 +1293,8 @@
         function decorateCommentAuthorship(wrapper, block) {
             var lines = shownLines();
             var author = mdbCommentAuthor(lines[block.startLine]);
+            // The user's own comment (their review member id) is marked, also when decorated after the render.
+            wrapper.classList.toggle('mdb-own', !!author && author === reviewMemberId);
             if (author) {
                 wrapper.dataset.authors = author;
                 if (mdbIsAgentAuthor(author)) { wrapper.dataset.agent = '1'; } else { delete wrapper.dataset.agent; }
@@ -1314,6 +1316,27 @@
         // ---- Review comments ----
         /** The OS user, written as the author of a comment that names none (sent by the host). */
         var commentAuthor = '';
+        /** The user's review member id (Status Page, Team review): their own lines are marked. '' when unset. */
+        var reviewMemberId = '';
+
+        /**
+         * Mark the user's own lines (class `mdb-own`): comment blocks and marks whose authors name the
+         * member id, and individual answer lines `**Answer (<ids>):**` that list it (SOM §11.9.8).
+         */
+        function markOwnLines() {
+            if (!docRoot) { return; }
+            docRoot.querySelectorAll('.mdb-own').forEach(function(el) { el.classList.remove('mdb-own'); });
+            if (!reviewMemberId) { return; }
+            docRoot.querySelectorAll('[data-authors]').forEach(function(el) {
+                if (el.dataset.authors.split('|').indexOf(reviewMemberId) >= 0) { el.classList.add('mdb-own'); }
+            });
+            docRoot.querySelectorAll('strong').forEach(function(el) {
+                var m = /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
+                if (!m) { return; }
+                var ids = m[1].split(',').map(function(x) { return x.trim(); });
+                if (ids.indexOf(reviewMemberId) >= 0) { (el.closest('p, li') || el).classList.add('mdb-own'); }
+            });
+        }
         /**
          * For a SOM document, what the host read with the TomSpecs runtime
          * (som-review-comments.ts): the number of the next free comment id, the
@@ -1717,7 +1740,7 @@
                 box.dataset.navAuthor = name;
                 box.checked = !navHiddenAuthors[name];
                 label.appendChild(box);
-                label.appendChild(document.createTextNode(' ' + (name === NO_AUTHOR ? '(no author)' : name)));
+                label.appendChild(document.createTextNode(' ' + (name === NO_AUTHOR ? '(no author)' : name + (name === reviewMemberId ? ' (you)' : ''))));
                 navAuthorsEl.appendChild(label);
             });
         }
@@ -2521,6 +2544,9 @@
                 }
                 filePathEl.textContent = msg.relativePath || msg.fileName || '';
                 if (typeof msg.author === 'string') { commentAuthor = msg.author; }
+                reviewMemberId = typeof msg.memberId === 'string' ? msg.memberId : '';
+                // Also when the text is the same and is not rendered again (the setting changed).
+                markOwnLines();
                 var text = msg.content || '';
                 // What the host read for an earlier text no longer fits this one.
                 if (!sameFile || text !== shownText) { somComments = null; }
@@ -2557,6 +2583,7 @@
 
         /** Where the reader is put after a full render. */
         function afterRender(sameFile, anchor, position) {
+            markOwnLines();
             if (sameFile && restoreScrollTop !== null) {
                 // Our own save re-rendered the document: stay where the
                 // reader was, also once Mermaid has resized the page.

@@ -585,7 +585,7 @@ the 16 MB Tom UAM Blueprint a write tool takes a few seconds.
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_specCreateDocument` | A new, empty document for one model root, in the format its file name says. Refuses an existing file. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetContent` | A content or scalar value; null or `""` clears it. A value a typed leaf cannot read is refused as `wrongValue` with the leaf's name, type and enum domain, as `tomAi_specSetFormField` answers (the batch's `setContent` and `addNode`'s `content` alike). `marked: true` writes text as a change the reviewer accepts or rejects (see *Review annotations*), attributed (`{@author}`) to `author` — by default the user's review member id when one is set; `""` to nobody. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specSetFormField` | One form field, typed by its declaration: int, double, bool or enum name. A wrong value comes back with the field's type and domain. `marked: true` on a String field writes the new text as a marked change. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specSetHeadline` | A section's stored headline; null returns it to its default title. One line: a line break is refused (`invalidHeadline`), since it would end the Markdown heading. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specSetCodeSpec` | The heading-level `codeSpec=` routing marker. | ✅ | ✅ | ⚪ | ✅ |
@@ -627,7 +627,7 @@ mark delimiters, and the new text was written unmarked.
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_specInsertComment` | A comment block after a paragraph of a value — by number (`afterParagraph`) or by its text (`afterTextStart` / `afterTextContains`, refused when no or several paragraphs match); the next free `C-<n>` unless `id` is given. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specInsertQuestion` | A question block directly after a comment (`afterComment`) or after a paragraph (by number or by its text, as insertComment); the recommended option bold. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specSetAnswer` | Write a question's answer after `**Answer:**`; `""` reopens it. `author` writes a review member's individual answer `**Answer (<id>):**` (SOM §11.9.8) — by default the user's member id when one is set (Status Page, Team review); `""` writes the team answer. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specEditComment` | Replace a comment's text; id and author stay, the change time becomes the edit's. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specAssignCommentIds` | Give every comment without an id the next free one; answers them as `assigned`. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specResolveAnnotation` | Remove one comment or question by id once it has been applied (a qualified `SBP C-12` too). | ✅ | ✅ | ⚪ | ✅ |

@@ -14,7 +14,7 @@ import { SomModelService } from '../services/som-model-service';
 import { SpecPathError } from '../services/som-spec-inspector';
 import { SomSearchCursors } from '../services/som-search-cursors';
 import { somDocumentStore } from '../services/som-document-io-vscode';
-import { agentAuthorId } from '../utils/reviewAuthors';
+import { agentAuthorId, reviewMemberId } from '../utils/reviewAuthors';
 
 export interface SpecToolDeps {
     /** Workspace root; relative `file` / `dir` inputs resolve against it, and nothing outside it is read. */
@@ -37,6 +37,22 @@ export interface SpecToolDeps {
      * (`agent_<role>`, src/utils/reviewAuthors.ts). Unset: unsigned.
      */
     agentAuthor?: () => string;
+    /**
+     * The current user's review member id (`review.memberId`, Status Page:
+     * Team review): the default author of an answer or a marked change. ''
+     * when unset.
+     */
+    memberAuthor?: () => string;
+}
+
+/**
+ * The author of an answer or a marked change: the call's `author` (`''`
+ * writes none — a team answer, an unattributed mark), else the user's review
+ * member id when set, else none.
+ */
+export function memberAuthorFor(deps: Pick<SpecToolDeps, 'memberAuthor'>, author: string | null | undefined): string | null {
+    if (typeof author === 'string') { return author.trim() || null; }
+    return deps.memberAuthor?.() || null;
 }
 
 export const json = (value: unknown): string => JSON.stringify(value);
@@ -131,6 +147,13 @@ export function liveDeps(): SpecToolDeps {
         cursors: sharedCursors,
         findCandidates: vscodeSpecCandidates,
         agentAuthor: liveAgentAuthor,
+        memberAuthor: () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { loadSendToChatConfig } = require('../utils/sendToChatConfig') as typeof import('../utils/sendToChatConfig');
+                return reviewMemberId(loadSendToChatConfig());
+            } catch { return ''; }
+        },
     };
 }
 

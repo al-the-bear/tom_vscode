@@ -550,3 +550,7 @@ body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
 .mdb-assist-btn.mdb-assist-started { color: var(--vscode-focusBorder); }
 .mdb-proposal-accept { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 .mdb-proposal-discard { color: var(--vscode-errorForeground); }
+
+/* The user's own lines (their review member id, Status Page: Team review): comments, marks, answers. */
+.mdb-own { box-shadow: inset 3px 0 0 var(--vscode-charts-green, #2ea043); }
+span.mdb-own { box-shadow: none; outline: 1px dashed var(--vscode-charts-green, #2ea043); outline-offset: 1px; }

@@ -35,7 +35,7 @@ import {
 } from 'tom_som_typescript_runtime';
 
 import { SharedToolDefinition } from './shared-tool-registry';
-import { FILE_PARAM, FIRST_LOOK, PATH_PARAM_HINT, SpecToolDeps, documentHeader, failure, json, liveDeps, loadDocument } from './spec-tool-common';
+import { FILE_PARAM, FIRST_LOOK, PATH_PARAM_HINT, SpecToolDeps, documentHeader, failure, json, liveDeps, loadDocument, memberAuthorFor } from './spec-tool-common';
 import {
     EDIT_PARAMS,
     RESULT_NOTE,
@@ -122,6 +122,8 @@ export interface SpecInsertQuestionInput extends SpecEditOptions, ParagraphAncho
 export interface SpecSetAnswerInput extends SpecEditOptions {
     questionId: string;
     answer: string;
+    /** A review member's individual answer `**Answer (<id>):**` (§11.9.8); default the user's member id; '' the team answer. */
+    author?: string;
 }
 
 export interface SpecEditCommentInput extends SpecEditOptions {
@@ -408,13 +410,16 @@ function opInsertQuestion(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<
     return { touched: input.path, result: { id: draft.id, path: input.path, counts: countsOf(notes) } };
 }
 
-function opSetAnswer(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetAnswerInput>): OpOutcome {
+function opSetAnswer(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetAnswerInput>): OpOutcome {
     const notes = notesOf(ctx);
     const id = requireText(input.questionId, 'questionId');
     if (typeof input.answer !== 'string') { invalid('`answer` must be a string; "" reopens the question.'); }
+    if (input.author !== undefined && typeof input.author !== 'string') { invalid('`author` must be a review member id, or "" for the team answer.'); }
     const where = locate(notes, id)?.path ?? '';
-    notes.setAnswer(id, input.answer);
-    return { touched: where, result: { questionId: id, path: where, counts: countsOf(notes) } };
+    // A member's individual answer when a member id names it (the call's, else the user's); else the team answer.
+    const author = memberAuthorFor(deps, input.author);
+    notes.setAnswer(id, input.answer, author ? { author } : {});
+    return { touched: where, result: { questionId: id, path: where, ...(author ? { author } : {}), counts: countsOf(notes) } };
 }
 
 function opEditComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecEditCommentInput>): OpOutcome {
@@ -529,8 +534,8 @@ function opRemoveAllAnnotations(_deps: SpecToolDeps, ctx: EditContext, _input: O
  * exactly (false when a difference sits in fenced code or the text holds mark
  * delimiters — the new value is then written unmarked).
  */
-export function writeMarked(ctx: EditContext, path: string, field: string | null, text: string): { exact: boolean } {
-    const change = notesOf(ctx).setMarked({ path, field, text });
+export function writeMarked(ctx: EditContext, path: string, field: string | null, text: string, author: string | null = null): { exact: boolean } {
+    const change = notesOf(ctx).setMarked({ path, field, text, ...(author ? { author } : {}) });
     return { exact: change.exact };
 }
 
@@ -673,6 +678,7 @@ export const SPEC_SET_ANSWER_TOOL = editTool<SpecSetAnswerInput>(
         ...EDIT_PARAMS,
         questionId: { type: 'string', description: 'The question id, e.g. `BQ-81` (from tomAi_specAnnotations).' },
         answer: { type: 'string', description: 'The answer; "" reopens the question.' },
+        author: { type: 'string', description: 'A review member id: writes that member\'s individual answer `**Answer (<id>):**` (§11.9.8) instead of the team answer. Default: the user\'s member id when set (Status Page, Team review); "" writes the team answer.' },
     },
     ['file', 'questionId', 'answer'],
     specSetAnswerImpl,

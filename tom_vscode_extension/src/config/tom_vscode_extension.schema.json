@@ -51,6 +51,14 @@
             },
             "additionalProperties": false
         },
+        "review": {
+            "type": "object",
+            "description": "Team review (SOM review teams): the current user's member id. tomAi_specSetAnswer and marked edits (tomAi_specSetContent / tomAi_specSetFormField with marked) default their author to it; the MD Browser signs the comments written in it with it and marks the user's own comments, changes and answers. Status Page: Team review.",
+            "properties": {
+                "memberId": { "type": "string", "pattern": "^[a-z0-9_]*$", "description": "The member id (letters a-z, digits, _), as the documents' review teams name members. Empty: unset." }
+            },
+            "additionalProperties": false
+        },
         "processNesting": {
             "type": "object",
             "description": "Nested processes: a subprocess or branch started from a step is a level on the quest's process stack (src/utils/processStack.ts). No hard limit; a start that takes the stack beyond maxDepth levels above the quest's own process asks for a confirmation. Status Page: Process nesting.",

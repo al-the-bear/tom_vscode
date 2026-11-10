@@ -62,6 +62,8 @@ export async function disposeMarkdownBrowser(): Promise<void> {
 /** How the OS user is written as a comment author: the first name of the account's full name. */
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { readMediaText } from '../utils/webviewLoader.js';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
+import { reviewMemberId } from '../utils/reviewAuthors.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry.js';
@@ -416,8 +418,10 @@ class MdBrowserPanel {
                 anchor,
                 // Where the reader was when they left this document (back / forward).
                 position,
-                // The author of review comments written in the browser: the OS user.
-                author: currentCommentAuthor(COMMENT_AUTHOR_FORM),
+                // The author of review comments written in the browser: the user's review member id
+                // (Status Page, Team review), else the OS user. The member id also marks the user's own lines.
+                author: reviewMemberId(loadSendToChatConfig()) || currentCommentAuthor(COMMENT_AUTHOR_FORM),
+                memberId: reviewMemberId(loadSendToChatConfig()),
                 liveMode: this._liveMode,
                 // Tells the webview to render soft (single) newlines as hard line
                 // breaks (marked `breaks`), so real newlines in the file show as

@@ -644,4 +644,31 @@ describe('TomSpecs annotation tools', () => {
         assert.match(timed(batchFile), /\(agent_spec_author, <time>\): In a batch\./);
         assert.match(timed(batchFile), /\] always\? <<\}\{@agent_spec_author <time>\}/);
     });
+
+    test('SA-21: the user\'s review member id is the default author of answers and marked changes', async () => {
+        const mine: SpecToolDeps = { ...deps, memberAuthor: () => 'alexis' };
+        const file = await annotated();
+        const since = new Date();
+        const timed = (f: string): string => withoutChangeTimes(read(f), since);
+        const r = JSON.parse(await specSetAnswerImpl(mine, { file, questionId: 'BQ-01', answer: '(b) for audit reasons' }));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.author, 'alexis');
+        assert.match(timed(file), /\*\*Answer \(alexis[^)]*\):\*\* \(b\) for audit reasons/, 'the member\'s individual answer');
+        const other = JSON.parse(await specSetAnswerImpl(mine, { file, questionId: 'BQ-01', answer: '(a)', author: 'bob' }));
+        assert.equal(other.author, 'bob', 'a given author is kept');
+        assert.match(timed(file), /\*\*Answer \(bob[^)]*\):\*\* \(a\)/);
+        const team = JSON.parse(await specSetAnswerImpl(mine, { file, questionId: 'BQ-01', answer: '(b) settled', author: '' }));
+        assert.equal(team.author, undefined, '"" writes the team answer');
+        assert.match(timed(file), /\*\*Answer( \(<time>\))?:\*\* \(b\) settled/);
+        assert.equal(JSON.parse(await specSetAnswerImpl(deps, { file: await annotated(), questionId: 'BQ-01', answer: '(b)' })).author, undefined, 'no member id: the team answer, as before');
+        // A marked change carries the member's attribution token.
+        const marked = `m${++counter}.docspecs.yaml`;
+        fs.writeFileSync(path.join(ws, marked), MERIDIAN_YAML);
+        assert.equal((await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Orders are kept two years.' })).ok, true);
+        const m = JSON.parse(await specSetContentImpl(mine, { file: marked, path: VALUE, text: 'Orders are kept three years.', marked: true }));
+        assert.equal(m.ok, true, JSON.stringify(m));
+        assert.match(m.value, /\{~~\s*two\s*~>\s*three\s*~~\}\{@alexis[^}]*\}/);
+        const anon = JSON.parse(await specSetContentImpl(mine, { file: marked, path: VALUE, text: 'Orders are kept four years.', marked: true, author: '' }));
+        assert.doesNotMatch(anon.value, /\{@alexis/, '"" attributes the change to nobody');
+    });
 });

@@ -81,6 +81,7 @@ function getMcpReadOnlyToolNames(): ReadonlySet<string> {
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { maxProcessDepth } from '../services/nestedProcessCommands';
+import { REVIEW_MEMBER_ID_PATTERN, reviewMemberId } from '../utils/reviewAuthors';
 import { DEFAULT_MAX_PROCESS_DEPTH } from '../utils/processStack';
 import { resolveTodoButtonTemplate, todoButtonTemplateId, TODO_BUTTON_TEMPLATE_INFO, TODO_BUTTON_TEMPLATE_USES, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { wireCompletionMessages } from '../utils/completionWiring';
@@ -1536,6 +1537,19 @@ export async function handleStatusAction(action: string, message: any): Promise<
             }
             break;
         }
+        case 'updateReviewMemberId': {
+            const id = String(message.memberId ?? '').trim();
+            if (id && !REVIEW_MEMBER_ID_PATTERN.test(id)) {
+                vscode.window.showWarningMessage('Team review: a member id is letters a–z, digits and _ (as the review teams name members).');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (id) { stcConfig.review = { ...(stcConfig.review ?? {}), memberId: id }; } else { delete stcConfig.review; }
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage(id ? `Team review: your member id is ${id}` : 'Team review: no member id');
+            await refreshStatusPage();
+            break;
+        }
         case 'updateProcessNesting': {
             const depth = Number(message.maxDepth);
             if (!Number.isInteger(depth) || depth < 0) {
@@ -1895,6 +1909,8 @@ export interface StatusData {
     todoButtonTemplateChoices: Array<{ id: string; name: string }>;
     /** Nested processes: the depth above which a start is confirmed. */
     processMaxDepth: number;
+    /** Team review: the current user's member id ('' when unset). */
+    reviewMemberId: string;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
     /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
@@ -2177,6 +2193,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             id: t.id, name: t.name || t.id,
         })),
         processMaxDepth: maxProcessDepth(),
+        reviewMemberId: reviewMemberId(sendToChatConfig),
         ...(() => {
             const anthropic = getAnthropicSection();
             const configurations = anthropic.configurations ?? [];
@@ -3024,6 +3041,27 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>`).join('')}
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateTodoButtonTemplates">Save Todo Buttons</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Team review (src/utils/reviewAuthors.ts reviewMemberId): the current user's member id in the review teams -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="teamReview">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 👥 Team review</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-teamReview-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                Your member id in the documents' review teams (a <code>ReviewTeamMember</code>'s <code>memberId</code>;
+                the owner is the member with <code>owner: true</code> in the SBP's default team). When set, the answers and
+                marked changes written through the spec tools are yours by default (<code>**Answer (&lt;id&gt;):**</code>,
+                <code>{@&lt;id&gt;}</code>), the MD Browser signs your comments with it and marks your own lines. Letters a–z,
+                digits and <code>_</code>; empty: not set. Stored as <code>review.memberId</code>.
+            </p>
+            <div class="sp-settings-row">
+                <label>Your member id:</label>
+                <input type="text" id="sp-review-memberId" value="${escapeHtml(status.reviewMemberId)}" placeholder="e.g. alexis" style="width:140px">
+                <button class="sp-btn primary" data-status-action="updateReviewMemberId">Save</button>
             </div>
         </div>
     </div>

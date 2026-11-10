@@ -501,6 +501,14 @@ export interface SendToChatConfig {
     processNesting?: { maxDepth?: number };
 
     /**
+     * Team review: the current user's member id in the review teams
+     * (`[a-z0-9_]+`, src/utils/reviewAuthors.ts reviewMemberId). The spec
+     * tools that write an answer or a marked change default their author to
+     * it, the MD Browser signs comments with it and marks the user's lines.
+     */
+    review?: { memberId?: string };
+
+    /**
      * The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in
      * detail, Explain a decision, Grill me at a decision, Finish review round,
      * Out of budget.

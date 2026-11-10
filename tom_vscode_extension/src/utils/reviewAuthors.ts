@@ -26,6 +26,20 @@ export function agentAuthorId(role: string | undefined): string {
     return slug ? `agent_${slug}` : 'agent';
 }
 
+/** A review member id as the TomSpecs runtime takes it: `[a-z0-9_]+` (attribution tokens, answer authors). */
+export const REVIEW_MEMBER_ID_PATTERN = /^[a-z0-9_]+$/;
+
+/**
+ * The current user's member id in the review teams (`review.memberId`, the
+ * Status Page's Team review): '' when unset or not a member id. A member of a
+ * document's review team is named by it (SOM 1.7: `ReviewTeamMember.memberId`;
+ * the owner is the member with `owner: true`, CC-91).
+ */
+export function reviewMemberId(config: { review?: { memberId?: unknown } } | null | undefined): string {
+    const raw = typeof config?.review?.memberId === 'string' ? config.review.memberId.trim() : '';
+    return REVIEW_MEMBER_ID_PATTERN.test(raw) ? raw : '';
+}
+
 /** Whether `author` is an agent's (`agent`, `agent_<role>` or `agent:<role>`). */
 export function isAgentAuthor(author: string | undefined | null): boolean {
     return /^agent(?:[_:].+)?$/i.test(String(author ?? '').trim());
