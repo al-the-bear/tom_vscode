@@ -39,7 +39,9 @@
  *   - the user-message template `explain-and-ask` becomes Explain TODO
  *     (`explain-todo`, explainTodoTemplate.ts), and every setting naming the
  *     old id names the new one — in that config and in the user-global
- *     overlay (`userConfigPath`). Format version 4;
+ *     overlay (`userConfigPath`). Format version 4. A YAML overlay keeps its
+ *     comments and the text of every value a step did not change, in this
+ *     and every later step that edits it;
  *   - the removed panels (localLlmProfileMigration.ts): every
  *     `localLlm.profiles` entry becomes an Anthropic profile `local-<key>` on
  *     its Local LLM configuration and the block goes; and, when the files come
@@ -70,7 +72,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Document, isMap, isScalar, isSeq, parseDocument, visit, YAMLMap } from 'yaml';
+import { isDeepStrictEqual } from 'util';
+import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, visit, YAMLMap } from 'yaml';
 
 import {
     MIGRATION_MARKER_FILE,
@@ -94,6 +97,7 @@ import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, st
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
+import { mergeYamlLayout } from './yamlLayoutMerge';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
 /**
@@ -147,6 +151,27 @@ function driverFor(name: string, quest: string): MergeDriver | undefined {
     if (name === 'history.md') { return 'ai-history-md'; }
     if (name === 'compacted_history.md') { return 'ai-block-history'; }
     return undefined;
+}
+
+/**
+ * The `yaml` writer's `indentSeq` for a file: false when its block sequences
+ * sit at their key's own indent (`- x` under `key:`), so they are written
+ * back as found.
+ */
+function indentSeqOf(text: string): boolean {
+    return !/^( *)[^\s#-][^\n]*:\n\1- /m.test(text);
+}
+
+/**
+ * `config` as YAML in the layout of `original`: every entry whose value did
+ * not change keeps its text, comments and blank lines (yamlLayoutMerge.ts);
+ * changed ones are written in the file's sequence style. Should the merge not
+ * read back as `config`, the plain encoding is written.
+ */
+function yamlKeepingLayout(original: string, config: unknown): string {
+    const encoded = new Document(config).toString({ indentSeq: indentSeqOf(original) });
+    const merged = mergeYamlLayout(original, encoded);
+    return isDeepStrictEqual(parseYaml(merged), parseYaml(encoded)) ? merged : encoded;
 }
 
 function list(folder: string): fs.Dirent[] {
@@ -352,7 +377,7 @@ class Run {
         for (const key of present) { telegram.delete(key); }
         // Why: these files hold block sequences at the key's own indent (`- x`
         // under `key:`), not the yaml library's default; written back as found.
-        const indentSeq = !/^( *)[^\s#-][^\n]*:\n\1- /m.test(text);
+        const indentSeq = indentSeqOf(text);
         fs.writeFileSync(file, doc.toString({ indentSeq }), 'utf8');
     }
 
@@ -496,7 +521,7 @@ class Run {
             for (const d of done) { this.change('(workspace)', step, `${file}: ${d}`); }
             if (!this.opts.apply) { continue; }
             if (isYaml) {
-                fs.writeFileSync(file, new Document(config).toString(), 'utf8');
+                fs.writeFileSync(file, yamlKeepingLayout(raw, config), 'utf8');
             } else {
                 const indent = /^\{\r?\n(\s+)"/.exec(raw)?.[1] ?? '    ';
                 fs.writeFileSync(file, JSON.stringify(config, null, indent) + (raw.endsWith('\n') ? '\n' : ''), 'utf8');
@@ -557,6 +582,7 @@ class Run {
             const doc = parseDocument(text);
             let converted = 0;
             visit(doc, {
+                // eslint-disable-next-line @typescript-eslint/naming-convention -- the yaml visitor's node-kind key
                 Scalar: (_key, node, nodePath) => {
                     if (!isScalar(node) || typeof node.value !== 'string' || !node.value.includes('${{')) { return; }
                     const r = convertTemplateText(node.value);
@@ -568,8 +594,7 @@ class Run {
             if (converted === 0) { continue; }
             this.change('(workspace)', 'expressions', `${this.rel(file)}: ${converted} JavaScript expression(s) in the expression language`);
             if (this.opts.apply) {
-                // Why: block sequences at the key's own indent (`- x` under `key:`) are written back as found.
-                const indentSeq = !/^( *)[^\s#-][^\n]*:\n\1- /m.test(text);
+                const indentSeq = indentSeqOf(text);
                 fs.writeFileSync(file, doc.toString({ indentSeq }), 'utf8');
             }
         }

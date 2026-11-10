@@ -15,6 +15,8 @@
  *         one value
  *   YL-8  with the encoding of the document before the edit: a mapping the edit reordered (a list item
  *         moved) takes the encoding's order, its values' text kept; the others keep the original's order
+ *   YL-9  a block sequence at its key's own indent (`- x` directly under `key:`) is that key's value: the
+ *         mapping around it is still walked, its comments kept; the sequence is one value
  */
 
 import test, { describe } from 'node:test';
@@ -113,5 +115,13 @@ describe('mergeYamlLayout', () => {
         assert.equal(mergeYamlLayout(original, encoded), y('list:', '  - one', '  - three', 'k: v'), 'the sequence is one changed value');
         const same = y('k: v', 'list:', '  -   one', '  -   two');
         assert.equal(mergeYamlLayout(original, same), original, 'the same sequence keeps its text');
+    });
+
+    test('YL-9: a sequence at its key\'s own indent', () => {
+        const original = y('# head', 'k: old # note', 'list:', '- one', '- two', '', '# about m', 'm:', '  items:', '  - a: 1', '    b: 2', '  n: x');
+        const encoded = y('k: new', 'list:', '- one', '- two', 'm:', '  items:', '  - a: 1', '    b: 2', '  n: x');
+        assert.equal(mergeYamlLayout(original, encoded), y('# head', 'k: new', 'list:', '- one', '- two', '', '# about m', 'm:', '  items:', '  - a: 1', '    b: 2', '  n: x'));
+        const changedList = y('k: old', 'list:', '- one', 'm:', '  items:', '  - a: 1', '    b: 2', '  n: x');
+        assert.equal(mergeYamlLayout(original, changedList), y('# head', 'k: old # note', 'list:', '- one', '# about m', 'm:', '  items:', '  - a: 1', '    b: 2', '  n: x'), 'a changed sequence takes the encoding\'s text (its trailing blank line with it, as any changed value)');
     });
 });

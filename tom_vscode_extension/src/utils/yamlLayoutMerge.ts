@@ -25,6 +25,9 @@
  *
  * Only block mappings are walked. Anything else — a sequence, a flow
  * collection, a line that is not `key: …` — is one value, compared as a whole.
+ * A block sequence written at its key's own indent (`- x` directly under
+ * `key:`, as the `yaml` writer's `indentSeq: false` writes it) is that key's
+ * value like an indented one.
  * The caller checks the result (it must decode to the same document as the
  * encoding); this module only rearranges lines and never invents text.
  *
@@ -147,10 +150,12 @@ function parseMapping(t: Text, from: number, to: number): Entry[] | null {
         if (!m || m.raw === '') { return null; }
         const keyLine = i;
         i++;
-        // The body: deeper lines and blank lines; blank lines after it end this entry.
-        while (i < to && (ind[i] < 0 || ind[i] > indent)) { i++; }
         const rest = m.rest;
         const valueless = rest === '' || rest.startsWith('#');
+        // The body: deeper lines and blank lines; blank lines after it end this entry. A key without a value of
+        // its own may hold a block sequence written at its own indent (`- x` directly under `key:`).
+        const sequenceItem = (k: number): boolean => ind[k] === indent && (lines[k].slice(indent) === '-' || lines[k].startsWith('- ', indent));
+        while (i < to && (ind[i] < 0 || ind[i] > indent || (valueless && sequenceItem(i)))) { i++; }
         let bodyEnd = i;
         while (bodyEnd > keyLine + 1 && ind[bodyEnd - 1] < 0) { bodyEnd--; }
         const children = valueless && bodyEnd > keyLine + 1 ? parseMapping(t, keyLine + 1, bodyEnd) : null;
