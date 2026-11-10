@@ -26,6 +26,72 @@
       "$ref": "#/$defs/session",
       "description": "The session every prompt of the process runs in unless a phase, step or sub-step names its own (the innermost applies). E.g. {name: tomspecs, mode: per-prompt, profile: opus-5-5-agent-sdk-mm}: every Proceed prompt starts fresh, without iteration placeholders in session names."
     },
+    "inputs": {
+      "type": "array",
+      "description": "What the process takes when a step starts it (subprocesses: / branches:). Its prompts see each as ${input.<name>}.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/id"
+          },
+          "kind": {
+            "enum": [
+              "document",
+              "documents",
+              "folder"
+            ],
+            "description": "What it holds: a document, a list of documents, a folder."
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "An input the starting step must fill."
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "What it hands back to the step that started it as a subprocess, as ${sub.<process>.<name>}: set with tomAi_setProcessState {outputs}, or the default value.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/id"
+          },
+          "kind": {
+            "enum": [
+              "document",
+              "documents",
+              "folder"
+            ],
+            "description": "What it holds: a document, a list of documents, a folder."
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "An output that must be set before the process finishes as a subprocess."
+          },
+          "value": {
+            "type": "string",
+            "description": "The value when none was set: a text with ${input.<name>}, e.g. ${input.folder}/consolidated.md."
+          }
+        }
+      }
+    },
     "phases": {
       "type": "array",
       "minItems": 1,
@@ -340,6 +406,13 @@
               "description": {
                 "type": "string",
                 "description": "Why or when to start it (shown where it is offered)."
+              },
+              "inputs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The process's declared inputs filled from this position: input name → a text the placeholder engine resolves when the level starts (the step's chat and process variables, ${sub.<process>.<name>})."
               }
             }
           }

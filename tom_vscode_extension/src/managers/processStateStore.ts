@@ -29,7 +29,10 @@ import {
     abortedLevelJournalEntry,
     checkNestedStart,
     endNestedLevel,
+    ioVariables,
+    levelOutputs,
     pushNestedLevel,
+    setLevelOutputs,
     topLevel,
 } from '../utils/processStack';
 import {
@@ -181,7 +184,7 @@ export class ProcessStateStore {
      * the process's first position and the step below waits. The depth
      * confirmation is the caller's (startNeedsConfirmation).
      */
-    startNested(kind: NestedKind, processId: string, followUp: NestedFollowUp, source: ChangeSource): ProcessChangeResult {
+    startNested(kind: NestedKind, processId: string, followUp: NestedFollowUp, source: ChangeSource, inputs: Record<string, string> = {}): ProcessChangeResult {
         if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
@@ -189,7 +192,7 @@ export class ProcessStateStore {
         const check = checkNestedStart(levels, this.definitions(), kind, processId);
         if (!check.ok) { return check; }
         const before = topLevel(levels);
-        return this.writeLevels(repo, before, pushNestedLevel(levels, check.def, kind, followUp), source);
+        return this.writeLevels(repo, before, pushNestedLevel(levels, check.def, kind, followUp, new Date(), inputs), source);
     }
 
     /**
@@ -260,10 +263,14 @@ export class ProcessStateStore {
         return { def: this.currentDefinition(), state: this.state, description: this.processDescription() };
     }
 
-    /** The process chat variables, for the position a prompt runs for. */
-    variables(): Record<ProcessVariableKey, string> {
+    /**
+     * The process chat variables, for the position a prompt runs for, with the
+     * running level's inputs (`input.<name>`) and the outputs its subprocesses
+     * handed back (`sub.<process>.<name>`).
+     */
+    variables(): Record<ProcessVariableKey, string> & Record<string, string> {
         const v = this.viewed();
-        return processVariableValues(v.def, v.state, v.description);
+        return { ...processVariableValues(v.def, v.state, v.description), ...ioVariables(v.state) };
     }
 
     /** The `${process-context}` block for the system prompt; `''` without a process. */
@@ -324,7 +331,16 @@ export class ProcessStateStore {
         if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
-        const before = this.state;
+        let before = this.state;
+        if (change.outputs !== undefined) {
+            const set = setLevelOutputs(this.currentDefinition(), before, change.outputs);
+            if (!set.ok) { return set; }
+            before = set.state;
+            const { outputs: _outputs, ...rest } = change;
+            // Only outputs: they are written and nothing moves.
+            if (Object.keys(rest).length === 0) { return this.commit(repo, this.state, before, source); }
+            change = rest;
+        }
         const result = applyProcessChange(before, this.definitions(), change);
         if (!result.ok) { return result; }
         const { nestedEnded: _ended, ...next } = result.state;
@@ -359,6 +375,11 @@ export class ProcessStateStore {
         const result: ProcessChangeResult = { ok: true, state: trackStepIterations(before, next) };
         // A subprocess or branch that finished its process ends: the step below goes on with its follow-up.
         if (result.state.nested && result.state.completed && this.rawLevels.length > 1) {
+            // A subprocess hands its outputs back: every required one must be set (or have a default).
+            const missing = result.state.nested.kind === 'subprocess' ? levelOutputs(this.entry(result.state.process)?.definition ?? null, result.state).missing : [];
+            if (missing.length) {
+                return { ok: false, error: `the subprocess ${result.state.process} cannot finish: its required output(s) ${missing.map((n) => `"${n}"`).join(', ')} are not set — set them with tomAi_setProcessState {outputs: {…}} first` };
+            }
             return this.endTop('finished', source, [...this.levels.slice(0, -1), result.state]);
         }
         repo.writeState(this.quest, result.state);

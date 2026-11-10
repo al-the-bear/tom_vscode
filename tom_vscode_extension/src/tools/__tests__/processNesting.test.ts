@@ -20,6 +20,17 @@
  *        level's Proceed is allowed and goes in behind them; the step below's marker moves nothing while a
  *        level above runs; the new level's marker moves the new level
  *   NP-7 switching the quest's process leaves every level; levels and their nested marks survive the file
+ *   NP-8 inputs and outputs (CC-61): a process declares `inputs` / `outputs` (name, kind, description,
+ *        required; an output's default `value` with ${input.<name>}); a list entry's `inputs` fill them; the
+ *        validator refuses bad declarations and mappings; the writer and the schema keep them
+ *   NP-9 a start fills the inputs at the starting position (the placeholder engine; an undeclared name or an
+ *        empty required input refuses the start); the level's prompts see ${input.<name>} and the context
+ *        block lists inputs and outputs to hand back
+ *   NP-10 outputs: tomAi_setProcessState {outputs} sets declared ones on a nested level (not the quest's own,
+ *        no undeclared name) without ending a running step; a subprocess finishes only with its required
+ *        outputs set; then they come back to the level below as ${sub.<process>.<name>} (defaults filled);
+ *        an aborted level hands nothing back
+ *   NP-11 the process editor edits a process's inputs and outputs and saves them in the definition
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -53,6 +64,10 @@ put('_ai/processes/main/main.process.yaml', [
     '          - sub',
     '          - process: main',
     '            description: the same process again',
+    '          - process: iosub',
+    '            inputs:',
+    '              doc: docs/${step}.md',
+    '              folder: out',
     '        branches: [side]',
     '      - id: build',
     '        name: Build',
@@ -61,6 +76,17 @@ put('_ai/processes/main/main.process.yaml', [
     '',
 ].join('\n'));
 put('_ai/processes/main/main.md', '# Main\n');
+put('_ai/processes/iosub/iosub.process.yaml', [
+    'id: iosub', 'name: IO sub',
+    'inputs:',
+    '  - {name: doc, kind: document, required: true, description: the document to review}',
+    '  - {name: folder, kind: folder}',
+    'outputs:',
+    '  - {name: result, kind: document, required: true}',
+    '  - {name: report, value: "${input.folder}/report.md"}',
+    'phases:', '  - id: s1', '    steps:', '      - id: work', '    gate:', '      id: sg', '',
+].join('\n'));
+put('_ai/processes/iosub/iosub.md', '# iosub\n');
 for (const id of ['sub', 'side']) {
     put(`_ai/processes/${id}/${id}.process.yaml`, [`id: ${id}`, `name: ${id}`, 'phases:', '  - id: s1', '    steps:', '      - id: work', '        role: reviewer', '    gate:', '      id: sg', ''].join('\n'));
     put(`_ai/processes/${id}/${id}.md`, `# ${id}\n`);
@@ -85,7 +111,9 @@ import { confirmProcessAction, installProcessMoveMarkers } from '../../services/
 import { abortNestedProcess, maxProcessDepth, startNestedProcess, type NestedStartUi } from '../../services/nestedProcessCommands.js';
 import { decisionAt, parseProcessStateStack, parseProcessYaml, stringifyProcessDefinition, stringifyProcessStateStack, type ProcessDefinition } from '../../utils/processDefinition.js';
 import { decisionDialog } from '../../utils/processActionPrompt.js';
-import { DEFAULT_MAX_PROCESS_DEPTH, positionProcessLists, startNeedsConfirmation } from '../../utils/processStack.js';
+import { DEFAULT_MAX_PROCESS_DEPTH, fillNestedInputs, positionProcessLists, startNeedsConfirmation } from '../../utils/processStack.js';
+import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
+import { JSDOM } from 'jsdom';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 function start(): void {
@@ -157,9 +185,9 @@ describe('nested processes', () => {
         const ok = parseProcessYaml(fs.readFileSync(path.join(WS, '_ai/processes/main/main.process.yaml'), 'utf8'));
         assert.deepEqual(ok.errors, []);
         const def = ok.definition!;
-        assert.match(stringifyProcessDefinition(def), /subprocesses:\n\s+- sub\n\s+- process: main\n\s+description: the same process again\n\s+branches:\n\s+- side/, 'the writer keeps them');
+        assert.match(stringifyProcessDefinition(def), /subprocesses:\n\s+- sub\n\s+- process: main\n\s+description: the same process again\n\s+- process: iosub\n[\s\S]*branches:\n\s+- side/, 'the writer keeps them');
         assert.deepEqual(positionProcessLists(def, { process: 'main', phase: 'p1', phaseIteration: 1, step: 'plan', stepIteration: 1, substep: '', substepIteration: 1, completed: false }),
-            { subprocesses: [{ process: 'sub' }, { process: 'main', description: 'the same process again' }], branches: [{ process: 'side' }] });
+            { subprocesses: [{ process: 'sub' }, { process: 'main', description: 'the same process again' }, { process: 'iosub', inputs: { doc: 'docs/${step}.md', folder: 'out' } }], branches: [{ process: 'side' }] });
         const bad = parseProcessYaml(['id: x', 'phases:', '  - id: a', '    steps:', '      - id: s', '        subprocesses: [ok, ok, "-bad", {process: y, extra: 1}, {description: d}]', '        branches: nope', '    gate: {id: g}'].join('\n'));
         assert.deepEqual(bad.errors.map((e) => e.path).sort(), [
             'phases[0].steps[0].branches', 'phases[0].steps[0].subprocesses[1]', 'phases[0].steps[0].subprocesses[2]',
@@ -186,7 +214,7 @@ describe('nested processes', () => {
         }
         const { u, shown } = ui({ kind: 'subprocess', process: 'sub' }, 'go-on');
         assert.equal(await startNestedProcess(store(), u), true, JSON.stringify(shown));
-        assert.deepEqual(shown.items!.map((i: Json) => [i.nestedKind, i.process]), [['subprocess', 'sub'], ['subprocess', 'main'], ['branch', 'side']], 'both lists offered');
+        assert.deepEqual(shown.items!.map((i: Json) => [i.nestedKind, i.process]), [['subprocess', 'sub'], ['subprocess', 'main'], ['subprocess', 'iosub'], ['branch', 'side']], 'both lists offered');
         const levels = store().levels;
         assert.equal(levels.length, 2);
         assert.deepEqual([levels[0].process, levels[0].step], ['main', 'plan'], 'the step below waits');
@@ -326,5 +354,122 @@ describe('nested processes', () => {
         const back = parseProcessStateStack(text).levels;
         assert.deepEqual(back[0].nestedEnded, { process: 'b', kind: 'branch', outcome: 'aborted' });
         assert.deepEqual(back[1].nested, { kind: 'branch', followUp: 'run-again', startedAt: '2026-11-10T00:00:00.000Z' });
+        const io = parseProcessStateStack(stringifyProcessStateStack({ levels: [
+            { ...back[0], subOutputs: { iosub: { result: 'r.md' } } },
+            { ...back[1], inputs: { doc: 'a.md' }, outputs: { result: 'r.md' } },
+        ] }, 'now')).levels;
+        assert.deepEqual([io[0].subOutputs, io[1].inputs, io[1].outputs], [{ iosub: { result: 'r.md' } }, { doc: 'a.md' }, { result: 'r.md' }], 'inputs, outputs and handed-back outputs survive the file');
+    });
+
+    test('NP-8: declarations, mappings, schema', () => {
+        const def = parseProcessYaml(fs.readFileSync(path.join(WS, '_ai/processes/iosub/iosub.process.yaml'), 'utf8'));
+        assert.deepEqual(def.errors, []);
+        const text = stringifyProcessDefinition(def.definition!);
+        assert.match(text, /inputs:\n\s+- name: doc\n\s+kind: document\n\s+description: the document to review\n\s+required: true/);
+        assert.match(text, /outputs:\n[\s\S]*- name: report\n\s+value: \$\{input\.folder\}\/report\.md/);
+        assert.match(stringifyProcessDefinition(parseProcessYaml(fs.readFileSync(path.join(WS, '_ai/processes/main/main.process.yaml'), 'utf8')).definition!), /- process: iosub\n\s+inputs:\n\s+doc: docs\/\$\{step\}\.md/);
+        const bad = parseProcessYaml([
+            'id: x',
+            'inputs: [{name: a, kind: file}, {name: a}, {name: b, value: v}, {kind: folder}]',
+            'outputs: [{name: o, required: yes, extra: 1}]',
+            'phases:', '  - id: p', '    steps:', '      - id: s', '        subprocesses: [{process: y, inputs: [a]}, {process: z, inputs: {"bad name": v, ok: 1}}]', '    gate: {id: g}',
+        ].join('\n'));
+        assert.deepEqual(bad.errors.map((e) => e.path).sort(), [
+            'inputs[0].kind', 'inputs[1].name', 'inputs[2].value', 'inputs[3].name',
+            'outputs[0].extra', 'outputs[0].required',
+            'phases[0].steps[0].subprocesses[0].inputs', 'phases[0].steps[0].subprocesses[1].inputs.bad name', 'phases[0].steps[0].subprocesses[1].inputs.ok',
+        ].sort(), JSON.stringify(bad.errors));
+        const schema = JSON.parse(fs.readFileSync(path.join(EXT_ROOT, 'src', 'config', 'process.schema.json'), 'utf8'));
+        assert.deepEqual(Object.keys(schema.properties).slice(0, 6), ['id', 'name', 'summary', 'session', 'inputs', 'outputs']);
+        assert.ok(schema.properties.outputs.items.properties.value);
+        assert.equal(schema.properties.inputs.items.properties.value, undefined, 'a default only on outputs');
+        assert.equal(schema.$defs.processList.items.oneOf[1].properties.inputs.additionalProperties.type, 'string');
+        const target = def.definition!;
+        assert.deepEqual(fillNestedInputs(target, { process: 'iosub', inputs: { doc: ' a.md ', folder: '' } }, (t) => t), { ok: true, inputs: { doc: 'a.md' } });
+        assert.match((fillNestedInputs(target, { process: 'iosub', inputs: { doc: 'a', nope: 'x' } }, (t) => t) as Json).error, /fills "nope", which iosub does not declare/);
+        assert.match((fillNestedInputs(target, { process: 'iosub' }, (t) => t) as Json).error, /input "doc" of iosub is required, and the step does not fill it/);
+        assert.match((fillNestedInputs(target, { process: 'iosub', inputs: { doc: '${x}' } }, () => '') as Json).error, /fills it with an empty value/);
+    });
+
+    test('NP-9: a start fills the inputs', async () => {
+        reset();
+        const { u, shown } = ui({ kind: 'subprocess', process: 'iosub' }, 'go-on');
+        assert.equal(await startNestedProcess(store(), u), true, JSON.stringify(shown));
+        assert.deepEqual(store().state.inputs, { doc: 'docs/plan.md', folder: 'out' }, 'resolved at the starting position');
+        const vars = store().variables();
+        assert.deepEqual([vars['input.doc'], vars['input.folder']], ['docs/plan.md', 'out']);
+        const block = store().contextBlock();
+        assert.match(block, /Started as a \*\*subprocess\*\* from the step of the process below it/);
+        assert.match(block, /Inputs: `\$\{input\.doc\}` \(document\) = docs\/plan\.md; `\$\{input\.folder\}` \(folder\) = out/);
+        assert.match(block, /Outputs to hand back: `result` \(document\), required — not set; `report` — default: \$\{input\.folder\}\/report\.md\. Set them with `tomAi_setProcessState/);
+    });
+
+    test('NP-10: outputs', async () => {
+        // (continues from NP-9: iosub runs above main › plan)
+        const set = async (input: Json): Promise<Json> => JSON.parse(await SET_PROCESS_STATE_TOOL.execute(input));
+        assert.match((await set({ outputs: { nope: 'x' } })).error, /declares no output "nope"/);
+        const finishEarly = store().apply({ completed: true }, 'user');
+        assert.equal(finishEarly.ok, false);
+        assert.match(!finishEarly.ok ? finishEarly.error : '', /cannot finish: its required output\(s\) "result" are not set/);
+        assert.equal(store().levels.length, 2, 'still running');
+        const run = await confirmProcessAction('proceed', undefined, '');
+        assert.equal(run.ok, true, JSON.stringify(run));
+        const marker = queue().items.find((i) => i.processMove)!;
+        const r = await set({ outputs: { result: 'review/consolidated.md' } });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.processMoveMarkersRemoved, undefined);
+        assert.ok(queue().getById(marker.id), 'the running step\'s marker is kept');
+        for (const i of [...queue().items]) { queue().remove(i.id); }
+        assert.match(store().contextBlock(), /`result` \(document\), required — set: review\/consolidated\.md/);
+        assert.equal((await set({ completed: true })).ok, true);
+        assert.equal(store().levels.length, 1);
+        assert.deepEqual(store().state.subOutputs, { iosub: { result: 'review/consolidated.md', report: 'out/report.md' } }, 'handed back, the default filled');
+        assert.equal(store().state.step, 'build', 'go-on');
+        const vars = store().variables();
+        assert.deepEqual([vars['sub.iosub.result'], vars['sub.iosub.report'], vars['input.doc']], ['review/consolidated.md', 'out/report.md', undefined]);
+        assert.match(store().contextBlock(), /Outputs handed back by subprocesses: `\$\{sub\.iosub\.result\}` = review\/consolidated\.md/);
+        assert.match((await set({ outputs: { result: 'x' } })).error, /outputs belong to a subprocess or branch/);
+        reset();
+        assert.equal(store().startNested('subprocess', 'iosub', 'run-again', 'user', { doc: 'd.md' }).ok, true);
+        assert.equal(store().apply({ outputs: { result: 'r.md' } }, 'user').ok, true);
+        assert.equal(store().abortNested('user').ok, true);
+        assert.equal(store().state.subOutputs, undefined, 'aborted: nothing handed back');
+    });
+
+    test('NP-11: the process editor', async () => {
+        const html = fs.readFileSync(path.join(EXT_ROOT, 'media', 'processEditor', 'index.html'), 'utf8').replace(/<script[\s\S]*?<\/script>/g, '');
+        const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Json;
+        try {
+            const posted: Json[] = [];
+            w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => posted.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => undefined });
+            w.__INIT__ = {};
+            w.eval(fs.readFileSync(path.join(EXT_ROOT, 'media', 'processEditor', 'main.js'), 'utf8'));
+            const fire = (data: Json): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+            fire({ type: 'list', processes: [{ id: 'x', valid: true }], roles: [], currentProcess: '' });
+            fire({ type: 'load', id: 'x', definition: { id: 'x', phases: [{ id: 'p', steps: [{ id: 's' }], gate: { id: 'g' } }] }, description: '', errors: [], files: { definition: 'x.process.yaml', description: 'x.md' } });
+            const doc = w.document;
+            doc.querySelector('[data-op="add-input"]').click();
+            doc.querySelector('[data-op="add-output"]').click();
+            doc.querySelector('[data-op="add-output"]').click();
+            const field = (p: string): Json => doc.querySelector(`[data-path="${p}"]`);
+            const type = (p: string, value: string): void => { const f = field(p); f.value = value; f.dispatchEvent(new w.Event(f.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
+            type('inputs.0.name', 'documents');
+            type('inputs.0.kind', 'documents');
+            field('inputs.0.required').checked = true;
+            field('inputs.0.required').dispatchEvent(new w.Event('change', { bubbles: true }));
+            type('outputs.0.name', 'consolidated');
+            type('outputs.0.value', '${input.documents}/merged.md');
+            doc.querySelector('[data-op="remove"][data-path="outputs.1"]').click();
+            doc.dispatchEvent(new w.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+            const save = posted.filter((m) => m.type === 'save').pop();
+            assert.ok(save, JSON.stringify(posted.map((m) => m.type)));
+            assert.deepEqual([save.definition.inputs, save.definition.outputs], [[{ name: 'documents', kind: 'documents', required: true }], [{ name: 'consolidated', value: '${input.documents}/merged.md' }]]);
+            doc.querySelector('[data-op="remove"][data-path="inputs.0"]').click();
+            doc.dispatchEvent(new w.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+            assert.equal(posted.filter((m) => m.type === 'save').pop().definition.inputs, undefined, 'an empty list is dropped');
+        } finally {
+            w.close();
+        }
     });
 });
+

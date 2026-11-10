@@ -82,7 +82,7 @@ describe('the process_design process', { skip: present ? false : 'no _ai/process
             return unescapePlaceholders(buildProcessActionPrompt(store as never, move, ''));
         };
         const questions = prompt(at('intent', 'questions'));
-        assert.match(questions, /tomAi_writeChatVariable \(`design`\)/);
+        assert.match(questions, /tomAi_writeChatVariable \(`design` = the id/, 'the round sets `design` (and, since the revise mode, `design-mode`)');
         assert.match(questions, /How a question round goes \(shared by idea_to_todos and process_design[\s\S]*tomAi_askUser/);
         const initial = prompt(at('design', 'initial'));
         for (const part of ['steps in order', 'repeatable', 'sub-steps', '`userAction`', 'session', 'prompt written out', 'checklist items', '`onFail`', 'post-gate step', '<!--[role-<name>]-->']) {

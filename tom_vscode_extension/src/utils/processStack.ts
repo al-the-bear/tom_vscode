@@ -54,6 +54,8 @@ export const NESTED_FOLLOW_UP_LABELS: Record<NestedFollowUp, string> = {
 export interface ProcessListItem {
     process: string;
     description?: string;
+    /** Input name → the text that fills it (resolved when the level starts). */
+    inputs?: Record<string, string>;
 }
 
 function listItems(raw: ProcessListEntry[] | undefined): ProcessListItem[] {
@@ -61,7 +63,11 @@ function listItems(raw: ProcessListEntry[] | undefined): ProcessListItem[] {
         .map((e): ProcessListItem | undefined => (typeof e === 'string'
             ? { process: e }
             : e && typeof e === 'object' && typeof e.process === 'string'
-                ? { process: e.process, ...(e.description ? { description: e.description } : {}) }
+                ? {
+                    process: e.process,
+                    ...(e.description ? { description: e.description } : {}),
+                    ...(e.inputs && typeof e.inputs === 'object' ? { inputs: Object.fromEntries(Object.entries(e.inputs).filter(([, v]) => typeof v === 'string')) } : {}),
+                }
                 : undefined))
         .filter((e): e is ProcessListItem => !!e && e.process !== '');
 }
@@ -122,15 +128,93 @@ export function checkNestedStart(
     return { ok: true, def: target };
 }
 
-/** The stack with a new level for `def` on top, started as a `kind` with `followUp`. */
+/** The stack with a new level for `def` on top, started as a `kind` with `followUp` and its filled `inputs`. */
 export function pushNestedLevel(
     levels: readonly ProcessState[],
     def: ProcessDefinition,
     kind: NestedKind,
     followUp: NestedFollowUp,
     now: Date = new Date(),
+    inputs: Record<string, string> = {},
 ): ProcessState[] {
-    return [...levels, { ...selectProcess(def), nested: { kind, followUp, startedAt: now.toISOString() } }];
+    return [...levels, {
+        ...selectProcess(def),
+        nested: { kind, followUp, startedAt: now.toISOString() },
+        ...(Object.keys(inputs).length ? { inputs } : {}),
+    }];
+}
+
+// ---- Inputs and outputs (CC-61) --------------------------------------------
+
+/** The list entry of `kind` for `processId` at the top level's position, if listed. */
+export function listedEntry(def: ProcessDefinition | null, state: ProcessState, kind: NestedKind, processId: string): ProcessListItem | undefined {
+    const lists = positionProcessLists(def, state);
+    return (kind === 'subprocess' ? lists.subprocesses : lists.branches).find((e) => e.process === processId);
+}
+
+/**
+ * The inputs a level of `target` starts with: the entry's mapping, each text
+ * resolved by `resolve` (the placeholder engine at the starting position).
+ * Refused: a mapped name the process does not declare, a required input left
+ * empty. A declared input without a mapping starts empty.
+ */
+export function fillNestedInputs(
+    target: ProcessDefinition,
+    entry: ProcessListItem | undefined,
+    resolve: (text: string) => string,
+): { ok: true; inputs: Record<string, string> } | { ok: false; error: string } {
+    const declared = target.inputs ?? [];
+    const mapping = entry?.inputs ?? {};
+    const unknown = Object.keys(mapping).filter((n) => !declared.some((d) => d.name === n));
+    if (unknown.length) {
+        return { ok: false, error: `the step fills ${unknown.map((n) => `"${n}"`).join(', ')}, which ${target.id} does not declare (its inputs: ${declared.map((d) => d.name).join(', ') || 'none'})` };
+    }
+    const inputs: Record<string, string> = {};
+    for (const decl of declared) {
+        const raw = mapping[decl.name];
+        const value = raw === undefined ? '' : resolve(raw).trim();
+        if (decl.required && !value) { return { ok: false, error: `the input "${decl.name}" of ${target.id} is required, and the step ${raw === undefined ? 'does not fill it' : 'fills it with an empty value'}` }; }
+        if (value) { inputs[decl.name] = value; }
+    }
+    return { ok: true, inputs };
+}
+
+/** `${input.<name>}` in an output's default value, filled from the level's inputs (unknown names stay as written). */
+export function fillInputPlaceholders(text: string, inputs: Record<string, string> = {}): string {
+    return text.replace(/\$\{input\.([A-Za-z0-9][A-Za-z0-9_-]*)\}/g, (all, name: string) => (name in inputs ? inputs[name] : all));
+}
+
+/** A level's declared outputs as they stand: set values, else the default `value` filled from its inputs. */
+export function levelOutputs(def: ProcessDefinition | null, level: ProcessState): { values: Record<string, string>; missing: string[] } {
+    const values: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const decl of def?.outputs ?? []) {
+        const set = level.outputs?.[decl.name];
+        const value = set !== undefined && set !== '' ? set : decl.value ? fillInputPlaceholders(decl.value, level.inputs) : '';
+        if (value) { values[decl.name] = value; } else if (decl.required) { missing.push(decl.name); }
+    }
+    return { values, missing };
+}
+
+/** Set outputs on the running level: only a nested level, only declared names; merged with those set before. */
+export function setLevelOutputs(def: ProcessDefinition | null, level: ProcessState, values: Record<string, string>): { ok: true; state: ProcessState } | { ok: false; error: string } {
+    if (!level.nested) { return { ok: false, error: 'outputs belong to a subprocess or branch; the running level is the quest\'s own process' }; }
+    const declared = (def?.outputs ?? []).map((d) => d.name);
+    const unknown = Object.keys(values).filter((n) => !declared.includes(n));
+    if (unknown.length) { return { ok: false, error: `${level.process} declares no output ${unknown.map((n) => `"${n}"`).join(', ')} (its outputs: ${declared.join(', ') || 'none'})` }; }
+    const bad = Object.entries(values).filter(([, v]) => typeof v !== 'string').map(([n]) => n);
+    if (bad.length) { return { ok: false, error: `outputs are text: ${bad.join(', ')}` }; }
+    return { ok: true, state: { ...level, outputs: { ...(level.outputs ?? {}), ...values } } };
+}
+
+/** The I/O variables of a level: `input.<name>` and `sub.<process>.<name>`. */
+export function ioVariables(level: ProcessState): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [n, v] of Object.entries(level.inputs ?? {})) { out[`input.${n}`] = v; }
+    for (const [p, values] of Object.entries(level.subOutputs ?? {})) {
+        for (const [n, v] of Object.entries(values)) { out[`sub.${p}.${n}`] = v; }
+    }
+    return out;
 }
 
 /** What ending the top level did. */
@@ -174,7 +258,12 @@ export function endNestedLevel(
     if (levels.length < 2) { return { error: 'no subprocess or branch is running: the top level is the quest\'s own process' }; }
     const ended = topLevel(levels);
     const parentBefore = levels[levels.length - 2];
-    const parentAfter = parentAfterNested(defs.get(parentBefore.process) ?? null, parentBefore, ended, outcome);
+    let parentAfter = parentAfterNested(defs.get(parentBefore.process) ?? null, parentBefore, ended, outcome);
+    // A finished subprocess hands its outputs back to the level below (a branch and an aborted level hand nothing back).
+    if (outcome === 'finished' && ended.nested?.kind === 'subprocess') {
+        const { values } = levelOutputs(defs.get(ended.process) ?? null, ended);
+        parentAfter = { ...parentAfter, subOutputs: { ...(parentAfter.subOutputs ?? {}), [ended.process]: values } };
+    }
     return { levels: [...levels.slice(0, -2), parentAfter], ended, parentBefore, parentAfter };
 }
 

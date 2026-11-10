@@ -254,6 +254,34 @@
         });
     }
 
+    /**
+     * A process's inputs (filled by the step that starts it, `${input.<name>}`)
+     * or outputs (handed back to that step as `${sub.<process>.<name>}`).
+     */
+    function ioSection(key, list) {
+        var isOut = key === 'outputs';
+        var kinds = ['', 'document', 'documents', 'folder'];
+        var rows = (list || []).map(function (d, k) {
+            var p = key + '.' + k;
+            return '<div class="io-row">'
+                + text(p + '.name', d.name, 'name', 'io-name')
+                + '<select data-path="' + p + '.kind" title="What it holds">' + kinds.map(function (kd) {
+                    return '<option value="' + kd + '"' + ((d.kind || '') === kd ? ' selected' : '') + '>' + (kd || '(any)') + '</option>';
+                }).join('') + '</select>'
+                + text(p + '.description', d.description, 'description', 'io-description')
+                + (isOut ? text(p + '.value', d.value, 'default, e.g. ${input.folder}/result.md', 'io-value') : '')
+                + '<label class="check" title="' + (isOut ? 'Must be set before the process finishes as a subprocess' : 'The starting step must fill it') + '"><input type="checkbox" data-path="' + p + '.required" data-kind="bool"' + (d.required ? ' checked' : '') + '> required</label>'
+                + '<button class="icon" data-op="remove" data-path="' + p + '" title="Remove"><span class="codicon codicon-trash"></span></button>'
+                + '</div>';
+        }).join('');
+        return '<div class="section-title">' + (isOut ? 'Outputs' : 'Inputs') + ' <span class="muted">— '
+            + (isOut ? 'handed back to the step that starts this process as a subprocess, as ${sub.&lt;process&gt;.&lt;name&gt;}; set with tomAi_setProcessState {outputs}, or the default'
+                : 'filled by the subprocesses: / branches: entry of the step that starts it; its prompts see ${input.&lt;name&gt;}')
+            + '</span></div>'
+            + '<div class="io-list">' + rows + '</div>'
+            + '<button class="add" data-op="add-' + (isOut ? 'output' : 'input') + '"><span class="codicon codicon-add"></span> ' + (isOut ? 'output' : 'input') + '</button>';
+    }
+
     function renderMain() {
         if (!doc) { mainEl.innerHTML = '<div class="muted">Select a process, or create one.</div>'; return; }
         if (!doc.def || typeof doc.def !== 'object') {
@@ -268,6 +296,8 @@
             + '<div class="card-head top">' + '<label>Name ' + text('name', def.name, 'display name', 'name') + '</label>'
             + '<label class="grow">Summary ' + text('summary', def.summary, 'one line', 'summary') + '</label></div>'
             + '<div class="card-head top process-session"><label>Session of every prompt</label>' + sessionFields('', def.session) + '</div>'
+            + ioSection('inputs', def.inputs)
+            + ioSection('outputs', def.outputs)
             + '<div class="section-title">Description <span class="muted">(' + esc(doc.files ? doc.files.description.split(/[\\/]/).pop() : '') + ', Markdown)</span></div>'
             + '<textarea id="process-description" rows="8" placeholder="What this process is for and how it is worked through.">' + esc(doc.description) + '</textarea>'
             + '<div class="section-title">Phases <span class="muted">— each ends with a quality gate; an optional post-gate step holds the todos done before the next phase</span></div>'
@@ -304,6 +334,18 @@
             case 'remove-postgate':
                 delete getAt(path.slice(0, -1)).postGate;
                 break;
+            case 'add-input':
+            case 'add-output': {
+                var key2 = name === 'add-input' ? 'inputs' : 'outputs';
+                def[key2] = def[key2] || [];
+                var used = {};
+                def[key2].forEach(function (d) { used[d.name] = true; });
+                var base = name === 'add-input' ? 'input' : 'output';
+                var n = def[key2].length + 1;
+                while (used[base + n]) { n++; }
+                def[key2].push({ name: base + n });
+                break;
+            }
             case 'add-todo':
                 node.todos = node.todos || [];
                 node.todos.push({ title: '' });
@@ -314,7 +356,7 @@
                 // An empty sub-step or todo list is dropped: a step with sub-steps has at least one.
                 var owner = getAt(path.slice(0, -2));
                 var key = path[path.length - 2];
-                if (list.length === 0 && (key === 'substeps' || key === 'todos') && owner) { delete owner[key]; }
+                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs') && owner) { delete owner[key]; }
                 break;
             }
             case 'up':

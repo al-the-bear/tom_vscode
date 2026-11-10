@@ -175,7 +175,9 @@ export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessC
     const result = deps.apply(input);
     if (!result.ok) { return JSON.stringify(result); }
     // The state is set by hand now: a step still running from a Proceed no longer moves it.
-    const markersRemoved = deps.dropProcessMoveMarkers();
+    // Only outputs set (the subprocess's agent recording its result) moves nothing: the step runs on.
+    const onlyOutputs = Object.keys(input).every((k) => k === 'outputs');
+    const markersRemoved = onlyOutputs ? 0 : deps.dropProcessMoveMarkers();
     const role = deps.currentRole();
     return JSON.stringify({
         ok: true, state: result.state, role, roleChanged: role !== roleBefore && role !== '',
@@ -187,7 +189,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process: `process` ("" clears it), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
+        'Move the active quest in its process: `process` ("" clears it), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -204,6 +206,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
             stepIteration: { type: 'number', description: 'Iteration of the step (≥ 1).' },
             substepIteration: { type: 'number', description: 'Iteration of the sub-step (≥ 1).' },
             completed: { type: 'boolean', description: 'true: the process is finished (its last step done).' },
+            outputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Outputs of the running subprocess or branch, by declared name (merged with those set before).' },
         },
     },
     // The change source (which transport called) is read when the tool runs, as the chat-variable tools do.

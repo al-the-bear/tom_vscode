@@ -87,8 +87,34 @@ export interface ProcessSubstep {
     branches?: ProcessListEntry[];
 }
 
-/** An entry of a `subprocesses:` / `branches:` list: a process id, or the id with a description. */
-export type ProcessListEntry = string | { process: string; description?: string };
+/**
+ * An entry of a `subprocesses:` / `branches:` list: a process id, or the id
+ * with a description and `inputs` — the process's declared inputs filled
+ * from this position, each a text resolved by the placeholder engine when the
+ * level starts (the step's chat and process variables, `${sub.…}` outputs).
+ */
+export type ProcessListEntry = string | { process: string; description?: string; inputs?: Record<string, string> };
+
+/** What an input or output holds: a document, a list of documents, a folder. */
+export type ProcessIoKind = 'document' | 'documents' | 'folder';
+
+/**
+ * A declared input or output of a process (CC-61). An input is filled by the
+ * `subprocesses:` / `branches:` entry that starts the process and seen by its
+ * prompts as `${input.<name>}`; an output is set while the process runs
+ * (`tomAi_setProcessState {outputs}`) or taken from `value` (a text with
+ * `${input.<name>}`), and handed back to the step that started it as
+ * `${sub.<process>.<name>}` when it finishes as a subprocess.
+ */
+export interface ProcessIoDecl {
+    name: string;
+    kind?: ProcessIoKind;
+    description?: string;
+    /** An input that must be filled; an output that must be set before the process finishes. */
+    required?: boolean;
+    /** Outputs only: the value when none was set, e.g. `${input.folder}/consolidated.md`. */
+    value?: string;
+}
 
 /**
  * A step. With `substeps` it is no action of its own but a group of them; its
@@ -138,6 +164,10 @@ export interface ProcessDefinition {
     summary?: string;
     /** The session every prompt of the process runs in, unless a phase, step or sub-step names its own. */
     session?: ProcessSessionSpec;
+    /** What the process takes when it is started from a step (`${input.<name>}`). */
+    inputs?: ProcessIoDecl[];
+    /** What it hands back to the step that started it as a subprocess (`${sub.<process>.<name>}`). */
+    outputs?: ProcessIoDecl[];
     phases: ProcessPhase[];
 }
 
@@ -185,7 +215,9 @@ function isSessionName(v: string): boolean {
     return ID_PATTERN.test(v.replace(SESSION_PLACEHOLDER, '1'));
 }
 
-const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'phases'];
+const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'phases'];
+const IO_KEYS = ['name', 'kind', 'description', 'required'];
+const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
@@ -285,8 +317,18 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             const entryAt = `${at}[${i}]`;
             let id: unknown = entry;
             if (isObject(entry)) {
-                unknownKeys(entry, ['process', 'description'], entryAt);
+                unknownKeys(entry, ['process', 'description', 'inputs'], entryAt);
                 checkText(entry, 'description', entryAt);
+                if (entry.inputs !== undefined) {
+                    if (!isObject(entry.inputs)) {
+                        err(`${entryAt}.inputs`, 'a mapping of input name → value (a text the placeholder engine resolves)');
+                    } else {
+                        for (const [name, value] of Object.entries(entry.inputs)) {
+                            if (!ID_PATTERN.test(name)) { err(`${entryAt}.inputs.${name}`, `an input name: ${ID_MESSAGE}`); }
+                            if (typeof value !== 'string') { err(`${entryAt}.inputs.${name}`, 'text expected'); }
+                        }
+                    }
+                }
                 id = entry.process;
             }
             if (typeof id !== 'string' || id === '') { err(isObject(entry) ? `${entryAt}.process` : entryAt, 'a process id'); return; }
@@ -321,6 +363,24 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
     checkText(raw, 'name', '');
     checkText(raw, 'summary', '');
     checkSession(raw, '');
+    for (const key of ['inputs', 'outputs']) {
+        const list = raw[key];
+        if (list === undefined) { continue; }
+        if (!Array.isArray(list)) { err(key, 'a list of {name, kind, description, required}'); continue; }
+        const seen = new Set<string>();
+        list.forEach((decl, i) => {
+            const at = `${key}[${i}]`;
+            if (!isObject(decl)) { err(at, 'an object expected'); return; }
+            unknownKeys(decl, key === 'outputs' ? [...IO_KEYS, 'value'] : IO_KEYS, at);
+            if (typeof decl.name !== 'string' || !ID_PATTERN.test(decl.name)) { err(`${at}.name`, `required: ${ID_MESSAGE}`); }
+            else if (seen.has(decl.name)) { err(`${at}.name`, `"${decl.name}" is declared twice`); }
+            if (typeof decl.name === 'string') { seen.add(decl.name); }
+            if (decl.kind !== undefined && !IO_KINDS.includes(decl.kind as ProcessIoKind)) { err(`${at}.kind`, '"document", "documents" or "folder"'); }
+            if (decl.required !== undefined && typeof decl.required !== 'boolean') { err(`${at}.required`, 'true or false'); }
+            checkText(decl, 'description', at);
+            if (key === 'outputs') { checkText(decl, 'value', at); }
+        });
+    }
     if (!Array.isArray(raw.phases)) {
         err('phases', 'a list of phases expected');
     } else {
@@ -418,6 +478,8 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
     };
     const ordered = {
         ...pick(def, ['id', 'name', 'summary', 'session']),
+        ...(def.inputs?.length ? { inputs: def.inputs.map((d) => pick(d, IO_KEYS)) } : {}),
+        ...(def.outputs?.length ? { outputs: def.outputs.map((d) => pick(d, [...IO_KEYS, 'value'])) } : {}),
         phases: def.phases.map((p) => {
             const gate = step(p.gate);
             if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
@@ -478,6 +540,15 @@ export interface ProcessState {
      * again. Dropped by the choice.
      */
     nestedEnded?: NestedLevelEnd;
+    /** A nested level: its process's inputs as filled when it started (`${input.<name>}`). */
+    inputs?: Record<string, string>;
+    /** A nested level: the outputs set while it runs (tomAi_setProcessState `outputs`). */
+    outputs?: Record<string, string>;
+    /**
+     * The outputs the subprocesses started from this level handed back, by
+     * process id (the latest run of each): `${sub.<process>.<name>}`.
+     */
+    subOutputs?: Record<string, Record<string, string>>;
 }
 
 /** Started as a subprocess (hands a result back) or a branch (hands nothing back). */
@@ -745,6 +816,13 @@ export interface ProcessChange {
     substepIteration?: number;
     /** Mark the process finished (true) or open again (false). Any other change opens it again. */
     completed?: boolean;
+    /**
+     * Set outputs of the running subprocess or branch (its process's declared
+     * outputs), merged with those set before; applied by ProcessStateStore
+     * before the rest of the change, so `{outputs, completed: true}` hands
+     * them back as the level finishes.
+     */
+    outputs?: Record<string, string>;
 }
 
 export type ProcessChangeResult = { ok: true; state: ProcessState } | { ok: false; error: string };
@@ -1119,6 +1197,29 @@ function iterationText(node: { repeatable?: boolean; maxIterations?: number }, n
  * moves on by itself when the step's queued items are done (a process-move
  * marker), so the agent is told not to record the move.
  */
+/** The inputs, outputs and handed-back outputs of the running level, for the context block. */
+function ioContextLines(def: ProcessDefinition, state: ProcessState): string[] {
+    const lines: string[] = [];
+    const kind = (d: ProcessIoDecl | undefined): string => (d?.kind ? ` (${d.kind})` : '');
+    if (state.nested) {
+        lines.push(`Started as a **${state.nested.kind}** from the step of the process below it, which waits until this one finishes${state.nested.kind === 'subprocess' ? ' and gets its outputs back' : ''}.`);
+    }
+    const inputs = Object.entries(state.inputs ?? {});
+    if (inputs.length) {
+        lines.push('Inputs: ' + inputs.map(([n, v]) => `\`\${input.${n}}\`${kind(def.inputs?.find((d) => d.name === n))} = ${v}`).join('; '));
+    }
+    if (state.nested?.kind === 'subprocess' && def.outputs?.length) {
+        const out = def.outputs.map((d) => {
+            const set = state.outputs?.[d.name];
+            return `\`${d.name}\`${kind(d)}${d.required ? ', required' : ''}${set ? ` — set: ${set}` : d.value ? ` — default: ${d.value}` : ' — not set'}`;
+        });
+        lines.push(`Outputs to hand back: ${out.join('; ')}. Set them with \`tomAi_setProcessState {outputs: {<name>: <value>}}\` before the process finishes.`);
+    }
+    const handed = Object.entries(state.subOutputs ?? {}).flatMap(([p, values]) => Object.entries(values).map(([n, v]) => `\`\${sub.${p}.${n}}\` = ${v}`));
+    if (handed.length) { lines.push(`Outputs handed back by subprocesses: ${handed.join('; ')}`); }
+    return lines;
+}
+
 export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
@@ -1161,6 +1262,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
         }).join(' → ');
         lines.push(`Steps of this phase: ${outline}`);
     }
+    lines.push(...ioContextLines(def, state));
     if (step && entries.find((e) => e.step === step)?.kind === 'post-gate') {
         const post = step as ProcessPostGateStep;
         const todoLines = (post.todos ?? []).map((t) => `- ${t.title}${t.description ? ` — ${t.description}` : ''}`);
@@ -1240,7 +1342,27 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         ...parseStepIterations(raw.stepIterations),
         ...parseNested(raw.nested),
         ...parseNestedEnded(raw.nestedEnded),
+        ...textRecord('inputs', raw.inputs),
+        ...textRecord('outputs', raw.outputs),
+        ...parseSubOutputs(raw.subOutputs),
     };
+}
+
+/** A `{name: text}` record of a state file; left out when empty or not one. */
+function textRecord<K extends string>(key: K, raw: unknown): { [k in K]?: Record<string, string> } {
+    if (!isObject(raw)) { return {}; }
+    const out = Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+    return Object.keys(out).length ? { [key]: out } as { [k in K]?: Record<string, string> } : {};
+}
+
+function parseSubOutputs(raw: unknown): { subOutputs?: Record<string, Record<string, string>> } {
+    if (!isObject(raw)) { return {}; }
+    const out: Record<string, Record<string, string>> = {};
+    for (const [process, values] of Object.entries(raw)) {
+        const record = textRecord('v', values).v;
+        if (record) { out[process] = record; }
+    }
+    return Object.keys(out).length ? { subOutputs: out } : {};
 }
 
 const NESTED_KINDS: readonly NestedKind[] = ['subprocess', 'branch'];
@@ -1271,6 +1393,9 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
         ...(state.nested ? { nested: state.nested } : {}),
         ...(state.nestedEnded ? { nestedEnded: state.nestedEnded } : {}),
+        ...(state.inputs && Object.keys(state.inputs).length ? { inputs: state.inputs } : {}),
+        ...(state.outputs && Object.keys(state.outputs).length ? { outputs: state.outputs } : {}),
+        ...(state.subOutputs && Object.keys(state.subOutputs).length ? { subOutputs: state.subOutputs } : {}),
     };
 }
 

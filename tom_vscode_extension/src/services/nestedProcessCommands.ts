@@ -19,8 +19,14 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { resolveVariables } from '../utils/variableResolver';
+
+/** An input's text resolved at the starting position (the step's chat and process variables). */
+const resolveInput = (text: string): string => resolveVariables(text);
 import {
     DEFAULT_MAX_PROCESS_DEPTH,
+    fillNestedInputs,
+    listedEntry,
     NESTED_FOLLOW_UP_LABELS,
     levelName,
     nestingDepth,
@@ -86,7 +92,11 @@ export async function startNestedProcess(store: ProcessStateStore, ui: NestedSta
         );
         if (!ok) { return false; }
     }
-    const result = store.startNested(picked.kind, picked.process, followUp, 'user');
+    // The entry fills the process's inputs from this position (CC-61), resolved now, as the step sees them.
+    const target = store.entry(picked.process)?.definition;
+    const filled = target ? fillNestedInputs(target, listedEntry(def, top, picked.kind, picked.process), resolveInput) : { ok: true as const, inputs: {} };
+    if (!filled.ok) { ui.error(`Could not start ${picked.process}: ${filled.error}`); return false; }
+    const result = store.startNested(picked.kind, picked.process, followUp, 'user', filled.inputs);
     if (!result.ok) { ui.error(`Could not start ${picked.process}: ${result.error}`); return false; }
     const waiting = queueItemsLeft(store);
     ui.info(`Started ${levelName(topLevel(store.levels))}${waiting ? ` — its first Proceed goes in behind the ${waiting} item(s) of the step below still in the queue` : ''}.`);
