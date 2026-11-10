@@ -63,6 +63,11 @@ function chatPanel(): { w: Win; posted: Array<Record<string, unknown>> } {
     return { w, posted };
 }
 
+/** The 2 s double-click pause of the Send and queue buttons is over (stands in for the time passing). */
+function pauseOver(w: Win): void {
+    w.eval("document.querySelectorAll('[data-paused-until]').forEach(function (b) { b.removeAttribute('data-paused-until'); b.disabled = false; });");
+}
+
 describe('chat sends and the queue buttons', () => {
     test('CB-1: two Save to Queue buttons', () => {
         const { w, posted } = chatPanel();
@@ -179,6 +184,7 @@ describe('chat sends and the queue buttons', () => {
         doc.querySelector('.slot-btn[data-id="anthropic"][data-slot="2"]').click();
         assert.equal(keep.checked, false);
         assert.equal(text.value, 'two');
+        pauseOver(w);
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
         assert.equal(posted.filter((m) => m.type === 'sendAnthropic').pop()?.text, 'two', 'sent first');
         assert.equal(text.value, 'two', 'not before the send started (its session may be busy)');
@@ -260,6 +266,9 @@ describe('chat sends and the queue buttons', () => {
         const status = (): string => doc.getElementById('anthropic-status')?.textContent ?? '';
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
         assert.match(status(), /Sending/);
+        assert.equal(sendBtn.disabled, true, 'paused for 2 s after the click (the double-click guard)');
+        pauseOver(w);
+        w.eval('updateAnthropicSendButton()');
         assert.equal(sendBtn.disabled, false, 'not disabled while it runs');
         assert.match(sendBtn.title, /Send offers to send this as an update to it, or to queue it/);
         fire({ type: 'anthropicStatus', text: 'Working on it' });

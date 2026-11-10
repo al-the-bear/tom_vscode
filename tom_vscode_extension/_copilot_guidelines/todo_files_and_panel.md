@@ -289,7 +289,10 @@ the template `todoButtonTemplates.resolveTodoButtonTemplate` gives
 (`anthropic.todoButtonTemplates`: `userAction` for Guide me and a user-action
 todo, `other` for the rest; defaults `guide-user-action` / `execute-todo`),
 always on Anthropic — sent by `runAnthropicSend` or enqueued staged with
-`transport: 'anthropic'`; a template missing from the store warns. Tests:
+`transport: 'anthropic'`; a template missing from the store warns. A double
+click is ignored: the button pauses for 2 s (`qtPauseButton`) and the host
+drops the same todo sent the same way within 3 s (`_todoButtonGuard`,
+`duplicateSubmitGuard.ts`). Tests:
 `questTodoAgentAnswerAndGuide.dom.test.ts` AG-1–5, `todoButtons.test.ts` TB-1–6.
 
 The filter state also carries `blocking` (`[]` all, `['yes']` blocks an open todo by

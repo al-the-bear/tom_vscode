@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
 import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
@@ -1247,6 +1248,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             const use = msg.type === 'qtGuideUserAction' ? 'userAction' : todoButtonTemplateUse(todo);
+            // The same todo sent the same way within 3 s is a double click (duplicateSubmitGuard.ts).
+            if (_todoButtonGuard.isDuplicate({ text: `${questId}/${todo.id}`, transport: msg.target === 'queue' ? 'queue' : 'chat', template: use })) {
+                vscode.window.setStatusBarMessage(`$(info) Already ${msg.target === 'queue' ? 'queued' : 'sent'}: todo ${todo.id} within 3 s`, 4000);
+                return true;
+            }
             await _runTodoButton(todo, questId, msg.sourceFile, use, msg.target === 'queue' ? 'queue' : 'chat');
             return true;
         }
@@ -2148,6 +2154,9 @@ function _openYamlFile(questId: string, file: string): void {
  * `use` (the Status Page's Todo buttons setting), on Anthropic whatever the
  * queue's transport — sent now in the @CHAT panel, or added to the queue staged.
  */
+/** The double-click guard of the todo detail's buttons. */
+const _todoButtonGuard = new DuplicateSubmitGuard();
+
 async function _runTodoButton(
     todo: questTodo.QuestTodoItem,
     questId: string | undefined,

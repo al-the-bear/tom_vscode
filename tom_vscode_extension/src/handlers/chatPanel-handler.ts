@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { DuplicateSubmitGuard, type SubmissionFields } from '../utils/duplicateSubmitGuard';
 import { resolveBusySession } from './busySessionChoice';
 import { agentSdkAvailable } from '../services/providerRuntime';
 import { locateAgentSdkCli } from '../services/agentSdkCli';
@@ -433,9 +434,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // Pin state is handled client-side via localStorage
                         break;
                     case 'sendCopilot':
+                        if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'copilot', template: message.template })) { break; }
                         await this._handleSendCopilot(message.text, message.template, message.slot, message.wrap === true);
                         break;
                     case 'sendAnthropic':
+                        if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'anthropic', profile: message.profile, template: message.userMessageTemplate })) {
+                            // The webview set itself to "sending": tell it what happened.
+                            const panelBusy = isAnthropicSendInFlight();
+                            this._view?.webview.postMessage({ type: 'anthropicNotSent', message: 'Already sent: an identical send within 3 s was ignored.', ...(panelBusy ? { panelBusy } : {}) });
+                            break;
+                        }
                         await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate, false, typeof message.slot === 'number' ? message.slot : undefined);
                         break;
                     case 'cancel':
@@ -602,6 +610,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._applyContext(message);
                         break;
                     case 'addToQueue':
+                        if (this._queueAddGuard.isDuplicate({
+                            text: String(message.text ?? ''),
+                            transport: message.transport || 'copilot',
+                            profile: message.anthropicProfileId,
+                            template: message.template,
+                        })) {
+                            vscode.window.setStatusBarMessage('$(info) Already queued: an identical prompt was queued within 3 s', 4000);
+                            break;
+                        }
                         await this._handleAddToQueue(
                             message.text,
                             message.template,
@@ -1258,6 +1275,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * `wrap` is on (the panel's Wrap checkbox; `__answer_file__` as the template
      * means "no template, wrapped").
      */
+    /** The double-click guard (src/utils/duplicateSubmitGuard.ts): queue adds and sends, each its own. */
+    private readonly _queueAddGuard = new DuplicateSubmitGuard();
+    private readonly _sendGuard = new DuplicateSubmitGuard();
+
+    /** Whether a send repeats one accepted within 3 s; a repeat is ignored with a status-bar note. */
+    private _isDuplicateSend(fields: SubmissionFields): boolean {
+        if (!this._sendGuard.isDuplicate(fields)) { return false; }
+        vscode.window.setStatusBarMessage('$(info) Already sent: an identical send within 3 s was ignored', 4000);
+        return true;
+    }
+
     private async _handleSendCopilot(text: string, template: string, slot?: number, wrap?: boolean): Promise<void> {
         const config = loadSendToChatConfig();
         const isAnswerFileTemplate = wrap === true || template === ANSWER_WRAPPER_ID;

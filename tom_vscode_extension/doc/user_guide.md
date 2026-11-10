@@ -325,6 +325,7 @@ The profiles are the workspace config's `anthropic.profiles` (`.tom/tom_vscode_e
 
 Around the prompt: the profile picker with its edit button, the session button (below), the user-message template picker, Preview, Send and Stop, **Keep**, and the three queue buttons (below).
 
+- **No double sends**: **Send** and the three queue buttons (of the Copilot panel too) are paused for 2 seconds after a click, and a queue add or send whose text, transport, profile and template equal one taken in the last 3 seconds is ignored — the status bar says *Already queued* / *Already sent*. The todo detail's **Send** / **Queue** and **Guide me** buttons have the same guard.
 - **Keep** decides, for each prompt slot 1–9 on its own, whether the slot's text stays after **Send** or a queue add (checked, the default) or is cleared. The box shows the active slot's setting; it is saved with the drafts, so it holds over a window reload. A queue add clears the slot only once the queue has taken the prompt. The status bar holds the Chat Variables and Process editors, the prompt queue and queue templates, the Status Page, Recreate history / Recreate memory, Run Quest Refresh, `history.md`, the quest memory and the shared memory in the MD Browser, and a model list (read-only: the models the API returns; the profile's configuration decides the model). The live trail, the session's history, the raw and summary trails, the memory panel and clearing a session's history are in the @WS **Logs** section, behind its session switch (see [Logs Panel](#logs-panel)).
 
 #### Named sessions

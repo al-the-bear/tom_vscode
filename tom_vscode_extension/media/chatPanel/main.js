@@ -544,6 +544,28 @@ function updateResizeHandles() {
 // fires an `input` event after insertion, so the per-section input listener
 // below persists the slot draft. Nothing panel-specific is needed here.
 
+/**
+ * The double-click guard: the Send and queue buttons are paused (disabled) for
+ * SUBMIT_PAUSE_MS after a click; the host also ignores an identical queue add
+ * or send within 3 s (src/utils/duplicateSubmitGuard.ts).
+ */
+var SUBMIT_ACTIONS = ['send', 'addToQueue', 'addToQueuePanelTarget', 'addToQueueNext'];
+var SUBMIT_PAUSE_MS = 2000;
+
+function isSubmitButtonPaused(btn) {
+    return !!btn && Number(btn.getAttribute('data-paused-until') || 0) > Date.now();
+}
+
+function pauseSubmitButton(btn) {
+    btn.setAttribute('data-paused-until', String(Date.now() + SUBMIT_PAUSE_MS));
+    btn.disabled = true;
+    setTimeout(function() {
+        btn.removeAttribute('data-paused-until');
+        btn.disabled = false;
+        if (btn.id === 'anthropic-send-btn') { updateAnthropicSendButton(); }
+    }, SUBMIT_PAUSE_MS);
+}
+
 function attachEventListeners() {
     if (!delegatedUiHandlersAttached) {
         document.addEventListener('click', function(event) {
@@ -553,6 +575,8 @@ function attachEventListeners() {
             var actionEl = target.closest('[data-action]');
             if (actionEl) {
                 event.preventDefault();
+                if (actionEl.disabled) {return;}
+                if (SUBMIT_ACTIONS.indexOf(actionEl.dataset.action) >= 0) { pauseSubmitButton(actionEl); }
                 handleAction(actionEl.dataset.action, actionEl.dataset.id, actionEl.dataset.slot);
                 return;
             }
@@ -1005,8 +1029,9 @@ function updateAnthropicSendButton() {
     // var', which the catch in _handleSendAnthropic forwards as an
     // anthropicError message and the webview shows in the status line.
     // Not disabled while a send runs: a second Send asks whether to send it as
-    // an update to the running prompt, or queue it (the host decides).
-    btn.disabled = false;
+    // an update to the running prompt, or queue it (the host decides). Only the
+    // double-click pause after a click (pauseSubmitButton) disables it.
+    btn.disabled = isSubmitButtonPaused(btn);
     btn.title = anthropicSending
         ? 'A prompt is running: Send offers to send this as an update to it, or to queue it'
         : 'Send to Anthropic';

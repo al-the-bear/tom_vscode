@@ -2384,11 +2384,22 @@ function qtTodoButtonsRow(todo) {
         '</div>');
 }
 
+/**
+ * The double-click guard of the todo buttons (Send / Queue, Guide me): the
+ * clicked button is paused for 2 s; the host also ignores the same todo sent
+ * the same way within 3 s.
+ */
+function qtPauseButton(btn) {
+    btn.disabled = true;
+    setTimeout(function() { btn.disabled = false; }, 2000);
+}
+
 /** The Send and Queue buttons (qtTodoButtonsRow): one delegated handler. */
 function qtHandleTodoButtonClick(e) {
     var btn = e.target && e.target.closest ? e.target.closest('.qt-todo-btn') : null;
-    if (!btn || !qtDetailTodo) return;
+    if (!btn || !qtDetailTodo || btn.disabled) { return; }
     e.preventDefault();
+    qtPauseButton(btn);
     vscode.postMessage({
         type: 'qtTodoButton',
         target: btn.getAttribute('data-qt-todo-btn') === 'queue' ? 'queue' : 'chat',
@@ -2402,8 +2413,9 @@ document.addEventListener('click', qtHandleTodoButtonClick);
 /** The Guide me buttons (qtUserActionRow): one delegated handler. */
 function qtHandleGuideButtonClick(e) {
     var btn = e.target && e.target.closest ? e.target.closest('.qt-guide-btn') : null;
-    if (!btn || !qtDetailTodo) return;
+    if (!btn || !qtDetailTodo || btn.disabled) { return; }
     e.preventDefault();
+    qtPauseButton(btn);
     vscode.postMessage({
         type: 'qtGuideUserAction',
         target: btn.getAttribute('data-qt-guide') === 'queue' ? 'queue' : 'chat',
