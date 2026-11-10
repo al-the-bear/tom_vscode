@@ -134,6 +134,10 @@ export interface QueueItemSnapshot {
     warning?: { kind: string; message: string; at?: string };
     /** Why the item is in `error` (a failed send, or a `prefix*` walk with nothing to walk over). */
     error?: string;
+    /** The stage stopped for a too-low credit balance (src/utils/outOfBudget.ts): which profile, where, when. */
+    outOfBudget?: { profileId: string; profileName?: string; session: string; message: string; at: string; suggestedProfileId?: string };
+    /** Its later stages run on another profile (set by Continue on profile). */
+    budgetFallback?: { fromProfileId: string; toProfileId: string; session?: string };
     /** Queued right after the item when it is finished (src/utils/doneNotification.ts). */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
@@ -155,7 +159,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
-    'answerText', 'lastDispatched', 'warning', 'error', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
+    'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -273,6 +277,12 @@ export interface PromptQueueAccess {
 
     sendQueuedPrompt(selector: { id?: string; requestId?: string }): Promise<QueueItemSnapshot | null>;
     resendLastPrompt(id: string): Promise<void>;
+    /**
+     * Send the stopped stage again on another profile as the out-of-budget
+     * prompt (PromptQueueManager.continueOnProfile: the session rule, later
+     * stages following).
+     */
+    continueOnProfile?(id: string, profileId: string): Promise<void>;
     /** Stages of the item that would fail for a missing API key, one line per cause (vscimpa21). */
     missingApiKeyWarnings?(id: string): string[];
 }
@@ -639,12 +649,24 @@ export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput
 // tomAi_resendQueueItem
 // ===========================================================================
 
-export interface ResendQueueItemInput { queueItemId: string }
+export interface ResendQueueItemInput {
+    queueItemId: string;
+    /** Continue on this Anthropic profile instead of replaying on the same one (an item stopped for lack of credit). */
+    profileId?: string;
+}
 
 export async function resendQueueItemImpl(access: PromptQueueAccess, input: ResendQueueItemInput): Promise<string> {
     try {
         if (!input.queueItemId) { return err('`queueItemId` is required.'); }
-        await access.resendLastPrompt(input.queueItemId);
+        // Read before the send: a send clears what the stop recorded.
+        const stopped = access.getById(input.queueItemId)?.outOfBudget;
+        const profileId = typeof input.profileId === 'string' ? input.profileId.trim() : '';
+        if (profileId) {
+            if (!access.continueOnProfile) { return err('Continuing on another profile is not available here.'); }
+            await access.continueOnProfile(input.queueItemId, profileId);
+        } else {
+            await access.resendLastPrompt(input.queueItemId);
+        }
         const item = access.getById(input.queueItemId);
         if (!item) { return err(`Queue item "${input.queueItemId}" not found after resend.`); }
         return ok({
@@ -655,6 +677,13 @@ export async function resendQueueItemImpl(access: PromptQueueAccess, input: Rese
             anthropicConfigId: item.anthropicConfigId || null,
             lastDispatched: item.lastDispatched || null,
             warning: item.warning || null,
+            ...(profileId ? { continuedOn: profileId, budgetFallback: item.budgetFallback ?? null } : {}),
+            ...(stopped ? {
+                outOfBudget: stopped,
+                note: profileId
+                    ? `The item had stopped for lack of credit on ${stopped.profileName ?? stopped.profileId}; it continues on ${profileId} with the out-of-budget prompt, and its later stages run there too.`
+                    : `The item had stopped for lack of credit on ${stopped.profileName ?? stopped.profileId}: this resend replays it on the same profile, which only works once there is credit again. Pass \`profileId\` to continue on another profile${stopped.suggestedProfileId ? ` (its fallback: ${stopped.suggestedProfileId})` : ''}.`,
+            } : {}),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -669,7 +698,13 @@ export const RESEND_QUEUE_ITEM_DESCRIPTION =
     '**Distinct from `tomAi_addQueueItem`**: resend reuses the SAME item id ' +
     'and re-runs the previous stage; adding a new item starts fresh. The item ' +
     'must have a recorded `lastDispatched` (i.e. it was previously sent at ' +
-    'least once); resend on a never-sent item is an error.';
+    'least once); resend on a never-sent item is an error. An item stopped for ' +
+    'lack of credit (its answer carries `outOfBudget`): pass `profileId` to ' +
+    'continue it on another Anthropic profile — the stopped stage is sent as ' +
+    'the out-of-budget prompt (what stopped where, the session\'s live trail, ' +
+    'the original prompt), in the item\'s session unless that profile cannot ' +
+    'continue its conversation (then `default`), and its later stages run on ' +
+    'that profile too; without it the same profile is tried again.';
 
 export const RESEND_QUEUE_ITEM_TOOL: SharedToolDefinition<ResendQueueItemInput> = {
     name: 'tomAi_resendQueueItem',
@@ -680,7 +715,10 @@ export const RESEND_QUEUE_ITEM_TOOL: SharedToolDefinition<ResendQueueItemInput> 
     inputSchema: {
         type: 'object',
         required: ['queueItemId'],
-        properties: { queueItemId: { type: 'string' } },
+        properties: {
+            queueItemId: { type: 'string' },
+            profileId: { type: 'string', description: 'Continue on this Anthropic profile (an item stopped for lack of credit), as the queue editor\'s Continue on profile does.' },
+        },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
 };

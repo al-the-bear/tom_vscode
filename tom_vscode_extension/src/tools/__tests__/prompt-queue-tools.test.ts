@@ -27,6 +27,8 @@
 
 import test, { beforeEach, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { withTiming } from './_timing.js';
 import {
@@ -38,6 +40,7 @@ import {
     removeQueueFollowUpImpl,
     removeQueueItemImpl,
     removeQueuePrePromptImpl,
+    RESEND_QUEUE_ITEM_TOOL,
     resendQueueItemImpl,
     sendQueuedPromptImpl,
     setQueueItemStatusImpl,
@@ -284,10 +287,23 @@ function makeAccess(): FakeAccess {
             i.status = 'sending';
             // Simulate the resend completing
             i.status = 'sent';
+            delete i.outOfBudget;
+        },
+        // As PromptQueueManager.continueOnProfile: an unknown profile throws; the stage goes to the other profile.
+        async continueOnProfile(id, profileId) {
+            const i = items.find((x) => x.id === id);
+            if (!i) { throw new Error(`Queue item ${id} not found`); }
+            if (!i.lastDispatched) { throw new Error(`Queue item ${id} has no previously-dispatched prompt to continue`); }
+            if (profileId !== 'opus-direct' && profileId !== 'sonnet-agent') { throw new Error(`There is no Anthropic profile "${profileId}"`); }
+            continued.push([id, profileId]);
+            i.budgetFallback = { fromProfileId: i.outOfBudget?.profileId ?? '', toProfileId: profileId };
+            i.status = 'sending';
+            delete i.outOfBudget;
         },
     };
     return access;
 }
+const continued: Array<[string, string]> = [];
 
 let access: FakeAccess;
 beforeEach(() => { access = makeAccess(); });
@@ -450,6 +466,47 @@ describe('send variants — the key distinction', () => {
         assert.match(r.lastDispatched, /^main:/);
         // Still just ONE item in the queue (resend ≠ add new)
         assert.equal(access._items.length, 1);
+    });
+
+    test('resendQueueItem on an item stopped for lack of credit: the answer says so; profileId continues elsewhere', async () => {
+        const stop = { profileId: 'opus-agent', profileName: 'Opus (agent)', session: 'walk', message: 'Your credit balance is too low', at: '2026-11-10T02:00:00Z', suggestedProfileId: 'sonnet-agent' };
+        const added = JSON.parse(await addQueueItemImpl(access, { text: 'stopped' }));
+        access._dispatch(added.id);
+        const item = access._items.find((i) => i.id === added.id)!;
+        item.status = 'error';
+        item.outOfBudget = { ...stop };
+        // Without profileId: the same profile again, and the answer says what stopped and how to go elsewhere.
+        const same = JSON.parse(await resendQueueItemImpl(access, { queueItemId: added.id }));
+        assert.equal(same.ok, true);
+        assert.deepEqual(same.outOfBudget, stop);
+        assert.match(same.note, /stopped for lack of credit on Opus \(agent\): this resend replays it on the same profile[\s\S]*Pass `profileId` to continue on another profile \(its fallback: sonnet-agent\)/);
+        assert.equal(same.continuedOn, undefined);
+        // With profileId: continueOnProfile, the fallback recorded.
+        item.status = 'error';
+        item.outOfBudget = { ...stop };
+        continued.length = 0;
+        const raw = await withTiming('tomAi_resendQueueItem:continue-on-profile', () => resendQueueItemImpl(access, { queueItemId: added.id, profileId: ' sonnet-agent ' }));
+        const r = JSON.parse(raw);
+        assert.equal(r.ok, true, raw);
+        assert.deepEqual(continued, [[added.id, 'sonnet-agent']], 'PromptQueueManager.continueOnProfile, the profile trimmed');
+        assert.deepEqual([r.continuedOn, r.budgetFallback, r.status], ['sonnet-agent', { fromProfileId: 'opus-agent', toProfileId: 'sonnet-agent' }, 'sending']);
+        assert.match(r.note, /continues on sonnet-agent with the out-of-budget prompt, and its later stages run there too/);
+        // An unknown profile is refused by the manager; a window without the call refuses it plainly.
+        assert.match(JSON.parse(await resendQueueItemImpl(access, { queueItemId: added.id, profileId: 'nope' })).error, /There is no Anthropic profile "nope"/);
+        const bare = { ...access, continueOnProfile: undefined };
+        assert.match(JSON.parse(await resendQueueItemImpl(bare as never, { queueItemId: added.id, profileId: 'sonnet-agent' })).error, /not available here/);
+        // An item that did not stop for credit: no note.
+        const plain = JSON.parse(await addQueueItemImpl(access, { text: 'plain' }));
+        access._dispatch(plain.id);
+        const p = JSON.parse(await resendQueueItemImpl(access, { queueItemId: plain.id }));
+        assert.deepEqual([p.outOfBudget, p.note], [undefined, undefined]);
+        // The live access goes to the manager's continueOnProfile; the schema and description name it.
+        const live = readFileSync(join(__dirname, '..', '..', '..', 'src', 'tools', 'chat-enhancement-tools.ts'), 'utf8');
+        assert.match(live, /async continueOnProfile\(id, profileId\) \{ await \(await getQueueManager\(\)\)\.continueOnProfile\(id, profileId\); \}/);
+        assert.ok((RESEND_QUEUE_ITEM_TOOL.inputSchema as { properties: Record<string, unknown> }).properties.profileId);
+        assert.match(RESEND_QUEUE_ITEM_TOOL.description, /pass `profileId` to continue it on another Anthropic profile/);
+        // tomAi_listQueue shows the mark too (the snapshot carries it).
+        assert.ok(QUEUE_ITEM_SNAPSHOT_FIELDS.includes('outOfBudget') && QUEUE_ITEM_SNAPSHOT_FIELDS.includes('budgetFallback'));
     });
 
     test('resendQueueItem on never-sent item surfaces the underlying error', async () => {
