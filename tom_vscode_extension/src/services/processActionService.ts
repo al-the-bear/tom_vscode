@@ -143,7 +143,9 @@ export async function confirmProcessAction(
         if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`); }
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
-    const running = queue.stepRunProgress(store.activeQuest);
+    // Only the running level's step counts: a step below a subprocess may still have items queued,
+    // and this level's first prompt goes in behind them (one level feeds the queue at a time).
+    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex);
     if (running) {
         return { ok: false, error: running.held
             ? 'an item of the running step failed: repeat the step or move on (Proceed in the PROCESS view)'
@@ -164,7 +166,7 @@ export async function confirmProcessAction(
         const error = ensureProcessSession(store.activeQuest, session.spec);
         if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
     }
-    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId() };
+    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId(), level: store.levelIndex };
     const spec: ProcessMoveSpec = { kind: move.kind, ...(move.level ? { level: move.level } : {}), label: move.label, to: positionText(def, move.target) };
     try {
         // Both deferred, then one kick: the prompt's send must not hold this
@@ -190,7 +192,9 @@ export async function applyProcessMoveMarker(marker: QueuedPrompt): Promise<{ ok
     if (!run || !spec) { return { ok: false, error: 'the marker names no move' }; }
     if (store.activeQuest !== run.quest) { return { ok: false, error: `the quest ${run.quest} is not this window's quest` }; }
     const now = store.state;
-    if (now.decision || !samePosition(now, run.state)) { return { ok: true }; }
+    // Only the level it was queued for, while it is the running one: a step below a subprocess waits for it.
+    if ((run.level ?? 0) !== store.levelIndex) { return { ok: true }; }
+    if (now.decision || now.nestedEnded || !samePosition(now, run.state)) { return { ok: true }; }
     const moved = store.move(spec.kind, spec.level, 'user');
     return moved.ok ? { ok: true } : moved;
 }
@@ -210,7 +214,7 @@ export async function dropHeldStep(): Promise<void> {
 export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
     const queue = PromptQueueManager.instance;
-    const running = queue.stepRunProgress(store.activeQuest);
+    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex);
     if (!running) { return { ok: false, error: 'no step of this quest is running' }; }
     const marker = queue.items.find((i) => i.id === running.markerId);
     queue.dropProcessMoveMarkers(store.activeQuest, 'moved on past a failed step');
@@ -279,7 +283,7 @@ export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.
         definition: () => store.currentDefinition(),
         state: () => store.state,
         runningStepTarget: () => {
-            const run = queue()?.stepRunProgress(store.activeQuest);
+            const run = queue()?.stepRunProgress(store.activeQuest, store.levelIndex);
             const marker = run ? queue()?.items.find((i) => i.id === run.markerId) : undefined;
             const spec = marker?.processMove;
             return spec ? store.findMove(spec.kind, spec.level)?.target : undefined;

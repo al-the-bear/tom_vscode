@@ -123,6 +123,7 @@ import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { ProcessStateStore } from './managers/processStateStore';
 import { registerProcessView } from './handlers/processPanel-handler';
 import { installProcessMoveMarkers } from './services/processActionService';
+import { registerNestedProcessCommands } from './services/nestedProcessCommands';
 import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
@@ -813,6 +814,7 @@ export async function activate(context: vscode.ExtensionContext) {
     PromptQueueManager.init(context);
     // A process step ends with its queue: the queue's process-move markers move the process.
     installProcessMoveMarkers();
+    registerNestedProcessCommands(context);
     // The window state file follows the role, the process position and the queue as they change.
     watchWindowActivity(context);
     TimerEngine.init(context);

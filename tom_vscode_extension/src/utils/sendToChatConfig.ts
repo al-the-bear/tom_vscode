@@ -494,6 +494,13 @@ export interface SendToChatConfig {
     processActionTemplates?: { proceed?: string };
 
     /**
+     * Nested processes (src/utils/processStack.ts): a subprocess or branch
+     * started beyond `maxDepth` levels above the quest's own process asks for
+     * a confirmation (default 5; 0 asks for every start).
+     */
+    processNesting?: { maxDepth?: number };
+
+    /**
      * The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in
      * detail, Explain a decision, Grill me at a decision, Finish review round,
      * Out of budget.

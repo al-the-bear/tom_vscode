@@ -13,6 +13,7 @@
  * vscode-free: the process definition and state come in as arguments.
  */
 
+import { positionProcessLists } from './processStack';
 import {
     findPhase, findStep, findSubstep,
     type ProcessChange, type ProcessDefinition, type ProcessState,
@@ -95,18 +96,13 @@ export function resolveMoveTarget(def: ProcessDefinition, state: ProcessState, t
 }
 
 /**
- * The current step's closed lists. A step lists the processes it may branch
- * into (`branches:`, nothing handed back) and start as subprocesses
- * (`subprocesses:`, a result handed back); an entry is a process id or an
- * object naming one (`process` or `id`).
+ * The current position's closed lists (processStack.positionProcessLists): the
+ * processes it may branch into (`branches:`, nothing handed back) and start as
+ * subprocesses (`subprocesses:`, a result handed back).
  */
 export function stepChoiceLists(def: ProcessDefinition | null, state: ProcessState): { step: string; branches: string[]; subprocesses: string[] } {
-    const step = def ? findStep(findPhase(def, state.phase), state.step) : undefined;
-    const list = (raw: unknown): string[] => (Array.isArray(raw) ? raw : [])
-        .map((e) => typeof e === 'string' ? e : (e && typeof e === 'object' ? String((e as { process?: unknown; id?: unknown }).process ?? (e as { id?: unknown }).id ?? '') : ''))
-        .filter((e) => e !== '');
-    const node = step as { branches?: unknown; subprocesses?: unknown } | undefined;
-    return { step: state.step, branches: list(node?.branches), subprocesses: list(node?.subprocesses) };
+    const lists = positionProcessLists(def, state);
+    return { step: state.step, branches: lists.branches.map((e) => e.process), subprocesses: lists.subprocesses.map((e) => e.process) };
 }
 
 /**

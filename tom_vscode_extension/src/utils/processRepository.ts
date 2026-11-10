@@ -22,6 +22,7 @@ import {
     parseProcessYaml,
     stringifyProcessDefinition,
     stringifyProcessState,
+    stringifyProcessStateStack,
     validateProcessDefinition,
     type ProcessDefinition,
     type ProcessProblem,
@@ -188,5 +189,12 @@ export class ProcessRepository {
         const file = this.stateFile(quest);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, stringifyProcessState(state, new Date().toISOString(), below), 'utf-8');
+    }
+
+    /** Write the quest's whole stack (a level pushed or removed). */
+    writeStateStack(quest: string, levels: readonly ProcessState[]): void {
+        const file = this.stateFile(quest);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, stringifyProcessStateStack({ levels: [...levels] }, new Date().toISOString()), 'utf-8');
     }
 }

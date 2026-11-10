@@ -98,15 +98,22 @@
 
     /** The decision the quest is at — its options, from the host's moves — or null. */
     function decisionHere(c) {
-        if (!c || !c.state || !c.state.decision || c.state.completed) { return null; }
+        // A position that has run, or a subprocess / branch above that ended with "ask me at the end".
+        if (!c || !c.state || !(c.state.decision || c.state.nestedEnded) || c.state.completed) { return null; }
         var options = (c.moves || []).filter(function (m) { return m.branchOption; });
         return options.length ? { options: options } : null;
+    }
+
+    function decisionReason(c) {
+        var ended = c && c.state && c.state.nestedEnded;
+        if (!ended) { return 'This position has run.'; }
+        return 'The ' + ended.kind + ' ' + ended.process + (ended.outcome === 'aborted' ? ' was aborted.' : ' finished.');
     }
 
     function decisionBanner(decision) {
         return '<div class="branch-decision">'
             + '<div class="bd-head"><span class="codicon codicon-repo-forked"></span> Decision — how does the process go on?</div>'
-            + '<div class="bd-name">This position has run.</div>'
+            + '<div class="bd-name">' + esc(decisionReason(current)) + '</div>'
             + '<ul class="bd-options">' + decision.options.map(function (o) { return '<li title="' + esc(o.to) + '">' + esc(o.label) + '</li>'; }).join('') + '</ul>'
             + '<div class="bd-hint">Click Decide… to choose.</div>'
             + '</div>';

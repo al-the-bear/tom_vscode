@@ -76,7 +76,19 @@ export interface ProcessSubstep {
      * is done. Not on a gate, nor on a step with sub-steps (flag those).
      */
     userAction?: boolean;
+    /**
+     * The processes that may be started from here as a **subprocess** — a level
+     * on the quest's process stack that hands a result back — and as a
+     * **branch** — a level that hands nothing back. Closed lists: nothing else
+     * may be started from this position (src/utils/processStack.ts). A
+     * sub-step without lists of its own takes its step's.
+     */
+    subprocesses?: ProcessListEntry[];
+    branches?: ProcessListEntry[];
 }
+
+/** An entry of a `subprocesses:` / `branches:` list: a process id, or the id with a description. */
+export type ProcessListEntry = string | { process: string; description?: string };
 
 /**
  * A step. With `substeps` it is no action of its own but a group of them; its
@@ -175,7 +187,7 @@ function isSessionName(v: string): boolean {
 
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'phases'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
-const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction'];
+const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches'];
 const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const GATE_KEYS = [...STEP_KEYS, 'onFail'];
@@ -255,12 +267,33 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
         checkSession(obj, path);
         checkRepeat(obj, path, what);
         if (obj.userAction !== undefined && typeof obj.userAction !== 'boolean') { err(`${path}.userAction`, 'true or false'); }
+        for (const key of ['subprocesses', 'branches']) { checkProcessList(obj, key, path); }
         if (obj.userAction === true) {
             for (const key of ['prompt', 'session']) {
                 if (obj[key] !== undefined) { err(`${path}.${key}`, 'a user action runs no prompt — say what the user does in its description'); }
             }
         }
         return id;
+    };
+    const checkProcessList = (obj: Raw, key: string, path: string): void => {
+        const list = obj[key];
+        if (list === undefined) { return; }
+        const at = `${path}.${key}`;
+        if (!Array.isArray(list)) { err(at, 'a list of process ids (or {process, description})'); return; }
+        const seen = new Set<string>();
+        list.forEach((entry, i) => {
+            const entryAt = `${at}[${i}]`;
+            let id: unknown = entry;
+            if (isObject(entry)) {
+                unknownKeys(entry, ['process', 'description'], entryAt);
+                checkText(entry, 'description', entryAt);
+                id = entry.process;
+            }
+            if (typeof id !== 'string' || id === '') { err(isObject(entry) ? `${entryAt}.process` : entryAt, 'a process id'); return; }
+            if (!ID_PATTERN.test(id)) { err(isObject(entry) ? `${entryAt}.process` : entryAt, ID_MESSAGE); }
+            if (seen.has(id)) { err(entryAt, `"${id}" is listed twice`); }
+            seen.add(id);
+        });
     };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
@@ -433,6 +466,41 @@ export interface ProcessState {
      * `phase` / `phaseIteration` and means nothing in another.
      */
     stepIterations?: StepIterationRecord;
+    /**
+     * A level above the quest's own process (src/utils/processStack.ts): it
+     * was started from the step of the level below as a subprocess or a
+     * branch, with the follow-up the parent step gets when it ends.
+     */
+    nested?: NestedLevelInfo;
+    /**
+     * The level above this one ended (finished or aborted) with the follow-up
+     * "ask me at the end": a decision — Go on (past the step) or Run the step
+     * again. Dropped by the choice.
+     */
+    nestedEnded?: NestedLevelEnd;
+}
+
+/** Started as a subprocess (hands a result back) or a branch (hands nothing back). */
+export type NestedKind = 'subprocess' | 'branch';
+
+/**
+ * What the parent step does when the level ends: `ask` — the decision Go on /
+ * Run the step again; `go-on` — past the step, as if the level was its work;
+ * `run-again` — the step stays, its next Proceed runs it again.
+ */
+export type NestedFollowUp = 'ask' | 'go-on' | 'run-again';
+
+export interface NestedLevelInfo {
+    kind: NestedKind;
+    followUp: NestedFollowUp;
+    /** ISO time it was started. */
+    startedAt: string;
+}
+
+export interface NestedLevelEnd {
+    process: string;
+    kind: NestedKind;
+    outcome: 'finished' | 'aborted';
 }
 
 /** The last iterations of the steps of one phase iteration. */
@@ -905,6 +973,7 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
  */
 export function availableMoves(def: ProcessDefinition | null, state: ProcessState): ProcessMove[] {
     if (!def || !state.process) { return []; }
+    if (state.nestedEnded) { return nestedEndedMoves(def, state); }
     if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: notRun({ ...state, completed: false }) }]; }
     const pos = positionOf(def, state);
     if (!pos) { return []; }
@@ -929,8 +998,28 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
     return moves;
 }
 
+/**
+ * The decision after a level above ended with "ask me at the end": Go on —
+ * where Proceed at the step would have led (the next position, or the
+ * decision after it) — or Run the step again (the step itself, its next
+ * Proceed runs it).
+ */
+function nestedEndedMoves(def: ProcessDefinition, state: ProcessState): ProcessMove[] {
+    const { nestedEnded: ended, ...base } = state;
+    const proceed = availableMoves(def, base).find((m) => m.kind === 'proceed');
+    const what = `${ended!.kind === 'branch' ? 'the branch' : 'the subprocess'} ${ended!.process} ${ended!.outcome === 'aborted' ? 'was aborted' : 'finished'}`;
+    const options: ProcessMove[] = [];
+    if (proceed) {
+        const onward = proceed.target.decision ? `go on to the decision after ${whereTo(def, base, base)}` : `go on to ${whereTo(def, base, proceed.target)}`;
+        options.push({ kind: 'finish', label: `${what.charAt(0).toUpperCase()}${what.slice(1)} — ${onward}`, target: proceed.target, branchOption: true });
+    }
+    options.push({ kind: 'repeat', level: 'step', label: `Run the step ${whereTo(def, base, base)} again`, target: base, branchOption: true });
+    return [{ kind: 'proceed', label: 'Decide…', target: state }, ...options];
+}
+
 /** The decision the quest is at — its options — or null when it is not at a decision position. */
 export function decisionAt(def: ProcessDefinition | null, state: ProcessState): { options: ProcessMove[] } | null {
+    if (def && state.process && state.nestedEnded) { return { options: nestedEndedMoves(def, state).filter((m) => m.branchOption) }; }
     if (!def || !state.process || state.completed || !state.decision) { return null; }
     const pos = positionOf(def, state);
     if (!pos || !isDecisionPoint(pos)) { return null; }
@@ -1149,7 +1238,23 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         completed: raw.completed === true,
         ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
         ...parseStepIterations(raw.stepIterations),
+        ...parseNested(raw.nested),
+        ...parseNestedEnded(raw.nestedEnded),
     };
+}
+
+const NESTED_KINDS: readonly NestedKind[] = ['subprocess', 'branch'];
+const NESTED_FOLLOW_UPS: readonly NestedFollowUp[] = ['ask', 'go-on', 'run-again'];
+
+function parseNested(raw: unknown): { nested?: NestedLevelInfo } {
+    if (!isObject(raw) || !NESTED_KINDS.includes(raw.kind as NestedKind)) { return {}; }
+    const followUp = NESTED_FOLLOW_UPS.includes(raw.followUp as NestedFollowUp) ? raw.followUp as NestedFollowUp : 'ask';
+    return { nested: { kind: raw.kind as NestedKind, followUp, startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : '' } };
+}
+
+function parseNestedEnded(raw: unknown): { nestedEnded?: NestedLevelEnd } {
+    if (!isObject(raw) || typeof raw.process !== 'string' || !NESTED_KINDS.includes(raw.kind as NestedKind)) { return {}; }
+    return { nestedEnded: { process: raw.process, kind: raw.kind as NestedKind, outcome: raw.outcome === 'aborted' ? 'aborted' : 'finished' } };
 }
 
 function levelRecord(state: ProcessState): Record<string, unknown> {
@@ -1164,6 +1269,8 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.completed ? { completed: true } : {}),
         ...(state.decision ? { decision: true } : {}),
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
+        ...(state.nested ? { nested: state.nested } : {}),
+        ...(state.nestedEnded ? { nestedEnded: state.nestedEnded } : {}),
     };
 }
 

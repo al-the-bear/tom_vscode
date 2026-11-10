@@ -376,6 +376,18 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.process.startNested",
+        "title": "@T: Start Subprocess or Branch…",
+        "category": "@Tom",
+        "icon": "$(debug-step-into)"
+      },
+      {
+        "command": "tomAi.process.abortNested",
+        "title": "@T: Abort Subprocess or Branch",
+        "category": "@Tom",
+        "icon": "$(debug-step-out)"
+      },
+      {
         "command": "tomAi.editor.processTemplates",
         "title": "@T: Open Process Template Editor",
         "category": "@Tom"
@@ -733,6 +745,16 @@
         }
       ],
       "view/title": [
+        {
+          "command": "tomAi.process.startNested",
+          "when": "view == tomAi.process",
+          "group": "navigation"
+        },
+        {
+          "command": "tomAi.process.abortNested",
+          "when": "view == tomAi.process",
+          "group": "navigation"
+        },
         {
           "command": "tomAi.sessions.add",
           "when": "view == tomAi.sessions",

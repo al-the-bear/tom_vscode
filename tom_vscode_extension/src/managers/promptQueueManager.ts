@@ -3477,8 +3477,8 @@ export class PromptQueueManager {
     }
 
     /** The running step of `quest`: its open marker and how many of its run's items are left. */
-    stepRunProgress(quest: string): StepRunProgress | undefined {
-        return stepRunProgress(this._items, quest);
+    stepRunProgress(quest: string, level?: number): StepRunProgress | undefined {
+        return stepRunProgress(this._items, quest, level);
     }
 
     /** Remove the open process-move markers of `quest` (Skip, Back, a state set by hand). Answers how many. */

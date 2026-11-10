@@ -21,6 +21,17 @@ import { ChatVariablesStore, type ChangeSource } from './chatVariablesStore';
 import { WsPaths } from '../utils/workspacePaths';
 import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../utils/processRepository';
 import { currentProcessRun } from '../services/processRunContext';
+import * as fs from 'fs';
+import * as path from 'path';
+import { decisionsJournalHeader } from '../utils/decisionsJournalFormat';
+import { positionText } from '../utils/processActionPrompt';
+import {
+    abortedLevelJournalEntry,
+    checkNestedStart,
+    endNestedLevel,
+    pushNestedLevel,
+    topLevel,
+} from '../utils/processStack';
 import {
     EMPTY_PROCESS_STATE,
     applyProcessChange,
@@ -38,6 +49,8 @@ import {
     type ProcessLevel,
     type ProcessMove,
     type ProcessMoveKind,
+    type NestedFollowUp,
+    type NestedKind,
     type ProcessState,
     type ProcessVariableKey,
 } from '../utils/processDefinition';
@@ -72,6 +85,8 @@ export class ProcessStateStore {
     private entries: ProcessEntry[] = [];
     private quest = '';
     private rawState: ProcessState = { ...EMPTY_PROCESS_STATE };
+    /** The quest's process stack, bottom first; its top is `rawState`. */
+    private rawLevels: ProcessState[] = [{ ...EMPTY_PROCESS_STATE }];
 
     private constructor(context: vscode.ExtensionContext) {
         context.subscriptions.push(this._onDidChange);
@@ -106,7 +121,8 @@ export class ProcessStateStore {
         const repo = this.repo();
         this.entries = repo ? repo.list() : [];
         try { this.quest = ChatVariablesStore.instance.quest; } catch { this.quest = ''; }
-        this.rawState = repo ? repo.readState(this.quest) : { ...EMPTY_PROCESS_STATE };
+        this.rawLevels = repo ? repo.readStateStack(this.quest).levels : [{ ...EMPTY_PROCESS_STATE }];
+        this.rawState = topLevel(this.rawLevels);
         this.fire();
     }
 
@@ -140,10 +156,93 @@ export class ProcessStateStore {
         return this.entry(this.rawState.process)?.definition ?? null;
     }
 
-    /** The quest's state, repaired against its definition when that was edited since. */
+    /** The quest's state — the top level of its stack — repaired against its definition when that was edited since. */
     get state(): ProcessState {
         const def = this.currentDefinition();
         return def ? normalizeState(this.rawState, def) : this.rawState;
+    }
+
+    /** The quest's process stack, bottom first (the quest's own process), each level repaired against its definition. */
+    get levels(): ProcessState[] {
+        return this.rawLevels.map((l) => {
+            const def = this.entry(l.process)?.definition;
+            return def ? normalizeState(l, def) : l;
+        });
+    }
+
+    /** The index of the running (top) level: 0 for the quest's own process. */
+    get levelIndex(): number {
+        return this.rawLevels.length - 1;
+    }
+
+    /**
+     * Start a subprocess or a branch from the running step (processStack.ts):
+     * only a process the position lists, as that kind; the new level starts at
+     * the process's first position and the step below waits. The depth
+     * confirmation is the caller's (startNeedsConfirmation).
+     */
+    startNested(kind: NestedKind, processId: string, followUp: NestedFollowUp, source: ChangeSource): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const levels = this.levels;
+        const check = checkNestedStart(levels, this.definitions(), kind, processId);
+        if (!check.ok) { return check; }
+        const before = topLevel(levels);
+        return this.writeLevels(repo, before, pushNestedLevel(levels, check.def, kind, followUp), source);
+    }
+
+    /**
+     * Abort the running subprocess or branch (confirmed by the user): the
+     * level goes, its position is written to the quest's decisions journal,
+     * and the step below goes on with the follow-up chosen at the start.
+     */
+    abortNested(source: ChangeSource): ProcessChangeResult {
+        return this.endTop('aborted', source);
+    }
+
+    private endTop(outcome: 'finished' | 'aborted', source: ChangeSource, levels: ProcessState[] = this.levels): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const ended = endNestedLevel(levels, this.definitions(), outcome);
+        if ('error' in ended) { return { ok: false, error: ended.error }; }
+        if (outcome === 'aborted') { this.journalAbort(ended.ended, ended.parentBefore); }
+        return this.writeLevels(repo, ended.ended, ended.levels, source);
+    }
+
+    /** CC-42: the aborted level's position goes to the quest's decisions journal (best effort). */
+    private journalAbort(ended: ProcessState, parent: ProcessState): void {
+        try {
+            const quests = WsPaths.ai('quests');
+            if (!quests) { return; }
+            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
+            const where = (l: ProcessState): string => {
+                const def = this.entry(l.process)?.definition;
+                return def ? positionText(def, l) : `${l.phase} › ${l.step}`;
+            };
+            const entry = abortedLevelJournalEntry(ended, where(ended), parent, where(parent));
+            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, `${head}${entry}\n`, 'utf-8');
+        } catch { /* the journal is a record, not a participant */ }
+    }
+
+    /** Write a stack whose top changed level (pushed or removed); the role follows the new top. */
+    private writeLevels(repo: ProcessRepository, before: ProcessState, levels: ProcessState[], source: ChangeSource): ProcessChangeResult {
+        repo.writeStateStack(this.quest, levels);
+        this.rawLevels = levels;
+        this.rawState = topLevel(levels);
+        // The new top's position names the role (a level started at its first step, or the step below going on).
+        const role = currentRole(this.currentDefinition(), this.rawState);
+        if (role && before !== this.rawState) {
+            try {
+                const chat = ChatVariablesStore.instance;
+                if (chat.role !== role) { chat.set('role', role, source); }
+            } catch { /* not initialised */ }
+        }
+        this.fire();
+        return { ok: true, state: this.state };
     }
 
     /**
@@ -228,7 +327,14 @@ export class ProcessStateStore {
         const before = this.state;
         const result = applyProcessChange(before, this.definitions(), change);
         if (!result.ok) { return result; }
-        return this.commit(repo, before, result.state, source);
+        const { nestedEnded: _ended, ...next } = result.state;
+        // Another process for the quest leaves every level of the stack: it is the quest's process now.
+        if (change.process !== undefined && change.process !== before.process && this.rawLevels.length > 1) {
+            delete next.nested;
+            return this.writeLevels(repo, before, [next], source);
+        }
+        if (before.nested && next.process === before.process) { next.nested = before.nested; }
+        return this.commit(repo, before, next, source);
     }
 
     /**
@@ -251,8 +357,13 @@ export class ProcessStateStore {
     private commit(repo: ProcessRepository, before: ProcessState, next: ProcessState, source: ChangeSource): ProcessChangeResult {
         // Every change passes here, so the step it leaves is recorded once, in one place.
         const result: ProcessChangeResult = { ok: true, state: trackStepIterations(before, next) };
+        // A subprocess or branch that finished its process ends: the step below goes on with its follow-up.
+        if (result.state.nested && result.state.completed && this.rawLevels.length > 1) {
+            return this.endTop('finished', source, [...this.levels.slice(0, -1), result.state]);
+        }
         repo.writeState(this.quest, result.state);
         this.rawState = result.state;
+        this.rawLevels = [...this.rawLevels.slice(0, -1), result.state];
         const role = roleAfterMove(before, result.state, this.currentDefinition());
         if (role) {
             try {

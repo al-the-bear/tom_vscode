@@ -105,9 +105,16 @@ export interface StepRunProgress {
     run: ProcessRun;
 }
 
-/** The open marker of `quest` (the first, if several) and how far its run is; undefined when no step is running. */
-export function stepRunProgress(items: readonly MarkerQueueItem[], quest: string): StepRunProgress | undefined {
-    const marker = items.find((i) => isOpenMarker(i) && i.processRun?.quest === quest);
+/**
+ * The open marker of `quest` (the first, if several) and how far its run is;
+ * undefined when no step is running. With `level`, only a run queued for that
+ * level of the process stack counts: a step below a running subprocess may
+ * still have items queued, and the subprocess's first Proceed goes in behind
+ * them.
+ */
+export function stepRunProgress(items: readonly MarkerQueueItem[], quest: string, level?: number): StepRunProgress | undefined {
+    const marker = items.find((i) => isOpenMarker(i) && i.processRun?.quest === quest
+        && (level === undefined || (i.processRun.level ?? 0) === level));
     if (!marker?.processMove || !marker.processRun?.proceedId) { return undefined; }
     const runItems = items.filter((i) => !isMarker(i) && sameProceedRun(i.processRun, marker.processRun));
     return {

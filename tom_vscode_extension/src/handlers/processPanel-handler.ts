@@ -94,7 +94,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         const queue = queueManager();
         // The queue may start after the view: subscribe once it is there.
         if (queue && !this.queueSubscription) { this.queueSubscription = queue.onDidChange(() => this.send()); }
-        const run = queue?.stepRunProgress(store.activeQuest);
+        const run = queue?.stepRunProgress(store.activeQuest, store.levelIndex);
         void this.view.webview.postMessage({
             type: 'state',
             quest: store.activeQuest,
@@ -142,7 +142,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 if (msg.kind === 'proceed') {
                     // A step still running from the last Proceed: nothing to do yet,
                     // unless an item of it failed — then repeat it or move on.
-                    const run = queueManager()?.stepRunProgress(store.activeQuest);
+                    const run = queueManager()?.stepRunProgress(store.activeQuest, store.levelIndex);
                     if (run && !run.held) {
                         void vscode.window.showInformationMessage(`The step is still running — ${run.left} item(s) left in the queue; the process moves to ${run.move.to} when they are done.`);
                         break;

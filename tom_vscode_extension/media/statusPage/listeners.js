@@ -151,6 +151,8 @@ function attachStatusPanelListeners(skipEditorInit) {
             } else if (action === 'editAssistPrompt' || action === 'deleteAssistPrompt' || action === 'addAssistPrompt') {
                 msgData.use = el.getAttribute('data-assist-use') || '';
                 msgData.itemId = (document.getElementById('sp-assist-' + msgData.use) || {}).value || '';
+            } else if (action === 'updateProcessNesting') {
+                msgData.maxDepth = (document.getElementById('sp-process-maxDepth') || {}).value || '';
             } else if (action === 'updateTodoButtonTemplates') {
                 msgData.selected = {};
                 panel.querySelectorAll('select[id^="sp-todobtn-"]').forEach(function(sel) {

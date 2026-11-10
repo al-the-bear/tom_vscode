@@ -51,6 +51,14 @@
             },
             "additionalProperties": false
         },
+        "processNesting": {
+            "type": "object",
+            "description": "Nested processes: a subprocess or branch started from a step is a level on the quest's process stack (src/utils/processStack.ts). No hard limit; a start that takes the stack beyond maxDepth levels above the quest's own process asks for a confirmation. Status Page: Process nesting.",
+            "properties": {
+                "maxDepth": { "type": "integer", "minimum": 0, "default": 5, "description": "The depth above which a start is confirmed (0: every start)." }
+            },
+            "additionalProperties": false
+        },
         "assistPrompts": {
             "type": "object",
             "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Out of budget. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, out-of-budget, seeded at activation), else the built-in text.",

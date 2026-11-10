@@ -7,7 +7,7 @@
  *        naming no choice, a move to a position outside the current process (or with no process set), a branch /
  *        subprocess not in the current step's list; refused asks open nothing
  *   CH-2 positions: `step` (current phase first, else unique), `phase/step`, `phase/step/substep`; the step's
- *        `branches:` / `subprocesses:` lists (ids or objects naming a process)
+ *        `branches:` / `subprocesses:` lists (ids or {process, description})
  *   CH-3 the rendering plan: a marker is cut out of its question's text at its place; a choice without a marker
  *        goes under its `question` (default the last); plain text names the label (Telegram, the journal)
  *   CH-4 the move on click: made by the extension through moveTo with the target resolved against where the
@@ -95,7 +95,7 @@ describe('choices in questions', () => {
         assert.match(resolveMoveTarget(DEF, STATE, 'a/b/c/d') as string, /no position/);
         // A step that lists branches and subprocesses (the nested-process lists).
         const withLists = JSON.parse(JSON.stringify(DEF)) as ProcessDefinition;
-        Object.assign(withLists.phases[0].steps[0], { branches: ['explore'], subprocesses: [{ process: 'team_review' }, { id: 'proof' }] });
+        Object.assign(withLists.phases[0].steps[0], { branches: ['explore'], subprocesses: [{ process: 'team_review' }, { process: 'proof', description: 'the defined entry form: an id or {process, description}' }] });
         assert.deepEqual(stepChoiceLists(withLists, STATE), { step: 'draft', branches: ['explore'], subprocesses: ['team_review', 'proof'] });
         const ctx = { def: withLists, state: STATE };
         assert.equal(check([{ id: 'b', label: 'B', kind: 'branch', target: 'explore' }, { id: 's', label: 'S', kind: 'subprocess', target: 'proof' }], ['Q'], ctx).ok, true);

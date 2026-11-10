@@ -80,6 +80,8 @@ function getMcpReadOnlyToolNames(): ReadonlySet<string> {
 }
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { maxProcessDepth } from '../services/nestedProcessCommands';
+import { DEFAULT_MAX_PROCESS_DEPTH } from '../utils/processStack';
 import { resolveTodoButtonTemplate, todoButtonTemplateId, TODO_BUTTON_TEMPLATE_INFO, TODO_BUTTON_TEMPLATE_USES, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -1534,6 +1536,19 @@ export async function handleStatusAction(action: string, message: any): Promise<
             }
             break;
         }
+        case 'updateProcessNesting': {
+            const depth = Number(message.maxDepth);
+            if (!Number.isInteger(depth) || depth < 0) {
+                vscode.window.showWarningMessage('Process nesting: the depth is a whole number of at least 0.');
+                break;
+            }
+            const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+            if (depth === DEFAULT_MAX_PROCESS_DEPTH) { delete stcConfig.processNesting; } else { stcConfig.processNesting = { maxDepth: depth }; }
+            saveSendToChatConfig(stcConfig);
+            vscode.window.showInformationMessage(`Process nesting: a start beyond depth ${depth} asks for a confirmation`);
+            await refreshStatusPage();
+            break;
+        }
         case 'updateTodoButtonTemplates': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             const anthropic = (stcConfig.anthropic ??= {});
@@ -1878,6 +1893,8 @@ export interface StatusData {
     todoButtonTemplates: Array<{ use: TodoButtonTemplateUse; label: string; selected: string; defaultName: string; runs: string; missing: boolean }>;
     /** The Anthropic user-message templates, for the Todo buttons `<select>`s. */
     todoButtonTemplateChoices: Array<{ id: string; name: string }>;
+    /** Nested processes: the depth above which a start is confirmed. */
+    processMaxDepth: number;
     /** Anthropic configurations (id+name) for the compaction provider select. */
     anthropicConfigurationChoices: Array<{ id: string; name: string }>;
     /** Environment variable name that holds the Anthropic API key (anthropic_sdk_integration.md §14). */
@@ -2159,6 +2176,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         todoButtonTemplateChoices: (getAnthropicSection().userMessageTemplates || []).map((t) => ({
             id: t.id, name: t.name || t.id,
         })),
+        processMaxDepth: maxProcessDepth(),
         ...(() => {
             const anthropic = getAnthropicSection();
             const configurations = anthropic.configurations ?? [];
@@ -3006,6 +3024,25 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>`).join('')}
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateTodoButtonTemplates">Save Todo Buttons</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Process nesting (src/utils/processStack.ts): the depth above which a subprocess or branch start is confirmed -->
+    <div class="sp-section">
+        <div class="sp-section-header sp-collapsible" data-collapse="processNesting">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🪜 Process nesting</span>
+        </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-processNesting-content">
+            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
+                A subprocess or branch started from a step is a level on the quest's process stack; a process may start
+                itself again. There is no hard limit: a start that takes the stack beyond this many levels above the
+                quest's own process asks for a confirmation (0: every start). Stored as <code>processNesting.maxDepth</code>.
+            </p>
+            <div class="sp-settings-row">
+                <label>Confirm beyond depth:</label>
+                <input type="number" id="sp-process-maxDepth" min="0" value="${status.processMaxDepth}" style="width:60px">
+                <button class="sp-btn primary" data-status-action="updateProcessNesting">Save</button>
             </div>
         </div>
     </div>

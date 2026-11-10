@@ -248,9 +248,12 @@ export interface DecisionDialog {
 export function decisionDialog(def: ProcessDefinition, state: ProcessState): DecisionDialog | null {
     const decision = decisionAt(def, state);
     if (!decision) { return null; }
+    const ended = state.nestedEnded;
     return {
         message: `Decide how the process goes on after ${positionText(def, state)}`,
-        detail: 'This position has run. Choose how the process goes on — nothing is queued; the process moves to what you pick.',
+        detail: ended
+            ? `The ${ended.kind} ${ended.process} ${ended.outcome === 'aborted' ? 'was aborted' : 'finished'}. Go on past the step, or run it again — nothing is queued; the process moves to what you pick.`
+            : 'This position has run. Choose how the process goes on — nothing is queued; the process moves to what you pick.',
         options: decision.options.map((o) => ({ label: o.label, kind: o.kind, ...(o.level ? { level: o.level } : {}) })),
     };
 }

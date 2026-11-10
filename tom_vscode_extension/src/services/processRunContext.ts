@@ -36,6 +36,12 @@ export interface ProcessRun {
      * (src/utils/processMoveMarker.ts).
      */
     proceedId?: string;
+    /**
+     * The level of the quest's process stack it was queued for (0 = the
+     * quest's own process; src/utils/processStack.ts). Its marker moves only
+     * that level, and only while it is the running one.
+     */
+    level?: number;
 }
 
 const storage = new AsyncLocalStorage<ProcessRun>();
