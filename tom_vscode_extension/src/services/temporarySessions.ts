@@ -41,12 +41,16 @@ export function createTemporarySession(deps: TemporarySessionDeps, base: string,
 /**
  * Discard session `name` of the quest whose sessions are in `folder`: its
  * file, the handler's in-memory conversation, its storage and quest memory.
- * Every part is best effort — a part already gone is no failure.
+ * Every part is best effort — a part already gone is no failure. The
+ * conversation is cleared before the storage goes: clearing writes the
+ * session's (empty) history files, which the storage removal then takes.
+ * `clearConversation` replaces the handler's step (a test has no handler).
  */
-export function discardSessionCompletely(folder: string, quest: string, name: string): void {
+export function discardSessionCompletely(folder: string, quest: string, name: string, clearConversation?: (name: string) => void): void {
     try { (require('./agentSdkSessionStore.js') as typeof import('./agentSdkSessionStore')).deleteSession(folder, name); } catch { /* gone already */ }
     try {
-        (require('../handlers/anthropic-handler.js') as typeof import('../handlers/anthropic-handler')).AnthropicHandler.instance.clearSession(name);
+        if (clearConversation) { clearConversation(name); }
+        else { (require('../handlers/anthropic-handler.js') as typeof import('../handlers/anthropic-handler')).AnthropicHandler.instance.clearSession(name); }
     } catch { /* no handler in this process */ }
     const storage = require('./sessionStorage.js') as typeof import('./sessionStorage');
     let memoryRoot: string | undefined;

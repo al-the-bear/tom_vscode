@@ -49,11 +49,13 @@ describe('one-prompt sessions', () => {
         fs.mkdirSync(path.join(sessionRoot(folder, name), 'trail'), { recursive: true });
         fs.writeFileSync(path.join(sessionRoot(folder, name), 'live-trail.md'), '# trail\n');
         assert.ok(sessionsWithStorage(folder).includes(name));
-        discardSessionCompletely(folder, 'q', name);
+        const cleared: string[] = [];
+        discardSessionCompletely(folder, 'q', name, (n) => { cleared.push(n); });
+        assert.deepEqual(cleared, [name], 'the conversation the handler keeps is cleared');
         assert.equal(readSession(folder, name), undefined, 'the session file');
         assert.ok(!fs.existsSync(sessionRoot(folder, name)), 'its storage');
         assert.ok(!sessionsWithStorage(folder).includes(name));
         assert.ok(readSession(folder, 'chat'), 'the base stays');
-        assert.doesNotThrow(() => discardSessionCompletely(folder, 'q', name), 'gone already');
+        assert.doesNotThrow(() => discardSessionCompletely(folder, 'q', name, () => undefined), 'gone already');
     });
 });
