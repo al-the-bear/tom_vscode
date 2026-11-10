@@ -207,6 +207,11 @@ export interface QueueMetaYaml {
     'pause-after'?: boolean;
     /** "Send between iterations": sent after the running loop's current iteration (queueSendBetween.ts). */
     'send-between'?: boolean;
+    /** The item's kind when not a plain prompt: `timed` (queued by a timed request) or `reminder`. */
+    type?: 'timed' | 'reminder';
+    /** On an item a timed request queued: the id of that timed request (TimerEngine). */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
+    'timed-entry-id'?: string;
     collapsed?: boolean;
     'template-name'?: string;
     category?: 'prompt' | 'answer' | 'system';

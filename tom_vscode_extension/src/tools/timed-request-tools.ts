@@ -243,7 +243,7 @@ export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedEntryInput> = 
         required: ['text'],
         properties: {
             text: { type: 'string' },
-            template: { type: 'string' },
+            template: { type: 'string', description: 'A prompt template (tomAi_listPromptTemplates) the prompt is wrapped by each time the entry fires. Default none.' },
             answerWrapper: { type: 'boolean' },
             enabled: { type: 'boolean', description: 'Per-entry switch. Default false. AND-ed with `timer.timerActivated`.' },
             scheduleMode: { type: 'string', enum: ['interval', 'scheduled'], description: 'Default `interval`.' },
@@ -402,7 +402,7 @@ export const UPDATE_TIMED_REQUEST_TOOL: SharedToolDefinition<UpdateTimedRequestI
                 type: 'object',
                 properties: {
                     enabled: { type: 'boolean' },
-                    template: { type: 'string' },
+                    template: { type: 'string', description: 'A prompt template (tomAi_listPromptTemplates) the prompt is wrapped by each time the entry fires. Default none.' },
                     answerWrapper: { type: 'boolean' },
                     originalText: { type: 'string' },
                     scheduleMode: { type: 'string', enum: ['interval', 'scheduled'] },

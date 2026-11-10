@@ -13,6 +13,7 @@ import { PromptQueueManager } from './promptQueueManager';
 import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
 import { logTimed, logTimedError } from '../utils/queueLogger';
 import { liveRepeatedTodoPort, releaseDueRepeatedTodos } from '../services/repeatedTodoController';
+import { isTimedItemOf } from '../utils/timedQueueItems';
 
 // ============================================================================
 // Types
@@ -467,7 +468,7 @@ export class TimerEngine {
         const hasPending = queue.items.some(
             i => i.type === 'timed' &&
             (i.status === 'pending' || i.status === 'sending' || i.status === 'staged') &&
-            i.template === `timed:${entry.id}`
+            isTimedItemOf(i, entry.id)
         );
         if (hasPending) {
             logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: already pending in queue`);
@@ -491,9 +492,11 @@ export class TimerEngine {
         // Enqueue
         await queue.enqueue({
             originalText: entry.originalText,
-            template: `timed:${entry.id}`,
+            // The entry's template is applied like any item's; the item names its entry in a field of its own.
+            template: entry.template || '(None)',
             answerWrapper: entry.answerWrapper || false,
             type: 'timed',
+            timedEntryId: entry.id,
             initialStatus: 'pending',
             reminderEnabled: !!entry.reminderEnabled,
             reminderTemplateId: entry.reminderTemplateId,
@@ -547,7 +550,7 @@ export class TimerEngine {
         }
 
         const ids = queue.items
-            .filter(i => i.type === 'timed' && (i.status === 'pending' || i.status === 'staged') && i.template === `timed:${entryId}`)
+            .filter(i => (i.status === 'pending' || i.status === 'staged') && isTimedItemOf(i, entryId))
             .map(i => i.id);
 
         for (const id of ids) {

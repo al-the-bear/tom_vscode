@@ -215,7 +215,7 @@ interface TimedRequest {
 
 ### Dispatch
 
-A due timed request is enqueued into the prompt queue as a `pending` item of type `timed` and runs there with the queue's default transport (an entry carries no transport of its own). The `originalText` is optionally expanded through a named template (the one store, `config.anthropic.userMessageTemplates`) before dispatch.
+A due timed request is enqueued into the prompt queue as a `pending` item of type `timed` and runs there with the queue's default transport (an entry carries no transport of its own). Its `template` is the entry's template (the one store, `config.anthropic.userMessageTemplates`; `(None)` without one), applied to `originalText` like any item's. The item names its entry in `timedEntryId` (entry file meta: `type: timed`, `timed-entry-id`; `src/utils/timedQueueItems.ts`): the engine skips an entry that still has a staged, pending or sending item, and pausing an entry removes its staged and pending items. An entry file of an earlier build, which marked the item by the template `timed:<entry id>`, reads as a timed item of that entry with no template.
 
 ### Persistence
 

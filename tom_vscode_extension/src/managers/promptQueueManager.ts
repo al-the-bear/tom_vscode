@@ -69,6 +69,7 @@ import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
+import { queueItemKindFromYaml } from '../utils/timedQueueItems';
 import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
 import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
@@ -272,6 +273,12 @@ export interface QueuedPrompt {
     expandedText: string;         // After template processing
     status: QueuedPromptStatus;
     type: QueuedPromptType;
+    /**
+     * On an item a timed request queued (`type: 'timed'`): the id of that
+     * timed request. How the timer engine finds its own items (one in flight
+     * per entry, removed with the entry); `template` is the entry's template.
+     */
+    timedEntryId?: string;
     /** A chat send shown in the queue (status `chat` / `chat-sent`): where it came from. */
     chatSource?: string;
     /** A chat send shown in the queue: the window that ran it (src/utils/chatQueueItems.ts). */
@@ -2048,6 +2055,8 @@ export class PromptQueueManager {
         template?: string;
         answerWrapper?: boolean;
         type?: QueuedPromptType;
+        /** With `type: 'timed'`: the timed request that queued it (QueuedPrompt.timedEntryId). */
+        timedEntryId?: string;
         reminderTemplateId?: string;
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
@@ -2146,6 +2155,7 @@ export class PromptQueueManager {
             expandedText: expanded,
             status: opts.initialStatus ?? 'pending',
             type: opts.type ?? 'normal',
+            ...(opts.timedEntryId ? { timedEntryId: opts.timedEntryId } : {}),
             createdAt: new Date().toISOString(),
             reminderTemplateId: effectiveReminderTemplateId,
             reminderTimeoutMinutes: opts.reminderTimeoutMinutes,
@@ -5749,16 +5759,18 @@ export class PromptQueueManager {
             const main = prompts.find(p => p.id === mainId) || prompts.find(p => p.type === 'main') || prompts[0];
             if (!main) return undefined;
 
+            const kind = queueItemKindFromYaml(meta, main.template);
             const prompt: QueuedPrompt = {
                 id: meta.id || entry.entryId,
-                template: main.template || '(None)',
+                template: kind.template,
                 answerWrapper: main['answer-wrapper'],
                 originalText: main['prompt-text'] || '',
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
                 status: (meta.status as QueuedPromptStatus) || 'pending',
                 pauseAfter: meta['pause-after'] === true ? true : undefined,
                 sendBetween: meta['send-between'] === true ? true : undefined,
-                type: 'normal',
+                type: kind.type,
+                ...(kind.timedEntryId ? { timedEntryId: kind.timedEntryId } : {}),
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
                 error: main.execution?.error || undefined,
@@ -6105,6 +6117,9 @@ export class PromptQueueManager {
                 // Omitted when unset so untouched entries round-trip unchanged.
                 ...(item.pauseAfter ? { 'pause-after': true } : {}),
                 ...(item.sendBetween ? { 'send-between': true } : {}),
+                ...(item.type === 'timed' || item.type === 'reminder' ? { type: item.type } : {}),
+                // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
+                ...(item.timedEntryId ? { 'timed-entry-id': item.timedEntryId } : {}),
                 ...doneNotificationMetaToYaml(item),
                 created: item.createdAt,
                 'main-prompt': 'P1',
