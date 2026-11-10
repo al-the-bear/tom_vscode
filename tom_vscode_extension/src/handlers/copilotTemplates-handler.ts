@@ -15,7 +15,7 @@ import {
     resolveTemplate,
     formatDateTime,
 } from './promptTemplate';
-import { currentSendToChatTarget, dispatchSendToChat } from './sendToChatRouter';
+import { openCopilotChat } from './sendToChatRouter';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 /**
@@ -320,24 +320,12 @@ export class SendToChatAdvancedManager {
             content = editor.document.getText(selection);
         }
 
-        // Spec: when the target is Anthropic, Copilot templates do not apply —
-        // only the Anthropic profile + its own user-message template are used,
-        // exactly as if the raw content had been typed into the Anthropic panel.
-        // Route the raw content through the shared dispatcher (no answer handling).
-        if (currentSendToChatTarget() === 'anthropic') {
-            await dispatchSendToChat(this.context, content);
-            this.log(`Sent to Anthropic (template "${label}" skipped — Anthropic target)`);
-            return;
-        }
-
         // Build the full prompt using the unified template system
         const fullPrompt = this.buildPrompt(template, content);
 
         try {
             // Send to Copilot Chat
-            await vscode.commands.executeCommand('workbench.action.chat.open', {
-                query: fullPrompt
-            });
+            await openCopilotChat(fullPrompt);
 
             // Log to output panel
             this.log(`Sent to Copilot Chat: ${label}`);

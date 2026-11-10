@@ -1,11 +1,9 @@
-/// Concept: send a prompt to the configured chat transport and read the answer.
+/// Concept: send a prompt to the extension's chat and read the answer.
 ///
 /// Run:  dart run bin/run_example.dart send_to_chat
 ///
-/// `TomChatApi.sendToChat` dispatches a prompt to whichever transport the
-/// extension is configured to use (`sendToChatTarget`: `anthropic` or
-/// `copilot`) and returns the answer. To the script the two targets look the
-/// same — an answer comes back either way.
+/// `TomChatApi.sendToChat` sends a prompt to the ANTHROPIC/LLM chat panel (its
+/// active profile, configuration and tool loop) and returns the answer.
 ///
 /// This concept is flagged **interactive** in the aggregator and is therefore
 /// **skipped by the headless auto-run**, for two reasons:

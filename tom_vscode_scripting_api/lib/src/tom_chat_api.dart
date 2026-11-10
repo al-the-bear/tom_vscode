@@ -1,17 +1,15 @@
 /// Tom Chat API for scripting access to the "Send to Chat" transport.
 ///
-/// Sends a prompt to whichever chat transport the extension is configured to
-/// use (`sendToChatTarget`: `anthropic` or `copilot`, default `anthropic`) and
-/// returns the answer. The behaviour a script sees is identical for both
-/// targets — an answer comes back either way:
+/// Sends a prompt to the extension's ANTHROPIC/LLM chat panel and returns the
+/// answer: the prompt is handled exactly as if typed into the panel (active
+/// profile, its configuration, the default user-message template, the full
+/// tool loop). The answer is the transport's response text. A second
+/// concurrent send is **rejected** (see [SendToChatResult.rejected]).
 ///
-/// - **anthropic** — the prompt is handled exactly as if typed into the
-///   Anthropic chat panel (active profile, its configuration, the default
-///   user-message template, the full tool loop). The answer is the Anthropic
-///   transport's response text. A second concurrent send is **rejected**
-///   (see [SendToChatResult.rejected]).
-/// - **copilot** — the prompt is sent to Copilot Chat and the answer is read
-///   back via the answer-file round-trip (`tomAi_askCopilot`).
+/// The extension no longer has a configured "Send to Chat" target: its
+/// `sendToChatVce` request sends to Copilot only when the request names
+/// `target: 'copilot'` (the answer then read back via the answer-file
+/// round-trip, `tomAi_askCopilot`), which this API does not send.
 // ignore_for_file: avoid_classes_with_only_static_members
 library;
 
@@ -80,7 +78,7 @@ abstract class TomChatApi {
     return _adapter!;
   }
 
-  /// Send [prompt] to the configured chat target and return the answer.
+  /// Send [prompt] to the ANTHROPIC/LLM chat panel and return the answer.
   ///
   /// The returned [SendToChatResult] reports the resolved [target], the
   /// [answer], and whether the send was [SendToChatResult.rejected] because an

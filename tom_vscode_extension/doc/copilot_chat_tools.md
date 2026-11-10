@@ -31,16 +31,15 @@ The Copilot section of `@CHAT` includes an action bar with:
 - **Template picker**: Select from configured prompt templates
 - **Queue button**: Add to queue with current R/W settings
 
-## Send-to-Chat Target Routing
+## Send to Copilot and Send to LLM
 
-"Send to Chat" is **not** hard-wired to Copilot. A single config key selects which transport receives the prompt:
+Each of the editor's send commands goes where its name says; there is no configured target.
 
-- **Config key**: `sendToChatTarget: 'anthropic' | 'copilot'` (default `'anthropic'`), in [sendToChatConfig.ts](../src/utils/sendToChatConfig.ts) and the [JSON schema](../src/config/tom_vscode_extension.schema.json). The default-applying accessor is `getSendToChatTarget(config)`; the live value is read through `currentSendToChatTarget()`.
-- **Router**: [sendToChatRouter.ts](../src/handlers/sendToChatRouter.ts) funnels three callers through one decision — `dispatchSendToChat` (command / context / file menus, fire-and-forget), `sendToChatForScript` (the scripting-API bridge op, returns the answer for both targets), and the chat panel's own send (via the shared busy guard in `sendToChatState.ts`).
-  - **copilot** — legacy behaviour: open the Copilot chat view with the prompt; the scripting API detects the answer through the `tomAi_askCopilot` answer-file mechanism.
-  - **anthropic** — handle the prompt exactly as if typed into the Anthropic chat panel: same active profile + configuration, the default user-message template, the chat-panel Agent SDK session bucket, and the full tool loop. The turn is written to `live-trail.md` and mirrored into the panel UI when open. While a turn is running, a second interactive send is **rejected** (the prompt queue owns queuing).
-- **Status Page control**: the target is switchable from the Tom Status Page via the `setSendToChatTarget` action (an anthropic/copilot dropdown), so no config-file edit is needed to flip transports.
-- **Scripting-API tool gating**: when the target is `copilot`, the scripting API exposes **no** tools — `scripting-tools-bridge.ts` short-circuits on `getSendToChatTarget(config) === 'copilot'`. Tools are only available on the `anthropic` target. See [llm_tools.md §9](llm_tools.md#9-scripting-api-access-and-gating) for the gating.
+- **Send to Copilot** — `tomAi.sendToCopilot` (the selection), `tomAi.sendToCopilot.standard` (the default template) and `tomAi.sendToCopilot.template` (a template you pick), chord `Ctrl+Shift+C`: open Copilot Chat with the text, the template variants wrapping it first ([sendToChat-handler.ts](../src/handlers/sendToChat-handler.ts), [copilotTemplates-handler.ts](../src/handlers/copilotTemplates-handler.ts), both through `openCopilotChat` in [sendToChatRouter.ts](../src/handlers/sendToChatRouter.ts)).
+- **Send to LLM** — the `tomAi.sendToLlm*` commands, chord `Ctrl+Shift+L` (`dispatchToLlm`): handle the text exactly as if typed into the ANTHROPIC/LLM panel — its active profile and configuration, the default user-message template (or the picked one), the chat session, the full tool loop. The turn is written to `live-trail.md` and mirrored into the panel UI when open. While a turn is running, a second interactive send is **rejected** (the prompt queue owns queuing).
+- **Scripts** — the scripting API's `sendToChatVce` (`sendToChatForScript`) sends to the ANTHROPIC/LLM panel's profile and returns the answer; a request naming `target: 'copilot'` goes to Copilot instead, its answer read back through the `tomAi_askCopilot` answer file. The scripting API's tools are always the active profile's ([llm_tools.md §9](llm_tools.md#9-scripting-api-access-and-gating)).
+
+A `sendToChatTarget` key left in a configuration is ignored.
 
 ## Prompt Queue Integration
 

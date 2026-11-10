@@ -1,35 +1,25 @@
 /**
- * Send-to-Chat target router.
+ * Where an editor or script prompt goes.
  *
- * "Send to Chat" can route to one of two transports, selected by the
- * `sendToChatTarget` config key (default `'anthropic'`):
- *
- *   - **copilot** — unchanged legacy behaviour: open the Copilot chat view
- *     with the prompt. For the scripting API the answer is detected via the
- *     `tomAi_askCopilot` answer-file mechanism.
- *   - **anthropic** — handle the prompt exactly as if it had been typed into
- *     the Anthropic chat panel: same active profile, the profile's
- *     configuration, the default user-message template, the chat-panel Agent
- *     SDK session bucket, and the full tool loop. The turn is written to
- *     `live-trail.md` by {@link AnthropicHandler.sendMessage} and (when the
- *     panel is open) mirrored into the panel UI. While a turn is running a
+ *   - **Copilot** — the "Send to Copilot" commands (`tomAi.sendToCopilot`,
+ *     `.standard`, `.template`) always open Copilot Chat with the prompt
+ *     ({@link openCopilotChat}); the template commands wrap it first.
+ *   - **ANTHROPIC/LLM** — the "Send to LLM" commands ({@link dispatchToLlm})
+ *     handle the prompt exactly as if it had been typed into the panel: same
+ *     active profile, its configuration, the default user-message template,
+ *     the chat session, the full tool loop, the live trail. While a turn runs a
  *     second interactive send is **rejected** (the prompt queue owns queuing).
+ *   - **Scripts** — {@link sendToChatForScript}, the scripting API's
+ *     `sendToChatVce`, sends to the ANTHROPIC/LLM panel's profile unless the
+ *     call names `target: 'copilot'`, and returns the answer for both.
  *
- * Three callers funnel through here:
- *   - {@link dispatchSendToChat} — fire-and-forget for the command + context /
- *     file menus (no answer handling, surfaces busy/error as a notification).
- *   - {@link sendToChatForScript} — the scripting-API bridge op; returns the
- *     answer for *both* targets so a script sees identical behaviour.
- *   - The chat panel calls {@link runAnthropicSend} indirectly via the same
- *     busy guard (see `sendToChatState.ts`).
+ * Each command does what its name says: there is no configured "Send to Chat
+ * target" any more.
  */
 
 import { resolveBusySession } from './busySessionChoice';
 import * as vscode from 'vscode';
-import {
-    loadSendToChatConfig,
-    getSendToChatTarget,
-} from '../utils/sendToChatConfig';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveAnthropicTargets } from '../utils/resolveAnthropicTargets';
 import { resolveProfileTools, ALL_SHARED_TOOLS } from '../tools/tool-executors';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
@@ -66,9 +56,14 @@ export interface SendToChatOutcome {
     queued?: string;
 }
 
-/** The currently configured Send-to-Chat target (defaults to 'anthropic'). */
-export function currentSendToChatTarget(): SendToChatTarget {
-    return getSendToChatTarget(loadSendToChatConfig());
+/** The target a script names (`sendToChatVce`'s `target`): `copilot` when it says so, else the ANTHROPIC/LLM panel. */
+export function scriptSendTarget(target: unknown): SendToChatTarget {
+    return target === 'copilot' ? 'copilot' : 'anthropic';
+}
+
+/** Open Copilot Chat with `prompt` (the Send to Copilot commands). */
+export async function openCopilotChat(prompt: string): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
 }
 
 /**
@@ -214,24 +209,8 @@ export async function runAnthropicSend(
 }
 
 /**
- * Fire-and-forget dispatch for the command + context / file menus. No answer
- * handling per spec; busy / failure surfaces as a notification.
- */
-export async function dispatchSendToChat(
-    context: vscode.ExtensionContext,
-    prompt: string,
-): Promise<void> {
-    if (currentSendToChatTarget() === 'copilot') {
-        await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
-        return;
-    }
-    await dispatchToLlm(context, prompt);
-}
-
-/**
  * Fire-and-forget send to the @CHAT Anthropic panel's current profile and
- * session (the "Send to Anthropic/LLM" commands, and Send to Chat with the Anthropic
- * target). `userMessageTemplate` is the template body to wrap the prompt with;
+ * session (the "Send to LLM" commands). `userMessageTemplate` is the template body to wrap the prompt with;
  * without it the default one. Busy / failure surfaces as a notification.
  */
 export async function dispatchToLlm(
@@ -250,20 +229,22 @@ export async function dispatchToLlm(
 }
 
 /**
- * Scripting-API entry. Returns the answer for both targets so the caller's
- * behaviour is identical regardless of the configured target:
+ * Scripting-API entry (`sendToChatVce`). Sends to the ANTHROPIC/LLM panel's
+ * profile, or with `target: 'copilot'` to Copilot, and returns the answer for
+ * both, so a script sees the same shape either way:
  *   - copilot   → the `tomAi_askCopilot` answer-file round-trip.
  *   - anthropic → the Anthropic transport's answer text.
  */
 export async function sendToChatForScript(
     context: vscode.ExtensionContext,
     prompt: string,
+    target: SendToChatTarget = 'anthropic',
 ): Promise<SendToChatOutcome> {
-    if (currentSendToChatTarget() === 'copilot') {
+    if (target === 'copilot') {
         // Trusted internal routing: deliberately invoke the Copilot bridge tool
-        // even though the profile gate exposes no tools for the 'copilot'
-        // target. The permitted tool is named explicitly here, so this call
-        // site stays narrow rather than reopening an ungated invoke path.
+        // even though no profile gate lists it. The permitted tool is named
+        // explicitly here, so this call site stays narrow rather than reopening
+        // an ungated invoke path.
         const answer = await invokeAllowedTool(
             new Set(['tomAi_askCopilot']),
             ALL_SHARED_TOOLS,

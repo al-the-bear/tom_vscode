@@ -11,7 +11,6 @@
  *  - {@link getActiveProfileToolsJson} — generate the Anthropic-shaped tools
  *    JSON that a caller injects into a prompt. The set reflects the currently
  *    active Anthropic profile's tool settings (toolsEnabled / enabledTools).
- *    When the configured Send-to-Chat target is 'copilot', the JSON is empty.
  *
  * Both compose existing primitives (executeToolCall, toAnthropicTools,
  * resolveProfileTools) so the scripting API stays in lockstep with the chat
@@ -29,7 +28,6 @@ import { ALL_SHARED_TOOLS, resolveProfileTools } from './tool-executors';
 import { runWithToolContext } from '../services/tool-execution-context';
 import {
     loadSendToChatConfig,
-    getSendToChatTarget,
     SendToChatConfig,
 } from '../utils/sendToChatConfig';
 
@@ -83,10 +81,9 @@ function pickActiveProfile(
  * Pure resolution of the tool-name set allowed for the active profile.
  *
  * The single source of truth shared by tool listing
- * ({@link getActiveProfileToolsJson}) and tool-invocation gating:
- *  - Send-to-Chat target 'copilot' ⇒ empty set (no tools).
- *  - Otherwise the active profile (see {@link pickActiveProfile}) drives the
- *    set via `resolveProfileTools`.
+ * ({@link getActiveProfileToolsJson}) and tool-invocation gating: the active
+ * profile (see {@link pickActiveProfile}) drives the set via
+ * `resolveProfileTools`.
  *
  * Config-in / activeId-in so it is unit-testable without a live config file.
  */
@@ -94,9 +91,6 @@ export function activeProfileToolNames(
     config: SendToChatConfig | null,
     activeProfileId: string,
 ): Set<string> {
-    if (getSendToChatTarget(config) === 'copilot') {
-        return new Set();
-    }
     const profile = pickActiveProfile(config, activeProfileId);
     return new Set(resolveProfileTools(profile).map((t) => t.name));
 }
@@ -115,8 +109,7 @@ export function resolveActiveProfileToolNames(context: vscode.ExtensionContext):
 /**
  * Generate the Anthropic-shaped tools JSON for the currently active profile.
  *
- * Empty when the Send-to-Chat target is 'copilot'. Otherwise the set is
- * filtered by the active profile's `toolsEnabled` / `enabledTools`. Built from
+ * The set is filtered by the active profile's `toolsEnabled` / `enabledTools`. Built from
  * {@link resolveActiveProfileToolNames} so listing and invocation gating read
  * from one helper; filtering `ALL_SHARED_TOOLS` by the resolved name set
  * preserves the original entries and ordering.
@@ -148,8 +141,7 @@ export async function invokeAllowedTool(
     args: Record<string, unknown>,
 ): Promise<string> {
     if (!allowed.has(name)) {
-        return `Error: tool "${name}" is not permitted by the active Anthropic profile `
-            + `(or the Send-to-Chat target is 'copilot').`;
+        return `Error: tool "${name}" is not permitted by the active Anthropic profile.`;
     }
     return runWithToolContext({ source: 'anthropic', requestId: `script-${Date.now()}` }, () =>
         executeToolCall(registry, {
@@ -163,9 +155,8 @@ export async function invokeAllowedTool(
  * profile.
  *
  * The allowed set is resolved server-side from the current profile
- * ({@link resolveActiveProfileToolNames}); a name the profile hides — or any
- * name while the Send-to-Chat target is `copilot` — is refused before the
- * executor runs. Enforcement lives here in the extension so a buggy or
+ * ({@link resolveActiveProfileToolNames}); a name the profile hides is
+ * refused before the executor runs. Enforcement lives here in the extension so a buggy or
  * malicious Dart client cannot bypass it by passing an arbitrary name.
  *
  * @param context  Extension context (carries the active-profile selection).

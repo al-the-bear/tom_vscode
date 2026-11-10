@@ -1,17 +1,16 @@
 /**
- * Handler for tomAi.sendToCopilot command.
- *
- * Sends selected text from the active editor to the configured chat target
- * (Copilot or Anthropic — see `sendToChatTarget`). No answer handling here:
- * the menu/command paths are fire-and-forget.
+ * Handler for the tomAi.sendToCopilot command: the selected text of the active
+ * editor into Copilot Chat. No answer handling here: the menu / command paths
+ * are fire-and-forget. The ANTHROPIC/LLM panel has its own commands, Send to
+ * LLM (sendToLlm-handler.ts).
  */
 
 import * as vscode from 'vscode';
 import { handleError } from './handler_shared';
-import { dispatchSendToChat } from './sendToChatRouter';
+import { openCopilotChat } from './sendToChatRouter';
 
 /**
- * Send selected text to the configured chat target.
+ * Send the selected text to Copilot Chat.
  */
 export async function sendToChatHandler(context: vscode.ExtensionContext): Promise<void> {
     try {
@@ -29,8 +28,7 @@ export async function sendToChatHandler(context: vscode.ExtensionContext): Promi
 
         const selectedText = editor.document.getText(selection);
 
-        // Route to Copilot or Anthropic per the configured target.
-        await dispatchSendToChat(context, selectedText);
+        await openCopilotChat(selectedText);
 
     } catch (error) {
         handleError('Failed to send to chat', error);

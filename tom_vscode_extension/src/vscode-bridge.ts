@@ -3,7 +3,7 @@ import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { getTomScriptingBridgeHandler } from './handlers/tomScriptingBridge-handler';
 import { invokeToolByName, getActiveProfileToolsJson } from './tools/scripting-tools-bridge';
-import { sendToChatForScript } from './handlers/sendToChatRouter';
+import { scriptSendTarget, sendToChatForScript } from './handlers/sendToChatRouter';
 import { AgentSdkBridge } from './services/agent-sdk-bridge';
 import { ServerToClientRpc } from './services/server-to-client-rpc';
 import { loadSdk, requireAgentSdkCli } from './handlers/agent-sdk-transport';
@@ -671,10 +671,11 @@ export class DartBridgeClient {
                     break;
 
                 case 'sendToChatVce': {
-                    // Route by the configured target. The scripting caller gets
-                    // an answer for BOTH targets: Anthropic from the transport,
-                    // Copilot from the answer-file round-trip.
-                    const outcome = await sendToChatForScript(this.context, String(params.prompt || ''));
+                    // The ANTHROPIC/LLM panel's profile, or Copilot with
+                    // `target: 'copilot'`. The scripting caller gets an answer
+                    // either way: Anthropic from the transport, Copilot from the
+                    // answer-file round-trip.
+                    const outcome = await sendToChatForScript(this.context, String(params.prompt || ''), scriptSendTarget(params.target));
                     result = {
                         success: outcome.ok,
                         target: outcome.target,

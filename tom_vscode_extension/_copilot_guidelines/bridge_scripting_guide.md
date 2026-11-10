@@ -77,9 +77,7 @@ through `TomToolsApi`:
 
 Both listing and invocation are scoped to the **currently active Anthropic
 profile** (its `toolsEnabled` / `enabledTools` set, resolved by the same
-`resolveProfileTools` primitive the chat transports use), and when the
-**Send-to-Chat target is Copilot** *no* tools are available — the list is empty
-and every `invokeTool` is refused.
+`resolveProfileTools` primitive the chat transports use).
 
 > **Security boundary (same rule as the Agent SDK mirror):** the gate lives in
 > the **extension**, never the Dart client. `TomToolsApi` is a thin

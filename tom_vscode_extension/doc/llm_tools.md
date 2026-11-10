@@ -1118,8 +1118,6 @@ profile**:
 - The available tools are exactly the profile's tool set
   (`toolsEnabled` / `enabledTools`) — the same `resolveProfileTools` primitive
   the chat transports and the standalone MCP server use.
-- When the **Send-to-Chat target is Copilot**, *no* tools are available: the
-  list is empty and every `invokeTool` is refused.
 
 **The gate lives inside the extension, never in the Dart client.** `TomToolsApi`
 is a thin pass-through that does no client-side filtering: a tool the active

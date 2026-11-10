@@ -6,8 +6,8 @@
  *      settings (toolsEnabled / enabledTools) — exercised through the pure
  *      `resolveProfileTools` + `toAnthropicTools` composition that
  *      `getActiveProfileToolsJson` performs after its config read.
- *   2. The Send-to-Chat target gate: 'copilot' → empty JSON, anything else
- *      → 'anthropic' (verified via `getSendToChatTarget`).
+ *   2. No target gate: the set is the active profile's, whatever a stale
+ *      `sendToChatTarget` key left in a config says (the key is gone).
  *
  * Plus the universal-invoke contract: an unknown tool name surfaces the
  * registry's error string rather than throwing across the bridge.
@@ -27,7 +27,6 @@ import type * as vscode from 'vscode';
 import { ALL_SHARED_TOOLS, resolveProfileTools } from '../tool-executors.js';
 import { toAnthropicTools } from '../shared-tool-registry.js';
 import type { SharedToolDefinition } from '../shared-tool-registry.js';
-import { getSendToChatTarget } from '../../utils/sendToChatConfig.js';
 import type { SendToChatConfig } from '../../utils/sendToChatConfig.js';
 import {
     invokeToolByName,
@@ -75,20 +74,6 @@ describe('toAnthropicTools — JSON shape injected into the prompt', () => {
     });
 });
 
-describe('getSendToChatTarget — copilot gate / default', () => {
-    test('defaults to anthropic', () => {
-        assert.equal(getSendToChatTarget(null), 'anthropic');
-        assert.equal(getSendToChatTarget(undefined), 'anthropic');
-        assert.equal(getSendToChatTarget({} as never), 'anthropic');
-    });
-
-    test('honours explicit values; unknown falls back to anthropic', () => {
-        assert.equal(getSendToChatTarget({ sendToChatTarget: 'copilot' } as never), 'copilot');
-        assert.equal(getSendToChatTarget({ sendToChatTarget: 'anthropic' } as never), 'anthropic');
-        assert.equal(getSendToChatTarget({ sendToChatTarget: 'bogus' } as never), 'anthropic');
-    });
-});
-
 describe('activeProfileToolNames — single source for list + gate', () => {
     const cfgWith = (
         profiles: unknown[],
@@ -98,12 +83,13 @@ describe('activeProfileToolNames — single source for list + gate', () => {
 
     // The four cases todo #3 enumerates for the active-profile resolution.
 
-    test('copilot target → empty set regardless of profiles', () => {
+    test('a stale sendToChatTarget: copilot no longer empties the set', () => {
         const names = activeProfileToolNames(
             cfgWith([{ id: 'p1', toolsEnabled: true }], 'copilot'),
             'p1',
         );
-        assert.equal(names.size, 0);
+        assert.equal(names.size, activeProfileToolNames(cfgWith([{ id: 'p1', toolsEnabled: true }]), 'p1').size);
+        assert.ok(names.size > 0);
     });
 
     test('toolsEnabled → all tool names', () => {
