@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
-// Sources: 33 files
-// Generated: 2026-11-06T01:50:39.740413 by tom_d4rt_generator 1.52.0
+// Sources: 34 files
+// Generated: 2026-11-10T19:07:00.093813 by tom_d4rt_generator 1.58.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -14,6 +14,7 @@ import 'package:tom_d4rt/src/d4rt_base.dart' as $tom_d4rt_3;
 import 'package:tom_d4rt/src/interpreter_visitor.dart' as $tom_d4rt_4;
 import 'package:tom_d4rt/src/runtime_interfaces.dart' as $tom_d4rt_5;
 import 'package:tom_todo_model/src/todo.dart' as $tom_todo_model_1;
+import 'package:tom_todo_model/src/todo_repeat.dart' as $tom_todo_model_2;
 import 'package:tom_vscode_bridge/bridge_server.dart' as $tom_vscode_bridge_1;
 import 'package:tom_vscode_bridge/script_api.dart' as $tom_vscode_bridge_2;
 import 'package:tom_vscode_scripting_api/script_globals.dart'
@@ -198,6 +199,7 @@ class AllBridge {
       _createTomTodoDecisionBridge(),
       _createTomTodoScopeBridge(),
       _createTomTodoReferenceBridge(),
+      _createTomTodoRepeatBridge(),
       _createTodoEntryBridge(),
       _createInvalidTodoBridge(),
       _createTodoWireBridge(),
@@ -361,6 +363,7 @@ class AllBridge {
       'TomTodoDecision': _createTomTodoDecisionBridge,
       'TomTodoScope': _createTomTodoScopeBridge,
       'TomTodoReference': _createTomTodoReferenceBridge,
+      'TomTodoRepeat': _createTomTodoRepeatBridge,
       'TodoEntry': _createTodoEntryBridge,
       'InvalidTodo': _createInvalidTodoBridge,
       'TodoWire': _createTodoWireBridge,
@@ -538,6 +541,7 @@ class AllBridge {
       'TomTodoDecision': $tom_todo_model_1.TomTodoDecision,
       'TomTodoScope': $tom_todo_model_1.TomTodoScope,
       'TomTodoReference': $tom_todo_model_1.TomTodoReference,
+      'TomTodoRepeat': $tom_todo_model_2.TomTodoRepeat,
       'TodoEntry': $tom_vscode_scripting_api_15.TodoEntry,
       'InvalidTodo': $tom_vscode_scripting_api_15.InvalidTodo,
       'TodoWire': $tom_vscode_scripting_api_15.TodoWire,
@@ -787,6 +791,7 @@ class AllBridge {
       'TomTodoDecision': 'package:tom_todo_model/src/todo.dart',
       'TomTodoScope': 'package:tom_todo_model/src/todo.dart',
       'TomTodoReference': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoRepeat': 'package:tom_todo_model/src/todo_repeat.dart',
       'TodoEntry': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'InvalidTodo': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'TodoWire': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
@@ -1133,6 +1138,23 @@ class AllBridge {
           },
         },
       ),
+      BridgedEnumDefinition<$tom_todo_model_2.TomTodoRepeatRule>(
+        name: 'TomTodoRepeatRule',
+        values: $tom_todo_model_2.TomTodoRepeatRule.values,
+        getters: {
+          'wire': (visitor, target) =>
+              (target as $tom_todo_model_2.TomTodoRepeatRule).wire,
+        },
+        staticMethods: {
+          'fromWire': (visitor, positional, named, typeArgs) {
+            return Function.apply(
+              $tom_todo_model_2.TomTodoRepeatRule.fromWire,
+              positional,
+              named.map((k, v) => MapEntry(Symbol(k), v)),
+            );
+          },
+        },
+      ),
       BridgedEnumDefinition<$tom_vscode_scripting_api_15.TodoLevel>(
         name: 'TodoLevel',
         values: $tom_vscode_scripting_api_15.TodoLevel.values,
@@ -1273,6 +1295,7 @@ class AllBridge {
           'package:tom_vscode_scripting_api/src/agent_sdk_options.dart',
       'TomTodoStatus': 'package:tom_todo_model/src/todo.dart',
       'TomTodoPriority': 'package:tom_todo_model/src/todo.dart',
+      'TomTodoRepeatRule': 'package:tom_todo_model/src/todo_repeat.dart',
       'TodoLevel': 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
       'QueuedPromptStatus':
           'package:tom_vscode_scripting_api/src/tom_queue_api.dart',
@@ -1363,6 +1386,12 @@ class AllBridge {
         hide: null,
       ),
       (
+        source: 'package:tom_todo_model/tom_todo_model.dart',
+        target: 'package:tom_todo_model/src/todo_repeat.dart',
+        show: null,
+        hide: null,
+      ),
+      (
         source: 'package:tom_vscode_scripting_api/src/tom_todo_api.dart',
         target: 'package:tom_todo_model/tom_todo_model.dart',
         show: {
@@ -1370,6 +1399,8 @@ class AllBridge {
           'TomTodoDecision',
           'TomTodoPriority',
           'TomTodoReference',
+          'TomTodoRepeat',
+          'TomTodoRepeatRule',
           'TomTodoScope',
           'TomTodoStatus',
         },
@@ -4349,6 +4380,7 @@ class AllBridge {
     return [
       'package:tom_d4rt/src/bridge/bridged_types.dart',
       'package:tom_todo_model/src/todo.dart',
+      'package:tom_todo_model/src/todo_repeat.dart',
       'package:tom_vscode_bridge/bridge_server.dart',
       'package:tom_vscode_bridge/script_api.dart',
       'package:tom_vscode_scripting_api/script_globals.dart',
@@ -4425,6 +4457,7 @@ class AllBridge {
     'EffortLevel',
     'TomTodoStatus',
     'TomTodoPriority',
+    'TomTodoRepeatRule',
     'TodoLevel',
     'QueuedPromptStatus',
     'QueuedPromptType',
@@ -17383,6 +17416,12 @@ BridgedClass _createTomTodoBridge() {
           'userAction',
           false,
         );
+        final repeat = D4.getOptionalNamedArg<$tom_todo_model_2.TomTodoRepeat?>(
+          named,
+          'repeat',
+        );
+        final nextRepeat = D4.getOptionalNamedArg<String?>(named, 'nextRepeat');
+        final repeatCount = D4.getOptionalNamedArg<int?>(named, 'repeatCount');
         return $tom_todo_model_1.TomTodo(
           id: id,
           title: title,
@@ -17415,6 +17454,9 @@ BridgedClass _createTomTodoBridge() {
           derivedFrom: derivedFrom,
           feedbackSource: feedbackSource,
           userAction: userAction,
+          repeat: repeat,
+          nextRepeat: nextRepeat,
+          repeatCount: repeatCount,
         );
       },
     },
@@ -17489,6 +17531,18 @@ BridgedClass _createTomTodoBridge() {
       'userAction': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .userAction,
+      'repeat': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .repeat,
+      'nextRepeat': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .nextRepeat,
+      'repeatCount': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .repeatCount,
+      'isRepeated': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .isRepeated,
       'due': (visitor, target) =>
           D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due,
       'created': (visitor, target) => D4
@@ -17686,6 +17740,28 @@ BridgedClass _createTomTodoBridge() {
             value,
             'userAction',
           ),
+      'repeat': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .repeat = D4
+              .extractBridgedArgOrNull<$tom_todo_model_2.TomTodoRepeat>(
+                value,
+                'repeat',
+              ),
+      'nextRepeat': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .nextRepeat = D4.extractBridgedArgOrNull<String>(
+            value,
+            'nextRepeat',
+          ),
+      'repeatCount': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .repeatCount = D4.extractBridgedArgOrNull<int>(
+            value,
+            'repeatCount',
+          ),
       'due': (visitor, target, value) =>
           D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due =
               D4.extractBridgedArgOrNull<DateTime>(value, 'due'),
@@ -17838,7 +17914,7 @@ BridgedClass _createTomTodoBridge() {
       },
     },
     constructorSignatures: {
-      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false})',
+      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false, TomTodoRepeat? repeat, String? nextRepeat, int? repeatCount})',
     },
     methodSignatures: {
       'recordCreation':
@@ -17875,6 +17951,10 @@ BridgedClass _createTomTodoBridge() {
       'derivedFrom': 'String? get derivedFrom',
       'feedbackSource': 'String? get feedbackSource',
       'userAction': 'bool get userAction',
+      'repeat': 'TomTodoRepeat? get repeat',
+      'nextRepeat': 'String? get nextRepeat',
+      'repeatCount': 'int? get repeatCount',
+      'isRepeated': 'bool get isRepeated',
       'due': 'DateTime? get due',
       'created': 'DateTime? get created',
       'updated': 'DateTime? get updated',
@@ -17911,6 +17991,9 @@ BridgedClass _createTomTodoBridge() {
       'derivedFrom': 'set derivedFrom(dynamic value)',
       'feedbackSource': 'set feedbackSource(dynamic value)',
       'userAction': 'set userAction(dynamic value)',
+      'repeat': 'set repeat(dynamic value)',
+      'nextRepeat': 'set nextRepeat(dynamic value)',
+      'repeatCount': 'set repeatCount(dynamic value)',
       'due': 'set due(DateTime? value)',
       'created': 'set created(DateTime? value)',
       'updated': 'set updated(DateTime? value)',
@@ -18360,6 +18443,356 @@ BridgedClass _createTomTodoReferenceBridge() {
       'hashCode': 'int get hashCode',
     },
     staticMethodSignatures: {'fromMap': 'TomTodoReference fromMap(Map map)'},
+  );
+}
+
+// =============================================================================
+// TomTodoRepeat Bridge
+// =============================================================================
+
+BridgedClass _createTomTodoRepeatBridge() {
+  return BridgedClass(
+    nativeType: $tom_todo_model_2.TomTodoRepeat,
+    name: 'TomTodoRepeat',
+    isAssignable: (v) => v is $tom_todo_model_2.TomTodoRepeat,
+    constructors: {
+      '': (visitor, positional, named) {
+        final rule = D4
+            .getRequiredNamedArg<$tom_todo_model_2.TomTodoRepeatRule>(
+              named,
+              'rule',
+              'TomTodoRepeat',
+            );
+        final every = D4.getNamedArgWithDefault<int>(named, 'every', 1);
+        final unit = D4.getOptionalNamedArg<String?>(named, 'unit');
+        final weekdays =
+            named.containsKey('weekdays') && named['weekdays'] != null
+            ? D4.coerceList<String>(named['weekdays'], 'weekdays')
+            : const <String>[];
+        final day = D4.getOptionalNamedArg<int?>(named, 'day');
+        final lastDay = D4.getNamedArgWithDefault<bool>(
+          named,
+          'lastDay',
+          false,
+        );
+        final nth = D4.getOptionalNamedArg<int?>(named, 'nth');
+        final weekday = D4.getOptionalNamedArg<String?>(named, 'weekday');
+        final workingDay = D4.getOptionalNamedArg<String?>(named, 'workingDay');
+        final month = D4.getOptionalNamedArg<int?>(named, 'month');
+        final time = D4.getOptionalNamedArg<String?>(named, 'time');
+        final until = D4.getOptionalNamedArg<String?>(named, 'until');
+        final count = D4.getOptionalNamedArg<int?>(named, 'count');
+        return $tom_todo_model_2.TomTodoRepeat(
+          rule: rule,
+          every: every,
+          unit: unit,
+          weekdays: weekdays,
+          day: day,
+          lastDay: lastDay,
+          nth: nth,
+          weekday: weekday,
+          workingDay: workingDay,
+          month: month,
+          time: time,
+          until: until,
+          count: count,
+        );
+      },
+    },
+    getters: {
+      'rule': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .rule,
+      'every': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .every,
+      'unit': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .unit,
+      'weekdays': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .weekdays,
+      'day': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .day,
+      'lastDay': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .lastDay,
+      'nth': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .nth,
+      'weekday': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .weekday,
+      'workingDay': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .workingDay,
+      'month': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .month,
+      'time': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .time,
+      'until': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .until,
+      'count': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+            target,
+            'TomTodoRepeat',
+          )
+          .count,
+    },
+    setters: {
+      'rule': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .rule = D4.extractBridgedArg<$tom_todo_model_2.TomTodoRepeatRule>(
+            value,
+            'rule',
+          ),
+      'every': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .every = D4.extractBridgedArg<int>(
+            value,
+            'every',
+          ),
+      'unit': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .unit = D4.extractBridgedArgOrNull<String>(
+            value,
+            'unit',
+          ),
+      'weekdays': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .weekdays = D4.coerceList<String>(
+            value,
+            'weekdays',
+          ),
+      'day': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .day = D4.extractBridgedArgOrNull<int>(
+            value,
+            'day',
+          ),
+      'lastDay': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .lastDay = D4.extractBridgedArg<bool>(
+            value,
+            'lastDay',
+          ),
+      'nth': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .nth = D4.extractBridgedArgOrNull<int>(
+            value,
+            'nth',
+          ),
+      'weekday': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .weekday = D4.extractBridgedArgOrNull<String>(
+            value,
+            'weekday',
+          ),
+      'workingDay': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .workingDay = D4.extractBridgedArgOrNull<String>(
+            value,
+            'workingDay',
+          ),
+      'month': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .month = D4.extractBridgedArgOrNull<int>(
+            value,
+            'month',
+          ),
+      'time': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .time = D4.extractBridgedArgOrNull<String>(
+            value,
+            'time',
+          ),
+      'until': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .until = D4.extractBridgedArgOrNull<String>(
+            value,
+            'until',
+          ),
+      'count': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+                target,
+                'TomTodoRepeat',
+              )
+              .count = D4.extractBridgedArgOrNull<int>(
+            value,
+            'count',
+          ),
+    },
+    methods: {
+      'check': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+          target,
+          'TomTodoRepeat',
+        );
+        t.check();
+        return null;
+      },
+      'toMap': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+          target,
+          'TomTodoRepeat',
+        );
+        return t.toMap();
+      },
+      'copy': (visitor, target, positional, named, typeArgs) {
+        final t = D4.validateTarget<$tom_todo_model_2.TomTodoRepeat>(
+          target,
+          'TomTodoRepeat',
+        );
+        return t.copy();
+      },
+    },
+    staticGetters: {
+      'weekdayNames': (visitor) => $tom_todo_model_2.TomTodoRepeat.weekdayNames,
+      'units': (visitor) => $tom_todo_model_2.TomTodoRepeat.units,
+      'fields': (visitor) => $tom_todo_model_2.TomTodoRepeat.fields,
+      'nextRepeatRe': (visitor) => $tom_todo_model_2.TomTodoRepeat.nextRepeatRe,
+    },
+    staticMethods: {
+      'fromMap': (visitor, positional, named, typeArgs) {
+        D4.requireMinArgs(positional, 1, 'fromMap');
+        final map = D4.getRequiredArg<Map>(positional, 0, 'map', 'fromMap');
+        return $tom_todo_model_2.TomTodoRepeat.fromMap(map);
+      },
+    },
+    constructorSignatures: {
+      '': 'TomTodoRepeat({required TomTodoRepeatRule rule, int every = 1, String? unit, List<String> weekdays = const [], int? day, bool lastDay = false, int? nth, String? weekday, String? workingDay, int? month, String? time, String? until, int? count})',
+    },
+    methodSignatures: {
+      'check': 'void check()',
+      'toMap': 'Map<String, Object?> toMap()',
+      'copy': 'TomTodoRepeat copy()',
+    },
+    getterSignatures: {
+      'rule': 'TomTodoRepeatRule get rule',
+      'every': 'int get every',
+      'unit': 'String? get unit',
+      'weekdays': 'List<String> get weekdays',
+      'day': 'int? get day',
+      'lastDay': 'bool get lastDay',
+      'nth': 'int? get nth',
+      'weekday': 'String? get weekday',
+      'workingDay': 'String? get workingDay',
+      'month': 'int? get month',
+      'time': 'String? get time',
+      'until': 'String? get until',
+      'count': 'int? get count',
+    },
+    setterSignatures: {
+      'rule': 'set rule(dynamic value)',
+      'every': 'set every(dynamic value)',
+      'unit': 'set unit(dynamic value)',
+      'weekdays': 'set weekdays(dynamic value)',
+      'day': 'set day(dynamic value)',
+      'lastDay': 'set lastDay(dynamic value)',
+      'nth': 'set nth(dynamic value)',
+      'weekday': 'set weekday(dynamic value)',
+      'workingDay': 'set workingDay(dynamic value)',
+      'month': 'set month(dynamic value)',
+      'time': 'set time(dynamic value)',
+      'until': 'set until(dynamic value)',
+      'count': 'set count(dynamic value)',
+    },
+    staticMethodSignatures: {'fromMap': 'TomTodoRepeat fromMap(Map map)'},
+    staticGetterSignatures: {
+      'weekdayNames': 'Set<String> get weekdayNames',
+      'units': 'Set<String> get units',
+      'fields': 'Set<String> get fields',
+      'nextRepeatRe': 'RegExp get nextRepeatRe',
+    },
   );
 }
 
