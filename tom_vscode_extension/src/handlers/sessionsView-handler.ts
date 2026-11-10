@@ -37,6 +37,8 @@ import * as vscode from 'vscode';
 import { clearSessionId, deleteSession, listSessions, onSessionsChanged } from '../services/agentSdkSessionStore';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { removeSessionStorage } from '../services/sessionStorage';
+import { sessionTodoCounts } from '../services/sessionTodoFiles';
+import { readTodoFile } from '../managers/questTodoManager';
 import { deleteSessionDetail } from '../utils/sessionSelection';
 import { AnthropicHandler } from './anthropic-handler';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -50,6 +52,15 @@ import { planUnusedSessions } from '../utils/unusedSessions';
 export const SESSIONS_VIEW_ID = 'tomAi.sessions';
 export const ADD_SESSION_COMMAND = 'tomAi.sessions.add';
 export const REMOVE_UNUSED_SESSIONS_COMMAND = 'tomAi.sessions.removeUnused';
+
+/** Each session's todo counts (services/sessionTodoFiles.ts), by name. */
+function todoCountsBySession(historyRoot: string): Record<string, { open: number; total: number }> {
+    const out: Record<string, { open: number; total: number }> = {};
+    for (const c of sessionTodoCounts(historyRoot, (file) => readTodoFile(file).map((t) => String(t.status ?? 'not-started')))) {
+        out[c.session] = { open: c.open, total: c.total };
+    }
+    return out;
+}
 
 class SessionsViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
@@ -97,7 +108,9 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
         this.watch(folder);
         let rows: ReturnType<typeof sessionRows> = [];
         try { rows = sessionRows(listSessions(folder)); } catch { /* an unreadable folder lists nothing */ }
-        void this.view.webview.postMessage({ type: 'state', quest, rows });
+        // Each session's todos (its open and all), shown beside its name.
+        const todos = todoCountsBySession(folder);
+        void this.view.webview.postMessage({ type: 'state', quest, rows: rows.map((r) => ({ ...r, todos: todos[r.name] })) });
     }
 
     /** Session files written by another window: watch the folder (its files are `<name>.session.json`). */
@@ -141,9 +154,12 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'delete': {
                 if (!folder || !msg.name || !quest) { break; }
+                const open = todoCountsBySession(folder)[msg.name]?.open ?? 0;
                 const answer = await vscode.window.showWarningMessage(
-                    `Delete the session "${msg.name}"?`,
-                    { modal: true, detail: deleteSessionDetail(quest, msg.name) },
+                    open > 0
+                        ? `Delete the session "${msg.name}" and its ${open} open todo${open === 1 ? '' : 's'}?`
+                        : `Delete the session "${msg.name}"?`,
+                    { modal: true, detail: deleteSessionDetail(quest, msg.name, open) },
                     'Delete',
                 );
                 if (answer !== 'Delete') { break; }
@@ -227,11 +243,14 @@ async function removeUnusedSessions(): Promise<void> {
     );
     if (!picked || picked.length === 0) { return; }
     const names = picked.map((p) => p.label);
+    const todoCounts = todoCountsBySession(folder);
+    const withTodos = names.filter((n) => (todoCounts[n]?.open ?? 0) > 0).map((n) => `${n} (${todoCounts[n].open} open)`);
     const answer = await vscode.window.showWarningMessage(
         `Delete ${names.length} session${names.length === 1 ? '' : 's'}?`,
         {
             modal: true,
-            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results and quest memory.`,
+            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results, quest memory and its session todos.`
+                + (withTodos.length ? `\n\nWith open todos: ${withTodos.join(', ')}.` : ''),
         },
         'Delete',
     );

@@ -122,7 +122,7 @@ describe('the todo record in iteration prompts', () => {
         assert.match(src, /this\.iterationTodoBlock\(item, 'main', iterationTodo\?\.id\),\n\s+\);/);
         assert.match(src, /this\.iterationTodoBlock\(item, 'followUp'\),\n\s+\);/);
         assert.match(src, /expandTemplate\(withTodoYaml\(withResolvedAffixes, todoBlock\)/, 'appended before the template passes');
-        assert.match(src, /nextId: stage === 'prePrompt' \? pickNextTodoForIteration\(item\.repeatCount, readQuestTodoEntries\(questId\)\)\?\.id/);
+        assert.match(src, /nextId: stage === 'prePrompt' \? pickNextTodoForIteration\(item\.repeatCount, readQuestTodoEntries\(questId, walkableRepeatIds\(item\)\)\)\?\.id/);
         assert.match(src, /lastId: item\.repeatTodoId/);
     });
 });

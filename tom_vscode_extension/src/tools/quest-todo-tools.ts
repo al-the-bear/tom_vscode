@@ -56,6 +56,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 // `vscode` runtime import that `questTodoManager` carries.
 import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
+import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 
 export type { QuestTodoStatus, TodoDecision };
 
@@ -98,6 +99,10 @@ export interface QuestTodoFull {
     feedback_source?: string;
     /** The todo is the user's to do: a `<prefix>*` walk passes it. */
     user_action?: boolean;
+    /** A repeated todo's rule (utils/todoRepeat.ts). */
+    repeat?: TodoRepeat | null;
+    next_repeat?: string;
+    repeat_count?: number;
     /** Runtime: which file the item was loaded from. */
     sourceFile?: string;
 }
@@ -151,7 +156,7 @@ const DECISIONS_SCHEMA = {
     },
 } as const;
 
-const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'completed', 'cancelled'] as const;
+const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'waiting-for-repeat', 'completed', 'cancelled'] as const;
 
 /** A schema date field: a date, or a timestamp written as the date it names. */
 const DATE_SCHEMA = {
@@ -234,11 +239,22 @@ export function validateBlockedUntil(blockedUntil: unknown): string | undefined 
     return undefined;
 }
 
-/** `user_action`, shared by create and update. */
+/** Why a `repeat` value is not a rule, or undefined (none given, or null: removing it). */
+function validateRepeat(repeat: unknown): string | undefined {
+    if (repeat === undefined || repeat === null) { return undefined; }
+    const why = repeatRuleError(repeat);
+    return why ? `repeat: ${why}` : undefined;
+}
+
+/** `user_action` and the repeat rule, shared by create and update. */
 const USER_ACTION_SCHEMA = {
     user_action: {
         type: 'boolean',
         description: "true: the user's to do (a walk passes it; marked 👤). false removes it.",
+    },
+    repeat: {
+        type: ['object', 'null'],
+        description: 'A repeated todo\'s rule (marked 🔁): set to `completed`, it goes to `waiting-for-repeat` with `next_repeat` instead, and the Timed Requests list\'s repeated-todo controller moves it back to `not-started` when due. `{rule: manual}` (repeated by hand; a walk runs it again), `{rule: after, every, unit: days|weeks|months|years}`, `{rule: daily, every}`, `{rule: weekly, every, weekdays: [mon…sun]}`, `{rule: monthly|yearly, every, day: 1-31|last | nth: 1-5|last + weekday | working_day: first|last}` (yearly adds `month` 1-12); optional `time` HH:MM, `until` YYYY-MM-DD, `count`. null removes it.',
     },
 } as const;
 
@@ -397,6 +413,7 @@ export interface CreateQuestTodoInput {
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
+        repeat?: TodoRepeat | null;
     };
 }
 
@@ -564,7 +581,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
         }
-        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until);
+        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -660,6 +677,7 @@ export interface UpdateQuestTodoInput {
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
+        repeat?: TodoRepeat | null;
     };
 }
 
@@ -717,7 +735,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }

@@ -350,6 +350,38 @@ function restoreFocusSnapshot(snap) {
   }
 }
 
+/**
+ * The repeated-todo controller's card: start / stop, how often it checks, when
+ * it last did, how many todos it has released, Check now. It queues no prompt.
+ */
+function renderRepeatedTodoController(entry, safeStatus) {
+  const lastCheck = entry.lastSentAt ? new Date(entry.lastSentAt).toLocaleString() : 'Never';
+  const running = safeStatus === 'active';
+  return '<div class="entry repeated-todos ' + safeStatus + '" data-kind="repeated-todos">' +
+    '<div class="status-bar ' + safeStatus + '">' +
+      '<span style="display:flex;align-items:center;gap:6px;">' +
+        '<span class="codicon codicon-sync"></span> REPEATED TODOS — ' + (running ? 'RUNNING' : 'STOPPED') +
+        (running
+          ? '<span class="codicon codicon-debug-stop rt-stop" style="cursor:pointer;color:#000;" onclick="updateField(\'' + entry.id + '\',\'enabled\',false)" title="Stop checking"></span>'
+          : '<span class="codicon codicon-play rt-start" style="cursor:pointer;color:#000;" onclick="updateField(\'' + entry.id + '\',\'enabled\',true)" title="Start checking"></span>') +
+        '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="confirmDelete(\'' + entry.id + '\')" title="Remove the controller"></span>' +
+      '</span>' +
+    '</div>' +
+    '<div class="entry-sections">' +
+      '<div class="entry-section">' +
+        '<div class="meta">Moves every <code>waiting-for-repeat</code> todo of every quest whose next repetition has come back to <code>not-started</code>; a todo repeated by hand waits for Repeat now. Runs while the timer is on, outside its time slots too.</div>' +
+        '<div class="schedule-row"><span>Check every</span> <input type="number" class="rt-interval" min="1" value="' + (entry.intervalMinutes || 15) + '" style="width:60px" onchange="updateField(\'' + entry.id + '\',\'intervalMinutes\',Math.max(1,parseInt(this.value||\'15\',10)||15))"/> <span>min, and when the window starts</span>' +
+          '<button class="ctx-btn-icon rt-check-now" onclick="runRepeatedTodoCheck()" title="Check now"><span class="codicon codicon-refresh"></span> Check now</button>' +
+        '</div>' +
+        '<div class="meta">Last check: ' + esc(lastCheck) + (entry.sentCount ? ' — ' + entry.sentCount + ' todo' + (entry.sentCount === 1 ? '' : 's') + ' released so far' : '') + '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function addRepeatedTodoController() { vscode.postMessage({ type: 'addRepeatedTodoController' }); }
+function runRepeatedTodoCheck() { vscode.postMessage({ type: 'runRepeatedTodoCheck' }); }
+
 function render() {
   /* Timer toggle button */
   const timerBtn = document.getElementById('timerToggleBtn');
@@ -358,6 +390,9 @@ function render() {
     timerBtn.title = timerActivated ? 'Timer ON (click to pause)' : 'Timer OFF (click to resume)';
     timerBtn.style.opacity = timerActivated ? '1' : '0.5';
   }
+
+  const addRt = document.getElementById('addRepeatedTodosBtn');
+  if (addRt) { addRt.hidden = entries.some(function(e) { return e.kind === 'repeated-todos'; }); }
 
   const list = document.getElementById('entriesList');
   if (entries.length === 0) {
@@ -374,6 +409,7 @@ function render() {
     const safeStatus = (entry.status === 'active' || entry.status === 'paused' || entry.status === 'completed')
       ? entry.status
       : (entry.enabled ? 'active' : 'paused');
+    if (entry.kind === 'repeated-todos') { return renderRepeatedTodoController(entry, safeStatus); }
     const expanded = detailsExpanded[entryId] !== false;
     const isInterval = entry.scheduleMode === 'interval';
     // Active entries are now editable in-place (see TimerEngine.updateEntry

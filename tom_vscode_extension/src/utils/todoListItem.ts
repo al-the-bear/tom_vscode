@@ -14,6 +14,8 @@
 // which the webview reads as they are.
 /* eslint-disable @typescript-eslint/naming-convention */
 
+import { describeRepeat, repeatRuleError, type TodoRepeat } from './todoRepeat';
+
 /** What a list row is built from: a todo as the todo manager reads it. */
 export interface TodoListSource {
     id: string;
@@ -27,6 +29,8 @@ export interface TodoListSource {
     completed_date?: string;
     user_action?: boolean;
     blocking?: string[];
+    repeat?: TodoRepeat;
+    next_repeat?: string;
 }
 
 export interface TodoListItem {
@@ -42,6 +46,12 @@ export interface TodoListItem {
     user_action?: true;
     /** The todos this one blocks (the reverse of their `blocked_by`); present only when there are any. */
     blocking?: string[];
+    /** A repeated todo: its rule in words (the row's 🔁 mark and its tooltip). */
+    repeat?: string;
+    /** A manual repeated todo: Repeat now is offered while it waits. */
+    repeat_manual?: true;
+    /** When a waiting repeated todo is due again. */
+    next_repeat?: string;
     sourceFile: string;
 }
 
@@ -66,5 +76,10 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
     if (todo.completed_date) { row.completed_date = todo.completed_date; }
     if (todo.user_action === true) { row.user_action = true; }
     if (todo.blocking && todo.blocking.length) { row.blocking = todo.blocking; }
+    if (todo.repeat && !repeatRuleError(todo.repeat)) {
+        row.repeat = describeRepeat(todo.repeat);
+        if (todo.repeat.rule === 'manual') { row.repeat_manual = true; }
+    }
+    if (todo.next_repeat) { row.next_repeat = todo.next_repeat; }
     return row;
 }

@@ -285,6 +285,20 @@ async function handleMessage(msg: any): Promise<void> {
             te.timerActivated = !te.timerActivated;
             sendState();
             break;
+        case 'addRepeatedTodoController':
+            te.addRepeatedTodoController();
+            sendState();
+            break;
+        case 'runRepeatedTodoCheck': {
+            const entry = te.repeatedTodoController;
+            if (!entry) { break; }
+            const released = te.runRepeatedTodoCheck(entry, new Date());
+            void vscode.window.showInformationMessage(released === 0
+                ? 'Repeated todos: none is due.'
+                : `Repeated todos: ${released} todo${released === 1 ? '' : 's'} back to not-started.`);
+            sendState();
+            break;
+        }
         case 'enableAll':
             te.enableAll();
             break;

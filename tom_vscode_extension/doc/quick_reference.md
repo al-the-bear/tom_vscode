@@ -71,7 +71,8 @@
 - Archive completed todo / Archive all completed → move to the `-archived` sibling file (completed todos only)
 - Delete todo (to file) / Delete all cancelled → move to the `-deleted` sibling file (non-completed todos only; recoverable)
 - Sibling naming: first dot-segment suffixed, e.g. `todos.q.todo.yaml` → `todos-archived.q.todo.yaml`; sibling files are terminal (no buttons)
-- Session todos: stable per-host file `session-todo.<host>.<quest>.todo.yaml`, persists across reloads
+- Session todos: per session, `history/sessions/<session>/session-todos.todo.yaml` (unversioned, deleted with the session); the view's session switch shows each session's open count
+- Repeated todos (🔁): done → `waiting-for-repeat` (⏳) until `next_repeat`; ⏭️ Repeat now; the Timed Requests list's Repeated todos entry releases due ones
 
 ## Quest TODO Panel — todo stack
 

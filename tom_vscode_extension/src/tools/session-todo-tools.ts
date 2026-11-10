@@ -71,7 +71,7 @@ export interface SessionTodoStoreAccess {
 
     list(filter?: { status?: 'pending' | 'done' | 'all'; tags?: string[] }): SessionTodoSnapshot[];
 
-    getAll(): { todos: SessionTodoSnapshot[]; count: number; pendingCount: number };
+    getAll(): { todos: SessionTodoSnapshot[]; count: number; pendingCount: number; session?: string };
 
     update(id: string, updates: {
         status?: 'pending' | 'done';
@@ -119,16 +119,11 @@ export async function addSessionTodoImpl(deps: SessionTodoToolsDeps, input: Sess
 }
 
 export const ADD_SESSION_TODO_DESCRIPTION =
-    'Add a self-reminder todo to the session todo list of this machine and ' +
-    'quest. **NOT the same as quest todos** — session todos live in the ' +
-    'quest folder\'s `session-todo.<host>.<quest>.todo.yaml` (one file per ' +
-    'machine and quest, kept across window reloads and shared by every ' +
-    'window of the quest on this machine) and have ids like `wt-1`, `wt-2`. ' +
-    'For the quest\'s own todo list use the ' +
-    '`tomAi_createQuestTodo` family. Default `priority: medium`, status starts ' +
-    'as `pending`. Use to remember postponed tasks within a single session ' +
-    '(e.g. "follow up on X after the build finishes"). Visible live in the ' +
-    'Session Todos panel.';
+    'Add a todo to the session this call runs in: a step you note for yourself while carrying out a quest todo, ' +
+    'in the flow of this session (it shows for this session only, in the SESSION TODOS view). **NOT a quest todo** — ' +
+    'work that outlives the session or belongs to the quest goes in `tomAi_createQuestTodo`. Stored in the session\'s ' +
+    '`history/sessions/<session>/session-todos.todo.yaml` (not versioned) and **deleted with the session**. Ids `wt-1`, ' +
+    '`wt-2`, … per session. Default `priority: medium`, status `pending`.';
 
 export const ADD_SESSION_TODO_TOOL: SharedToolDefinition<SessionTodoAddInput> = {
     name: 'tomAi_addSessionTodo',
@@ -168,7 +163,7 @@ export async function listSessionTodosImpl(deps: SessionTodoToolsDeps, input: Se
 }
 
 export const LIST_SESSION_TODOS_DESCRIPTION =
-    'List **session** todos (this machine and quest), optionally filtered by `status` ' +
+    'List the todos of the session this call runs in (see tomAi_addSessionTodo), optionally filtered by `status` ' +
     '(`pending` / `done` / `all` — default `all`) and/or `tags` (any-match). ' +
     'Returns `{ok, count, items: [...]}`. Use this when you want **filtered** ' +
     'results. For an unfiltered snapshot with counts (total + pending), use ' +
@@ -209,8 +204,8 @@ export async function getAllSessionTodosImpl(deps: SessionTodoToolsDeps, _input:
 }
 
 export const GET_ALL_SESSION_TODOS_DESCRIPTION =
-    'Snapshot of **every session todo** (this machine and quest) with summary counts — ' +
-    'returns `{ok, todos: [...], count, pendingCount}` in one call. No ' +
+    'Snapshot of the todos of the session this call runs in, with summary counts — ' +
+    'returns `{ok, session, todos: [...], count, pendingCount}` in one call. No ' +
     'filtering. Use this when you want the overview (e.g. "is the session ' +
     'list getting long?"); use `tomAi_listSessionTodos` when you want to ' +
     'filter by status or tags. **Reminder**: session todos ≠ quest todos.';
@@ -318,9 +313,9 @@ export async function deleteSessionTodoImpl(deps: SessionTodoToolsDeps, input: S
 }
 
 export const DELETE_SESSION_TODO_DESCRIPTION =
-    'Delete a **session** todo by id. Production moves the todo to ' +
-    'the `-deleted` (or `-archived`, when completed) sibling of the session ' +
-    'todo file, so it stays recoverable. Missing id returns `{ok: false, error: ' +
+    'Delete a todo of the session this call runs in by id. It moves to ' +
+    'the `-deleted` (or `-archived`, when completed) sibling of the session\'s ' +
+    'todo file (recoverable until the session itself is deleted). Missing id returns `{ok: false, error: ' +
     '...}`. To mark a todo "completed" without removing it from the list, ' +
     'use `tomAi_updateSessionTodo` with `status: done`. **Reminder**: ' +
     'session todos ≠ quest todos.';

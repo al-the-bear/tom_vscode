@@ -227,6 +227,16 @@ The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer support
 | `tomAi_getCombinedTodos` | Aggregate quest + session in one call. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listQuests` | Enumerate quest folders under `_ai/quests/`. | ✅ | ✅ | ✅ | ✅ |
 
+**Repeated todos.** Create and update take `repeat` (the rule: `manual`,
+`after` with `every` and `unit`, `daily`, `weekly` with `weekdays`, `monthly` /
+`yearly` with `day` — 1-31 or `last` —, `nth` + `weekday` or `working_day`,
+yearly with `month`; optional `time`, `until`, `count`; `null` removes it). A
+repeated todo set to `completed` is written as `waiting-for-repeat` with
+`next_repeat` and `repeat_count` and a line in its notes (the writers do it,
+`utils/todoRepeat.ts`); once its count or `until` is reached it completes. The
+Timed Requests list's repeated-todo controller (`TimedRequest.kind:
+repeated-todos`) moves due ones back to `not-started`.
+
 Archive/delete naming rule: the sibling file is derived by suffixing the
 **first dot-segment** of the source name (`todos.myquest.todo.yaml` →
 `todos-archived.myquest.todo.yaml` / `todos-deleted.myquest.todo.yaml`).
@@ -350,11 +360,15 @@ The extension is also an MCP **client** (`src/services/externalMcp.ts`): the MCP
 
 Tests: `externalMcp.test.ts` (MC-1..4, a fixture stdio server), `external-mcp-transports.test.ts` (EM-1/2, a Local LLM send end to end).
 
-### 4.12 Session todos (per host + quest)
+### 4.12 Session todos (per session)
 
-Session todos live in one stable, git-tracked file per host+quest:
-`_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml`. They persist
-across window reloads (legacy per-window files are migrated on first access).
+A session todo belongs to the session the call runs in: a step the agent notes
+for itself while carrying out a quest todo (work that outlives the session is a
+quest todo). Each session keeps them in
+`_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml`,
+machine-local (not versioned) and deleted with the session. A call that runs in
+no session (an MCP client, Copilot) works on the session the SESSION TODOS view
+shows, else `default`.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |

@@ -90,7 +90,7 @@ _ai/quests/{quest-id}/
 ├── todos.{quest-id}.todo.yaml                     # Persistent quest todos (main file)
 ├── todos-archived.{quest-id}.todo.yaml            # Archived completed todos (terminal)
 ├── todos-deleted.{quest-id}.todo.yaml             # Soft-deleted todos (terminal)
-├── session-todo.{host}.{quest-id}.todo.yaml       # Stable per-host session todos
+├── history/sessions/{session}/session-todos.todo.yaml   # One session's todos (unversioned)
 └── ...
 ```
 
@@ -98,10 +98,10 @@ Archive/delete siblings are derived by suffixing the first dot-segment of the
 source name with `-archived` / `-deleted` (TRA01). Archive accepts only
 completed todos; delete-to-file accepts only non-completed todos; sibling
 files are terminal (never a move source). This replaces the earlier
-`*.backup.todo.yaml` mechanism (removed in TRA03). Session filenames are the
-stable per-host form `session-todo.<host>.<quest>.todo.yaml` (TRA04); the
-legacy `{YYYYMMDD}_{HHMM}_win-{windowId}.todo.yaml` files are lazily migrated
-into it. See `_copilot_guidelines/todo_files_and_panel.md`.
+`*.backup.todo.yaml` mechanism (removed in TRA03). Session todos are one file per
+session in its storage root, `history/sessions/<session>/session-todos.todo.yaml`
+(unversioned, deleted with the session). See
+`_copilot_guidelines/todo_files_and_panel.md`.
 
 **Tools:**
 - `dartscript_listTodos` — List todos from a quest, optionally filtered by status, file, or tags
@@ -129,11 +129,11 @@ into it. See `_copilot_guidelines/todo_files_and_panel.md`.
 
 **Purpose:** A separate tool surface for the LLM to store and retrieve its own todos within a session. This prevents the LLM from forgetting postponed tasks, deferred decisions, or follow-up items during a conversation.
 
-> **Updated by TRA04 (2026-07):** session todos are no longer window-scoped or
-> transient. They live in ONE stable, git-tracked file per host+quest
-> (`_ai/quests/<quest>/session-todo.<host>.<quest>.todo.yaml`) and persist
-> across window reloads; legacy per-window files are lazily migrated in. The
-> original window-scoped design below is kept for historical context.
+> **Current storage:** session todos belong to one session of the quest and
+> live in that session's storage root
+> (`_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml`,
+> unversioned, deleted with the session; `_copilot_guidelines/todo_files_and_panel.md` § 3).
+> The original window-scoped design below is kept for historical context.
 
 **Rationale:** The LLM often postpones actions ("I'll fix this after completing X") or identifies follow-up items during work. Without a persistent self-reminder, these get lost when the context window fills up or the conversation is summarized. This tool gives the LLM a memory scratchpad that survives within a session.
 

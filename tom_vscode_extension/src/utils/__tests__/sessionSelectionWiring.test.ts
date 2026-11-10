@@ -82,7 +82,7 @@ describe('session selection wiring', () => {
     test('SW-5: the SESSIONS view', () => {
         const view = source('src', 'handlers', 'sessionsView-handler.ts');
         const del = view.slice(view.indexOf("case 'delete'"), view.indexOf("case 'delete'") + 1200);
-        assert.match(del, /deleteSessionDetail\(quest, msg\.name\)/, 'the confirmation names what goes');
+        assert.match(del, /deleteSessionDetail\(quest, msg\.name, open\)/, 'the confirmation names what goes, the open session todos included');
         assert.ok(del.indexOf('deleteSession(folder, msg.name)') < del.indexOf('removeSessionStorage('), 'the file first: a based-on session refuses');
         assert.match(del, /removeSessionStorage\(folder, TwoTierMemoryService\.instance\.memoryRoot\(\), quest, msg\.name\)/);
         const reset = view.slice(view.indexOf("case 'reset'"), view.indexOf("case 'delete'"));

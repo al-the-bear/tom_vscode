@@ -24,6 +24,7 @@ import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as del
 import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
+import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 import { groupInsertIndex, todoIdPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 
@@ -76,6 +77,7 @@ export type QuestTodoStatus =
     | 'in-progress'
     | 'blocked'
     | 'decision-needed'
+    | 'waiting-for-repeat'
     | 'completed'
     | 'cancelled';
 
@@ -130,6 +132,14 @@ export interface QuestTodoItem {
      */
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     user_action?: boolean;
+    /** A repeated todo's rule (utils/todoRepeat.ts): done, it waits for its next repetition instead of completing. */
+    repeat?: TodoRepeat;
+    /** When a `waiting-for-repeat` todo is due again (local time with offset); absent for a manual rule. */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    next_repeat?: string;
+    /** How many times the repeated todo has been done. */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    repeat_count?: number;
     /**
      * The final answer (Markdown) of the queue run that executed and completed
      * the todo; only the last run's is kept. Written by the prompt queue
@@ -415,7 +425,7 @@ const VERIFIED_TODO_FIELDS = new Set<string>([
     'title', 'description', 'status', 'priority', 'notes',
     'completed_date', 'completed_by', 'last_answer',
     'tags', 'dependencies', 'blocked_by', 'blocked_until', 'references',
-    'decisions', 'scope', 'user_action',
+    'decisions', 'scope', 'user_action', 'repeat', 'next_repeat', 'repeat_count',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -555,6 +565,12 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
         if (value) { item[field] = value; }
     }
     if (get('user_action') === true) { item.user_action = true; }
+    const repeatNode = node.get('repeat', true);
+    if (isMap(repeatNode)) { item.repeat = (repeatNode as YAMLMap).toJSON() as TodoRepeat; }
+    const nextRepeat = getStr('next_repeat');
+    if (nextRepeat) { item.next_repeat = nextRepeat; }
+    const repeatCount = get('repeat_count');
+    if (typeof repeatCount === 'number') { item.repeat_count = repeatCount; }
 
     // scope
     const scopeNode = node.get('scope', true);
@@ -725,7 +741,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
     'dependencies', 'blocked_by', 'blocking', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
-    'user_action',
+    'user_action', 'repeat', 'next_repeat', 'repeat_count',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -781,6 +797,9 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
         if (todo[field]) { plain[field] = todo[field]; }
     }
     if (todo.user_action === true) { plain.user_action = true; }
+    if (todo.repeat) { plain.repeat = todo.repeat; }
+    if (todo.next_repeat) { plain.next_repeat = todo.next_repeat; }
+    if (todo.repeat_count !== undefined) { plain.repeat_count = todo.repeat_count; }
     if (todo.scope) {
         const scopeObj: Record<string, unknown> = {};
         if (todo.scope.project) { scopeObj.project = todo.scope.project; }
@@ -825,6 +844,13 @@ function applyTodoUpdates(
     updates: Partial<Omit<QuestTodoItem, 'id' | '_sourceFile'>>,
 ): Record<string, unknown> {
     const completedDate = toTodoDate('completed_date', updates.completed_date);
+    if (updates.repeat) {
+        const why = repeatRuleError(updates.repeat);
+        if (why) { throw new Error(`repeat: ${why}`); }
+    }
+    if (updates.next_repeat && !parseRepeatMoment(updates.next_repeat)) {
+        throw new Error(`next_repeat must read YYYY-MM-DDTHH:MM with Z or an offset, not "${updates.next_repeat}"`);
+    }
     const applied: Record<string, unknown> = {};
     if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); applied.title = updates.title; }
     if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
@@ -879,6 +905,16 @@ function applyTodoUpdates(
             item.delete('references');
         }
     }
+    if (updates.repeat !== undefined) {
+        setOrDelete(item, 'repeat', updates.repeat ? doc.createNode(updates.repeat) : undefined);
+        applied.repeat = updates.repeat || undefined;
+    }
+    if (updates.next_repeat !== undefined) { setOrDelete(item, 'next_repeat', updates.next_repeat); applied.next_repeat = updates.next_repeat || undefined; }
+    if (updates.repeat_count !== undefined) { setOrDelete(item, 'repeat_count', updates.repeat_count); applied.repeat_count = updates.repeat_count; }
+    // A repeated todo set to `completed` is not completed: it waits for its
+    // next repetition (utils/todoRepeat.ts). One place for every writer — the
+    // todo panel, the tools, a queue walk completing its todo.
+    if (updates.status === 'completed') { applyRepeatOnDone(item, applied); }
     // A date already on the item that an earlier writer stored as a timestamp
     // is written as a date while the item is being rewritten anyway.
     for (const field of ['created', 'archived', 'deleted', 'due'] as const) {
@@ -888,6 +924,39 @@ function applyTodoUpdates(
         }
     }
     return applied;
+}
+
+/**
+ * A repeated todo just set to `completed`: `waiting-for-repeat` instead, with
+ * its next moment, its count and a line in its notes — unless its rule has
+ * ended (`count`, `until`), when it stays completed. The completion facts a
+ * caller wrote are taken back: the todo is not done for good.
+ */
+function applyRepeatOnDone(item: YAMLMap, applied: Record<string, unknown>): void {
+    const repeatNode = item.get('repeat', true);
+    if (!isMap(repeatNode)) { return; }
+    const count = item.get('repeat_count');
+    const outcome = repeatOnDone({
+        repeat: (repeatNode as YAMLMap).toJSON() as TodoRepeat,
+        next_repeat: item.get('next_repeat') === undefined ? undefined : String(item.get('next_repeat')),
+        repeat_count: typeof count === 'number' ? count : undefined,
+        created: item.get('created') === undefined ? undefined : String(item.get('created')),
+    }, new Date());
+    if (!outcome) { return; }
+    item.set('status', outcome.status);
+    applied.status = outcome.status;
+    setOrDelete(item, 'next_repeat', outcome.next_repeat);
+    applied.next_repeat = outcome.next_repeat;
+    item.set('repeat_count', outcome.repeat_count);
+    applied.repeat_count = outcome.repeat_count;
+    item.delete('completed_date');
+    item.delete('completed_by');
+    if ('completed_date' in applied) { applied.completed_date = undefined; }
+    if ('completed_by' in applied) { applied.completed_by = undefined; }
+    const notes = item.get('notes');
+    const text = (notes === undefined || notes === null ? '' : String(notes)).replace(/\s+$/, '');
+    item.set('notes', text ? `${text}\n\n${outcome.note}` : outcome.note);
+    if ('notes' in applied) { applied.notes = String(item.get('notes')); }
 }
 
 /**

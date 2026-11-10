@@ -37,7 +37,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { todoForStage, todoYamlBlock, withTodoYaml, type IterationStage } from '../utils/todoIterationRecord';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
@@ -766,7 +766,7 @@ export class PromptQueueManager {
         if (item.processMove || (item.prePrompts?.length ?? 0) > 0) { return undefined; }
         if (parseTodoPrefixPattern(item.repeatCount) === undefined) { return undefined; }
         const questId = this.activeQuestId();
-        return emptyTodoIterationReason(item.repeatCount, questId ? readQuestTodoEntries(questId) : [], questId);
+        return emptyTodoIterationReason(item.repeatCount, questId ? readQuestTodoEntries(questId, walkableRepeatIds(item)) : [], questId);
     }
 
     /** The item is held in `error` because its walk had nothing to walk over. */
@@ -842,7 +842,7 @@ export class PromptQueueManager {
         const todoId = todoForStage(stage, {
             isTodoIteration,
             claimedId,
-            nextId: stage === 'prePrompt' ? pickNextTodoForIteration(item.repeatCount, readQuestTodoEntries(questId))?.id : undefined,
+            nextId: stage === 'prePrompt' ? pickNextTodoForIteration(item.repeatCount, readQuestTodoEntries(questId, walkableRepeatIds(item)))?.id : undefined,
             lastId: item.repeatTodoId,
         });
         return todoId ? readQuestTodoBlock(questId, todoId) : undefined;
@@ -4970,7 +4970,7 @@ export class PromptQueueManager {
             item.repeatCount,
             mainSentCount,
             mainRepeatCount,
-            iterationQuestId ? readQuestTodoEntries(iterationQuestId) : [],
+            iterationQuestId ? readQuestTodoEntries(iterationQuestId, walkableRepeatIds(item)) : [],
         );
         if (plan.mode === 'decision-needed') {
             // Some todo of the series is still waiting on the user. Hold the
@@ -6155,13 +6155,18 @@ function await_import_ChatVariablesStore(): { quest: string } | undefined {
  * siblings are excluded by `readAllTodos`' default scope, so a retired todo
  * neither inflates the series count nor gets dispatched again.
  */
-function readQuestTodoEntries(questId: string): TodoIterationSource[] {
+function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoIterationSource[] {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
         // eslint-disable-next-line @typescript-eslint/naming-convention -- `user_action` is the todo schema's YAML key
-        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean }>;
-        return todos.map(t => ({ id: t.id, title: t.title || t.description, status: t.status, ...(t.user_action === true ? { userAction: true } : {}) }));
+        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean; repeat?: { rule?: string } }>;
+        return todos.map(t => ({
+            id: t.id, title: t.title || t.description, status: t.status,
+            ...(t.user_action === true ? { userAction: true } : {}),
+            // A manual repeated todo waiting to be repeated is walked, once per walk.
+            ...(t.status === 'waiting-for-repeat' && t.repeat?.rule === 'manual' && !(ran?.has(t.id)) ? { walkableRepeat: true } : {}),
+        }));
     } catch { return []; }
 }
 

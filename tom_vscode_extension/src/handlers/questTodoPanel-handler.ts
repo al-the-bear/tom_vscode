@@ -26,7 +26,8 @@ import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, l
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
-import { isSessionTodoFileName } from '../utils/sessionTodoNames';
+import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
+import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
@@ -205,7 +206,7 @@ export function refreshSessionPanel(): void {
  */
 export function deleteSessionTodoToFile(todoId: string): boolean {
     try {
-        const sessionFp = SessionTodoStore.instance.filePath;
+        const sessionFp = SessionTodoStore.instance.filePathFor(SessionTodoStore.instance.shownSession);
         const result = _moveTodoToSiblingByStatus(sessionFp, todoId);
         return result.moved.length > 0;
     } catch {
@@ -526,7 +527,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     })
                     : undefined;
                 post({ type: 'qtSaved', success: !!updated, todoId: msg.todoId });
-                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
+                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
                 return true;
             }
             if (isWorkspaceFileMode) {
@@ -547,9 +548,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     details: msg.todo?.description || '',
                     priority: msg.todo?.priority || 'medium',
                     tags: msg.todo?.tags || [],
-                });
+                }, SessionTodoStore.instance.shownSession);
                 if (msg.todo?.status === 'completed' || msg.todo?.status === 'cancelled') {
-                    SessionTodoStore.instance.update(created.id, { status: 'done' });
+                    SessionTodoStore.instance.update(created.id, { status: 'done' }, SessionTodoStore.instance.shownSession);
                 }
                 post({ type: 'qtCreated', success: true, todo: { id: created.id, title: created.title, description: created.details || '', status: created.status === 'done' ? 'completed' : 'not-started', priority: created.priority, tags: created.tags } });
                 return true;
@@ -583,7 +584,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     if (!okSess) { _notifyMoveResult('Deleted', result); }
                 }
                 post({ type: 'qtDeleted', success: okSess, todoId: msg.todoId });
-                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
+                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
                 return true;
             }
             if (isWorkspaceFileMode) {
@@ -749,7 +750,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             // once); cancel confirms only for a stack batch.
             if (isComplete) {
                 const confirm = await vscode.window.showWarningMessage(
-                    `Mark ${count} todo${count === 1 ? '' : 's'} completed with completion date ${stamp}${completedBy ? ' by ' + completedBy : ''}?`,
+                    `Mark ${count} todo${count === 1 ? '' : 's'} completed with completion date ${stamp}${completedBy ? ' by ' + completedBy : ''}?`
+                        + ' A repeated todo is not completed: it waits for its next repetition.',
                     { modal: true },
                     'Complete',
                 );
@@ -771,6 +773,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     : { status: 'cancelled' };
             const updated: string[] = [];
             const failed: string[] = [];
+            const waiting: string[] = [];
             for (const entry of validEntries) {
                 const todoId = String(entry?.todoId || '');
                 const fp = _resolveArchiveSourcePath(
@@ -780,10 +783,15 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 if (!fp) { failed.push(todoId); continue; }
                 const res = questTodo.updateTodoInFile(fp, todoId, updates);
                 if (res) { updated.push(todoId); } else { failed.push(todoId); }
+                if (res?.status === 'waiting-for-repeat') { waiting.push(todoId); }
             }
             const verb = isComplete ? 'Completed' : isReopen ? 'Reset' : 'Cancelled';
             if (updated.length) {
-                vscode.window.showInformationMessage(`${verb} ${updated.length} todo${updated.length === 1 ? '' : 's'}.`);
+                const done = updated.length - waiting.length;
+                const text = isComplete && waiting.length
+                    ? `${done ? `Completed ${done} todo${done === 1 ? '' : 's'}; ` : ''}${waiting.length} repeated todo${waiting.length === 1 ? ' waits' : 's wait'} for the next repetition.`
+                    : `${verb} ${updated.length} todo${updated.length === 1 ? '' : 's'}.`;
+                vscode.window.showInformationMessage(text);
             }
             if (failed.length) {
                 vscode.window.showWarningMessage(`Could not update ${failed.length} todo${failed.length === 1 ? '' : 's'}.`);
@@ -801,7 +809,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                             details: t.description || '',
                             priority: t.priority || 'medium',
                             tags: t.tags || [],
-                        });
+                        }, SessionTodoStore.instance.shownSession);
                         created++;
                     } catch { /* skip */ }
                 }
@@ -838,7 +846,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     questTodo.updateTodoInFile(fp, target.todoId, { status: 'not-started', completed_date: '', completed_by: '' });
                 }
                 const items = _collectSessionTodos(sessionQuestId);
-                post({ type: 'qtTodos', todos: items, questId: '__session__', file: 'all' });
+                post({ type: 'qtTodos', todos: items, questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
 
                 if (fp) {
                     const rTodo = questTodo.findTodoByIdInFile(fp, target.todoId);
@@ -917,19 +925,19 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                                 details: t.description || '',
                                 priority: t.priority || 'medium',
                                 tags: t.tags || [],
-                            });
+                            }, SessionTodoStore.instance.shownSession);
                             imported++;
                         } catch { /* skip */ }
                     }
                     vscode.window.showInformationMessage(`Imported ${imported} todo(s) from ${path.basename(importPath)}.`);
-                    const refresh = SessionTodoStore.instance.list({ status: 'all' }).map(t => ({
+                    const refresh = SessionTodoStore.instance.list({ status: 'all' }, SessionTodoStore.instance.shownSession).map(t => ({
                         id: t.id, title: t.title,
                         status: t.status === 'done' ? 'completed' : 'not-started',
                         priority: t.priority, tags: t.tags,
                         created: t.createdAt.slice(0, 10), updated: t.updatedAt.slice(0, 10),
                         sourceFile: 'session',
                     }));
-                    post({ type: 'qtTodos', todos: refresh, questId: '__session__', file: 'all' });
+                    post({ type: 'qtTodos', todos: refresh, questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
                 } else if (isWorkspaceFileMode) {
                     const fp = workspaceFilePath();
                     if (fp) {
@@ -1154,8 +1162,14 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             post({ type: 'qtArchiveResult', success: moved.length > 0, moved });
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
-                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
+                post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
             }
+            return true;
+        }
+        case 'qtSelectSession': {
+            if (!isSessionMode) { return true; }
+            try { SessionTodoStore.instance.shownSession = String(msg.session || 'default'); } catch { return true; }
+            post({ type: 'qtTodos', todos: _collectSessionTodos(_getSessionQuestId()), questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
             return true;
         }
         case 'qtDeleteAllSessionTodos': {
@@ -1166,13 +1180,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const sessionQuestId = _getSessionQuestId();
             const sessionFiles = _listSessionTodoFiles(sessionQuestId);
             if (!sessionFiles.length) {
-                vscode.window.showInformationMessage(`No session todo files found for quest ${sessionQuestId}.`);
-                post({ type: 'qtTodos', todos: [], questId: '__session__', file: 'all' });
+                vscode.window.showInformationMessage(`The session "${SessionTodoStore.instance.shownSession}" has no todos.`);
+                post({ type: 'qtTodos', todos: [], questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
                 return true;
             }
 
             const confirm = await vscode.window.showWarningMessage(
-                `Delete all session todos for quest "${sessionQuestId}"?`,
+                `Delete all todos of the session "${SessionTodoStore.instance.shownSession}"?`,
                 { modal: true },
                 'Delete All',
             );
@@ -1181,7 +1195,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
 
             let deletedFiles = 0;
-            const currentSessionFile = path.basename(SessionTodoStore.instance.filePath);
+            const currentSessionFile = path.basename(SessionTodoStore.instance.filePathFor(SessionTodoStore.instance.shownSession));
             for (const fileName of sessionFiles) {
                 const fp = _sessionTodoAbsolutePath(sessionQuestId, fileName);
                 if (!fp || !fs.existsSync(fp)) {
@@ -1189,9 +1203,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 }
                 try {
                     if (fileName === currentSessionFile) {
-                        const currentItems = SessionTodoStore.instance.list({ status: 'all' });
+                        const currentItems = SessionTodoStore.instance.list({ status: 'all' }, SessionTodoStore.instance.shownSession);
                         for (const item of currentItems) {
-                            SessionTodoStore.instance.delete(item.id);
+                            SessionTodoStore.instance.delete(item.id, SessionTodoStore.instance.shownSession);
                         }
                     }
                     fs.unlinkSync(fp);
@@ -1201,8 +1215,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 }
             }
 
-            post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all' });
-            vscode.window.showInformationMessage(`Deleted ${deletedFiles} session todo file(s) for quest ${sessionQuestId}.`);
+            post({ type: 'qtTodos', todos: _collectSessionTodos(sessionQuestId), questId: '__session__', file: 'all', sessionSwitch: _sessionSwitchState() });
+            vscode.window.showInformationMessage(`Deleted the todos of the session "${SessionTodoStore.instance.shownSession}" (${deletedFiles} file).`);
             return true;
         }
         case 'qtRenderMarkdown':
@@ -1265,7 +1279,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtOpenYaml':
             if (isSessionMode) {
                 try {
-                    const sessionFp = SessionTodoStore.instance.filePath;
+                    const sessionFp = SessionTodoStore.instance.filePathFor(SessionTodoStore.instance.shownSession);
                     if (fs.existsSync(sessionFp)) {
                         const doc = await vscode.workspace.openTextDocument(sessionFp);
                         await vscode.window.showTextDocument(doc);
@@ -1305,7 +1319,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const allTags = collectAllTags(tagQuestId);
             // For session mode, also merge tags from session todos
             if (isSessionMode) {
-                const sessionItems = SessionTodoStore.instance.list({ status: 'all' });
+                const sessionItems = SessionTodoStore.instance.list({ status: 'all' }, SessionTodoStore.instance.shownSession);
                 for (const si of sessionItems) {
                     if (si.tags) { for (const tg of si.tags) { if (!allTags.includes(tg)) allTags.push(tg); } }
                 }
@@ -1612,7 +1626,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const rawQuestId = typeof msg.questId === 'string' ? msg.questId : '';
                 // Session mode: 'local' returns session todos, 'quest' reads specified quest, 'workspace' reads all
                 if (isSessionMode && source === 'local') {
-                    const sessionItems = SessionTodoStore.instance.list({ status: 'all' });
+                    const sessionItems = SessionTodoStore.instance.list({ status: 'all' }, SessionTodoStore.instance.shownSession);
                     items = sessionItems.map(si => ({
                         id: si.id,
                         title: si.title,
@@ -1735,8 +1749,27 @@ function _listSessionTodoFiles(questId: string): string[] {
     if (!questId || questId.startsWith('__')) {
         return [];
     }
-    return questTodo.listTodoFiles(questId)
-        .filter((f) => isSessionTodoFileName(f));
+    // The session the view shows: its own file in its storage root.
+    let store: SessionTodoStore;
+    try { store = SessionTodoStore.instance; } catch { return []; }
+    return fs.existsSync(store.filePathFor(store.shownSession)) ? [sessionTodoSourceFile(store.shownSession)] : [];
+}
+
+/**
+ * The SESSION TODOS view's session switch: the sessions that have todos, most
+ * recently written first, one button each for the most recent (a dropdown with
+ * all of them when there are more), each with its open-todo count; the shown
+ * session always among them.
+ */
+function _sessionSwitchState(): { plan: SessionSwitchPlan; counts: Record<string, { open: number; total: number }> } | undefined {
+    let store: SessionTodoStore;
+    try { store = SessionTodoStore.instance; } catch { return undefined; }
+    const counts = store.counts().filter((c) => c.total > 0);
+    const shown = store.shownSession;
+    const sessions = counts.map((c) => ({ name: c.session, lastUse: c.lastWrite }));
+    if (!sessions.some((x) => x.name === shown)) { sessions.push({ name: shown } as { name: string; lastUse: number }); }
+    const plan = planSessionSwitch(sessions, shown, 'default');
+    return { plan, counts: Object.fromEntries(counts.map((c) => [c.session, { open: c.open, total: c.total }])) };
 }
 
 function _sessionTodoAbsolutePath(questId: string, sourceFile: string): string | undefined {

@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { PromptQueueManager } from './promptQueueManager';
 import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
 import { logTimed, logTimedError } from '../utils/queueLogger';
+import { liveRepeatedTodoPort, releaseDueRepeatedTodos } from '../services/repeatedTodoController';
 
 // ============================================================================
 // Types
@@ -26,8 +27,21 @@ export interface ScheduledTime {
 
 export type TimedRequestStatus = 'active' | 'paused' | 'completed';
 
+/** What an entry does when it is due: queue its prompt, or run the repeated-todo check. */
+export type TimedRequestKind = 'prompt' | 'repeated-todos';
+
+/** The repeated-todo controller's default check interval. */
+export const REPEATED_TODOS_DEFAULT_MINUTES = 15;
+
 export interface TimedRequest {
     id: string;
+    /**
+     * `prompt` (the default, absent): the entry queues its prompt.
+     * `repeated-todos`: the repeated-todo controller — due, it releases the
+     * `waiting-for-repeat` todos whose moment has come (services/repeatedTodoController.ts);
+     * it queues nothing, takes no prompt, and ignores the timer's time slots.
+     */
+    kind?: TimedRequestKind;
     enabled: boolean;
     template: string;
     answerWrapper?: boolean;
@@ -95,6 +109,61 @@ export class TimerEngine {
         e.start();
         TimerEngine._inst = e;
         logTimed(`Timer engine started — ${e._entries.length} entries, activated=${e._timerActivated}`);
+        // The repeated-todo controller checks once at window start while it is on.
+        setTimeout(() => { e.runRepeatedTodoControllers(new Date(), true); }, 5_000);
+    }
+
+    /** The repeated-todo controller entry, or undefined when there is none. */
+    get repeatedTodoController(): TimedRequest | undefined {
+        return this._entries.find((x) => x.kind === 'repeated-todos');
+    }
+
+    /** Add the repeated-todo controller (one per list; an existing one is answered). */
+    addRepeatedTodoController(intervalMinutes = REPEATED_TODOS_DEFAULT_MINUTES): TimedRequest {
+        const existing = this.repeatedTodoController;
+        if (existing) { return existing; }
+        return this.addEntry({
+            kind: 'repeated-todos',
+            enabled: true,
+            template: '(None)',
+            originalText: 'Repeated todos: release the waiting-for-repeat todos whose next repetition has come',
+            scheduleMode: 'interval',
+            intervalMinutes,
+        });
+    }
+
+    /**
+     * Run the repeated-todo check of every controller entry that is on and due
+     * (`force`: due or not, e.g. at window start or Check now). Answers how
+     * many todos it released.
+     */
+    runRepeatedTodoControllers(now: Date, force = false): number {
+        if (!this._timerActivated) { return 0; }
+        let total = 0;
+        for (const entry of this._entries) {
+            if (entry.kind !== 'repeated-todos' || !entry.enabled || entry.status !== 'active') { continue; }
+            if (!force && !this.checkInterval(entry, now)) { continue; }
+            total += this.runRepeatedTodoCheck(entry, now);
+        }
+        return total;
+    }
+
+    /** One check of `entry`: release the due todos, stamp the run. */
+    runRepeatedTodoCheck(entry: TimedRequest, now: Date): number {
+        let released = 0;
+        try {
+            const result = releaseDueRepeatedTodos(liveRepeatedTodoPort(), now);
+            released = result.released.length;
+            for (const r of result.released) { logTimed(`Repeated todo released: ${r.questId}/${r.todoId} (due ${r.next_repeat})`); }
+            for (const f of result.failed) { logTimed(`Repeated todo due but not released (write failed): ${f}`); }
+        } catch (err) {
+            logTimedError('repeated-todo check', err);
+        }
+        entry.lastSentAt = now.toISOString();
+        entry.sentCount = (entry.sentCount ?? 0) + released;
+        this.saveEntries();
+        this._onDidChange.fire();
+        return released;
     }
 
     static get instance(): TimerEngine {
@@ -234,6 +303,8 @@ export class TimerEngine {
         const mm = String(now.getMinutes()).padStart(2, '0');
         const ss = String(now.getSeconds()).padStart(2, '0');
         const activeCount = this._entries.filter(e => e.enabled && e.status === 'active').length;
+        // The repeated-todo controller sends no prompt: it runs outside the time slots.
+        this.runRepeatedTodoControllers(now);
 
         // Check global timer schedule (allowed time slots)
         const inSchedule = this._isWithinSchedule(now);
@@ -241,6 +312,7 @@ export class TimerEngine {
         if (!inSchedule) { return; }
 
         for (const entry of this._entries) {
+            if (entry.kind === 'repeated-todos') { continue; }
             if (!entry.enabled || entry.status !== 'active') {
                 if (!entry.enabled) {
                     logTimed(`Entry '${entry.originalText.substring(0, 40)}' skipped: disabled`);

@@ -595,6 +595,55 @@ function qtQueuedMark(t) {
     return '<span class="qt-queued" title="' + qtEsc(t.queuedTitle || ('Queued: #' + t.queued.join(', #'))) + '">⏵#' + qtEsc(String(t.queued[0])) + '</span>';
 }
 
+/** The 🔁 mark of a repeated todo, its rule (and when it is due again) in the tooltip. */
+function qtRepeatMark(t) {
+    if (!t.repeat) return '';
+    var title = 'Repeated: ' + t.repeat + (t.status === 'waiting-for-repeat'
+        ? (t.next_repeat ? ' — next ' + t.next_repeat.replace('T', ' ') : ' — waiting to be repeated by hand')
+        : '');
+    return '<span class="qt-repeat" title="' + qtEsc(title) + '">🔁</span>';
+}
+
+/**
+ * The SESSION TODOS view's session switch (the host's plan, src/utils/sessionSwitch.ts):
+ * a button for each of the most recent sessions that have todos, a dropdown with
+ * all of them when there are more, each with its open-todo count.
+ */
+function qtRenderSessionSwitch(state) {
+    var box = document.getElementById('qt-session-switch');
+    if (!box) return;
+    if (!state || !state.plan) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    var plan = state.plan;
+    var counts = state.counts || {};
+    var label = function(name) {
+        var c = counts[name];
+        return qtEsc(name) + ' <span class="qt-session-count" title="' + (c ? c.open + ' open, ' + c.total + ' in all' : 'no todos') + '">' + (c ? c.open : 0) + '</span>';
+    };
+    var html = '<span class="qt-session-label">Session:</span>';
+    if (plan.showDropdown) {
+        html += '<select class="qt-session-select" data-qt-session-select title="Every session with todos, most recently written first">' +
+            plan.sessions.map(function(n) {
+                var c = counts[n];
+                return '<option value="' + qtEsc(n) + '"' + (n === plan.selected ? ' selected' : '') + '>' + qtEsc(n) + ' (' + (c ? c.open : 0) + ')</option>';
+            }).join('') + '</select>';
+    }
+    html += plan.buttons.map(function(n) {
+        return '<button class="qt-session-btn' + (n === plan.selected ? ' active' : '') + '" data-qt-session="' + qtEsc(n) + '" title="The todos of session ' + qtEsc(n) + '">' + label(n) + '</button>';
+    }).join('');
+    box.innerHTML = html;
+    box.style.display = '';
+}
+document.addEventListener('click', function(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-qt-session]') : null;
+    if (!btn) return;
+    vscode.postMessage({ type: 'qtSelectSession', session: btn.dataset.qtSession });
+});
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.dataset && e.target.dataset.qtSessionSelect !== undefined) {
+        vscode.postMessage({ type: 'qtSelectSession', session: e.target.value });
+    }
+});
+
 function qtRenderTodoRow(t) {
     var icon = qtStatusIcon(t.status);
     var cls = 'qt-todo-item status-' + (t.status || 'not-started');
@@ -615,6 +664,9 @@ function qtRenderTodoRow(t) {
     if (isDone) {
         trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
         reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
+    } else if (t.status === 'waiting-for-repeat') {
+        // A repeated todo waiting for its next repetition: Repeat now brings it back at once.
+        reopenBtn = '<button class="qt-reopen-btn qt-repeat-now-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Repeat now (set to not-started)' + (t.next_repeat ? ' — otherwise due ' + qtEsc(t.next_repeat.replace('T', ' ')) : '') + '">⏭️</button>';
     } else {
         moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
         moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to another group / quest / workspace / another quest…' : 'Move this todo to another group / quest / workspace / another quest…') + '">⬆️</button>';
@@ -630,6 +682,7 @@ function qtRenderTodoRow(t) {
         '<div class="qt-todo-item-row1">' +
         '<span class="status-icon">' + icon + '</span>' +
         (t.user_action === true ? '<span class="qt-user-action" title="Your to do: a prefix* queue walk passes it">👤</span>' : '') +
+        qtRepeatMark(t) +
         qtQueuedMark(t) +
         qtBlockingMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
@@ -737,7 +790,7 @@ function qtRenderList() {
     // Apply multi-field sort; ties (and no field chosen) by id in natural order.
     {
         var priOrd = { critical: 0, high: 1, medium: 2, low: 3 };
-        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'completed': 4, 'cancelled': 5 };
+        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'waiting-for-repeat': 4, 'completed': 5, 'cancelled': 6 };
         // Rank 0 is falsy, so `|| 9` would sort the *first* rank last. Look the
         // key up instead of leaning on truthiness.
         var rank = function(table, key) {
@@ -992,6 +1045,7 @@ function qtStatusIcon(s) {
         case 'completed': return '✅';
         case 'blocked': return '⛔';
         case 'decision-needed': return '❓';
+        case 'waiting-for-repeat': return '⏳';
         case 'cancelled': return '🚫';
         default: return '⬜';
     }
@@ -1049,7 +1103,7 @@ function qtToggleOnlyUserActions() {
 function qtRenderFilterPicker() {
     var el = document.getElementById('qt-filter-picker');
     if (!el) return;
-    var statuses = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
+    var statuses = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','completed','cancelled'];
     var priorities = ['critical','high','medium','low'];
     // Collect all tags from current todos
     var allTags = [];
@@ -1266,6 +1320,7 @@ function qtRenderDetail(todo) {
         '</div>' +
         qtTodoButtonsRow(todo) +
         qtUserActionRow(todo.user_action === true, true) +
+        qtRepeatSection(todo) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -1294,6 +1349,13 @@ function qtRenderDetail(todo) {
 
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
     document.getElementById('qt-d-user-action').addEventListener('change', qtAutoSave);
+    qtRepeatFormSync();
+    // A rule is saved once it is complete (a weekly rule needs a weekday).
+    document.getElementById('qt-rp').addEventListener('change', function() {
+        var r = qtReadRepeatForm();
+        if (r && r.rule === 'weekly' && (!r.weekdays || r.weekdays.length === 0)) return;
+        qtAutoSave();
+    });
     document.getElementById('qt-btn-delete').addEventListener('click', function() {
         var delQuestId = (todo._resolvedQuestId) || qtCurrentQuestId;
         vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile });
@@ -2256,6 +2318,8 @@ function qtCollectFormData() {
         // Absent on the new-todo form (undefined: nothing to write); false
         // clears the mark on an existing todo.
         user_action: document.getElementById('qt-d-user-action') ? document.getElementById('qt-d-user-action').checked : undefined,
+        // null clears a rule; absent (no Repeat section) leaves it as it is.
+        repeat: qtReadRepeatForm(),
     };
 }
 
@@ -2354,6 +2418,114 @@ function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + l
  * Page's Todo buttons template for user-action todos (default "Guide me through
  * a user action", qtGuideUserAction).
  */
+// ── Repeated todos: the Repeat section of the detail form ──
+var QT_RP_WEEKDAYS = [['mon','Mo'],['tue','Tu'],['wed','We'],['thu','Th'],['fri','Fr'],['sat','Sa'],['sun','Su']];
+var QT_RP_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+/**
+ * The Repeat section: the rule (none, by hand, after N days / weeks / months,
+ * daily, weekly on weekdays, monthly or yearly on a day, the last day, the nth
+ * weekday or the first / last working day), the time, and an end (until a
+ * date, or after N repetitions). Done, a repeated todo waits for its next
+ * repetition instead of completing (the next moment is computed by the host).
+ */
+function qtRepeatSection(todo) {
+    var r = (todo && todo.repeat) || null;
+    var rule = r ? r.rule : '';
+    var opt = function(v, label, cur) { return '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + label + '</option>'; };
+    var dayMode = !r ? 'day' : r.day === 'last' ? 'last' : r.nth !== undefined ? 'nth' : r.working_day === 'first' ? 'first-working' : r.working_day === 'last' ? 'last-working' : 'day';
+    var wds = (r && r.weekdays) || [];
+    var info = '';
+    if (todo && todo.repeat) {
+        info = '<div class="qt-rp-info">' + (todo.repeat_count ? 'Done ' + todo.repeat_count + ' time' + (todo.repeat_count === 1 ? '' : 's') + '. ' : '') +
+            (todo.status === 'waiting-for-repeat' ? (todo.next_repeat ? 'Next: ' + qtEsc(String(todo.next_repeat).replace('T', ' ')) : 'Waits to be repeated by hand.') : '') + '</div>';
+    }
+    return qtFormRow('Repeat', '<div class="qt-repeat-form" id="qt-rp">' +
+        '<select id="qt-rp-rule" title="Done, a repeated todo waits for its next repetition instead of completing">' +
+            opt('', '(not repeated)', rule) + opt('manual', 'by hand', rule) + opt('after', 'after it is done', rule) +
+            opt('daily', 'daily', rule) + opt('weekly', 'weekly', rule) + opt('monthly', 'monthly', rule) + opt('yearly', 'yearly', rule) +
+        '</select>' +
+        '<span data-rp="every"> every <input type="number" id="qt-rp-every" min="1" value="' + qtEsc(String((r && r.every) || 1)) + '" style="width:48px"></span>' +
+        '<select id="qt-rp-unit" data-rp="unit">' + ['days','weeks','months','years'].map(function(u) { return opt(u, u, (r && r.unit) || 'days'); }).join('') + '</select>' +
+        '<span data-rp="weekdays" class="qt-rp-weekdays">' + QT_RP_WEEKDAYS.map(function(w) {
+            return '<label><input type="checkbox" data-rp-wd="' + w[0] + '"' + (wds.indexOf(w[0]) >= 0 ? ' checked' : '') + '>' + w[1] + '</label>';
+        }).join('') + '</span>' +
+        '<span data-rp="month"> in <select id="qt-rp-month">' + QT_RP_MONTHS.map(function(m, i) { return opt(i + 1, m, (r && r.month) || 1); }).join('') + '</select></span>' +
+        '<span data-rp="daymode"> on <select id="qt-rp-daymode">' +
+            opt('day', 'day', dayMode) + opt('last', 'the last day', dayMode) + opt('nth', 'the nth weekday', dayMode) +
+            opt('first-working', 'the first working day', dayMode) + opt('last-working', 'the last working day', dayMode) +
+        '</select></span>' +
+        '<input type="number" id="qt-rp-day" data-rp="day" min="1" max="31" value="' + qtEsc(String(r && typeof r.day === 'number' ? r.day : 1)) + '" style="width:48px">' +
+        '<span data-rp="nth"><select id="qt-rp-nth">' + opt(1, 'first', r && r.nth) + opt(2, 'second', r && r.nth) + opt(3, 'third', r && r.nth) + opt(4, 'fourth', r && r.nth) + opt(5, 'fifth', r && r.nth) + opt('last', 'last', r && r.nth) + '</select>' +
+            '<select id="qt-rp-weekday">' + QT_RP_WEEKDAYS.map(function(w) { return opt(w[0], w[1], (r && r.weekday) || 'mon'); }).join('') + '</select></span>' +
+        '<span data-rp="time"> at <input type="time" id="qt-rp-time" value="' + qtEsc((r && r.time) || '') + '"></span>' +
+        '<span data-rp="end"> until <input type="date" id="qt-rp-until" value="' + qtEsc((r && r.until) || '') + '"> or <input type="number" id="qt-rp-count" min="1" placeholder="∞" value="' + qtEsc(r && r.count ? String(r.count) : '') + '" style="width:48px"> times</span>' +
+        info +
+        '</div>');
+}
+
+/** Show the fields the chosen rule takes. */
+function qtRepeatFormSync() {
+    var form = document.getElementById('qt-rp');
+    if (!form) return;
+    var rule = document.getElementById('qt-rp-rule').value;
+    var dm = document.getElementById('qt-rp-daymode').value;
+    var show = {
+        every: rule === 'after' || rule === 'daily' || rule === 'weekly' || rule === 'monthly' || rule === 'yearly',
+        unit: rule === 'after',
+        weekdays: rule === 'weekly',
+        month: rule === 'yearly',
+        daymode: rule === 'monthly' || rule === 'yearly',
+        day: (rule === 'monthly' || rule === 'yearly') && dm === 'day',
+        nth: (rule === 'monthly' || rule === 'yearly') && dm === 'nth',
+        time: !!rule && rule !== 'manual',
+        end: !!rule,
+    };
+    form.querySelectorAll('[data-rp]').forEach(function(el) { el.style.display = show[el.dataset.rp] ? '' : 'none'; });
+}
+
+/**
+ * The rule the Repeat section holds: a `repeat` map, null for "not repeated"
+ * (clears an existing rule), undefined when the form has no Repeat section.
+ */
+function qtReadRepeatForm() {
+    var ruleEl = document.getElementById('qt-rp-rule');
+    if (!ruleEl) return undefined;
+    var rule = ruleEl.value;
+    if (!rule) return null;
+    var r = { rule: rule };
+    var num = function(id) { var v = parseInt(document.getElementById(id).value, 10); return isNaN(v) ? undefined : v; };
+    var every = num('qt-rp-every');
+    if (rule !== 'manual' && every && every > 1) r.every = every;
+    if (rule === 'after') r.unit = document.getElementById('qt-rp-unit').value;
+    if (rule === 'weekly') {
+        r.weekdays = Array.prototype.map.call(document.querySelectorAll('#qt-rp [data-rp-wd]:checked'), function(b) { return b.dataset.rpWd; });
+    }
+    if (rule === 'yearly') r.month = num('qt-rp-month');
+    if (rule === 'monthly' || rule === 'yearly') {
+        var dm = document.getElementById('qt-rp-daymode').value;
+        if (dm === 'day') r.day = num('qt-rp-day') || 1;
+        if (dm === 'last') r.day = 'last';
+        if (dm === 'nth') {
+            var nth = document.getElementById('qt-rp-nth').value;
+            r.nth = nth === 'last' ? 'last' : parseInt(nth, 10);
+            r.weekday = document.getElementById('qt-rp-weekday').value;
+        }
+        if (dm === 'first-working') r.working_day = 'first';
+        if (dm === 'last-working') r.working_day = 'last';
+    }
+    var time = document.getElementById('qt-rp-time').value;
+    if (time && rule !== 'manual') r.time = time;
+    var until = document.getElementById('qt-rp-until').value;
+    if (until) r.until = until;
+    var count = num('qt-rp-count');
+    if (count && count > 0) r.count = count;
+    return r;
+}
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.closest && e.target.closest('#qt-rp')) qtRepeatFormSync();
+});
+
 function qtUserActionRow(checked, withGuide) {
     var guide = withGuide
         ? '<span class="qt-guide-btns">' +
@@ -2494,7 +2666,7 @@ function qtShowMassAddOverlay() {
 }
 function qtEsc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function qtStatusOptions(cur) {
-    var opts = ['not-started','in-progress','blocked','decision-needed','completed','cancelled'];
+    var opts = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','completed','cancelled'];
     return opts.map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
 }
 function qtPriorityOptions(cur) {
@@ -2538,6 +2710,7 @@ function qtHandleMessage(msg) {
             break;
         case 'qtTodos':
             qtTodos = msg.todos || [];
+            if (msg.questId === '__session__') qtRenderSessionSwitch(msg.sessionSwitch);
             qtRenderList();
             // If the previously-selected todo is gone (file emptied, switched,
             // or the entry removed externally), revert the detail pane to the

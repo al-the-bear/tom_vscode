@@ -9,7 +9,7 @@
 /** The fields of the detail form, as `qtSaveTodo` sends them. */
 export const TODO_FORM_FIELDS = [
     'title', 'status', 'priority', 'description', 'tags', 'dependencies', 'blocked_by', 'notes', 'scope',
-    'references', 'decisions', 'created', 'completed_date', 'completed_by', 'user_action',
+    'references', 'decisions', 'created', 'completed_date', 'completed_by', 'user_action', 'repeat',
 ] as const;
 
 /** Absent, null, '' and [] are the same: no value. */
@@ -39,6 +39,8 @@ export function todoFormUnchanged(current: Record<string, unknown>, form: Record
         if (field === 'user_action') {
             return form.user_action === undefined || (current.user_action === true) === (form.user_action === true);
         }
+        // A form without the Repeat section (undefined) changes nothing; null clears the rule.
+        if (field === 'repeat' && form.repeat === undefined) { return true; }
         return canonical(current[field]) === canonical(form[field]);
     });
 }

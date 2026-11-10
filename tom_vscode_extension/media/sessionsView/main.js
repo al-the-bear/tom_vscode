@@ -54,6 +54,7 @@
                 + '<div class="body"><span class="name">' + esc(r.name) + '</span>'
                 + (r.usedBy ? '<span class="tag">' + esc(r.usedBy) + '</span>' : '')
                 + (r.temporary ? '<span class="tag" title="Created for an item another quest sent; deleted once the item and its notification are done">temporary</span>' : '')
+                + (r.todos && r.todos.total ? '<span class="tag todos" title="Session todos: ' + r.todos.open + ' open, ' + r.todos.total + ' in all">☑ ' + r.todos.open + '</span>' : '')
                 + '<div class="meta">' + esc(meta(r)) + '</div></div>'
                 + '<div class="actions">'
                 + '<button class="icon" data-op="reset" title="Reset: forget the conversation (its history and SDK session); keep base, lifetime, profile, trails and memory"'

@@ -217,6 +217,13 @@ export interface TodoIterationSource {
     title?: string;
     /** The todo is the user's to do (`user_action: true`): the walk passes it. */
     userAction?: boolean;
+    /**
+     * A manual repeated todo waiting to be repeated (`waiting-for-repeat`,
+     * `repeat.rule: manual`) that this walk has not run yet: the walk runs it
+     * as it runs a `not-started` one. Set by the caller, which knows what the
+     * walk ran ({@link walkableRepeatIds}).
+     */
+    walkableRepeat?: boolean;
 }
 
 /** A quest todo that matched a `prefix*` pattern, with its parsed number. */
@@ -231,6 +238,8 @@ export interface TodoIterationEntry {
     status: string;
     /** Set when the todo is the user's to do; the walk never dispatches it. */
     userAction?: true;
+    /** A manual repeated todo the walk may run although it is `waiting-for-repeat`. */
+    walkableRepeat?: true;
 }
 
 /** The one status that makes a todo eligible for dispatch. */
@@ -238,6 +247,9 @@ const NOT_STARTED = 'not-started';
 
 /** The status that says "the user has not answered this todo's questions yet". */
 const DECISION_NEEDED = 'decision-needed';
+
+/** A repeated todo done once, waiting for its next repetition. */
+const WAITING_FOR_REPEAT = 'waiting-for-repeat';
 
 /**
  * Parse a `prefix*` repeat-count value into its prefix.
@@ -314,6 +326,7 @@ export function collectPrefixTodos(
             title: todo.title,
             status: normaliseStatus(todo.status),
             ...(todo.userAction === true ? { userAction: true as const } : {}),
+            ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
         });
     }
     entries.sort((a, b) => (a.index - b.index) || a.id.localeCompare(b.id));
@@ -343,7 +356,24 @@ export function pickNextTodoForIteration(
     if (prefix === undefined) {
         return undefined;
     }
-    return collectPrefixTodos(prefix, todos).find(e => e.status === NOT_STARTED && !e.userAction);
+    return collectPrefixTodos(prefix, todos).find(e => isWalkable(e));
+}
+
+/** A todo the walk dispatches: `not-started`, or a manual repeated one it has not run; never the user's own. */
+function isWalkable(e: TodoIterationEntry): boolean {
+    return (e.status === NOT_STARTED || (e.status === WAITING_FOR_REPEAT && e.walkableRepeat === true)) && !e.userAction;
+}
+
+/**
+ * The ids a walk has run: the todos its repetition answers name, and the one
+ * it walked last. A manual repeated todo among them is not run again by the
+ * same walk (it goes back to `waiting-for-repeat` when done, so its status
+ * alone would not end the walk).
+ */
+export function walkableRepeatIds(item: { repeatTodoId?: string; repetitionAnswers?: ReadonlyArray<{ key: string }> }): Set<string> {
+    const ran = new Set<string>((item.repetitionAnswers ?? []).map((a) => a.key));
+    if (item.repeatTodoId) { ran.add(item.repeatTodoId); }
+    return ran;
 }
 
 /** How the error of a queue item whose `prefix*` walk has nothing to walk over begins. */
@@ -377,7 +407,7 @@ export function emptyTodoIterationReason(
     if (series.length === 0) {
         return `${EMPTY_TODO_ITERATION_ERROR}: no todo of quest "${questId}" has an id starting with "${prefix}" followed by a number.`;
     }
-    const workable = series.some((e) => (e.status === NOT_STARTED && !e.userAction) || e.status === 'blocked' || e.status === DECISION_NEEDED);
+    const workable = series.some((e) => isWalkable(e) || e.status === 'blocked' || e.status === DECISION_NEEDED);
     if (workable) { return undefined; }
     const counts = new Map<string, number>();
     for (const e of series) {

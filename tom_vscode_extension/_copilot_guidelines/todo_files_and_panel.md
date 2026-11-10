@@ -335,24 +335,37 @@ mismatched pair; a todo with no `blocking` key yet is counted as unmigrated.
 Tests: `todoBlocking.test.ts` TB-1–8, `questTodoBlocking.test.ts` QBM-1–5,
 `questTodoBlocking.dom.test.ts` QB-1–3.
 
-## 3. Session todos — stable per-host file (TRA04)
+## 3. Session todos — one file per session
 
-Session todos live in **one stable, git-tracked file per host+quest** inside
-the quest folder:
+A session todo belongs to **one session** of the quest: a step an agent notes
+for itself while carrying out a quest todo, in the flow of that session. Work
+that outlives the session, or belongs to the quest, is a quest todo. Each
+session keeps its todos in its own storage root:
 
 ```
-_ai/quests/<quest>/session-todo.<hostSlug>.<quest>.todo.yaml
+_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
 ```
 
-- `<hostSlug>` comes from `WsPaths.hostSlug()`; because the `_ai` clone is
-  shared/synced across the fleet, the slug keeps each machine's session todos
-  separate while the file survives window reloads and syncs with `_ai`.
-- Session todos are **persistent** — they are NOT cleared when the VS Code
-  window closes (that was the pre-TRA04 behaviour).
-- Legacy per-window files (`{YYYYMMDD}_{HHMM}_win-*.todo.yaml`) are lazily
-  merged into the stable file on first access; the naming predicates in
-  `sessionTodoNames.ts` still recognise them so unmigrated hosts' files keep
-  showing in the session view.
+- `services/sessionTodoFiles.ts` names the file and counts its todos
+  (`sessionTodoCounts`); `managers/sessionTodoStore.ts` reads and writes it.
+  Every store method takes the session; without one it is the session the
+  current tool call runs in (the active tool trail's), else the session the
+  SESSION TODOS view shows (`shownSession`, set by its session switch), else
+  `default`. The panel passes `shownSession` explicitly, so a click never lands
+  in the session of an agent that happens to be running.
+- The file is **machine-local** like the session itself (`<name>.session.json`
+  is not versioned either): the `_ai` `.gitignore` excludes
+  `quests/*/history/sessions/*/session-todos*.todo.yaml`. It goes when the
+  session is deleted (`removeSessionStorage` removes the storage root); the
+  SESSIONS view's confirmation names the open todos that go with it.
+- The SESSION TODOS view's **session switch** is `planSessionSwitch`
+  (`utils/sessionSwitch.ts`, the @WS Logs one) over the sessions that have
+  todos, most recently written first; each chip shows the open count. The
+  SESSIONS view shows `☑ <open>` per session.
+- The former per-machine file `session-todo.<host>.<quest>.todo.yaml` (and the
+  older per-window `{YYYYMMDD}_{HHMM}_win-*.todo.yaml`) is taken over once
+  when the store starts: its open todos go to `default`, and it is removed
+  with its `-archived` / `-deleted` siblings.
 
 ## 4. LLM / MCP move tools (TRA05)
 

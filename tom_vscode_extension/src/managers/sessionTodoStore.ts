@@ -1,14 +1,19 @@
 /**
- * SessionTodoStore — session todo list for LLMs.
+ * SessionTodoStore — the todos of a quest's sessions.
  *
- * Allows an LLM to store and retrieve its own reminders during a session
- * so postponed tasks aren't lost when the context window rotates.
+ * A session todo belongs to ONE session: the small steps an agent notes for
+ * itself while carrying out a quest todo, in the flow of that session (a
+ * quest todo is a quest todo; this is not where they go). Each session keeps
+ * its own file, `history/sessions/<session>/session-todos.todo.yaml`
+ * (services/sessionTodoFiles.ts), unversioned and deleted with the session.
  *
- * Storage (TRA04): ONE stable, git-tracked YAML file per host+quest —
- * `session-todo.<host>.<quest>.todo.yaml` in the quest folder — so session
- * todos survive window reloads and are shared between windows on the same
- * machine. Legacy per-window files (`{date}_{time}_win-*.todo.yaml`) are
- * merged into the stable file and removed on first access.
+ * Every method takes the session it works on; without one it is the session
+ * the current tool call runs in (the active tool trail's), else the session
+ * the SESSION TODOS view shows, else `default`.
+ *
+ * The former single file per machine and quest (`session-todo.<host>.<quest>.todo.yaml`,
+ * and the per-window files before it) is taken over once: its open todos go
+ * to `default`, and it is removed with its siblings.
  *
  * Spec reference: chat_enhancements.md §1.4
  */
@@ -17,7 +22,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
-import { isLegacySessionTodoFileName, sessionTodoFilename } from '../utils/sessionTodoNames';
+import { isSessionTodoFileName } from '../utils/sessionTodoNames';
 import type { ChangeSource } from './chatVariablesStore';
 import {
     createTodoInFile,
@@ -27,6 +32,9 @@ import {
     readTodoFile,
     updateTodoInFile,
 } from './questTodoManager';
+import { sessionTodoCounts, sessionTodoFile, type SessionTodoCount } from '../services/sessionTodoFiles';
+import { getActiveToolTrail } from '../services/tool-trail';
+import { questHistoryRoot } from '../services/trailService';
 
 // ============================================================================
 // Types
@@ -68,95 +76,93 @@ export class SessionTodoStore {
         return SessionTodoStore._instance;
     }
 
-    static init(context: vscode.ExtensionContext): SessionTodoStore {
+    static init(_context?: vscode.ExtensionContext): SessionTodoStore {
         if (SessionTodoStore._instance) { return SessionTodoStore._instance; }
         SessionTodoStore._instance = new SessionTodoStore();
         return SessionTodoStore._instance;
     }
 
-    // ---- state ----
-    private todos: SessionTodoItem[] = [];
-    private nextSeq = 1;
     private readonly questId: string;
-    private readonly sessionFilePath: string;
+    private readonly historyRoot: string;
+    /** The session the SESSION TODOS view shows; the default of a call outside any session. */
+    private viewSession = 'default';
 
-    /** The absolute path to the current session's YAML todo file. */
-    get filePath(): string { return this.sessionFilePath; }
-
-    /** The quest ID for this session. */
+    /** The quest ID for this window. */
     get sessionQuestId(): string { return this.questId; }
+
+    /** The file of the session a call without one works on. */
+    get filePath(): string { return this.filePathFor(); }
 
     private constructor() {
         this.questId = WsPaths.getWorkspaceQuestId();
-        this.sessionFilePath = this.resolveSessionFilePath();
-        // One-time lazy migration of legacy per-window files (TRA04).
-        this.migrateLegacySessionFiles();
-        // Defer file creation: only restore if the file already exists.
-        // The file is created lazily on the first add() call to avoid
-        // polluting the quest folder with empty session todo files.
-        this.restore();
+        this.historyRoot = questHistoryRoot(this.questId);
+        this.takeOverFormerFiles();
     }
 
-    private resolveSessionFilePath(): string {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!wsRoot) {
-            throw new Error('No workspace folder available for session todos.');
-        }
-        const fileName = sessionTodoFilename(WsPaths.hostSlug(), this.questId);
-        return WsPaths.ai('quests', this.questId, fileName) || path.join(wsRoot, '_ai', 'quests', this.questId, fileName);
+    /** The session a call works on: the one named, else the tool call's, else the view's. */
+    sessionOf(session?: string): string {
+        if (session && session.trim()) { return session.trim(); }
+        let caller: string | undefined;
+        try { caller = getActiveToolTrail()?.session || undefined; } catch { caller = undefined; }
+        return caller || this.viewSession || 'default';
+    }
+
+    /** The session the SESSION TODOS view shows (its switch sets it). */
+    get shownSession(): string { return this.viewSession; }
+    set shownSession(session: string) { this.viewSession = session || 'default'; }
+
+    /** The todo file of `session` (default: {@link sessionOf}). */
+    filePathFor(session?: string): string {
+        return sessionTodoFile(this.historyRoot, this.sessionOf(session));
+    }
+
+    /** Every session with a session todo file and its counts, most recently written first. */
+    counts(): SessionTodoCount[] {
+        return sessionTodoCounts(this.historyRoot, (file) => readTodoFile(file).map((t) => String(t.status ?? 'not-started')));
+    }
+
+    /** The open (not done) todos of `session`. */
+    openCount(session: string): number {
+        return this.list({ status: 'pending' }, session).length;
     }
 
     /**
-     * Merge todos from legacy per-window session files
-     * (`{date}_{time}_win-*.todo.yaml`) into the stable per-host file, then
-     * remove the legacy files. Cancelled todos (the old soft-delete) are
-     * dropped; surviving todos get fresh sequential `wt-N` ids so ids from
-     * different windows cannot collide.
+     * Take over the former per-machine file once: its open todos go to the
+     * `default` session, then it and its siblings (and any older per-window
+     * file) are removed.
      */
-    private migrateLegacySessionFiles(): void {
-        try {
-            const legacyFiles = listTodoFiles(this.questId).filter(isLegacySessionTodoFileName);
-            if (!legacyFiles.length) { return; }
-            const questDir = path.dirname(this.sessionFilePath);
-
-            // Continue numbering after whatever the stable file already holds.
-            let seq = 0;
-            for (const t of readTodoFile(this.sessionFilePath)) {
-                const m = String(t.id ?? '').match(/^wt-(\d+)$/);
-                if (m) { seq = Math.max(seq, parseInt(m[1], 10)); }
-            }
-
-            for (const fileName of legacyFiles) {
-                const legacyPath = path.join(questDir, fileName);
-                try {
-                    for (const t of readTodoFile(legacyPath)) {
-                        if (!t || t.status === 'cancelled') { continue; }
-                        this.ensureSessionFile();
-                        createTodoInFile(this.sessionFilePath, {
-                            id: `wt-${++seq}`,
-                            title: t.title ?? t.description ?? t.id,
-                            description: t.description ?? t.title ?? '',
-                            status: t.status ?? 'not-started',
-                            priority: t.priority ?? 'medium',
-                            tags: Array.isArray(t.tags) ? t.tags : [],
-                        }, { quest: this.questId });
-                    }
-                    fs.unlinkSync(legacyPath);
-                    console.log(`[SessionTodo] Migrated legacy session file ${fileName} into ${path.basename(this.sessionFilePath)}`);
-                } catch (e) {
-                    // Leave an unreadable legacy file in place; it stays
-                    // visible via the legacy-name detection and can be
-                    // migrated on a later activation.
-                    console.error(`[SessionTodo] Failed to migrate ${fileName}:`, e);
+    private takeOverFormerFiles(): void {
+        let former: string[] = [];
+        try { former = listTodoFiles(this.questId).filter(isSessionTodoFileName); } catch { return; }
+        if (!former.length) { return; }
+        const questDir = WsPaths.ai('quests', this.questId) ?? path.dirname(this.historyRoot);
+        for (const fileName of former) {
+            const file = path.join(questDir, fileName);
+            try {
+                for (const t of readTodoFile(file)) {
+                    if (!t || t.status === 'cancelled' || t.status === 'completed') { continue; }
+                    this.add(String(t.title ?? t.description ?? t.id), 'copilot', {
+                        details: t.description,
+                        priority: t.priority,
+                        tags: Array.isArray(t.tags) ? t.tags : [],
+                    }, 'default');
                 }
+                fs.unlinkSync(file);
+                const stem = fileName.split('.')[0];
+                for (const sibling of [`${stem}-archived`, `${stem}-deleted`]) {
+                    const siblingFile = path.join(questDir, [sibling, ...fileName.split('.').slice(1)].join('.'));
+                    if (fs.existsSync(siblingFile)) { fs.unlinkSync(siblingFile); }
+                }
+                console.log(`[SessionTodo] Took over ${fileName}: its open todos are now the default session's`);
+            } catch (e) {
+                console.error(`[SessionTodo] Could not take over ${fileName}:`, e);
             }
-        } catch (e) {
-            console.error('[SessionTodo] Legacy session file migration failed:', e);
         }
     }
 
-    private ensureSessionFile(): void {
-        ensureTodoFile(this.sessionFilePath, { quest: this.questId });
+    private ensureFile(file: string): void {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        ensureTodoFile(file, { quest: this.questId });
     }
 
     private static fromYamlStatus(status: string | undefined): 'pending' | 'done' {
@@ -186,18 +192,34 @@ export class SessionTodoStore {
         };
     }
 
+    private items(session?: string): SessionTodoItem[] {
+        return readTodoFile(this.filePathFor(session))
+            .map((t) => SessionTodoStore.toItem(t))
+            .filter((t): t is SessionTodoItem => !!t);
+    }
+
+    /** The next `wt-<n>` id of a session's file. */
+    private nextId(file: string): string {
+        let max = 0;
+        for (const t of readTodoFile(file)) {
+            const m = String(t.id ?? '').match(/^wt-(\d+)$/);
+            if (m) { max = Math.max(max, parseInt(m[1], 10)); }
+        }
+        return `wt-${max + 1}`;
+    }
+
     // ---- CRUD ----
 
     add(
         title: string,
         source: ChangeSource,
         opts?: { details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; tags?: string[]; status?: 'pending' | 'done' },
+        session?: string,
     ): SessionTodoItem {
-        // Lazily create the session file on first write
-        this.ensureSessionFile();
-        const id = `wt-${this.nextSeq++}`;
-        const created = createTodoInFile(this.sessionFilePath, {
-            id,
+        const file = this.filePathFor(session);
+        this.ensureFile(file);
+        const created = createTodoInFile(file, {
+            id: this.nextId(file),
             title,
             description: opts?.details || title,
             status: SessionTodoStore.toYamlStatus(opts?.status),
@@ -206,12 +228,11 @@ export class SessionTodoStore {
         }, { quest: this.questId });
         const mapped = SessionTodoStore.toItem(created)!;
         mapped.source = source;
-        this.restore();
         return mapped;
     }
 
-    list(filter?: { status?: 'pending' | 'done' | 'all'; tags?: string[] }): SessionTodoItem[] {
-        let items = [...this.todos];
+    list(filter?: { status?: 'pending' | 'done' | 'all'; tags?: string[] }, session?: string): SessionTodoItem[] {
+        let items = this.items(session);
         if (filter?.status && filter.status !== 'all') {
             items = items.filter(t => t.status === filter.status);
         }
@@ -222,61 +243,40 @@ export class SessionTodoStore {
         return items;
     }
 
-    getAll(): { todos: SessionTodoItem[]; count: number; pendingCount: number } {
+    getAll(session?: string): { todos: SessionTodoItem[]; count: number; pendingCount: number; session: string } {
+        const todos = this.items(session);
         return {
-            todos: [...this.todos],
-            count: this.todos.length,
-            pendingCount: this.todos.filter(t => t.status === 'pending').length,
+            todos,
+            count: todos.length,
+            pendingCount: todos.filter(t => t.status === 'pending').length,
+            session: this.sessionOf(session),
         };
     }
 
-    get(id: string): SessionTodoItem | undefined {
-        const todo = findTodoByIdInFile(this.sessionFilePath, id);
-        const mapped = SessionTodoStore.toItem(todo);
-        return mapped ?? undefined;
+    get(id: string, session?: string): SessionTodoItem | undefined {
+        const todo = findTodoByIdInFile(this.filePathFor(session), id);
+        return SessionTodoStore.toItem(todo) ?? undefined;
     }
 
     update(
         id: string,
         updates: { title?: string; details?: string; priority?: 'low' | 'medium' | 'high' | 'critical'; status?: 'pending' | 'done'; tags?: string[] },
+        session?: string,
     ): SessionTodoItem | undefined {
         // A field the caller leaves out stays as it is — the status included:
         // mapping an absent status to `not-started` reopened a done todo on
         // every title or priority edit.
-        const updated = updateTodoInFile(this.sessionFilePath, id, {
+        const updated = updateTodoInFile(this.filePathFor(session), id, {
             title: updates.title,
             description: updates.details,
             priority: updates.priority,
             ...(updates.status !== undefined ? { status: SessionTodoStore.toYamlStatus(updates.status) } : {}),
             ...(updates.tags !== undefined ? { tags: updates.tags } : {}),
         });
-        this.restore();
-        const mapped = SessionTodoStore.toItem(updated);
-        return mapped ?? undefined;
+        return SessionTodoStore.toItem(updated) ?? undefined;
     }
 
-    delete(id: string): boolean {
-        const updated = updateTodoInFile(this.sessionFilePath, id, { status: 'cancelled' });
-        this.restore();
-        return !!updated;
-    }
-
-    // ---- persistence ----
-
-    private restore(): void {
-        const raw = readTodoFile(this.sessionFilePath);
-        this.todos = raw
-            .map(t => SessionTodoStore.toItem(t))
-            .filter((t): t is SessionTodoItem => !!t);
-
-        let max = 0;
-        for (const item of this.todos) {
-            const m = item.id.match(/^wt-(\d+)$/);
-            if (m) {
-                const n = parseInt(m[1], 10);
-                if (!Number.isNaN(n) && n > max) { max = n; }
-            }
-        }
-        this.nextSeq = max + 1;
+    delete(id: string, session?: string): boolean {
+        return !!updateTodoInFile(this.filePathFor(session), id, { status: 'cancelled' });
     }
 }

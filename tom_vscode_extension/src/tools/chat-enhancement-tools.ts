@@ -478,6 +478,7 @@ const liveSessionTodoStore: SessionTodoStoreAccess = {
     getAll() {
         const all = SessionTodoStore.instance.getAll();
         return {
+            session: all.session,
             todos: all.todos.map((i) => ({
                 id: i.id, title: i.title, details: i.details,
                 priority: i.priority, tags: i.tags, status: i.status,
