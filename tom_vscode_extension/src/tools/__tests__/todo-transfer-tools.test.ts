@@ -6,6 +6,11 @@
  *   TT-3  per-id refusals are reported, the rest still move
  *   TT-4  input errors: no ids, no or two sources, no or two targets, unknown quest
  *   TT-5  registration: a writer, selectable, in the quest-todo category
+ *
+ * tomAi_renameTodoPrefix (the same module):
+ *   RP-1  a dry run answers the renames and writes nothing; applied, the group is renamed with a stub per old id
+ *         and the panels are refreshed once
+ *   RP-2  input errors (no quest, no `from`, unknown quest) and refusals with their collisions; registration
  */
 
 import test, { describe } from 'node:test';
@@ -21,7 +26,7 @@ const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-transfer-'));
 installVscodeStub({ workspaceFolders: [ws] });
 
 import * as questTodo from '../../managers/questTodoManager.js';
-import { TRANSFER_TODOS_TOOL, transferTodosImpl, type TransferTodosDeps, type TransferTodosInput } from '../todo-transfer-tools.js';
+import { RENAME_TODO_PREFIX_TOOL, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameTodoPrefixDeps, type RenameTodoPrefixInput, type TransferTodosDeps, type TransferTodosInput } from '../todo-transfer-tools.js';
 import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
 import { CATEGORY_MAP } from '../../utils/toolCategories.js';
 import { ALL_SHARED_TOOLS } from '../tool-executors.js';
@@ -96,5 +101,50 @@ describe('tomAi_transferTodos', () => {
         assert.equal(TRANSFER_TODOS_TOOL.readOnly, false);
         assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes('tomAi_transferTodos'));
         assert.ok(Object.values(CATEGORY_MAP).some((names) => names.includes('tomAi_transferTodos')));
+    });
+});
+
+describe('tomAi_renameTodoPrefix', () => {
+    let renamed = 0;
+    const rdeps: RenameTodoPrefixDeps = {
+        questExists: (q) => questTodo.questExists(q),
+        renameTodoPrefix: (q, from, to, opts) => questTodo.renameTodoPrefix(q, from, to, opts),
+        onMutate: () => { renamed++; },
+    };
+    const rcall = async (input: Partial<RenameTodoPrefixInput>): Promise<Json> => JSON.parse(await renameTodoPrefixImpl(rdeps, input as RenameTodoPrefixInput));
+
+    test('RP-1: a dry run, then the rename', async () => {
+        seed('r1', 'todos.r1.todo.yaml', ['ww1_a-x', 'ww2_a-y']);
+        const before = fs.readFileSync(file('r1', 'todos.r1.todo.yaml'), 'utf8');
+        const dry = await rcall({ questId: 'r1', from: 'ww', to: 'xx', dryRun: true });
+        assert.equal(dry.ok, true);
+        assert.equal(dry.dryRun, true);
+        assert.deepEqual(dry.renames, [{ from: 'ww1_a-x', to: 'xx1_a-x' }, { from: 'ww2_a-y', to: 'xx2_a-y' }]);
+        assert.equal(fs.readFileSync(file('r1', 'todos.r1.todo.yaml'), 'utf8'), before, 'nothing written');
+        assert.equal(renamed, 0);
+        const r = JSON.parse(await withTiming('tomAi_renameTodoPrefix:typical', () =>
+            renameTodoPrefixImpl(rdeps, { questId: 'r1', from: 'ww', to: 'xx' })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.stubs, 2);
+        assert.ok(questTodo.findTodoByIdInFile(file('r1', 'todos.r1.todo.yaml'), 'xx1_a-x'));
+        assert.ok(questTodo.findTodoByIdInFile(file('r1', 'todos-deleted.r1.todo.yaml'), 'ww1_a-x'), 'the stub');
+        assert.equal(renamed, 1);
+    });
+
+    test('RP-2: input errors, refusals, registration', async () => {
+        seed('r2', 'todos.r2.todo.yaml', ['aa1_a-x']);
+        seed('r2', 'todos-archived.r2.todo.yaml', ['bb1_a-x']);
+        assert.match((await rcall({ from: 'aa', to: 'bb' })).error, /questId/);
+        assert.match((await rcall({ questId: 'r2', to: 'bb' })).error, /`from`/);
+        assert.match((await rcall({ questId: 'nope', from: 'aa', to: 'bb' })).error, /No quest "nope"/);
+        const clash = await rcall({ questId: 'r2', from: 'aa', to: 'bb' });
+        assert.equal(clash.ok, false);
+        assert.deepEqual(clash.collisions, ['bb1_a-x']);
+        assert.match((await rcall({ questId: 'r2', from: 'aa', to: 'b9' })).error, /digit/);
+        const live = ALL_SHARED_TOOLS.find((t) => t.name === 'tomAi_renameTodoPrefix');
+        assert.ok(live, 'registered');
+        assert.equal(RENAME_TODO_PREFIX_TOOL.readOnly, false);
+        assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes('tomAi_renameTodoPrefix'));
+        assert.ok(Object.values(CATEGORY_MAP).some((names) => names.includes('tomAi_renameTodoPrefix')));
     });
 });

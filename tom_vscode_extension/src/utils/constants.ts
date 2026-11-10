@@ -148,6 +148,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_updateQuestTodo',
     'tomAi_moveQuestTodo',
     'tomAi_transferTodos',
+    'tomAi_renameTodoPrefix',
     'tomAi_deleteQuestTodo',
     'tomAi_archiveQuestTodos',
     'tomAi_deleteQuestTodos',

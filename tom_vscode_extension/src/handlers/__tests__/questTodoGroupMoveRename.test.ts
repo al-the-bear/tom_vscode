@@ -10,6 +10,9 @@
  *        the groups come alphabetically, with "Enter a prefix…" after them
  *   GM-3 the webview: the ID field has the edit button for a quest todo (not for session todos); a click posts
  *        qtRenameTodo with the id and file; qtRenamed selects the new id and loads the list again
+ *   GM-4 "Rename group…": the input box previews the renames (the dry run) and refuses a prefix with a digit; the
+ *        group is renamed with a stub per old id; qtGroupRenamed is posted; in the webview a group separator has the
+ *        button (not in the session view), its click posts qtRenameGroup, qtGroupRenamed keeps the selection
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -114,5 +117,49 @@ describe('todo panel: another group, and the id edit', () => {
         const session = setup('session');
         session.w.qtRenderDetail({ id: 'wt-3', title: 'S', status: 'pending' });
         assert.equal(session.w.document.getElementById('qt-d-id-edit'), null, 'no edit for session todos');
+    });
+
+    test('GM-4: Rename group…', async () => {
+        seed(['grp1_bd-a', 'grp2_bd-b']);
+        let box: Json;
+        const checked: Json = {};
+        stubWindow.showInputBox = async (opts: Json) => {
+            box = opts;
+            checked.digit = opts.validateInput('ng2');
+            checked.preview = opts.validateInput('preview');
+            return 'newg';
+        };
+        const { webview, posted } = fakeWebview();
+        await handleQuestTodoMessage({ type: 'qtRenameGroup', questId: QUEST, prefix: 'grp' }, webview);
+        assert.equal(box.value, 'grp');
+        assert.match(String(checked.digit), /digit/);
+        assert.match(String(checked.preview.message), /grp1_bd-a → preview1_bd-a, grp2_bd-b → preview2_bd-b/);
+        const ids = questTodo.readTodoFile(main).map((t) => t.id);
+        assert.ok(ids.includes('newg1_bd-a') && ids.includes('newg2_bd-b') && !ids.includes('grp1_bd-a'), ids.join(', '));
+        const stubs = questTodo.readTodoFile(path.join(WS, '_ai', 'quests', QUEST, `todos-deleted.${QUEST}.todo.yaml`)).map((t) => t.id);
+        assert.ok(stubs.includes('grp1_bd-a') && stubs.includes('grp2_bd-b'), 'a stub per old id');
+        assert.deepEqual(posted.find((m) => m.type === 'qtGroupRenamed')?.renames, [{ from: 'grp1_bd-a', to: 'newg1_bd-a' }, { from: 'grp2_bd-b', to: 'newg2_bd-b' }]);
+
+        const page = (mode: string): { w: Json; sent: Json[] } => {
+            const w = new JSDOM(`<body>${media('questTodoPanel', 'fragment.html')}</body>`, { runScripts: 'outside-only' }).window as Json;
+            const sent: Json[] = [];
+            w.vscode = { postMessage: (m: Json) => sent.push(JSON.parse(JSON.stringify(m))), getState: () => undefined, setState: () => undefined };
+            w.eval(`var qtViewConfig = ${JSON.stringify(mode ? { mode } : {})};\n` + media('questTodoPanel', 'grouping.js') + media('questTodoPanel', 'main.js'));
+            if (!mode) { w.eval("qtCurrentQuestId = 'qp';"); }
+            w.qtHandleMessage({ type: 'qtTodos', questId: mode ? '__session__' : 'qp', file: 'all', todos: [
+                { id: 'grp1_bd-a', title: 'A', status: 'not-started', _sourceFile: 'todos.qp.todo.yaml' },
+                { id: 'grp2_bd-b', title: 'B', status: 'not-started', _sourceFile: 'todos.qp.todo.yaml' }] });
+            return { w, sent };
+        };
+        const { w, sent } = page('');
+        const btn = w.document.querySelector('.qt-group-rename-btn');
+        assert.ok(btn, 'the separator has the button');
+        sent.length = 0;
+        btn.click();
+        assert.deepEqual(sent.filter((m) => m.type === 'qtRenameGroup'), [{ type: 'qtRenameGroup', questId: 'qp', prefix: 'grp' }]);
+        w.eval("qtSelectedTodoId = 'grp2_bd-b';");
+        w.qtHandleMessage({ type: 'qtGroupRenamed', renames: [{ from: 'grp2_bd-b', to: 'newg2_bd-b' }] });
+        assert.equal(w.eval('qtSelectedTodoId'), 'newg2_bd-b', 'the selection follows');
+        assert.equal(page('session').w.document.querySelector('.qt-group-rename-btn'), null, 'not in the session view');
     });
 });

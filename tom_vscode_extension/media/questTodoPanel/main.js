@@ -727,6 +727,9 @@ function qtRenderGroupHeader(group, expanded) {
         (group.prefix
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
+        (group.prefix && qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0
+            ? '<button class="qt-group-rename-btn" data-qt-group-rename="' + qtEsc(group.prefix) + '" title="Rename group ' + qtEsc(group.prefix) + '…: a new prefix for its live todos, references following, a stub per old id">✏️</button>'
+            : '') +
         (qtGroupOpenTodos(group).length
             ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to another group / quest / workspace / another quest…">⬆️</button>'
             : '') +
@@ -854,6 +857,13 @@ function qtRenderList() {
                 // The host asks which group prompt and queues the walk over `<prefix>*`.
                 e.stopPropagation();
                 vscode.postMessage({ type: 'qtQueueGroupPrompt', questId: qtCurrentQuestId, prefix: walkBtn.getAttribute('data-qt-group-walk') || '' });
+                return;
+            }
+            var renameBtn = e.target.closest ? e.target.closest('.qt-group-rename-btn') : null;
+            if (renameBtn) {
+                // The host asks for the new prefix and renames the group.
+                e.stopPropagation();
+                vscode.postMessage({ type: 'qtRenameGroup', questId: qtCurrentQuestId, prefix: renameBtn.getAttribute('data-qt-group-rename') || '' });
                 return;
             }
             var moveBtn = e.target.closest ? e.target.closest('.qt-group-move-btn') : null;
@@ -2739,6 +2749,11 @@ function qtHandleMessage(msg) {
             break;
         case 'qtSaved':
             if (msg.success) qtRenderList();
+            break;
+        case 'qtGroupRenamed':
+            // A group renamed by its separator's button: keep the selection under its new id, load the list again.
+            (msg.renames || []).forEach(function(r) { if (r && r.from === qtSelectedTodoId) { qtSelectedTodoId = r.to; } });
+            vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
             break;
         case 'qtRenamed':
             // Renamed by the ID edit button: select it under its new id and load the list again.

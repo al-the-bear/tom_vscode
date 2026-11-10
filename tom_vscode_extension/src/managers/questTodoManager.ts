@@ -21,11 +21,11 @@ import { WsPaths } from '../utils/workspacePaths';
 import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
 import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
 import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as deleteTodosInFile, type TodoMoveResult as TodoFileMoveResult } from '../utils/todoArchive';
-import { ALL_TODO_FILES, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
+import { ALL_TODO_FILES, deletedTodoFileName, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
-import { groupInsertIndex, todoIdPrefix } from '../utils/todoDestinationPicker';
+import { groupInsertIndex, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
@@ -1489,7 +1489,11 @@ const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies'] as const;
  * Rename todo `oldId` of quest `questId` to `newId`. The todo keeps every
  * field, its notes gain `[renamed from <old>]`, and every `blocked_by` /
  * `dependencies` entry naming it in the quest's live todo files follows
- * (`<old>` and `<quest>/<old>`; `blocking` follows by the write's own sync).
+ * (`<old>` and `<quest>/<old>`; `blocking` follows by the write's own sync),
+ * as does every `<quest>/<old>` in the other quests' live todo files. The old
+ * id stays in the corpus as a cancelled stub naming the new id, in the
+ * `-deleted` sibling of the file the todo was in: the `_ai` commit guard
+ * (todo_schema_guard.py, invariant 5) refuses an id that vanishes.
  * With `group`, it moves to the end of that id group, before the group's
  * finalizers: into `targetFile` when given (a live todo file of the quest), else
  * within its own file. Refused, nothing written: an unknown todo, an empty or
@@ -1542,47 +1546,158 @@ export function renameQuestTodo(
     }
     if (opts.group) { placeTodoInGroup(target, id, opts.group); }
 
-    // 2. The references to it.
+    // 2. The references to it, and the stub that keeps the old id in the corpus.
     let references = 0;
     if (id !== oldId) {
-        const named = new Map([[oldId, id], [`${questId}/${oldId}`, `${questId}/${id}`]]);
-        for (const file of files) {
-            const refDoc = loadDocument(file);
-            const refSeq = refDoc.get('todos', true);
-            if (!isSeq(refSeq)) { continue; }
-            let changed = 0;
-            const written = new Map<string, Record<string, unknown>>();
-            for (const item of refSeq.items) {
-                if (!isMap(item)) { continue; }
-                const before = changed;
-                for (const field of TODO_REFERENCE_FIELDS) {
-                    const list = (item as YAMLMap).get(field, true);
-                    if (!isSeq(list)) { continue; }
-                    list.items.forEach((entry, k) => {
-                        const value = entry instanceof Scalar ? entry.value : entry;
-                        const next = typeof value === 'string' ? named.get(value) : undefined;
-                        if (next === undefined) { return; }
-                        if (entry instanceof Scalar) { entry.value = next; } else { list.items[k] = next; }
-                        changed++;
-                    });
-                }
-                if (changed > before) {
-                    const fields: Record<string, unknown> = {};
-                    for (const field of TODO_REFERENCE_FIELDS) {
-                        const list = (item as YAMLMap).get(field, true);
-                        if (isSeq(list)) { fields[field] = list.toJSON(); }
-                    }
-                    written.set(String((item as YAMLMap).get('id')), fields);
-                }
-            }
-            if (changed) {
-                saveDocument(file, refDoc);
-                for (const [todoId, fields] of written) { assertTodoFieldsPersisted(file, todoId, fields, 'renameQuestTodo'); }
-                references += changed;
-            }
-        }
+        references += rewriteTodoReferences(files, new Map([[oldId, id], [`${questId}/${oldId}`, `${questId}/${id}`]]));
+        const others = listQuestIds().filter((q) => q !== questId)
+            .flatMap((q) => listTodoFiles(q).map((f) => path.join(questFolder(q), f)));
+        references += rewriteTodoReferences(others, new Map([[`${questId}/${oldId}`, `${questId}/${id}`]]));
+        writeRenameStub(questId, source, oldId, id);
     }
     return { ok: true, file: path.basename(target), references };
+}
+
+/**
+ * Rewrite every `blocked_by` / `dependencies` entry of `files` that `named`
+ * maps to a new value; answers how many entries changed.
+ */
+function rewriteTodoReferences(files: readonly string[], named: ReadonlyMap<string, string>): number {
+    let references = 0;
+    for (const file of files) {
+        const refDoc = loadDocument(file);
+        const refSeq = refDoc.get('todos', true);
+        if (!isSeq(refSeq)) { continue; }
+        let changed = 0;
+        const written = new Map<string, Record<string, unknown>>();
+        for (const item of refSeq.items) {
+            if (!isMap(item)) { continue; }
+            const before = changed;
+            for (const field of TODO_REFERENCE_FIELDS) {
+                const list = (item as YAMLMap).get(field, true);
+                if (!isSeq(list)) { continue; }
+                list.items.forEach((entry, k) => {
+                    const value = entry instanceof Scalar ? entry.value : entry;
+                    const next = typeof value === 'string' ? named.get(value) : undefined;
+                    if (next === undefined) { return; }
+                    if (entry instanceof Scalar) { entry.value = next; } else { list.items[k] = next; }
+                    changed++;
+                });
+            }
+            if (changed > before) {
+                const fields: Record<string, unknown> = {};
+                for (const field of TODO_REFERENCE_FIELDS) {
+                    const list = (item as YAMLMap).get(field, true);
+                    if (isSeq(list)) { fields[field] = list.toJSON(); }
+                }
+                written.set(String((item as YAMLMap).get('id')), fields);
+            }
+        }
+        if (changed) {
+            saveDocument(file, refDoc);
+            for (const [todoId, fields] of written) { assertTodoFieldsPersisted(file, todoId, fields, 'rewriteTodoReferences'); }
+            references += changed;
+        }
+    }
+    return references;
+}
+
+/** The cancelled stub a renamed todo leaves under its old id, in the `-deleted` sibling of the file it was in. */
+function writeRenameStub(questId: string, sourceFile: string, oldId: string, newId: string): void {
+    const stubFile = path.join(questFolder(questId), deletedTodoFileName(path.basename(sourceFile)));
+    if (findTodoByIdInFile(stubFile, oldId)) { return; }
+    const today = todayLocalDate();
+    createTodoInFile(stubFile, {
+        id: oldId,
+        title: `${oldId}: renamed to ${newId}`,
+        description: `Renamed ${today} to ${newId}. The todo lives on under the new id; this entry keeps the old id in the todo corpus.`,
+        status: 'cancelled',
+        _extra: { updated: today, deleted: today },
+    } as never, { quest: questId });
+}
+
+/** What renameTodoPrefix answers. */
+export type TodoPrefixRenameResult =
+    | {
+        ok: true;
+        dryRun: boolean;
+        /** The live todos of the group, old and new id, in file order. */
+        renames: Array<{ from: string; to: string }>;
+        /** References rewritten (0 on a dry run). */
+        references: number;
+        /** Stubs written under the old ids (0 on a dry run). */
+        stubs: number;
+        /** Archived or deleted todos of the group, left as they are. */
+        keptArchived: number;
+        /** The quest's documents (Markdown and YAML, not its todo files or history) still naming `<from><number>`. */
+        documents: Array<{ file: string; count: number }>;
+    }
+    | { ok: false; reason: string; collisions?: string[] };
+
+/** The quest's documents (relative paths) naming `<prefix><digit>` and how often; todo files and history are skipped. */
+function documentsNamingPrefix(questId: string, prefix: string): Array<{ file: string; count: number }> {
+    const root = questFolder(questId);
+    const pattern = new RegExp(`(?<![A-Za-z0-9_-])${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9]`, 'g');
+    const found: Array<{ file: string; count: number }> = [];
+    const walk = (dir: string, rel: string): void => {
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+            if (e.name.startsWith('.')) { continue; }
+            const relPath = rel ? `${rel}/${e.name}` : e.name;
+            if (e.isDirectory()) {
+                if (e.name !== 'history' && e.name !== 'trail') { walk(path.join(dir, e.name), relPath); }
+                continue;
+            }
+            if (!/\.(md|ya?ml)$/i.test(e.name) || e.name.endsWith('.todo.yaml')) { continue; }
+            let text: string;
+            try { text = fs.readFileSync(path.join(dir, e.name), 'utf8'); } catch { continue; }
+            const count = (text.match(pattern) ?? []).length;
+            if (count) { found.push({ file: relPath, count }); }
+        }
+    };
+    walk(root, '');
+    return found;
+}
+
+/**
+ * Rename the id group `from` of quest `questId` to `to`: every live todo whose
+ * id prefix (everything before its first digit) is `from` becomes
+ * `<to><rest of its id>`, through {@link renameQuestTodo} — so every reference
+ * in the quest and in other quests follows and each old id keeps a stub in the
+ * `-deleted` sibling. Archived and deleted todos of the group stay as they
+ * are. Answers the renames and the quest's documents that still name
+ * `<from><number>` (they are not rewritten). Refused, nothing written: a
+ * target that is no prefix (empty, a digit, a space or path character), the
+ * same prefix, a group without live todos, new ids some todo of the quest
+ * already has (archived and deleted ones included).
+ */
+export function renameTodoPrefix(questId: string, from: string, to: string, opts: { dryRun?: boolean } = {}): TodoPrefixRenameResult {
+    const target = to.trim();
+    const bad = validateTodoPrefix(target);
+    if (bad) { return { ok: false, reason: bad }; }
+    if (target === from) { return { ok: false, reason: `The group is already ${from}: the same prefix.` }; }
+    const live = readAllTodos(questId).filter((t) => todoIdPrefix(t.id) === from && !!from);
+    if (live.length === 0) { return { ok: false, reason: `Quest ${questId} has no live todo in group ${from || '(none)'}.` }; }
+    const renames = live.map((t) => ({ from: t.id, to: `${target}${t.id.slice(from.length)}` }));
+    const all = readAllTodos(questId, ALL_TODO_FILES);
+    const existing = new Set(all.map((t) => t.id));
+    const collisions = renames.map((r) => r.to).filter((id) => existing.has(id));
+    if (collisions.length) {
+        return { ok: false, reason: `Quest ${questId} already has ${collisions.join(', ')} (archived and deleted todos count).`, collisions };
+    }
+    const keptArchived = all.filter((t) => todoIdPrefix(t.id) === from).length - live.length;
+    const documents = documentsNamingPrefix(questId, from);
+    if (opts.dryRun) { return { ok: true, dryRun: true, renames, references: 0, stubs: 0, keptArchived, documents }; }
+    let references = 0;
+    let stubs = 0;
+    for (const r of renames) {
+        const done = renameQuestTodo(questId, r.from, r.to);
+        if (!done.ok) { return { ok: false, reason: `${r.from}: ${done.reason} (the todos before it are renamed)` }; }
+        references += done.references;
+        stubs++;
+    }
+    return { ok: true, dryRun: false, renames, references, stubs, keptArchived, documents };
 }
 
 /**

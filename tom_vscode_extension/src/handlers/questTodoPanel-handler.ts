@@ -1084,6 +1084,39 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _sendTodoDetail(questId, typed.trim(), post, r.file);
             return true;
         }
+        case 'qtRenameGroup': {
+            // A group separator's rename button: the new prefix from an input
+            // box (its info line the dry run's renames), then every live todo of
+            // the group renamed, references following, a stub per old id
+            // (questTodoManager.renameTodoPrefix).
+            const questId = effectiveQuestId(msg.questId);
+            const from = String(msg.prefix || '');
+            if (!from || isSessionMode || isWorkspaceFileMode) { return true; }
+            const typed = await vscode.window.showInputBox({
+                title: `Rename group ${from} of quest ${questId}`,
+                prompt: 'The new prefix. Every live todo of the group keeps the rest of its id; blocked_by / dependencies follow, in this quest and others; each old id keeps a stub in the -deleted sibling.',
+                value: from,
+                validateInput: (value) => {
+                    if (value.trim() === from) { return undefined; }
+                    const plan = questTodo.renameTodoPrefix(questId, from, value, { dryRun: true });
+                    if (!plan.ok) { return plan.reason; }
+                    return { message: renamePreview(plan.renames), severity: vscode.InputBoxValidationSeverity.Info };
+                },
+            });
+            if (typed === undefined || typed.trim() === from) { return true; }
+            const r = questTodo.renameTodoPrefix(questId, from, typed);
+            if (!r.ok) {
+                vscode.window.showErrorMessage(`Could not rename group ${from}: ${r.reason}`);
+                return true;
+            }
+            const docs = r.documents.length
+                ? ` Still naming ${from}<n>: ${r.documents.map((d) => `${d.file} (${d.count})`).join(', ')}.`
+                : '';
+            const kept = r.keptArchived ? ` ${r.keptArchived} archived or deleted todo${r.keptArchived === 1 ? '' : 's'} keep the old prefix.` : '';
+            vscode.window.showInformationMessage(`Renamed ${r.renames.length} todo${r.renames.length === 1 ? '' : 's'} of ${from} to ${typed.trim()} (${r.references} reference${r.references === 1 ? '' : 's'} updated).${kept}${docs}`);
+            post({ type: 'qtGroupRenamed', renames: r.renames });
+            return true;
+        }
         case 'qtMoveTodosToDestination': {
             // The row's move button: the clicked todo, or every stacked todo
             // when more than one is stacked. A picker asks where to: the
@@ -2056,6 +2089,12 @@ function _moveTodo(questId: string, todoId: string, targetFile: string, post: (m
     const moved = questTodo.moveTodo(questId, todoId, targetFile);
     post({ type: 'qtMoved', success: !!moved, todoId });
     _sendTodoList(questId, undefined, post);
+}
+
+/** The renames of a group rename, for the input box: the first three, then the count. */
+function renamePreview(renames: ReadonlyArray<{ from: string; to: string }>): string {
+    const pairs = renames.map((r) => `${r.from} → ${r.to}`);
+    return pairs.length > 3 ? `${pairs.slice(0, 3).join(', ')}, … (${pairs.length} todos)` : pairs.join(', ');
 }
 
 /** A todo the move picker acts on: its file, its plain id, and where it lives. */

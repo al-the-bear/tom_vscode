@@ -381,6 +381,17 @@ _ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
   fromWorkspace, targetQuestId | toWorkspace }`: the panel's ⬆️ move as a tool,
   through `moveTodoToDestination`; per-id refusals come back in `skipped`.
   `tomAi_moveQuestTodo` stays the move between two files of one quest.
+- `tomAi_renameTodoPrefix` (same module, live deps in `chat-enhancement-tools.ts`)
+  — `{ questId, from, to, dryRun? }`: `renameTodoPrefix` renames every live todo
+  of group `from` through `renameQuestTodo`, which rewrites `blocked_by` /
+  `dependencies` (plain and `<quest>/<id>` in the quest, `<quest>/<id>` in other
+  quests) and writes a cancelled stub under the old id into the `-deleted`
+  sibling of the todo's file — `_ai/schemas/todo_schema_guard.py` (invariant 5,
+  `check_id_erasure`) refuses a commit in which an id vanishes from the corpus.
+  Archived and deleted todos of the group keep their ids; `documents` lists the
+  quest's Markdown / YAML files still naming `<from><n>`. The panel's ✏️ on a
+  group separator (`qtRenameGroup` → `qtGroupRenamed`) runs it, its input box
+  previewing the dry run.
 
 Contract:
 

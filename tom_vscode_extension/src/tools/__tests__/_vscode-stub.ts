@@ -960,6 +960,7 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
         EventEmitter,
         CancellationTokenSource,
         StatusBarAlignment: { Left: 1, Right: 2 },
+        InputBoxValidationSeverity: { Info: 1, Warning: 2, Error: 3 },
         TaskScope: { Global: 1, Workspace: 2 },
         // vscode.SymbolKind, a numeric enum with its reverse mapping (SymbolKind[11] === 'Function').
         SymbolKind: Object.fromEntries(['File', 'Module', 'Namespace', 'Package', 'Class', 'Method', 'Property', 'Field', 'Constructor',

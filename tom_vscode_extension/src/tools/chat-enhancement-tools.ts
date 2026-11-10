@@ -29,7 +29,7 @@ import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_
 import { WsPaths } from '../utils/workspacePaths';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
-import { TRANSFER_TODOS_TOOL, transferTodosImpl, type TransferTodosInput } from './todo-transfer-tools';
+import { RENAME_TODO_PREFIX_TOOL, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameTodoPrefixInput, type TransferTodosInput } from './todo-transfer-tools';
 
 // ============================================================================
 // §1.1  Notify User (Telegram)
@@ -417,6 +417,15 @@ export const TRANSFER_TODOS_LIVE_TOOL: SharedToolDefinition<TransferTodosInput> 
         questTodoSourcePath: (q, id, file) => questTodo.questTodoSourcePath(q, id, file),
         workspaceTodoPath: () => questTodo.todoDestinationPath({ kind: 'workspace' }),
         move: (src, id, dest, origin) => questTodo.moveTodoToDestination(src, id, dest, origin),
+        onMutate: () => refreshSessionPanel(),
+    }, input),
+};
+
+export const RENAME_TODO_PREFIX_LIVE_TOOL: SharedToolDefinition<RenameTodoPrefixInput> = {
+    ...RENAME_TODO_PREFIX_TOOL,
+    execute: (input) => renameTodoPrefixImpl({
+        questExists: (q) => questTodo.questExists(q),
+        renameTodoPrefix: (q, from, to, opts) => questTodo.renameTodoPrefix(q, from, to, opts),
         onMutate: () => refreshSessionPanel(),
     }, input),
 };
@@ -1280,6 +1289,7 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     UPDATE_TODO_TOOL,
     MOVE_TODO_TOOL,
     TRANSFER_TODOS_LIVE_TOOL,
+    RENAME_TODO_PREFIX_LIVE_TOOL,
     SESSION_TODO_ADD_TOOL,
     SESSION_TODO_LIST_TOOL,
     SESSION_TODO_GET_ALL_TOOL,

@@ -220,6 +220,7 @@ The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer support
 | `tomAi_updateQuestTodo` | Patch fields on a quest todo. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_moveQuestTodo` | Move between YAML files within a quest. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_transferTodos` | Move todos into a quest's own todo file (the same or another quest) or into `workspace.todo.yaml`, from any todo file of a quest (session and topic files included) or from the workspace file. Per-id refusals in `skipped`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_renameTodoPrefix` | Rename a todo group's prefix in one step: the group's live todos renamed, every `blocked_by` / `dependencies` reference following (other quests' `<quest>/<id>` too), a cancelled stub per old id in the `-deleted` sibling so the `_ai` commit guard accepts it; reports the documents still naming the old prefix; `dryRun` | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_deleteQuestTodo` | HARD-delete a quest todo (not recoverable — prefer `tomAi_deleteQuestTodos`). | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_archiveQuestTodos` | Move completed todos to the `-archived` sibling file (`todoIds` or `allCompleted`). | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_deleteQuestTodos` | Move non-completed todos to the `-deleted` sibling file (recoverable; `todoIds` or `allCancelled`). | ✅ | ✅ | ⚪ | ✅ |

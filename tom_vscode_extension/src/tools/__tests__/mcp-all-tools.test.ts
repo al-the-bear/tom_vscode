@@ -335,6 +335,7 @@ function inputs(): Record<string, Input> {
         tomAi_archiveQuestTodos: { questId: QUEST, todoIds: ['demo2_aaaa-done'] },
         tomAi_deleteQuestTodos: { questId: QUEST, todoIds: ['demo1_aaaa-first'] },
         tomAi_transferTodos: { todoIds: ['demo1_aaaa-first'], sourceQuestId: QUEST, toWorkspace: true },
+        tomAi_renameTodoPrefix: { questId: QUEST, from: 'demo', to: 'sample', dryRun: true },
         tomAi_readProjectGuideline: { projectPath: 'pkg' },
         tomAi_listProjectGuidelines: { projectPath: 'pkg' },
         tomAi_searchProjectGuidelines: { projectPath: 'pkg', query: 'Package' },
