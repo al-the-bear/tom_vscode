@@ -83,13 +83,8 @@ export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {
 
 export const FIND_FILES_TOOL: SharedToolDefinition<FindFilesInput> = {
     ...FIND_FILES_DEF,
-    execute: (input) => findFilesImpl({
-        wsRoot: getWorkspaceRoot(),
-        walk: async (pattern, exclude, limit) => {
-            const files = await vscode.workspace.findFiles(pattern, exclude, limit);
-            return files.map((f) => vscode.workspace.asRelativePath(f));
-        },
-    }, input),
+    // The workspace walk with gitignore, the text search's rules (not VS Code's search, which reads no ignore files).
+    execute: (input) => findFilesImpl({ wsRoot: getWorkspaceRoot() }, input),
 };
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {

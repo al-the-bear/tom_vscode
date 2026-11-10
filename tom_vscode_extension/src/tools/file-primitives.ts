@@ -54,6 +54,8 @@ export interface ListDirectoryInput {
 export interface FindFilesInput {
     pattern: string;
     maxResults?: number;
+    /** Also list what git ignores (ripgrep's `--no-ignore`). Default false. */
+    includeIgnored?: boolean;
 }
 
 export interface FindTextInFilesInput {
@@ -192,16 +194,29 @@ export async function listDirectoryImpl(wsRoot: string, input: ListDirectoryInpu
 export interface FindFilesDeps {
     wsRoot: string;
     /**
-     * Walk the workspace and return paths matching `pattern` and not
-     * matching `exclude`. Paths are returned workspace-relative. The
-     * caller (this Impl) guarantees the limit is sane.
-     *
-     * Production wires this to `vscode.workspace.findFiles`; tests
-     * wire it to `nodeNativeWalker` from this file. Returning paths in
-     * a stable sort order is the walker's responsibility — the Impl
-     * does not re-sort.
+     * Optional override for the file walker: return paths matching
+     * `pattern` and not matching `exclude`, workspace-relative, in a stable
+     * order. Tests pass `nodeNativeWalker` or a stub. Without it the Impl
+     * walks the workspace itself with {@link walkFiles}, skipping what git
+     * ignores unless `includeIgnored` — the rules tomAi_findTextInFiles
+     * searches by.
      */
-    walk(pattern: string, exclude: string, limit: number): Promise<string[]>;
+    walk?(pattern: string, exclude: string, limit: number): Promise<string[]>;
+}
+
+/**
+ * The folder a glob is rooted in: its leading segments up to the first one
+ * holding a glob character (`*`, `?`, `[`, `{`), so `pkg/src/**` (with `/*.ts`
+ * after it) walks from `pkg/src`. Empty when the first segment already is a pattern.
+ */
+export function globBaseFolder(glob: string): string {
+    const segments = glob.split('/');
+    const fixed: string[] = [];
+    for (const seg of segments.slice(0, -1)) {
+        if (/[*?[{]/.test(seg)) { break; }
+        fixed.push(seg);
+    }
+    return fixed.join('/');
 }
 
 export async function findFilesImpl(deps: FindFilesDeps, input: FindFilesInput): Promise<string> {
@@ -211,7 +226,9 @@ export async function findFilesImpl(deps: FindFilesDeps, input: FindFilesInput):
                `(e.g. \`**/*.ts\` for recursive .ts files, or \`src/**/*.dart\`).`;
     }
     try {
-        const paths = await deps.walk(input.pattern, '**/node_modules/**', limit);
+        const paths = deps.walk
+            ? await deps.walk(input.pattern, '**/node_modules/**', limit)
+            : walkGlob(deps.wsRoot, input.pattern, limit, !input.includeIgnored);
         if (paths.length === 0) {
             // Common LLM trap: `*.ts` instead of `**/*.ts`. Surface the hint when
             // the pattern looks like it was meant to be recursive.
@@ -219,7 +236,10 @@ export async function findFilesImpl(deps: FindFilesDeps, input: FindFilesInput):
             const hint = looksNonRecursive
                 ? `\n  Hint: \`${input.pattern}\` only matches root-level files. Try \`**/${input.pattern}\` for recursive matching.`
                 : '';
-            return `No files found matching: ${input.pattern}${hint}`;
+            const ignoredNote = !deps.walk && !input.includeIgnored
+                ? '\n  Files git ignores were skipped — `includeIgnored: true` lists them.'
+                : '';
+            return `No files found matching: ${input.pattern}${hint}${ignoredNote}`;
         }
         return paths.join('\n');
     } catch (err) {
@@ -309,7 +329,7 @@ export async function findTextInFilesImpl(deps: FindTextDeps, input: FindTextInF
     try {
         files = deps.walk
             ? await deps.walk(includePattern, '**/node_modules/**', Number.MAX_SAFE_INTEGER)
-            : walkFiles(deps.wsRoot, globToRegExp(includePattern), null, { gitignore: !input.includeIgnored });
+            : walkFiles(deps.wsRoot, globToRegExp(includePattern), null, { gitignore: !input.includeIgnored, from: globBaseFolder(includePattern) });
     } catch (err) {
         return `Error walking files: ${(err as Error).message}`;
     }
@@ -446,6 +466,12 @@ export interface WalkOptions {
      * mounts `_ai` that way, and the outer `.gitignore` lists it.
      */
     gitignore?: boolean;
+    /**
+     * Start below `root`, at this folder (relative to `root`): the paths stay
+     * relative to `root`. With `gitignore`, the rules above it apply as a walk
+     * from `root` would meet them, and a folder git ignores yields nothing.
+     */
+    from?: string;
 }
 
 /** The rules a folder adds: its `.gitignore`, and at a repository root `.git/info/exclude`. */
@@ -493,6 +519,33 @@ function isIgnored(chain: readonly IgnoreRules[], abs: string, isDir: boolean): 
     return ignored;
 }
 
+/** Whether `p` lies below `root` (not `root` itself, not outside it). */
+function isInside(root: string, p: string): boolean {
+    const rel = path.relative(root, p);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * The rules a walk from `root` has met when it enters `start` (a folder below
+ * it), folder by folder as walkFiles does — a repository of its own starting
+ * afresh; null when `start` or a folder on the way is ignored or missing.
+ */
+function rulesMetBelow(root: string, start: string): IgnoreRules[] | null {
+    let chain = isRepositoryRoot(root) ? [] : rulesAbove(root);
+    chain = [...chain, ...rulesOf(root)];
+    const parts = path.relative(root, start).split(path.sep).filter(Boolean);
+    let dir = root;
+    for (const part of parts) {
+        dir = path.join(dir, part);
+        let isDir = false;
+        try { isDir = fs.statSync(dir).isDirectory(); } catch { return null; }
+        if (!isDir || SKIPPED_DIRS.has(part)) { return null; }
+        if (isRepositoryRoot(dir)) { chain = []; } else if (isIgnored(chain, dir, true)) { return null; }
+        if (dir !== start) { chain = [...chain, ...rulesOf(dir)]; }
+    }
+    return chain;
+}
+
 /**
  * Walk `root` depth-first, yielding the workspace-relative paths of files
  * that match `include` and not `exclude`, lazily, so a caller can stop at
@@ -503,9 +556,19 @@ function isIgnored(chain: readonly IgnoreRules[], abs: string, isDir: boolean): 
  */
 export function* walkFiles(root: string, include: RegExp, exclude: RegExp | null, options: WalkOptions = {}): Generator<string> {
     const seen = new Set<string>();
-    const stack: Array<{ dir: string; chain: IgnoreRules[] }> = [
-        { dir: root, chain: options.gitignore ? (isRepositoryRoot(root) ? [] : rulesAbove(root)) : [] },
-    ];
+    const start = options.from ? path.join(root, options.from) : root;
+    if (start !== root && !isInside(root, start)) { return; }
+    let startChain: IgnoreRules[] = [];
+    if (options.gitignore) {
+        if (start === root) {
+            startChain = isRepositoryRoot(root) ? [] : rulesAbove(root);
+        } else {
+            const met = rulesMetBelow(root, start);
+            if (!met) { return; }                       // the start folder, or one above it, is ignored
+            startChain = met;
+        }
+    }
+    const stack: Array<{ dir: string; chain: IgnoreRules[] }> = [{ dir: start, chain: startChain }];
     while (stack.length > 0) {
         const { dir, chain: outer } = stack.pop()!;
         let real: string;
@@ -562,6 +625,21 @@ export async function nodeNativeWalker(
 ): Promise<string[]> {
     const matches: string[] = [];
     for (const rel of walkFiles(root, globToRegExp(pattern), exclude ? globToRegExp(exclude) : null)) {
+        matches.push(rel);
+        if (matches.length >= limit) { break; }
+    }
+    return matches.sort();
+}
+
+/**
+ * Up to `limit` workspace-relative paths matching `glob`, sorted: a
+ * {@link walkFiles} from the glob's fixed folder ({@link globBaseFolder}), so a
+ * glob under `pkg/` does not walk the whole workspace; with `gitignore`, what git
+ * ignores is skipped, the folder itself included.
+ */
+export function walkGlob(root: string, glob: string, limit: number, gitignore: boolean): string[] {
+    const matches: string[] = [];
+    for (const rel of walkFiles(root, globToRegExp(glob), null, { gitignore, from: globBaseFolder(glob) })) {
         matches.push(rel);
         if (matches.length >= limit) { break; }
     }
@@ -761,8 +839,12 @@ export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {
 export const FIND_FILES_DESCRIPTION =
     'Find files in the workspace by glob pattern. Use `**/` for recursive ' +
     'matching: `**/*.ts` finds every .ts file, while bare `*.ts` only matches ' +
-    'files at the workspace root. `**/node_modules/**` is always excluded. ' +
-    'Returns workspace-relative paths, one per line, up to `maxResults` ' +
+    'files at the workspace root. What git ignores is skipped, as Claude Code\'s Glob and ' +
+    '`tomAi_findTextInFiles` do: build output, `ztmp/`, ignored file types (the `.gitignore` of every folder, ' +
+    'a repository of its own such as `_ai` listed under its own rules); `includeIgnored: true` lists them too. ' +
+    '`node_modules`, `.git` and `.dart_tool` are never listed. A glob with a fixed folder in front ' +
+    '(`tom_ai/vscode/**/*.ts`) is walked from that folder — faster than a whole-workspace `**/`. ' +
+    'Returns workspace-relative paths, sorted, one per line, up to `maxResults` ' +
     '(default 100, hard max 1000). Brace expansion (`**/*.{ts,tsx}`) is ' +
     'supported. For text search inside files use `tomAi_findTextInFiles`.';
 
@@ -780,6 +862,7 @@ export const FIND_FILES_TOOL: SharedToolDefinition<FindFilesInput> = {
                 description: 'Glob pattern. Examples: `**/*.ts`, `src/**/*.{ts,tsx}`, `_ai/quests/**/overview*.md`.',
             },
             maxResults: { type: 'number', description: 'Maximum results to return (default 100, max 1000).' },
+            includeIgnored: { type: 'boolean', description: 'Also list files git ignores (build output, ztmp, ...). Default false.' },
         },
         required: ['pattern'],
     },

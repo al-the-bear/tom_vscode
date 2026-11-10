@@ -53,7 +53,7 @@ Each table lists every tool in the family with a per-transport default.
 | `tomAi_deleteFile` | Delete a file (approval). | 🔁 | ✅ | ⚪ | ⚪ |
 | `tomAi_moveFile` | Rename / move a file (approval). | 🔁 | ✅ | ⚪ | ⚪ |
 | `tomAi_listDirectory` | List directory entries. | 🔁 | ✅ | ✅ | ✅ |
-| `tomAi_findFiles` | Glob file search. | 🔁 | ✅ | ✅ | ✅ |
+| `tomAi_findFiles` | Glob file search: skips what git ignores, as the text search does (`includeIgnored` lists it), walks from a glob's fixed folder. | 🔁 | ✅ | ✅ | ✅ |
 | `tomAi_findTextInFiles` | Content search (grep): case-insensitive, context lines, follows symlinked folders such as `_ai`, skips what git ignores (`includeIgnored` searches it), 20 s budget. | 🔁 | ✅ | ✅ | ✅ |
 | `tomAi_applyEdit` | Transactional multi-file WorkspaceEdit (atomic undo). | ✅ | ✅ | ⚪ | ✅ |
 
@@ -70,7 +70,8 @@ and tail past 30 000 characters, and a text search reads every file (no file
 cap) until it has its matches or 20 s have passed, saying so when it stopped
 early (`src/tools/__tests__/direct-tool-coverage.test.ts`, DT-1 – DT-9).
 
-Like Claude Code's Grep (ripgrep), the text search skips what git ignores: the
+Like Claude Code's Grep and Glob (ripgrep), the text search and `tomAi_findFiles`
+skip what git ignores, by the same rules: the
 `.gitignore` of every folder, relative to that folder, a deeper one overriding
 an outer one and `!` re-including; a repository's `.git/info/exclude`; and the
 `.gitignore` files above the workspace root up to its repository's root. Unlike
@@ -85,6 +86,17 @@ whole, and split into lines only when the whole text can match
 (`src/tools/__tests__/findTextGitignore.test.ts`, GI-1 – GI-6). On the
 tom_agent_container root a search through every file takes about 10 s
 (76,000 files; with ignored files included it is over 200,000).
+
+`tomAi_findFiles` walks the workspace itself (not VS Code's search, which
+reads no ignore files), from the glob's fixed folder when it has one:
+`tom_ai/vscode/**/*.ts` walks `tom_ai/vscode` only, a folder git ignores lists
+nothing unless `includeIgnored`. Measured on the tom_agent_container root: 100
+hits of `**/*.md` in about 40 ms, a glob under `tom_ai/vscode/` in about 20 ms,
+and a glob that matches nothing anywhere walks every non-ignored folder in
+about 1.7 s (VS Code's ripgrep: 0.3 s). Two differences to ripgrep remain:
+hidden files and folders (`.github`, `.tom`) are listed, and a tracked file
+whose name an ignore pattern matches is skipped, since the walk reads no git
+index (`src/tools/__tests__/findFilesGitignore.test.ts`, FG-1 – FG-5).
 
 ### 4.2 Shell and tasks
 
