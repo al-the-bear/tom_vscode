@@ -1,10 +1,12 @@
 /**
- * The VS Code LM tool loop's rounds, as the tool-trail retention step reads
- * them (CC-6). The loop keeps each round's results in Anthropic's shape here,
- * runs `applyToolTrailRetention` (src/services/toolTrailRetention.ts) over
+ * The tool rounds of the loops that are not the direct API's — VS Code LM and
+ * Local LLM — as the tool-trail retention step reads them (CC-6). The loop
+ * keeps each round's results in Anthropic's shape here, runs
+ * `applyToolTrailRetention` (src/services/toolTrailRetention.ts) over
  * {@link vsCodeLmRetentionView} — which mutates these very result objects —
- * and rebuilds the round's `LanguageModelToolResultPart`s from them. So the
- * direct loop and the VS Code LM loop trim old tool results by the same rule.
+ * and rebuilds what it sends from them: VS Code LM the round's
+ * `LanguageModelToolResultPart`s, Local LLM each result's `tool` message. So
+ * every loop trims old tool results by the same rule.
  *
  * vscode-free.
  */
@@ -20,7 +22,11 @@ export interface VsCodeLmToolResult {
     content: string;
 }
 
-/** A round's results and the index of the User message in `chatMessages` that carries them. */
+/**
+ * A round's results, and for VS Code LM the index of the User message in
+ * `chatMessages` that carries them (Local LLM sends each result as a `tool`
+ * message of its own, kept by the loop per result; it passes -1 here).
+ */
 export interface VsCodeLmToolRound {
     messageIndex: number;
     results: VsCodeLmToolResult[];

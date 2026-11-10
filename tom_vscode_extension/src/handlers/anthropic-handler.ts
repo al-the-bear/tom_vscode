@@ -3324,6 +3324,9 @@ export class AnthropicHandler {
         let totalToolCalls = 0;
         let lastText = '';
         let lastStopReason: string | undefined;
+        // Each round's results in the retention step's shape, and the `tool` message each one is sent as.
+        const localToolRounds: VsCodeLmToolRound[] = [];
+        const resultMessageIndex = new Map<VsCodeLmToolResult, number>();
 
         // Dump the initial assembled Local-LLM request once per user
         // prompt. This is the path Anthropic profiles take when their
@@ -3452,6 +3455,7 @@ export class AnthropicHandler {
                 // Execute each tool through the Anthropic approval gate
                 // so the user's approval rules + trail writers apply
                 // identically across leaves.
+                const roundResults: VsCodeLmToolResult[] = [];
                 for (const tc of result.toolCalls) {
                     totalToolCalls++;
                     const toolUseId = `local_${requestId}_${totalToolCalls}`;
@@ -3483,7 +3487,27 @@ export class AnthropicHandler {
                                 .map((p) => (p && typeof p === 'object' && 'type' in p && p.type === 'text' && 'text' in p ? String(p.text) : ''))
                                 .join('')
                             : '';
+                    const toolResult: VsCodeLmToolResult = { type: 'tool_result', tool_use_id: toolUseId, content: resultText };
+                    resultMessageIndex.set(toolResult, messages.length);
+                    roundResults.push(toolResult);
                     messages.push({ role: 'tool', content: resultText });
+                }
+                localToolRounds.push({ messageIndex: -1, results: roundResults });
+                // The tool-trail retention of the direct and VS Code LM loops
+                // (CC-6, src/services/toolTrailRetention.ts): the new results
+                // cut to the inline length, rounds past toolTrailKeepRounds
+                // stubbed with their replay key. A local model has no prompt
+                // cache to keep and no signed thinking blocks, so every round
+                // is open to it — and its context window is the smallest.
+                this.applyToolTrailRetentionPolicy(
+                    vsCodeLmRetentionView(localToolRounds) as unknown as AnthropicMessageParam[],
+                    { ...this.resolveEffectiveCaps(configuration), cachingEnabled: false },
+                );
+                for (const r of localToolRounds) {
+                    for (const res of r.results) {
+                        const at = resultMessageIndex.get(res);
+                        if (at !== undefined) { messages[at] = { role: 'tool', content: res.content }; }
+                    }
                 }
                 // A hook's `continue: false` ends the send after this round (CC-12).
                 const hookStop = this.takeHookStop(requestId);

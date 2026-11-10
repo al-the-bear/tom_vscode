@@ -148,9 +148,9 @@ actually destroyed.
 
 ### Implementation
 
-- [`applyToolTrailRetentionPolicy`](../src/handlers/anthropic-handler.ts) runs after each `messages.push({ role:'user', content: toolResults })` in the direct-SDK tool loop and in the Local LLM transport's tool loop.
+- [`applyToolTrailRetentionPolicy`](../src/handlers/anthropic-handler.ts) runs after each round's results are added, in the three tool loops of the handler: the direct API's (over its `messages`), and the VS Code LM and Local LLM loops', which keep each round's results in the same shape ([`vsCodeLmToolRounds.ts`](../src/utils/vsCodeLmToolRounds.ts)) and write the trimmed text back into what they send — VS Code LM's tool-result parts, Local LLM's `tool` messages. Neither has a prompt cache or signed thinking blocks, so every round past `toolTrailKeepRounds` is stubbed (tests VL-4 in `vscode-lm-robustness.test.ts`, LT-1 in `localLlmToolTrimming.test.ts`).
 
-Both use [`ToolTrail.truncateInline`](../src/services/tool-trail.ts) and
+All use [`ToolTrail.truncateInline`](../src/services/tool-trail.ts) and
 [`ToolTrail.renderStub`](../src/services/tool-trail.ts) so the markers/stubs
 are byte-identical.
 
