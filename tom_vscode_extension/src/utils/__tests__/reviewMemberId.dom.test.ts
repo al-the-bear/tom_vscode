@@ -113,9 +113,9 @@ describe('team review: the user\'s member id', () => {
 
     test('RM-5: the spec tools', () => {
         const annotations = src('tools', 'spec-annotation-tools.ts');
-        assert.match(annotations, /const author = memberAuthorFor\(deps, input\.author\);\s*notes\.setAnswer\(id, input\.answer, author \? \{ author \} : \{\}\);/);
+        assert.match(annotations, /const author = memberAuthorFor\(deps, input\.author\);\s*notes\.setAnswer\(id, input\.answer, \{ \.\.\.\(author \? \{ author \} : \{\}\), \.\.\.atOf\(input\) \}\);/);
         const edits = src('tools', 'spec-edit-tools.ts');
-        assert.equal((edits.match(/writeMarked\(ctx, input\.path, [^)]*, memberAuthorFor\(deps, input\.author\)\)/g) ?? []).length, 2, 'setContent and setFormField');
+        assert.equal((edits.match(/writeMarked\(ctx, input\.path, [^)]*, memberAuthorFor\(deps, input\.author\), input\.at \?\? null\)/g) ?? []).length, 2, 'setContent and setFormField');
         assert.match(src('tools', 'spec-tool-common.ts'), /memberAuthor: \(\) => \{[\s\S]{0,300}reviewMemberId\(loadSendToChatConfig\(\)\)/);
     });
 });

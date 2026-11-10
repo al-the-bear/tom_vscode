@@ -100,6 +100,18 @@
                     <label><input type="checkbox" data-nav-kind="agent"> Agent comments</label>
                     <div class="nav-kind-head" title="Comments and changes of the authors ticked; questions are not filtered">Whose</div>
                     <div class="nav-authors" id="navAuthors"></div>
+                    <div class="nav-kind-head" title="Comments, changes and questions written or changed since then (their recorded change time); markers and conflicts carry no time and are not filtered">Changed since</div>
+                    <div class="nav-since">
+                        <select id="navSince" title="Only what changed since then">
+                            <option value="">Any time</option>
+                            <option value="1h">The last hour</option>
+                            <option value="today">Today</option>
+                            <option value="24h">The last 24 hours</option>
+                            <option value="7d">The last 7 days</option>
+                            <option value="custom">A chosen time…</option>
+                        </select>
+                        <input type="datetime-local" id="navSinceAt" title="Changed at or after this time" hidden>
+                    </div>
                 </div>
             </span>
             <button class="icon-btn" id="navNextBtn" title="Next (of the kinds chosen beside)">

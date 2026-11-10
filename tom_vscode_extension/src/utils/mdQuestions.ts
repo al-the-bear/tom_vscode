@@ -51,14 +51,14 @@ export interface MdQuestion {
 interface Parser {
     mdbAnswerMarkers(text: string): Array<{ line: number; column: number }>;
     mdbAnswerAt(lines: string[], line: number, column: number): { text: string; endLine: number };
-    mdbWriteAnswer(lines: string[], line: number, column: number, answer: string): string;
+    mdbWriteAnswer(lines: string[], line: number, column: number, answer: string, at?: string): string;
     mdbQuestionHeads(text: string): Array<{ id: string; line: number; topic: string; text: string }>;
     mdbQuestionOptions(lines: string[], head: number, end: number): { options: MdQuestionOption[]; recommended: string | null };
     mdbOptionAnswer(letter: string): string;
     mdbQuoteDepth(line: string): number;
     mdbProposedAnswerAt(lines: string[], line: number): { source: string; date: string; text: string; line: number; endLine: number } | null;
     mdbProposedAnswerLines(prefix: string, source: string, date: string, text: string): string[];
-    mdbProposalEdit(lines: string[], proposalLine: number, action: 'accept' | 'discard', text?: string): { startLine: number; endLine: number; expected: string; replacement: string } | null;
+    mdbProposalEdit(lines: string[], proposalLine: number, action: 'accept' | 'discard', text?: string, at?: string): { startLine: number; endLine: number; expected: string; replacement: string } | null;
 }
 
 let parser: Parser | undefined;
@@ -183,9 +183,10 @@ function pick(found: Located[], id: string, line?: number): Located {
 /**
  * The document with question `id`'s answer written (`""` clears it). With
  * `option`, the answer starts with `(<letter>)`, the letter checked against
- * the question's options.
+ * the question's options. With `at` (a change time) the marker records it,
+ * `**Answer (<at>):**`, as the TomSpecs runtime writes a team answer (SOM §11.9.10).
  */
-export function setMdAnswer(text: string, id: string, answer: string, opts: { line?: number; option?: string } = {}): { text: string; question: MdQuestion } {
+export function setMdAnswer(text: string, id: string, answer: string, opts: { line?: number; option?: string; at?: string } = {}): { text: string; question: MdQuestion } {
     const doc = split(text);
     const target = pick(locate(doc), id, opts.line);
     if (!target.marker) {
@@ -200,7 +201,7 @@ export function setMdAnswer(text: string, id: string, answer: string, opts: { li
         value = `${load().mdbOptionAnswer(letter)}${answer.trim() ? ` ${answer.trim()}` : ''}`;
     }
     const m = target.marker;
-    const written = load().mdbWriteAnswer(doc.lines, m.line, m.column, value).split('\n');
+    const written = load().mdbWriteAnswer(doc.lines, m.line, m.column, value, opts.at).split('\n');
     doc.lines.splice(m.line, m.endLine - m.line, ...written);
     const next = doc.lines.join(doc.eol);
     return { text: next, question: pick(locate(split(next)), id, target.question.line).question };
@@ -244,16 +245,17 @@ export function proposeMdAnswer(
  * Settle the proposed answer under question `id` — what the MD Browser's
  * Accept / Edit / Discard do, on the same parser: `accept` writes it (or
  * `text`, as edited) into the Answer line and removes it; `discard` removes it.
+ * An accepted answer records `opts.at` like setMdAnswer.
  */
 export function settleProposedAnswer(
-    text: string, id: string, action: 'accept' | 'discard', opts: { line?: number; text?: string } = {},
+    text: string, id: string, action: 'accept' | 'discard', opts: { line?: number; text?: string; at?: string } = {},
 ): { text: string; question: MdQuestion } {
     const doc = split(text);
     const target = pick(locate(doc), id, opts.line);
     if (!target.proposal) {
         throw new MdQuestionError('unknownQuestion', `Question ${id} has no proposed answer.`);
     }
-    const edit = load().mdbProposalEdit(doc.lines, target.proposal.line, action, opts.text);
+    const edit = load().mdbProposalEdit(doc.lines, target.proposal.line, action, opts.text, opts.at);
     if (!edit) { throw new MdQuestionError('noAnswerLine', `The proposed answer of ${id} is not right under its Answer line.`); }
     doc.lines.splice(edit.startLine, edit.endLine - edit.startLine, ...edit.replacement.split('\n'));
     const next = doc.lines.join(doc.eol);

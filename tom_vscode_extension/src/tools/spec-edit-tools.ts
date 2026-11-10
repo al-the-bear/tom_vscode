@@ -86,6 +86,8 @@ export interface SpecSetContentInput extends SpecEditOptions {
     marked?: boolean;
     /** With `marked`: the review member id the change is attributed to (`{@author}`); default the user's member id; '' none. */
     author?: string;
+    /** With `marked`: the change time to record (SOM §11.9.10); default now. */
+    at?: string;
 }
 export interface SpecSetFormFieldInput extends SpecEditOptions {
     path: string;
@@ -95,6 +97,8 @@ export interface SpecSetFormFieldInput extends SpecEditOptions {
     marked?: boolean;
     /** With `marked`: the review member id the change is attributed to; default the user's member id; '' none. */
     author?: string;
+    /** With `marked`: the change time to record (SOM §11.9.10); default now. */
+    at?: string;
 }
 export interface SpecSetHeadlineInput extends SpecEditOptions {
     path: string;
@@ -186,7 +190,7 @@ function opSetContent(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecS
         const f = res.field;
         const type = res.kind === SpecNodeKind.CONTENT ? null : (f ? (f.enumType ?? f.type ?? f.elementType ?? null) : null);
         const text = markedText(input.text, type, f && res.kind !== SpecNodeKind.CONTENT ? f.enumValues : [], `'${input.path}'`);
-        const { exact } = writeMarked(ctx, input.path, null, text, memberAuthorFor(deps, input.author));
+        const { exact } = writeMarked(ctx, input.path, null, text, memberAuthorFor(deps, input.author), input.at ?? null);
         return { touched: input.path, result: { path: input.path, value: ctx.loaded.document.content(input.path) ?? null, marked: true, exact } };
     }
     const text = input.text === '' ? null : input.text;
@@ -209,7 +213,7 @@ function opSetFormField(deps: SpecToolDeps, ctx: EditContext, input: OpInput<Spe
             });
         }
         const text = markedText(input.value, spec.type, spec.enumValues, `Field '${input.field}' of ${input.path}`);
-        const { exact } = writeMarked(ctx, input.path, input.field, text, memberAuthorFor(deps, input.author));
+        const { exact } = writeMarked(ctx, input.path, input.field, text, memberAuthorFor(deps, input.author), input.at ?? null);
         return { touched: input.path, result: { path: input.path, field: input.field, value: ctx.loaded.document.formField(input.path, input.field) ?? null, marked: true, exact } };
     }
     setFormField(ctx, input.path, input.field, input.value === '' ? null : input.value);
@@ -380,6 +384,7 @@ export async function specClearSectionImpl(deps: SpecToolDeps, input: SpecClearS
 const MARKED_NOTE =
     ' `marked: true` writes the new text as a change the reviewer accepts or rejects (inline marks, SOM §11.9.3; text values only, `notText` otherwise); `exact: false` when part of it could not be marked.';
 const MARKED_PARAM = { type: 'boolean', description: 'Write the new text as a marked change against the value there now. Default false.' };
+const MARK_AT_PARAM = { type: 'string', description: 'With `marked`: the change time to record in the attribution token, `2026-11-07T14:05+01:00` (§11.9.10). Default now.' };
 const MARK_AUTHOR_PARAM = { type: 'string', description: 'With `marked`: the review member id the change is attributed to, written as `{@author}` (§11.9.8). Default: the user\'s member id when set (Status Page, Team review); "" attributes it to nobody.' };
 
 export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
@@ -404,6 +409,7 @@ export const SPEC_SET_CONTENT_TOOL = editTool<SpecSetContentInput>(
         text: { ...VALUE_SCHEMA, description: 'The new value; null or "" clears it (with `marked`: marks the whole value deleted).' },
         marked: MARKED_PARAM,
         author: MARK_AUTHOR_PARAM,
+        at: MARK_AT_PARAM,
     },
     ['file', 'path', 'text'],
     specSetContentImpl,
@@ -419,6 +425,7 @@ export const SPEC_SET_FORM_FIELD_TOOL = editTool<SpecSetFormFieldInput>(
         value: { ...VALUE_SCHEMA, description: 'The value, typed per the field (number, boolean, enum name or string).' },
         marked: MARKED_PARAM,
         author: MARK_AUTHOR_PARAM,
+        at: MARK_AT_PARAM,
     },
     ['file', 'path', 'field', 'value'],
     specSetFormFieldImpl,

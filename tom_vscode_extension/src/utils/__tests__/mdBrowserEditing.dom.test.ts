@@ -98,6 +98,9 @@ function setup(): { window: Win; posted: Array<Record<string, unknown>> } {
     window.eval(asset('blocks.js'));
     window.eval(asset('teamReview.js'));
     window.eval(asset('main.js'));
+    // The writes' change times (SOM §11.9.10) are mdBrowserChangeTimes.dom.test.ts's: here the clock gives none, so
+    // each write is compared with its text exactly.
+    window.mdbReviewTime = () => '';
     return { window, posted };
 }
 

@@ -12,7 +12,7 @@
 // takes the declarations from there (src/utils/mdQuestions.ts), so the browser
 // and the agents' tools (tomAi_mdQuestions, tomAi_mdSetAnswer,
 // tomAi_mdProposeAnswer) read a document the same way.
-/* exported MDB_ANSWER_MARKER, MDB_ANSWER_MARKER_RE, mdbFindAnswerMarker, mdbLastAnswerMarker, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines, mdbProposalEdit */
+/* exported MDB_ANSWER_MARKER, MDB_ANSWER_MARKER_RE, mdbReviewTime, mdbFindAnswerMarker, mdbLastAnswerMarker, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbQuestionAt, mdbQuestionOptions, mdbOptionAnswer, mdbQuestionHeads, mdbQuoteDepth, mdbProposedAnswerAt, mdbProposedAnswerLines, mdbProposalEdit */
 
 /** The review-answer marker an answer is written after. */
 var MDB_ANSWER_MARKER = '**Answer:**';
@@ -23,6 +23,25 @@ var MDB_ANSWER_MARKER = '**Answer:**';
  * member ids is an individual answer, not a marker.
  */
 var MDB_ANSWER_MARKER_RE = /\*\*Answer(?: \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})\))?:\*\*/g;
+
+/**
+ * `date` (default now) as a change time in its local offset, minutes
+ * precision: `2026-11-07T14:05+01:00` (SOM §11.9.10) — what the runtime's
+ * systemReviewTime writes.
+ *
+ * @param {Date} [date]
+ * @returns {string}
+ */
+function mdbReviewTime(date) {
+    var d = date || new Date();
+    var two = function(/** @type {number} */ n) { return (n < 10 ? '0' : '') + n; };
+    var offset = -d.getTimezoneOffset();
+    var sign = offset < 0 ? '-' : '+';
+    var abs = Math.abs(offset);
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate())
+        + 'T' + two(d.getHours()) + ':' + two(d.getMinutes())
+        + sign + two(Math.floor(abs / 60)) + ':' + two(abs % 60);
+}
 
 /**
  * The first team-answer marker in `text` at or after `from`.
@@ -136,18 +155,30 @@ function mdbAnswerAt(lines, line, column) {
  * so they are dropped; an empty answer clears it. A marker followed by
  * another on its line keeps that rest and takes the answer on one line.
  *
+ * With `at` (a change time, mdbReviewTime) the marker records it,
+ * `**Answer (<at>):**`, as the runtime's setAnswer writes it (SOM §11.9.10);
+ * an empty answer then reopens the question as `**Answer:**`. Without `at`
+ * the marker stays as written.
+ *
  * @param {string[]} lines
  * @param {number} line
  * @param {number} column
  * @param {string} answer
+ * @param {string} [at]
  * @returns {string}
  */
-function mdbWriteAnswer(lines, line, column, answer) {
+function mdbWriteAnswer(lines, line, column, answer, at) {
     var text = lines[line];
     var head = text.slice(0, column);
     var answerLines = String(answer).replace(/\r\n|\r/g, '\n').split('\n')
         .map(function(l) { return l.trim(); })
         .filter(function(l) { return l !== ''; });
+    if (at) {
+        var marker = /\*\*Answer(?: \([^()]*\))?:\*\*$/.exec(head);
+        if (marker) {
+            head = head.slice(0, marker.index) + (answerLines.length ? '**Answer (' + at + '):**' : MDB_ANSWER_MARKER);
+        }
+    }
     var rest = text.slice(column);
     var nextMarker = mdbFindAnswerMarker(rest, 0);
     if (nextMarker) {
@@ -367,9 +398,10 @@ function mdbProposedAnswerLines(prefix, source, date, text) {
  * @param {number} proposalLine
  * @param {'accept'|'discard'} action
  * @param {string} [text]
+ * @param {string} [at] the change time the accepted answer records (mdbWriteAnswer)
  * @returns {{startLine: number, endLine: number, expected: string, replacement: string}|null}
  */
-function mdbProposalEdit(lines, proposalLine, action, text) {
+function mdbProposalEdit(lines, proposalLine, action, text, at) {
     var prop = mdbProposedAnswerAt(lines, proposalLine);
     if (!prop) { return null; }
     var last = proposalLine - 1;
@@ -383,7 +415,7 @@ function mdbProposalEdit(lines, proposalLine, action, text) {
         var expected = lines.slice(i, prop.endLine).join('\n');
         if (action === 'accept') {
             var value = text === undefined ? prop.text : String(text);
-            return { startLine: i, endLine: prop.endLine, expected: expected, replacement: mdbWriteAnswer(lines, i, column, value) };
+            return { startLine: i, endLine: prop.endLine, expected: expected, replacement: mdbWriteAnswer(lines, i, column, value, at) };
         }
         // Discard: the answer's lines stay as they are; separator and proposal go.
         return { startLine: i, endLine: prop.endLine, expected: expected, replacement: lines.slice(i, answer.endLine).join('\n') };

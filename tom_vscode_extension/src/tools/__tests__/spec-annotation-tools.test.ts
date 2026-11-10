@@ -50,6 +50,11 @@
  *   SA-20 an agent signs what it writes: insertComment and commentChange without `author` (single tools and
  *         batch ops) are signed with the deps' agentAuthor (`agent_<role>`); a given author is kept; without
  *         agentAuthor they stay unsigned (SA-2); editing a signed change comment keeps its author
+ *   SA-21 the user's review member id is the default author of answers and marked changes
+ *   SA-22 a given change time (`at`, SOM §11.9.10): insertComment, insertQuestion, setAnswer, editComment,
+ *         commentChange, editMarkComment and a marked setContent record it (single tools and batch ops); the
+ *         listing answers a question's header time as `changedAt` beside `answerChangedAt`; a malformed time is
+ *         refused and nothing is written
  */
 
 import test, { before, describe } from 'node:test';
@@ -187,10 +192,11 @@ describe('TomSpecs annotation tools', () => {
     test('SA-3: inserting a question', async () => {
         const file = await annotated();
         const question = { id: 'BQ-02', topic: 'returns', text: 'Are returns in scope?', options: ['(a) no', '(b) yes, within 30 days'], recommended: 'b' };
+        const since = new Date();
         const r = JSON.parse(await withTiming('tomAi_specInsertQuestion:typical', () =>
             specInsertQuestionImpl(deps, { file, afterComment: 'C-3', question })));
         assert.equal(r.ok, true, JSON.stringify(r));
-        assert.match(read(file), /\*\*❓ BQ-02 — returns:\*\* Are returns in scope\?/);
+        assert.match(withoutChangeTimes(read(file), since), /\*\*❓ BQ-02 \(<time>\) — returns:\*\* Are returns in scope\?/, 'the header carries the change time');
         assert.match(read(file), /- \*\*\(b\)\*\* yes, within 30 days/, 'the recommended option is bold');
         const qs = (await list(file)).questions;
         assert.deepEqual(qs.map((q: Json) => q.id), ['BQ-02', 'BQ-01'], 'directly after the comment, before the marks paragraph');
@@ -301,14 +307,14 @@ describe('TomSpecs annotation tools', () => {
         assert.equal((await run(specCreateDocumentImpl, { file, root: 'SBP' })).ok, true);
         assert.equal((await run(specSetContentImpl, { file, path: VALUE, text: ANNOTATED })).ok, true);
         assert.equal((await list(file)).counts.comments, 2);
+        const since = new Date();
         const r = await run(specSetAnswerImpl, { file, questionId: 'BQ-01', answer: '(a)' });
         assert.equal(r.ok, true, JSON.stringify(r));
-        const since = new Date();
         const c = await run(specInsertCommentImpl, { file, path: VALUE, afterParagraph: 4, text: 'Check SAP.' });
         assert.equal(c.id, 'C-4');
         const text = withoutChangeTimes(read(file), since);
         assert.match(text, /^# /m, 'still Markdown');
-        assert.match(text, /> \*\*Answer:\*\* \(a\)/);
+        assert.match(text, /> \*\*Answer \(<time>\):\*\* \(a\)/, 'the team answer carries the change time');
         assert.match(text, /> ⬆️ \*\*C-4\*\* \(<time>\): Check SAP\./, 'no author: only the change time');
         assert.equal((await list(file)).counts.answeredQuestions, 1, 'reads back from the Markdown');
     });
@@ -670,5 +676,52 @@ describe('TomSpecs annotation tools', () => {
         assert.match(m.value, /\{~~\s*two\s*~>\s*three\s*~~\}\{@alexis[^}]*\}/);
         const anon = JSON.parse(await specSetContentImpl(mine, { file: marked, path: VALUE, text: 'Orders are kept four years.', marked: true, author: '' }));
         assert.doesNotMatch(anon.value, /\{@alexis/, '"" attributes the change to nobody');
+    });
+
+    test('SA-22: a given change time', async () => {
+        const T1 = '2026-11-01T08:30+01:00';
+        const T2 = '2026-11-02T09:45Z';
+        const file = await annotated();
+        const ok = async (impl: (d: SpecToolDeps, i: Json) => Promise<string>, input: object): Promise<Json> => {
+            const r = await run(impl, { file, ...input });
+            assert.equal(r.ok, true, JSON.stringify(r));
+            return r;
+        };
+        const c = await ok(specInsertCommentImpl, { path: VALUE, afterParagraph: 0, text: 'Timed remark.', author: 'Ann', at: T1 });
+        assert.ok(read(file).includes(`(Ann, ${T1}): Timed remark.`));
+        await ok(specEditCommentImpl, { commentId: c.id, text: 'Edited remark.', at: T2 });
+        assert.ok(read(file).includes(`(Ann, ${T2}): Edited remark.`), 'the edit\'s time replaces the old');
+        await ok(specInsertQuestionImpl, { afterComment: 'C-3', question: { id: 'BQ-02', topic: 'returns', text: 'Returns?' }, at: T1 });
+        assert.ok(read(file).includes(`**❓ BQ-02 (${T1}) — returns:**`));
+        await ok(specSetAnswerImpl, { questionId: 'BQ-02', answer: '(a)', at: T2 });
+        assert.ok(read(file).includes(`**Answer (${T2}):** (a)`));
+        const q = (await list(file)).questions.find((x: Json) => x.id === 'BQ-02');
+        assert.deepEqual([q.changedAt, q.answerChangedAt], [T1, T2], 'the header time and the answer time');
+        assert.equal((await list(file)).questions.find((x: Json) => x.id === 'BQ-01').changedAt, null, 'an untimed header');
+        const cc = await ok(specCommentChangeImpl, { markId: 'M-2', text: 'why?', author: 'bob', at: T1 });
+        assert.ok(read(file).includes(`why? <<}{@bob ${T1}}`));
+        await ok(specEditMarkCommentImpl, { markId: cc.commentId, text: 'why three?', at: T2 });
+        assert.ok(read(file).includes(`why three? <<}{@bob ${T2}}`));
+
+        const before = read(file);
+        const bad = await run(specSetAnswerImpl, { file, questionId: 'BQ-02', answer: '(b)', at: 'yesterday' });
+        assert.equal(bad.ok, false, 'a malformed time is refused');
+        assert.equal(read(file), before, 'nothing written');
+
+        const batchFile = await annotated();
+        const batch = await run(specApplyEditsImpl, { file: batchFile, edits: [
+            { op: 'insertComment', path: VALUE, afterParagraph: 0, text: 'In a batch.', at: T1 },
+            { op: 'setAnswer', questionId: 'BQ-01', answer: '(b)', at: T2 },
+        ] });
+        assert.equal(batch.ok, true, JSON.stringify(batch));
+        assert.ok(read(batchFile).includes(`(${T1}): In a batch.`));
+        assert.ok(read(batchFile).includes(`**Answer (${T2}):** (b)`));
+
+        const marked = `m${++counter}.docspecs.yaml`;
+        fs.writeFileSync(path.join(ws, marked), MERIDIAN_YAML);
+        assert.equal((await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Kept two years.' })).ok, true);
+        const m = await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Kept three years.', marked: true, author: 'carol', at: T1 });
+        assert.equal(m.ok, true, JSON.stringify(m));
+        assert.match(m.value, new RegExp(`\\{@carol ${T1.replace('+', '\\+')}\\}`));
     });
 });

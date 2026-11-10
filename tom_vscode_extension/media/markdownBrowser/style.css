@@ -479,6 +479,12 @@ body.mdb-busy, body.mdb-busy * { cursor: wait !important; }
 /* The navigation popup's Whose section: the authors whose comments and changes the arrows find. */
 .nav-kind-pop .nav-kind-head { margin: 4px 8px 2px; padding-top: 4px; border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border)); font-size: 11px; opacity: 0.8; text-transform: uppercase; }
 .nav-kind-pop .nav-authors { max-height: 220px; overflow-y: auto; }
+.nav-kind-pop .nav-since { display: flex; flex-direction: column; gap: 4px; padding: 2px 8px 4px; }
+.nav-kind-pop .nav-since select,
+.nav-kind-pop .nav-since input { font-size: 12px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); }
+.nav-kind-pop .nav-since input[hidden] { display: none; }
+/* A change time (SOM §11.9.10): a small label, the full time in its tooltip. */
+.markdown-body .mdb-time { font-size: 0.8em; opacity: 0.7; margin: 0 2px; white-space: nowrap; cursor: default; }
 .nav-kind-pop .nav-authors:empty::before,
 .nav-kind-pop .nav-authors:not(:has(label)) { display: block; padding: 2px 8px; font-size: 12px; opacity: 0.7; }
 

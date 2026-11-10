@@ -60,6 +60,9 @@ function setup(t: { after(fn: () => void): void }): { window: Win; posted: Array
     window.eval(asset('blocks.js'));
     window.eval(asset('teamReview.js'));
     window.eval(asset('main.js'));
+    // The writes' change times (SOM §11.9.10) are mdBrowserChangeTimes.dom.test.ts's: here the clock gives none, so
+    // each write is compared with its text exactly.
+    window.mdbReviewTime = () => '';
     window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'mdContent', content: DOC, filePath: '/ws/review.md', relativePath: 'review.md', crlf: false } }));
     return { window, posted };
 }

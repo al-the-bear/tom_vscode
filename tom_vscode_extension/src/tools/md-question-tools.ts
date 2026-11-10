@@ -118,12 +118,14 @@ async function edit(
     }
 }
 
-export async function mdSetAnswerImpl(deps: MdQuestionToolDeps, input: MdSetAnswerInput): Promise<string> {
+export async function mdSetAnswerImpl(deps: MdQuestionToolDeps & { now?: () => string }, input: MdSetAnswerInput): Promise<string> {
     if (!input.id) { return json({ ok: false, error: '`id` is required.' }); }
     if (input.answer === undefined && input.option === undefined) {
         return json({ ok: false, error: 'Give `answer` (text; "" clears it), `option` (a letter), or both.' });
     }
-    return edit(deps, input, (text) => setMdAnswer(text, input.id, input.answer ?? '', { line: input.line, option: input.option }));
+    // The team answer records when it was written (SOM §11.9.10), as the TomSpecs runtime's setAnswer does.
+    const at = (deps.now ?? (() => systemReviewTime()))();
+    return edit(deps, input, (text) => setMdAnswer(text, input.id, input.answer ?? '', { line: input.line, option: input.option, at }));
 }
 
 export async function mdProposeAnswerImpl(deps: MdQuestionToolDeps, input: MdProposeAnswerInput): Promise<string> {
@@ -237,7 +239,7 @@ export const MD_SET_ANSWER_TOOL: SharedToolDefinition<MdSetAnswerInput> = {
     name: 'tomAi_mdSetAnswer',
     displayName: 'Markdown: Set Answer',
     description:
-        'Write the answer of a question in a Markdown file after its `**Answer:**` (replacing what is there; "" clears it). ' +
+        'Write the answer of a question in a Markdown file after its `**Answer:**` (replacing what is there; "" clears it); the marker records the time, `**Answer (<time>):**` ("" reopens it as `**Answer:**`). ' +
         '`option` (a letter of its options) writes `(b)` first, `answer` then follows: `(b) because …`. Several lines stay ' +
         'inside the quote; blank lines are dropped. Refused: an unknown id (the ids are listed), an id that is there twice ' +
         'without `line`, a question without an Answer line, an option it does not have. Answers the question as read back.' +

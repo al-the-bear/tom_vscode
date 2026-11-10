@@ -7,7 +7,8 @@
  *        Recommendation line), answer, open, answerLine, a proposal under it; fenced code that looks like a
  *        question is not read; a question outside a quote; a block of several; `id` / `openOnly`; revision
  *   MQ-2 tomAi_mdSetAnswer writes the Answer line (option letter first, several lines inside the quote, "" clears,
- *        outside a quote) and changes nothing else; the browser reads the written answer the same way
+ *        outside a quote) and changes nothing else; the marker records the time written, `**Answer (<time>):**`
+ *        ("" reopens it as `**Answer:**`); the browser reads the written answer the same way
  *   MQ-3 tomAi_mdProposeAnswer writes `> **Proposed answer** (<source>, <date>): …` under the question after a bare
  *        quote line, leaves the answer open, keeps what follows apart, replaces a proposal already there
  *   MQ-4 refused: unknown id (the ids listed; the fenced one is not a question), an id twice without `line`, no
@@ -17,7 +18,7 @@
  *        the browser's mdbQuestionAt reads the fixture's questions as the tools do; registration and docs
  *   MQ-6 change times (SOM §11.9.2, §11.9.10, tom_specs annot10): a header `**❓ BQ-1 (<time>) — topic:**` and a
  *        team answer `**Answer (<time>):**` are read like the untimed forms; an individual answer
- *        `**Answer (alice, <time>):**` is no team answer; writing and proposing keep the timed label
+ *        `**Answer (alice, <time>):**` is no team answer; writing records the new time; proposing keeps the label
  */
 
 import * as fs from 'fs';
@@ -45,14 +46,17 @@ const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'md-questions-'
 const put = (name: string, text = FIXTURE): string => { fs.writeFileSync(path.join(ws, name), text); return name; };
 const read = (name: string): string => fs.readFileSync(path.join(ws, name), 'utf8');
 const dirty = new Set<string>();
-const deps: MdQuestionToolDeps = {
+/** The change time the writes record (deps.now). */
+const NOW = '2026-11-10T09:00+01:00';
+const deps: MdQuestionToolDeps & { now: () => string } = {
     wsRoot: ws,
     store: new SomDocumentStore(SomModelService.instance, { ...nodeSomDocumentIo, isDirty: (p) => dirty.has(path.resolve(p)) }),
     today: () => '2026-11-07',
+    now: () => NOW,
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
-const run = async (impl: (d: MdQuestionToolDeps, i: Json) => Promise<string>, input: object): Promise<Json> => JSON.parse(await impl(deps, input));
+const run = async (impl: (d: MdQuestionToolDeps & { now: () => string }, i: Json) => Promise<string>, input: object): Promise<Json> => JSON.parse(await impl(deps, input));
 const q = (all: Json, id: string, n = 0) => all.questions.filter((x: Json) => x.id === id)[n];
 /** The lines of `after` that differ from `before`, by position (same line count) — or both texts when the count changed. */
 const changedLines = (before: string, after: string): string[] => {
@@ -100,18 +104,18 @@ describe('Markdown question tools', () => {
         assert.equal(out.written, true);
         assert.equal(out.question.answer, '(b) because it is smaller');
         assert.equal(out.question.open, false);
-        assert.deepEqual(changedLines(FIXTURE, read(file)), ['> **Answer:** (b) because it is smaller'], 'only the Answer line');
+        assert.deepEqual(changedLines(FIXTURE, read(file)), [`> **Answer (${NOW}):** (b) because it is smaller`], 'only the Answer line');
         // Several lines stay inside the quote; blank lines are dropped.
         const multi = await run(mdSetAnswerImpl, { file, id: 'BQ-2', answer: 'id\n\nand nothing else' });
         assert.equal(multi.question.answer, 'id\nand nothing else');
-        assert.match(read(file), /> \*\*Answer:\*\* id\n> and nothing else\n\n## Code/);
+        assert.ok(read(file).includes(`> **Answer (${NOW}):** id\n> and nothing else\n\n## Code`));
         // "" clears it.
         const cleared = await run(mdSetAnswerImpl, { file, id: 'CC-1', answer: '' });
         assert.equal(cleared.question.open, true);
         assert.match(read(file), /\n> \*\*Answer:\*\*\n\n> ⬆️ \*\*C-1\*\*/);
         // Outside a quote: the whole paragraph is replaced.
         await run(mdSetAnswerImpl, { file, id: 'PL-1', option: '(a)' });
-        assert.match(read(file), /\n\*\*Answer:\*\* \(a\)\n\n## Without/);
+        assert.ok(read(file).includes(`\n**Answer (${NOW}):** (a)\n\n## Without`));
         // A duplicate picked by its line.
         const dup = await run(mdSetAnswerImpl, { file, id: 'DUP-1', line: 72, answer: 'the second' });
         assert.equal(dup.question.topic, 'Second');
@@ -170,7 +174,7 @@ describe('Markdown question tools', () => {
         assert.equal(read(file), FIXTURE, 'nothing was written');
         const dry = await run(mdSetAnswerImpl, { file, id: 'CC-2', option: 'a', dryRun: true, expectedRevision: (await run(mdQuestionsImpl, { file })).revision });
         assert.equal(dry.written, false);
-        assert.match(dry.diff, /\+> \*\*Answer:\*\* \(a\)/);
+        assert.ok(dry.diff.includes(`+> **Answer (${NOW}):** (a)`));
         assert.equal(read(file), FIXTURE);
         // CRLF stays CRLF.
         const crlf = put('crlf.md', FIXTURE.replace(/\n/g, '\r\n'));
@@ -205,14 +209,17 @@ describe('Markdown question tools', () => {
         assert.equal(q(all, 'BQ-1').answerLine, 9);
         assert.equal(q(all, 'BQ-1').open, false);
         assert.equal(q(all, 'BQ-2').open, true);
-        // Writing keeps the timed label as written.
+        // Writing records the time it was written, replacing the old one.
         await run(mdSetAnswerImpl, { file, id: 'BQ-1', option: 'a' });
-        assert.deepEqual(changedLines(timed, read(file)), ['> **Answer (2026-11-07T15:00Z):** (a)']);
-        // A proposal goes under the timed label.
-        await run(mdSetAnswerImpl, { file, id: 'BQ-1', answer: '' });
+        assert.deepEqual(changedLines(timed, read(file)), [`> **Answer (${NOW}):** (a)`]);
+        // A proposal goes under the timed label, which it leaves as it is.
         const proposed = await run(mdProposeAnswerImpl, { file, id: 'BQ-1', answer: '(b)' });
         assert.equal(proposed.question.proposed.text, '(b)');
-        assert.match(read(file), /> \*\*Answer \(2026-11-07T15:00Z\):\*\*\n>\n> \*\*Proposed answer\*\* \(agent, 2026-11-07\): \(b\)/);
+        assert.ok(read(file).includes(`> **Answer (${NOW}):** (a)\n>\n> **Proposed answer** (agent, 2026-11-07): (b)`));
+        // "" reopens it untimed.
+        await run(mdSetAnswerImpl, { file, id: 'BQ-2', answer: 'yes' });
+        await run(mdSetAnswerImpl, { file, id: 'BQ-2', answer: '' });
+        assert.match(read(file), /also on kiosks\?\n>\n> \*\*Answer:\*\*\n/);
     });
 
     test('MQ-5: one parser for browser and host; registration', async () => {

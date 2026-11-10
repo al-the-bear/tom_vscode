@@ -78,8 +78,15 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    `author`; give the user's name only when writing down what the user said.
    Every comment you write or edit also records its change time (SOM
    §11.9.10): `> ⬆️ **C-12** (agent_spec_author, 2026-11-07T14:05+01:00): …`,
-   `{>> … <<}{@agent_spec_author 2026-11-07T14:05+01:00}`; the listing answers
-   it as `changedAt`.
+   `{>> … <<}{@agent_spec_author 2026-11-07T14:05+01:00}`; so do a question's
+   header (`> **❓ BQ-81 (2026-11-07T14:05+01:00) — topic:**`), a team answer
+   (`> **Answer (2026-11-07T14:05+01:00):**`) and a marked change. The listing
+   answers it as `changedAt` (a question's answer time as `answerChangedAt`).
+   The tools record the time of the call; give `at` only when the change was
+   made earlier, e.g. when carrying a remark over from another copy. The MD
+   Browser shows the times as small labels and its navigation can step through
+   what changed since a chosen time — a reviewer's way to see what a round
+   added.
    A comment that especially needs the reviewer starts with `___check here___`
    and says why; the MD Browser steps through those markers and through agent
    comments first.

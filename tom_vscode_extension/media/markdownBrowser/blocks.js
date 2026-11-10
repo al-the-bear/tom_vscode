@@ -6,7 +6,7 @@
 // before main.js; the declarations below are globals main.js calls. The question
 // and answer parser is media/shared/mdQuestions.js, loaded before this file and
 // shared with the extension host (src/utils/mdQuestions.ts).
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -432,12 +432,18 @@ function mdbInRanges(ranges, line) {
  * dropped. `''` when the text holds nothing but the arrow, the id and the
  * author — no comment.
  *
+ * With `at` (a change time, mdbReviewTime) the header records it after the
+ * author, `(Alexis, 2026-11-07T14:05+01:00)` or `(2026-11-07T14:05+01:00)`,
+ * replacing a time written before — as the runtime's insertComment and
+ * editComment write it (SOM §11.9.10).
+ *
  * @param {string} text
  * @param {string} nextId
  * @param {string} [author]
+ * @param {string} [at]
  * @returns {string}
  */
-function mdbWriteComment(text, nextId, author) {
+function mdbWriteComment(text, nextId, author, at) {
     var lines = String(text || '').replace(/\r\n|\r/g, '\n').split('\n').map(function(l) { return l.replace(/\s+$/, ''); });
     while (lines.length && lines[0].trim() === '') { lines.shift(); }
     while (lines.length && lines[lines.length - 1].trim() === '') { lines.pop(); }
@@ -450,10 +456,17 @@ function mdbWriteComment(text, nextId, author) {
         var rest = first.slice(arrow[0].length).replace(/^\s*/, '');
         first = arrow[0].replace(/^\s*/, '') + ' **' + nextId + '**' + (rest ? ' ' + rest : '');
     }
-    if (author) {
-        var head = /^(\s*\u2B06\uFE0F?\s*\*\*C-\d+\*\*)\s*([\s\S]*)$/.exec(first);
-        if (head && !/^\(/.test(head[2])) {
-            first = head[1] + ' (' + author + '):' + (head[2].replace(/^:\s*/, '') ? ' ' + head[2].replace(/^:\s*/, '') : '');
+    if (author || at) {
+        var head = /^(\s*\u2B06\uFE0F?\s*\*\*C-\d+\*\*)\s*(?:\(([^()\n]*)\)\s*(?=:))?([\s\S]*)$/.exec(first);
+        if (head) {
+            var named = head[2] !== undefined ? mdbCommentHeader('> ' + head[1] + ' (' + head[2] + '):') : { author: '', changedAt: '' };
+            var parts = [];
+            var who = head[2] !== undefined ? named.author : (author || '');
+            if (who) { parts.push(who); }
+            var when = at || named.changedAt;
+            if (when) { parts.push(when); }
+            var tail = head[3].replace(/^:\s*/, '');
+            first = head[1] + (parts.length ? ' (' + parts.join(', ') + ')' : '') + ':' + (tail ? ' ' + tail : '');
         }
     }
     lines[0] = first;
@@ -698,6 +711,55 @@ function mdbIsAgentAuthor(author) {
  * time; anything else keeps its old meaning (an author, a member id).
  */
 var MDB_CHANGE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** Every change time in a text (not anchored): its occurrences in headers, markers and tokens. */
+var MDB_CHANGE_TIMES = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})(?![\d:])/g;
+
+/**
+ * The latest change time written in `text` ('' when none), compared as
+ * instants: a question's header, its team answer and its members' answers
+ * hold one each.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function mdbLatestChangeTime(text) {
+    var latest = '';
+    var latestMs = -Infinity;
+    (String(text || '').match(MDB_CHANGE_TIMES) || []).forEach(function(t) {
+        var ms = Date.parse(t);
+        if (!isNaN(ms) && ms > latestMs) { latest = t; latestMs = ms; }
+    });
+    return latest;
+}
+
+/**
+ * A change time (SOM §11.9.10) as the reader sees it: `label` relative while
+ * recent (`just now`, `5 min ago`, `3 h ago`, `2 d ago`), else the date and
+ * time as written (`2026-11-07 14:05`); `title` the full time with its offset.
+ * Null when `changedAt` is not a change time.
+ *
+ * @param {string} changedAt
+ * @param {number} [now] epoch ms; default the clock
+ * @returns {{label: string, title: string} | null}
+ */
+function mdbChangeTimeLabel(changedAt, now) {
+    if (!MDB_CHANGE_TIME.test(String(changedAt || ''))) { return null; }
+    var ms = Date.parse(changedAt);
+    if (isNaN(ms)) { return null; }
+    var written = changedAt.slice(0, 10) + ' ' + changedAt.slice(11, 16);
+    var offset = changedAt.slice(16);
+    var title = 'Changed ' + written + ' (' + (offset === 'Z' ? 'UTC' : 'UTC' + offset) + ')';
+    var age = (now === undefined ? Date.now() : now) - ms;
+    var minute = 60000;
+    var label;
+    if (age < 0 || age >= 7 * 24 * 60 * minute) { label = written; }
+    else if (age < minute) { label = 'just now'; }
+    else if (age < 60 * minute) { label = Math.floor(age / minute) + ' min ago'; }
+    else if (age < 24 * 60 * minute) { label = Math.floor(age / (60 * minute)) + ' h ago'; }
+    else { label = Math.floor(age / (24 * 60 * minute)) + ' d ago'; }
+    return { label: label, title: label === written ? title : title + ', ' + label };
+}
 
 /**
  * A comment block's header parentheses (`(Alexis, 2026-11-07T14:05+01:00)`,

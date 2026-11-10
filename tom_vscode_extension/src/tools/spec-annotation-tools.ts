@@ -87,6 +87,12 @@ interface ValueTarget {
  * Where in a value an annotation goes: after paragraph `afterParagraph`, or
  * after the paragraph a text anchor names — exactly one of the three.
  */
+/** The change time a write records (SOM §11.9.10); default now. */
+interface ChangeTime {
+    /** `2026-11-07T14:05+01:00`: seconds cut, the offset kept as given. */
+    at?: string;
+}
+
 interface ParagraphAnchor {
     afterParagraph?: number;
     /** The paragraph that begins with this text (both trimmed, case-sensitive). */
@@ -95,7 +101,7 @@ interface ParagraphAnchor {
     afterTextContains?: string;
 }
 
-export interface SpecInsertCommentInput extends SpecEditOptions, ValueTarget, ParagraphAnchor {
+export interface SpecInsertCommentInput extends SpecEditOptions, ValueTarget, ParagraphAnchor, ChangeTime {
     text: string;
     author?: string;
     id?: string;
@@ -112,21 +118,21 @@ export interface SpecQuestionInput {
     starred?: boolean;
 }
 
-export interface SpecInsertQuestionInput extends SpecEditOptions, ParagraphAnchor {
+export interface SpecInsertQuestionInput extends SpecEditOptions, ParagraphAnchor, ChangeTime {
     question: SpecQuestionInput;
     afterComment?: string;
     path?: string;
     field?: string;
 }
 
-export interface SpecSetAnswerInput extends SpecEditOptions {
+export interface SpecSetAnswerInput extends SpecEditOptions, ChangeTime {
     questionId: string;
     answer: string;
     /** A review member's individual answer `**Answer (<id>):**` (§11.9.8); default the user's member id; '' the team answer. */
     author?: string;
 }
 
-export interface SpecEditCommentInput extends SpecEditOptions {
+export interface SpecEditCommentInput extends SpecEditOptions, ChangeTime {
     commentId: string;
     text: string;
 }
@@ -148,14 +154,14 @@ export interface SpecDecideMarksInput extends SpecEditOptions {
 
 export type SpecRemoveAllAnnotationsInput = SpecEditOptions;
 
-export interface SpecCommentChangeInput extends SpecEditOptions {
+export interface SpecCommentChangeInput extends SpecEditOptions, ChangeTime {
     markId: string;
     text: string;
     author?: string;
     marksRevision?: string;
 }
 
-export interface SpecEditMarkCommentInput extends SpecEditOptions {
+export interface SpecEditMarkCommentInput extends SpecEditOptions, ChangeTime {
     markId: string;
     text: string;
     marksRevision?: string;
@@ -262,7 +268,7 @@ function questionView(a: SpecReviewAnnotation): Record<string, unknown> {
         id: a.id, topic: a.topic, text: a.text,
         options: a.options.map((o) => ({ letter: o.letter, text: o.text, bold: o.bold })),
         recommended: a.recommended, answer: a.answer, answerLetter: a.answerLetter, open: a.open,
-        unresolved: a.unresolved, answerChangedAt: a.answerChangedAt,
+        unresolved: a.unresolved, changedAt: a.changedAt, answerChangedAt: a.answerChangedAt,
         answers: a.answers.map((x) => x.toJson()),
         starred: a.starred, combined: a.combined, path: a.path, field: a.field, line: a.line,
     };
@@ -397,8 +403,16 @@ function opInsertComment(deps: SpecToolDeps, ctx: EditContext, input: OpInput<Sp
         text: requireText(input.text, 'text'),
         author: input.author || deps.agentAuthor?.() || null,
         id: input.id || null,
+        ...atOf(input),
     });
     return { touched: input.path, result: { id, path: input.path, counts: countsOf(notes) } };
+}
+
+/** `{at}` when the caller gave a change time; else nothing (the runtime takes the clock's). */
+function atOf(input: ChangeTime): { at?: string } {
+    if (input.at === undefined || input.at === null || input.at === '') { return {}; }
+    if (typeof input.at !== 'string') { invalid('`at` is a change time, e.g. `2026-11-07T14:05+01:00`.'); }
+    return { at: input.at };
 }
 
 function draftOf(q: SpecQuestionInput | undefined): SpecQuestionDraft {
@@ -420,7 +434,7 @@ function opInsertQuestion(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<
     const notes = notesOf(ctx);
     if (input.afterComment) {
         const comment = locate(notes, input.afterComment);
-        notes.insertQuestionAfterComment(input.afterComment, draft);
+        notes.insertQuestionAfterComment(input.afterComment, draft, atOf(input));
         const where = comment?.path ?? '';
         return { touched: where, result: { id: draft.id, path: where, counts: countsOf(notes) } };
     }
@@ -429,7 +443,7 @@ function opInsertQuestion(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<
     }
     requireValue(ctx, { path: input.path, field: input.field });
     const afterParagraph = resolveParagraph(notes, { path: input.path, field: input.field }, input);
-    notes.insertQuestion({ path: input.path, field: input.field || null, afterParagraph, question: draft });
+    notes.insertQuestion({ path: input.path, field: input.field || null, afterParagraph, question: draft, ...atOf(input) });
     return { touched: input.path, result: { id: draft.id, path: input.path, counts: countsOf(notes) } };
 }
 
@@ -441,7 +455,7 @@ function opSetAnswer(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSe
     const where = locate(notes, id)?.path ?? '';
     // A member's individual answer when a member id names it (the call's, else the user's); else the team answer.
     const author = memberAuthorFor(deps, input.author);
-    notes.setAnswer(id, input.answer, author ? { author } : {});
+    notes.setAnswer(id, input.answer, { ...(author ? { author } : {}), ...atOf(input) });
     return { touched: where, result: { questionId: id, path: where, ...(author ? { author } : {}), counts: countsOf(notes) } };
 }
 
@@ -450,7 +464,7 @@ function opEditComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput<Spe
     const id = requireText(input.commentId, 'commentId');
     const text = requireText(input.text, 'text');
     const where = locate(notes, id)?.path ?? '';
-    notes.editComment(id, text);
+    notes.editComment(id, text, atOf(input));
     return { touched: where, result: { commentId: id, path: where } };
 }
 
@@ -509,6 +523,7 @@ function opCommentChange(deps: SpecToolDeps, ctx: EditContext, input: OpInput<Sp
     const commentId = notes.commentChange(id, text, {
         revision: input.marksRevision || notes.revision(),
         ...(input.author || deps.agentAuthor ? { author: input.author || deps.agentAuthor!() } : {}),
+        ...atOf(input),
     });
     return { touched: where, result: { markId: id, commentId, path: where, marksRevision: notes.revision(), counts: countsOf(notes) } };
 }
@@ -522,7 +537,7 @@ function opEditMarkComment(_deps: SpecToolDeps, ctx: EditContext, input: OpInput
     const id = requireText(input.markId, 'markId');
     const text = requireText(input.text, 'text');
     const where = markPath(notes, id);
-    notes.editMarkComment(id, text, { revision: input.marksRevision || notes.revision() });
+    notes.editMarkComment(id, text, { revision: input.marksRevision || notes.revision(), ...atOf(input) });
     return { touched: where, result: { markId: id, path: where, marksRevision: notes.revision() } };
 }
 
@@ -564,8 +579,8 @@ function opRemoveAllAnnotations(_deps: SpecToolDeps, ctx: EditContext, _input: O
  * exactly (false when a difference sits in fenced code or the text holds mark
  * delimiters — the new value is then written unmarked).
  */
-export function writeMarked(ctx: EditContext, path: string, field: string | null, text: string, author: string | null = null): { exact: boolean } {
-    const change = notesOf(ctx).setMarked({ path, field, text, ...(author ? { author } : {}) });
+export function writeMarked(ctx: EditContext, path: string, field: string | null, text: string, author: string | null = null, at: string | null = null): { exact: boolean } {
+    const change = notesOf(ctx).setMarked({ path, field, text, ...(author ? { author } : {}), ...atOf({ at: at ?? undefined }) });
     return { exact: change.exact };
 }
 
@@ -669,6 +684,11 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
     execute: async (input) => specAnnotationsImpl(liveDeps(), input),
 };
 
+/** The optional change time of a write (SOM §11.9.10). */
+const AT_PARAM = {
+    at: { type: 'string', description: 'The change time to record, `2026-11-07T14:05+01:00` (seconds cut, offset kept). Default now; give it when the change was made earlier (e.g. carried over from another copy).' },
+};
+
 export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
     { name: 'tomAi_specInsertComment', displayName: 'Spec: Insert Comment' },
     'Insert a reviewer comment `> ⬆️ **C-<n>** (author, time): text` after a paragraph; its id `id` or the next free one (answered). '
@@ -680,6 +700,7 @@ export const SPEC_INSERT_COMMENT_TOOL = editTool<SpecInsertCommentInput>(
         text: { type: 'string', description: 'The comment.' },
         author: { type: 'string', description: 'Who writes it. Default `agent_<role>` (the role you work in); give the user\'s name only when writing on their behalf.' },
         id: { type: 'string', description: 'The id to write, e.g. `C-12`; default the next free one.' },
+        ...AT_PARAM,
     },
     ['file', 'path', 'text'],
     specInsertCommentImpl,
@@ -694,6 +715,7 @@ export const SPEC_INSERT_QUESTION_TOOL = editTool<SpecInsertQuestionInput>(
         afterComment: { type: 'string', description: 'Insert directly after this comment (e.g. `C-12`).' },
         afterParagraph: { type: 'number', description: 'With `path`: the paragraph (0-based) the question follows; -1 for the start.' },
         ...ANCHOR_PARAMS,
+        ...AT_PARAM,
     },
     ['file', 'question'],
     specInsertQuestionImpl,
@@ -709,6 +731,7 @@ export const SPEC_SET_ANSWER_TOOL = editTool<SpecSetAnswerInput>(
         questionId: { type: 'string', description: 'The question id, e.g. `BQ-81` (from tomAi_specAnnotations).' },
         answer: { type: 'string', description: 'The answer; "" reopens the question.' },
         author: { type: 'string', description: 'A review member id: writes that member\'s individual answer `**Answer (<id>):**` (§11.9.8) instead of the team answer. Default: the user\'s member id when set (Status Page, Team review); "" writes the team answer.' },
+        ...AT_PARAM,
     },
     ['file', 'questionId', 'answer'],
     specSetAnswerImpl,
@@ -722,6 +745,7 @@ export const SPEC_EDIT_COMMENT_TOOL = editTool<SpecEditCommentInput>(
         ...EDIT_PARAMS,
         commentId: { type: 'string', description: 'The comment id, e.g. `C-12`.' },
         text: { type: 'string', description: 'The new text.' },
+        ...AT_PARAM,
     },
     ['file', 'commentId', 'text'],
     specEditCommentImpl,
@@ -776,6 +800,7 @@ export const SPEC_COMMENT_CHANGE_TOOL = editTool<SpecCommentChangeInput>(
         text: { type: 'string', description: 'The comment.' },
         author: { type: 'string', description: 'A review member id, written in the attribution token `{@author time}` after the comment (§11.9.8, §11.9.10). Default `agent_<role>` (the role you work in).' },
         marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
+        ...AT_PARAM,
     },
     ['file', 'markId', 'text'],
     specCommentChangeImpl,
@@ -793,6 +818,7 @@ export const SPEC_EDIT_MARK_COMMENT_TOOL = editTool<SpecEditMarkCommentInput>(
         markId: { type: 'string', description: 'The mark\'s id, e.g. `M-4` (from tomAi_specAnnotations).' },
         text: { type: 'string', description: 'The new comment.' },
         marksRevision: { type: 'string', description: 'The `marksRevision` the id was read at; default the document as it is now.' },
+        ...AT_PARAM,
     },
     ['file', 'markId', 'text'],
     specEditMarkCommentImpl,

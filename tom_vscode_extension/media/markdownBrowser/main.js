@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -318,6 +318,79 @@
             });
         });
 
+        // ---- Change times (SOM §11.9.10) ----
+        // A time written beside an author — a comment header's, an attribution
+        // token's, a question header's, an answer marker's — is shown as a small
+        // label (relative while recent, mdbChangeTimeLabel) with the full time as
+        // its tooltip, never as the notation. The element keeps the time written
+        // in `data-changed-at`, so labels can be refreshed and filters compare it.
+        /** The label of `changedAt` as HTML; '' when it is not a change time. */
+        function changeTimeHtml(changedAt) {
+            var shown = mdbChangeTimeLabel(changedAt);
+            if (!shown) { return ''; }
+            var attr = function(v) { return String(v).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+            return '<span class="mdb-time" data-changed-at="' + attr(changedAt) + '" title="' + attr(shown.title) + '">' + attr(shown.label) + '</span>';
+        }
+        /** The label of `changedAt` as an element. */
+        function changeTimeElement(changedAt) {
+            var holder = document.createElement('span');
+            holder.innerHTML = changeTimeHtml(changedAt);
+            return holder.firstChild;
+        }
+        /** Each label again, relative to now, when the reader comes back to the page: it keeps saying how long ago. */
+        function refreshChangeTimes() {
+            if (!docRoot) { return; }
+            docRoot.querySelectorAll('.mdb-time[data-changed-at]').forEach(function(el) {
+                var shown = mdbChangeTimeLabel(el.dataset.changedAt);
+                if (shown && el.textContent !== shown.label) { el.textContent = shown.label; el.title = shown.title; }
+            });
+        }
+        window.addEventListener('focus', refreshChangeTimes);
+        document.addEventListener('visibilitychange', function() { if (!document.hidden) { refreshChangeTimes(); } });
+        /**
+         * An element's text with each time label read as the time it stands for,
+         * so `**Answer (<time>):**` is recognised after its time was replaced.
+         */
+        function textWithTimes(el) {
+            if (!el.querySelector || !el.querySelector('.mdb-time')) { return el.textContent || ''; }
+            var copy = el.cloneNode(true);
+            copy.querySelectorAll('.mdb-time').forEach(function(t) { t.textContent = t.dataset.changedAt || ''; });
+            return copy.textContent || '';
+        }
+        /**
+         * Replace each change time written in the review blocks under `root`
+         * (comment headers, question headers, answer markers: inside a quote)
+         * with its label. Code and labels already drawn are left alone.
+         */
+        function labelChangeTimes(root) {
+            if (!root || typeof document.createTreeWalker !== 'function') { return; }
+            var walker = document.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+            var found = [];
+            for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+                MDB_CHANGE_TIMES.lastIndex = 0;
+                if (!MDB_CHANGE_TIMES.test(node.nodeValue || '')) { continue; }
+                var parent = node.parentNode;
+                if (!parent || !parent.closest || !parent.closest('blockquote') || parent.closest('code, pre, textarea, .mdb-time, .mdb-editor')) { continue; }
+                found.push(node);
+            }
+            found.forEach(function(text) {
+                var value = text.nodeValue || '';
+                var frag = document.createDocumentFragment();
+                var last = 0;
+                MDB_CHANGE_TIMES.lastIndex = 0;
+                for (var m = MDB_CHANGE_TIMES.exec(value); m; m = MDB_CHANGE_TIMES.exec(value)) {
+                    var label = changeTimeElement(m[0]);
+                    if (!label) { continue; }
+                    frag.appendChild(document.createTextNode(value.slice(last, m.index)));
+                    frag.appendChild(label);
+                    last = m.index + m[0].length;
+                }
+                if (last === 0) { return; }
+                frag.appendChild(document.createTextNode(value.slice(last)));
+                text.parentNode.replaceChild(frag, text);
+            });
+        }
+
         var reviewMarksRegistered = false;
         function registerReviewMarks() {
             if (reviewMarksRegistered || typeof marked === 'undefined' || typeof marked.use !== 'function') { return; }
@@ -326,6 +399,19 @@
                 return String(text).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
             }
             function icon(name, title) { return '<span class="codicon codicon-' + name + ' mdb-cm-icon" title="' + title + '"></span>'; }
+            /** An attribution token: its authors and votes as written, its change time as a label. */
+            function tokenHtml(raw) {
+                if (!raw) { return ''; }
+                var a = mdbAttribution(raw);
+                if (!a || !a.changedAt) { return '<span class="mdb-rm-token">' + esc(raw) + '</span>'; }
+                var rest = raw.split(a.changedAt).join('').replace(/\{@\s+/, '{@').replace(/\s+\}$/, '}');
+                return (rest === '{@}' ? '' : '<span class="mdb-rm-token">' + esc(rest) + '</span>') + changeTimeHtml(a.changedAt);
+            }
+            /** `data-changed-at` for the time an attribution token records. */
+            function timeAttr(raw) {
+                var a = raw ? mdbAttribution(raw) : null;
+                return a && a.changedAt ? ' data-changed-at="' + esc(a.changedAt) + '"' : '';
+            }
             marked.use({ extensions: [{
                 name: 'reviewMark',
                 level: 'inline',
@@ -374,15 +460,15 @@
                             + (token.attached ? '' : '<button class="mdb-rm-btn mdb-rm-comment codicon codicon-comment" title="Comment on this change"></button>')
                         : noteButtons(token.kind === 'highlight' && !token.comment);
                     var attached = token.attached
-                        ? (token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '')
-                            + '<span class="mdb-rm" data-kind="note" data-raw="' + esc(token.attached.raw) + '"' + authorAttrs(token.attached.authors) + '>'
+                        ? tokenHtml(token.token)
+                            + '<span class="mdb-rm" data-kind="note" data-raw="' + esc(token.attached.raw) + '"' + authorAttrs(token.attached.authors) + timeAttr(token.attached.tokenAfter) + '>'
                             + '<span class="mdb-cm mdb-cm-comment mdb-cm-change-comment" title="Comment on this change">' + icon('comment', 'Comment on this change')
                             + esc(token.attached.text) + '</span>' + viewButtons(token.attached.text, 'Comment on a change')
                             + '<span class="mdb-rm-actions">' + noteButtons(false) + '</span></span>'
-                            + (token.attached.tokenAfter ? '<span class="mdb-rm-token">' + esc(token.attached.tokenAfter) + '</span>' : '')
+                            + tokenHtml(token.attached.tokenAfter)
                         : '';
-                    var ownToken = !token.attached && token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '';
-                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '"' + authorAttrs(token.authors) + voteAttrs(token.votes) + '>'
+                    var ownToken = !token.attached ? tokenHtml(token.token) : '';
+                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '"' + authorAttrs(token.authors) + voteAttrs(token.votes) + timeAttr(token.token) + '>'
                         + renderMark.call(this, token) + (change ? '' : viewButtons(token.noteText || '', 'Comment'))
                         + '<span class="mdb-rm-actions">' + buttons + '</span>' + attached + ownToken + '</span>';
                 },
@@ -1191,6 +1277,7 @@
             }
             if (!shownText) { return; }
             for (var w = 0; w < wrappers.length; w++) {
+                labelChangeTimes(wrappers[w]);
                 decorateWrapper(wrappers[w], blocks[w]);
             }
         }
@@ -1216,7 +1303,7 @@
                 var markers = mdbAnswerMarkers(lines[line]);
                 for (var k = 0; k < markers.length; k++) {
                     strongs = strongs || Array.prototype.filter.call(wrapper.querySelectorAll('strong'), function(s) {
-                        return /^Answer(?: \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})\))?:$/.test((s.textContent || '').trim());
+                        return /^Answer(?: \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})\))?:$/.test(textWithTimes(s).trim());
                     });
                     var strong = strongs[markerIndex++];
                     if (strong) { addAnswerButton(strong, block, line - block.startLine, markers[k].column); }
@@ -1249,7 +1336,7 @@
             strong.insertAdjacentElement('afterend', accept);
             function settle(action, text) {
                 var lines = shownLines();
-                return mdbProposalEdit(lines, block.startLine + offset, action, text);
+                return mdbProposalEdit(lines, block.startLine + offset, action, text, action === 'accept' ? mdbReviewTime() : undefined);
             }
             accept.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -1304,7 +1391,10 @@
          */
         function decorateCommentAuthorship(wrapper, block) {
             var lines = shownLines();
-            var author = mdbCommentAuthor(lines[block.startLine]);
+            var header = mdbCommentHeader(lines[block.startLine]);
+            var author = header.author;
+            // When it was written (SOM §11.9.10), for the navigation's "changed since".
+            if (header.changedAt) { wrapper.dataset.changedAt = header.changedAt; } else { delete wrapper.dataset.changedAt; }
             // The user's own comment (their review member id) is marked, also when decorated after the render.
             wrapper.classList.toggle('mdb-own', !!author && author === reviewMemberId);
             if (author) {
@@ -1344,7 +1434,7 @@
             });
             docRoot.querySelectorAll('strong').forEach(function(el) {
                 // Once decorated, the label shows display names; its ids are kept in data-members.
-                var m = el.dataset.members ? [null, el.dataset.members.split('|').join(',')] : /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
+                var m = el.dataset.members ? [null, el.dataset.members.split('|').join(',')] : /^Answer \(([^)]*)\):?$/.exec(textWithTimes(el).trim());
                 if (!m) { return; }
                 var ids = m[1].split(',').map(function(x) { return x.trim(); });
                 if (ids.indexOf(reviewMemberId) >= 0) { (el.closest('p, li') || el).classList.add('mdb-own'); }
@@ -1390,7 +1480,7 @@
             var head = '\u2B06\uFE0F **' + nextCommentId() + '** ' + (commentAuthor ? '(' + commentAuthor + '): ' : '');
             openEditor(trigger, wrapper, head, function(value) {
                 var lines = shownLines();
-                var written = mdbWriteComment(value, nextCommentId(), commentAuthor);
+                var written = mdbWriteComment(value, nextCommentId(), commentAuthor, mdbReviewTime());
                 if (!written) { return null; }
                 var source = lines.slice(block.startLine, block.endLine).join('\n');
                 // A blank line before the comment, and one after it when the next
@@ -1423,7 +1513,7 @@
                 var removeArmed = false;
                 openEditor(btn, wrapper, comment.text, function(value) {
                     if (value === comment.text) { return null; }
-                    var written = mdbWriteComment(value, nextCommentId(), commentAuthor);
+                    var written = mdbWriteComment(value, nextCommentId(), commentAuthor, mdbReviewTime());
                     if (written) {
                         return { startLine: comment.startLine, endLine: comment.endLine, expected: source, replacement: written };
                     }
@@ -1477,6 +1567,10 @@
             strong.insertAdjacentElement('afterend', btn);
             var startLines = shownLines();
             if (!mdbAnswerAt(startLines, block.startLine + offset, column).text) { btn.dataset.unanswered = '1'; }
+            // The question's latest change (SOM §11.9.10): its header, its team answer, its members' answers.
+            var asked = mdbQuestionAt(startLines, block.startLine + offset, runtimeQuestions());
+            var changedAt = mdbLatestChangeTime(startLines.slice(asked ? asked.line : block.startLine + offset, block.startLine + offset + 1).join('\n'));
+            if (changedAt) { btn.dataset.changedAt = changedAt; }
             /** The marker's line now: the block's lines move with edits above it. */
             btn.__mdbLine = function() { return block.startLine + offset; };
             /** The answer's lines and its question, read when used: an edit elsewhere may have moved them. */
@@ -1489,7 +1583,7 @@
                 return {
                     startLine: w.line, endLine: w.current.endLine,
                     expected: w.lines.slice(w.line, w.current.endLine).join('\n'),
-                    replacement: mdbWriteAnswer(w.lines, w.line, column, value),
+                    replacement: mdbWriteAnswer(w.lines, w.line, column, value, mdbReviewTime()),
                 };
             }
             btn.__mdbOpenAnswer = function() {
@@ -1827,13 +1921,21 @@
             docRoot.querySelectorAll('strong').forEach(function(el) {
                 var ids = el.dataset.members ? el.dataset.members.split('|') : null;
                 if (!ids) {
-                    var m = /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
+                    var m = /^Answer \(([^)]*)\):?$/.exec(textWithTimes(el).trim());
                     if (!m) { return; }
-                    ids = m[1].split(',').map(function(x) { return x.trim(); }).filter(function(x) { return x && !MDB_CHANGE_TIME.test(x); });
+                    var parts = m[1].split(',').map(function(x) { return x.trim(); });
+                    ids = parts.filter(function(x) { return x && !MDB_CHANGE_TIME.test(x); });
                     if (ids.length === 0) { return; }
                     el.dataset.members = ids.join('|');
+                    var time = parts.filter(function(x) { return MDB_CHANGE_TIME.test(x); })[0];
+                    if (time) { el.dataset.changedAt = time; }
                 }
-                el.textContent = 'Answer (' + ids.map(memberName).join(', ') + '):';
+                // The members' names, and the time the answer records as its label.
+                el.textContent = 'Answer (' + ids.map(memberName).join(', ') + (el.dataset.changedAt ? ', ' : '') + '):';
+                if (el.dataset.changedAt) {
+                    var label = changeTimeElement(el.dataset.changedAt);
+                    if (label) { el.insertBefore(label, el.lastChild.splitText(el.lastChild.length - 2)); }
+                }
                 el.title = ids.join(', ');
                 var line = el.closest('p, li') || el;
                 line.dataset.authors = ids.join('|');
@@ -2126,9 +2228,46 @@
             if (authors.length === 0) { return !navHiddenAuthors[NO_AUTHOR]; }
             return authors.some(function(a) { return !navHiddenAuthors[a]; });
         }
-        /** The targets of `selector` in document order that the author filter lets through. */
+        // ---- Changed since: what was written or changed at or after a chosen time ----
+        // Comment blocks, marks and questions record their change time (SOM
+        // §11.9.10, `data-changed-at`); one written without a time is older than
+        // any time chosen. Markers and conflicts carry no time and stay found.
+        var navSinceEl = document.getElementById('navSince');
+        var navSinceAtEl = document.getElementById('navSinceAt');
+        /** The chosen time as epoch ms; null for any time (or a chosen time not filled in yet). */
+        function navSinceMs() {
+            var choice = navSinceEl ? navSinceEl.value : '';
+            var now = Date.now();
+            if (choice === '1h') { return now - 3600000; }
+            if (choice === '24h') { return now - 86400000; }
+            if (choice === '7d') { return now - 7 * 86400000; }
+            if (choice === 'today') { var d = new Date(now); d.setHours(0, 0, 0, 0); return d.getTime(); }
+            if (choice === 'custom' && navSinceAtEl && navSinceAtEl.value) {
+                var ms = Date.parse(navSinceAtEl.value);
+                return isNaN(ms) ? null : ms;
+            }
+            return null;
+        }
+        /** Whether the "changed since" filter lets `el` through. */
+        function navSinceAllows(el) {
+            var since = navSinceMs();
+            if (since === null) { return true; }
+            if (!el.classList.contains('mdb-comment-block') && !el.classList.contains('mdb-rm') && !el.classList.contains('mdb-answer-btn')) { return true; }
+            var at = el.dataset.changedAt ? Date.parse(el.dataset.changedAt) : NaN;
+            return !isNaN(at) && at >= since;
+        }
+        if (navSinceEl) {
+            navSinceEl.addEventListener('change', function() {
+                if (navSinceAtEl) { navSinceAtEl.hidden = navSinceEl.value !== 'custom'; }
+            });
+        }
+        /** Whether the author and the "changed since" filters let `el` through. */
+        function navAllows(el) {
+            return navAuthorAllows(el) && navSinceAllows(el);
+        }
+        /** The targets of `selector` in document order that the filters let through. */
         function navTargetsOf(selector) {
-            return Array.prototype.slice.call(docRoot.querySelectorAll(selector)).filter(navAuthorAllows);
+            return Array.prototype.slice.call(docRoot.querySelectorAll(selector)).filter(navAllows);
         }
         /** Rebuild the Whose list from the document shown, keeping what was unticked. */
         function renderNavAuthors() {
@@ -2185,6 +2324,12 @@
                 : ticked.length === navKindBoxes.length ? 'All'
                     : name(ticked[0]) + (ticked.length > 1 ? ' + ' + (ticked.length - 1) : '');
             navKindBtn.title = 'What the arrows step through: ' + (ticked.length ? ticked.map(name).join(', ') : 'nothing') + ' — tick one kind or several';
+            // A "changed since" filter in force is said on the button too.
+            var since = navSinceEl && navSinceEl.value ? navSinceEl.options[navSinceEl.selectedIndex].textContent.replace(/…$/, '') : '';
+            if (since) {
+                navKindBtn.textContent += ' · since';
+                navKindBtn.title += '; only what changed since: ' + since.toLowerCase();
+            }
         }
         var navCurrent = null;
         // Where navigation goes on from after a save or a decision replaced
@@ -2289,7 +2434,7 @@
                 // still one of them, else from its place.
                 if (navCurrent && navCurrent.isConnected) {
                     var selector = navSelector(navKinds());
-                    if (!selector || !navCurrent.matches(selector) || !navAuthorAllows(navCurrent)) { setNavAnchor(navKey(navCurrent)); }
+                    if (!selector || !navCurrent.matches(selector) || !navAllows(navCurrent)) { setNavAnchor(navKey(navCurrent)); }
                 } else if (navCurrent) {
                     navCurrent.classList.remove('mdb-nav-current');
                     navCurrent = null;
