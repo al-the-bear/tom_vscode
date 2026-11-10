@@ -1,5 +1,5 @@
 /**
- * The @WS Logs viewer's session choice (media/questLogs/main.js): one session
+ * The @CHAT Logs viewer's session choice (media/questLogs/main.js): one session
  * for the whole viewer, so MD Trail and Trail (the same live-trail.md) never
  * disagree.
  *
@@ -54,7 +54,7 @@ const plan = (tab: string, sessions: string[], selected: string) => ({
     plan: { sessions, buttons: sessions, showDropdown: false, selected },
 });
 
-describe('@WS Logs: one session for every tab', () => {
+describe('@CHAT Logs: one session for every tab', () => {
     test('QS-1: chosen on one tab, used on all', () => {
         const { win, posted, state } = mount();
         const viewer = logs(win);

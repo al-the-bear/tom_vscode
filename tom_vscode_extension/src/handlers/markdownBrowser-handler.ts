@@ -75,6 +75,7 @@ import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
 import { runQuestionAssist, type QuestionAssistDeps } from '../services/questionAssist.js';
+import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
 import { liveAssistDeps } from '../services/assistLiveDeps.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
@@ -690,7 +691,8 @@ class MdBrowserPanel {
                         use, filePath: current.filePath, questionId: String(msg.questionId || ''),
                         ...(Number.isInteger(msg.answerLine) ? { answerLine: msg.answerLine } : {}),
                     }).then((outcome) => {
-                        if (!outcome.ok) { void vscode.window.showWarningMessage(`${use === 'grillMe' ? 'Grill me' : 'Explain in detail'}: ${outcome.error}`); }
+                        const error = outcome.ok ? outcome.answerError : outcome.error;
+                        if (error) { void vscode.window.showWarningMessage(`${use === 'grillMe' ? 'Grill me' : 'Explain in detail'}: ${error}`); }
                     });
                     break;
                 }
@@ -1308,12 +1310,26 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     reopenDecision: {
         unavailable: () => (mdBrowserContext ? processActions().reopenDecisionUnavailableNow() : 'the extension is not ready'),
         run: async () => { if (mdBrowserContext) { await processActions().reopenDecision(mdBrowserContext); } },
+        options: () => processActions().decisionOptionLabels(),
+        take: async (label) => { await processActions().takeDecisionOption(label); },
     },
 };
 
 /** Grill me / Explain in detail's live collaborators: the shared assist deps and the file. */
 function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssistDeps {
-    return { ...liveAssistDeps(context), readText: (abs) => fs.readFileSync(abs, 'utf8') };
+    return {
+        ...liveAssistDeps(context),
+        readText: (abs) => fs.readFileSync(abs, 'utf8'),
+        // The closing answer step: the question panel with the question's choices, the answer written as tomAi_mdSetAnswer writes it.
+        askAnswer: async (input) => (await import('./askUser-handler.js')).askUserWithChoices(input),
+        fallbackPrompt: () => readChatQuestionsConfig().fallbackPrompt,
+        writeAnswer: async (filePath, question, pick) => {
+            const target = { file: filePath, id: question.id, line: question.line };
+            const raw = pick.kind === 'proposal' ? await liveMdAnswerWriter.acceptProposal(target)
+                : await liveMdAnswerWriter.setAnswer(pick.kind === 'option' ? { ...target, option: pick.letter } : { ...target, answer: pick.text });
+            try { const r = JSON.parse(raw) as { ok?: boolean; error?: string }; return r.ok ? '' : (r.error ?? 'refused'); } catch { return raw; }
+        },
+    };
 }
 
 function processActions(): typeof import('../services/processActionService') {

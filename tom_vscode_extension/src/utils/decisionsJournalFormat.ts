@@ -1,7 +1,7 @@
 /**
  * Markdown shapes for the **Decisions** journal — `decisions.<quest>.md`, one
  * entry per archived *completed* todo that carried decisions, shown in the @WS
- * panel's Logs section next to the Questions journal. (`todoArchive.ts` owns
+ * panel's Documentation section next to the Questions journal. (`todoArchive.ts` owns
  * that eligibility rule; this module formats whatever it is handed.)
  *
  * A todo holds its open questions in `decisions[]` while it is alive. Archiving

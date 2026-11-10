@@ -1,5 +1,5 @@
 /**
- * The @WS Logs panel's session actions on the host (runChatSessionAction →
+ * The @CHAT Logs panel's session actions on the host (runChatSessionAction →
  * the chat panel's runSessionAction): each acts on the session selected in
  * the Logs panel, never on `default` or on a session picked again.
  *
@@ -61,7 +61,7 @@ const commands = (): unknown[][] => stubbed.spies.byMethod('commands.executeComm
 const since = (n: number): unknown[][] => commands().slice(n);
 const fsPathOf = (u: unknown): string => (u as { fsPath: string }).fsPath;
 
-describe('the @WS Logs session actions', () => {
+describe('the @CHAT Logs session actions', () => {
     test('LA-1: the trail summary of the selected session', async () => {
         const summary = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic', session: SESSION }, QUEST);
         assert.ok(summary, 'a summary path for the session');

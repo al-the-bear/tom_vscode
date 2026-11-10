@@ -1,5 +1,5 @@
 /**
- * Wiring guard for the @WS → Logs → **Current Prompt** tab.
+ * Wiring guard for the @CHAT → Logs → **Current Prompt** tab.
  *
  * The catalogue and the file mapping are pinned as pure functions in
  * `questLogFiles.test.ts`. What that cannot reach is whether anything actually

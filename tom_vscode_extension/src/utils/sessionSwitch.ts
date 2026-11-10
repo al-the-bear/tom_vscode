@@ -1,5 +1,5 @@
 /**
- * The session switch of the @WS Logs tabs — pure, so the plan the webview
+ * The session switch of the @CHAT Logs tabs — pure, so the plan the webview
  * draws is tested here (src/handlers/questLogs-handler.ts computes it,
  * media/questLogs/main.js only renders it).
  *

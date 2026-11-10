@@ -2,7 +2,7 @@
  * Tests for the shared quest-id → path-segment normalisation.
  *
  * Four subsystems derive a path from a quest id — the live-trail writer, the
- * extension-config store, the chat panel's trail opener, and the @WS Logs
+ * extension-config store, the chat panel's trail opener, and the @CHAT Logs
  * viewer. They read and write each other's files, so any disagreement about
  * how an id becomes a folder name shows up as a silently empty view rather
  * than an error. These tests pin the single rule they all share.

@@ -4,7 +4,10 @@
  * outside the queue, in the ANTHROPIC panel, in a temporary session based on
  * the session the document's work runs in — so it does not wait for a running
  * walk and still knows the context. The temporary session is removed when the
- * turn ends.
+ * turn ends. When the question is still open then, the question panel offers
+ * the question's own choices — its options (the recommended one marked), the
+ * proposed answer when the turn left one, Leave it open — and takes a typed
+ * answer too; the choice is written into the Answer line.
  *
  * vscode-free: the file, the config, the sessions and the send come in as
  * {@link QuestionAssistDeps}.
@@ -14,6 +17,7 @@ import * as path from 'path';
 import { buildAssistPrompt, type AssistPromptsSection } from '../utils/assistPrompts';
 import { readMdQuestions, type MdQuestion } from '../utils/mdQuestions';
 import { temporarySessionName } from '../utils/questInbox';
+import { clickedChoiceId, type AskChoice } from '../utils/askChoices';
 
 export type QuestionAssistUse = 'grillMe' | 'explainInDetail';
 
@@ -38,11 +42,17 @@ export interface QuestionAssistDeps {
     deleteSession(folder: string, name: string): void;
     /** Run the prompt in the ANTHROPIC panel, in `session`. */
     send(prompt: string, session: string, source: string): Promise<{ ok: boolean; error?: string; rejected?: boolean }>;
+    /** The question panel (tomAi_askUser with choices); answers the user's reply as the tool answers it. */
+    /** The question panel's timeout answer, which is no answer. */
+    fallbackPrompt?(): string | undefined;
+    askAnswer?(input: { questions: string[]; title: string; choices: AskChoice[] }): Promise<string>;
+    /** Write the Answer line (`option`: a letter) or accept the proposal; answers an error text, '' when written. */
+    writeAnswer?(filePath: string, question: MdQuestion, answer: AnswerPick): Promise<string>;
     now?(): Date;
 }
 
 export type QuestionAssistOutcome =
-    | { ok: true; session: string; basedOn: string | null; prompt: string }
+    | { ok: true; session: string; basedOn: string | null; prompt: string; answered?: AnswerPick; answerError?: string }
     | { ok: false; error: string; session?: string };
 
 const SOURCE: Record<QuestionAssistUse, string> = { grillMe: 'Grill me', explainInDetail: 'Explain in detail' };
@@ -104,8 +114,72 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
         if (!sent.ok) {
             return { ok: false, session, error: sent.rejected ? 'the ANTHROPIC panel is busy with another request — try again when it is done' : (sent.error ?? 'the send failed') };
         }
-        return { ok: true, session, basedOn, prompt };
     } finally {
         try { deps.deleteSession(folder, session); } catch { /* gone already */ }
     }
+    const closing = await closingAnswer(deps, req);
+    return { ok: true, session, basedOn, prompt, ...closing };
+}
+
+/** What the closing answer step chose: an option, the proposal, a typed answer, or nothing. */
+export type AnswerPick =
+    | { kind: 'option'; letter: string }
+    | { kind: 'proposal' }
+    | { kind: 'text'; text: string };
+
+const ACCEPT_PROPOSAL_ID = 'accept-proposal';
+const LEAVE_OPEN_ID = 'leave-open';
+const optionChoiceId = (letter: string): string => `option-${letter}`;
+
+/** One line of an option's text on a button. */
+function shortLabel(text: string, max = 70): string {
+    const one = text.replace(/\s+/g, ' ').trim();
+    return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
+
+/**
+ * The question panel at the end of an assist: the question, its proposed
+ * answer, and its own choices — the proposal first when there is one, then
+ * each option (the recommended one marked), then Leave it open. A typed reply
+ * is an answer of its own.
+ */
+export function closingAnswerAsk(question: MdQuestion, file: string): { questions: string[]; title: string; choices: AskChoice[] } {
+    const lines = [`${question.id}${question.topic ? ` — ${question.topic}` : ''}: ${question.text}`.trim()];
+    if (question.proposed) { lines.push(`Proposed answer (${question.proposed.source}): ${question.proposed.text}`); }
+    lines.push('Pick one, or type your own answer. It is written into the Answer line.');
+    const choices: AskChoice[] = [];
+    if (question.proposed) { choices.push({ id: ACCEPT_PROPOSAL_ID, label: 'Accept the proposed answer', kind: 'answer' }); }
+    for (const o of question.options) {
+        const recommended = question.recommended === o.letter ? ' (recommended)' : '';
+        choices.push({ id: optionChoiceId(o.letter), label: `(${o.letter}) ${shortLabel(o.text)}${recommended}`, kind: 'answer' });
+    }
+    choices.push({ id: LEAVE_OPEN_ID, label: 'Leave it open', kind: 'answer' });
+    return { questions: [lines.join('\n\n')], title: `Answer ${question.id} in ${file}`, choices };
+}
+
+/** The reply of the closing panel read back: a choice clicked (choiceAnswer's text), a typed answer, or nothing. */
+export function interpretClosingReply(reply: string, question: MdQuestion, fallbackPrompt?: string): AnswerPick | undefined {
+    const text = reply.trim();
+    if (!text || text.startsWith('askUser error') || (fallbackPrompt && text === fallbackPrompt.trim())) { return undefined; }
+    const id = clickedChoiceId(text);
+    if (id !== undefined) {
+        if (id === ACCEPT_PROPOSAL_ID) { return question.proposed ? { kind: 'proposal' } : undefined; }
+        const option = question.options.find((o) => optionChoiceId(o.letter) === id);
+        return option ? { kind: 'option', letter: option.letter } : undefined;
+    }
+    return { kind: 'text', text };
+}
+
+/** After the turn: the question still open, the user picks or types its answer and it is written. */
+async function closingAnswer(deps: QuestionAssistDeps, req: QuestionAssistRequest): Promise<{ answered?: AnswerPick; answerError?: string }> {
+    if (!deps.askAnswer || !deps.writeAnswer) { return {}; }
+    let question: MdQuestion | undefined;
+    try { question = findQuestion(readMdQuestions(deps.readText(req.filePath)), req.questionId, req.answerLine); } catch { return {}; }
+    if (!question?.open) { return {}; }
+    const rel = path.relative(deps.workspaceRoot, req.filePath).split(path.sep).join('/');
+    const reply = await deps.askAnswer(closingAnswerAsk(question, rel));
+    const pick = interpretClosingReply(reply, question, deps.fallbackPrompt?.());
+    if (!pick) { return {}; }
+    const error = await deps.writeAnswer(req.filePath, question, pick);
+    return error ? { answerError: `the answer to ${question.id} could not be written: ${error}` } : { answered: pick };
 }

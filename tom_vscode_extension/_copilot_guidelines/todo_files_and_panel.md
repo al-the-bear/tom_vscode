@@ -232,7 +232,7 @@ Two behaviours hang off the status:
 
 - **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies
   the `decisions[]` of each archived todo into `decisions.<quest>.md` (the
-  @WS → Logs → Decisions tab) with the todo id and the archive timestamp, so the
+  @WS → Documentation → Decisions tab) with the todo id and the archive timestamp, so the
   reasoning outlives the todo. It is a **copy** — the archived todo keeps its
   block — and two things narrow what gets written. Only *archiving* journals:
   deleting a todo throws it away, and recording its open questions as decisions
@@ -360,7 +360,7 @@ _ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
   session is deleted (`removeSessionStorage` removes the storage root); the
   SESSIONS view's confirmation names the open todos that go with it.
 - The SESSION TODOS view's **session switch** is `planSessionSwitch`
-  (`utils/sessionSwitch.ts`, the @WS Logs one) over the sessions that have
+  (`utils/sessionSwitch.ts`, the @CHAT Logs one) over the sessions that have
   todos, most recently written first; each chip shows the open count. The
   SESSIONS view shows `☑ <open>` per session.
 - The former per-machine file `session-todo.<host>.<quest>.todo.yaml` (and the

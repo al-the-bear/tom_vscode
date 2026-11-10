@@ -1,6 +1,6 @@
 /**
  * Markdown shapes for the **Questions** journal — `questions.<quest>.md`, one
- * entry per resolved ask-the-user call, shown in the @WS panel's Logs section.
+ * entry per resolved ask-the-user call, shown in the @WS panel's Documentation section.
  *
  * The ask tools block a running prompt until the user answers, and until now
  * that exchange left no trace: the question was in the model's tool call and

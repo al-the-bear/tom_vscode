@@ -1,6 +1,6 @@
 /**
  * Appender for the **Questions** journal — `_ai/quests/<quest>/questions.md`,
- * the file behind the @WS panel's Logs → Questions tab.
+ * the file behind the @WS panel's Documentation → Questions tab.
  *
  * Every resolved ask-the-user call lands here: the questions, the verbatim
  * answer, which channel produced it and how long the prompt sat blocked. The

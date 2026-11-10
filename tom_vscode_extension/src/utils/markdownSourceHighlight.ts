@@ -1,5 +1,5 @@
 /**
- * Minimal markdown **source** highlighter for the @WS panel's Logs viewer.
+ * Minimal markdown **source** highlighter for the @CHAT panel's Logs viewer.
  *
  * Most of the Logs sub-tabs show a quest file as raw markdown rather than
  * rendered output, so the reader sees exactly what is on disk. There is no

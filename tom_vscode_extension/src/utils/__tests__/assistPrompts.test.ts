@@ -86,8 +86,11 @@ describe('Assist prompts', () => {
         for (const use of ['explainInDetail', 'explainDecision', 'grillMeDecision'] as const) {
             const body = ASSIST_PROMPT_INFO[use].defaultBody;
             assert.match(body, /Name every file as a Markdown link relative to the note/, use);
-            // The text before the rule, as a workspace seeded it: seeding replaces it.
-            const before = body.replace(/\n {3}Name every file as a Markdown link[^\n]*/, '');
+            // The text before the rule, as a workspace seeded it: seeding replaces it. Back then the decision
+            // prompts' note had only Back to the decision, not the decision's own choices.
+            const before = body.replace(/\n {3}Name every file as a Markdown link[^\n]*/, '')
+                .replace('its bar carries the decision\'s own choices — a click takes that choice — and **Back to the decision**, which reopens', 'its button **Back to the decision** reopens')
+                .replace(' When my click took a choice (`decisionTaken` in the answer), the extension made it — end your answer.', '');
             assert.notEqual(before, body);
             const config: { assistPrompts?: AssistPromptsSection } = {
                 assistPrompts: { templates: [{ id: ASSIST_PROMPT_INFO[use].defaultId, name: 'x', template: before }] },

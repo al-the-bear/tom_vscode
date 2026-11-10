@@ -3,7 +3,7 @@
  * folder and its files under `_ai/quests/`.
  *
  * The same normalisation was open-coded in four places (the live-trail writer,
- * the extension-config store, the chat panel's trail opener, and the @WS Logs
+ * the extension-config store, the chat panel's trail opener, and the @CHAT Logs
  * viewer). They must agree exactly — a quest whose folder the writer calls
  * `my_quest` but the reader calls `my-quest` silently reads an empty file — so
  * the rule lives here once. No `vscode`, no `fs`: absolute-path resolution

@@ -152,8 +152,8 @@ const EXPLAIN_DECISION_BODY_V1 = [
     '4. Do not move the process yourself.',
 ].join('\n');
 
-/** How the advice is shown: the note with the button that reopens the decision; or briefly in the question panel. */
-const SHOW_DECISION_ADVICE = [
+/** How the advice was shown before the note carried the decision's choices. */
+const SHOW_DECISION_ADVICE_V1 = [
     '3. Show the note with tomAi_askInMdBrowser and `reopenDecision: true`: its button **Back to the decision** reopens the decision for me; Keep this file is mine to decide.',
     '   When your advice fits in a few sentences, you may instead give it through tomAi_askUser and skip the note; the decision reopens when your turn ends.',
     '4. Do not move the process and do not decide: the decision stays mine.',
@@ -167,10 +167,17 @@ const EXPLAIN_DECISION_BODY_V2 = [
     '',
     '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
     '2. Write your advice to `${noteFile}`: each choice — what happens next if it is taken, what speaks for and against it given the work so far — and which one you would take and why.',
-    SHOW_DECISION_ADVICE,
+    SHOW_DECISION_ADVICE_V1,
 ].join('\n');
 
-const EXPLAIN_DECISION_BODY = [
+/** How the advice is shown: the note with the decision's own choices and Back to the decision; or briefly in the question panel. */
+const SHOW_DECISION_ADVICE = [
+    '3. Show the note with tomAi_askInMdBrowser and `reopenDecision: true`: its bar carries the decision\'s own choices — a click takes that choice — and **Back to the decision**, which reopens the decision for me; Keep this file is mine to decide.',
+    '   When your advice fits in a few sentences, you may instead give it through tomAi_askUser and skip the note; the decision reopens when your turn ends.',
+    '4. Do not move the process and do not decide: the decision stays mine. When my click took a choice (`decisionTaken` in the answer), the extension made it — end your answer.',
+].join('\n');
+
+const EXPLAIN_DECISION_LINES = [
     '**Explain a decision** of process ${process}, at ${position}.',
     '',
     'The decision: ${decision}',
@@ -178,8 +185,12 @@ const EXPLAIN_DECISION_BODY = [
     '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
     '2. Write your advice to `${noteFile}`: each choice — what happens next if it is taken, what speaks for and against it given the work so far — and which one you would take and why.',
     LINK_FILES,
-    SHOW_DECISION_ADVICE,
-].join('\n');
+];
+
+/** Explain a decision before its note carried the decision's choices. */
+const EXPLAIN_DECISION_BODY_V3 = [...EXPLAIN_DECISION_LINES, SHOW_DECISION_ADVICE_V1].join('\n');
+
+const EXPLAIN_DECISION_BODY = [...EXPLAIN_DECISION_LINES, SHOW_DECISION_ADVICE].join('\n');
 
 const GRILL_ME_DECISION_LINES = [
     '**Grill me** on a decision of process ${process}, at ${position}.',
@@ -194,7 +205,10 @@ const GRILL_ME_DECISION_LINES = [
 ];
 
 /** Grill me at a decision before its notes linked their files. */
-const GRILL_ME_DECISION_BODY_V1 = [...GRILL_ME_DECISION_LINES, SHOW_DECISION_ADVICE].join('\n');
+const GRILL_ME_DECISION_BODY_V1 = [...GRILL_ME_DECISION_LINES, SHOW_DECISION_ADVICE_V1].join('\n');
+
+/** Grill me at a decision before its note carried the decision's choices. */
+const GRILL_ME_DECISION_BODY_V2 = [...GRILL_ME_DECISION_LINES, LINK_FILES, SHOW_DECISION_ADVICE_V1].join('\n');
 
 const GRILL_ME_DECISION_BODY = [...GRILL_ME_DECISION_LINES, LINK_FILES, SHOW_DECISION_ADVICE].join('\n');
 
@@ -212,10 +226,10 @@ const FINISH_REVIEW_ROUND_BODY = [
  * current default. An edited one is kept.
  */
 const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
-    explainDecision: [EXPLAIN_DECISION_BODY_V1, EXPLAIN_DECISION_BODY_V2],
+    explainDecision: [EXPLAIN_DECISION_BODY_V1, EXPLAIN_DECISION_BODY_V2, EXPLAIN_DECISION_BODY_V3],
     grillMe: [GRILL_ME_BODY_V1],
     explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1, EXPLAIN_IN_DETAIL_BODY_V2],
-    grillMeDecision: [GRILL_ME_DECISION_BODY_V1],
+    grillMeDecision: [GRILL_ME_DECISION_BODY_V1, GRILL_ME_DECISION_BODY_V2],
     finishReviewRound: [[
         '**Finish review round** of step ${step} (process ${process}).',
         '',

@@ -94,6 +94,7 @@ import {
     writeAnswerTrail,
 } from '../services/copilotTrailService';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { getQuestLogsClientConfig, getQuestLogsHtmlFragment, handleQuestLogsMessage } from './questLogs-handler';
 import { isPlanModeActive, leavePlanModeByUser, onPlanModeChanged, registerPlanDecider, type PlanDecision } from '../tools/planning-tools';
 import { usageSummaryLine } from '../utils/usageCost';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
@@ -407,7 +408,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'chatPanel', {
                 init: {
                     codiconsUri: codiconsUri.toString(),
-                    placeholderHelp: PLACEHOLDER_HELP
+                    placeholderHelp: PLACEHOLDER_HELP,
+                    // The Logs section (questLogs-handler.ts): its HTML and the viewer's config.
+                    questLogs: { html: getQuestLogsHtmlFragment(), config: getQuestLogsClientConfig(['logs']) },
                 }
             });
             debugLog('[T2] webview HTML assigned', 'INFO', 'extension');
@@ -429,6 +432,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(
             async (message) => {
+                // The Logs section's viewer (prefixed with 'qlog').
+                if (typeof message?.type === 'string' && message.type.startsWith('qlog')) {
+                    await handleQuestLogsMessage(message, webviewView.webview);
+                    return;
+                }
                 switch (message.type) {
                     case 'togglePin':
                         // Pin state is handled client-side via localStorage
@@ -658,7 +666,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // on the right subsystem.
                     case 'openTrailRawFiles':
                         // The Copilot section's raw trail; an Anthropic session's is opened
-                        // from the @WS Logs panel (runChatSessionAction).
+                        // from the @CHAT Logs panel (runChatSessionAction).
                         await vscode.commands.executeCommand(
                             'tomAi.editor.rawTrailViewer',
                             undefined,
@@ -1672,7 +1680,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     /**
      * A per-session action for the given sessions: the raw trail viewer, the
      * trail summary, the history, the live trail, the memory panel, clearing the
-     * history. The @WS Logs panel calls it for its selected session
+     * history. The @CHAT Logs panel calls it for its selected session
      * (runChatSessionAction); the panel's own handlers for the sessions picked.
      */
     async runSessionAction(action: ChatSessionAction, names: string[]): Promise<void> {
@@ -2395,7 +2403,7 @@ let _provider: ChatPanelViewProvider | undefined;
 export type ChatSessionAction = 'rawTrail' | 'trailSummary' | 'history' | 'liveTrail' | 'memory' | 'clearHistory';
 export const CHAT_SESSION_ACTIONS: readonly ChatSessionAction[] = ['rawTrail', 'trailSummary', 'history', 'liveTrail', 'memory', 'clearHistory'];
 
-/** Run a per-session action for `session` (the @WS Logs panel's buttons). */
+/** Run a per-session action for `session` (the @CHAT Logs panel's buttons). */
 export async function runChatSessionAction(action: ChatSessionAction, session: string): Promise<void> {
     if (!_provider) { vscode.window.showWarningMessage('The chat panel is not ready yet.'); return; }
     await _provider.runSessionAction(action, [session]);

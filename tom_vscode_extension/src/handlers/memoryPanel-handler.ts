@@ -45,7 +45,7 @@ interface WebviewMessage {
 export function registerMemoryPanelCommand(context: vscode.ExtensionContext): void {
     _context = context;
     context.subscriptions.push(
-        // An optional session names whose quest memory the panel shows (the @WS Logs button passes its selected session).
+        // An optional session names whose quest memory the panel shows (the @CHAT Logs button passes its selected session).
         vscode.commands.registerCommand('tomAi.panel.memory', (session?: unknown) => {
             openMemoryPanel(context, typeof session === 'string' && session ? session : undefined);
         }),

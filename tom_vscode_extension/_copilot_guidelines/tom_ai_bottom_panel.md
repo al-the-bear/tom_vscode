@@ -9,17 +9,18 @@
 
 ## Current subpanels
 
-Accordion layout with two chat subpanels (see [anthropic_chat.md](anthropic_chat.md)):
+Accordion layout with two chat subpanels (see [anthropic_chat.md](anthropic_chat.md)) and the Logs section:
 
-1. **ANTHROPIC/LLM** (section id `anthropic`) — direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration, per selected profile.
-2. **Copilot** — VS Code Copilot via answer-file mechanism.
+1. **Copilot** — VS Code Copilot via answer-file mechanism.
+2. **ANTHROPIC/LLM** (section id `anthropic`) — direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration, per selected profile.
+3. **Logs** (section id `logs`) — one Anthropic session's files, with the session switch and the session's actions behind it. The viewer is the quest-logs engine (`questLogs-handler.ts`, `media/questLogs/`): the host passes `getQuestLogsHtmlFragment()` and `getQuestLogsClientConfig(['logs'])` as `__INIT__.questLogs`, `media/chatPanel/main.js` sets the viewer's config globals from it, and `index.html` loads `media/questLogs/main.js` and `style.css` after the panel's own files; `qlog*` messages go to `handleQuestLogsMessage`.
 
 ## Responsibilities
 
 - central prompt entry points across transports,
 - template/profile management (per subpanel),
 - Copilot answer-file monitoring,
-- session history + memory + live-trail buttons (Anthropic),
+- the session's files, history, memory and live trail (the Logs section),
 - chat/tool context utilities (document picker, chat-variable expansion),
 - prompt queue side panel for queue-compatible subpanels.
 

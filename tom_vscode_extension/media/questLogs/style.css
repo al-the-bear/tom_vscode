@@ -1,11 +1,11 @@
 /*
- * Quest Logs styles (.qlog-* and .mdh-* rules) — the Logs section of the @WS
- * accordion panel. Loaded raw by getQuestLogsCss() in
- * src/handlers/questLogs-handler.ts and concatenated into the accordion's
- * inline <style>.
+ * Quest Logs styles (.qlog-* and .mdh-* rules) — the Logs section of @CHAT
+ * (linked by media/chatPanel/index.html) and the quest-document tabs of the @WS
+ * Documentation section (read raw by getQuestLogsCss() in
+ * src/handlers/questLogs-handler.ts into the accordion's inline <style>).
  *
  * No body{} rule and no bare element selectors at top level: this CSS shares
- * one stylesheet with every other @WS section, so the rendered-markdown rules
+ * one stylesheet with every other section of the panel, so the rendered-markdown rules
  * are all scoped under .qlog-body.
  *
  * The accordion gives .section-content `display:flex; flex-direction:column;

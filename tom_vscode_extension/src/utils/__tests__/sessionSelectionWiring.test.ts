@@ -30,7 +30,7 @@ function caseBody(src: string, name: string): string {
 describe('session selection wiring', () => {
     test('SW-1: the ANTHROPIC panel', () => {
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
-        // The per-session actions run from the @WS Logs panel for its selected session (runSessionAction).
+        // The per-session actions run from the @CHAT Logs panel for its selected session (runSessionAction).
         const actions = panel.slice(panel.indexOf('async runSessionAction('), panel.indexOf('private async _pickPanelSessions('));
         assert.match(actions, /case 'clearHistory':[\s\S]{0,400}\{ modal: true \}[\s\S]{0,200}this\._clearSessions\(names\)/, 'destructive: confirmed');
         assert.match(actions, /for \(const name of names\) \{ AnthropicHandler\.instance\.clearSession\(name\); \}/);

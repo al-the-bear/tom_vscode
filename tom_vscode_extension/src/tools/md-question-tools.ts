@@ -14,7 +14,7 @@ import { SpecQuestionDraft, formatQuestionBlock, systemReviewTime } from 'tom_so
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import { SpecToolDeps, failure, json, liveDeps, resolveInput, toWorkspacePath } from './spec-tool-common';
-import { MdQuestionError, localDate, proposeMdAnswer, readMdQuestions, setMdAnswer, type MdQuestion } from '../utils/mdQuestions';
+import { MdQuestionError, localDate, proposeMdAnswer, readMdQuestions, setMdAnswer, settleProposedAnswer, type MdQuestion } from '../utils/mdQuestions';
 
 /** What the tools need: the workspace root and the save path. */
 export type MdQuestionToolDeps = Pick<SpecToolDeps, 'wsRoot' | 'store'> & {
@@ -134,6 +134,19 @@ export async function mdProposeAnswerImpl(deps: MdQuestionToolDeps, input: MdPro
     const date = (deps.today ?? (() => localDate()))();
     return edit(deps, input, (text) => proposeMdAnswer(text, input.id, input.answer, input.source ?? 'agent', date, { line: input.line }));
 }
+
+/** Accept the proposed answer under a question: written into its Answer line (the time recorded), the proposal removed. */
+export async function mdAcceptProposalImpl(deps: MdQuestionToolDeps & { now?: () => string }, input: { file: string; id: string; line?: number }): Promise<string> {
+    if (!input.id) { return json({ ok: false, error: '`id` is required.' }); }
+    const at = (deps.now ?? (() => systemReviewTime()))();
+    return edit(deps, input, (text) => settleProposedAnswer(text, input.id, 'accept', { line: input.line, at }));
+}
+
+/** The answer writes of the host (an assist's closing answer step), on the live store. */
+export const liveMdAnswerWriter = {
+    setAnswer: (input: MdSetAnswerInput): Promise<string> => mdSetAnswerImpl(liveDeps(), input),
+    acceptProposal: (input: { file: string; id: string; line?: number }): Promise<string> => mdAcceptProposalImpl(liveDeps(), input),
+};
 
 /** Lines a fenced block covers (no question goes inside one). */
 function fencedLines(lines: readonly string[]): Set<number> {

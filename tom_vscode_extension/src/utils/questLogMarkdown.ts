@@ -1,5 +1,5 @@
 /**
- * Markdown → HTML for the @WS Logs section's **MD Trail** tab.
+ * Markdown → HTML for the @CHAT Logs section's **MD Trail** tab.
  *
  * Rendering happens in the extension host rather than the webview: the @WS
  * panel is an accordion whose sections are composed into a single inline

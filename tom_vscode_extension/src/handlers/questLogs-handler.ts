@@ -1,11 +1,10 @@
 /**
- * Quest Logs fragments — two read-only viewers of the @WS accordion panel,
- * sharing one engine (see {@link QUEST_LOG_TABS}):
+ * Quest Logs fragments — two read-only viewers sharing one engine (see {@link QUEST_LOG_TABS}):
  *
- *   - the **Logs** section: what one Anthropic session wrote — its live trail
+ *   - the **Logs** section of @CHAT: what one Anthropic session wrote — its live trail
  *     rendered and as source, its prompt/answer pair and the last prompt it
  *     sent — with a session switch (src/utils/sessionSwitch.ts) above the tabs;
- *   - the quest-document sub-tabs of the **Documentation** section: progress /
+ *   - the quest-document sub-tabs of the @WS **Documentation** section: progress /
  *     overview / notes / refresh / doc-update / deferred-steps / questions /
  *     decisions, beside its *Documents* editor.
  *
@@ -27,7 +26,9 @@
  *   - **Files may not exist.** Not every quest has a progress or refresh
  *     document; a missing file is a normal, quietly-reported state.
  *
- * Wired into `wsPanel-handler.ts`, which routes every `qlog*` message here.
+ * Wired into `chatPanel-handler.ts` (the Logs viewer: the fragment and config go
+ * in its init data, the client script is loaded as a file) and `wsPanel-handler.ts`
+ * (the Documentation viewer, inlined); both route every `qlog*` message here.
  */
 
 import * as fs from 'fs';
@@ -135,33 +136,53 @@ export function getQuestLogsCss(): string {
     return readMediaText('questLogs', 'style.css');
 }
 
+/** A viewer of the engine: `logs` (the @CHAT Logs section) or `docs` (the @WS Documentation section). */
+export type QuestLogViewerId = 'logs' | 'docs';
+
 /**
- * Client script. The tab catalogue is the same array the HTML was built from,
- * handed to the webview as data so the client never re-derives the tab list.
+ * The client's configuration — the globals media/questLogs/main.js reads
+ * (`qlogViewers`, `qlogVariantTabs`, `qlogVariantIds`, `qlogDefaultVariant`) —
+ * for the viewers a panel hosts. The tab catalogue is the same array the HTML
+ * was built from, so the client never re-derives the tab list.
  */
-export function getQuestLogsScript(): string {
-    const viewers = [
-        {
+export function getQuestLogsClientConfig(viewerIds: readonly QuestLogViewerId[] = ['logs', 'docs']): {
+    viewers: unknown[]; variantTabs: string[]; variantIds: string[]; defaultVariant: string;
+} {
+    const all = {
+        logs: {
             id: 'logs', prefix: 'qlog', section: 'logs',
             tabIds: questLogTabsOf('logs').map(t => t.id),
             defaultTab: DEFAULT_QUEST_LOG_TAB_ID,
             sessions: true,
         },
-        {
+        docs: {
             id: 'docs', prefix: 'qdoc', section: 'documentation',
             tabIds: [DOCUMENTS_PANE_TAB, ...questLogTabsOf('docs').map(t => t.id)],
             defaultTab: DOCUMENTS_PANE_TAB,
             paneTabs: { [DOCUMENTS_PANE_TAB]: 'qdoc-documents-pane' },
             sessions: false,
         },
-    ];
-    const variantTabsJson = JSON.stringify(QUEST_LOG_TABS.filter(t => t.variants).map(t => t.id));
-    const variantIdsJson = JSON.stringify(CURRENT_PROMPT_VARIANTS.map(v => v.id));
+    };
+    return {
+        viewers: viewerIds.map(id => all[id]),
+        variantTabs: QUEST_LOG_TABS.filter(t => t.variants).map(t => t.id),
+        variantIds: CURRENT_PROMPT_VARIANTS.map(v => v.id),
+        defaultVariant: DEFAULT_QUEST_LOG_VARIANT_ID,
+    };
+}
+
+/**
+ * Client script for a panel that inlines it (the @WS accordion): the config
+ * lines, then the static body. The @CHAT panel loads the body as a file and
+ * hands the config over in its init data instead.
+ */
+export function getQuestLogsScript(viewerIds: readonly QuestLogViewerId[] = ['logs', 'docs']): string {
+    const cfg = getQuestLogsClientConfig(viewerIds);
     return `\n// ── Quest Logs variables ──\n`
-        + `var qlogViewers = ${JSON.stringify(viewers)};\n`
-        + `var qlogVariantTabs = ${variantTabsJson};\n`
-        + `var qlogVariantIds = ${variantIdsJson};\n`
-        + `var qlogDefaultVariant = ${JSON.stringify(DEFAULT_QUEST_LOG_VARIANT_ID)};\n`
+        + `var qlogViewers = ${JSON.stringify(cfg.viewers)};\n`
+        + `var qlogVariantTabs = ${JSON.stringify(cfg.variantTabs)};\n`
+        + `var qlogVariantIds = ${JSON.stringify(cfg.variantIds)};\n`
+        + `var qlogDefaultVariant = ${JSON.stringify(cfg.defaultVariant)};\n`
         + readMediaText('questLogs', 'main.js');
 }
 

@@ -78,3 +78,51 @@ export function repetitionAnswersFromYaml(raw: unknown): RepetitionAnswer[] | un
         .map((a) => ({ key: String(a.key), text: String(a.text), at: typeof a.at === 'string' ? a.at : '' }));
     return list.length ? list : undefined;
 }
+
+/** The todo-id prefix a walk runs (`<prefix>*` repeat count), or undefined for any other item. */
+export function walkPrefixOf(item: { repeatCount?: number | string }): string | undefined {
+    const raw = typeof item.repeatCount === 'string' ? item.repeatCount.trim() : '';
+    return raw.endsWith('*') && raw.length > 1 ? raw.slice(0, -1) : undefined;
+}
+
+/** What the trail lookup reads of a trail entry (trailEditor-handler's TrailEntry). */
+export interface TrailAnswerEntry {
+    type: string;
+    /** Sortable (ISO) timestamp. */
+    timestamp: string;
+    content: string;
+    variables?: string;
+}
+
+/**
+ * The answers of a walk's repetitions, read back from the quest's session
+ * trails — for an item whose answers were not kept (it ran before the queue
+ * kept them, or they were lost): every ANSWER entry that reports a todo of the
+ * walk (`TODO=<ref>` naming `<prefix><number>…` in `questId`), the latest per
+ * todo, in the walk's order (lowest number first). `until` (ISO): only answers
+ * up to then (the item's end), when given.
+ */
+export function repetitionAnswersFromTrail(
+    entries: Iterable<TrailAnswerEntry>,
+    questId: string,
+    prefix: string,
+    extractRefs: (variables: string | undefined) => string[],
+    parseRef: (ref: string) => { id: string; file: string },
+    until?: string,
+): RepetitionAnswer[] {
+    const latest = new Map<string, RepetitionAnswer>();
+    for (const e of entries) {
+        if (e.type !== 'ANSWER' || !e.content.trim()) { continue; }
+        if (until && e.timestamp.localeCompare(until) > 0) { continue; }
+        for (const ref of extractRefs(e.variables)) {
+            const parsed = parseRef(ref);
+            const file = parsed.file.replace(/\\/g, '/');
+            if (questId && !file.includes(`quests/${questId}/`)) { continue; }
+            if (!parsed.id.startsWith(prefix) || !/^\d/.test(parsed.id.slice(prefix.length))) { continue; }
+            const had = latest.get(parsed.id);
+            if (!had || e.timestamp.localeCompare(had.at) > 0) { latest.set(parsed.id, { key: parsed.id, text: e.content, at: e.timestamp }); }
+        }
+    }
+    const num = (id: string): number => parseInt(id.slice(prefix.length), 10);
+    return [...latest.values()].sort((a, b) => num(a.key) - num(b.key) || a.key.localeCompare(b.key)).slice(-MAX_REPETITION_ANSWERS);
+}

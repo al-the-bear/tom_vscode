@@ -274,6 +274,7 @@ import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { latestTodoAnswer } from '../utils/todoAgentAnswer';
 import { todayLocalDate } from '../utils/todoDates';
+import { appendTodoNote, guideMeClosingAsk, interpretGuideMeReply } from '../utils/guideMeClosing';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
 
@@ -2256,19 +2257,7 @@ async function _runTodoButton(
         return;
     }
     if (target === 'queue') {
-        try {
-            const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-            await PromptQueueManager.instance.enqueue({
-                originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
-                todoIdPattern: todo.id,
-                template: tpl.id,
-                transport: 'anthropic',
-                deferSend: true,
-            });
-            vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
-        } catch {
-            vscode.window.showWarningMessage('Prompt queue not available');
-        }
+        await _queueTodo(todo, questId, sourceFile, tpl);
         return;
     }
     const ctx = _extensionContext;
@@ -2283,7 +2272,60 @@ async function _runTodoButton(
         vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
     } else if (!outcome.ok && outcome.error) {
         vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+    } else if (outcome.ok && use === 'userAction' && questId) {
+        await _guideMeClosing(todo.id, questId, sourceFile);
     }
+}
+
+/** The todo added to the prompt queue, staged, on Anthropic, with template `tpl`. */
+async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }): Promise<void> {
+    try {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        await PromptQueueManager.instance.enqueue({
+            originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
+            todoIdPattern: todo.id,
+            template: tpl.id,
+            transport: 'anthropic',
+            deferSend: true,
+        });
+        vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
+    } catch {
+        vscode.window.showWarningMessage('Prompt queue not available');
+    }
+}
+
+/**
+ * After Guide me's turn (guideMeClosing.ts): a todo not completed meanwhile is
+ * offered to be marked completed or in progress, queued for the agent (the
+ * other todos' template), or left; a typed reply goes into its notes.
+ */
+async function _guideMeClosing(todoId: string, questId: string, sourceFile: string | undefined): Promise<void> {
+    const todo = _findTodoForPromptAction(questId, todoId, sourceFile);
+    if (!todo || todo.status === 'completed' || todo.status === 'cancelled') { return; }
+    const anthropic = loadSendToChatConfig()?.anthropic;
+    const queueTpl = resolveTodoButtonTemplate(anthropic?.todoButtonTemplates, anthropic?.userMessageTemplates, 'other');
+    const { askUserWithChoices } = await import('./askUser-handler.js');
+    const { readChatQuestionsConfig } = await import('./chatQuestions-config.js');
+    const reply = await askUserWithChoices(guideMeClosingAsk(todo, queueTpl.name || queueTpl.id));
+    const pick = interpretGuideMeReply(reply, readChatQuestionsConfig().fallbackPrompt);
+    if (!pick) { return; }
+    if (pick.kind === 'queue') {
+        if (queueTpl.missing || !queueTpl.body) {
+            vscode.window.showWarningMessage(`The Todo buttons template "${queueTpl.id}" is not among the Anthropic templates: choose one on the Status Page (Todo buttons).`);
+            return;
+        }
+        await _queueTodo(todo, questId, sourceFile, queueTpl);
+        return;
+    }
+    const updates: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = pick.kind === 'complete'
+        ? { status: 'completed', completed_date: todayLocalDate() }
+        : pick.kind === 'inProgress'
+            ? { status: 'in-progress' }
+            : { notes: appendTodoNote(todo.notes, pick.text, todayLocalDate()) };
+    const updated = questTodo.updateTodo(questId, todo.id, updates);
+    if (!updated) { vscode.window.showWarningMessage(`Todo ${todo.id} could not be updated.`); return; }
+    const done = pick.kind === 'complete' ? 'completed' : pick.kind === 'inProgress' ? 'in progress' : 'given the note';
+    vscode.window.setStatusBarMessage(`$(check) Todo ${todo.id} ${done}`, 4000);
 }
 
 /**

@@ -13,6 +13,10 @@
  *        is refused
  *   QA-4 wiring: the panel's message runs it; runAnthropicSend takes the session; the default prompts name the
  *        tools per document kind and use choices; an unedited i-3 default is upgraded
+ *   QA-5 the closing answer: the question still open after the turn, the question panel offers its own choices —
+ *        the proposal first when there is one, each option with the recommended one marked, Leave it open — and a
+ *        typed reply; the pick is written (an option as its letter, the proposal accepted, a typed text as is);
+ *        Leave it open, a timeout and an answered question write nothing; a refused write is reported
  */
 
 import * as fs from 'fs';
@@ -23,7 +27,10 @@ import assert from 'node:assert/strict';
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 installVscodeStub({});
 
-import { explanationFileFor, findQuestion, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type QuestionAssistDeps } from '../questionAssist.js';
+import {
+    closingAnswerAsk, explanationFileFor, findQuestion, interpretClosingReply, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type AnswerPick, type QuestionAssistDeps,
+} from '../questionAssist.js';
+import { choiceAnswer } from '../../utils/askChoices.js';
 import { proposeMdAnswer, readMdQuestions, settleProposedAnswer } from '../../utils/mdQuestions.js';
 import { ASSIST_PROMPT_INFO, ensureDefaultAssistPrompts, type AssistPromptsSection } from '../../utils/assistPrompts.js';
 
@@ -142,5 +149,53 @@ describe('Grill me / Explain in detail', () => {
         const config: { assistPrompts?: AssistPromptsSection } = { assistPrompts: { templates: [{ id: 'grill-me', name: 'Grill me', template: oldGrill }] } };
         ensureDefaultAssistPrompts(config);
         assert.equal(config.assistPrompts!.templates![0].template, ASSIST_PROMPT_INFO.grillMe.defaultBody, 'the unedited i-3 default is upgraded');
+    });
+
+    test('QA-5: the closing answer', async () => {
+        const questions = readMdQuestions(FIXTURE);
+        const cc2 = findQuestion(questions, 'CC-2')!;
+        const ask = closingAnswerAsk(cc2, 'specs/review.md');
+        assert.equal(ask.title, 'Answer CC-2 in specs/review.md');
+        assert.deepEqual(ask.choices.map((c) => c.label), ['(a) the runtime first and then the browser', '(b) the browser first (recommended)', 'Leave it open']);
+        assert.match(ask.questions[0], /^CC-2 — The order of the work: two pieces, which first\?/);
+        const pr1 = closingAnswerAsk(findQuestion(questions, 'PR-1')!, 'specs/review.md');
+        assert.equal(pr1.choices[0].label, 'Accept the proposed answer', 'the proposal first');
+        assert.match(pr1.questions[0], /Proposed answer \(grill me\): \(a\) keep it,\nbecause it works\./);
+        const click = (a: typeof ask, label: string) => choiceAnswer(a.choices.find((c) => c.label === label)!);
+        assert.deepEqual(interpretClosingReply(click(ask, '(b) the browser first (recommended)'), cc2), { kind: 'option', letter: 'b' });
+        assert.deepEqual(interpretClosingReply(click(pr1, 'Accept the proposed answer'), findQuestion(questions, 'PR-1')!), { kind: 'proposal' });
+        assert.equal(interpretClosingReply(click(ask, 'Leave it open'), cc2), undefined);
+        assert.deepEqual(interpretClosingReply('  both, in one go ', cc2), { kind: 'text', text: 'both, in one go' });
+        assert.equal(interpretClosingReply('No answer came.', cc2, 'No answer came.'), undefined, 'the timeout fallback');
+        assert.equal(interpretClosingReply('askUser error: busy', cc2), undefined);
+        // The run: after the turn the panel is asked and the pick written.
+        const written: AnswerPick[] = [];
+        const asked: string[] = [];
+        const run = (reply: string, over: Partial<QuestionAssistDeps> = {}) => {
+            const f = fake({
+                askAnswer: async (input) => { asked.push(input.title); return reply; },
+                writeAnswer: async (_file, q, pick) => { written.push(pick); assert.equal(q.id, 'CC-2'); return ''; },
+                fallbackPrompt: () => 'No answer came.',
+                ...over,
+            });
+            return runQuestionAssist(f.deps, { use: 'grillMe', filePath: FILE, questionId: 'CC-2' });
+        };
+        const picked = await run(click(ask, '(a) the runtime first and then the browser'));
+        assert.equal(picked.ok && picked.answered?.kind, 'option');
+        assert.deepEqual(written, [{ kind: 'option', letter: 'a' }]);
+        await run('No answer came.');
+        await run(click(ask, 'Leave it open'));
+        assert.equal(written.length, 1, 'nothing written for a timeout or Leave it open');
+        const refused = await run('my own', { writeAnswer: async () => 'the file is dirty in an editor' });
+        assert.match(refused.ok ? refused.answerError ?? '' : '', /the answer to CC-2 could not be written: the file is dirty/);
+        // Answered meanwhile (the agent, the user in the MD Browser): no panel.
+        const before = asked.length;
+        const answeredText = FIXTURE.replace('> *Recommendation:* (b): the browser is smaller.\n>\n> **Answer:**\n', '> *Recommendation:* (b): the browser is smaller.\n>\n> **Answer:** (b)\n');
+        let reads = 0;
+        await run('x', { readText: () => (reads++ === 0 ? FIXTURE : answeredText) });
+        assert.equal(asked.length, before, 'no panel for an answered question');
+        const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
+        assert.match(src, /askAnswer: async \(input\) => \(await import\('\.\/askUser-handler\.js'\)\)\.askUserWithChoices\(input\)/);
+        assert.match(src, /liveMdAnswerWriter\.acceptProposal\(target\)/);
     });
 });

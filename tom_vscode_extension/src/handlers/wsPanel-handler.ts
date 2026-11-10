@@ -30,7 +30,6 @@ import {
     registerQuestTodoPopoutSerializer,
 } from './questTodoPanel-handler.js';
 import {
-    getQuestLogsHtmlFragment,
     getQuestDocsHtmlFragment,
     getQuestLogsCss,
     getQuestLogsScript,
@@ -309,12 +308,6 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
 <div class="status-bar">Documentation viewer</div>`),
             },
             {
-                id: 'logs',
-                title: 'Logs',
-                icon: 'output',
-                content: getQuestLogsHtmlFragment(),
-            },
-            {
                 id: 'settings',
                 title: 'Settings',
                 icon: 'settings-gear',
@@ -362,7 +355,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             getIssuesScript('issues', 'issues'),
             getIssuesScript('tests', 'tests'),
             getQuestTodoScript(),
-            getQuestLogsScript(),
+            // Only the Documentation section's viewer: the Logs section is in @CHAT.
+            getQuestLogsScript(['docs']),
             getDocumentPickerScript({ idPrefix: 'docs', allowOtherFile: true, showGroupSelector: true }),
             getStatusPanelListenersScript(),
             readMediaText('wsPanel', 'main.js'),

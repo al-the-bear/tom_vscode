@@ -1,7 +1,7 @@
 /**
- * Tests for the quest log-file catalogue that backs two @WS sections: the Logs
+ * Tests for the quest log-file catalogue that backs two viewers: the @CHAT Logs
  * section (one session's files: MD Trail, Trail, Prompts, Answers, Current
- * Prompt) and the quest-document sub-tabs of Documentation (Quest Progress,
+ * Prompt) and the quest-document sub-tabs of @WS Documentation (Quest Progress,
  * Quest Overview, Quest Notes, Quest Refresh, DocUpdate, Deferred, Questions,
  * Decisions).
  *

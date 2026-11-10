@@ -1,13 +1,14 @@
 // @ts-nocheck
 /* global vscode, isExpanded, qlogViewers, qlogVariantTabs, qlogVariantIds, qlogDefaultVariant */
-// Quest Logs client script — two read-only viewers of the @WS accordion panel:
-// the Logs section (one Anthropic session's files, with a session switch) and
-// the quest-document sub-tabs of the Documentation section.
-// Static body of getQuestLogsScript() in src/handlers/questLogs-handler.ts; the
-// config lines (`qlogViewers`, `qlogVariantTabs`, `qlogVariantIds`,
-// `qlogDefaultVariant`) are prepended by that function. Uses the ambient
-// `vscode` handle and `isExpanded` from the accordion base script, so it does
-// NOT call acquireVsCodeApi() itself.
+// Quest Logs client script — two read-only viewers: the Logs section of @CHAT
+// (one Anthropic session's files, with a session switch) and the quest-document
+// sub-tabs of the @WS Documentation section. A panel hosts the ones it lists.
+// Its config globals (`qlogViewers`, `qlogVariantTabs`, `qlogVariantIds`,
+// `qlogDefaultVariant`, getQuestLogsClientConfig() in
+// src/handlers/questLogs-handler.ts) come first: @WS inlines them ahead of this
+// body (getQuestLogsScript()), @CHAT's main.js sets them from its init data and
+// loads this file after itself. Uses the host panel's `vscode` handle and
+// `isExpanded`, so it does NOT call acquireVsCodeApi() itself.
 //
 // The client keeps no copy of a file: it asks the host for HTML and swaps it
 // in. The host answers `qlogUnchanged` when the file has not moved, which is

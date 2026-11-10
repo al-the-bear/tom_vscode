@@ -2563,6 +2563,21 @@ export class PromptQueueManager {
         return !!item?.sendBetween;
     }
 
+    /**
+     * Give an item the answers of its repetitions read back from the trail
+     * (repetitionAnswersFromTrail: a walk that ran before answers were kept).
+     * Only an item that has none; answers already kept are never replaced.
+     */
+    backfillRepetitionAnswers(id: string, answers: RepetitionAnswer[]): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.repetitionAnswers?.length || answers.length === 0) { return false; }
+        item.repetitionAnswers = answers;
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Repetition answers of item ${id} read back from the trail: ${answers.length}`);
+        return true;
+    }
+
     setPauseAfter(id: string, pauseAfter: boolean): boolean | undefined {
         const item = this._items.find(i => i.id === id);
         if (!item) { return undefined; }

@@ -161,8 +161,9 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session), Save to Queue with the panel's profile and session, Queue next (sent next — between a running loop's iterations — with the queue's profile and session), and Keep per prompt slot (keep or clear the text after Send / queue). Trail, history, memory and Clear are in @WS Logs behind the session switch |
+| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session), Save to Queue with the panel's profile and session, Queue next (sent next — between a running loop's iterations — with the queue's profile and session), and Keep per prompt slot (keep or clear the text after Send / queue). Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
+| Logs | `codicon-output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 
 #### Copilot Action Bar Fields
 
@@ -170,18 +171,6 @@
 | --- | --- | --- |
 | R | 24px | Repeat count (number of times to send prompt) |
 | W | 24px | Answer wait minutes (0 = wait for answer file, >0 = auto-advance after N minutes) |
-
-### @WS (`tomAi.wsPanel`)
-
-| Section | Icon | Description |
-| --- | --- | --- |
-| Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
-| Documentation | `note` | Sub-tabs: **Documents** (the document editor) and the quest's own documents — see [Documentation sub-tabs](#documentation-sub-tabs) |
-| Logs | `output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
-| Settings | `settings-gear` | Embedded status page and configuration |
-| Issues | `issues` | Issue tracking |
-| Tests | `beaker` | Test results |
-| Quest TODO | `tasklist` | Quest todo list |
 
 #### Logs sub-tabs
 
@@ -207,6 +196,17 @@ Two toolbar buttons act on the selected sub-tab: **Refresh** re-reads from disk,
 | Current Prompt | `trail/current_prompt.*.md` | Source | Top |
 
 A session without the file yet shows a line saying so.
+
+### @WS (`tomAi.wsPanel`)
+
+| Section | Icon | Description |
+| --- | --- | --- |
+| Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
+| Documentation | `note` | Sub-tabs: **Documents** (the document editor) and the quest's own documents — see [Documentation sub-tabs](#documentation-sub-tabs) |
+| Settings | `settings-gear` | Embedded status page and configuration |
+| Issues | `issues` | Issue tracking |
+| Tests | `beaker` | Test results |
+| Quest TODO | `tasklist` | Quest todo list |
 
 #### Documentation sub-tabs
 

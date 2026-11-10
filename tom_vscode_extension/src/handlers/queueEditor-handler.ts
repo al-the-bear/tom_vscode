@@ -12,6 +12,7 @@ import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { pickAgentSdkSession, sessionsFolder } from './sessionPicker';
 import { listSessions } from '../services/agentSdkSessionStore';
 import { sessionInfoOf } from '../utils/sessionSpecs';
+import * as fs from 'fs';
 import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
@@ -35,6 +36,11 @@ import { ProcessStateStore } from '../managers/processStateStore';
 import { positionText } from '../utils/processActionPrompt';
 import { runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
+import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
+import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
+import { questTrailFolder } from '../utils/questPaths';
+import { todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -1032,6 +1038,33 @@ function isTextBeingEdited(id: string): boolean {
     try { return PromptQueueManager.instance.isTextBeingEdited(id); } catch { return false; }
 }
 
+/** Items whose repetition answers were looked up in the trail already (once per item and window). */
+const repetitionBackfillTried = new Set<string>();
+
+/**
+ * A sent todo walk without its repetitions' answers (it ran before the queue
+ * kept them): read them back from the quest's session trails once, so its
+ * chips show every todo's answer (repetitionAnswersFromTrail).
+ */
+function backfillSentWalkAnswers(qm: PromptQueueManager): void {
+    const due = qm.items.filter((i) => i.status === 'sent' && !i.repetitionAnswers?.length && walkPrefixOf(i) && !repetitionBackfillTried.has(i.id));
+    if (due.length === 0) { return; }
+    for (const i of due) { repetitionBackfillTried.add(i.id); }
+    const quest = WsPaths.getWorkspaceQuestId();
+    const folder = quest ? questTrailFolder(WsPaths.ai('quests', quest) || '') : '';
+    if (!folder || !fs.existsSync(folder)) { return; }
+    let entries: ReturnType<typeof loadTrailSet> = [];
+    try {
+        const sets = todoLogTrailSets(folder, discoverTrailSets);
+        entries = [...sets.keys()].flatMap((name) => loadTrailSet(name, sets));
+    } catch { return; }
+    for (const item of due) {
+        // No time bound: `sentAt` is the last repetition's dispatch, before its answer arrived.
+        const answers = repetitionAnswersFromTrail(entries, quest, walkPrefixOf(item)!, extractTodoRefsFromVariables, parseTodoRef);
+        qm.backfillRepetitionAnswers(item.id, answers);
+    }
+}
+
 function buildState(): Record<string, unknown> {
     let items: readonly QueuedPrompt[] = [];
     let autoSend = true;
@@ -1053,6 +1086,7 @@ function buildState(): Record<string, unknown> {
 
     try {
         const qm = PromptQueueManager.instance;
+        backfillSentWalkAnswers(qm);
         items = qm.items;
         for (const item of items) {
             if (item.status === 'sent') { continue; }

@@ -1,5 +1,5 @@
 /**
- * The session switch of the @WS Logs tabs (src/utils/sessionSwitch.ts) and its rendering in the webview
+ * The session switch of the @CHAT Logs tabs (src/utils/sessionSwitch.ts) and its rendering in the webview
  * (media/questLogs/main.js).
  *
  *   SW-1 the plan for 0, 1, 4, 5 and 9 sessions: one button per session up to four; with more, a dropdown with

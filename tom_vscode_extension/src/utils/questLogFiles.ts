@@ -1,5 +1,5 @@
 /**
- * Catalogue of the quest log files shown in the @WS panel's **Logs** section,
+ * Catalogue of the quest log files shown in the @CHAT panel's **Logs** section,
  * plus the pure helpers the viewer needs to read them cheaply.
  *
  * The files use fixed, derivable names — there is no globbing to do — so the

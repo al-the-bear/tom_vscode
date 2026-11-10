@@ -2105,7 +2105,7 @@ export class AnthropicHandler {
             });
         }
 
-        // Claim the @WS → Logs → Current Prompt files for *this* send before
+        // Claim the @CHAT → Logs → Current Prompt files for *this* send before
         // anything slow runs. Everything below — the background-work wait, the
         // history seed, the system-prompt assembly — sits between the user
         // pressing send and the point where all three texts exist, and that gap
@@ -2284,7 +2284,7 @@ export class AnthropicHandler {
             quest,
         );
 
-        // Replace the @WS → Logs → Current Prompt files for this origin. Here,
+        // Replace the @CHAT → Logs → Current Prompt files for this origin. Here,
         // rather than in a transport branch, because every transport is
         // dispatched from below this point — and because these three texts are
         // only all in scope once, right here.

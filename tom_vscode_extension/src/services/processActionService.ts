@@ -336,6 +336,31 @@ export async function runFinishReviewRound(context?: vscode.ExtensionContext): P
     return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready, context));
 }
 
+/** The options of the decision the quest is at, as the Decide… dialog shows them ([] when at none). */
+export function decisionOptionLabels(): string[] {
+    const store = ProcessStateStore.instance;
+    const def = store?.currentDefinition();
+    const decide = store && def ? decisionDialog(def, store.state) : null;
+    return decide ? decide.options.map((o) => o.label) : [];
+}
+
+/**
+ * Take the decision's option `label` — what picking it in the Decide… dialog
+ * does (an advice note's button). A decision that has moved on, or no longer
+ * offers the option, is reported and nothing is moved.
+ */
+export async function takeDecisionOption(label: string): Promise<ProcessActionResult> {
+    const store = await ProcessStateStore.ready;
+    const def = store.currentDefinition();
+    const decide = def ? decisionDialog(def, store.state) : null;
+    const option = decide?.options.find((o) => o.label === label);
+    const result: ProcessActionResult = option
+        ? await confirmProcessAction(option.kind, option.level, '')
+        : { ok: false, error: decide ? `the decision no longer offers "${label}"` : 'the process is not at a decision any more' };
+    if (!result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
+    return result;
+}
+
 /** Why the decision cannot be reopened from a note now (undefined: it can). */
 export function reopenDecisionUnavailableNow(): string | undefined {
     const store = ProcessStateStore.instance;

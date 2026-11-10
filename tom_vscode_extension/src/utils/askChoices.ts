@@ -219,6 +219,11 @@ export interface StartOutcome {
 }
 
 /** The answer the agent receives for a click on `choice`. */
+/** The id of the choice a reply of {@link choiceAnswer} reports clicked; undefined for a typed reply. */
+export function clickedChoiceId(reply: string): string | undefined {
+    return /^The user clicked the choice ".*" \(id ([\w-]+), [a-z]+\)\./s.exec(reply.trim())?.[1];
+}
+
 export function choiceAnswer(choice: AskChoice, move?: MoveOutcome, start?: StartOutcome): string {
     const head = `The user clicked the choice "${choice.label}" (id ${choice.id}, ${choice.kind}).`;
     switch (choice.kind) {

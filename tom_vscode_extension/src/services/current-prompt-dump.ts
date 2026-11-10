@@ -2,7 +2,7 @@
  * Current-Prompt Dump — the three texts of the prompt that is running right
  * now, one file each, replaced on every send.
  *
- * This backs the @WS panel's **Logs → Current Prompt** tab. The per-call trail
+ * This backs the @CHAT panel's **Logs → Current Prompt** tab. The per-call trail
  * files accumulate and have to be hunted through by timestamp; the live trail
  * interleaves prompts with answers. What was missing was the flat question
  * "what exactly is in flight right now, and how does it differ from what I

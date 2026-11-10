@@ -7,7 +7,7 @@
  *   CB-2 the trail, history and memory buttons are no longer in the panel's action bar
  *   CB-3 the queue editor shows a chat send read-only: CHAT while it runs, CHAT SENT with its answer
  *        (and the markdown buttons) or its error; no queue controls; the count line says a chat runs
- *   CB-4 the @WS Logs panel shows the six session actions behind the session switch; each posts
+ *   CB-4 the @CHAT Logs panel shows the six session actions behind the session switch; each posts
  *        qlogSessionAction with the selected session; the host runs runChatSessionAction
  *   CB-5 the host: Save to Queue pins nothing unless usePanelTarget; Queue next goes through
  *        enqueueNext, pending; queueAdded names the section and slot; the Logs actions go to the chat

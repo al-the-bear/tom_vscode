@@ -32,6 +32,9 @@ export const FINISH_REVIEW_BUTTON: AskMdButton = { id: 'finish', label: 'Finish 
 /** The button `reopenDecision` adds; its click opens the process decision again (the advice note stays open). */
 export const REOPEN_DECISION_BUTTON: AskMdButton = { id: 'decide', label: 'Back to the decision' };
 
+/** The id of the button `reopenDecision` adds for the decision's option `index` (0-based): its click takes that option. */
+export const decisionOptionButtonId = (index: number): string => `decide-${index + 1}`;
+
 /** At most this many buttons in the bar. */
 export const MAX_ASK_MD_BUTTONS = 8;
 
@@ -77,8 +80,12 @@ export interface AskInMdBrowserDeps {
      * queue the next step's prompt or open the decision.
      */
     finishReview?: { unavailable(): string | undefined; run(): Promise<FinishReviewOutcome> };
-    /** Back to the decision (`reopenDecision`): why it cannot be offered now, and reopening the decision. */
-    reopenDecision?: { unavailable(): string | undefined; run(): Promise<void> };
+    /**
+     * Back to the decision (`reopenDecision`): why it cannot be offered now,
+     * reopening the decision, the decision's options (one button each, before
+     * Back to the decision) and taking one of them.
+     */
+    reopenDecision?: { unavailable(): string | undefined; run(): Promise<void>; options?(): string[]; take?(label: string): Promise<void> };
 }
 
 interface OpenAsk {
@@ -94,8 +101,13 @@ interface OpenAsk {
     finishReview?: () => Promise<FinishReviewOutcome>;
     /** Set when the ask carries the Back to the decision button. */
     reopenDecision?: () => Promise<void>;
+    /** The decision's options on the bar, by button id: the click takes the option. */
+    decisionOptions?: Map<string, string>;
+    takeDecision?: (label: string) => Promise<void>;
     /** The Back to the decision button was clicked. */
     decisionReopened?: boolean;
+    /** One of the decision's options was clicked: the extension takes it. */
+    decisionTaken?: string;
     /** Unregisters the cancel from the send that asked (services/askOwners.ts). */
     unregisterOwner?: () => void;
     resolve(answer: string): void;
@@ -144,6 +156,16 @@ export class MdBrowserAskSlot {
         this.open.keepFile = keepFile;
         if (button.id === FINISH_REVIEW_BUTTON.id && this.open.finishReview) {
             this.finishReviewClick(this.open, button);
+            return true;
+        }
+        const option = this.open.decisionOptions?.get(button.id);
+        if (option !== undefined && this.open.takeDecision) {
+            // One of the decision's own choices: taken here, as the Decide… dialog takes it.
+            const take = this.open.takeDecision;
+            this.open.decisionTaken = option;
+            markDecisionReopened();
+            this.finish('click', button);
+            void take(option).catch(() => undefined);
             return true;
         }
         if (button.id === REOPEN_DECISION_BUTTON.id && this.open.reopenDecision) {
@@ -224,6 +246,7 @@ export class MdBrowserAskSlot {
         };
         if (button) { answer.label = button.label; }
         if (ask.decisionReopened) { answer.decisionReopened = true; }
+        if (ask.decisionTaken !== undefined) { answer.decisionTaken = ask.decisionTaken; }
         if (source === 'timeout') { answer.timedOut = true; }
         if (source === 'closed') { answer.closed = true; }
         if (source === 'cancel') { answer.cancelled = true; }
@@ -308,11 +331,19 @@ export async function askInMdBrowserImpl(
         buttons.push({ ...FINISH_REVIEW_BUTTON });
     }
     const reopenDecision = input.reopenDecision === true;
+    const decisionOptions = new Map<string, string>();
     if (reopenDecision) {
-        if (buttons.some((b) => b.id === REOPEN_DECISION_BUTTON.id)) { return err('With `reopenDecision` the button id `decide` is the Back to the decision button; name yours otherwise.'); }
+        if (buttons.some((b) => /^decide(-\d+)?$/.test(b.id))) { return err('With `reopenDecision` the button ids `decide` and `decide-<n>` are the decision\'s; name yours otherwise.'); }
         if (!deps.reopenDecision) { return err('Back to the decision is not available here.'); }
         const unavailable = deps.reopenDecision.unavailable();
         if (unavailable) { return err(`Back to the decision cannot be offered: ${unavailable}.`); }
+        if (deps.reopenDecision.take) {
+            (deps.reopenDecision.options?.() ?? []).forEach((label, i) => {
+                const id = decisionOptionButtonId(i);
+                buttons.push({ id, label });
+                decisionOptions.set(id, label);
+            });
+        }
         buttons.push({ ...REOPEN_DECISION_BUTTON });
     }
     if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound` / `reopenDecision`).'); }
@@ -343,6 +374,7 @@ export async function askInMdBrowserImpl(
             bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve,
             ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
             ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run() } : {}),
+            ...(decisionOptions.size && deps.reopenDecision?.take ? { decisionOptions, takeDecision: (label: string) => deps.reopenDecision!.take!(label) } : {}),
         };
         // In the slot before the panel opens, so a fast answer finds it.
         slot.begin(ask);
@@ -375,8 +407,8 @@ export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'or `cancelled`). `finishReviewRound: true` adds Finish review round (id `finish`; only at a review, or ' +
     'when the running step leads to one): its click closes that panel, confirms the review, moves the process ' +
     'on and queues the next step or opens the decision; `review` / `summary` report it — move nothing ' +
-    'yourself. `reopenDecision: true` adds Back to the decision (id `decide`; only at a decision): it reopens ' +
-    'the decision for the user. An unchecked file is deleted, and its panel closed, as the flow goes on; else ' +
+    'yourself. `reopenDecision: true` (only at a decision) adds its choices (`decide-<n>`; a click takes one, ' +
+    '`decisionTaken`) and Back to the decision (`decide`, reopens it); move nothing yourself. An unchecked file is deleted, and its panel closed, as the flow goes on; else ' +
     'the panel stays with the answer in place of the bar. Logged to the quest questions journal.';
 
 export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> = {
@@ -406,7 +438,7 @@ export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> =
             },
             keepFile: { type: 'boolean', description: 'The *Keep this file* checkbox\'s initial state. Default true.' },
             finishReviewRound: { type: 'boolean', description: 'Add the Finish review round button (id `finish`); only at a review. `buttons` may then be left out.' },
-            reopenDecision: { type: 'boolean', description: 'Add the Back to the decision button (id `decide`); only at a process decision. `buttons` may then be left out.' },
+            reopenDecision: { type: 'boolean', description: 'Add the decision\'s choices (ids `decide-<n>`; a click takes it) and the Back to the decision button (id `decide`); only at a process decision. `buttons` may then be left out.' },
             title: { type: 'string', description: 'A line shown beside the buttons.' },
             timeoutMinutes: {
                 type: 'number',

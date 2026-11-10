@@ -1,5 +1,5 @@
 /**
- * Tests for the markdown renderer behind the @WS Logs section's **MD Trail**
+ * Tests for the markdown renderer behind the @CHAT Logs section's **MD Trail**
  * tab.
  *
  * The trail files quote user prompts and model answers verbatim, so their

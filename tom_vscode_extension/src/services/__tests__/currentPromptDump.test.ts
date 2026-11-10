@@ -1,6 +1,6 @@
 /**
  * Where the current-prompt files of a send go (decision finishvsc5, a): only the session's own trail
- * folder, `history/sessions/<session>/trail/` — the one the @WS Logs Current Prompt tab reads. A send
+ * folder, `history/sessions/<session>/trail/` — the one the @CHAT Logs Current Prompt tab reads. A send
  * without a session (an isolated call: compaction, memory extraction) is not a user prompt and writes
  * none. The quest-level trail bucket (`_ai/trail/anthropic/<quest>/`) is no longer written.
  *

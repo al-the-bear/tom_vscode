@@ -15,6 +15,10 @@
  *        decision, keeps the panel open, answers `decisionReopened`
  *   DH-5 wiring: decideInDialog offers the helpers with the extension's context; the PROCESS view passes it; the
  *        default prompts show the note with `reopenDecision` and allow the question panel for a short answer
+ *   DH-6 the decision's own choices on the note: `reopenDecision` puts one button per option (`decide-<n>`) before
+ *        Back to the decision; a click takes that option (answer `decisionTaken`), the note stays open, and a helper
+ *        whose note took the decision does not reopen it when its turn ends; a button id `decide-<n>` of the agent's is
+ *        refused; the previous default prompts are upgraded
  */
 
 import * as fs from 'fs';
@@ -29,7 +33,7 @@ import {
     DECISION_HELPER_LABELS, decisionDialogButtons, decisionHelperRunning, decisionNoteName, decisionText, interpretDecisionPick,
     markDecisionReopened, runDecisionHelper, type DecisionHelperDeps,
 } from '../decisionHelpers.js';
-import { ASSIST_PROMPT_INFO } from '../../utils/assistPrompts.js';
+import { ASSIST_PROMPT_INFO, ensureDefaultAssistPrompts, type AssistPromptsSection } from '../../utils/assistPrompts.js';
 import { MdBrowserAskSlot, askInMdBrowserImpl, type AskInMdBrowserDeps } from '../../tools/ask-in-md-browser-tool.js';
 
 const OPTIONS = [{ label: 'Gate passed — go on to Phase 2', kind: 'gate-passed' }, { label: 'Gate failed — back to Draft', kind: 'gate-failed' }];
@@ -140,7 +144,7 @@ describe('decision helpers', () => {
         assert.match(JSON.parse(await askInMdBrowserImpl(deps, { filePath: '_ai/quests/q/process/note.md', reopenDecision: true }, slot)).error, /Back to the decision cannot be offered: the process is not at a decision/);
         assert.match(JSON.parse(await askInMdBrowserImpl({ ...deps, reopenDecision: undefined }, { filePath: '_ai/quests/q/process/note.md', reopenDecision: true }, slot)).error, /not available here/);
         unavailable = undefined;
-        assert.match(JSON.parse(await askInMdBrowserImpl(deps, { filePath: '_ai/quests/q/process/note.md', reopenDecision: true, buttons: [{ id: 'decide', label: 'x' }] }, slot)).error, /button id `decide`/);
+        assert.match(JSON.parse(await askInMdBrowserImpl(deps, { filePath: '_ai/quests/q/process/note.md', reopenDecision: true, buttons: [{ id: 'decide', label: 'x' }] }, slot)).error, /button ids `decide` and `decide-<n>`/);
         const call = askInMdBrowserImpl(deps, { filePath: '_ai/quests/q/process/note.md', reopenDecision: true }, slot);
         await new Promise((r) => setImmediate(r));
         assert.equal(slot.click('req1', 'decide', true), true);
@@ -169,5 +173,64 @@ describe('decision helpers', () => {
             assert.match(body, /Do not move the process and do not decide/, use);
         }
         assert.match(ASSIST_PROMPT_INFO.grillMeDecision.defaultBody, /`choices`/);
+    });
+
+    test('DH-6: the decision\'s own choices on the note', async () => {
+        const taken: string[] = [];
+        let reopened = 0;
+        const closed: string[] = [];
+        const deps: AskInMdBrowserDeps = {
+            workspaceRoot: '/ws', exists: () => true,
+            openWithBar: () => 'p1', clearBar: () => undefined, closePanel: (p) => { closed.push(p); }, deleteFile: () => undefined,
+            genId: () => 'req2',
+            reopenDecision: {
+                unavailable: () => undefined, run: async () => { reopened++; },
+                options: () => OPTIONS.map((o) => o.label), take: async (label) => { taken.push(label); },
+            },
+        };
+        const slot = new MdBrowserAskSlot();
+        assert.match(JSON.parse(await askInMdBrowserImpl(deps, { filePath: 'n.md', reopenDecision: true, buttons: [{ id: 'decide-1', label: 'x' }] }, slot)).error, /`decide-<n>`/);
+        // Inside a helper's run: the click takes the option, so the turn's end does not reopen the decision.
+        const helper = fake({
+            send: async () => {
+                const call = askInMdBrowserImpl(deps, { filePath: 'n.md', reopenDecision: true }, slot);
+                await new Promise((r) => setImmediate(r));
+                assert.equal(slot.click('req2', 'decide-2', true), true);
+                const answer = JSON.parse(await call);
+                assert.deepEqual([answer.button, answer.label, answer.decisionTaken, answer.decisionReopened], ['decide-2', OPTIONS[1].label, OPTIONS[1].label, undefined]);
+                return { ok: true };
+            },
+        });
+        const outcome = await runDecisionHelper(helper.deps, 'explainDecision');
+        await new Promise((r) => setImmediate(r));
+        assert.deepEqual(taken, [OPTIONS[1].label], 'the option taken');
+        assert.equal(reopened, 0);
+        assert.equal(helper.reopens(), 0, 'not reopened at the turn\'s end');
+        assert.equal(outcome.ok && outcome.reopened, 'button');
+        assert.deepEqual(closed, [], 'the note stays open');
+        // The bar: the options, then Back to the decision.
+        let bar: { buttons: Array<{ id: string; label: string }> } | undefined;
+        const call = askInMdBrowserImpl({ ...deps, openWithBar: (_p, b) => { bar = b; return 'p1'; } }, { filePath: 'n.md', reopenDecision: true }, slot);
+        await new Promise((r) => setImmediate(r));
+        assert.deepEqual(bar?.buttons.map((b) => b.id), ['decide-1', 'decide-2', 'decide']);
+        slot.click('req2', 'decide', true);
+        await call;
+        for (const use of ['explainDecision', 'grillMeDecision'] as const) {
+            assert.match(ASSIST_PROMPT_INFO[use].defaultBody, /its bar carries the decision's own choices/, use);
+            assert.match(ASSIST_PROMPT_INFO[use].defaultBody, /`decisionTaken`/, use);
+        }
+        // The defaults before the choices, unedited, are upgraded.
+        const before = (body: string) => body
+            .replace('its bar carries the decision\'s own choices — a click takes that choice — and **Back to the decision**, which reopens', 'its button **Back to the decision** reopens')
+            .replace(' When my click took a choice (`decisionTaken` in the answer), the extension made it — end your answer.', '');
+        const config: { assistPrompts?: AssistPromptsSection } = { assistPrompts: { templates: [
+            { id: 'explain-decision', name: 'Explain a decision', template: before(ASSIST_PROMPT_INFO.explainDecision.defaultBody) },
+            { id: 'grill-me-decision', name: 'Grill me at a decision', template: before(ASSIST_PROMPT_INFO.grillMeDecision.defaultBody) },
+        ] } };
+        assert.notEqual(config.assistPrompts!.templates![0].template, ASSIST_PROMPT_INFO.explainDecision.defaultBody);
+        ensureDefaultAssistPrompts(config);
+        assert.deepEqual(config.assistPrompts!.templates!.slice(0, 2).map((t) => t.template), [ASSIST_PROMPT_INFO.explainDecision.defaultBody, ASSIST_PROMPT_INFO.grillMeDecision.defaultBody]);
+        const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
+        assert.match(src, /options: \(\) => processActions\(\)\.decisionOptionLabels\(\),\s*take: async \(label\) => \{ await processActions\(\)\.takeDecisionOption\(label\); \}/);
     });
 });

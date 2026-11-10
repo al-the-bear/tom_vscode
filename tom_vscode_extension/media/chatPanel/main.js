@@ -31,8 +31,16 @@ var vscode = acquireVsCodeApi();
 window.__tomVscodeApi = vscode;
 var sectionsConfig = [
     { id: 'copilot', icon: '<span class="codicon codicon-copilot"></span>', title: 'Copilot' },
-    { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic/LLM' }
+    { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic/LLM' },
+    { id: 'logs', icon: '<span class="codicon codicon-output"></span>', title: 'Logs' }
 ];
+// The Logs section: one Anthropic session's files (media/questLogs/main.js, loaded after this script).
+// The host hands over its HTML and the viewer's config; these globals are what that script reads.
+var questLogsInit = (window.__INIT__ && window.__INIT__.questLogs) || {};
+var qlogViewers = (questLogsInit.config && questLogsInit.config.viewers) || [];
+var qlogVariantTabs = (questLogsInit.config && questLogsInit.config.variantTabs) || [];
+var qlogVariantIds = (questLogsInit.config && questLogsInit.config.variantIds) || [];
+var qlogDefaultVariant = (questLogsInit.config && questLogsInit.config.defaultVariant) || '';
 var state = { expanded: ['anthropic'], pinned: [] };
 var profiles = { anthropic: [] };
 var anthropicConfigurations = [];
@@ -207,7 +215,13 @@ function loadState() {
     } catch(e) {}
 }
 
-function saveState() { vscode.setState(state); }
+// The webview state is shared with the Logs viewer (its `qlog_*` keys): merge, never replace.
+function saveState() {
+    var all = vscode.getState() || {};
+    all.expanded = state.expanded;
+    all.pinned = state.pinned;
+    vscode.setState(all);
+}
 
 function isExpanded(id) { return state.expanded && state.expanded.includes(id); }
 function isPinned(id) { return state.pinned && state.pinned.includes(id); }
@@ -361,7 +375,7 @@ function getSectionContent(id) {
                 // Queue next: pending at the front of the queue, sent next — between two
                 // iterations when the item sending is a loop. The queue's profile and session.
                 '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — sent next, with the prompt queue&#39;s profile and session; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-debug-step-into"></span></button>' +
-                // The trail, history and memory buttons are in the @WS Logs panel, behind its session switch.
+                // The trail, history and memory buttons are in the @CHAT Logs panel, behind its session switch.
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
 
             afterToolbarHtml:
@@ -439,6 +453,7 @@ function getSectionContent(id) {
                 '</span></div>',
         })
     };
+    if (id === 'logs') { return questLogsInit.html || '<div class="qlog-empty">No logs viewer.</div>'; }
     return contents[id] || '<div>Unknown section</div>';
 }
 

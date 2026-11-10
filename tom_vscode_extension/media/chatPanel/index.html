@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{sharedUri}}/accordion.css">
 <link rel="stylesheet" href="{{baseUri}}/style.css">
 <link rel="stylesheet" href="{{sharedUri}}/questHint.css">
+<link rel="stylesheet" href="{{baseUri}}/../questLogs/style.css">
 </head>
 <body>
 <div class="accordion-container" id="container">Loading T2...</div>
@@ -14,6 +15,8 @@
 <div class="placeholder-popup" id="placeholderPopup"></div>
 <div id="placeholder-help-source" style="display:none;"></div>
 <script src="{{baseUri}}/main.js"></script>
+<!-- The Logs section's viewer (questLogs-handler.ts); its config comes in __INIT__.questLogs, read by main.js. -->
+<script src="{{baseUri}}/../questLogs/main.js"></script>
 <script src="{{sharedUri}}/completion.js"></script>
 <script src="{{sharedUri}}/questHint.js"></script>
 </body>
