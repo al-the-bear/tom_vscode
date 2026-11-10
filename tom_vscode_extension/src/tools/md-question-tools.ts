@@ -10,6 +10,8 @@
  * is open, refused when it is dirty there or changed since `expectedRevision`.
  */
 
+import { SpecQuestionDraft, formatQuestionBlock, systemReviewTime } from 'tom_som_typescript_runtime';
+
 import { SharedToolDefinition } from './shared-tool-registry';
 import { SpecToolDeps, failure, json, liveDeps, resolveInput, toWorkspacePath } from './spec-tool-common';
 import { MdQuestionError, localDate, proposeMdAnswer, readMdQuestions, setMdAnswer, type MdQuestion } from '../utils/mdQuestions';
@@ -42,6 +44,17 @@ export interface MdProposeAnswerInput {
     line?: number;
     answer: string;
     source?: string;
+    expectedRevision?: string;
+    dryRun?: boolean;
+}
+
+export interface MdInsertQuestionInput {
+    file: string;
+    question: { id: string; topic: string; text: string; options?: string[]; recommended?: string; recommendation?: string; assumption?: string; starred?: boolean };
+    /** Insert after the paragraph that contains this text (one match, else refused). */
+    afterTextContains?: string;
+    /** Insert after this line (1-based; 0 = the start); default the end of the file. */
+    afterLine?: number;
     expectedRevision?: string;
     dryRun?: boolean;
 }
@@ -118,6 +131,62 @@ export async function mdProposeAnswerImpl(deps: MdQuestionToolDeps, input: MdPro
     if (!input.answer || !input.answer.trim()) { return json({ ok: false, error: '`answer` is required: the proposal to write.' }); }
     const date = (deps.today ?? (() => localDate()))();
     return edit(deps, input, (text) => proposeMdAnswer(text, input.id, input.answer, input.source ?? 'agent', date, { line: input.line }));
+}
+
+/** Lines a fenced block covers (no question goes inside one). */
+function fencedLines(lines: readonly string[]): Set<number> {
+    const out = new Set<number>();
+    let open = false;
+    lines.forEach((l, i) => {
+        if (/^(```|~~~)/.test(l)) { open = !open; out.add(i); return; }
+        if (open) { out.add(i); }
+    });
+    return out;
+}
+
+/**
+ * A plain Markdown file with a question block (SOM §11.9.2, the runtime's
+ * formatQuestionBlock — the same text tomAi_specInsertQuestion writes into a
+ * SOM value) inserted after a paragraph, a line, or at the end; a blank line
+ * on either side keeps it its own block. Refused: an id the file already has,
+ * an anchor that is not there, or is there more than once.
+ */
+export function insertMdQuestion(text: string, input: Pick<MdInsertQuestionInput, 'question' | 'afterTextContains' | 'afterLine'>, changedAt: string | null = null): { text: string; question: MdQuestion } {
+    const q = input.question;
+    if (!q || !q.id || !q.topic || !q.text) { throw new MdQuestionError('unknownQuestion', '`question` needs `id`, `topic` and `text`.'); }
+    if (readMdQuestions(text).some((x) => x.id === q.id)) { throw new MdQuestionError('ambiguousQuestion', `The file already has a question ${q.id}; pick another id.`); }
+    const lines = text.replace(/\n$/, '').split('\n');
+    const fenced = fencedLines(lines);
+    let after = lines.length - 1;
+    if (input.afterTextContains) {
+        const hits = lines.map((l, i) => (l.includes(input.afterTextContains as string) && !fenced.has(i) ? i : -1)).filter((i) => i >= 0);
+        if (hits.length !== 1) {
+            throw new MdQuestionError('unknownQuestion', hits.length ? `"${input.afterTextContains}" is on ${hits.length} lines (${hits.map((i) => i + 1).join(', ')}); pass \`afterLine\`.` : `No line contains "${input.afterTextContains}".`);
+        }
+        after = hits[0];
+        while (after + 1 < lines.length && lines[after + 1].trim() !== '') { after++; }
+    } else if (typeof input.afterLine === 'number') {
+        if (input.afterLine < 0 || input.afterLine > lines.length) { throw new MdQuestionError('unknownQuestion', `\`afterLine\` ${input.afterLine} is outside the file (0–${lines.length}).`); }
+        after = input.afterLine - 1;
+    }
+    if (fenced.has(after) && fenced.has(after + 1)) { throw new MdQuestionError('unknownQuestion', 'That place is inside a fenced code block.'); }
+    const block = formatQuestionBlock(new SpecQuestionDraft({
+        id: q.id, topic: q.topic, text: q.text, options: q.options ?? [],
+        recommendation: q.recommendation ?? '', assumption: q.assumption ?? '',
+        starred: q.starred === true, recommended: q.recommended ?? null,
+    }), changedAt);
+    const before = lines.slice(0, after + 1);
+    const rest = lines.slice(after + 1);
+    const out = [...before, ...(before.length && before[before.length - 1].trim() !== '' ? [''] : []), ...block, ...(rest.length && rest[0].trim() !== '' ? [''] : []), ...rest];
+    const next = `${out.join('\n')}\n`;
+    const question = readMdQuestions(next).find((x) => x.id === q.id);
+    if (!question) { throw new MdQuestionError('unknownQuestion', `The question ${q.id} was written but does not read back.`); }
+    return { text: next, question };
+}
+
+export async function mdInsertQuestionImpl(deps: MdQuestionToolDeps & { now?: () => string }, input: MdInsertQuestionInput): Promise<string> {
+    const at = (deps.now ?? (() => systemReviewTime()))();
+    return edit(deps, input, (text) => insertMdQuestion(text, input, at));
 }
 
 // ---------------------------------------------------------------------------
@@ -215,9 +284,50 @@ export const MD_PROPOSE_ANSWER_TOOL: SharedToolDefinition<MdProposeAnswerInput> 
     execute: (input) => mdProposeAnswerImpl(liveDeps(), input),
 };
 
+export const MD_INSERT_QUESTION_TOOL: SharedToolDefinition<MdInsertQuestionInput> = {
+    name: 'tomAi_mdInsertQuestion',
+    displayName: 'Markdown: Insert Question',
+    description:
+        'Insert a question block into a plain Markdown file — the agent\'s proposal question in a plain annotated Markdown review ' +
+        '(SOM §11.9.2; for a TomSpecs document tomAi_specInsertQuestion): the header with its change time, the options (the ' +
+        'recommended one bold), `*Recommendation:*`, `*Assumption:*` and an empty `> **Answer:**`, after the paragraph holding ' +
+        '`afterTextContains`, after line `afterLine`, or at the end. Refused: an id the file has, an anchor not there or there ' +
+        'more than once, a place inside fenced code. Answers the question as read back.' + WRITE_NOTE + ' ' + SYNTAX,
+    tags: ['markdown', 'questions', 'files', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        required: ['file', 'question'],
+        properties: {
+            file: FILE,
+            question: {
+                type: 'object',
+                description: 'The question block to write.',
+                properties: {
+                    id: { type: 'string', description: 'The question id, e.g. `RQ-4`.' },
+                    topic: { type: 'string', description: 'What it is about, one or two words.' },
+                    text: { type: 'string', description: 'The question; may span lines.' },
+                    options: { type: 'array', items: { type: 'string' }, description: 'Option lines, each `(a) text`, `(b) text`, … in order.' },
+                    recommended: { type: 'string', description: 'The recommended option\'s letter; that option is written bold.' },
+                    recommendation: { type: 'string', description: 'Why that option, written as a `*Recommendation:*` line.' },
+                    assumption: { type: 'string', description: 'The working assumption until it is answered.' },
+                    starred: { type: 'boolean', description: 'Mark it ★ (important).' },
+                },
+                required: ['id', 'topic', 'text'],
+            },
+            afterTextContains: { type: 'string', description: 'Insert after the paragraph that contains this text (exactly one line may).' },
+            afterLine: { type: 'number', description: 'Insert after this line (1-based; 0 = the start). Default: the end of the file.' },
+            ...REVISION,
+        },
+    },
+    execute: (input) => mdInsertQuestionImpl(liveDeps(), input),
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const MD_QUESTION_TOOLS: SharedToolDefinition<any>[] = [
     MD_QUESTIONS_TOOL,
     MD_SET_ANSWER_TOOL,
     MD_PROPOSE_ANSWER_TOOL,
+    MD_INSERT_QUESTION_TOOL,
 ];

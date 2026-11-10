@@ -373,6 +373,12 @@ function inputs(): Record<string, Input> {
         tomAi_specAnnotations: { file: SPEC },
         tomAi_specExtractAnswers: { file: SPEC },
         tomAi_specWriteAnswers: { file: SPEC, output: 'specs/answers.md' },
+        // A team review round of a plain Markdown file: created, nobody has returned a copy yet.
+        tomAi_specReviewRoundCreate: { file: 'notes/plain.md', round: 'notes/review-round', members: [{ memberId: 'alice', displayName: 'Alice', role: 'Owner' }, { memberId: 'bob', displayName: 'Bob', role: 'Developer' }] },
+        tomAi_specReviewRoundStatus: { round: 'notes/review-round' },
+        tomAi_specMergeReviews: { round: 'notes/review-round', dryRun: true },
+        tomAi_specDecideConflicts: { file: 'notes/review-round/base.md', decisions: { 'X-1': 'a' }, dryRun: true },
+        tomAi_mdInsertQuestion: { file: 'notes/plain.md', question: { id: 'RQ-1', topic: 'scope', text: 'In scope?', options: ['(a) yes', '(b) no'], recommended: 'a' }, dryRun: true },
         tomAi_specGetSection: { file: SPEC, path: 'SBP' },
         tomAi_specSetHeadline: { file: SPEC, path: 'SBP/introductionAndScope', headline: 'Introduction (by the MCP test)' },
         tomAi_specAddNode: { file: SPEC, parentPath: 'SBP/introductionAndScope/requirements/functionalRequirements', childSegment: 'FRE-REQU-LST', dryRun: true },
@@ -747,6 +753,13 @@ describe('every tool over MCP, in a sandbox', () => {
         // A spec edit is read back from the file.
         assert.match(fs.readFileSync(path.join(WS, SPEC), 'utf8'), /Written by the MCP test\./, 'tomAi_specSetContent');
         assert.match(answerOf('tomAi_specValidate'), /"ok": ?true/);
+        // The review round: the folder with one copy per member, nobody returned, so nothing to merge.
+        assert.match(answerOf('tomAi_specReviewRoundCreate'), /"notes\/review-round\/alice\.md"/);
+        assert.ok(fs.existsSync(path.join(WS, 'notes', 'review-round', 'round.yaml')), 'round.yaml written');
+        assert.match(answerOf('tomAi_specReviewRoundStatus'), /"returned": ?0/);
+        assert.match(answerOf('tomAi_specMergeReviews'), /nothingReturned/);
+        assert.match(answerOf('tomAi_specDecideConflicts'), /unknownConflict/);
+        assert.match(answerOf('tomAi_mdInsertQuestion'), /"written": ?false[\s\S]*\*\*❓ RQ-1/);
     });
 
     test('MA-8: the families the window provides for did their work in the sandbox', () => {

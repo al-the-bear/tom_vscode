@@ -134,7 +134,7 @@ describe('TomSpecs annotation tools', () => {
         const file = await annotated();
         const r = JSON.parse(await withTiming('tomAi_specAnnotations:typical', () => specAnnotationsImpl(deps, { file })));
         assert.equal(r.ok, true, JSON.stringify(r));
-        assert.deepEqual(r.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2 });
+        assert.deepEqual(r.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
         assert.match(r.marksRevision, /^[0-9a-f]{16}$/);
         assert.equal(r.document.root, 'SBP');
         const [c3, ann] = r.comments;
@@ -149,7 +149,7 @@ describe('TomSpecs annotation tools', () => {
         assert.deepEqual([onlyQuestions.comments.length, onlyQuestions.questions.length, onlyQuestions.marks.length], [0, 1, 0]);
         assert.equal((await list(file, { openOnly: true })).questions.length, 1);
         const elsewhere = await list(file, { path: 'SBP/introductionAndScope' });
-        assert.deepEqual(elsewhere.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0 }, 'nothing under another subtree');
+        assert.deepEqual(elsewhere.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 }, 'nothing under another subtree');
         assert.equal((await list(file, { path: 'SBP/nope' })).code, 'unresolvedPath');
     });
 
@@ -339,7 +339,7 @@ describe('TomSpecs annotation tools', () => {
         const dry = await run(specRemoveAllAnnotationsImpl, { file, dryRun: true });
         assert.equal(dry.ok, true, JSON.stringify(dry));
         assert.equal(dry.written, false);
-        assert.deepEqual(dry.removed, { comments: 2, questions: 1, openQuestions: 1, marks: 2 });
+        assert.deepEqual(dry.removed, { comments: 2, questions: 1, openQuestions: 1, marks: 2, conflicts: 0 });
         assert.match(dry.diff, /^-.*BQ-01/m);
         assert.equal(read(file), before, 'a dry run writes nothing');
 
@@ -515,11 +515,11 @@ describe('TomSpecs annotation tools', () => {
         assert.equal(r.searched, dir);
         assert.deepEqual(r.documents.map((d: Json) => d.file), [`${dir}/a.docspecs.yaml`, `${dir}/b.md`, `${dir}/c.docspecs.yaml`]);
         const [da, db, dc] = r.documents;
-        assert.deepEqual(da.counts, { questions: 1, openQuestions: 0, answeredQuestions: 1, comments: 2, marks: 2 });
-        assert.deepEqual(db.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2 });
-        assert.deepEqual(dc.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0 });
+        assert.deepEqual(da.counts, { questions: 1, openQuestions: 0, answeredQuestions: 1, comments: 2, marks: 2, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
+        assert.deepEqual(db.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
+        assert.deepEqual(dc.counts, { questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
         assert.deepEqual([da.root, db.root, da.findings], ['SBP', 'SBP', 0]);
-        assert.deepEqual(r.totals, { documents: 3, withAnnotations: 2, questions: 2, openQuestions: 1, answeredQuestions: 1, comments: 4, marks: 4, findings: 0 });
+        assert.deepEqual(r.totals, { documents: 3, withAnnotations: 2, questions: 2, openQuestions: 1, answeredQuestions: 1, comments: 4, marks: 4, findings: 0, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
         assert.equal(r.comments, undefined, 'no lists in the folder form');
         assert.equal(r.truncated, undefined);
 

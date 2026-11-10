@@ -133,15 +133,15 @@ Before any of the above, each request is checked for where it comes from (`admit
 
 ### The TomSpecs, DocSpecs and CodeSpecs tools
 
-Of the 49 spec tools, the floor serves the 24 that only read:
+Of the 55 spec tools, the floor serves the 25 that only read:
 
-- **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`, `tomAi_specAnnotations`, `tomAi_specExtractAnswers`.
+- **TomSpecs:** `tomAi_specListDocuments`, `tomAi_specOutline`, `tomAi_specGetSection`, `tomAi_specReflect`, `tomAi_specSearch`, `tomAi_specSearchIterate`, `tomAi_specValidate`, `tomAi_specRender`, `tomAi_specAnnotations`, `tomAi_specExtractAnswers`, `tomAi_specReviewRoundStatus`.
 - **DocSpecs Markdown:** `tomAi_docspecsValidate`, `tomAi_docspecsOutline`, `tomAi_docspecsGetSection`.
 - **CodeSpecs:** `tomAi_specCodeSpecsAreas`, `tomAi_specCodeSpecsRouting`, `tomAi_specCodeSpecsExtract`, `tomAi_specCodeSpecsGate`, `tomAi_specCodeSpecsVerdicts`, `tomAi_specCodeSpecsQueryExtracts`, `tomAi_specCodeSpecsTrace`, `tomAi_specCodeSpecsValidate`, `tomAi_specCodeSpecsStepContext`, `tomAi_specCodeSpecsStatus`, `tomAi_specCodeSpecsGuide`.
 
-The 27 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, the ten review-annotation writers (`tomAi_specInsertComment`, `tomAi_specInsertQuestion`, `tomAi_specSetAnswer`, `tomAi_specEditComment`, `tomAi_specAssignCommentIds`, `tomAi_specResolveAnnotation`, `tomAi_specDecideMarks`, `tomAi_specCommentChange`, `tomAi_specEditMarkComment`, `tomAi_specRemoveAllAnnotations`), `tomAi_specWriteAnswers`, `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
+The 30 that write are served only to an authenticated client (or with `allowWriteWithoutAuth`): the nine TomSpecs single-edit tools, the ten review-annotation writers (`tomAi_specInsertComment`, `tomAi_specInsertQuestion`, `tomAi_specSetAnswer`, `tomAi_specEditComment`, `tomAi_specAssignCommentIds`, `tomAi_specResolveAnnotation`, `tomAi_specDecideMarks`, `tomAi_specCommentChange`, `tomAi_specEditMarkComment`, `tomAi_specRemoveAllAnnotations`), `tomAi_specWriteAnswers`, the three team-review writers (`tomAi_specReviewRoundCreate`, `tomAi_specMergeReviews`, `tomAi_specDecideConflicts`), `tomAi_specApplyEdits`, `tomAi_specCreateDocument`, `tomAi_specConvert`, `tomAi_docspecsReplaceSection`, `tomAi_specCodeSpecsWriteExtracts`, `tomAi_specCodeSpecsSetVerdict` and `tomAi_specCodeSpecsPlanTodos`. A test holds both halves (`spec-tools-surface.test.ts`), and another drives the workflow through a real MCP client with and without the key (`spec-tools-mcp.test.ts`). The workflow itself is in [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md).
 
-The Markdown question tools for documents in the review syntax that are not TomSpecs specs ([llm_tools.md §4.24a](llm_tools.md#424a-questions-in-plain-markdown)) split the same way: `tomAi_mdQuestions` reads and is on the floor; `tomAi_mdSetAnswer` and `tomAi_mdProposeAnswer` write.
+The Markdown question tools for documents in the review syntax that are not TomSpecs specs ([llm_tools.md §4.24a](llm_tools.md#424a-questions-in-plain-markdown)) split the same way: `tomAi_mdQuestions` reads and is on the floor; `tomAi_mdSetAnswer`, `tomAi_mdProposeAnswer` and `tomAi_mdInsertQuestion` write.
 
 ### Resources and prompts: the CodeSpecs guides
 

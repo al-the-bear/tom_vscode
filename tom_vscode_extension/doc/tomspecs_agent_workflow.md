@@ -69,6 +69,9 @@ Markdown by hand: the runtime keeps every byte outside the annotation as it was.
    a subtree): the comments with the paragraph each one follows, the questions
    with their options, recommended option and answer (`openOnly: true` for the
    unanswered ones), the inline marks `M-1`, `M-2`, … and the `marksRevision`.
+   After a team review also the members' individual answers of each question
+   (`answers`), each mark's `authors` and `votes`, and the conflicts `X-1`, …
+   (see [Run a team review round](#run-a-team-review-round)).
 2. **Sign and mark.** What you write is signed `agent_<role>` (the role you
    work in, e.g. `agent_spec_author`): `tomAi_specInsertComment` and
    `tomAi_specCommentChange` (and their batch ops) sign so when you give no
@@ -115,8 +118,12 @@ marks; a typed or enum field is refused (`notText`).
 their sections and lines (`includeOpen`, `includeMarks` add the rest) — and
 writes nothing; `tomAi_specWriteAnswers` writes it into the step folder
 (`output`). The annotations stay in the document. At the end of a round,
-`tomAi_specRemoveAllAnnotations` accepts every mark and removes every comment
-and question in one write — collect the answers first.
+`tomAi_specRemoveAllAnnotations` accepts every mark, applies every conflict's
+decision and removes every comment, question and conflict block in one write —
+collect the answers first. It is refused (`conflictUndecided`) while a conflict
+has no decision. After a team review, the extract lists each document's
+individual answers beside the team answer (`individualAnswers`, and an
+*Individual answers* section in `answers.md`).
 
 Several of these in one write: `tomAi_specApplyEdits` takes them as ops of the
 same names, e.g.
@@ -138,8 +145,61 @@ Plain DocSpecs Markdown that is not a SOM document (a file with a
 `tomAi_docspecsValidate`.
 Questions in the review syntax in any other Markdown document (a completions
 or clarification document) are read and answered with `tomAi_mdQuestions`,
-`tomAi_mdSetAnswer` and `tomAi_mdProposeAnswer` ([llm_tools.md
-§4.24a](llm_tools.md#424a-questions-in-plain-markdown)).
+`tomAi_mdSetAnswer` and `tomAi_mdProposeAnswer`; `tomAi_mdInsertQuestion`
+writes a new one — the agent's proposal question in a plain Markdown review
+([llm_tools.md §4.24a](llm_tools.md#424a-questions-in-plain-markdown)).
+
+## Run a team review round
+
+A team review (SOM §11.9.8, §11.9.9) sends one copy of a document to each
+member of its review team and merges what comes back. Everything is files: no
+copy is written into, and who reviewed a copy says its file name. It works the
+same for a TomSpecs document and for plain annotated Markdown.
+
+1. **Start it.** `tomAi_specReviewRoundCreate` with the document creates the
+   round folder (default `<document folder>/review-rounds/<stem>-<YYYYMMDD-HHMM>`):
+   `base.<ext>`, one copy per member named by member id (`alice.docspecs.yaml`,
+   `alice.md`) and `round.yaml` (document, base, date, author, team, guests).
+   The team is `members` if given, else the document's own review team, else
+   the solution blueprint's team for its document type, else the blueprint's
+   default team — the most specific one replaces the others. The blueprint is
+   `sbp`, or the SBP document beside the reviewed one or in a folder above it.
+   A plain Markdown file names no team, so it needs `members`.
+2. **See who returned.** `tomAi_specReviewRoundStatus` answers per member
+   whether the copy is `returned` (it differs from the base) and `valid` (it
+   reads and its structure still fits the base — a copy that does not is
+   reported with its `problem`), with its annotation counts. A copy whose file
+   name is nobody on the team is a guest's (`guests`).
+3. **Merge.** `tomAi_specMergeReviews` merges the returned copies into
+   `merged/<document>` and writes the report to `merged/merge-report.json`:
+   changes become marks naming their authors, votes on the base's marks are
+   kept on them, a base mark every copy decided alike is applied, answers
+   become individual answers `**Answer (alice, bob):**` under the team's
+   `**Answer:**`, new comments are numbered on, and where members changed one
+   passage differently the merge writes a conflict block:
+
+   ```markdown
+   > ⚖️ **X-1 — RSP/content:** …
+   > - (base) Orders are kept two years.
+   > - (a) **alice:** Orders are kept three years.
+   > - (b) **bob:** Orders are kept five years.
+   >
+   > **Decision:**
+   ```
+
+   A TomSpecs document also gets a draft revision entry. Each guest gets a
+   question proposing them for the next round's team; ask a guest's name and
+   role first and pass them as `guests` (refused as `guestUnnamed` until then;
+   they are kept in `round.yaml`). A copy that does not fit the base refuses
+   the merge (`structureMismatch`). `dryRun` answers the merged text.
+4. **Decide the conflicts.** `tomAi_specDecideConflicts` writes each decision —
+   a letter (`(a)`), `base` (`(base)`), or rewritten text; `open: …` hands it
+   back — into the merged document. `tomAi_specAnnotations` lists the open
+   ones; `tomAi_specRemoveAllAnnotations` applies the decisions at the end.
+
+The team answer goes in with `tomAi_specSetAnswer` and `author: ""`; with a
+member id as `author` (or the user's own member id, the default when it is set
+on the Status Page) it writes that member's individual answer instead.
 
 ## Show the user the current version
 

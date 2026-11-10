@@ -57,7 +57,7 @@ import type { LoadedSomDocument } from '../services/som-document-store';
 // Inputs
 // ---------------------------------------------------------------------------
 
-export type AnnotationKind = 'comment' | 'question' | 'mark';
+export type AnnotationKind = 'comment' | 'question' | 'mark' | 'conflict';
 
 export interface SpecAnnotationsInput {
     /** One document: its annotations listed. Or pass `dir`. */
@@ -71,7 +71,7 @@ export interface SpecAnnotationsInput {
     /** Only the annotations at or below this path. */
     path?: string;
     kinds?: AnnotationKind[];
-    /** Questions without an answer only. */
+    /** Questions without a team answer, and conflicts without a decision, only. */
     openOnly?: boolean;
     /** At most this many of each kind (default 200). */
     limit?: number;
@@ -262,7 +262,41 @@ function questionView(a: SpecReviewAnnotation): Record<string, unknown> {
         id: a.id, topic: a.topic, text: a.text,
         options: a.options.map((o) => ({ letter: o.letter, text: o.text, bold: o.bold })),
         recommended: a.recommended, answer: a.answer, answerLetter: a.answerLetter, open: a.open,
+        unresolved: a.unresolved, answerChangedAt: a.answerChangedAt,
+        answers: a.answers.map((x) => x.toJson()),
         starred: a.starred, combined: a.combined, path: a.path, field: a.field, line: a.line,
+    };
+}
+
+/** A conflict block (SOM §11.9.8): the base, the members' alternatives, the decision (`decision` '' while open). */
+function conflictView(a: SpecReviewAnnotation): Record<string, unknown> {
+    return {
+        id: a.id, topic: a.topic, text: a.text, base: a.base,
+        alternatives: a.alternatives.map((x) => x.toJson()),
+        decision: a.answer, open: a.open, unresolved: a.unresolved,
+        path: a.path, field: a.field, line: a.line,
+    };
+}
+
+type ReviewCounts = {
+    questions: number; openQuestions: number; answeredQuestions: number; unresolvedQuestions: number;
+    comments: number; marks: number; conflicts: number; openConflicts: number;
+};
+const COUNT_KEYS = ['questions', 'openQuestions', 'answeredQuestions', 'unresolvedQuestions', 'comments', 'marks', 'conflicts', 'openConflicts'] as const;
+
+/** The counts over annotations already listed (and scoped). */
+function countList(all: readonly SpecReviewAnnotation[]): ReviewCounts {
+    const questions = all.filter((a) => a.kind === 'question');
+    const conflicts = all.filter((a) => a.kind === 'conflict');
+    return {
+        questions: questions.length,
+        openQuestions: questions.filter((q) => q.open).length,
+        answeredQuestions: questions.filter((q) => !q.open).length,
+        unresolvedQuestions: questions.filter((q) => q.unresolved).length,
+        comments: all.filter((a) => a.kind === 'comment').length,
+        marks: all.filter((a) => a.kind === 'mark').length,
+        conflicts: conflicts.length,
+        openConflicts: conflicts.filter((c) => c.open || c.unresolved).length,
     };
 }
 
@@ -271,16 +305,8 @@ function questionView(a: SpecReviewAnnotation): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 /** The annotation counts of one loaded document. */
-function annotationCounts(notes: SpecReviewAnnotations): { questions: number; openQuestions: number; answeredQuestions: number; comments: number; marks: number } {
-    const all = notes.list();
-    const questions = all.filter((a) => a.kind === 'question');
-    return {
-        questions: questions.length,
-        openQuestions: questions.filter((q) => q.open).length,
-        answeredQuestions: questions.filter((q) => !q.open).length,
-        comments: all.filter((a) => a.kind === 'comment').length,
-        marks: all.filter((a) => a.kind === 'mark').length,
-    };
+function annotationCounts(notes: SpecReviewAnnotations): ReviewCounts {
+    return countList(notes.list());
 }
 
 /** The `dir` form: per document under the folder, its counts and its annotation findings; and the totals. */
@@ -288,7 +314,7 @@ async function annotationsAcrossFolder(deps: SpecToolDeps, input: SpecAnnotation
     const found = await findSpecDocuments(deps, input);
     const documents: Record<string, unknown>[] = [];
     let stoppedBy: string | null = found.stoppedBy;
-    const totals = { documents: 0, withAnnotations: 0, questions: 0, openQuestions: 0, answeredQuestions: 0, comments: 0, marks: 0, findings: 0 };
+    const totals: Record<string, number> = { documents: 0, withAnnotations: 0, findings: 0, ...Object.fromEntries(COUNT_KEYS.map((k) => [k, 0])) };
     for (const doc of found.documents) {
         if (Date.now() > found.deadline) { stoppedBy = 'time'; break; }
         const file = String(doc.file);
@@ -299,8 +325,8 @@ async function annotationsAcrossFolder(deps: SpecToolDeps, input: SpecAnnotation
             const findings = notes.validate().length;
             documents.push({ file, root: loaded.root.sectionId ?? loaded.root.type, counts, findings });
             totals.documents++;
-            if (counts.questions + counts.comments + counts.marks > 0) { totals.withAnnotations++; }
-            for (const k of ['questions', 'openQuestions', 'answeredQuestions', 'comments', 'marks'] as const) { totals[k] += counts[k]; }
+            if (counts.questions + counts.comments + counts.marks + counts.conflicts > 0) { totals.withAnnotations++; }
+            for (const k of COUNT_KEYS) { totals[k] += counts[k]; }
             totals.findings += findings;
         } catch (e) {
             documents.push({ file, error: (e as Error).message });
@@ -329,19 +355,15 @@ export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotat
         const notes = annotationsOf(loaded.document, loaded);
         const all = notes.list().filter((a) => inScope(a.path));
         const questions = all.filter((a) => a.kind === 'question');
-        const counts = {
-            questions: questions.length,
-            openQuestions: questions.filter((q) => q.open).length,
-            answeredQuestions: questions.filter((q) => !q.open).length,
-            comments: all.filter((a) => a.kind === 'comment').length,
-            marks: all.filter((a) => a.kind === 'mark').length,
-        };
-        const kinds = new Set<AnnotationKind>(input.kinds && input.kinds.length ? input.kinds : ['comment', 'question', 'mark']);
+        const counts = countList(all);
+        const kinds = new Set<AnnotationKind>(input.kinds && input.kinds.length ? input.kinds : ['comment', 'question', 'mark', 'conflict']);
         const limit = input.limit && input.limit > 0 ? input.limit : DEFAULT_LIMIT;
         const comments = kinds.has('comment') ? all.filter((a) => a.kind === 'comment').map(commentView) : [];
         const shownQuestions = kinds.has('question') ? questions.filter((q) => !input.openOnly || q.open).map(questionView) : [];
         const marks = kinds.has('mark') ? notes.listMarks({ path: scope }).map((m) => m.toJson()) : [];
-        const truncated = [comments, shownQuestions, marks].some((l) => l.length > limit);
+        const conflicts = kinds.has('conflict')
+            ? all.filter((a) => a.kind === 'conflict' && (!input.openOnly || a.open || a.unresolved)).map(conflictView) : [];
+        const truncated = [comments, shownQuestions, marks, conflicts].some((l) => l.length > limit);
         const findings = notes.validate().filter((e) => inScope(e.path)).map((e) => ({ path: e.path, code: e.code, message: e.message }));
         return json({
             ok: true,
@@ -352,6 +374,7 @@ export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotat
             comments: comments.slice(0, limit),
             questions: shownQuestions.slice(0, limit),
             marks: marks.slice(0, limit),
+            conflicts: conflicts.slice(0, limit),
             findings,
             ...(truncated ? { truncated: true } : {}),
         });
@@ -518,7 +541,14 @@ function opRemoveAllAnnotations(_deps: SpecToolDeps, ctx: EditContext, _input: O
         questions: questions.length,
         openQuestions: questions.filter((q) => q.open).length,
         marks: before.filter((a) => a.kind === 'mark').length,
+        conflicts: before.filter((a) => a.kind === 'conflict').length,
     };
+    // Why here and not only in the runtime: the refusal names every conflict still to decide.
+    const undecided = before.filter((a) => a.kind === 'conflict' && (a.open || a.unresolved));
+    if (undecided.length) {
+        throw new SpecEditRefusal('conflictUndecided',
+            `${undecided.length === 1 ? 'A conflict is' : `${undecided.length} conflicts are`} not decided yet (${undecided.map((c) => c.id).join(', ')}); decide them with tomAi_specDecideConflicts first. Nothing was removed.`);
+    }
     const report = notes.removeAllAnnotations();
     const touched = [...new Set(before.map((a) => a.path))];
     return { touched, result: { removed, ...report.toJson(), counts: countsOf(notes) } };
@@ -620,7 +650,7 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
     name: 'tomAi_specAnnotations',
     displayName: 'Spec: Annotations',
     description:
-        'The review annotations of a TomSpecs document: `comments`, `questions` and `marks` (`M-<n>`, with `marksRevision` for tomAi_specDecideMarks), their `counts` and the runtime\'s `findings`. `path`, `kinds`, `openOnly` and `limit` (default 200) narrow it. With `dir` instead of `file`: the counts of every SOM document under the folder, no lists.' + NOTATION + FIRST_LOOK,
+        'The review annotations of a TomSpecs document: `comments` (with author), `questions` (the team `answer` and the members\' individual `answers`, §11.9.8), `marks` (`M-<n>` with `authors` and `votes`, and `marksRevision` for tomAi_specDecideMarks), `conflicts` (`X-<n>`: base, alternatives with their members, decision — tomAi_specDecideConflicts), their `counts` and the runtime\'s `findings`. `path`, `kinds`, `openOnly` and `limit` (default 200) narrow it. With `dir` instead of `file`: the counts of every SOM document under the folder, no lists.' + NOTATION + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -631,8 +661,8 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
             maxResults: { type: 'number', description: 'With `dir`: at most this many documents. Default 200, max 2000.' },
             timeBudgetMs: { type: 'number', description: 'With `dir`: how long it may take, in ms. Default 10000, max 120000.' },
             path: { type: 'string', description: `Only annotations at or below this path. ${PATH_PARAM_HINT}` },
-            kinds: { type: 'array', items: { type: 'string', enum: ['comment', 'question', 'mark'] }, description: 'Which lists to fill; default all three.' },
-            openOnly: { type: 'boolean', description: 'Only questions without an answer.' },
+            kinds: { type: 'array', items: { type: 'string', enum: ['comment', 'question', 'mark', 'conflict'] }, description: 'Which lists to fill; default all four.' },
+            openOnly: { type: 'boolean', description: 'Only questions without a team answer and conflicts without a decision.' },
             limit: { type: 'number', description: 'At most this many of each kind. Default 200.' },
         },
     },
@@ -770,7 +800,7 @@ export const SPEC_EDIT_MARK_COMMENT_TOOL = editTool<SpecEditMarkCommentInput>(
 
 export const SPEC_REMOVE_ALL_ANNOTATIONS_TOOL = editTool<SpecRemoveAllAnnotationsInput>(
     { name: 'tomAi_specRemoveAllAnnotations', displayName: 'Spec: Remove All Annotations' },
-    'Remove every review annotation of the whole document: every inline mark accepted, every comment and question removed, answered or not (a review round\'s step 05). Collect the answers first (tomAi_specWriteAnswers): what is removed is gone. Part of a document: tomAi_specDecideMarks with `all`, tomAi_specResolveAnnotation. Answers `removed`, `applied` and `malformed`.' + FIRST_LOOK + RESULT_NOTE,
+    'Remove every review annotation of the whole document: every inline mark accepted, every conflict\'s decision applied, every comment, question and conflict block removed, answered or not (a review round\'s step 05). Refused (`conflictUndecided`, nothing removed) while a conflict has no decision or an `open:` one (tomAi_specDecideConflicts). Collect the answers first (tomAi_specWriteAnswers): what is removed is gone. Part of a document: tomAi_specDecideMarks with `all`, tomAi_specResolveAnnotation. Answers `removed`, `applied` and `malformed`.' + FIRST_LOOK + RESULT_NOTE,
     { ...EDIT_PARAMS },
     ['file'],
     specRemoveAllAnnotationsImpl,

@@ -1523,6 +1523,7 @@ import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
 import { SPEC_EDIT_TOOLS } from './spec-edit-tools';
 import { SPEC_ANNOTATION_TOOLS } from './spec-annotation-tools';
 import { SPEC_ANSWERS_TOOLS } from './spec-answers-tools';
+import { SPEC_REVIEW_ROUND_TOOLS } from './spec-review-round-tools';
 import { SPEC_VALIDATE_TOOLS } from './spec-validate-tools';
 import { DOCSPECS_TOOLS } from './docspecs-tools';
 import { MD_QUESTION_TOOLS } from './md-question-tools';
@@ -1615,6 +1616,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...SPEC_EDIT_TOOLS,           // TomSpecs (SOM) edits, approval-gated: create, set content/form/headline/codeSpec, add, rename id, move, remove, clear
     ...SPEC_ANNOTATION_TOOLS,     // TomSpecs review annotations: list (read-only); comments, questions, answers, marks, remove all (approval-gated)
     ...SPEC_ANSWERS_TOOLS,        // TomSpecs answers.md of a step: extract (read-only), write (approval)
+    ...SPEC_REVIEW_ROUND_TOOLS,   // Team review rounds: create, status (read-only), merge, decide conflicts
     ...CODESPECS_TOOLS,           // CodeSpecs (Phase 4): areas, routing, extract (read-only), write extracts (approval)
     ...CODESPECS_GATE_TOOLS,      // CodeSpecs Stage A/B: gate A1–A5 and the gate record (read-only), set a verdict (approval)
     ...CODESPECS_TRACE_TOOLS,     // CodeSpecs query extracts, trace spec ↔ code by back-link token (read-only)

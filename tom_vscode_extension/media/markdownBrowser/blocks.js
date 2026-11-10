@@ -712,7 +712,7 @@ function mdbCommentHeader(line) {
     var m = /^ {0,3}> ?⬆️?\s*(?:\*\*C-\d+\*\*\s*)?\(([^()\n]*)\)\s*:/.exec(String(line || ''));
     if (!m) { return { author: '', changedAt: '' }; }
     var parts = m[1].split(',').map(function(p) { return p.trim(); });
-    var changedAt = MDB_CHANGE_TIME.test(parts[parts.length - 1]) ? parts.pop() : '';
+    var changedAt = MDB_CHANGE_TIME.test(parts[parts.length - 1]) ? parts.pop() || '' : '';
     return { author: parts.join(', ').trim(), changedAt: changedAt };
 }
 
@@ -757,7 +757,7 @@ function mdbAttribution(src) {
     /** @type {string[]} */
     var voters = [];
     var words = m[1].trim().split(/\s+/).filter(function(w) { return w; });
-    var changedAt = words.length && MDB_CHANGE_TIME.test(words[words.length - 1]) ? words.pop() : '';
+    var changedAt = words.length && MDB_CHANGE_TIME.test(words[words.length - 1]) ? words.pop() || '' : '';
     words.forEach(function(part) {
         if (part.charAt(0) === '+' || part.charAt(0) === '-') { voters.push(part.slice(1)); } else { authors.push(part); }
     });

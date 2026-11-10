@@ -81,9 +81,20 @@ class AnswersRefusal extends Error {
     }
 }
 
+/** A question the members answered one by one (SOM §11.9.8), beside its team answer. */
+export interface IndividualAnswers {
+    id: string;
+    topic: string | null;
+    path: string;
+    field: string | null;
+    /** The team answer; '' while the team has not answered. */
+    teamAnswer: string;
+    answers: Array<{ members: string[]; answer: string; changedAt: string | null }>;
+}
+
 interface AnswersBuild {
     extracts: SpecAnswerExtract[];
-    documents: Array<{ label: string; root: string; files: string[]; counts: Record<string, number> }>;
+    documents: Array<{ label: string; root: string; files: string[]; counts: Record<string, number>; individualAnswers: IndividualAnswers[] }>;
     counts: Record<string, number>;
     findings: Array<{ document: string; path: string; code: string; message: string }>;
     markdown: string;
@@ -124,12 +135,20 @@ function buildAnswers(deps: SpecToolDeps, input: SpecExtractAnswersInput): Answe
         }
         if (scope) { new SomSpecInspector(deps.service, document).resolve(scope); }
         const qualifier = first.root.sectionId ?? null;
-        for (const e of new SpecReviewAnnotations(document, { qualifier }).validate()) {
+        const notes = new SpecReviewAnnotations(document, { qualifier });
+        const inScope = (p: string): boolean => !scope || p === scope || p.startsWith(`${scope}/`);
+        const individualAnswers: IndividualAnswers[] = notes.list()
+            .filter((a) => a.kind === 'question' && a.answers.length > 0 && inScope(a.path))
+            .map((a) => ({
+                id: a.id ?? '', topic: a.topic, path: a.path, field: a.field, teamAnswer: a.answer,
+                answers: a.answers.map((x) => ({ members: [...x.members], answer: x.answer, changedAt: x.changedAt })),
+            }));
+        for (const e of notes.validate()) {
             if (MISSED.has(e.code)) { findings.push({ document: label, path: e.path, code: e.code, message: e.message }); }
         }
         const extract = extractAnswers(deps.service.model, document, { label, path: scope });
         extracts.push(extract);
-        documents.push({ label, root: first.root.sectionId ?? first.root.type, files: fragments.map((f) => f.name), counts: extract.counts.toJson() });
+        documents.push({ label, root: first.root.sectionId ?? first.root.type, files: fragments.map((f) => f.name), counts: extract.counts.toJson(), individualAnswers });
     }
     const total = extracts.reduce((sum, x) => sum.plus(x.counts), new SpecAnswerCounts());
     const markdown = renderAnswers(extracts, new SpecAnswerRenderOptions({
@@ -137,7 +156,38 @@ function buildAnswers(deps: SpecToolDeps, input: SpecExtractAnswersInput): Answe
         includeMarks: input.includeMarks === true,
         ...(input.title ? { title: input.title } : {}),
     }));
-    return { extracts, documents, counts: total.toJson(), findings, markdown };
+    return { extracts, documents, counts: total.toJson(), findings, markdown: withIndividualAnswers(markdown, documents) };
+}
+
+/**
+ * `answers.md` with each document's individual answers (SOM §11.9.8) as a
+ * last section of its block: the runtime's rendering lists the team answer
+ * only. A document whose members answered nothing one by one gets none.
+ */
+export function withIndividualAnswers(markdown: string, documents: AnswersBuild['documents']): string {
+    const lines = markdown.replace(/\n$/, '').split('\n');
+    const starts: number[] = [];
+    let k = 0;
+    for (const d of documents) {
+        while (k < lines.length && lines[k] !== `## ${d.label}`) { k++; }
+        starts.push(k);
+        k++;
+    }
+    for (let i = documents.length - 1; i >= 0; i--) {
+        const d = documents[i];
+        if (!d.individualAnswers.length || starts[i] >= lines.length) { continue; }
+        const end = i + 1 < documents.length ? starts[i + 1] : lines.length;
+        const block = ['', '### Individual answers'];
+        for (const q of d.individualAnswers) {
+            block.push('', `#### ${q.id}${q.topic ? ` — ${q.topic}` : ''}`, '', `- **Path:** \`${q.path}\``);
+            if (q.field) { block.push(`- **Field:** \`${q.field}\``); }
+            block.push(`- **Team answer:**${q.teamAnswer ? ` ${q.teamAnswer.split('\n').join('\n  ')}` : ' (none yet)'}`);
+            for (const a of q.answers) { block.push(`- **${a.members.join(', ')}:** ${a.answer.split('\n').join('\n  ')}`); }
+        }
+        // Before the blank line that separates the next document's heading.
+        lines.splice(end < lines.length && lines[end - 1] === '' ? end - 1 : end, 0, ...block);
+    }
+    return `${lines.join('\n')}\n`;
 }
 
 function answersFailure(e: unknown): string {
@@ -217,7 +267,7 @@ export const SPEC_EXTRACT_ANSWERS_TOOL: SharedToolDefinition<SpecExtractAnswersI
     name: 'tomAi_specExtractAnswers',
     displayName: 'Spec: Extract Answers',
     description:
-        'A review round\'s answers (SOM §11.9.7) as the text of a step folder\'s `answers.md`, written nowhere: per document the answered questions and the comments with their section-id chain and line (`includeOpen`, `includeMarks` add more); `files` takes several documents in order. Answers `{counts, documents, findings, markdown}`; `findings` (annotations the runtime cannot read) make it `complete: false`. tomAi_specWriteAnswers writes the file.' + FIRST_LOOK,
+        'A review round\'s answers (SOM §11.9.7) as the text of a step folder\'s `answers.md`, written nowhere: per document the answered questions (the team answer) and the comments with their section-id chain and line, and the members\' individual answers (§11.9.8, `individualAnswers` per document) (`includeOpen`, `includeMarks` add more); `files` takes several documents in order. Answers `{counts, documents, findings, markdown}`; `findings` (annotations the runtime cannot read) make it `complete: false`. tomAi_specWriteAnswers writes the file.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: INPUT_PROPS },

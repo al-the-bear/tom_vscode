@@ -72,6 +72,10 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_getProcess',
     'tomAi_getProcessState',
     'tomAi_setProcessState',
+    'tomAi_getProcessStack',
+    'tomAi_listSubprocessCandidates',
+    'tomAi_suggestSubprocess',
+    'tomAi_getSubprocessRuns',
     'tomAi_validateProcess',
     'tomAi_writeProcess',
     // Memory
@@ -228,6 +232,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_mdQuestions',
     'tomAi_mdSetAnswer',
     'tomAi_mdProposeAnswer',
+    'tomAi_mdInsertQuestion',
     // TomSpecs (SOM) edits — write tools, approval-gated
     'tomAi_specAddNode',
     'tomAi_specClearSection',
@@ -253,6 +258,11 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specEditMarkComment',
     'tomAi_specRemoveAllAnnotations',
     'tomAi_specWriteAnswers',
+    // TomSpecs team review rounds — status reads, the rest approval-gated
+    'tomAi_specReviewRoundCreate',
+    'tomAi_specReviewRoundStatus',
+    'tomAi_specMergeReviews',
+    'tomAi_specDecideConflicts',
     // Queue + timed requests — observation and sessions
     'tomAi_listQueue',
     // The windows on this machine, each quest's sessions and the profiles (before tomAi_sendItemToQuest).

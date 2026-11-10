@@ -634,8 +634,31 @@ mark delimiters, and the new text was written unmarked.
 | `tomAi_specDecideMarks` | Accept / reject / leave marks by `M-<n>` id at a `marksRevision` (a stale one is refused), or `all` under a path. Deciding a change with a comment keeps the comment and records `accepted` / `rejected` in its quote. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specCommentChange` | Comment on a change mark by its `M-<n>` id (SOM §11.9.3): a change comment `{>> [~~ old ~> new ~~] why? <<}` right after the change, quoting it so it stays understandable once the change is decided; answers its `commentId`. One per change; `author` and the change time are written in the attribution token after it. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specEditMarkComment` | Replace the comment of an inline mark by id — a `{>> comment <<}`, a change comment (its quote kept) or a commented highlight; the change time becomes the edit's. Comment blocks (`C-<n>`) are `tomAi_specEditComment`'s. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every comment and question removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRemoveAllAnnotations` | Every inline mark accepted, every conflict's decision applied, every comment, question and conflict block removed, in the whole document — the document once a round is integrated. Answers what it `removed` (counted before); refused (`conflictUndecided`) while a conflict is undecided. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specWriteAnswers` | Write `tomAi_specExtractAnswers`' text to a step folder's `answers.md` (`output`): `status` new / changed / unchanged; other text is refused without `overwrite`; annotations the runtime cannot read are refused (`annotationsMalformed`); `dryRun` returns the diff. Not a batch op. | ✅ | ✅ | ⚪ | ✅ |
+
+**Team review rounds** (SOM §11.9.8, §11.9.9). A round is files only: the
+round folder holds `round.yaml` (document, base, date, author, team, guests,
+the last merge), `base.<ext>` (the document as sent out), one copy per member
+named by member id (`alice.docspecs.yaml`, `alice.md`; nothing is written into
+a copy) and `merged/` (the merged document and `merge-report.json`). They work
+on TomSpecs documents and on plain annotated Markdown through the runtime's
+`mergeReviews`; a plain Markdown copy is matched by heading path.
+
+| Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
+| --- | --- | :-: | :-: | :-: | :-: |
+| `tomAi_specReviewRoundCreate` | The round folder for a document: base, one copy per member, `round.yaml`. The team is `members`, else the document's own review team, else the solution blueprint's team for its document type, else its default team (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specReviewRoundStatus` | Per member: `exists`, `returned` (differs from the base), `valid` (reads, structure fits the base — else its `problem`), annotation `counts`; guests' copies. Read-only. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specMergeReviews` | Merge the returned copies into `merged/` with the report: attributed marks and votes, individual answers, conflicts, unanimous decisions applied, guest questions, a draft revision entry (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specDecideConflicts` | Write conflict decisions after `**Decision:**`: a letter `(a)`, `(base)` or rewritten text; `""` reopens (approval). TomSpecs documents and plain Markdown. | ✅ | ✅ | ⚪ | ✅ |
+
+`tomAi_specAnnotations` lists the conflicts (`conflicts`: base, alternatives
+with their members, decision), each question's individual answers (`answers`)
+and each mark's `authors` and `votes`; its counts include `conflicts`,
+`openConflicts` and `unresolvedQuestions`. `tomAi_specExtractAnswers` adds each
+document's `individualAnswers` and an *Individual answers* section to
+`answers.md`. `tomAi_specRemoveAllAnnotations` applies the conflict decisions
+and is refused (`conflictUndecided`) while one is undecided.
 
 Every edit answers `{ok, written, revision, …, validation}`. `validation` compares
 the runtime's `validateDocument` before and after the edit across the whole
@@ -754,6 +777,7 @@ of an open editor, refused when the file is dirty there or changed since
 | `tomAi_mdQuestions` | Every question block of a Markdown file: `id`, `topic`, `text`, `line`, `options`, `recommended`, `answer`, `open`, `answerLine` (null without an Answer line) and `proposed` (a proposed answer under it). `id` / `openOnly` narrow it; `revision` for the writers. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_mdSetAnswer` | Write a question's answer after its `**Answer:**` (approval): `option` writes the letter first (`(b) because …`), `answer` the text; `""` clears it. A duplicate id needs `line`. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_mdProposeAnswer` | Write a proposal under the question, after its answer and a bare `>` line, as `> **Proposed answer** (<source>, <date>): …` (approval); the answer stays open for the user to accept, edit or discard it. A proposal already there is replaced. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_mdInsertQuestion` | Insert a question block — the agent's proposal question in a plain Markdown review — after the paragraph holding `afterTextContains`, after line `afterLine`, or at the end: header with its change time, options (the recommended one bold), `*Recommendation:*`, `*Assumption:*`, an empty `> **Answer:**` (approval). An id the file has, or an anchor missing or there twice, is refused. For TomSpecs documents `tomAi_specInsertQuestion`. | ✅ | ✅ | ⚪ | ✅ |
 
 ### 4.25 CodeSpecs (Phase 4: a filled spec becomes code-generation inputs)
 
@@ -1336,6 +1360,10 @@ Insert a question block (SOM §11.9.2): directly after a comment (`afterComment`
 **Arguments:**
 
 - `path`: The value: a content path (`…/content`), or a form with `field`. A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
+
+### `tomAi_specMergeReviews`
+
+Merge a team review round's returned copies (SOM §11.9.9) through the runtime's `mergeReviews` into `merged/<document>` in the team notation of §11.9.8, and write the report to `merged/merge-report.json`. A copy is returned when it differs from the base; one identical to it is left out unless `includeUnchanged`. What the merge writes: a change one or several members made becomes an inline mark naming them (`{~~ 100 ~> 200 ~~}{@alice}`); a member's decision on a base mark becomes a vote on it, and a base mark every copy decided the same way is applied (`unanimous`); a member's answer becomes an individual answer `**Answer (alice, bob):**` above the team's empty `**Answer:**`; new comments are numbered on; an item a copy added is added; where members changed one passage differently, a conflict block `> ⚖️ **X-<n> — <topic>:**` lists the base and each member's alternative with an empty `> **Decision:**` (tomAi_specDecideConflicts). A copy whose file name is nobody on the team is a guest's: the merge writes a question proposing them for the next round's team, and needs their name and role (`guests`, kept in round.yaml; refused as `guestUnnamed` until given). A TomSpecs document gets a draft revision entry (the next minor version, the round's date and author, the team and the reviewers). Refused, nothing written: `guestUnnamed`, `structureMismatch` (a copy that does not fit the base, named with its problem), `nothingReturned`. Answers the report as `report` (reviewers with `guest`, conflicts with path, field, paragraph and members, votes, unanimous, answers, comments, additions, guestQuestions, revision), a `summary` of the counts, `mergedCopies`, `notReturned` and what to do next; `dryRun` answers `mergedText` and writes nothing.
 
 ### `tomAi_specMoveListItem`
 
