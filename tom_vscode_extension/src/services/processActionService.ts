@@ -86,7 +86,7 @@ export function buildProcessActionPrompt(
     if (!template.trim()) { return ''; }
     const values = processActionValues(def, store.state, move, customInstructions, store.processDescription());
     // `${session}`: the session the prompt is queued in (picked on the page or named by the process).
-    values.session = actionSession(def, store.state, sessionOverride).name;
+    values.session = actionSession(def, store.state, sessionOverride, store.inheritedSession?.()).name;
     // `${finish-review-round}`: the Assist prompt a closing item shows the results with
     // (tomAi_askInMdBrowser + Finish review round). The review is the position this move leads to.
     const review = userActionAt(def, move.target) ? move.target : store.state;
@@ -155,7 +155,7 @@ export async function confirmProcessAction(
     if (decisionAt(def, here)) {
         return { ok: false, error: 'this is a decision: pick how the process goes on (repeat, go on, gate passed or failed) in the PROCESS view' };
     }
-    const session = actionSession(def, here, sessionOverride);
+    const session = actionSession(def, here, sessionOverride, store.inheritedSession());
     // A user action is done by the user: confirming it queues nothing.
     const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
     if (!text) {
@@ -195,8 +195,27 @@ export async function applyProcessMoveMarker(marker: QueuedPrompt): Promise<{ ok
     // Only the level it was queued for, while it is the running one: a step below a subprocess waits for it.
     if ((run.level ?? 0) !== store.levelIndex) { return { ok: true }; }
     if (now.decision || now.nestedEnded || !samePosition(now, run.state)) { return { ok: true }; }
+    // The agent suggested processes at the end of the step (C-28): the move waits for the user's choice,
+    // and the process branching editor opens now that the step's queue items are done.
+    if (now.suggestions?.length) {
+        const held = store.holdForSuggestions({ kind: spec.kind, ...(spec.level ? { level: spec.level } : {}), label: spec.label }, 'user');
+        if (held.ok) { suggestionsDue(); }
+        return held.ok ? { ok: true } : held;
+    }
     const moved = store.move(spec.kind, spec.level, 'user');
     return moved.ok ? { ok: true } : moved;
+}
+
+let suggestionsDueHandler: () => void = () => undefined;
+
+/** What happens when a step's suggestions are due: the extension opens the process branching editor. */
+export function onSuggestionsDue(handler: () => void): void {
+    suggestionsDueHandler = handler;
+}
+
+/** The running step's suggestions are due now (its run finished, or none was running when they came). */
+export function suggestionsDue(): void {
+    try { suggestionsDueHandler(); } catch { /* the page is a convenience: the view lists them too */ }
 }
 
 /** Let the queue's process-move markers move the process (called once at activation). */

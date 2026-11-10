@@ -35,7 +35,7 @@ export function liveAssistDeps(context: vscode.ExtensionContext): AssistLiveDeps
                 const store = require('../managers/processStateStore.js').ProcessStateStore.instance as import('../managers/processStateStore').ProcessStateStore | undefined;
                 const def = store?.currentDefinition();
                 const { actionSession } = require('../utils/processActionPrompt.js') as typeof import('../utils/processActionPrompt');
-                const name = store && def && store.state.process ? actionSession(def, store.state).name : '';
+                const name = store && def && store.state.process ? actionSession(def, store.state, undefined, store.inheritedSession()).name : '';
                 return name || 'default';
             } catch {
                 return 'default';

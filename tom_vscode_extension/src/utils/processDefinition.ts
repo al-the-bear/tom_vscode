@@ -562,6 +562,56 @@ export interface ProcessState {
      * process id (the latest run of each): `${sub.<process>.<name>}`.
      */
     subOutputs?: Record<string, Record<string, string>>;
+    /**
+     * The agent's suggestions of processes this position lists
+     * (tomAi_suggestSubprocess), kept with the step: dropped when the level
+     * moves to another position or a level is started from it.
+     */
+    suggestions?: StoredSuggestion[];
+    /**
+     * The step's queue run finished while it holds suggestions: the move its
+     * marker would have made waits until the user starts one of them (the
+     * level waits) or dismisses them (the move is made).
+     */
+    suggestionsDue?: { kind: ProcessMoveKind; level?: ProcessLevel; label: string };
+    /** The subprocesses and branches started from this level so far, oldest first (at most 50). */
+    nestedRuns?: NestedRunRecord[];
+}
+
+/** An agent's suggestion of a process the position lists. */
+export interface StoredSuggestion {
+    kind: NestedKind;
+    process: string;
+    reason: string;
+    followUp?: NestedFollowUp;
+    /** ISO time it was made. */
+    at: string;
+}
+
+/** A position of a level, without its process. */
+export interface LevelPosition {
+    phase: string;
+    phaseIteration: number;
+    step: string;
+    stepIteration: number;
+    substep: string;
+    substepIteration: number;
+}
+
+/** A subprocess or branch started from a level, and how it ended. */
+export interface NestedRunRecord {
+    process: string;
+    kind: NestedKind;
+    /** The position of the level it was started from. */
+    from: LevelPosition;
+    startedAt: string;
+    endedAt: string;
+    outcome: 'finished' | 'aborted';
+    followUp: NestedFollowUp;
+    /** Where the level stood when it ended (an aborted one was left there). */
+    left: LevelPosition;
+    /** The outputs it handed back (a finished subprocess). */
+    outputs?: Record<string, string>;
 }
 
 /** Started as a subprocess (hands a result back) or a branch (hands nothing back). */
@@ -1358,6 +1408,19 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         ...textRecord('inputs', raw.inputs),
         ...textRecord('outputs', raw.outputs),
         ...parseSubOutputs(raw.subOutputs),
+        ...(Array.isArray(raw.suggestions) ? { suggestions: (raw.suggestions as unknown[]).filter(isObject).filter((x) => typeof x.process === 'string' && NESTED_KINDS.includes(x.kind as NestedKind)).map((x) => ({
+            kind: x.kind as NestedKind, process: x.process as string, reason: typeof x.reason === 'string' ? x.reason : '',
+            ...(NESTED_FOLLOW_UPS.includes(x.followUp as NestedFollowUp) ? { followUp: x.followUp as NestedFollowUp } : {}),
+            at: typeof x.at === 'string' ? x.at : '',
+        })) } : {}),
+        ...(isObject(raw.suggestionsDue) && typeof raw.suggestionsDue.kind === 'string' && (PROCESS_MOVE_KINDS as readonly string[]).includes(raw.suggestionsDue.kind)
+            ? { suggestionsDue: {
+                kind: raw.suggestionsDue.kind as ProcessMoveKind,
+                ...(['phase', 'step', 'substep'].includes(raw.suggestionsDue.level as string) ? { level: raw.suggestionsDue.level as ProcessLevel } : {}),
+                label: typeof raw.suggestionsDue.label === 'string' ? raw.suggestionsDue.label : '',
+            } }
+            : {}),
+        ...(Array.isArray(raw.nestedRuns) ? { nestedRuns: (raw.nestedRuns as unknown[]).filter(isObject).filter((x) => typeof x.process === 'string') as unknown as NestedRunRecord[] } : {}),
     };
 }
 
@@ -1409,6 +1472,9 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.inputs && Object.keys(state.inputs).length ? { inputs: state.inputs } : {}),
         ...(state.outputs && Object.keys(state.outputs).length ? { outputs: state.outputs } : {}),
         ...(state.subOutputs && Object.keys(state.subOutputs).length ? { subOutputs: state.subOutputs } : {}),
+        ...(state.suggestions?.length ? { suggestions: state.suggestions } : {}),
+        ...(state.suggestionsDue ? { suggestionsDue: state.suggestionsDue } : {}),
+        ...(state.nestedRuns?.length ? { nestedRuns: state.nestedRuns } : {}),
     };
 }
 

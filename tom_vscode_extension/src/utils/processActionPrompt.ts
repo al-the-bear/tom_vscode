@@ -192,11 +192,12 @@ export interface ActionSession {
  * names for that position (innermost of sub-step, step, phase), else the
  * queue default.
  */
-export function actionSession(def: ProcessDefinition, state: ProcessState, override?: string): ActionSession {
+export function actionSession(def: ProcessDefinition, state: ProcessState, override?: string, inherited?: ProcessSession | null): ActionSession {
     if (override !== undefined) {
         return override ? { name: override, source: 'override' } : { name: '', source: 'queue-default' };
     }
-    const spec = effectiveSession(def, state);
+    // A subprocess or branch that names no session runs in the session of the step that started it.
+    const spec = effectiveSession(def, state) ?? inherited ?? null;
     return spec ? { name: spec.name, source: 'process', spec } : { name: '', source: 'queue-default' };
 }
 

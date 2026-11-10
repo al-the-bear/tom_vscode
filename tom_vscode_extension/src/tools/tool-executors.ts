@@ -1516,6 +1516,7 @@ import { SKILL_TOOLS } from './skill-tools';
 import { DESCRIBE_TOOL_TOOLS } from './describe-tool';
 import { OUTPUT_CHANNEL_TOOLS } from './output-channel-tools';
 import { QUEST_PROCESS_TOOLS } from './quest-process-tools';
+import { PROCESS_STACK_TOOLS } from './process-stack-tools';
 import { PROCESS_WRITE_TOOLS } from './process-write-tools';
 import { SPEC_TOOLS } from './spec-tools';
 import { SPEC_SEARCH_TOOLS } from './spec-search-tools';
@@ -1606,6 +1607,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...ID_PREFIX_TOOLS,           // generateIdPrefix — date-based letters-only code for collision-free hand-authored ids
     ...SKILL_TOOLS,               // loadSkill — a .claude/skills SKILL.md and its files (direct, Local LLM, VS Code LM)
     ...QUEST_PROCESS_TOOLS,       // listProcesses, getProcess, getProcessState (read-only), setProcessState — the quest's process
+    ...PROCESS_STACK_TOOLS,       // getProcessStack, listSubprocessCandidates, getSubprocessRuns (read-only), suggestSubprocess — nested processes
     ...PROCESS_WRITE_TOOLS,       // validateProcess (read-only), writeProcess (approval) — creating a process
     ...SPEC_TOOLS,                // TomSpecs (SOM): specListDocuments, specOutline, specGetSection, specReflect
     ...SPEC_SEARCH_TOOLS,         // TomSpecs (SOM): specSearch, specSearchIterate (paged cursor)

@@ -177,6 +177,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             case 'openBranching':
                 await openProcessBranchingEditor(this.context);
                 break;
+            case 'dismissSuggestions':
+                this.report(store.dismissSuggestions('user'));
+                break;
             case 'iteration':
                 if (msg.level && msg.delta) { this.report(this.byHand(store.activeQuest, store.stepIteration(msg.level, msg.delta, 'user'))); }
                 break;

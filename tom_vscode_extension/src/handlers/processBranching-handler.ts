@@ -9,7 +9,10 @@
  * **Dismiss** closes the page. The page closes by itself once a level started
  * or the running position moved on.
  *
- * Opened from the PROCESS view's *Your turn* box at a user-action step.
+ * Opened from the PROCESS view's *Your turn* box at a user-action step and
+ * its Suggested line, and by itself when the agent's suggestions are due
+ * (the step's queue items done, processActionService.suggestionsDue).
+ * Dismiss drops the suggestions and makes the move that waited for them.
  */
 
 import * as vscode from 'vscode';
@@ -50,8 +53,10 @@ export function closeProcessBranchingEditor(): void {
 }
 
 /** Open (or bring back) the page for the running step; `suggestions` are the agent's (e-8). */
-export async function openProcessBranchingEditor(context: vscode.ExtensionContext, suggestions: readonly ProcessSuggestion[] = []): Promise<void> {
+export async function openProcessBranchingEditor(context: vscode.ExtensionContext, suggestions?: readonly ProcessSuggestion[]): Promise<void> {
     const store = await ProcessStateStore.ready;
+    // The agent's suggestions stored with the running step, unless the caller names its own.
+    suggestions = suggestions ?? (store.state.suggestions ?? []).map((x) => ({ kind: x.kind, process: x.process, reason: x.reason, ...(x.followUp ? { followUp: x.followUp } : {}) }));
     closeProcessBranchingEditor();
     const extPath = getExtensionPath() ?? context.extensionPath;
     const def = store.currentDefinition();
@@ -76,7 +81,13 @@ export async function openProcessBranchingEditor(context: vscode.ExtensionContex
         if (panel === created) { panel = undefined; openedAt = undefined; }
     });
     created.webview.onDidReceiveMessage(async (msg: { type?: string; kind?: NestedKind; process?: string; followUp?: NestedFollowUp }) => {
-        if (msg?.type === 'dismiss') { closeProcessBranchingEditor(); return; }
+        if (msg?.type === 'dismiss') {
+            // Dismissed suggestions go; a move that waited for them is made now.
+            const result = store.dismissSuggestions('user');
+            if (!result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
+            closeProcessBranchingEditor();
+            return;
+        }
         if (msg?.type !== 'start' || !msg.kind || !msg.process) { return; }
         const started = await startListedProcess(store, liveNestedUi, msg.kind, msg.process, msg.followUp ?? 'ask');
         if (started) { closeProcessBranchingEditor(); }

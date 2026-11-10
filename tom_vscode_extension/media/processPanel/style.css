@@ -154,3 +154,8 @@ details.level > summary { cursor: pointer; }
 .lv-kv { margin: 1px 0; font-size: 0.95em; }
 .lv-label { color: var(--vscode-descriptionForeground); margin-right: 3px; }
 .ua-branching { margin-top: 6px; }
+
+.suggestions { border: 1px solid var(--vscode-focusBorder); border-radius: 4px; padding: 4px 6px; margin: 4px 0; }
+.sg-head { font-weight: 600; }
+.sg-reasons { margin: 2px 0 2px 16px; padding: 0; }
+.sg-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

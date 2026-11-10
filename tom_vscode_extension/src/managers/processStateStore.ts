@@ -29,8 +29,13 @@ import {
     abortedLevelJournalEntry,
     checkNestedStart,
     endNestedLevel,
+    checkSuggestions,
     ioVariables,
     levelOutputs,
+    mergeSuggestions,
+    parentProcessLines,
+    positionProcessLists,
+    type SuggestionInput,
     pushNestedLevel,
     setLevelOutputs,
     topLevel,
@@ -41,7 +46,10 @@ import {
     availableMoves,
     changeIteration,
     currentRole,
+    effectiveSession,
     normalizeState,
+    samePosition,
+    type ProcessSession,
     trackStepIterations,
     roleAfterMove,
     processContextBlock,
@@ -273,11 +281,95 @@ export class ProcessStateStore {
         return { ...processVariableValues(v.def, v.state, v.description), ...ioVariables(v.state) };
     }
 
-    /** The `${process-context}` block for the system prompt; `''` without a process. */
+    /**
+     * The `${process-context}` block for the system prompt; `''` without a
+     * process. With a stack, the *Parent processes* list comes first; at a
+     * position that lists processes, how the agent may suggest one.
+     */
     contextBlock(): string {
         const v = this.viewed();
         const run = currentProcessRun();
-        return processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest);
+        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest);
+        if (!block) { return block; }
+        const parents = parentProcessLines(this.levels, (l) => this.positionOf(l));
+        return [...(parents.length ? [...parents, ''] : []), block, ...this.suggestionLines(v.def, v.state)].join('\n');
+    }
+
+    /** The context block of the level at `index` (0 the bottom): its own position, no run context. */
+    levelContextBlock(index: number): string {
+        const level = this.levels[index];
+        if (!level) { return ''; }
+        const e = this.entry(level.process);
+        return processContextBlock(e?.definition ?? null, level, e?.description ?? '');
+    }
+
+    private positionOf(level: ProcessState): string {
+        const def = this.entry(level.process)?.definition;
+        return def ? positionText(def, level) : [level.phase, level.step].filter(Boolean).join(' › ');
+    }
+
+    /** At a position that lists processes: what may be started, and how the agent suggests (never starts) one. */
+    private suggestionLines(def: ProcessDefinition | null, state: ProcessState): string[] {
+        const lists = positionProcessLists(def, state);
+        if (!lists.subprocesses.length && !lists.branches.length) { return []; }
+        const names = [...lists.subprocesses.map((e) => `\`${e.process}\` (subprocess)`), ...lists.branches.map((e) => `\`${e.process}\` (branch)`)];
+        const lines = ['', `This step lists processes that may be started from it: ${names.join(', ')}. If the step's work shows one is needed, suggest it — with your reason, and optionally the follow-up you recommend — as the LAST thing of the step with \`tomAi_suggestSubprocess\` (the candidates: \`tomAi_listSubprocessCandidates\`). Never in the middle of the step, and never start or abort one yourself: the user decides when the step's queue items are done.`];
+        if (state.suggestions?.length) {
+            lines.push(`Suggested so far: ${state.suggestions.map((x) => `\`${x.process}\` (${x.kind}) — ${x.reason}`).join('; ')}.`);
+        }
+        return lines;
+    }
+
+    /**
+     * The session of the step that started the running level, when that level
+     * names none (CC-44): the nearest level below with a session, else none.
+     */
+    inheritedSession(): ProcessSession | null {
+        const levels = this.levels;
+        for (let i = levels.length - 2; i >= 0; i--) {
+            const def = this.entry(levels[i].process)?.definition ?? null;
+            const spec = effectiveSession(def, levels[i]);
+            if (spec) { return spec; }
+        }
+        return null;
+    }
+
+    /**
+     * Store the agent's suggestions on the running position (merged; a
+     * process suggested again replaces its earlier suggestion). Nothing starts.
+     */
+    suggest(input: readonly SuggestionInput[], source: ChangeSource): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const before = this.state;
+        const checked = checkSuggestions(this.currentDefinition(), before, input);
+        if (!checked.ok) { return checked; }
+        return this.commit(repo, before, { ...before, suggestions: mergeSuggestions(before.suggestions, checked.suggestions) }, source);
+    }
+
+    /** The step's queue run finished with suggestions: its move waits for the user's choice. */
+    holdForSuggestions(move: { kind: ProcessMoveKind; level?: ProcessLevel; label: string }, source: ChangeSource): ProcessChangeResult {
+        const repo = this.repo();
+        if (!this.quest || !repo) { return { ok: false, error: 'no quest or workspace' }; }
+        const before = this.state;
+        return this.commit(repo, before, { ...before, suggestionsDue: { kind: move.kind, ...(move.level ? { level: move.level } : {}), label: move.label } }, source);
+    }
+
+    /**
+     * The user dismissed the suggestions: they go, and a move that waited for
+     * them (the step's run had finished) is made now.
+     */
+    dismissSuggestions(source: ChangeSource): ProcessChangeResult {
+        const repo = this.repo();
+        if (!this.quest || !repo) { return { ok: false, error: 'no quest or workspace' }; }
+        const before = this.state;
+        if (!before.suggestions?.length && !before.suggestionsDue) { return { ok: true, state: before }; }
+        const due = before.suggestionsDue;
+        const { suggestions: _s, suggestionsDue: _d, ...cleared } = before;
+        const result = this.commit(repo, before, cleared, source);
+        if (!result.ok || !due) { return result; }
+        return this.move(due.kind, due.level, source);
     }
 
     /** While a queued Proceed prompt is sent: the role its position names (`''` when none); otherwise undefined. */
@@ -371,6 +463,11 @@ export class ProcessStateStore {
     }
 
     private commit(repo: ProcessRepository, before: ProcessState, next: ProcessState, source: ChangeSource): ProcessChangeResult {
+        // A move to another position leaves the step's suggestions behind (they belong to the step).
+        if (!samePosition(before, next) && (next.suggestions || next.suggestionsDue)) {
+            const { suggestions: _s, suggestionsDue: _d, ...rest } = next;
+            next = rest;
+        }
         // Every change passes here, so the step it leaves is recorded once, in one place.
         const result: ProcessChangeResult = { ok: true, state: trackStepIterations(before, next) };
         // A subprocess or branch that finished its process ends: the step below goes on with its follow-up.

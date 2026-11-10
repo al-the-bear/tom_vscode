@@ -34,6 +34,13 @@
  *   NP-12 the process branching editor (the Your turn box's button): a page with the step's listed processes;
  *        Start starts the card's process with its follow-up and inputs and closes the page; Dismiss closes it;
  *        a page whose position moved on closes by itself
+ *   NP-13 suggestions: suggested while the step's Proceed run is in the queue, nothing opens; when the queue
+ *        reaches its marker the move waits (suggestionsDue) and the branching editor opens with the suggestion
+ *        first; Dismiss drops them and makes the move; started instead, the level runs and the suggestions are
+ *        gone; moving on drops them too
+ *   NP-14 the agent's view: the context block lists the parent processes above the running level and, at a
+ *        step with lists, how to suggest; a level that names no session runs in the session of the step that
+ *        started it (inheritedSession, actionSession)
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -117,6 +124,9 @@ import { decisionDialog } from '../../utils/processActionPrompt.js';
 import { DEFAULT_MAX_PROCESS_DEPTH, fillNestedInputs, positionProcessLists, startNeedsConfirmation } from '../../utils/processStack.js';
 import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
 import { openProcessBranchingEditor } from '../../handlers/processBranching-handler.js';
+import { SUGGEST_SUBPROCESS_TOOL } from '../process-stack-tools.js';
+import { onSuggestionsDue } from '../../services/processActionService.js';
+import { actionSession } from '../../utils/processActionPrompt.js';
 import { JSDOM } from 'jsdom';
 
 const subscriptions: Array<{ dispose(): void }> = [];
@@ -468,6 +478,68 @@ describe('nested processes', () => {
         // The view: switching the quest's process while levels run asks first (it leaves every level).
         const view = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'processPanel-handler.ts'), 'utf8');
         assert.match(view, /msg\.change\.process !== undefined && store\.levels\.length > 1[\s\S]{0,600}showWarningMessage\([\s\S]{0,400}leaves every level; nothing is handed back/);
+    });
+
+    test('NP-13: suggestions', async () => {
+        reset();
+        let opened = 0;
+        onSuggestionsDue(() => { opened++; void openProcessBranchingEditor({ extensionPath: EXT_ROOT, subscriptions: [] } as never); });
+        const run = await confirmProcessAction('proceed', undefined, '');
+        assert.equal(run.ok, true, JSON.stringify(run));
+        const [prompt, marker] = queue().items;
+        const suggested = JSON.parse(await SUGGEST_SUBPROCESS_TOOL.execute({ suggestions: [{ process: 'side', reason: 'try the other way', followUp: 'run-again' }] }));
+        assert.equal(suggested.ok, true, JSON.stringify(suggested));
+        assert.match(suggested.shown, /when the step's queue items are done/);
+        assert.equal(opened, 0, 'the running step is not interrupted');
+        assert.deepEqual(store().state.suggestions?.map((x) => [x.process, x.kind]), [['side', 'branch']]);
+        set(prompt.id, 'sent');
+        await queue().sendNext();
+        assert.equal(queue().getById(marker.id)?.status, 'sent');
+        assert.equal(store().state.step, 'plan', 'the move waits for the choice');
+        assert.deepEqual(store().state.suggestionsDue?.kind, 'proceed');
+        assert.equal(opened, 1, 'the branching editor opens now');
+        const panels = (vscodeStub.stub.window as Json).__webviewPanels as Json[];
+        const page = panels[panels.length - 1];
+        const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(page.webview.html)?.[1] ?? 'null');
+        assert.deepEqual([init.cards[0].process, init.cards[0].reason, init.cards[0].followUp, init.cards[0].recommended], ['side', 'try the other way', 'run-again', true]);
+        page.webview.__receive({ type: 'dismiss' });
+        await new Promise((r) => setTimeout(r, 20));
+        assert.deepEqual([store().state.step, store().state.suggestions, store().state.suggestionsDue], ['build', undefined, undefined], 'dismissed: the move is made');
+        // Started instead: the level runs, the step below waits, its suggestions are done with.
+        reset();
+        assert.equal(store().suggest([{ process: 'side', reason: 'x' }], 'user').ok, true);
+        assert.equal(store().startNested('branch', 'side', 'ask', 'user').ok, true);
+        assert.deepEqual([store().levels[0].suggestions, store().levels[0].suggestionsDue], [undefined, undefined]);
+        // A move drops them.
+        reset();
+        assert.equal(store().suggest([{ process: 'sub', reason: 'x' }], 'user').ok, true);
+        assert.equal(store().move('skip', undefined, 'user').ok, true);
+        assert.equal(store().state.suggestions, undefined);
+        for (const i of [...queue().items]) { queue().remove(i.id); }
+        onSuggestionsDue(() => undefined);
+    });
+
+    test('NP-14: what the agent sees; the session', async () => {
+        reset();
+        assert.match(store().contextBlock(), /This step lists processes that may be started from it: `sub` \(subprocess\), `main` \(subprocess\), `iosub` \(subprocess\), `side` \(branch\)[\s\S]*tomAi_suggestSubprocess[\s\S]*Never in the middle of the step, and never start or abort one yourself/);
+        assert.equal(store().startNested('subprocess', 'sub', 'ask', 'user').ok, true);
+        const block = store().contextBlock();
+        assert.match(block, /^Parent processes \(bottom first; each waits at its step for the level above — look further with tomAi_getProcessStack, tomAi_getProcessState \{level\}, tomAi_getSubprocessRuns\):\n0\. `main` — [^\n]*Plan/);
+        assert.match(block, /Process: \*\*sub\*\*/);
+        assert.equal(store().inheritedSession(), null, 'no level below names a session');
+        // The step below names one: the subprocess (which names none) runs in it.
+        const file = path.join(WS, '_ai/processes/main/main.process.yaml');
+        const original = fs.readFileSync(file, 'utf8');
+        try {
+            fs.writeFileSync(file, original.replace("      - id: plan\n        name: Plan\n", "      - id: plan\n        name: Plan\n        session: planning\n"));
+            store().reload();
+            assert.deepEqual(store().inheritedSession(), { name: 'planning' });
+            const def = store().currentDefinition()!;
+            assert.deepEqual([actionSession(def, store().state, undefined, store().inheritedSession()).name, actionSession(def, store().state).name], ['planning', '']);
+        } finally {
+            fs.writeFileSync(file, original);
+            store().reload();
+        }
     });
 
     test('NP-11: the process editor', async () => {

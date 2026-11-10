@@ -36,6 +36,23 @@ export interface ProcessToolDeps {
     apply(change: ProcessChange): ProcessChangeResult;
     /** Remove the quest's open process-move markers (a state set by hand ends the running step); answers how many. */
     dropProcessMoveMarkers(): number;
+    /** The quest's process stack, bottom first (`tomAi_getProcessState {level}`); unset: the one level. */
+    levels?(): ProcessState[];
+    /** The context block of the level at an index (0 the bottom). */
+    levelContextBlock?(index: number): string;
+}
+
+/**
+ * A `level` argument as an index into `levels`: 0 the bottom (the quest's own
+ * process), 1 the level above it, …; -1 the top (the running level, the
+ * default), -2 the one below it, ….
+ */
+export function resolveLevelIndex(count: number, level: number | undefined): number | { error: string } {
+    const n = level ?? -1;
+    if (!Number.isInteger(n)) { return { error: '`level` is a whole number: 0 the bottom, -1 the top' }; }
+    const index = n < 0 ? count + n : n;
+    if (index < 0 || index >= count) { return { error: `no level ${n}: the stack has ${count} level(s) (0 … ${count - 1}, or -1 … -${count})` }; }
+    return index;
 }
 
 /** A definition's outline: ids, names, kinds, roles, repeat flags — no descriptions. */
@@ -139,18 +156,24 @@ export const GET_PROCESS_TOOL: SharedToolDefinition<GetProcessInput> = {
 // tomAi_getProcessState
 // ===========================================================================
 
-export async function getProcessStateImpl(deps: ProcessToolDeps): Promise<string> {
+export async function getProcessStateImpl(deps: ProcessToolDeps, input: { level?: number } = {}): Promise<string> {
+    const levels = deps.levels?.() ?? [deps.state()];
+    const index = resolveLevelIndex(levels.length, input.level);
+    if (typeof index !== 'number') { return JSON.stringify({ ok: false, error: index.error }); }
+    const top = index === levels.length - 1;
     return JSON.stringify({
         ok: true,
         quest: deps.activeQuest(),
-        state: deps.state(),
-        role: deps.currentRole(),
+        level: index,
+        levels: levels.length,
+        state: top ? deps.state() : levels[index],
+        ...(top ? { role: deps.currentRole() } : { waiting: 'this level waits at its step for the level above it' }),
         // What the system prompt shows: a literal `$${…}` in a description reads as `${…}`.
-        context: unescapePlaceholders(deps.contextBlock()),
+        context: unescapePlaceholders(top ? deps.contextBlock() : deps.levelContextBlock?.(index) ?? ''),
     }, null, 2);
 }
 
-export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<Record<string, never>> = {
+export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number }> = {
     name: 'tomAi_getProcessState',
     displayName: 'Get Process State',
     description:
@@ -159,11 +182,13 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<Record<string, never>>
         '`completed` once the last step is done), the `role` ' +
         'the current step names, and `context` — the same Markdown block the system prompt carries ' +
         '(positions, the steps of the phase, the post-gate todos when in that step, the descriptions). ' +
+        'With subprocesses or branches running, `level` reads another level of the quest\'s process stack ' +
+        '(0 the quest\'s own process, -1 the running level and the default). ' +
         'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: true,
-    inputSchema: { type: 'object', properties: {} },
-    execute: async () => getProcessStateImpl(liveDeps()),
+    inputSchema: { type: 'object', properties: { level: { type: 'number', description: 'Level of the process stack: 0 the bottom, -1 the top (default), -2 the one below it.' } } },
+    execute: async (input: { level?: number }) => getProcessStateImpl(liveDeps(), input ?? {}),
 };
 
 // ===========================================================================
@@ -189,7 +214,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process: `process` ("" clears it), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
+        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -232,6 +257,8 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         currentRole: () => store().currentRole(),
         contextBlock: () => store().contextBlock(),
         apply: (change) => store().apply(change, source),
+        levels: () => store().levels,
+        levelContextBlock: (index) => store().levelContextBlock(index),
         dropProcessMoveMarkers: () => {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const queue = require('../managers/promptQueueManager.js').PromptQueueManager as { instance?: { dropProcessMoveMarkers(q: string, why: string): number } };

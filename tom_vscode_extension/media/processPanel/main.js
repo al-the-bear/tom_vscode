@@ -79,6 +79,24 @@
             + '</div>';
     }
 
+    /**
+     * The agent's suggestions for the running step (tomAi_suggestSubprocess): listed while the step runs,
+     * Review live once its queue items are done (or when nothing runs), Dismiss drops them.
+     */
+    function suggestionsBanner(c) {
+        var running = !!(c.stepRun && !c.stepRun.held);
+        var due = !!c.state.suggestionsDue;
+        return '<div class="suggestions">'
+            + '<div class="sg-head"><span class="codicon codicon-lightbulb"></span> Suggested: '
+            + c.state.suggestions.map(function (s) { return '<span title="' + esc(s.reason) + '">' + esc(s.process) + ' <span class="muted">(' + esc(s.kind) + ')</span></span>'; }).join(', ') + '</div>'
+            + '<ul class="sg-reasons">' + c.state.suggestions.map(function (s) { return '<li><code>' + esc(s.process) + '</code> — ' + esc(s.reason) + '</li>'; }).join('') + '</ul>'
+            + '<div class="sg-actions">'
+            + '<button data-branching="1"' + (running ? ' disabled title="The step is still running: you decide once its queue items are done"' : ' title="Open the process branching editor"') + '><span class="codicon codicon-debug-step-into"></span> Review…</button>'
+            + '<button data-dismiss-suggestions="1" title="' + (due ? 'Drop them; the process moves on as the step\'s run would have (' + esc(c.state.suggestionsDue.label) + ')' : 'Drop the suggestions') + '">Dismiss</button>'
+            + (due ? '<span class="muted">The step is done — its move waits for your choice.</span>' : running ? '<span class="muted">Shown once the step\'s queue items are done.</span>' : '')
+            + '</div></div>';
+    }
+
     /** Lower levels of the process stack the user opened (by index), kept across re-renders. */
     var levelOpen = {};
     var KIND_LABEL = { process: 'Quest process', subprocess: 'Subprocess', branch: 'Branch' };
@@ -235,6 +253,7 @@
         if (c.stepRun) { html += stepRunBanner(c.stepRun); }
         else if (decision) { html += decisionBanner(decision); }
         else if (action) { html += userActionBanner(action, false); }
+        if (c.state.suggestions && c.state.suggestions.length) { html += suggestionsBanner(c); }
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
@@ -327,6 +346,8 @@
             post({ type: 'abortNested' });
         } else if (btn.dataset.branching) {
             post({ type: 'openBranching' });
+        } else if (btn.dataset.dismissSuggestions) {
+            post({ type: 'dismissSuggestions' });
         }
     });
 

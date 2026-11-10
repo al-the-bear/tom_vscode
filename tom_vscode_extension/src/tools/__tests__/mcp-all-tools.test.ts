@@ -348,6 +348,10 @@ function inputs(): Record<string, Input> {
         tomAi_setTimerEngineState: { activated: false },
         tomAi_readChatVariable: { key: 'mcpTest' },
         tomAi_setProcessState: { process: 'flow' },
+        tomAi_getProcessState: { level: -1 },
+        tomAi_getSubprocessRuns: { all: true },
+        // The sandbox's flow lists no processes to start: the suggestion is refused, nothing starts.
+        tomAi_suggestSubprocess: { suggestions: [{ process: 'flow', reason: 'asked by the MCP test' }] },
         tomAi_getProcess: { id: 'flow' },
         tomAi_readOutputChannel: { channel: 'Tom Prompt Queue', grep: 'sandbox' },
         tomAi_notebookEdit: { filePath: 'notebook.ipynb', operations: [{ op: 'insert', index: 0, cells: [{ kind: 'markdown', text: '# Written by the MCP test' }] }] },
@@ -733,6 +737,9 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(answerOf('tomAi_askUserPicker'), ANSWERS.tomAi_askUserPicker.expect, 'the picker returns the item picked');
         assert.match(answerOf('tomAi_listQuestTodos'), /demo1_aaaa-first/);
         assert.match(answerOf('tomAi_getProcess'), /"id": "flow"/);
+        assert.match(answerOf('tomAi_getProcessStack'), /"levels": \[\s*\{\s*"level": 0/, 'the stack, bottom first');
+        assert.match(answerOf('tomAi_getSubprocessRuns'), /"runs": \[\]/);
+        assert.match(answerOf('tomAi_suggestSubprocess'), /"ok": ?false[\s\S]*the step lists no process/, 'refused: the step lists nothing, nothing starts');
         // The queue tools worked on one item, which the last of them removed.
         assert.match(answerOf('tomAi_updateQueueFollowUp'), /"ok": ?true/);
         assert.match(answerOf('tomAi_removeQueueItem'), /"ok": ?true/);

@@ -31,8 +31,11 @@ import {
     notRun,
     selectProcess,
     trackStepIterations,
+    type LevelPosition,
     type NestedFollowUp,
     type NestedKind,
+    type NestedRunRecord,
+    type StoredSuggestion,
     type ProcessDefinition,
     type ProcessListEntry,
     type ProcessState,
@@ -137,7 +140,10 @@ export function pushNestedLevel(
     now: Date = new Date(),
     inputs: Record<string, string> = {},
 ): ProcessState[] {
-    return [...levels, {
+    // The step it starts from waits for it: the choice is made, its suggestions are done with.
+    const parent = levels[levels.length - 1];
+    const { suggestions: _s, suggestionsDue: _d, ...waiting } = parent;
+    return [...levels.slice(0, -1), waiting, {
         ...selectProcess(def),
         nested: { kind, followUp, startedAt: now.toISOString() },
         ...(Object.keys(inputs).length ? { inputs } : {}),
@@ -254,17 +260,115 @@ export function endNestedLevel(
     levels: readonly ProcessState[],
     defs: ReadonlyMap<string, ProcessDefinition>,
     outcome: 'finished' | 'aborted',
+    now: Date = new Date(),
 ): NestedEndResult | { error: string } {
     if (levels.length < 2) { return { error: 'no subprocess or branch is running: the top level is the quest\'s own process' }; }
     const ended = topLevel(levels);
     const parentBefore = levels[levels.length - 2];
     let parentAfter = parentAfterNested(defs.get(parentBefore.process) ?? null, parentBefore, ended, outcome);
     // A finished subprocess hands its outputs back to the level below (a branch and an aborted level hand nothing back).
+    let handedBack: Record<string, string> | undefined;
     if (outcome === 'finished' && ended.nested?.kind === 'subprocess') {
         const { values } = levelOutputs(defs.get(ended.process) ?? null, ended);
+        handedBack = values;
         parentAfter = { ...parentAfter, subOutputs: { ...(parentAfter.subOutputs ?? {}), [ended.process]: values } };
     }
+    // The level below keeps a record of what was started from it (tomAi_getSubprocessRuns).
+    const run: NestedRunRecord = {
+        process: ended.process,
+        kind: ended.nested?.kind ?? 'subprocess',
+        from: positionOf(parentBefore),
+        startedAt: ended.nested?.startedAt ?? '',
+        endedAt: now.toISOString(),
+        outcome,
+        followUp: ended.nested?.followUp ?? 'ask',
+        left: positionOf(ended),
+        ...(handedBack && Object.keys(handedBack).length ? { outputs: handedBack } : {}),
+    };
+    parentAfter = { ...parentAfter, nestedRuns: [...(parentAfter.nestedRuns ?? []), run].slice(-MAX_NESTED_RUNS) };
     return { levels: [...levels.slice(0, -2), parentAfter], ended, parentBefore, parentAfter };
+}
+
+/** The most runs a level keeps a record of. */
+export const MAX_NESTED_RUNS = 50;
+
+/** A level's position, without its process. */
+export function positionOf(level: ProcessState): LevelPosition {
+    return {
+        phase: level.phase, phaseIteration: level.phaseIteration,
+        step: level.step, stepIteration: level.stepIteration,
+        substep: level.substep, substepIteration: level.substepIteration,
+    };
+}
+
+/** Whether a run was started from `level`'s position as it is now (the same step and iteration). */
+export function startedHere(run: NestedRunRecord, level: ProcessState): boolean {
+    const p = positionOf(level);
+    return run.from.phase === p.phase && run.from.phaseIteration === p.phaseIteration
+        && run.from.step === p.step && run.from.stepIteration === p.stepIteration
+        && run.from.substep === p.substep && run.from.substepIteration === p.substepIteration;
+}
+
+// ---- Suggestions (tomAi_suggestSubprocess) ---------------------------------
+
+/** What an agent suggests: a listed process, why, and optionally the follow-up it recommends. */
+export interface SuggestionInput {
+    process: string;
+    kind?: NestedKind;
+    reason: string;
+    followUp?: NestedFollowUp;
+}
+
+/**
+ * Check suggestions against the running position's closed lists: each must
+ * name a listed process (its kind taken from the list it is in when not
+ * given; a process in both lists needs the kind), with a reason. Refused
+ * whole when one is wrong, so the agent corrects and asks again.
+ */
+export function checkSuggestions(
+    def: ProcessDefinition | null,
+    state: ProcessState,
+    input: readonly SuggestionInput[],
+    now: Date = new Date(),
+): { ok: true; suggestions: StoredSuggestion[] } | { ok: false; error: string } {
+    if (!def || !state.process) { return { ok: false, error: 'the quest has no process running' }; }
+    if (state.completed) { return { ok: false, error: `the process ${state.process} is finished` }; }
+    if (state.decision || state.nestedEnded) { return { ok: false, error: 'the process is at a decision; suggestions belong to the end of a step' }; }
+    if (!input.length) { return { ok: false, error: 'suggest at least one process' }; }
+    const lists = positionProcessLists(def, state);
+    const out: StoredSuggestion[] = [];
+    for (const s of input) {
+        const inSub = lists.subprocesses.some((e) => e.process === s.process);
+        const inBranch = lists.branches.some((e) => e.process === s.process);
+        if (!inSub && !inBranch) {
+            const offered = [...lists.subprocesses.map((e) => `${e.process} (subprocess)`), ...lists.branches.map((e) => `${e.process} (branch)`)];
+            return { ok: false, error: `the step lists no process "${s.process}"; it lists ${offered.join(', ') || 'none'} (tomAi_listSubprocessCandidates)` };
+        }
+        const kind: NestedKind | undefined = s.kind ?? (inSub && inBranch ? undefined : inSub ? 'subprocess' : 'branch');
+        if (!kind) { return { ok: false, error: `"${s.process}" is listed as a subprocess and as a branch: say which (kind)` }; }
+        if ((kind === 'subprocess' && !inSub) || (kind === 'branch' && !inBranch)) { return { ok: false, error: `the step does not list "${s.process}" as a ${kind}` }; }
+        if (!s.reason || !s.reason.trim()) { return { ok: false, error: `give the reason for suggesting "${s.process}"` }; }
+        if (s.followUp !== undefined && !(['ask', 'go-on', 'run-again'] as NestedFollowUp[]).includes(s.followUp)) {
+            return { ok: false, error: `followUp is "ask", "go-on" or "run-again" (got "${String(s.followUp)}")` };
+        }
+        out.push({ kind, process: s.process, reason: s.reason.trim(), ...(s.followUp ? { followUp: s.followUp } : {}), at: now.toISOString() });
+    }
+    return { ok: true, suggestions: out };
+}
+
+/** Merge new suggestions into a level's: a process suggested again replaces its earlier suggestion. */
+export function mergeSuggestions(existing: readonly StoredSuggestion[] | undefined, added: readonly StoredSuggestion[]): StoredSuggestion[] {
+    const kept = (existing ?? []).filter((e) => !added.some((a) => a.kind === e.kind && a.process === e.process));
+    return [...kept, ...added];
+}
+
+/** The *Parent processes* lines of the context block: each level below the running one, bottom first. */
+export function parentProcessLines(levels: readonly ProcessState[], where: (level: ProcessState) => string): string[] {
+    if (levels.length < 2) { return []; }
+    return [
+        'Parent processes (bottom first; each waits at its step for the level above — look further with tomAi_getProcessStack, tomAi_getProcessState {level}, tomAi_getSubprocessRuns):',
+        ...levels.slice(0, -1).map((l, i) => `${i}. ${l.nested ? `${l.nested.kind} ` : ''}\`${l.process}\` — ${where(l)}`),
+    ];
 }
 
 /** A level's name in messages: "the subprocess team_review", "the branch x", "the process tom_specs". */
