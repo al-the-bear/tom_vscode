@@ -5,6 +5,7 @@
 #   tom_print_vsix_path <extension dir>
 #   tom_print_no_dart_warning <reason> <from-source 0|1>
 #   tom_print_layer_vsix_summary <extension dir> <platforms>
+#   tom_print_layer_unpushed_warning <extension dir>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -86,4 +87,13 @@ tom_print_layer_vsix_summary() {
     else
         ( cd "$dir" && node scripts/binaries-layer.cjs report )
     fi
+}
+
+# Binaries layer commits the remote does not have (each refused layer push of
+# an install leaves one; the refusal itself scrolls past mid-build). Silent
+# when the layer is level; counts only, never merges or pushes.
+#
+#   tom_print_layer_unpushed_warning <extension dir>
+tom_print_layer_unpushed_warning() {
+    ( cd "$1" && node scripts/binaries-layer.cjs unpushed ) || true
 }

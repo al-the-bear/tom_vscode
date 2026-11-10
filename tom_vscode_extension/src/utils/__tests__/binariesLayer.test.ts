@@ -19,6 +19,9 @@
  *   BL-5 the bridge source hash in tom_bs's stamp: blind to `// Generated:` lines, CRLF and the versioner
  *        stamp file, moved by a real edit; a stamp whose hash matches the sources here is fresh (uncommitted
  *        edits included)
+ *   BL-6 unpushed: silent when the layer is level (or absent); after refused pushes it names how many
+ *        layer commits are not on the remote and how to push them, repeated in the closing lines of every
+ *        install and VSIX script (sh and ps1), so a refusal printed mid-build is not the only trace
  *   FB-1 the fleet_hosts registry: entries, build flags, comments ignored, the block's end
  *   FB-2 platform names from uname, Windows paths, the remote build commands (nice on Linux; PowerShell
  *        -File -BinariesOnly with TOM_LAYER_FF on Windows), a probe without `$`
@@ -227,6 +230,43 @@ describe('bridge source hash', () => {
 });
 
 describe('fleet build', () => {
+    test('BL-6: unpushed layer commits named at the end', () => {
+        const t = makeLayer();
+        const level = runLayer(t, 'unpushed');
+        assert.equal(level.status, 0);
+        assert.equal(level.stdout + level.stderr, '', 'nothing to say when level');
+        const absent = runLayer({ layerDir: path.join(t.root, 'nowhere', 'tom'), bin: t.bin }, 'unpushed');
+        assert.equal(absent.status, 0);
+        assert.equal(absent.stdout + absent.stderr, '', 'no layer, nothing to say');
+
+        const other = path.join(t.root, 'other');
+        git(t.root, 'clone', '--quiet', t.remote, other);
+        fs.writeFileSync(path.join(other, 'tom', 'other.txt'), 'x\n');
+        git(other, 'add', '.');
+        git(other, 'commit', '--quiet', '-m', 'other host');
+        git(other, 'push', '--quiet', 'origin', 'HEAD:main');
+        writeBuild(t.bin, 50);
+        assert.equal(runLayer(t, 'publish').status, 3);
+        writeBuild(t.bin, 51);
+        assert.equal(runLayer(t, 'publish').status, 3);
+        const stuck = runLayer(t, 'unpushed');
+        assert.equal(stuck.status, 0, 'a warning, not a failure');
+        assert.match(stuck.stdout, /2 binaries layer commit\(s\) not on origin\/main/);
+        assert.match(stuck.stdout, /behind it by 1/);
+        assert.match(stuck.stdout, /\/tom_push_binaries/);
+
+        // Every closing block runs it: the shared helpers and the scripts that print the last lines.
+        const read = (f: string) => fs.readFileSync(path.join(EXT, f), 'utf8');
+        assert.match(read('scripts/install_summary.sh'), /tom_print_layer_unpushed_warning\(\)[\s\S]*binaries-layer\.cjs unpushed/);
+        assert.match(read('scripts/install_summary.ps1'), /function Write-TomLayerUnpushedWarning[\s\S]*binaries-layer\.cjs unpushed/);
+        for (const f of ['install_extension.sh', 'compile_and_install.sh']) {
+            assert.match(read(f), /tom_print_layer_unpushed_warning/, f);
+        }
+        for (const f of ['install_extension.ps1', 'compile_and_install.ps1']) {
+            assert.match(read(f), /Write-TomLayerUnpushedWarning/, f);
+        }
+    });
+
     test('FB-1: the fleet_hosts registry', () => {
         const text = [
             '# Repo structure', '', '```yaml', 'fleet_hosts:',

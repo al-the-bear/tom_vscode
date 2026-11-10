@@ -5,6 +5,7 @@
  *   node scripts/binaries-layer.cjs publish [--ff] [--no-push]
  *   node scripts/binaries-layer.cjs bundle [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs report [--platforms a,b,...]
+ *   node scripts/binaries-layer.cjs unpushed
  *
  * The extension carries two binaries per platform, built with the Dart SDK:
  * tom_bs (the DartScript bridge) and validate_codespecs (CodeSpecs
@@ -36,6 +37,13 @@
  *   it was built from, check-tom-bs-provenance.cjs; validate_codespecs: the
  *   source hash of its stamp against the clitool source now,
  *   codespecs-binary-stamp.cjs).
+ *
+ * unpushed — the closing lines of an install: when the layer holds commits its
+ *   remote does not (refused pushes pile up there, one per install, and the
+ *   refusal itself scrolls past mid-build), say how many, how far the remote
+ *   is ahead, and to push them with /tom_push_binaries. It fetches to count,
+ *   and never merges, rebases or pushes: bringing the layer level is the
+ *   user's step. Silent when the layer is level or absent; always exit 0.
  *
  * TOM_BINARIES_LAYER overrides the layer folder (default
  * <workspace>/tom_binaries/tom), TOM_BINARIES_EXT_BIN the extension's bin/
@@ -348,7 +356,37 @@ function report(platforms) {
     return 0;
 }
 
-module.exports = { DEFAULT_PLATFORMS, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report };
+/** The closing lines' warning about layer commits the remote does not have (see the header). */
+function unpushed() {
+    let repo;
+    try {
+        if (!fs.existsSync(layerDir())) { return 0; }
+        repo = git(['rev-parse', '--show-toplevel'], layerDir());
+    } catch {
+        return 0;
+    }
+    try {
+        // Only to count: a fetch updates the remote-tracking refs and touches nothing else.
+        git(['fetch', '--quiet', 'origin'], repo, { timeout: 30000 });
+    } catch {
+        // Offline: count against what is known.
+    }
+    let upstream; let ahead; let behind;
+    try {
+        upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], repo);
+        ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`], repo));
+        behind = Number(git(['rev-list', '--count', `HEAD..${upstream}`], repo));
+    } catch {
+        return 0;
+    }
+    if (ahead === 0) { return 0; }
+    console.log('');
+    console.log(`⚠️  The binaries layer (${repo}) has ${ahead} binaries layer commit(s) not on ${upstream}${behind > 0 ? `, and is behind it by ${behind} (another host's)` : ''}.`);
+    console.log('   Other hosts and layer-built VSIXs still get the older binaries. Push them with /tom_push_binaries (or a reconcile).');
+    return 0;
+}
+
+module.exports = { DEFAULT_PLATFORMS, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed };
 
 if (require.main === module) {
     const [cmd, ...argv] = process.argv.slice(2);
@@ -358,8 +396,10 @@ if (require.main === module) {
         process.exitCode = bundle(platformsArg(argv));
     } else if (cmd === 'report') {
         process.exitCode = report(platformsArg(argv));
+    } else if (cmd === 'unpushed') {
+        process.exitCode = unpushed();
     } else {
-        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | report [--platforms a,b]');
+        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | report [--platforms a,b] | unpushed');
         process.exitCode = 2;
     }
 }

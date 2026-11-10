@@ -93,10 +93,12 @@ if ($BinariesOnly) {
     $ErrorActionPreference = "Stop"
     Pop-Location
     foreach ($line in @($LayerReport)) { Write-Host "$line" }
+    Write-TomLayerUnpushedWarning $ScriptDir
     Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     exit 0
 }
 
+Write-TomLayerUnpushedWarning $ScriptDir
 Write-TomVsixPath $ScriptDir
 if ($NoDartMode) { Write-TomNoDartWarning $Reason $true }
 Write-Host "🕒 Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"

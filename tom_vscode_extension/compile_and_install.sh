@@ -66,9 +66,11 @@ export TOM_SKIP_FINISH_TS=1
 
 if [ "${TOM_BINARIES_ONLY:-0}" = "1" ]; then
     ( cd "$SCRIPT_DIR" && node scripts/binaries-layer.cjs report --platforms "$(node -p "process.platform + '-' + process.arch")" )
+    tom_print_layer_unpushed_warning "$SCRIPT_DIR"
     echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
     exit 0
 fi
+tom_print_layer_unpushed_warning "$SCRIPT_DIR"
 tom_print_vsix_path "$SCRIPT_DIR"
 [ "${TOM_NO_DART:-0}" = "1" ] && tom_print_no_dart_warning "$TOM_NO_DART_REASON" 1
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

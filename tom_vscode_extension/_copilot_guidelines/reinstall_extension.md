@@ -160,7 +160,12 @@ and pubspec.yaml as built, without the versioner file and the `// Generated:`
 lines, CRLF normalised; kept when the binary is byte-identical), commits exactly those
 files (`git commit -- <paths>`, nothing else in the layer) and pushes. A refused
 push exits 3: the commit stays local, the install goes on, and nothing pulls
-the layer. `--no-layer` / `-NoLayer` / `TOM_NO_LAYER=1` skips it.
+the layer. Such commits pile up, one per install, and the refusal scrolls past
+mid-build, so the closing lines of every install (`install_extension.*`,
+`compile_and_install.*`, also with `--binaries-only`) repeat it:
+`binaries-layer.cjs unpushed` fetches, counts the layer's commits not on its
+remote and says to push them with `/tom_push_binaries`; silent when the layer
+is level. It never merges, rebases or pushes. `--no-layer` / `-NoLayer` / `TOM_NO_LAYER=1` skips it.
 `--binaries-only` / `-BinariesOnly` (`TOM_BINARIES_ONLY=1`) builds only the two
 binaries and publishes them: SOM pack, npm, TypeScript, the Agent SDK CLI, the
 template and vsce are skipped. `--layer-binaries` / `-LayerBinaries`

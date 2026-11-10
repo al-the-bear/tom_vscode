@@ -5,6 +5,7 @@
 #   Write-TomVsixPath <extension dir>
 #   Write-TomNoDartWarning <reason> <from-source $true|$false>
 #   Write-TomLayerVsixSummary <extension dir> <platforms>
+#   Write-TomLayerUnpushedWarning <extension dir>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -85,5 +86,16 @@ function Write-TomLayerVsixSummary([string]$Dir, [string]$Platforms) {
         $layer = & node scripts/binaries-layer.cjs report
     }
     foreach ($line in @($layer)) { Write-Host "$line" }
+    Pop-Location
+}
+
+# Binaries layer commits the remote does not have (each refused layer push of
+# an install leaves one; the refusal itself scrolls past mid-build). Silent
+# when the layer is level; counts only, never merges or pushes.
+function Write-TomLayerUnpushedWarning([string]$Dir) {
+    Push-Location $Dir
+    $ErrorActionPreference = 'Continue'
+    $out = & node scripts/binaries-layer.cjs unpushed
+    foreach ($line in @($out)) { Write-Host "$line" -ForegroundColor Yellow }
     Pop-Location
 }

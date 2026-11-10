@@ -475,6 +475,7 @@ fi
 # (compile_and_install.sh) sets TOM_SKIP_FINISH_TS=1 and prints them itself,
 # so they appear once.
 if [ "${TOM_SKIP_FINISH_TS:-0}" != "1" ]; then
+    tom_print_layer_unpushed_warning "$SCRIPT_DIR"
     tom_print_vsix_path "$SCRIPT_DIR"
     [ "$NO_DART" = "1" ] && tom_print_no_dart_warning "$TOM_NO_DART_REASON" "$FROM_SOURCE"
     echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

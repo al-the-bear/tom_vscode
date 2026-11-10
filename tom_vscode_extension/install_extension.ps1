@@ -613,6 +613,7 @@ Write-Host "================================================"
 # (compile_and_install.ps1) sets TOM_SKIP_FINISH_TS=1 and prints them itself,
 # so they appear once.
 if ($env:TOM_SKIP_FINISH_TS -ne '1') {
+    Write-TomLayerUnpushedWarning $ExtensionDir
     if ($VsixBuilt) { Write-TomVsixPath $ExtensionDir }
     if ($NoDartMode) { Write-TomNoDartWarning $env:TOM_NO_DART_REASON $FromSource }
     Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
