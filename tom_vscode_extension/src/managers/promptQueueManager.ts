@@ -70,6 +70,7 @@ import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '..
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
+import { queueMoveTarget } from '../utils/queueMove';
 import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
 import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
@@ -2372,8 +2373,10 @@ export class PromptQueueManager {
             return;
         }
 
-        const swap = direction === 'up' ? idx - 1 : idx + 1;
-        if (swap < 0 || swap >= this._items.length) { return; }
+        // One place as the editor shows it: past the nearest item of the same status (queueMove.ts),
+        // not the array neighbour — often a sent item, so the swap changed nothing visible.
+        const swap = queueMoveTarget(this._items, idx, direction);
+        if (swap < 0) { return; }
         [this._items[idx], this._items[swap]] = [this._items[swap], this._items[idx]];
         this.persist();
         this._onDidChange.fire();
