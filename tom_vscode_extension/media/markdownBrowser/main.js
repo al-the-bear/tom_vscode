@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -340,7 +340,7 @@
                     // The attribution token after it (§11.9.8): the mark's authors, or
                     // the attached comment's when the change carries one.
                     var after = mdbAttribution(src.slice(raw.length));
-                    var token = { type: 'reviewMark', raw: raw + (after ? after.raw : ''), markRaw: m.raw, kind: m.kind, comment: m.comment || '', authors: [] };
+                    var token = { type: 'reviewMark', raw: raw + (after ? after.raw : ''), markRaw: m.raw, kind: m.kind, comment: m.comment || '', authors: [], votes: [] };
                     token.textTokens = this.lexer.inlineTokens(m.text);
                     if (m.kind === 'substitution') { token.oldTokens = this.lexer.inlineTokens(m.oldText); }
                     if (m.quote) { token.quote = m.quote; }
@@ -348,10 +348,12 @@
                         token.token = withComment.token;
                         var before = mdbAttribution(withComment.token);
                         token.authors = before ? before.authors : [];
+                        token.votes = before ? before.votes : [];
                         token.attached = { raw: withComment.comment.raw, text: withComment.comment.text, authors: after ? after.authors : [], tokenAfter: after ? after.raw : '' };
                     } else if (after) {
                         token.token = after.raw;
                         token.authors = after.authors;
+                        token.votes = after.votes;
                     }
                     if (m.kind === 'comment') { token.noteText = m.text; } else if (m.kind === 'highlight') { token.noteText = m.comment || ''; }
                     return token;
@@ -380,7 +382,7 @@
                             + (token.attached.tokenAfter ? '<span class="mdb-rm-token">' + esc(token.attached.tokenAfter) + '</span>' : '')
                         : '';
                     var ownToken = !token.attached && token.token ? '<span class="mdb-rm-token">' + esc(token.token) + '</span>' : '';
-                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '"' + authorAttrs(token.authors) + '>'
+                    return '<span class="mdb-rm" data-kind="' + (change ? 'change' : 'note') + '" data-raw="' + esc(token.markRaw || token.raw) + '"' + authorAttrs(token.authors) + voteAttrs(token.votes) + '>'
                         + renderMark.call(this, token) + (change ? '' : viewButtons(token.noteText || '', 'Comment'))
                         + '<span class="mdb-rm-actions">' + buttons + '</span>' + attached + ownToken + '</span>';
                 },
@@ -402,6 +404,11 @@
             function authorAttrs(authors) {
                 if (!authors || authors.length === 0) { return ''; }
                 return ' data-authors="' + esc(authors.join('|')) + '"' + (authors.some(mdbIsAgentAuthor) ? ' data-agent="1"' : '');
+            }
+            /** `data-votes` for a base mark's votes (SOM §11.9.8): `+bob|-carol`. */
+            function voteAttrs(votes) {
+                if (!votes || votes.length === 0) { return ''; }
+                return ' data-votes="' + esc(votes.map(function(v) { return (v.vote === 'reject' ? '-' : '+') + v.member; }).join('|')) + '"';
             }
             /** Overlay and preview-editor buttons for a comment longer than MDB_LONG_COMMENT. */
             function viewButtons(text, title) {
@@ -877,6 +884,9 @@
             Array.prototype.splice.apply(shownWrappers, [from, last - from + 1].concat(nodes.wrappers));
             search.texts = null;
             if (search.query) { runSearch(false); }
+            // The patched region's chips, and what is left to decide.
+            decorateTeamReview();
+            markOwnLines();
             return true;
         }
 
@@ -1188,6 +1198,8 @@
         function decorateWrapper(wrapper, block) {
             if (!block || !blockEditable(block)) { return; }
             markFormField(wrapper, block);
+            // A conflict block of a team review (SOM §11.9.8): the choices and Decide.
+            if (MDB_CONFLICT_HEAD.test(shownLines()[block.startLine] || '')) { decorateConflict(wrapper, block); }
             if (block.comment) {
                 wrapper.classList.add('mdb-comment-block');
                 addCommentEditButton(wrapper, block);
@@ -1331,7 +1343,8 @@
                 if (el.dataset.authors.split('|').indexOf(reviewMemberId) >= 0) { el.classList.add('mdb-own'); }
             });
             docRoot.querySelectorAll('strong').forEach(function(el) {
-                var m = /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
+                // Once decorated, the label shows display names; its ids are kept in data-members.
+                var m = el.dataset.members ? [null, el.dataset.members.split('|').join(',')] : /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
                 if (!m) { return; }
                 var ids = m[1].split(',').map(function(x) { return x.trim(); });
                 if (ids.indexOf(reviewMemberId) >= 0) { (el.closest('p, li') || el).classList.add('mdb-own'); }
@@ -1485,7 +1498,9 @@
                 // question opens with its recommended option. Save replaces
                 // exactly the answer's lines (as the answer import reads them).
                 var w = where();
-                var initial = w.current.text || (w.question && w.question.recommended ? mdbOptionAnswer(w.question.recommended) : '');
+                // After a team review: the option most members chose (SOM §11.9.8), else the recommended one.
+                var most = mdbMostChosen(mdbIndividualAnswers(w.lines, w.line));
+                var initial = w.current.text || (most ? mdbOptionAnswer(most) : w.question && w.question.recommended ? mdbOptionAnswer(w.question.recommended) : '');
                 return openEditor(btn, btn, initial, function(value) {
                     if (value.trim() === w.current.text.trim()) { return null; }
                     return editFor(w, value);
@@ -1509,6 +1524,25 @@
             // An open question offers Grill me and Explain in detail.
             if (btn.dataset.unanswered === '1' && mdbQuestionAt(startLines, block.startLine + offset, runtimeQuestions())) {
                 addAssistButtons(btn, where);
+            }
+            // Members answered it one by one: Keep open writes `open:` with a summary of their positions (CC-72).
+            var individual = mdbIndividualAnswers(startLines, block.startLine + offset);
+            if (individual.length) {
+                var keep = iconButton('mdb-keep-open-btn', 'circle-large-outline', 'Keep open: answer `open:` with a summary of the positions');
+                btn.insertAdjacentElement('afterend', keep);
+                keep.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var w = where();
+                    var names = {};
+                    Object.keys(teamMembers).forEach(function(id) { names[id] = teamMembers[id].displayName; });
+                    var initial = /^open:/i.test(w.current.text) ? w.current.text : mdbOpenSummary(mdbIndividualAnswers(w.lines, w.line), names);
+                    openEditor(keep, keep, initial, function(value) {
+                        var text = value.trim();
+                        if (!/^open:/i.test(text)) { text = 'open: ' + text; }
+                        if (text === w.current.text.trim()) { return null; }
+                        return editFor(w, text);
+                    });
+                });
             }
         }
 
@@ -1684,6 +1718,384 @@
         if (acceptAllBtn) { acceptAllBtn.addEventListener('click', function() { reviewAll('accept'); }); }
         if (rejectAllBtn) { rejectAllBtn.addEventListener('click', function() { reviewAll('reject'); }); }
 
+        // ---- Team review (SOM §11.9.8): who wrote what, conflicts, what is left ----
+        // The members come from the round (round.yaml beside the file or above
+        // merged/, the `reviewTeam` message), the document's own review team and
+        // its revision history (the somComments reading). Ids the document
+        // names that no source knows are shown by id.
+        /** @type {Array<{memberId: string, displayName: string, role: string, guest?: boolean}>} */
+        var roundMembers = [];
+        /** @type {Array<{memberId: string, displayName: string, role: string, guest?: boolean}>} */
+        var docMembers = [];
+        /** The document's revision history (CC-89): version, date, author, the round's team and reviewers. */
+        var teamRevisions = [];
+        /** Member id → `{displayName, role, guest}`, and the ids in team order (the colours follow it). */
+        var teamMembers = {};
+        var teamOrder = [];
+        /** The one member shown ("only Alice's"); '' shows everyone. */
+        var teamFilter = '';
+        var teamBox = document.getElementById('teamReview');
+        var teamBtn = document.getElementById('teamBtn');
+        var teamPop = document.getElementById('teamPop');
+        var unresolvedCountEl = document.getElementById('unresolvedCount');
+        var nextUnresolvedBtn = document.getElementById('nextUnresolvedBtn');
+
+        /** Rebuild the member table from the round, the document and its revisions; the round's names win. */
+        function setTeam() {
+            teamMembers = {};
+            teamOrder = [];
+            var add = function(m, guest) {
+                if (!m || !m.memberId || teamMembers[m.memberId]) { return; }
+                teamMembers[m.memberId] = { displayName: m.displayName || m.memberId, role: m.role || '', guest: !!(guest || m.guest) };
+                teamOrder.push(m.memberId);
+            };
+            roundMembers.forEach(function(m) { add(m, m.guest); });
+            docMembers.forEach(function(m) { add(m, false); });
+            teamRevisions.forEach(function(r) {
+                (r.team || []).forEach(function(m) { add(m, false); });
+                (r.reviewers || []).forEach(function(m) { add(m, m.guest); });
+            });
+            decorateTeamReview();
+        }
+        function memberName(id) { return teamMembers[id] ? teamMembers[id].displayName : id; }
+        /** Every member id the document names: authors, voters, individual answers, conflict alternatives. */
+        function namedMembers() {
+            var seen = {};
+            var ids = [];
+            var note = function(id) { if (id && !seen[id] && !mdbIsAgentAuthor(id)) { seen[id] = true; ids.push(id); } };
+            teamOrder.forEach(note);
+            if (docRoot) {
+                docRoot.querySelectorAll('[data-authors]').forEach(function(el) { el.dataset.authors.split('|').forEach(note); });
+                docRoot.querySelectorAll('[data-votes]').forEach(function(el) { el.dataset.votes.split('|').forEach(function(v) { note(v.slice(1)); }); });
+                docRoot.querySelectorAll('[data-members]').forEach(function(el) { el.dataset.members.split('|').forEach(note); });
+            }
+            return ids;
+        }
+        /** A member's chip: the display name in the member's colour, the id and role in its title. */
+        function memberChip(id, extraClass, prefix) {
+            var chip = document.createElement('span');
+            chip.className = 'mdb-chip' + (extraClass ? ' ' + extraClass : '');
+            chip.dataset.member = id;
+            chip.dataset.prefix = prefix || '';
+            paintChip(chip);
+            return chip;
+        }
+        /** A chip's name, colour and title from what is known of its member now. */
+        function paintChip(chip) {
+            var id = chip.dataset.member;
+            var info = teamMembers[id];
+            chip.style.setProperty('--mdb-member', mdbMemberColor(id, teamOrder));
+            chip.textContent = (chip.dataset.prefix || '') + memberName(id) + (info && info.guest ? ' (guest)' : '');
+            chip.title = id + (info && info.role ? ' — ' + info.role : '') + (info && info.guest ? ' — guest, not on the team' : '') + (id === reviewMemberId ? ' (you)' : '');
+        }
+        function chipRow(className) {
+            var row = document.createElement('span');
+            row.className = 'mdb-chip-row' + (className ? ' ' + className : '');
+            return row;
+        }
+
+        /**
+         * Chips on the marks (authors, and the votes on a base mark), on comment
+         * blocks and on individual answers (`**Answer (alice, bob):**` shown with the
+         * display names, CC-71), the filter applied, the counter brought up to date.
+         * Runs after every render and patch and when the team becomes known.
+         */
+        function decorateTeamReview() {
+            if (!docRoot) { updateTeamUi(); return; }
+            docRoot.querySelectorAll('.mdb-chip-row').forEach(function(el) { el.remove(); });
+            docRoot.querySelectorAll('.mdb-rm[data-authors], .mdb-rm[data-votes]').forEach(function(mark) {
+                var row = chipRow('mdb-chip-row-mark');
+                authorsOf(mark).filter(function(a) { return !mdbIsAgentAuthor(a); }).forEach(function(a) { row.appendChild(memberChip(a)); });
+                (mark.dataset.votes ? mark.dataset.votes.split('|') : []).forEach(function(v) {
+                    var accept = v.charAt(0) === '+';
+                    row.appendChild(memberChip(v.slice(1), accept ? 'mdb-vote mdb-vote-accept' : 'mdb-vote mdb-vote-reject', accept ? '✓ ' : '✗ '));
+                });
+                if (row.childNodes.length) {
+                    var actions = mark.querySelector(':scope > .mdb-rm-actions');
+                    mark.insertBefore(row, actions || null);
+                }
+            });
+            docRoot.querySelectorAll('.mdb-comment-block[data-authors]').forEach(function(block) {
+                var author = block.dataset.authors;
+                if (mdbIsAgentAuthor(author)) { return; }
+                block.style.setProperty('--mdb-member', mdbMemberColor(author, teamOrder));
+                block.classList.add('mdb-member-block');
+                var row = chipRow('mdb-chip-row-comment');
+                row.appendChild(memberChip(author));
+                block.insertBefore(row, block.firstChild);
+            });
+            docRoot.querySelectorAll('strong').forEach(function(el) {
+                var ids = el.dataset.members ? el.dataset.members.split('|') : null;
+                if (!ids) {
+                    var m = /^Answer \(([^)]*)\):?$/.exec((el.textContent || '').trim());
+                    if (!m) { return; }
+                    ids = m[1].split(',').map(function(x) { return x.trim(); }).filter(function(x) { return x && !MDB_CHANGE_TIME.test(x); });
+                    if (ids.length === 0) { return; }
+                    el.dataset.members = ids.join('|');
+                }
+                el.textContent = 'Answer (' + ids.map(memberName).join(', ') + '):';
+                el.title = ids.join(', ');
+                var line = el.closest('p, li') || el;
+                line.dataset.authors = ids.join('|');
+                line.classList.add('mdb-individual-answer');
+                var row = chipRow('mdb-chip-row-answer');
+                ids.forEach(function(id) { row.appendChild(memberChip(id)); });
+                el.insertAdjacentElement('afterend', row);
+            });
+            // Chips drawn before the team was known (a conflict's choices): their names and colours now.
+            docRoot.querySelectorAll('.mdb-conflict-bar .mdb-chip').forEach(paintChip);
+            applyTeamFilter();
+            updateTeamUi();
+        }
+
+        /** "Only Alice's": the other members' marks, comments and answers dimmed, and the arrows skip them. */
+        function applyTeamFilter() {
+            if (!docRoot) { return; }
+            docRoot.querySelectorAll('.mdb-team-dim').forEach(function(el) { el.classList.remove('mdb-team-dim'); });
+            if (!teamFilter) { return; }
+            docRoot.querySelectorAll('[data-authors]').forEach(function(el) {
+                if (el.dataset.authors.split('|').indexOf(teamFilter) < 0) { el.classList.add('mdb-team-dim'); }
+            });
+        }
+        function setTeamFilter(id) {
+            teamFilter = id;
+            navHiddenAuthors = {};
+            if (id) {
+                namedMembers().forEach(function(a) { if (a !== id) { navHiddenAuthors[a] = true; } });
+                docRoot && docRoot.querySelectorAll('[data-authors]').forEach(function(el) {
+                    el.dataset.authors.split('|').forEach(function(a) { if (a !== id) { navHiddenAuthors[a] = true; } });
+                });
+                navHiddenAuthors[NO_AUTHOR] = true;
+            }
+            applyTeamFilter();
+            renderTeamPop();
+            showNavCount();
+            updateTeamUi();
+        }
+
+        /** Conflicts without a decision, team answers not written, change marks not decided. */
+        function unresolvedCounts() {
+            if (!docRoot) { return { conflicts: 0, questions: 0, changes: 0 }; }
+            return {
+                conflicts: docRoot.querySelectorAll('.mdb-conflict[data-open="1"]').length,
+                questions: docRoot.querySelectorAll('.mdb-answer-btn[data-unanswered="1"]').length,
+                changes: docRoot.querySelectorAll('.mdb-rm[data-kind="change"]').length,
+            };
+        }
+        /** The counter and Next unresolved, and the Team button while the document has a team or members' marks. */
+        function updateTeamUi() {
+            var c = unresolvedCounts();
+            var left = c.conflicts + c.questions + c.changes;
+            var team = namedMembers().length > 0 || c.conflicts > 0;
+            if (unresolvedCountEl) {
+                unresolvedCountEl.hidden = !team;
+                unresolvedCountEl.textContent = c.conflicts + ' ⚖ · ' + c.questions + ' ? · ' + c.changes + ' ±';
+                unresolvedCountEl.title = 'Left to decide: ' + c.conflicts + ' conflict' + (c.conflicts === 1 ? '' : 's') + ', '
+                    + c.questions + ' open question' + (c.questions === 1 ? '' : 's') + ', ' + c.changes + ' undecided change' + (c.changes === 1 ? '' : 's');
+                unresolvedCountEl.classList.toggle('mdb-all-resolved', left === 0);
+            }
+            if (nextUnresolvedBtn) {
+                nextUnresolvedBtn.hidden = !team;
+                nextUnresolvedBtn.disabled = left === 0;
+            }
+            if (teamBox) { teamBox.hidden = !team; }
+            if (teamBtn) { teamBtn.textContent = teamFilter ? 'Only ' + memberName(teamFilter) : 'Team'; }
+        }
+
+        /** The Team popup: the legend with the filter and per-author decisions, then the revision history. */
+        function renderTeamPop() {
+            if (!teamPop) { return; }
+            teamPop.innerHTML = '';
+            var head = document.createElement('div');
+            head.className = 'nav-kind-head';
+            head.textContent = 'Members';
+            teamPop.appendChild(head);
+            var ids = namedMembers();
+            var changeAuthors = {};
+            if (docRoot) {
+                docRoot.querySelectorAll('.mdb-rm[data-kind="change"][data-authors]').forEach(function(el) {
+                    authorsOf(el).forEach(function(a) { changeAuthors[a] = (changeAuthors[a] || 0) + 1; });
+                });
+            }
+            var everyone = document.createElement('div');
+            everyone.className = 'mdb-team-row';
+            var all = document.createElement('button');
+            all.className = 'mdb-team-btn' + (teamFilter ? '' : ' mdb-team-active');
+            all.dataset.teamOnly = '';
+            all.textContent = 'Everyone';
+            all.title = 'Show every member\'s marks, comments and answers';
+            everyone.appendChild(all);
+            teamPop.appendChild(everyone);
+            ids.forEach(function(id) {
+                var row = document.createElement('div');
+                row.className = 'mdb-team-row';
+                var only = document.createElement('button');
+                only.className = 'mdb-team-btn mdb-team-only' + (teamFilter === id ? ' mdb-team-active' : '');
+                only.dataset.teamOnly = id;
+                only.title = 'Only ' + memberName(id) + '\'s marks, comments and answers';
+                only.appendChild(memberChip(id));
+                row.appendChild(only);
+                var info = teamMembers[id];
+                if (info && info.role) {
+                    var role = document.createElement('span');
+                    role.className = 'mdb-team-role';
+                    role.textContent = info.role;
+                    row.appendChild(role);
+                }
+                if (changeAuthors[id]) {
+                    ['accept', 'reject'].forEach(function(decision) {
+                        var b = document.createElement('button');
+                        b.className = 'mdb-team-btn mdb-team-decide codicon codicon-' + (decision === 'accept' ? 'check-all' : 'discard');
+                        b.dataset.teamDecide = decision;
+                        b.dataset.teamAuthor = id;
+                        b.title = (decision === 'accept' ? 'Accept' : 'Reject') + ' all of ' + memberName(id) + '\'s changes (' + changeAuthors[id] + ')';
+                        row.appendChild(b);
+                    });
+                }
+                teamPop.appendChild(row);
+            });
+            if (teamRevisions.length) {
+                var rh = document.createElement('div');
+                rh.className = 'nav-kind-head';
+                rh.textContent = 'Revision history';
+                teamPop.appendChild(rh);
+                teamRevisions.forEach(function(r) {
+                    var entry = document.createElement('div');
+                    entry.className = 'mdb-team-revision';
+                    var title = document.createElement('div');
+                    title.className = 'mdb-team-revision-title';
+                    title.textContent = [r.version ? 'v' + r.version : '', r.date, r.author].filter(Boolean).join(' · ') + (r.summary ? ' — ' + r.summary : '');
+                    entry.appendChild(title);
+                    var lists = [['Team', r.team || []], ['Reviewers', r.reviewers || []]];
+                    lists.forEach(function(pair) {
+                        if (!pair[1].length) { return; }
+                        var line = document.createElement('div');
+                        line.className = 'mdb-team-revision-line';
+                        line.appendChild(document.createTextNode(pair[0] + ': '));
+                        pair[1].forEach(function(m) {
+                            var chip = memberChip(m.memberId, m.guest ? 'mdb-chip-guest' : '');
+                            if (m.guest && chip.textContent.indexOf('(guest)') < 0) { chip.textContent += ' (guest)'; }
+                            line.appendChild(chip);
+                        });
+                        entry.appendChild(line);
+                    });
+                    teamPop.appendChild(entry);
+                });
+            }
+        }
+        if (teamBtn && teamPop) {
+            teamBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (teamPop.hidden) { renderTeamPop(); }
+                teamPop.hidden = !teamPop.hidden;
+            });
+            teamPop.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var btn = e.target && e.target.closest ? e.target.closest('button') : null;
+                if (!btn) { return; }
+                if (btn.dataset.teamOnly !== undefined) { setTeamFilter(btn.dataset.teamOnly); return; }
+                if (btn.dataset.teamDecide && currentFilePath) {
+                    teamPop.hidden = true;
+                    restoreScrollTop = contentArea.scrollTop;
+                    beginBusy(btn.dataset.teamDecide === 'reject' ? 'Rejecting…' : 'Accepting…');
+                    vscode.postMessage({
+                        type: 'reviewAuthorChanges', filePath: currentFilePath, author: btn.dataset.teamAuthor,
+                        name: memberName(btn.dataset.teamAuthor), decision: btn.dataset.teamDecide,
+                    });
+                }
+            });
+            document.addEventListener('click', function() { teamPop.hidden = true; });
+        }
+        if (nextUnresolvedBtn) { nextUnresolvedBtn.addEventListener('click', function() { navigate(1, ['unresolved']); }); }
+
+        // ---- Conflict blocks: a choice per alternative, keep base, rewrite, Decide, keep open ----
+        /** The edit a choice makes on the conflict that opens on the block's first line, read when used. */
+        function conflictEdit(block, choice) {
+            var lines = shownLines();
+            var c = mdbConflictAt(lines, block.startLine);
+            return c ? mdbConflictEdit(lines, c, choice) : null;
+        }
+        function decorateConflict(wrapper, block) {
+            var lines = shownLines();
+            var c = mdbConflictAt(lines, block.startLine);
+            if (!c) { return; }
+            wrapper.classList.add('mdb-conflict');
+            var unresolved = !c.decision || /^open:/i.test(c.decision);
+            wrapper.dataset.open = unresolved ? '1' : '0';
+            wrapper.dataset.members = c.alternatives.reduce(function(all, a) { return all.concat(a.members); }, []).join('|');
+            var bar = document.createElement('div');
+            bar.className = 'mdb-conflict-bar';
+            /** @type {{letter?: string, text?: string} | null} */
+            var chosen = null;
+            var status = document.createElement('span');
+            status.className = 'mdb-editor-status';
+            var decide = document.createElement('button');
+            decide.className = 'mdb-editor-btn mdb-conflict-decide';
+            decide.innerHTML = '<span class="codicon codicon-check"></span> Decide';
+            decide.title = 'Write the chosen text into the paragraph and remove the conflict';
+            decide.disabled = true;
+            var pick = function(btn, choice) {
+                chosen = choice;
+                bar.querySelectorAll('.mdb-conflict-choice').forEach(function(b) { b.classList.toggle('mdb-team-active', b === btn); });
+                decide.disabled = false;
+            };
+            var option = function(label, title, choice, members) {
+                var btn = document.createElement('button');
+                btn.className = 'mdb-editor-btn mdb-conflict-choice';
+                btn.dataset.choice = choice.letter;
+                btn.title = title;
+                btn.appendChild(document.createTextNode(label + ' '));
+                (members || []).forEach(function(id) { btn.appendChild(memberChip(id)); });
+                btn.addEventListener('click', function(e) { e.stopPropagation(); pick(btn, choice); });
+                bar.appendChild(btn);
+            };
+            c.alternatives.forEach(function(a) { option('(' + a.letter + ')', 'Take ' + a.members.map(memberName).join(', ') + '\'s text: ' + a.text, { letter: a.letter }, a.members); });
+            option('Keep base', 'Keep the text as it was: ' + c.base, { letter: 'base' }, []);
+            var rewrite = document.createElement('button');
+            rewrite.className = 'mdb-editor-btn mdb-conflict-rewrite';
+            rewrite.innerHTML = '<span class="codicon codicon-edit"></span> Rewrite…';
+            rewrite.title = 'Write the text yourself, starting from the chosen one';
+            rewrite.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var initial = mdbConflictChosenText(c, chosen || { letter: 'base' }) || '';
+                openEditor(rewrite, wrapper, initial, function(value) {
+                    if (!value.trim()) { return { hold: 'Write the text first.' }; }
+                    return conflictEdit(block, { text: value.trim() });
+                });
+            });
+            bar.appendChild(rewrite);
+            decide.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (!chosen) { return; }
+                var edit = conflictEdit(block, chosen);
+                if (!edit) { status.textContent = 'That alternative is not there any more; reload.'; return; }
+                setNavAnchor(navKey(wrapper));
+                postEdit(edit);
+            });
+            bar.appendChild(decide);
+            var keepOpen = document.createElement('button');
+            keepOpen.className = 'mdb-editor-btn mdb-conflict-open';
+            keepOpen.innerHTML = '<span class="codicon codicon-circle-large-outline"></span> Keep open…';
+            keepOpen.title = 'Hand it back undecided: `open:` and a summary of the positions';
+            keepOpen.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var initial = /^open:/i.test(c.decision) ? c.decision : 'open: ' + c.alternatives.map(function(a) {
+                    return a.members.map(memberName).join(', ') + ' (' + a.letter + ') ' + a.text.replace(/\s*\n\s*/g, ' ');
+                }).join('; ');
+                openEditor(keepOpen, wrapper, initial, function(value) {
+                    var text = value.trim();
+                    if (!/^open:/i.test(text)) { text = 'open: ' + text; }
+                    return conflictEdit(block, { open: text });
+                });
+            });
+            bar.appendChild(keepOpen);
+            bar.appendChild(status);
+            if (!unresolved) {
+                status.textContent = 'Decided: ' + c.decision + ' — applied when the annotations are removed.';
+            }
+            wrapper.appendChild(bar);
+        }
+
         // ---- Navigation: from change to change, comment to comment, question to question ----
         var NAV_TARGETS = {
             changes: '.mdb-rm[data-kind="change"]',
@@ -1693,6 +2105,9 @@
             unanswered: '.mdb-answer-btn[data-unanswered="1"]',
             marked: '.mdb-check-here',
             agent: '.mdb-comment-block[data-agent="1"], .mdb-rm[data-kind="note"][data-agent="1"]',
+            conflicts: '.mdb-conflict',
+            // Next unresolved: a conflict without a decision, a question without a team answer, an undecided change.
+            unresolved: '.mdb-conflict[data-open="1"], .mdb-answer-btn[data-unanswered="1"], .mdb-rm[data-kind="change"]',
         };
         // ---- Whose: the authors whose comments and changes the arrows find ----
         // Every author the document names (comment blocks' `(author)`, attribution
@@ -2550,6 +2965,13 @@
                 var text = msg.content || '';
                 // What the host read for an earlier text no longer fits this one.
                 if (!sameFile || text !== shownText) { somComments = null; }
+                if (!sameFile) {
+                    roundMembers = [];
+                    docMembers = [];
+                    teamRevisions = [];
+                    teamFilter = '';
+                    setTeam();
+                }
                 // The same text again (the file watcher after our own save, a
                 // reload with nothing changed): what is shown is already it.
                 if (!forced && sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
@@ -2583,6 +3005,7 @@
 
         /** Where the reader is put after a full render. */
         function afterRender(sameFile, anchor, position) {
+            decorateTeamReview();
             markOwnLines();
             if (sameFile && restoreScrollTop !== null) {
                 // Our own save re-rendered the document: stay where the
@@ -2628,6 +3051,15 @@
                 if (msg.filePath === currentFilePath && msg.contentLength === (shownText || '').length) {
                     somComments = { nextCommentNumber: msg.nextCommentNumber, formFieldRanges: msg.formFieldRanges || [], questions: msg.questions || {} };
                     applySomComments();
+                    docMembers = Array.isArray(msg.team) ? msg.team : [];
+                    teamRevisions = Array.isArray(msg.revisions) ? msg.revisions : [];
+                    setTeam();
+                }
+            } else if (msg.type === 'reviewTeam') {
+                // The round the file belongs to (round.yaml): its team and guests.
+                if (msg.filePath === currentFilePath) {
+                    roundMembers = Array.isArray(msg.members) ? msg.members : [];
+                    setTeam();
                 }
             } else if (msg.type === 'actionDone') {
                 // A review decision the host answered without new content (nothing to change, or refused).

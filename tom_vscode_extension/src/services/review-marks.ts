@@ -94,6 +94,20 @@ export function decideAllChanges(text: string, decision: 'accept' | 'reject'): {
 }
 
 /**
+ * `text` with every change mark `author` made (its attribution token names
+ * them, alone or with others, SOM §11.9.8) accepted or rejected — "accept all
+ * of Bob's". Votes do not count as authorship; other marks stay.
+ */
+export function decideAuthorChanges(text: string, author: string, decision: 'accept' | 'reject'): { text: string; decided: number } {
+    const { doc, notes } = scratch(text);
+    const changes = notes.listMarks().filter((m) => CHANGE_KINDS.has(m.markKind) && m.authors.includes(author));
+    if (changes.length === 0) { return { text, decided: 0 }; }
+    const value: SpecMarkDecisionValue = decision === 'accept' ? SpecMarkDecision.ACCEPT : SpecMarkDecision.REJECT;
+    notes.decideMarks(Object.fromEntries(changes.map((m) => [m.id, value])), { revision: notes.revision() });
+    return { text: doc.content(SCRATCH) ?? '', decided: changes.length };
+}
+
+/**
  * `fileText` with one mark of a block decided, for the Markdown Browser: lines
  * `startLine..endLine` must still hold `expected` (what the browser showed);
  * the decided block replaces them. `remove` takes a comment or a highlight's

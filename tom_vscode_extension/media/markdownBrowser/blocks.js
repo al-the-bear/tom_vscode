@@ -741,13 +741,15 @@ function mdbCommentBody(text) {
 }
 
 /**
- * An attribution token at the start of `src` (`{@alice}`, `{@agent_spec_author +bob -carol}`,
+ * An attribution token at the start of `src` (`{@alice}`, `{@alice,bob}`, `{@agent_spec_author +bob -carol}`,
  * `{@alice 2026-11-07T14:05+01:00}`, `{@2026-11-07T14:05+01:00}`; SOM §11.9.8, §11.9.10): its
  * markup, the members it names as authors, those voting and its change time (its last word when
  * that has the time's shape, else ''). Null when `src` starts with none.
  *
+ * `votes` keeps each vote's direction: `{member: 'bob', vote: 'accept'}` for `+bob`, `'reject'` for `-carol`.
+ *
  * @param {string} src
- * @returns {{raw: string, authors: string[], voters: string[], changedAt: string} | null}
+ * @returns {{raw: string, authors: string[], voters: string[], votes: Array<{member: string, vote: string}>, changedAt: string} | null}
  */
 function mdbAttribution(src) {
     var m = /^\{@([^{}\n]*)\}/.exec(String(src || ''));
@@ -756,10 +758,18 @@ function mdbAttribution(src) {
     var authors = [];
     /** @type {string[]} */
     var voters = [];
+    /** @type {Array<{member: string, vote: string}>} */
+    var votes = [];
     var words = m[1].trim().split(/\s+/).filter(function(w) { return w; });
     var changedAt = words.length && MDB_CHANGE_TIME.test(words[words.length - 1]) ? words.pop() || '' : '';
     words.forEach(function(part) {
-        if (part.charAt(0) === '+' || part.charAt(0) === '-') { voters.push(part.slice(1)); } else { authors.push(part); }
+        if (part.charAt(0) === '+' || part.charAt(0) === '-') {
+            voters.push(part.slice(1));
+            votes.push({ member: part.slice(1), vote: part.charAt(0) === '+' ? 'accept' : 'reject' });
+        } else {
+            // Several authors of one change are one comma-separated word (`{@alice,bob}`).
+            part.split(',').forEach(function(a) { if (a) { authors.push(a); } });
+        }
     });
-    return { raw: m[0], authors: authors, voters: voters, changedAt: changedAt };
+    return { raw: m[0], authors: authors, voters: voters, votes: votes, changedAt: changedAt };
 }

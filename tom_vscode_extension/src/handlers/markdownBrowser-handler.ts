@@ -23,7 +23,8 @@
 import * as vscode from 'vscode';
 import type { SomCommentContext } from '../services/som-review-comments';
 import { SomCommentsWorkerClient } from '../services/som-review-comments-client';
-import { decideAllChanges, reviewMarkEdit } from '../services/review-marks';
+import { decideAllChanges, decideAuthorChanges, reviewMarkEdit } from '../services/review-marks';
+import { roundTeamFor } from '../services/review-team';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -431,6 +432,10 @@ class MdBrowserPanel {
                 // the file's lines), so a block of file lines can still be edited.
                 lineMap: this._crlfMode ? crlfLineMap(raw) : null,
             });
+            // A file of a team review round (a member's copy, the merged document): the
+            // round's members by id, for the browser's names, colours and filter.
+            const round = roundTeamFor(absPath);
+            this._panel.webview.postMessage({ type: 'reviewTeam', filePath: absPath, members: round ? round.members : [] });
             this._sendSomComments(absPath, raw, content.length);
         } catch (err) {
             debugLog(`[MdBrowser] sendFileContent error: ${err}`, 'ERROR', 'mdBrowser');
@@ -946,6 +951,41 @@ class MdBrowserPanel {
                     }
                     this._writeAndRefresh(target, result.text);
                     done();
+                    break;
+                }
+
+                case 'reviewAuthorChanges': {
+                    const done = (): void => { void this._panel.webview.postMessage({ type: 'actionDone' }); };
+                    // Every change mark one member made accepted or rejected ("accept all
+                    // of Bob's", SOM §11.9.8), with a way back while the file is untouched.
+                    const target = this._editableFile(msg.filePath);
+                    const author = typeof msg.author === 'string' ? msg.author : '';
+                    if (typeof target !== 'string' || !author) {
+                        if (typeof target !== 'string') { void vscode.window.showWarningMessage(`Markdown Browser: ${target.error}`); }
+                        done();
+                        break;
+                    }
+                    const decision = msg.decision === 'reject' ? 'reject' : 'accept';
+                    const before = fs.readFileSync(target, 'utf-8');
+                    const result = decideAuthorChanges(before, author, decision);
+                    const name = path.basename(target);
+                    const who = typeof msg.name === 'string' && msg.name ? msg.name : author;
+                    if (result.decided === 0) {
+                        void vscode.window.showInformationMessage(`Markdown Browser: ${who} made no changes in ${name}.`);
+                        done();
+                        break;
+                    }
+                    this._writeAndRefresh(target, result.text);
+                    done();
+                    const doneText = `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${result.decided} change${result.decided === 1 ? '' : 's'} of ${who} in ${name}.`;
+                    void vscode.window.showInformationMessage(`Markdown Browser: ${doneText}`, 'Undo').then((choice) => {
+                        if (choice !== 'Undo') { return; }
+                        if (!fs.existsSync(target) || fs.readFileSync(target, 'utf-8') !== result.text) {
+                            void vscode.window.showWarningMessage(`Markdown Browser: ${name} changed since; nothing was undone.`);
+                            return;
+                        }
+                        this._writeAndRefresh(target, before);
+                    });
                     break;
                 }
 

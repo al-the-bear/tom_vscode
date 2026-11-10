@@ -112,6 +112,14 @@
             <button class="icon-btn" id="rejectAllBtn" title="Reject every change in the document">
                 <span class="codicon codicon-discard"></span>
             </button>
+            <span class="nav-kind team-review" id="teamReview" hidden>
+                <button class="nav-kind-btn" id="teamBtn" title="The review team: who wrote what, only one member's, decide a member's changes, the revision history">Team</button>
+                <div class="nav-kind-pop team-pop" id="teamPop" hidden></div>
+            </span>
+            <span id="unresolvedCount" class="search-count unresolved-count" hidden></span>
+            <button class="icon-btn" id="nextUnresolvedBtn" title="Next unresolved: a conflict, an open question or an undecided change" hidden>
+                <span class="codicon codicon-debug-step-over"></span>
+            </button>
         </div>
     </div>
 
@@ -158,6 +166,7 @@
     <script src="{{sharedUri}}/mdOverlay.js"></script>
     <script src="{{sharedUri}}/mdQuestions.js"></script>
     <script src="{{baseUri}}/blocks.js"></script>
+    <script src="{{baseUri}}/teamReview.js"></script>
     <script src="{{baseUri}}/main.js"></script>
     <script src="{{baseUri}}/askBar.js"></script>
     <script>

@@ -42,6 +42,7 @@ function setup(): { window: Win; posted: Array<Record<string, unknown>> } {
     window.eval(OVERLAY);
     window.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     window.eval(asset('blocks.js'));
+    window.eval(asset('teamReview.js'));
     window.eval(asset('main.js'));
     return { window, posted };
 }
@@ -168,12 +169,12 @@ describe('Markdown Browser: review authors, check-here, long comments', () => {
         assert.equal(window.mdbCommentAuthor('> ⬆️ **C-3**: text'), '');
         assert.equal(window.mdbCommentBody('⬆️ **C-12** (Alexis): the text'), 'the text');
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@agent_x +bob -carol} rest'))),
-            { raw: '{@agent_x +bob -carol}', authors: ['agent_x'], voters: ['bob', 'carol'], changedAt: '' });
+            { raw: '{@agent_x +bob -carol}', authors: ['agent_x'], voters: ['bob', 'carol'], votes: [{ member: 'bob', vote: 'accept' }, { member: 'carol', vote: 'reject' }], changedAt: '' });
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@alice +bob 2026-11-07T14:05+01:00}'))),
-            { raw: '{@alice +bob 2026-11-07T14:05+01:00}', authors: ['alice'], voters: ['bob'], changedAt: '2026-11-07T14:05+01:00' });
+            { raw: '{@alice +bob 2026-11-07T14:05+01:00}', authors: ['alice'], voters: ['bob'], votes: [{ member: 'bob', vote: 'accept' }], changedAt: '2026-11-07T14:05+01:00' });
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbAttribution('{@2026-11-08T09:00Z}'))),
-            { raw: '{@2026-11-08T09:00Z}', authors: [], voters: [], changedAt: '2026-11-08T09:00Z' });
-        assert.deepEqual(window.mdbAttribution('{@alice 2026-11-07}').authors, ['alice', '2026-11-07'], 'not of the time\'s shape: a member id');
+            { raw: '{@2026-11-08T09:00Z}', authors: [], voters: [], votes: [], changedAt: '2026-11-08T09:00Z' });
+        assert.deepEqual([...window.mdbAttribution('{@alice 2026-11-07}').authors], ['alice', '2026-11-07'], 'not of the time\'s shape: a member id');
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbCommentHeader('> ⬆️ **C-4** (Eve, 2026-11-09T17:42+01:00): text'))),
             { author: 'Eve', changedAt: '2026-11-09T17:42+01:00' });
         assert.deepEqual(JSON.parse(JSON.stringify(window.mdbCommentHeader('> ⬆️ **C-4** (2026-11-09T17:42+01:00): text'))),

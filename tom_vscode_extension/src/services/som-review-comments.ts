@@ -28,6 +28,7 @@
 import { SpecReviewAnnotations, type SomMetaNode } from 'tom_som_typescript_runtime';
 
 import type { LoadedSomDocument } from './som-document-store';
+import { documentTeam, readRevisionHistory, type RevisionRecord, type TeamMember } from './review-team';
 import type { SomModelService } from './som-model-service';
 
 export interface SomCommentContext {
@@ -37,6 +38,10 @@ export interface SomCommentContext {
     formFieldRanges: Array<[number, number]>;
     /** Question id → its options and recommended letter; an id the document uses twice is left out. */
     questions: Record<string, SomQuestionReading>;
+    /** The document's own review team (SOM §11.9.8), in order; [] when it names none. */
+    team: TeamMember[];
+    /** Its revision history with each round's team and reviewers, guests marked (CC-89, CC-90). */
+    revisions: RevisionRecord[];
 }
 
 /** A question as the runtime reads it (tom_specs annot7). */
@@ -114,7 +119,12 @@ function headingPaths(fileLines: string[], rendition: { markdown: string; headin
 export function somCommentContext(loaded: LoadedSomDocument, service: SomModelService): SomCommentContext {
     const notes = new SpecReviewAnnotations(loaded.document);
     const nextId = notes.nextCommentId();
-    const context: SomCommentContext = { nextCommentNumber: Number(nextId.slice(2)), formFieldRanges: [], questions: questionReadings(notes) };
+    const rootId = loaded.root.sectionId ?? '';
+    const context: SomCommentContext = {
+        nextCommentNumber: Number(nextId.slice(2)), formFieldRanges: [], questions: questionReadings(notes),
+        team: rootId ? documentTeam(loaded.document, rootId) : [],
+        revisions: rootId ? readRevisionHistory(service.model, loaded.document, rootId) : [],
+    };
     if (loaded.format !== 'markdown') { return context; }
     const tree = service.metaTree(loaded.root.type);
     const lines = loaded.text.split('\n');

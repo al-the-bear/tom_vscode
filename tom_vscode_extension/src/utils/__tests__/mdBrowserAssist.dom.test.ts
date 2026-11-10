@@ -58,6 +58,7 @@ function setup(t: { after(fn: () => void): void }): { window: Win; posted: Array
     window.eval(MARKED);
     window.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     window.eval(asset('blocks.js'));
+    window.eval(asset('teamReview.js'));
     window.eval(asset('main.js'));
     window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'mdContent', content: DOC, filePath: '/ws/review.md', relativePath: 'review.md', crlf: false } }));
     return { window, posted };

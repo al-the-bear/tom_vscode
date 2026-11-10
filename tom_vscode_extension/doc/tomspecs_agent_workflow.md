@@ -196,6 +196,10 @@ same for a TomSpecs document and for plain annotated Markdown.
    a letter (`(a)`), `base` (`(base)`), or rewritten text; `open: …` hands it
    back — into the merged document. `tomAi_specAnnotations` lists the open
    ones; `tomAi_specRemoveAllAnnotations` applies the decisions at the end.
+   The user consolidates the merged Markdown in the MD Browser instead: chips
+   per member, a choice per alternative with **Decide**, *Keep open*, and a
+   counter of what is left (user guide, *Consolidating a team review*). A
+   YAML document's merge is shown there after `tomAi_specConvert` to `.md`.
 
 The team answer goes in with `tomAi_specSetAnswer` and `author: ""`; with a
 member id as `author` (or the user's own member id, the default when it is set

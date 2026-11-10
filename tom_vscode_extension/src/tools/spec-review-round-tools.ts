@@ -16,8 +16,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-    SpecQuery,
-    SpecQueryEngine,
     SpecReviewAnnotations,
     SpecReviewMergeError,
     mergeReviews,
@@ -29,6 +27,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, SpecToolDeps, failure, json, liveDeps, resolveInput, toWorkspacePath } from './spec-tool-common';
 import { EDIT_PARAMS, SpecEditRefusal, editFailure, runEdit } from './spec-edit-core';
 import type { LoadedSomDocument } from '../services/som-document-store';
+import { MEMBER_LIST, documentTeam, pathsOfClass, readTeamMembers } from '../services/review-team';
 import {
     MERGED_FOLDER, MERGE_REPORT_FILE, ROUND_FILE, ROUND_FORMAT,
     checkTeam, copyFileName, defaultRoundFolderName, documentExtension, headingPaths, memberOfFile, parseRound,
@@ -102,31 +101,9 @@ const today = (): string => {
 // document type, else the blueprint's default; the most specific replaces.
 // ---------------------------------------------------------------------------
 
-const MEMBER_LIST = 'RVMEM-MEMB-LST';
-
-/** The members of a ReviewTeam's member list at `listPath`, in order; [] when the path is none of the document's. */
-export function readTeamMembers(doc: SpecDocument, listPath: string): Array<RoundMember & { owner: boolean }> {
-    let items: string[];
-    try { items = doc.listItems(listPath); } catch { return []; }
-    const out: Array<RoundMember & { owner: boolean }> = [];
-    for (const item of items) {
-        const form = `${item}/content`;
-        const memberId = (doc.formField(form, 'memberId') ?? '').trim();
-        if (!memberId) { continue; }
-        out.push({
-            memberId,
-            displayName: (doc.formField(form, 'displayName') ?? '').trim() || memberId,
-            role: (doc.formField(form, 'role') ?? '').trim() || 'reviewer',
-            owner: /^(true|yes)$/i.test((doc.formField(form, 'owner') ?? '').trim()),
-        });
-    }
-    return out;
-}
-
-/** The nodes of `className` under the document's own root (the query also walks the model's other roots). */
-function pathsOfClass(deps: SpecToolDeps, doc: SpecDocument, rootId: string, className: string): string[] {
-    const cursor = new SpecQueryEngine(deps.service.model, doc).query(new SpecQuery({ className }));
-    return cursor.take(cursor.count).map((m) => m.path).filter((p) => p.startsWith(`${rootId}/`));
+/** The nodes of `className` under the blueprint's own root. */
+function pathsOfSbpClass(deps: SpecToolDeps, doc: SpecDocument, className: string): string[] {
+    return pathsOfClass(deps.service.model, doc, 'SBP', className);
 }
 
 /** `D04RequirementsSpecification` → `d04`. */
@@ -160,7 +137,7 @@ interface TeamSource { members: Array<RoundMember & { owner?: boolean }>; source
 function resolveTeam(deps: SpecToolDeps, loaded: LoadedSomDocument, sbp: string | undefined): TeamSource | null {
     const rootId = loaded.root.sectionId;
     if (rootId) {
-        const own = readTeamMembers(loaded.document, `${rootId}/reviewTeam/${MEMBER_LIST}`);
+        const own = documentTeam(loaded.document, rootId);
         if (own.length) { return { members: own, source: 'document' }; }
     }
     const sbpPath = sbp ? resolveInput(deps, sbp) : findBlueprint(deps, loaded.filePath);
@@ -168,7 +145,7 @@ function resolveTeam(deps: SpecToolDeps, loaded: LoadedSomDocument, sbp: string 
     const blueprint = deps.store.load(sbpPath);
     const where = toWorkspacePath(deps, sbpPath);
     const code = documentTypeCode(loaded.root.type);
-    const entries = pathsOfClass(deps, blueprint.document, 'SBP', 'DocumentReviewTeamEntry');
+    const entries = pathsOfSbpClass(deps, blueprint.document, 'DocumentReviewTeamEntry');
     for (const entry of entries) {
         // The enum names the type in full (`d04RequirementsSpecification`); its `d04` prefix is enough.
         const type = (blueprint.document.formField(`${entry}/content`, 'documentType') ?? '').trim();
@@ -177,7 +154,7 @@ function resolveTeam(deps: SpecToolDeps, loaded: LoadedSomDocument, sbp: string 
             if (members.length) { return { members, source: `${where} (${code})` }; }
         }
     }
-    for (const team of pathsOfClass(deps, blueprint.document, 'SBP', 'ReviewTeam')) {
+    for (const team of pathsOfSbpClass(deps, blueprint.document, 'ReviewTeam')) {
         if (entries.some((e) => team.startsWith(`${e}/`))) { continue; }
         const members = readTeamMembers(blueprint.document, `${team}/${MEMBER_LIST}`);
         if (members.length) { return { members, source: `${where} (default team)` }; }

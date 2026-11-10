@@ -40,6 +40,7 @@ function setup(): { w: Win; posted: Array<Record<string, unknown>> } {
     w.eval(MARKED);
     w.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     w.eval(asset('blocks.js'));
+    w.eval(asset('teamReview.js'));
     w.eval(asset('main.js'));
     return { w, posted };
 }

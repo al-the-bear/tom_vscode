@@ -48,6 +48,7 @@ function setup(): Win {
     window.eval(MARKED);
     window.eval(readFileSync(join(ROOT, 'media', 'shared', 'mdQuestions.js'), 'utf-8'));
     window.eval(asset('blocks.js'));
+    window.eval(asset('teamReview.js'));
     window.eval(asset('main.js'));
     return window;
 }
