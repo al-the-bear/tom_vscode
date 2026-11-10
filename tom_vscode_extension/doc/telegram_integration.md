@@ -130,6 +130,16 @@ The raw `botToken` is **never written to disk**. It is resolved at load time fro
 `process.env[botTokenEnv]` (`telegram-config.ts`); if the env var is unset the
 channel stays disabled. This keeps secrets out of the git-tracked `_ai` clone.
 
+### Who sends with these settings
+
+Every Telegram consumer reads the settings through `telegram-config.ts`: the
+poller, the Status Page, `Configure Telegram`, `tomAi_askUser` and
+`tomAi_notifyUser`. The two tools send to `defaultChatId` with the token from
+`botTokenEnv` (`telegramNotifyTarget`) when Telegram is `enabled` on this host,
+the token resolves and a default chat is set — whether polling runs or not.
+Otherwise `tomAi_notifyUser`'s `auto` channel shows a VS Code notification and
+its `telegram` channel answers an error naming what is missing.
+
 ### Migration fallbacks
 
 When the per-quest sections are absent, config is sourced (once) from, in order:

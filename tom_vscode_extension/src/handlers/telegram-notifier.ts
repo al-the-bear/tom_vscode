@@ -8,7 +8,7 @@
  * The underlying transport (HTTP calls, polling) is handled by the
  * ChatChannel implementation (e.g. TelegramChannel).
  *
- * Configuration lives in aiConversation.telegram section of tom_vscode_extension.json.
+ * Configuration is the quest's Telegram settings (telegram-config.ts).
  */
 
 import { ChatChannel, ChannelMessage, ChannelResult } from './chat';
@@ -18,7 +18,7 @@ import { bridgeLog } from './handler_shared';
 // Interfaces
 // ============================================================================
 
-/** Telegram configuration from tom_vscode_extension.json → aiConversation.telegram */
+/** The quest's Telegram configuration, parsed (telegram-config.ts reads the raw settings). */
 export interface TelegramConfig {
     /** Whether Telegram integration is enabled. */
     enabled: boolean;
@@ -195,7 +195,7 @@ export class TelegramNotifier {
 // ============================================================================
 
 /**
- * Parse Telegram config from a raw aiConversation.telegram object.
+ * Parse Telegram config from the raw settings object (the quest's merged telegram sections).
  */
 export function parseTelegramConfig(raw: any): TelegramConfig {
     if (!raw || typeof raw !== 'object') { return { ...TELEGRAM_DEFAULTS }; }

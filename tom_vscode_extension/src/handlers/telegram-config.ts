@@ -86,6 +86,23 @@ export function readEffectiveTelegramConfig(): TelegramConfig {
     return parseTelegramConfig(readEffectiveTelegramRaw());
 }
 
+/** Where a notification of the current quest goes on Telegram: the bot token and the chat. */
+export interface TelegramNotifyTarget {
+    token: string;
+    chatId: number;
+}
+
+/**
+ * The bot token and default chat that notifications of the current quest go
+ * to — what `tomAi_notifyUser` and `tomAi_askUser` send with — or null when
+ * Telegram is off for this quest on this machine, its `botTokenEnv` variable
+ * is unset or empty, or no default chat id is set.
+ */
+export function telegramNotifyTarget(tg: TelegramConfig = readEffectiveTelegramConfig()): TelegramNotifyTarget | null {
+    if (!tg.enabled || !tg.botToken || !tg.defaultChatId) { return null; }
+    return { token: tg.botToken, chatId: tg.defaultChatId };
+}
+
 /**
  * Persist raw Telegram settings by splitting them across the two per-quest
  * config files, creating the quest folder if needed. The runtime-resolved

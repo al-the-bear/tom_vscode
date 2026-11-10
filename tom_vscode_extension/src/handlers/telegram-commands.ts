@@ -5,7 +5,7 @@
  *  - tomAi.telegram.testConnection   — Send a test message to verify bot token & chat ID
  *  - tomAi.telegram.toggle — Start/stop Telegram polling independent of bot conversations
  *
- * Configuration is read from aiConversation.telegram in tom_vscode_extension.json.
+ * Configuration is the quest's Telegram settings, read through telegram-config.ts.
  */
 
 import * as vscode from 'vscode';

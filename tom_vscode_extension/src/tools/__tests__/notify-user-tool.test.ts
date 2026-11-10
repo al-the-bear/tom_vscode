@@ -199,7 +199,7 @@ describe('notifyUserImpl — explicit channel selection', () => {
             message: 'x', channel: 'telegram',
         }));
         assert.equal(r.ok, false);
-        assert.match(r.error, /Telegram channel requested but not configured/);
+        assert.match(r.error, /Telegram channel requested but Telegram is not set up for this quest on this machine/);
         assert.match(r.error, /channel: "vscode"/);
         // sendTelegram called once (to probe), but no toast fallback because channel was EXPLICIT
         assert.equal(channels.calls.filter((c) => c.method.startsWith('show')).length, 0);

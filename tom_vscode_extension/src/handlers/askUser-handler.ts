@@ -18,7 +18,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
 import { appendQuestionLogEntry } from '../services/questionsLog';
 import { readChatQuestionsConfig } from './chatQuestions-config';
-import { readEffectiveTelegramConfig } from './telegram-config';
+import { telegramNotifyTarget } from './telegram-config';
 import {
     ASK_USER_TOOL as ASK_USER_DEF,
     AskUserInput,
@@ -163,8 +163,8 @@ function resolvedNote(source: AskAnswerSource): string {
 
 /** Send the questions to the configured Telegram chat (best-effort, no-op when unconfigured). */
 function sendAskTelegram(pending: PendingAsk): void {
-    const tg = readEffectiveTelegramConfig();
-    if (!tg.enabled || !tg.botToken || !tg.defaultChatId) { return; }
+    const tg = telegramNotifyTarget();
+    if (!tg) { return; }
 
     const lines: string[] = [];
     lines.push('🙋 The assistant has some questions:');
@@ -179,13 +179,13 @@ function sendAskTelegram(pending: PendingAsk): void {
 
     void (async () => {
         try {
-            const url = `https://api.telegram.org/bot${tg.botToken}/sendMessage`;
+            const url = `https://api.telegram.org/bot${tg.token}/sendMessage`;
             const resp = await fetch(url, {
                 method: 'POST',
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 headers: { 'Content-Type': 'application/json' },
                 // eslint-disable-next-line @typescript-eslint/naming-convention -- Telegram's field
-                body: JSON.stringify({ chat_id: tg.defaultChatId, text }),
+                body: JSON.stringify({ chat_id: tg.chatId, text }),
             });
             if (!resp.ok) {
                 bridgeLog(`[askUser] Telegram notify failed: HTTP ${resp.status}`, 'ERROR');

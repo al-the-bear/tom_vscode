@@ -27,6 +27,7 @@ import { SessionTodoStore } from '../managers/sessionTodoStore';
 import * as questTodo from '../managers/questTodoManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { telegramNotifyTarget } from '../handlers/telegram-config';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
 import { RENAME_TODO_PREFIX_TOOL, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameTodoPrefixInput, type TransferTodosInput } from './todo-transfer-tools';
@@ -50,18 +51,6 @@ import {
     notifyUserImpl,
 } from './notify-user-tool';
 
-interface TelegramConfig { enabled?: boolean; botTokenEnv?: string; defaultChatId?: string }
-
-function readTelegramConfig(): { token: string; chatId: string } | null {
-    const config = loadSendToChatConfig();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tg = (config as { aiConversation?: { telegram?: TelegramConfig } } | undefined)?.aiConversation?.telegram;
-    if (!tg?.enabled || !tg.botTokenEnv) { return null; }
-    const token = process.env[tg.botTokenEnv];
-    const chatId = tg.defaultChatId;
-    if (!token || !chatId) { return null; }
-    return { token, chatId };
-}
 
 const liveNotificationChannels: NotificationChannels = {
     async showInformation(text, opts) { return vscode.window.showInformationMessage(text, { modal: opts.modal }); },
@@ -69,7 +58,9 @@ const liveNotificationChannels: NotificationChannels = {
     async showError(text, opts) { return vscode.window.showErrorMessage(text, { modal: opts.modal }); },
     setStatusBarMessage(text, timeoutMs) { vscode.window.setStatusBarMessage(text, timeoutMs); },
     sendTelegram(text) {
-        const tg = readTelegramConfig();
+        // The quest's Telegram settings (extension_config.<quest>.yaml and its host file), as tomAi_askUser
+        // and the bot read them; Telegram off, no token or no default chat: null, `auto` falls back to VS Code.
+        const tg = telegramNotifyTarget();
         if (!tg) { return null; }
         return (async () => {
             try {

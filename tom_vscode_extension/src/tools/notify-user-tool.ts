@@ -24,11 +24,12 @@
  *                    Optional `statusBarTimeoutMs` (default 5 000 ms)
  *                    auto-clears the message. No interactive
  *                    dismissal possible.
- *   - `telegram`   — sent to the configured Telegram bot
- *                    (`config.aiConversation.telegram.{enabled,
- *                    botTokenEnv, defaultChatId}`). When Telegram
- *                    isn't configured, this channel surfaces a clear
- *                    error so the model can pick again.
+ *   - `telegram`   — sent to the quest's Telegram bot and default
+ *                    chat (the quest's Telegram settings, read through
+ *                    handlers/telegram-config.ts like every other
+ *                    Telegram consumer). When Telegram isn't set up,
+ *                    this channel surfaces a clear error so the model
+ *                    can pick again.
  *   - `auto` (default) — try Telegram first when configured; fall
  *                    back to vscode toast when not configured or
  *                    when Telegram returns non-200.
@@ -120,7 +121,7 @@ export async function notifyUserImpl(channels: NotificationChannels, input: Noti
         if (requestedChannel === 'telegram') {
             const tgPromise = channels.sendTelegram(text);
             if (!tgPromise) {
-                return err('Telegram channel requested but not configured. Set `config.aiConversation.telegram.{enabled, botTokenEnv, defaultChatId}` first, or use `channel: "vscode"`.');
+                return err('Telegram channel requested but Telegram is not set up for this quest on this machine: it needs `enabled`, a bot token in the `botTokenEnv` variable and a `defaultChatId` (Status Page → Telegram, or @T: Configure Telegram). Or use `channel: "vscode"`.');
             }
             const result = await tgPromise;
             if (!result.ok) {
@@ -192,7 +193,7 @@ export const NOTIFY_USER_DESCRIPTION =
     '`info` (default), `warning`, `error` — maps to ' +
     '`showInformation`/`showWarning`/`showError` on the VS Code path and a ' +
     '`ℹ️`/`🟡`/`🔴` prefix on Telegram. **Channels**: `auto` (default — try ' +
-    'Telegram if configured, fall back to vscode toast); `vscode` (force ' +
+    'the quest\'s Telegram when it is set up on this machine, fall back to vscode toast); `vscode` (force ' +
     'toast, opt into `modal: true` for a centred blocking dialog); ' +
     '`statusbar` (short text in the status bar; auto-clears after ' +
     '`statusBarTimeoutMs`, default 5 s); `telegram` (force Telegram; errors ' +
