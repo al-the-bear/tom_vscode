@@ -93,6 +93,41 @@ void main() {
       expect(entry.unknownFields, isEmpty);
     });
 
+    test(
+      'TODOAPI-10: a repeated todo: its status, rule, next repetition and count',
+      () {
+        final json = _questJson()
+          ..['status'] = 'waiting-for-repeat'
+          ..['repeat'] = {
+            'rule': 'weekly',
+            'every': 2,
+            'weekdays': ['mon', 'thu'],
+            'time': '10:00',
+          }
+          ..['next_repeat'] = '2026-11-16T10:00+01:00'
+          ..['repeat_count'] = 3;
+        final entry = TodoWire.fromBridge(json);
+        final todo = entry.todo;
+        expect(todo.status, TomTodoStatus.waitingForRepeat);
+        expect(todo.repeat!.rule, TomTodoRepeatRule.weekly);
+        expect(todo.repeat!.every, 2);
+        expect(todo.repeat!.weekdays, ['mon', 'thu']);
+        expect(todo.nextRepeat, '2026-11-16T10:00+01:00');
+        expect(todo.repeatCount, 3);
+        expect(
+          entry.unknownFields,
+          isEmpty,
+          reason: 'the model has a field for each',
+        );
+        final back = TodoWire.toBridge(todo);
+        expect(back['status'], 'waiting-for-repeat');
+        expect((back['repeat'] as Map)['rule'], 'weekly');
+        expect(back['next_repeat'], '2026-11-16T10:00+01:00');
+        expect(back['repeat_count'], 3);
+        expect(TodoWire.toSessionBridge(todo)['status'], 'pending');
+      },
+    );
+
     test('TODOAPI-2: _extra fields the schema has join the todo', () {
       final json = _questJson()
         ..['_extra'] = {
@@ -271,12 +306,19 @@ void main() {
     });
   });
 
-  test('TODOAPI-9: the tom_todo_model floor is 1.2.0', () {
+  test('TODOAPI-9: the tom_todo_model floor is 2.0.0', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    final m = RegExp(r'^\s+tom_todo_model:\s*\^(\d+)\.(\d+)\.(\d+)\s*$', multiLine: true).firstMatch(pubspec);
+    final m = RegExp(
+      r'^\s+tom_todo_model:\s*\^(\d+)\.(\d+)\.(\d+)\s*$',
+      multiLine: true,
+    ).firstMatch(pubspec);
     expect(m, isNotNull, reason: 'tom_todo_model is declared as ^x.y.z');
     final floor = [for (var i = 1; i <= 3; i++) int.parse(m!.group(i)!)];
-    expect(floor[0] == 1 && (floor[1] > 2 || (floor[1] == 2 && floor[2] >= 0)), isTrue,
-        reason: 'declared ^${floor.join('.')}; 1.2.0 carries `blocking`');
+    expect(
+      floor[0] >= 2,
+      isTrue,
+      reason:
+          'declared ^${floor.join('.')}; 2.0.0 carries repeated todos (`waiting-for-repeat`, `repeat`)',
+    );
   });
 }

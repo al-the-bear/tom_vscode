@@ -1,3 +1,15 @@
+## 4.0.0
+
+- Requires `tom_todo_model` ^2.0.0: repeated todos. A todo with the
+  `waiting-for-repeat` status, a `repeat` rule, `next_repeat` and
+  `repeat_count` is read into the model (a 1.x model refused it); the API
+  exports `TomTodoRepeat` and `TomTodoRepeatRule` beside the other model
+  types. A session todo has no repeat: `waiting-for-repeat` is written as
+  `pending`.
+- **Breaking:** the exported model types are tom_todo_model 2.x's (an
+  exhaustive `switch` over `TomTodoStatus` needs a case for
+  `waitingForRepeat`).
+
 ## 3.0.0
 
 The Local LLM and AI Conversation APIs are removed: the panels they drove are

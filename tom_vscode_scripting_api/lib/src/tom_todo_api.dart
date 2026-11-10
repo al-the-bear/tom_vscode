@@ -19,6 +19,8 @@ export 'package:tom_todo_model/tom_todo_model.dart'
         TomTodoDecision,
         TomTodoPriority,
         TomTodoReference,
+        TomTodoRepeat,
+        TomTodoRepeatRule,
         TomTodoScope,
         TomTodoStatus;
 
@@ -169,7 +171,8 @@ abstract final class TodoWire {
   static Map<String, Object?> toBridge(TomTodo todo) => todo.toMap();
 
   /// A session todo as the extension writes it: the description becomes its
-  /// details, a completed todo is `done` and any other `pending`.
+  /// details, a completed todo is `done` and any other `pending` (a session
+  /// todo has no repeat: `waiting-for-repeat` is pending too).
   static Map<String, Object?> toSessionBridge(TomTodo todo) => {
     'id': todo.id,
     'title': todo.title,

@@ -71,13 +71,7 @@ const int _minimumCachedPackages = 5;
 /// still reported. Each names the todo that owns the unfreeze, and
 /// F-VSC-LOCK-3 keeps the list honest: an entry for a pair that is no longer
 /// frozen fails the suite.
-const Map<String, String> _frozenLockExceptions = <String, String>{
-  // tom_d4rt_generator 1.52.0 declares tom_analyzer_shared ^0.7.6 (analyzer
-  // 10); 0.8.0 is the analyzer-14 line. Held by the constraint, not by the
-  // lock: it moves with the d4rt quest's analyzer-14 migration (d4rt vstdm2).
-  'tom_vscode_bridge/tom_analyzer_shared':
-      'd4rt vstdm2_akev-publish-generator-1-52 (analyzer-14 migration)',
-};
+const Map<String, String> _frozenLockExceptions = <String, String>{};
 
 /// The library a sample demonstrates. F-VSC-LOCK-4 holds every copy surface's
 /// floor on it to the current release; tool dependencies are left out, as in
