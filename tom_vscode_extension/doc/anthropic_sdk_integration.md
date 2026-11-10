@@ -751,7 +751,7 @@ No write tools, no shell execution, no web access in the default compaction tool
 
 ### 8.5 Chat variable tools
 
-Chat variables provide persistent, per-window key-value state that flows into every prompt template via `${quest}`, `${role}`, `${custom.KEY}`, etc. They are stored in `_ai/chat_variables/{workspace}.{window}.chatvariable.yaml` and managed by the **Chat Variables Editor** (`chatVariablesEditor-handler.ts`, command `tomAi.editor.chatVariables`).
+Chat variables provide persistent key-value state of the window's workspace that flows into every prompt template via `${quest}`, `${role}`, `${custom.KEY}`, etc. They are stored in `_ai/chat_variables/{workspace}.{host}.chatvariable.yaml`, kept across reloads and restarts (a custom variable stays until it is written or deleted), and managed by the **Chat Variables Editor** (`chatVariablesEditor-handler.ts`, command `tomAi.editor.chatVariables`).
 
 The editor shows built-in fields, a custom key-value table, and a change log that records the source and request ID of every write. LLMs can read the current state and update values to steer later prompts — for example, setting `custom.progressSummary` after each coding turn, or reading `quest` to orient themselves at session start.
 

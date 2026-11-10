@@ -122,7 +122,7 @@ export async function readChatVariableImpl(deps: ChatVariablesAccess, input: Cha
 }
 
 export const READ_CHATVAR_DESCRIPTION =
-    'Read chat variables: without `key` the snapshot (`quest`, `role`, `activeProjects`, `todo`, `todoFile`, `process`, `custom`); with `key` `{value, exists, isBuiltIn}`. The process keys (`process`, `phase`, `step`, `substep`, their iterations, descriptions and prompts, `session`) are set with tomAi_setProcessState. A custom key is `custom.name` or just `name`. Per window, kept across a reload.';
+    'Read chat variables: without `key` the snapshot (`quest`, `role`, `activeProjects`, `todo`, `todoFile`, `process`, `custom`); with `key` `{value, exists, isBuiltIn}`. The process keys (`process`, `phase`, `step`, `substep`, their iterations, descriptions and prompts, `session`) are set with tomAi_setProcessState. A custom key is `custom.name` or just `name`. Per workspace window, kept across reloads and restarts until written or deleted.';
 
 export const READ_CHATVAR_TOOL: SharedToolDefinition<ChatvarReadInput> = {
     name: 'tomAi_readChatVariable',

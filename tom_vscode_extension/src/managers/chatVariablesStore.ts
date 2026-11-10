@@ -1,6 +1,18 @@
 /**
  * ChatVariablesStore — singleton that holds current chat variable state,
- * emits change events, and persists to a per-window YAML file.
+ * emits change events, and persists to a YAML file of the window's workspace
+ * on this machine, `_ai/chat_variables/<workspace>.<host>.chatvariable.yaml`.
+ *
+ * The file is named after the workspace (the `.code-workspace` stem, else the
+ * first folder's name) — one window per workspace, so it is the window's —
+ * and the host (`_ai` is shared by the fleet: another machine's window of the
+ * workspace has its own file). It is kept when the window closes: a reload,
+ * an extension install and a restart find the variables as they were.
+ * Custom variables (run parameters such as `design-mode`, a reported `TODO`)
+ * stay until written or deleted. Files of older builds were named per window
+ * *session* (`<workspace>.<sessionId>.chatvariable.yaml`, a new id on every
+ * reload, and deleted on close), which lost every custom variable on a
+ * reload; a window without a file of its own starts from the newest of them.
  *
  * All panels, tools, and LLM integrations read/write through this store so
  * values stay in sync across the extension.
@@ -13,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
+import { hostSlugOf } from '../utils/hostSlug';
 
 // ============================================================================
 // Types
@@ -99,9 +112,14 @@ export class ChatVariablesStore {
     private constructor(context: vscode.ExtensionContext) {
         this.filePath = this.resolveFilePath();
         context.subscriptions.push(this._onDidChange);
-        context.subscriptions.push({ dispose: () => this.dispose() });
+        this.takeOverLegacyFiles();
         this.restore();
         this.autoInitDefaults();
+    }
+
+    /** Tests only: forget the singleton, as a window reload does. */
+    static resetForTests(): void {
+        ChatVariablesStore._instance = undefined;
     }
 
     // ----- accessors ---------------------------------------------------------
@@ -314,19 +332,27 @@ export class ChatVariablesStore {
         const workspaceScopeRaw = wsFile
             ? path.basename(wsFile, path.extname(wsFile))
             : (vscode.workspace.workspaceFolders?.[0]?.name || 'workspace');
-        const workspaceScope = workspaceScopeRaw.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const rawId = vscode.env.sessionId || `window-${Date.now()}`;
-        const windowId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
-        return path.join(chatVarsDir, `${workspaceScope}.${windowId}.chatvariable.yaml`);
+        return path.join(chatVarsDir, chatVariablesFileName(workspaceScopeRaw, hostSlugOf()));
     }
 
-    private dispose(): void {
+    /**
+     * Without a file of its own yet, the window starts from the newest file an
+     * older build wrote for this workspace (one per window session). They are
+     * left where they are: `_ai` versions them, and removing them is not this
+     * window's business.
+     */
+    private takeOverLegacyFiles(): void {
         try {
-            if (fs.existsSync(this.filePath)) {
-                fs.unlinkSync(this.filePath);
-            }
+            if (fs.existsSync(this.filePath)) { return; }
+            const dir = path.dirname(this.filePath);
+            if (!fs.existsSync(dir)) { return; }
+            const newest = legacyChatVariableFiles(fs.readdirSync(dir), workspaceScopeOf(path.basename(this.filePath)))
+                .map((name) => path.join(dir, name))
+                .map((file) => ({ file, mtime: fs.statSync(file).mtimeMs }))
+                .sort((a, b) => b.mtime - a.mtime)[0];
+            if (newest) { fs.copyFileSync(newest.file, this.filePath); }
         } catch {
-            // Best-effort cleanup only.
+            // The take-over is a convenience: a window without it starts empty, as before.
         }
     }
 
@@ -342,4 +368,29 @@ export class ChatVariablesStore {
             changeLog: [...this._changeLog],
         };
     }
+}
+
+/** The file name of a workspace's chat variables on a host: `<workspace>.<host>.chatvariable.yaml` (unsafe characters as `_`). */
+export function chatVariablesFileName(workspaceScope: string, host: string): string {
+    const safe = (v: string): string => v.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${safe(workspaceScope)}.${safe(host)}.chatvariable.yaml`;
+}
+
+/** The workspace part of a chat-variables file name. */
+function workspaceScopeOf(fileName: string): string {
+    return fileName.split('.')[0];
+}
+
+/** A window session id as older builds wrote it into the name: a UUID followed by digits (`-` kept, unsafe characters `_`), or `window-<ms>`. */
+const SESSION_ID_PART = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\d*|window-\d+)$/i;
+
+/**
+ * The files older builds wrote for workspace `scope`, one per window session:
+ * `<workspace>.<sessionId>.chatvariable.yaml`. A host's file
+ * (`<workspace>.<host>.chatvariable.yaml`) is not one of them.
+ */
+export function legacyChatVariableFiles(names: readonly string[], scope: string): string[] {
+    const suffix = '.chatvariable.yaml';
+    return names.filter((n) => n.startsWith(`${scope}.`) && n.endsWith(suffix)
+        && SESSION_ID_PART.test(n.slice(scope.length + 1, -suffix.length)));
 }

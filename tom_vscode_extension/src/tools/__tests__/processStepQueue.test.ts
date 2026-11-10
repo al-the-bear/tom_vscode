@@ -23,8 +23,12 @@
  *        agent's; Leave out by the user passes an optional step and, by its variable, a conditional one; a
  *        `leaveOut` without a run leaves out at once; where nothing is judged it is refused; a process started
  *        from its beginning passes a first phase its condition excludes
+ *   PS-9 custom chat variables (a process's run parameters, a reported TODO) survive a whole run: Proceed and its
+ *        marker, a user action, a decision, a gate, a phase move, a process set by the tool, the response values
+ *        (vscimpb38)
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- chat-variable names (`design-mode`, `TODO`) */
 import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
@@ -345,6 +349,42 @@ describe('a process step ends with its queue', () => {
         const both = JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ leaveOut: 'x', step: 'first' } as never)));
         assert.match(both.error, /`leaveOut` goes alone/);
         ChatVariablesStore.instance.remove('mode');
+        clearQueue();
+    });
+
+    test('PS-9: custom chat variables survive a process run', async () => {
+        clearQueue();
+        const chat = ChatVariablesStore.instance;
+        chat.set('design', 'process_design', 'anthropic');
+        chat.set('design-mode', 'revise', 'anthropic');
+        const custom = (): Record<string, string> => ({ ...chat.custom });
+        const expected = { 'design': 'process_design', 'design-mode': 'revise' };
+        // A step run with Proceed, its marker moving the process.
+        await at('code');
+        const { prompt } = await proceed();
+        set(prompt.id, 'sent');
+        await queue().sendNext();
+        assert.equal(store().state.step, 'check');
+        // The response values of an answer (`TODO`) add to them.
+        chat.setCustomBulk({ TODO: '_ai/quests/q1/todos.q1.todo.yaml/a1_x' }, 'anthropic');
+        // A user action confirmed, a repeatable step run to its decision, the decision taken.
+        assert.equal((await confirmProcessAction('proceed', undefined, '')).ok, true);
+        const review = await proceed();
+        set(review.prompt.id, 'sent');
+        await queue().sendNext();
+        assert.equal(store().state.decision, true);
+        assert.equal((await confirmProcessAction('finish', undefined, '')).ok, true);
+        // The gate, then the process finished at its decision.
+        const gate = await proceed();
+        set(gate.prompt.id, 'sent');
+        await queue().sendNext();
+        assert.equal((await confirmProcessAction('finish-process', undefined, '')).ok, true);
+        assert.equal(store().state.completed, true);
+        // A phase move and another process, set by the tool.
+        assert.equal(JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ process: 'cond' } as never))).ok, true);
+        assert.equal(JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ phase: 'pre' } as never))).ok, true);
+        assert.deepEqual(custom(), { ...expected, TODO: '_ai/quests/q1/todos.q1.todo.yaml/a1_x' });
+        for (const k of ['design', 'design-mode', 'TODO']) { chat.remove(k); }
         clearQueue();
     });
 });
