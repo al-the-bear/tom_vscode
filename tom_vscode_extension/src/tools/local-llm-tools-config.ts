@@ -6,7 +6,6 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getConfigPath } from '../handlers/handler_shared.js';
-import { WsPaths } from '../utils/workspacePaths';
 import { debugLog } from '../utils/debugLogger.js';
 
 export interface AskCopilotConfig {
@@ -14,7 +13,6 @@ export interface AskCopilotConfig {
     descriptionTemplate: string;
     answerFileTimeout: number;
     pollInterval: number;
-    answerFolder: string;
     promptPrefix: string;
     promptSuffix: string;
     promptTemplate: string;
@@ -62,7 +60,6 @@ const DEFAULT_ASK_COPILOT_CONFIG: AskCopilotConfig = {
 - timeoutMs: Max time to wait for answer (default: from config)`,
     answerFileTimeout: 120000,
     pollInterval: 2000,
-    answerFolder: WsPaths.aiRelative('chatReplies'),
     promptPrefix: '',
     promptSuffix: '',
     promptTemplate: '',

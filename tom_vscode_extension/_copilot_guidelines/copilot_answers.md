@@ -30,7 +30,7 @@ A polling fallback (every 30 seconds, tied to the queue watchdog) catches missed
 
 ## Paths
 
-The answer files are written directly into the Copilot answer folder: `copilot.answerFolder` in `tom_vscode_extension.json` (workspace-relative), default `_ai/answers/copilot/`. The prompt queue, the chat panel and the `${copilotAnswerFile}` / `${copilotAnswerFolder}` placeholders all use it. The per-window Markdown logs (`copilot-answer.md`, `copilot-prompts.md`) go into a window-id subfolder of the same folder (of `_ai/copilot/` when `copilot.answerFolder` is not set).
+The answer files are written directly into the Copilot answer folder: `copilot.answerFolder` in `tom_vscode_extension.json` (workspace-relative), default `_ai/answers/copilot/`. The prompt queue, the chat panel, `tomAi_askCopilot` and the `${copilotAnswerFile}` / `${copilotAnswerFolder}` placeholders all use it; the Status Page's **Ask Copilot** section shows it (**Copilot Answer Folder**, the default when unset) and sets it. `tomAi_askCopilot` has no folder of its own: each ask gets a `${requestId}` and passes it and its file, `<requestId>_answer.json` (`getCopilotAnswerFile` in variableResolver.ts), to the Copilot Queue Wrapper as `${requestId}` / `${copilotAnswerFile}`, then waits for exactly that file. The per-window Markdown logs (`copilot-answer.md`, `copilot-prompts.md`) go into a window-id subfolder of the same folder (of `_ai/copilot/` when `copilot.answerFolder` is not set).
 
 ## Guidance
 

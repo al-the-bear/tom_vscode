@@ -459,6 +459,8 @@ import {
     askCopilotImpl,
 } from './ask-copilot-tool';
 
+import { generateShortUUID, getCopilotAnswerFile } from '../utils/variableResolver';
+
 export type { AskCopilotInput };
 
 function liveCopilotConfig(): CopilotConfigSnapshot {
@@ -472,17 +474,10 @@ function liveCopilotConfig(): CopilotConfigSnapshot {
         enabled: config.askCopilot.enabled,
         answerFileTimeoutMs: config.askCopilot.answerFileTimeout,
         pollIntervalMs: config.askCopilot.pollInterval,
-        answerFolder: config.askCopilot.answerFolder,
-        answerFilename: `${vscode.env.sessionId}_${vscode.env.machineId}_answer.json`,
         selectedTemplateId: selectedId || '__none__',
         selectedTemplateBody: selectedBody,
         answerFileTemplate: copilotQueueWrapper(sendToChatConfig),
     };
-}
-
-function answerFilePath(config: CopilotConfigSnapshot): string {
-    const wsRoot = getWorkspaceRoot();
-    return path.join(wsRoot, config.answerFolder, config.answerFilename);
 }
 
 const liveCopilotChatOpener: CopilotChatOpener = {
@@ -491,8 +486,9 @@ const liveCopilotChatOpener: CopilotChatOpener = {
     },
 };
 
-function buildLiveAnswerFileSink(config: CopilotConfigSnapshot): AnswerFileSink {
-    const absPath = answerFilePath(config);
+/** The answer file of a request, where the Copilot Queue Wrapper tells Copilot to write it. */
+function buildLiveAnswerFileSink(requestId: string): AnswerFileSink {
+    const absPath = getCopilotAnswerFile(requestId);
     const folder = path.dirname(absPath);
     return {
         absolutePath() { return absPath; },
@@ -528,7 +524,8 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
     const deps: AskCopilotDeps = {
         config: () => config,
         opener: liveCopilotChatOpener,
-        sink: buildLiveAnswerFileSink(config),
+        newRequestId: generateShortUUID,
+        sinkFor: buildLiveAnswerFileSink,
         expander: liveTemplateExpander,
         onResponseValues(values) { updateChatResponseValues(values); },
     };

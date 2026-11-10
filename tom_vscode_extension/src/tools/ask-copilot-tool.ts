@@ -9,6 +9,10 @@
  *      (optional `promptTemplate` → required `__answer_file__`
  *      wrapper).  The wrapper instructs Copilot to dump its final
  *      answer into a JSON file.
+ *      The ask has a request id of its own; the wrapper's `${requestId}`
+ *      and `${copilotAnswerFile}` are that id and the answer file it
+ *      names (`<copilot.answerFolder>/<requestId>_answer.json`), so the
+ *      file Copilot is told to write is the file the tool waits for.
  *   2. Clear the previous answer file (so a stale read doesn't masquerade
  *      as fresh).
  *   3. Open Copilot Chat with the expanded prompt via the VS Code
@@ -48,10 +52,6 @@ export interface CopilotConfigSnapshot {
     /** Default polling timeout when input.timeoutMs is omitted. */
     answerFileTimeoutMs: number;
     pollIntervalMs: number;
-    /** Workspace-relative answer folder (e.g. `_ai/chat_replies`). */
-    answerFolder: string;
-    /** Per-session answer filename (typically `${sessionId}_${machineId}_answer.json`). */
-    answerFilename: string;
     /** Active template id; pass `'__none__'` or `'__answer_file__'` to skip the user template. */
     selectedTemplateId: string;
     /** Template body for the active selected template (when not __none__/__answer_file__). */
@@ -79,7 +79,8 @@ export interface AnswerFileSink {
 }
 
 export interface TemplateExpander {
-    expand(template: string, values: { originalPrompt: string; userMessage?: string }): Promise<string>;
+    /** `values` override the built-in placeholders of the same name. */
+    expand(template: string, values: { originalPrompt: string; userMessage?: string; requestId?: string; copilotAnswerFile?: string }): Promise<string>;
 }
 
 /** Optional callback for `responseValues` extracted from JSON answer payloads. */
@@ -118,7 +119,10 @@ export interface AskCopilotInput {
 export interface AskCopilotDeps {
     config: () => CopilotConfigSnapshot;
     opener: CopilotChatOpener;
-    sink: AnswerFileSink;
+    /** A fresh request id for one ask. */
+    newRequestId: () => string;
+    /** The answer file of request `requestId` (the one the wrapper's `${copilotAnswerFile}` names). */
+    sinkFor: (requestId: string) => AnswerFileSink;
     expander: TemplateExpander;
     onResponseValues?: ResponseValuesSink;
     clock?: PollClock;
@@ -140,6 +144,10 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
         const clock = deps.clock ?? realClock;
         const waitForAnswer = input.waitForAnswer ?? true;
         const timeoutMs = input.timeoutMs ?? config.answerFileTimeoutMs;
+        // One request id for the ask: the wrapper names it and the file to write; the tool waits for that file.
+        const requestId = deps.newRequestId();
+        const sink = deps.sinkFor(requestId);
+        const wrapperValues = { requestId, copilotAnswerFile: sink.absolutePath() };
 
         // Render the prompt through the template chain.
         let expanded: string;
@@ -149,14 +157,14 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
         if (!wrapperOnly && config.selectedTemplateBody) {
             // A user-message template's body holds ${userMessage}; ${originalPrompt} is filled the same way.
             const inner = await deps.expander.expand(config.selectedTemplateBody, { originalPrompt: input.prompt, userMessage: input.prompt });
-            expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: inner });
+            expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: inner, ...wrapperValues });
         } else {
-            expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: input.prompt });
+            expanded = await deps.expander.expand(config.answerFileTemplate, { originalPrompt: input.prompt, ...wrapperValues });
         }
 
         // Clear the answer file BEFORE opening Copilot, so a stale read
         // can't masquerade as a fresh answer.
-        deps.sink.clear();
+        sink.clear();
 
         // Open Copilot Chat.
         try {
@@ -169,7 +177,8 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
             return ok({
                 sent: true,
                 waitForAnswer: false,
-                answerFile: deps.sink.absolutePath(),
+                answerFile: sink.absolutePath(),
+                requestId,
                 note: 'Prompt sent to Copilot Chat. Caller chose not to wait.',
             });
         }
@@ -181,16 +190,17 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
             await clock.sleep(pollInterval);
             let content: string | null;
             try {
-                content = deps.sink.read();
+                content = sink.read();
             } catch (e) {
                 return err(`Error reading answer file: ${(e as Error).message}`, {
-                    answerFile: deps.sink.absolutePath(),
+                    answerFile: sink.absolutePath(),
                 });
             }
             if (content === null) { continue; }
             // Try JSON first; fall back to plain text.
             try {
                 const parsed = JSON.parse(content) as {
+                    generatedMarkdown?: unknown;
                     response?: unknown;
                     responseValues?: unknown;
                     requestId?: string;
@@ -198,18 +208,21 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
                 if (parsed.responseValues && typeof parsed.responseValues === 'object') {
                     deps.onResponseValues?.(parsed.responseValues as Record<string, unknown>);
                 }
-                if (typeof parsed.response === 'string') {
+                // The wrapper's schema puts the answer in `generatedMarkdown`; `response` is read too.
+                const text = typeof parsed.generatedMarkdown === 'string' ? parsed.generatedMarkdown
+                    : typeof parsed.response === 'string' ? parsed.response : null;
+                if (text !== null) {
                     return ok({
                         format: 'json' as const,
-                        response: parsed.response,
-                        requestId: parsed.requestId ?? null,
+                        response: text,
+                        requestId: parsed.requestId ?? requestId,
                         elapsedMs: clock.now() - start,
                     });
                 }
                 return ok({
                     format: 'json' as const,
                     response: JSON.stringify(parsed, null, 2),
-                    requestId: parsed.requestId ?? null,
+                    requestId: parsed.requestId ?? requestId,
                     elapsedMs: clock.now() - start,
                 });
             } catch {
@@ -224,7 +237,7 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
             timedOut: true,
             timeoutMs,
             hint: 'The answer file was not created. Copilot may still be processing — check the chat window.',
-            answerFile: deps.sink.absolutePath(),
+            answerFile: sink.absolutePath(),
         });
     } catch (e) {
         return err(`askCopilot failed: ${(e as Error).message}`);

@@ -2973,11 +2973,6 @@
           "default": true,
           "description": "Show notifications when sending text to Copilot Chat"
         },
-        "tomAi.copilot.answerFolder": {
-          "type": "string",
-          "default": "_ai/answers/copilot",
-          "description": "Folder path for chat answer files (relative to workspace root)"
-        },
         "tomAi.todo.workspaceTodoFile": {
           "type": "string",
           "default": "workspace.todo.yaml",

@@ -72,7 +72,6 @@ function attachStatusPanelListeners(skipEditorInit) {
                     enabled: (document.getElementById('sp-ac-enabled') || {}).value === 'true',
                     answerFileTimeout: parseInt((document.getElementById('sp-ac-answerFileTimeout') || {}).value || '120000'),
                     pollInterval: parseInt((document.getElementById('sp-ac-pollInterval') || {}).value || '2000'),
-                    answerFolder: (document.getElementById('sp-ac-answerFolder') || {}).value || '',
                     copilotAnswerFolder: (document.getElementById('sp-ac-copilotAnswerFolder') || {}).value || '',
                     promptTemplate: (document.getElementById('sp-ac-promptTemplate') || {}).value || ''
                 };

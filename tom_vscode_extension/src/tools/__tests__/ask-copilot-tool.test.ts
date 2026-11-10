@@ -22,6 +22,11 @@
  *   c) Tests via fake sink + fake opener, in place of stubbing
  *      `vscode.commands` and fs.
  *   d) Timing — pinned clock avoids real polls; sub-ms per test.
+ *
+ *   One answer file (vscimpb28): the ask's own request id goes into the wrapper as `${requestId}` and the file
+ *   the tool waits for as `${copilotAnswerFile}`, so Copilot is told to write exactly the file that is read; the
+ *   wrapper's `generatedMarkdown` is the response. The live sink's file is the resolver's `${copilotAnswerFile}`
+ *   for that id: `<copilot.answerFolder>/<requestId>_answer.json` (see the live test below).
  */
 
 import test, { describe } from 'node:test';
@@ -61,6 +66,8 @@ interface FakeSink extends AnswerFileSink {
     clearBeforeFirstRead: boolean;
     /** When set, the next read() throws. */
     throwOnRead?: Error;
+    /** The request id the impl asked the sink for. */
+    requestId?: string;
 }
 
 function makeSink(): FakeSink {
@@ -69,7 +76,7 @@ function makeSink(): FakeSink {
         clearCount: 0,
         queue: [],
         clearBeforeFirstRead: false,
-        absolutePath() { return '/tmp/fake/answer.json'; },
+        absolutePath() { return `/ws/_ai/answers/copilot/${fake.requestId}_answer.json`; },
         clear() {
             fake.clearCount++;
             if (!firstReadHappened) { fake.clearBeforeFirstRead = true; }
@@ -83,8 +90,9 @@ function makeSink(): FakeSink {
     return fake;
 }
 
-function makeExpander(): TemplateExpander & { calls: Array<{ template: string; values: { originalPrompt: string } }> } {
-    const fake: TemplateExpander & { calls: Array<{ template: string; values: { originalPrompt: string } }> } = {
+type ExpandValues = Parameters<TemplateExpander['expand']>[1];
+function makeExpander(): TemplateExpander & { calls: Array<{ template: string; values: ExpandValues }> } {
+    const fake: TemplateExpander & { calls: Array<{ template: string; values: ExpandValues }> } = {
         calls: [],
         async expand(template, values) {
             fake.calls.push({ template, values });
@@ -112,8 +120,6 @@ function makeConfig(overrides: Partial<CopilotConfigSnapshot> = {}): CopilotConf
         enabled: true,
         answerFileTimeoutMs: 1_000,
         pollIntervalMs: 100,
-        answerFolder: '_ai/chat_replies',
-        answerFilename: 'sess_mach_answer.json',
         selectedTemplateId: '__none__',
         selectedTemplateBody: undefined,
         answerFileTemplate: 'INSTRUCT_COPILOT_TO_DUMP_FILE: ${originalPrompt}',
@@ -143,6 +149,8 @@ function buildDeps(): AskCopilotDeps & {
         cfg,
         receivedValues,
         config: () => cfg,
+        newRequestId: () => 'req00001_req00002',
+        sinkFor: (requestId) => { sink.requestId = requestId; return sink; },
         onResponseValues: (v) => { receivedValues.push(v); },
     };
 }
@@ -244,7 +252,7 @@ describe('askCopilotImpl', () => {
         assert.equal(r.ok, true);
         assert.equal(r.waitForAnswer, false);
         assert.equal(r.sent, true);
-        assert.equal(r.answerFile, '/tmp/fake/answer.json');
+        assert.equal(r.answerFile, '/ws/_ai/answers/copilot/req00001_req00002_answer.json');
         // Sink not read in fire-and-forget mode
         assert.equal(d.sink.queue.length, 1, 'queue untouched');
     });
@@ -259,7 +267,7 @@ describe('askCopilotImpl', () => {
         assert.equal(r.ok, false);
         assert.equal(r.timedOut, true);
         assert.equal(r.timeoutMs, 250);
-        assert.equal(r.answerFile, '/tmp/fake/answer.json');
+        assert.equal(r.answerFile, '/ws/_ai/answers/copilot/req00001_req00002_answer.json');
     });
 
     test('opener throws → ok:false, sink was cleared but no polling started', async () => {
@@ -279,7 +287,7 @@ describe('askCopilotImpl', () => {
         const r = JSON.parse(await askCopilotImpl(d, { prompt: 'x' }));
         assert.equal(r.ok, false);
         assert.match(r.error, /Error reading answer file: EACCES/);
-        assert.equal(r.answerFile, '/tmp/fake/answer.json');
+        assert.equal(r.answerFile, '/ws/_ai/answers/copilot/req00001_req00002_answer.json');
     });
 
     test('empty prompt rejected; opener NOT invoked', async () => {
@@ -300,6 +308,21 @@ describe('askCopilotImpl', () => {
         assert.match(r.error, /disabled/);
         assert.match(r.hint, /status page/);
         assert.equal(d.opener.calls.length, 0);
+    });
+
+    test('one answer file: the wrapper names the file the tool waits for', async () => {
+        const d = buildDeps();
+        d.sink.queue = [JSON.stringify({ requestId: 'req00001_req00002', generatedMarkdown: 'the answer', responseValues: { k: 'v' } })];
+        const r = JSON.parse(await askCopilotImpl(d, { prompt: 'q' }));
+        assert.equal(d.sink.requestId, 'req00001_req00002', 'the sink is the ask\'s request');
+        const wrapper = d.expander.calls[d.expander.calls.length - 1].values;
+        assert.equal(wrapper.requestId, 'req00001_req00002', '${requestId}');
+        assert.equal(wrapper.copilotAnswerFile, '/ws/_ai/answers/copilot/req00001_req00002_answer.json', '${copilotAnswerFile} is the polled file');
+        assert.deepEqual([r.ok, r.format, r.response, r.requestId], [true, 'json', 'the answer', 'req00001_req00002'], 'generatedMarkdown is the response');
+        assert.deepEqual(d.receivedValues, [{ k: 'v' }]);
+        const nowait = JSON.parse(await askCopilotImpl(buildDeps(), { prompt: 'q', waitForAnswer: false }));
+        assert.equal(nowait.requestId, 'req00001_req00002');
+        assert.match(nowait.answerFile, /req00001_req00002_answer\.json$/);
     });
 
     test('input.timeoutMs override is respected (overrides config)', async () => {

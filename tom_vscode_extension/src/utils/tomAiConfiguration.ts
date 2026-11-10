@@ -107,8 +107,8 @@ export class TomAiConfiguration {
     static get defaults(): Readonly<TomAiConfigDefaults> {
         return {
             userName: osLoginName(),
+            // Copilot's answer folder defaults to _ai/answers/copilot (getCopilotChatAnswerFolder) when unset.
             copilot: {
-                answerFolder: '${ai}/chat_replies',
                 showNotifications: true,
             },
             trail: {

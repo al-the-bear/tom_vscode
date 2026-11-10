@@ -50,7 +50,7 @@ import {
 import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
-import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import {
     getCliServerAutostart,
@@ -314,7 +314,8 @@ async function updateChatQuestionsSettings(settings: any): Promise<void> {
 async function updateAskCopilotSettings(settings: any): Promise<void> {
     // Save local-LLM tools config (askCopilot settings)
     const localLlmToolsConfig = loadLocalLlmToolsConfig();
-    const { copilotAnswerFolder, ...askCopilotSettings } = settings;
+    // The answer folder is Copilot's (copilot.answerFolder), not the tool's: the tool reads where the wrapper points.
+    const { copilotAnswerFolder, answerFolder: _toolFolder, ...askCopilotSettings } = settings;
     localLlmToolsConfig.askCopilot = { ...localLlmToolsConfig.askCopilot, ...askCopilotSettings };
     if (saveLocalLlmToolsConfig(localLlmToolsConfig)) {
         clearLocalLlmToolsConfigCache();
@@ -2072,7 +2073,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             };
         })(),
         ...loadLocalLlmToolsConfig(),
-        copilotAnswerFolder: loadSendToChatConfig()?.copilot?.answerFolder ?? WsPaths.aiRelative('copilot'),
+        copilotAnswerFolder: getCopilotChatAnswerFolder(),
         templateOptions: userMessageTemplateOptions(sendToChatConfig),
         schedule,
         executables: sendToChatConfig?.bridge?.executables || {},
@@ -3187,8 +3188,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <div class="sp-settings-row">
                 <label>Poll Interval:</label>
                 <input type="number" id="sp-ac-pollInterval" value="${status.askCopilot.pollInterval}">
-                <label>Folder:</label>
-                <input type="text" id="sp-ac-answerFolder" value="${status.askCopilot.answerFolder}">
             </div>
             <div class="sp-settings-row">
                 <label>Copilot Answer Folder:</label>

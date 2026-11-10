@@ -217,10 +217,12 @@ function getConfigFilePath(): string {
 }
 
 /**
- * Compute the Copilot chat answer file path for the current window.
- * Uses the configurable copilot.answerFolder (default: _ai/answers/copilot).
+ * The Copilot answer file of a request: `<requestId>_answer.json` in the
+ * configurable `copilot.answerFolder` (default: _ai/answers/copilot) — what
+ * the Copilot Queue Wrapper's `${copilotAnswerFile}` names. Without a request
+ * id, the window's file (session and machine id prefixes).
  */
-function getCopilotAnswerFile(requestId?: string): string {
+export function getCopilotAnswerFile(requestId?: string): string {
     const folder = _getCopilotChatAnswerFolderAbsolute();
     if (requestId && requestId.trim().length > 0) {
         return path.join(folder, `${requestId.trim()}_answer.json`);
@@ -709,8 +711,8 @@ function generateUUID(): string {
     });
 }
 
-/** Generate a short UUID for request identification (8-char hex + 8-char hex). */
-function generateShortUUID(): string {
+/** Generate a short UUID for request identification (8-char hex + 8-char hex) — a `${requestId}`. */
+export function generateShortUUID(): string {
     const hex = () => Math.random().toString(16).substring(2, 10);
     return `${hex()}_${hex()}`;
 }
