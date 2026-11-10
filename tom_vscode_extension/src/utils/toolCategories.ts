@@ -257,6 +257,11 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specAnnotations',
         'tomAi_specReviewRoundStatus',
         'tomAi_specExtractAnswers',
+        'tomAi_specRequiredFields',
+        'tomAi_specFeatureRegister',
+        'tomAi_specProjectIdeaCoverage',
+        'tomAi_specAuthorizationCheck',
+        'tomAi_specCoverage',
     ],
     'TomSpecs (edit)': [
         'tomAi_specAddNode',
@@ -285,6 +290,8 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSetHeadline',
         'tomAi_specSetItemSectionId',
         'tomAi_specWriteAnswers',
+        'tomAi_specImportAnswers',
+        'tomAi_specQuestionRegister',
     ],
     'Tool Help': [
         'tomAi_describeTool',

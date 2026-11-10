@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /**
- * Is the bundled validate_codespecs binary built from the tom_specs_clitool
- * source as it is now?
+ * Are the bundled tom_specs_clitool binaries — validate_codespecs (CodeSpecs
+ * validation) and spec_checks (the TomSpecs process checks) — built from the
+ * clitool source as it is now?
  *
  *   node scripts/codespecs-binary-stamp.cjs     (npm run codespecs:check)
  *
- * `npm run codespecs:build` compiles bin/<platform>/validate_codespecs from
- * ai_build's tom_specs_clitool and writes, beside it,
- * validate_codespecs.build.json: a sha256 over the files the binary is built
- * from, with the clitool's git HEAD and dirty flag for the message. Nothing
+ * `npm run codespecs:build` compiles bin/<platform>/<name> from ai_build's
+ * tom_specs_clitool for each of CLITOOL_BINARIES and writes, beside it,
+ * <name>.build.json: a sha256 over the files the binary is built from, with
+ * the clitool's git HEAD and dirty flag for the message. Nothing
  * else noticed when that source moved on: the tests and the tools then ran an
  * old checker (the stale-model failure of gate A5, in another form).
  *
- * The files: tom_specs_clitool's lib/**\/*.dart, bin/validate_codespecs.dart,
+ * The files: tom_specs_clitool's lib/**\/*.dart, bin/<name>.dart,
  * pubspec.yaml, pubspec.lock and pubspec_overrides.yaml, plus lib/**\/*.dart
  * and pubspec.yaml of every sibling that pubspec_overrides.yaml resolves by
  * path — the binary imports the whole package barrel, and the overrides
@@ -22,8 +23,9 @@
  * Like bin/, the stamp is gitignored and not packaged: it describes this
  * machine's binary.
  *
- * Exit codes (as a script): 0 fresh, 1 stale or no stamp, 2 not measured
- * (no binary, or no clitool source to compare with).
+ * Exit codes (as a script, over every binary): 0 all fresh, 1 one stale or
+ * without a stamp, 2 not measured (no binary, or no clitool source to compare
+ * with) and none stale.
  */
 'use strict';
 
@@ -35,6 +37,9 @@ const { execFileSync } = require('child_process');
 const EXT_ROOT = path.resolve(__dirname, '..');
 const STAMP_FORMAT = 'validate-codespecs-build';
 const STAMP_FORMAT_VERSION = 1;
+/** The binaries compiled from tom_specs_clitool, each from its bin/<name>.dart. */
+const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks'];
+const DEFAULT_NAME = 'validate_codespecs';
 
 function aiBuildCheckout() {
     return process.env.TOM_SOM_AI_BUILD
@@ -47,16 +52,21 @@ function hostPlatform() {
     return `${process.platform}-${process.arch}`;
 }
 
-function binaryName(platform = hostPlatform()) {
-    return platform.startsWith('win32') ? 'validate_codespecs.exe' : 'validate_codespecs';
+function binaryName(platform = hostPlatform(), name = DEFAULT_NAME) {
+    return platform.startsWith('win32') ? `${name}.exe` : name;
 }
 
-function binaryPath(extRoot = EXT_ROOT, platform = hostPlatform()) {
-    return path.join(extRoot, 'bin', platform, binaryName(platform));
+function binaryPath(extRoot = EXT_ROOT, platform = hostPlatform(), name = DEFAULT_NAME) {
+    return path.join(extRoot, 'bin', platform, binaryName(platform, name));
 }
 
-function stampPath(extRoot = EXT_ROOT, platform = hostPlatform()) {
-    return path.join(extRoot, 'bin', platform, 'validate_codespecs.build.json');
+/** The stamp's file name: `<name>.build.json`. */
+function stampName(name = DEFAULT_NAME) {
+    return `${name}.build.json`;
+}
+
+function stampPath(extRoot = EXT_ROOT, platform = hostPlatform(), name = DEFAULT_NAME) {
+    return path.join(extRoot, 'bin', platform, stampName(name));
 }
 
 /** Every `*.dart` under `dir`, relative to `base`, in a stable order. */
@@ -89,12 +99,12 @@ function overridePaths(clitoolDir) {
  * The files the binary is built from, as paths relative to ai_build
  * (forward slashes), sorted. Missing optional files are left out.
  */
-function feedFiles(aiBuild = aiBuildCheckout()) {
+function feedFiles(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) {
     const clitool = path.join(aiBuild, 'tom_specs_clitool');
     const files = new Set();
     const add = (abs) => { if (fs.existsSync(abs) && fs.statSync(abs).isFile()) { files.add(path.relative(aiBuild, abs)); } };
     for (const rel of dartFiles(path.join(clitool, 'lib'), aiBuild)) { files.add(rel); }
-    for (const f of ['bin/validate_codespecs.dart', 'pubspec.yaml', 'pubspec.lock', 'pubspec_overrides.yaml']) { add(path.join(clitool, f)); }
+    for (const f of [`bin/${name}.dart`, 'pubspec.yaml', 'pubspec.lock', 'pubspec_overrides.yaml']) { add(path.join(clitool, f)); }
     for (const rel of overridePaths(clitool)) {
         const sibling = path.resolve(clitool, rel);
         for (const f of dartFiles(path.join(sibling, 'lib'), aiBuild)) { files.add(f); }
@@ -104,8 +114,8 @@ function feedFiles(aiBuild = aiBuildCheckout()) {
 }
 
 /** sha256 over each feed file's path and content: what the binary is built from, now. */
-function sourceHash(aiBuild = aiBuildCheckout()) {
-    const files = feedFiles(aiBuild);
+function sourceHash(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) {
+    const files = feedFiles(aiBuild, name);
     const hash = crypto.createHash('sha256');
     for (const rel of files) {
         hash.update(rel).update('\0').update(fs.readFileSync(path.join(aiBuild, rel))).update('\0');
@@ -126,8 +136,8 @@ function gitInfo(aiBuild = aiBuildCheckout()) {
 }
 
 /** Write the stamp for the binary just built. */
-function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), now = new Date() } = {}) {
-    const { hash, files } = sourceHash(aiBuild);
+function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), now = new Date(), name = DEFAULT_NAME } = {}) {
+    const { hash, files } = sourceHash(aiBuild, name);
     const stamp = {
         format: STAMP_FORMAT,
         formatVersion: STAMP_FORMAT_VERSION,
@@ -137,7 +147,7 @@ function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform 
         sourceFiles: files,
         clitool: gitInfo(aiBuild),
     };
-    fs.writeFileSync(stampPath(extRoot, platform), `${JSON.stringify(stamp, null, 2)}\n`);
+    fs.writeFileSync(stampPath(extRoot, platform, name), `${JSON.stringify(stamp, null, 2)}\n`);
     return stamp;
 }
 
@@ -147,22 +157,22 @@ function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform 
  * or by hand), `noBinary`, `noSource` (no clitool to compare with) — each with
  * a message naming what to do.
  */
-function checkFreshness({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform() } = {}) {
+function checkFreshness({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), name = DEFAULT_NAME } = {}) {
     const fix = 'Run `npm run codespecs:build` (a Dart SDK on PATH is needed).';
-    if (!fs.existsSync(binaryPath(extRoot, platform))) {
-        return { state: 'noBinary', message: `No validate_codespecs binary for ${platform}. ${fix}` };
+    if (!fs.existsSync(binaryPath(extRoot, platform, name))) {
+        return { state: 'noBinary', message: `No ${name} binary for ${platform}. ${fix}` };
     }
-    if (!fs.existsSync(path.join(aiBuild, 'tom_specs_clitool', 'bin', 'validate_codespecs.dart'))) {
+    if (!fs.existsSync(path.join(aiBuild, 'tom_specs_clitool', 'bin', `${name}.dart`))) {
         return { state: 'noSource', message: `No tom_specs_clitool source at ${aiBuild}: freshness not measured.` };
     }
-    const file = stampPath(extRoot, platform);
+    const file = stampPath(extRoot, platform, name);
     if (!fs.existsSync(file)) {
-        return { state: 'noStamp', message: `The validate_codespecs binary has no build stamp, so its source is unknown. ${fix}` };
+        return { state: 'noStamp', message: `The ${name} binary has no build stamp, so its source is unknown. ${fix}` };
     }
     const stamp = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const current = sourceHash(aiBuild);
+    const current = sourceHash(aiBuild, name);
     if (stamp.sourceHash === current.hash) {
-        return { state: 'fresh', stamp, current, message: `validate_codespecs is built from the current source (${stamp.builtAt}).` };
+        return { state: 'fresh', stamp, current, message: `${name} is built from the current source (${stamp.builtAt}).` };
     }
     const built = stamp.clitool && stamp.clitool.head ? ` (clitool ${String(stamp.clitool.head).slice(0, 8)}${stamp.clitool.dirty ? ', dirty' : ''})` : '';
     const now = gitInfo(aiBuild);
@@ -171,18 +181,23 @@ function checkFreshness({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platf
         state: 'stale',
         stamp,
         current,
-        message: `validate_codespecs was built ${stamp.builtAt}${built}; tom_specs_clitool or a path-resolved sibling changed since${nowAt}. ${fix}`,
+        message: `${name} was built ${stamp.builtAt}${built}; tom_specs_clitool or a path-resolved sibling changed since${nowAt}. ${fix}`,
     };
 }
 
 module.exports = {
-    STAMP_FORMAT, STAMP_FORMAT_VERSION,
-    aiBuildCheckout, hostPlatform, binaryName, binaryPath, stampPath,
+    STAMP_FORMAT, STAMP_FORMAT_VERSION, CLITOOL_BINARIES,
+    aiBuildCheckout, hostPlatform, binaryName, binaryPath, stampName, stampPath,
     feedFiles, sourceHash, gitInfo, writeStamp, checkFreshness,
 };
 
 if (require.main === module) {
-    const r = checkFreshness();
-    console.log(`${r.state === 'fresh' ? '✔' : r.state === 'noSource' ? 'ℹ' : '✖'} ${r.message}`);
-    process.exitCode = r.state === 'fresh' ? 0 : (r.state === 'noSource' || r.state === 'noBinary') ? 2 : 1;
+    let code = 0;
+    for (const name of CLITOOL_BINARIES) {
+        const r = checkFreshness({ name });
+        console.log(`${r.state === 'fresh' ? '✔' : r.state === 'noSource' ? 'ℹ' : '✖'} ${r.message}`);
+        const c = r.state === 'fresh' ? 0 : (r.state === 'noSource' || r.state === 'noBinary') ? 2 : 1;
+        code = c === 1 || code === 1 ? 1 : Math.max(code, c);
+    }
+    process.exitCode = code;
 }

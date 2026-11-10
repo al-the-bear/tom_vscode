@@ -416,7 +416,7 @@ export async function activate(context: vscode.ExtensionContext) {
     TrailService.init(context);
     timeStep('tomAiConfiguration + trailService', stepStart);
 
-    // Which Dart-built binaries (tom_bs, validate_codespecs) this platform has,
+    // Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks) this platform has,
     // bundled or configured in `bridge.executables`; when one is missing, the
     // page about it opens once per build and platform, and a status-bar hint
     // stays.

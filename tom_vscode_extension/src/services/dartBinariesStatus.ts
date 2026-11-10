@@ -1,7 +1,8 @@
 /**
  * Which Dart-built binaries this window can run, on the platform it runs on:
- * `tom_bs` (DartScript: the bridge) and `validate_codespecs` (CodeSpecs
- * validation).
+ * `tom_bs` (DartScript: the bridge), `validate_codespecs` (CodeSpecs
+ * validation) and `spec_checks` (the TomSpecs process checks), and how one is
+ * run ({@link runDartBinary}).
  *
  * A VSIX carries them only for the platforms it was built with (a build
  * without a Dart SDK carries none for its host; one built on macOS has no
@@ -26,6 +27,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import {
     buildConfigContext,
     expandHomePath,
@@ -36,13 +38,14 @@ import {
     type ExecutablesConfig,
 } from '../utils/executableResolver';
 
-export const DART_BINARIES = ['tom_bs', 'validate_codespecs'] as const;
+export const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'] as const;
 export type DartBinaryName = typeof DART_BINARIES[number];
 
 /** What each binary gives the extension, for the page and the Status Page. */
 export const DART_BINARY_FEATURE: Record<DartBinaryName, string> = {
     tom_bs: 'DartScript', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
     validate_codespecs: 'CodeSpecs validation', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
+    spec_checks: 'TomSpecs process checks', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
 };
 
 export const HELP_COMMAND = 'tomAi.showDartBinariesHelp';
@@ -205,13 +208,13 @@ const SOURCE_LABEL: Record<DartBinarySource, string> = {
 /**
  * Fill the page's placeholders: `{{platform}}`, `{{missing}}` (the missing
  * binaries and what they give, or "none"), `{{statusTable}}` (a Markdown
- * table of both binaries) and `{{binDir}}` (this platform's folder in the
+ * table of the binaries) and `{{binDir}}` (this platform's folder in the
  * installed extension).
  */
 export function fillHelpPage(template: string, status: DartBinariesStatus, extensionRoot: string): string {
     const missing = status.missing.length === 0
-        ? 'none — both binaries are available on this platform'
-        : status.missing.map((n) => `\`${binaryFileName(n, status.platform)}\` (${DART_BINARY_FEATURE[n]})`).join(' and ');
+        ? 'none — every binary is available on this platform'
+        : joinAnd(status.missing.map((n) => `\`${binaryFileName(n, status.platform)}\` (${DART_BINARY_FEATURE[n]})`));
     const rows = status.binaries.map((b) => {
         const where = b.path ? `\`${b.path}\`` : b.configuredPath ? `configured as \`${b.configuredPath}\`, which does not exist` : '—';
         return `| \`${binaryFileName(b.name, status.platform)}\` | ${DART_BINARY_FEATURE[b.name]} | ${SOURCE_LABEL[b.source]} | ${where} |`;
@@ -222,4 +225,54 @@ export function fillHelpPage(template: string, status: DartBinariesStatus, exten
         .replace(/\{\{missing\}\}/g, missing)
         .replace(/\{\{statusTable\}\}/g, table)
         .replace(/\{\{binDir\}\}/g, path.join(extensionRoot, 'bin', status.platform));
+}
+
+/** `a`, `a and b`, `a, b and c`. */
+function joinAnd(items: string[]): string {
+    return items.length <= 2 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+// ── Running a binary ──────────────────────────────────────────────────────────
+
+/** A binary that is neither configured nor bundled for this platform; `expected` is where the bundled one would be. */
+export class DartBinaryMissing extends Error {
+    constructor(readonly binary: DartBinaryName, readonly expected: string, readonly platform: string = getCurrentPlatform()) {
+        super(`${binary} (${DART_BINARY_FEATURE[binary]}) is not available on ${platform}: it is not bundled with this extension `
+            + `(expected at ${expected}) and none is configured (\`bridge.executables.${binary}\` in .tom/tom_vscode_extension.json). `
+            + `How to get or configure it: ${dartBinariesHelp().page} (command ${HELP_COMMAND}).`);
+    }
+}
+
+/** A binary's exit code and both streams. */
+export interface BinaryRun {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+}
+
+/** Run the file `binary` with `args`; a non-zero exit is a result, a spawn failure, timeout or signal a rejection naming `label`. */
+export function runBinaryFile(binary: string, args: string[], label: string, options: { cwd?: string; timeoutMs: number }): Promise<BinaryRun> {
+    return new Promise((resolve, reject) => {
+        execFile(binary, args, { maxBuffer: 256 << 20, timeout: options.timeoutMs, ...(options.cwd ? { cwd: options.cwd } : {}) }, (error, stdout, stderr) => {
+            const code = (error as NodeJS.ErrnoException & { code?: unknown } | null)?.code;
+            if (error && typeof code !== 'number') {
+                reject(new Error(`${label} did not run to completion: ${error.message}`));
+                return;
+            }
+            resolve({ exitCode: typeof code === 'number' ? code : 0, stdout, stderr });
+        });
+    });
+}
+
+/**
+ * Run the Dart binary `name` of this window (configured, else bundled) with
+ * `args`; throws {@link DartBinaryMissing} when the platform has none.
+ */
+export function runDartBinary(name: DartBinaryName, args: string[], options: { cwd?: string; timeoutMs: number; extensionRoot?: string }): Promise<BinaryRun> {
+    const root = options.extensionRoot ?? defaultRoot;
+    const found = currentDartBinary(name, root);
+    if (!found.path) {
+        return Promise.reject(new DartBinaryMissing(name, path.join(root, 'bin', getCurrentPlatform(), binaryFileName(name))));
+    }
+    return runBinaryFile(found.path, args, name, options);
 }

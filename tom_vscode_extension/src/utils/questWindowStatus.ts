@@ -147,7 +147,7 @@ export interface WindowStatusEntry {
     mcpServer?: { running: boolean; host?: string; port?: number };
     /** The extension build the window runs and the one installed; `reloadNeeded`: a newer build is installed. */
     build?: BuildStatus;
-    /** Which Dart-built binaries (tom_bs, validate_codespecs) the window has on its platform. */
+    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks) the window has on its platform. */
     dartBinaries?: DartBinariesSummary;
     /** queue / anthropic / copilot / … whose prompt is out. */
     activeSubsystems: string[];

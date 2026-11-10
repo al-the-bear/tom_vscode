@@ -1,9 +1,10 @@
-# Missing Dart binaries: DartScript and CodeSpecs validation
+# Missing Dart binaries: DartScript, CodeSpecs validation, TomSpecs process checks
 
-Two features of the Tom AI extension run programs compiled from Dart:
+Three features of the Tom AI extension run programs compiled from Dart:
 
 - **DartScript** runs `tom_bs`, the Dart bridge.
 - **CodeSpecs validation** runs `validate_codespecs`.
+- **TomSpecs process checks** run `spec_checks`.
 
 A VSIX carries them only for the platforms it was built with. A VSIX built
 without a Dart SDK has none, and one built on macOS has none for Windows or
@@ -37,6 +38,13 @@ Without `validate_codespecs` (CodeSpecs validation):
 - `tomAi_specCodeSpecsValidate` (the 41 checks over a generated trio);
 - the agreement part of `tomAi_specCodeSpecsTrace` over code folders;
 - the validation stage of `tomAi_specCodeSpecsStatus`.
+
+Without `spec_checks` (TomSpecs process checks):
+
+- `tomAi_specImportAnswers`, `tomAi_specRequiredFields`,
+  `tomAi_specQuestionRegister`, `tomAi_specFeatureRegister`,
+  `tomAi_specProjectIdeaCoverage`, `tomAi_specAuthorizationCheck` and
+  `tomAi_specCoverage` answer `binaryMissing`.
 
 ## What keeps working
 
@@ -83,9 +91,9 @@ machine. With the workspace checked out (`tom_ai/vscode`, `tom_ai/ai_build`,
 `tom_ai/d4rt`), from `tom_ai/vscode/tom_vscode_extension/`:
 
 - `./compile_and_install.sh` (macOS, Linux) or `.\compile_and_install.ps1`
-  (Windows) builds both, packages a new VSIX and installs it;
-- `npm run codespecs:build` builds only `validate_codespecs`, into the
-  checkout's `bin/{{platform}}/`.
+  (Windows) builds all three, packages a new VSIX and installs it;
+- `npm run codespecs:build` builds only `validate_codespecs` and
+  `spec_checks`, into the checkout's `bin/{{platform}}/`.
 
 Without the full workspace, compile each one where its sources are:
 
@@ -97,9 +105,11 @@ dart compile exe bin/tom_bs.dart -o tom_bs
 # validate_codespecs, in tom_ai/ai_build/tom_specs_clitool
 dart pub get
 dart compile exe bin/validate_codespecs.dart -o validate_codespecs
+dart compile exe bin/spec_checks.dart -o spec_checks
 ```
 
-On Windows name the outputs `tom_bs.exe` and `validate_codespecs.exe`.
+On Windows name the outputs `tom_bs.exe`, `validate_codespecs.exe` and
+`spec_checks.exe`.
 
 ## Use binaries you already have
 
@@ -127,6 +137,11 @@ before the bundled one.
         "darwin-arm64": "~/.tom/bin/darwin-arm64/validate_codespecs",
         "linux-x64": "/opt/tom/bin/validate_codespecs",
         "win32-x64": "C:\\tools\\tom\\validate_codespecs.exe"
+      },
+      "spec_checks": {
+        "darwin-arm64": "~/.tom/bin/darwin-arm64/spec_checks",
+        "linux-x64": "/opt/tom/bin/spec_checks",
+        "win32-x64": "C:\\tools\\tom\\spec_checks.exe"
       }
     }
   }

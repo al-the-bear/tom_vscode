@@ -107,9 +107,9 @@ describe('finding the Dart SDK', () => {
         const ps1 = read('install_extension.ps1');
         for (const [name, text, onPath, noDartOn, gated] of [
             ['install_extension.sh', sh, /export PATH="\$DART_DIR:\$PATH"/, /--no-dart\) export TOM_NO_DART=1/,
-                /if \[ "\$NO_DART" = "1" \]; then\s+echo "📦 No Dart: validate_codespecs is not built[^"]*"\s+else\s+\( cd "\$SCRIPT_DIR" && node scripts\/build-validate-codespecs\.cjs \)/],
+                /if \[ "\$NO_DART" = "1" \]; then\s+echo "📦 No Dart: validate_codespecs and spec_checks are not built[^"]*"\s+else\s+\( cd "\$SCRIPT_DIR" && node scripts\/build-validate-codespecs\.cjs \)/],
             ['install_extension.ps1', ps1, /\$env:Path = "\$DartDir;\$env:Path"/, /if \(\$Arg -eq '--no-dart'\) \{ \$NoDart = \$true \}/,
-                /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: validate_codespecs is not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
+                /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: validate_codespecs and spec_checks are not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
         ] as const) {
             const find = text.indexOf('node scripts/find-dart.cjs');
             assert.ok(find > 0, `${name} runs find-dart.cjs`);

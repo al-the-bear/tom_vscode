@@ -27,7 +27,8 @@ media/types/**
 # Test files
 **/*.test.js
 
-# The build stamps (validate_codespecs.build.json, scripts/codespecs-binary-stamp.cjs;
+# The build stamps (validate_codespecs.build.json, spec_checks.build.json,
+# scripts/codespecs-binary-stamp.cjs;
 # tom_bs.build.json, scripts/binaries-layer.cjs): they describe the machine that
 # built the binary, for the freshness checks.
 bin/*/*.build.json

@@ -229,7 +229,7 @@ if [ "$LAYER_BINARIES" = "1" ]; then
     # Every platform's tom_bs and validate_codespecs from the binaries layer, as
     # its hosts left them (create_fleetcompiled_vsix.sh,
     # create_currentbinaries_vsix.sh); how current each is, is reported there.
-    echo "📦 Bundling tom_bs and validate_codespecs from the binaries layer..."
+    echo "📦 Bundling tom_bs, validate_codespecs and spec_checks from the binaries layer..."
     LAYER_ARGS=()
     [ -n "${TOM_LAYER_PLATFORMS:-}" ] && LAYER_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")
     node scripts/binaries-layer.cjs bundle "${LAYER_ARGS[@]}" || exit 1
@@ -362,19 +362,20 @@ else
     ( cd "$SCRIPT_DIR" && node scripts/check-tom-bs-provenance.cjs ) | sed 's/^/  /' || true
 fi
 
-# ── Bundle validate_codespecs for THIS host ──────────────────────────────────
-# The CodeSpecs tools (validate, trace over a trio) run tom_specs_clitool's
-# validate_codespecs as a compiled binary from bin/<platform>/ — never via
-# `dart run`. It is compiled here from tom_ai/ai_build, like tom_bs above in
-# from-source mode, with the Dart SDK found at the start of this script.
-# Without Dart the VSIX carries none and CodeSpecs validation is unavailable.
+# ── Bundle validate_codespecs and spec_checks for THIS host ──────────────────
+# The CodeSpecs tools (validate, trace over a trio) and the TomSpecs process
+# check tools run tom_specs_clitool's validate_codespecs and spec_checks as
+# compiled binaries from bin/<platform>/ — never via `dart run`. They are
+# compiled here from tom_ai/ai_build, like tom_bs above in from-source mode,
+# with the Dart SDK found at the start of this script. Without Dart the VSIX
+# carries neither: CodeSpecs validation and the process checks are unavailable.
 if [ "$LAYER_BINARIES" = "1" ]; then
     : # taken from the binaries layer above
 elif [ "$NO_DART" = "1" ]; then
-    echo "📦 No Dart: validate_codespecs is not built (CodeSpecs validation will not be available)."
+    echo "📦 No Dart: validate_codespecs and spec_checks are not built (CodeSpecs validation and the TomSpecs process checks will not be available)."
 else
     ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
-        echo "❌ Error: building validate_codespecs failed"
+        echo "❌ Error: building validate_codespecs / spec_checks failed"
         exit 1
     }
 fi

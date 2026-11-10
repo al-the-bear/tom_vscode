@@ -79,7 +79,7 @@ describe('the missing Dart binaries page in a window', () => {
     });
 
     test('DH-2: nothing missing', () => {
-        const root = fakeExtension(['tom_bs', 'validate_codespecs']);
+        const root = fakeExtension(['tom_bs', 'validate_codespecs', 'spec_checks']);
         const state = new Map<string, unknown>();
         const before = previews().length;
         handler.initDartBinariesHelp(fakeContext(root, state) as never);
@@ -115,7 +115,7 @@ describe('the missing Dart binaries page in a window', () => {
         assert.match(html, /tom_bs(\.exe)? \(DartScript\):<\/label><span title="[^"]+">bundled<\/span>/);
         assert.match(html, /validate_codespecs(\.exe)? \(CodeSpecs validation\):<\/label><span title="">⚠️ missing<\/span>/);
         assert.match(html, /data-status-action="showDartBinariesHelp"/);
-        const complete = statusPage.dartBinariesSectionHtml(status.dartBinariesStatus(fakeExtension(['tom_bs', 'validate_codespecs'])));
+        const complete = statusPage.dartBinariesSectionHtml(status.dartBinariesStatus(fakeExtension(['tom_bs', 'validate_codespecs', 'spec_checks'])));
         assert.doesNotMatch(complete, /warningBorder/);
         assert.equal(statusPage.dartBinariesSectionHtml(undefined), '');
     });

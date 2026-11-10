@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build tom_bs and validate_codespecs on every fleet build host, each into the
+ * Build tom_bs and the clitool binaries (validate_codespecs, spec_checks) on every fleet build host, each into the
  * binaries layer (create_fleetcompiled_vsix.sh / .ps1).
  *
  *   node scripts/fleet-binaries.cjs [--dry-run] [--hosts mbp,bigbeast,...]
@@ -179,7 +179,7 @@ function main(argv) {
 
     const order = [...plan.filter((p) => p.host === here), ...plan.filter((p) => p.host !== here)];
     for (const { host, platform } of order) {
-        console.log(`\n──────── ${host.id} (${platform}): building tom_bs and validate_codespecs ────────`);
+        console.log(`\n──────── ${host.id} (${platform}): building tom_bs, validate_codespecs and spec_checks ────────`);
         let r;
         if (host === here) {
             r = process.platform === 'win32'

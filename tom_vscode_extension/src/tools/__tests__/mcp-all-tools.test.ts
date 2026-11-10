@@ -423,6 +423,15 @@ function inputs(): Record<string, Input> {
         tomAi_specCodeSpecsStepContext: { file: SPEC, step: 1 },
         tomAi_specCodeSpecsValidate: { shared: 'specs/none_codespec_shared' },
         tomAi_specConvert: { file: SPEC, target: 'specs/meridian.md' },
+        // The process checks (bundled spec_checks): the sandbox has no checks/ data, so authorization and
+        // coverage answer the usage error naming it; the import is a dry run on the rendition specConvert wrote.
+        tomAi_specRequiredFields: { file: SPEC },
+        tomAi_specFeatureRegister: { file: SPEC },
+        tomAi_specQuestionRegister: { file: SPEC, index: 'notes/doc.md' },
+        tomAi_specProjectIdeaCoverage: { projectIdea: 'notes/doc.md', file: SPEC },
+        tomAi_specAuthorizationCheck: { file: SPEC },
+        tomAi_specCoverage: { sample: SPEC, file: SPEC },
+        tomAi_specImportAnswers: { file: SPEC, rendition: 'specs/meridian.md', dryRun: true },
         tomAi_specCreateDocument: { file: 'specs/new.docspecs.yaml', root: 'SBP' },
         tomAi_createSession: { name: 'mcp-test' },
     };

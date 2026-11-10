@@ -8,7 +8,7 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 2. Install the updated extension in the target VS Code host with
    `compile_and_install.sh` / `.ps1` — the install route on every host. It
    builds `tom_bs` from the bridge sources for that host and puts it, with
-   `validate_codespecs`, into the binaries layer (below). The prebuilt `tom_bs`
+   `validate_codespecs` and `spec_checks`, into the binaries layer (below). The prebuilt `tom_bs`
    binaries in `tom_binaries` are only as current as the last from-source build
    on each platform's host, so `install_extension.*`, which bundles them, is
    only for a machine without the d4rt and bridge checkouts, and its bridge may
@@ -72,7 +72,7 @@ pack recorded, so an install never ships a model npm kept from an earlier pack.
 Between installs, the CodeSpecs freshness test (CS-2b) fails once ai_build's
 model moves on; `npm run som:pack && npm install` (what every install does)
 brings the checkout level. The install
-scripts also compile `validate_codespecs` (tom_specs_clitool) into
+scripts also compile `validate_codespecs` and `spec_checks` (tom_specs_clitool) into
 `bin/<platform>/` (`npm run codespecs:build`) with the Dart SDK. Both install
 scripts look for it first (`scripts/find-dart.cjs`): `dart` on
 PATH, then `DART_SDK`, `FLUTTER_ROOT`, the folder of `flutter` on PATH, and
@@ -82,18 +82,18 @@ known locations (`~/Desktop/development/flutter/bin`, `~/flutter/bin`,
 the install. When none holds `dart` (or `--no-dart` / `-NoDart` is given,
 or `TOM_NO_DART=1`), the install goes on in no-Dart mode: the bridge-lock
 preflight, the from-source bridge build, the bridge freshness checks and the
-`validate_codespecs` build are skipped, and the scripts end with a red warning
+`validate_codespecs` / `spec_checks` build are skipped, and the scripts end with a red warning
 before and after the Finished line. `TOM_FIND_DART_DISABLE=1` makes
 `find-dart.cjs` find nothing, to take the not-found route on a machine with
 Dart. The wrappers (`compile_and_install.*`) settle the mode before calling the
 base script and print the closing lines (`scripts/install_summary.sh` / `.ps1`):
-the VSIX path, the warning, the finish time, the warning again. Beside the binary the build writes
-`validate_codespecs.build.json`, a hash of its source; `npm run codespecs:check`
-(and the test CV-8) say when tom_specs_clitool moved on since, so the binary
-needs `npm run codespecs:build` again. The stamp is not packaged. After packaging,
+the VSIX path, the warning, the finish time, the warning again. Beside each binary the build writes
+`<name>.build.json` (`validate_codespecs.build.json`, `spec_checks.build.json`), a hash of its source; `npm run codespecs:check`
+(and the test CV-8) say when tom_specs_clitool moved on since, so the binaries
+need `npm run codespecs:build` again. The stamps are not packaged. After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and no symlinks, and lists per platform which of
-`tom_bs` / `validate_codespecs` it carries (informational: a VSIX without them
+`tom_bs` / `validate_codespecs` / `spec_checks` it carries (informational: a VSIX without them
 is valid). It fails a VSIX that carries a provider SDK (anything under
 `node_modules/@anthropic-ai/`, or a `bin/<platform>/claude[.exe]`). Both help
 pages it requires (`resources/dart_binaries/missing_dart_binaries.md`,
@@ -153,7 +153,7 @@ VSIX path, the template path and the per-platform report of
 **The binaries layer** (`tom_binaries/tom/<platform>/`): every from-source build
 (`TOM_BRIDGE_FROM_SOURCE=1`: `compile_and_install.*`, `create_vsix.*`) ends its
 Dart part with `node scripts/binaries-layer.cjs publish`: it copies this host's
-`tom_bs`, `validate_codespecs` and `validate_codespecs.build.json` there, writes
+`tom_bs` and each clitool binary (`validate_codespecs`, `spec_checks`) with its `<name>.build.json` there, writes
 `tom_bs.build.json` (the versioner stamp `tom_bs` prints on start, its build
 time, the host, and `bridgeSourceHash`: the bridge's lib/ and bin/ Dart files
 and pubspec.yaml as built, without the versioner file and the `// Generated:`
@@ -177,8 +177,8 @@ each binary's stamp and whether it is older than the sources here: `tom_bs`
 is current when its `bridgeSourceHash` is the bridge sources' hash here
 (uncommitted edits included), else `check-tom-bs-provenance.cjs`'s
 `changedSince` on its stamp's commit decides,
-`validate_codespecs` through its stamp's source hash against
-`codespecs-binary-stamp.cjs`'s `sourceHash` now.
+each clitool binary through its stamp's source hash against
+`codespecs-binary-stamp.cjs`'s `sourceHash` (of that binary) now.
 
 On top of it, two private-distribution scripts:
 `create_currentbinaries_vsix.sh` / `.ps1` (this host's binaries built with
@@ -199,7 +199,7 @@ BL-4 against throw-away git repositories, FB-1 – FB-3 the fleet helpers).
 
 For a machine without Dart there is `create_layerbinaries_vsix.sh` / `.ps1`:
 it builds the VSIX from source with no Dart step, bundling every platform's
-`tom_bs` and `validate_codespecs` from a binaries layer — the workspace's
+`tom_bs`, `validate_codespecs` and `spec_checks` from a binaries layer — the workspace's
 `tom_binaries` checkout, `--layer <dir>` (`-Layer`), or with `--clone`
 (`-Clone`) a shallow clone of the public `al-the-bear/tom_binaries` into
 `.tom_binaries/`. The layer is public, so its build stamps and commit messages

@@ -29,7 +29,7 @@ export interface WindowHeartbeat {
     mcpServer?: ServerState;
     /** The extension build the window runs and the one installed (src/utils/buildStamp.ts). */
     build?: BuildStatus;
-    /** Which Dart-built binaries (tom_bs, validate_codespecs) the window has on its platform. */
+    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks) the window has on its platform. */
     dartBinaries?: DartBinariesSummary;
 }
 

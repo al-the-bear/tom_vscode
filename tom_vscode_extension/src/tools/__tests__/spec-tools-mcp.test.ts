@@ -143,8 +143,9 @@ describe('spec tools over MCP', () => {
         const served = new Set(anon.served);
         assert.ok(served.has('tomAi_specAnnotations'), 'the annotation reader is served');
         for (const name of authed.served.filter((n) => SPEC.test(n))) {
-            const isReader = !['Set', 'Add', 'Apply', 'Clear', 'Convert', 'Create', 'Move', 'Remove', 'Write', 'Plan', 'Replace', 'Insert', 'Edit', 'Assign', 'Resolve', 'Decide', 'Comment', 'Merge']
-                .some((verb) => name.includes(verb));
+            // The question register rewrites its index with `write: true`: a writer whose name says no verb.
+            const isReader = !['Set', 'Add', 'Apply', 'Clear', 'Convert', 'Create', 'Move', 'Remove', 'Write', 'Plan', 'Replace', 'Insert', 'Edit', 'Assign', 'Resolve', 'Decide', 'Comment', 'Merge', 'Import']
+                .some((verb) => name.includes(verb)) && name !== 'tomAi_specQuestionRegister';
             assert.equal(served.has(name), isReader, `${name} ${isReader ? 'missing from' : 'leaked into'} the read-only floor`);
         }
         assert.ok(anon.served.includes('tomAi_specGetSection'));

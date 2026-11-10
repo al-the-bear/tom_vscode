@@ -7,17 +7,18 @@
  *   node scripts/binaries-layer.cjs report [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs unpushed
  *
- * The extension carries two binaries per platform, built with the Dart SDK:
- * tom_bs (the DartScript bridge) and validate_codespecs (CodeSpecs
- * validation). A Dart binary can only be built on its own platform, so a VSIX
+ * The extension carries three binaries per platform, built with the Dart SDK:
+ * tom_bs (the DartScript bridge) and tom_specs_clitool's validate_codespecs
+ * (CodeSpecs validation) and spec_checks (the TomSpecs process checks) — the
+ * clitool binaries of codespecs-binary-stamp.cjs (CLITOOL_BINARIES). A Dart binary can only be built on its own platform, so a VSIX
  * for several platforms takes the others' from the layer,
  * `tom_binaries/tom/<platform>/`, where every host that builds them leaves
  * its own.
  *
  * publish — after a from-source build (install_extension.* with
  *   TOM_BRIDGE_FROM_SOURCE=1, so compile_and_install.*, create_vsix* and the
- *   binaries-only build): copy this host's bin/<platform>/tom_bs[.exe],
- *   validate_codespecs[.exe] and validate_codespecs.build.json into the layer,
+ *   binaries-only build): copy this host's bin/<platform>/tom_bs[.exe] and
+ *   each clitool binary with its <name>.build.json into the layer,
  *   write tom_bs.build.json (the versioner stamp tom_bs prints on start, with
  *   the build time and host), commit exactly those files and push. A push the
  *   remote refuses (the layer is behind it) leaves the commit local, says so
@@ -26,7 +27,7 @@
  *   the layer to its remote — only when it has no commits of its own — so the
  *   hosts' commits follow each other; any failure is then fatal (exit 1).
  *   --no-push commits only.
- * bundle — copy each platform's tom_bs and validate_codespecs from the layer
+ * bundle — copy each platform's tom_bs and clitool binaries from the layer
  *   into the extension's bin/<platform>/ for packaging, with their build
  *   stamps (.vscodeignore keeps the stamps out of the VSIX; in the checkout
  *   they say what the binaries were built from — `npm run codespecs:check`,
@@ -34,7 +35,7 @@
  *   (DEFAULT_PLATFORMS: darwin-arm64, linux-x64, win32-x64) that the layer has.
  * report — per platform: each binary's build stamp and whether it is older
  *   than the sources here (tom_bs: the bridge files changed since the commit
- *   it was built from, check-tom-bs-provenance.cjs; validate_codespecs: the
+ *   it was built from, check-tom-bs-provenance.cjs; a clitool binary: the
  *   source hash of its stamp against the clitool source now,
  *   codespecs-binary-stamp.cjs).
  *
@@ -64,9 +65,10 @@ const codespecsStamp = require('./codespecs-binary-stamp.cjs');
 const EXT_ROOT = path.resolve(__dirname, '..');
 /** The platforms the binaries are built for and a VSIX carries them for: the fleet's build platforms (macOS ARM, Linux x64, Windows x64; fleet-binaries.cjs builds them). */
 const DEFAULT_PLATFORMS = ['darwin-arm64', 'linux-x64', 'win32-x64'];
-const BINARIES = ['tom_bs', 'validate_codespecs'];
+const CLITOOL_BINARIES = codespecsStamp.CLITOOL_BINARIES;
+const BINARIES = ['tom_bs', ...CLITOOL_BINARIES];
 const TOM_BS_STAMP = 'tom_bs.build.json';
-const CODESPECS_STAMP = 'validate_codespecs.build.json';
+const CLITOOL_STAMPS = CLITOOL_BINARIES.map((name) => codespecsStamp.stampName(name));
 
 function layerDir() {
     return process.env.TOM_BINARIES_LAYER
@@ -163,7 +165,7 @@ function publish({ ff = false, push = true } = {}) {
     const platform = hostPlatform();
     const srcDir = path.join(extBinDir(), platform);
     const dstDir = path.join(layerDir(), platform);
-    const present = [exe(platform, 'tom_bs'), exe(platform, 'validate_codespecs'), CODESPECS_STAMP]
+    const present = [exe(platform, 'tom_bs'), ...CLITOOL_BINARIES.map((b) => exe(platform, b)), ...CLITOOL_STAMPS]
         .filter((f) => fs.existsSync(path.join(srcDir, f)));
     if (!present.some((f) => !f.endsWith('.json'))) {
         console.log(`ℹ No binaries in bin/${platform}/ to put into the binaries layer.`);
@@ -218,10 +220,11 @@ function publish({ ff = false, push = true } = {}) {
         }
         const parts = [];
         if (tomBs) { parts.push(`tom_bs ${tomBs.version ?? '?'}+${tomBs.build ?? '?'}${tomBs.commit ? ` (${tomBs.commit})` : ''}`); }
-        if (present.includes(exe(platform, 'validate_codespecs'))) {
-            const cs = readJson(path.join(dstDir, CODESPECS_STAMP));
+        for (const name of CLITOOL_BINARIES) {
+            if (!present.includes(exe(platform, name))) { continue; }
+            const cs = readJson(path.join(dstDir, codespecsStamp.stampName(name)));
             const head = cs && cs.clitool && cs.clitool.head ? ` (clitool ${String(cs.clitool.head).slice(0, 8)}${cs.clitool.dirty ? ', dirty' : ''})` : '';
-            parts.push(`validate_codespecs${head}`);
+            parts.push(`${name}${head}`);
         }
         const message = `${parts.join(', ')} for ${platform}`;
         git(['commit', '--quiet', '-m', message, '--', ...rel], repo);
@@ -264,7 +267,7 @@ function bundle(platforms) {
         const srcDir = path.join(layer, platform);
         const found = BINARIES.map((b) => exe(platform, b)).filter((f) => fs.existsSync(path.join(srcDir, f)));
         if (found.length === 0) {
-            console.log(`  ⚠️  ${platform}: no tom_bs or validate_codespecs in the binaries layer`);
+            console.log(`  ⚠️  ${platform}: none of ${BINARIES.join(', ')} in the binaries layer`);
             continue;
         }
         const dstDir = path.join(extBinDir(), platform);
@@ -274,7 +277,7 @@ function bundle(platforms) {
             if (!platform.startsWith('win32')) { fs.chmodSync(path.join(dstDir, f), 0o755); }
             count++;
         }
-        for (const stamp of [TOM_BS_STAMP, CODESPECS_STAMP]) {
+        for (const stamp of [TOM_BS_STAMP, ...CLITOOL_STAMPS]) {
             if (fs.existsSync(path.join(srcDir, stamp))) { fs.copyFileSync(path.join(srcDir, stamp), path.join(dstDir, stamp)); }
         }
         const missing = BINARIES.map((b) => exe(platform, b)).filter((f) => !found.includes(f));
@@ -285,9 +288,9 @@ function bundle(platforms) {
 }
 
 /** One platform's binaries in the layer: their stamps and freshness against the sources here. */
-function describePlatform(platform, { layer = layerDir(), aiBuild = codespecsStamp.aiBuildCheckout(), currentHash, currentBridgeHash } = {}) {
+function describePlatform(platform, { layer = layerDir(), aiBuild = codespecsStamp.aiBuildCheckout(), currentHashes = {}, currentBridgeHash } = {}) {
     const dir = path.join(layer, platform);
-    const out = { platform, tomBs: null, validateCodespecs: null };
+    const out = { platform, tomBs: null, clitool: Object.fromEntries(CLITOOL_BINARIES.map((name) => [name, null])) };
     if (fs.existsSync(path.join(dir, exe(platform, 'tom_bs')))) {
         const s = readJson(path.join(dir, TOM_BS_STAMP));
         if (!s || !s.commit) {
@@ -305,16 +308,18 @@ function describePlatform(platform, { layer = layerDir(), aiBuild = codespecsSta
             out.tomBs = { state: verdict.state, text: `tom_bs ${s.version}+${s.build} (${s.commit}, built ${s.builtAt.slice(0, 16).replace('T', ' ')}): ${label(verdict.state, changed)}` };
         }
     }
-    if (fs.existsSync(path.join(dir, exe(platform, 'validate_codespecs')))) {
-        const s = readJson(path.join(dir, CODESPECS_STAMP));
+    for (const name of CLITOOL_BINARIES) {
+        if (!fs.existsSync(path.join(dir, exe(platform, name)))) { continue; }
+        const s = readJson(path.join(dir, codespecsStamp.stampName(name)));
+        const currentHash = currentHashes[name];
         if (!s || !s.sourceHash) {
-            out.validateCodespecs = { state: 'unknown', text: 'validate_codespecs: no build stamp: its source is unknown' };
+            out.clitool[name] = { state: 'unknown', text: `${name}: no build stamp: its source is unknown` };
         } else if (!currentHash) {
-            out.validateCodespecs = { state: 'unknown', text: `validate_codespecs (built ${s.builtAt.slice(0, 16).replace('T', ' ')}): no clitool source at ${aiBuild} to compare with` };
+            out.clitool[name] = { state: 'unknown', text: `${name} (built ${s.builtAt.slice(0, 16).replace('T', ' ')}): no clitool source at ${aiBuild} to compare with` };
         } else {
             const state = s.sourceHash === currentHash ? 'fresh' : 'stale';
             const head = s.clitool && s.clitool.head ? `clitool ${String(s.clitool.head).slice(0, 8)}${s.clitool.dirty ? ', dirty' : ''}, ` : '';
-            out.validateCodespecs = { state, text: `validate_codespecs (${head}built ${s.builtAt.slice(0, 16).replace('T', ' ')}): ${label(state)}` };
+            out.clitool[name] = { state, text: `${name} (${head}built ${s.builtAt.slice(0, 16).replace('T', ' ')}): ${label(state)}` };
         }
     }
     return out;
@@ -330,21 +335,24 @@ function report(platforms) {
     const layer = layerDir();
     const list = platforms || DEFAULT_PLATFORMS;
     const aiBuild = codespecsStamp.aiBuildCheckout();
-    let currentHash = null;
-    if (fs.existsSync(path.join(aiBuild, 'tom_specs_clitool', 'bin', 'validate_codespecs.dart'))) {
-        currentHash = codespecsStamp.sourceHash(aiBuild).hash;
+    const currentHashes = {};
+    for (const name of CLITOOL_BINARIES) {
+        if (fs.existsSync(path.join(aiBuild, 'tom_specs_clitool', 'bin', `${name}.dart`))) {
+            currentHashes[name] = codespecsStamp.sourceHash(aiBuild, name).hash;
+        }
     }
     const currentBridgeHash = fs.existsSync(BRIDGE_DIR) ? bridgeSourceHash() : null;
     console.log('Binaries in the layer (tom_binaries/tom/<platform>/), against the sources here:');
     let stale = 0;
     for (const platform of list) {
-        const d = describePlatform(platform, { layer, aiBuild, currentHash, currentBridgeHash });
-        if (!d.tomBs && !d.validateCodespecs) {
+        const d = describePlatform(platform, { layer, aiBuild, currentHashes, currentBridgeHash });
+        const entries = [d.tomBs, ...CLITOOL_BINARIES.map((name) => d.clitool[name])];
+        if (entries.every((e) => !e)) {
             console.log(`  ${platform}: none`);
             continue;
         }
         console.log(`  ${platform}:`);
-        for (const entry of [d.tomBs, d.validateCodespecs]) {
+        for (const entry of entries) {
             if (!entry) { continue; }
             if (entry.state !== 'fresh') { stale++; }
             console.log(`    ${entry.text}`);

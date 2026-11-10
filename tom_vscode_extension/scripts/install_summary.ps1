@@ -47,13 +47,14 @@ function Write-TomNoDartWarning([string]$Reason, [bool]$FromSource) {
         '',
         "WARNING: BUILT WITHOUT A DART SDK ($Reason)",
         '',
-        'CodeSpecs validation (validate_codespecs) is NOT in this VSIX.',
+        'CodeSpecs validation (validate_codespecs) and the TomSpecs process',
+        'checks (spec_checks) are NOT in this VSIX.',
         $dartscript,
         '',
         'On its first start the extension shows a page explaining what is',
         'missing and how to add it.',
         '',
-        'To get both: install the Dart SDK (https://dart.dev/get-dart)',
+        'To get them: install the Dart SDK (https://dart.dev/get-dart)',
         'and run compile_and_install again.',
         ''
     )

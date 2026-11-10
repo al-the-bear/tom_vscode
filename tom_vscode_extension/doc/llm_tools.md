@@ -746,6 +746,45 @@ without use, and one that has returned every match closes at once. Each cursor
 remembers the file revision its matches come from, and iterating after the file
 changed runs the query again (`rerun: true`) and starts over.
 
+### 4.23a TomSpecs process checks (`spec_checks`)
+
+The checks a TomSpecs project runs at a gate beyond the three validation tiers,
+one tool per check of tom_specs_clitool's `spec_checks` (its
+`doc/process_checks.md`). The binary is compiled from
+`tom_ai/ai_build/tom_specs_clitool/bin/spec_checks.dart` into
+`<extension>/bin/<platform>/` by `npm run codespecs:build`, beside
+`validate_codespecs` (the install scripts run it; a Dart SDK is needed at build
+time only); the binaries layer carries it for darwin-arm64, linux-x64 and
+win32-x64. A check reads the project's data from `<spec root>/checks/`: the
+spec root is the nearest folder above the document holding `checks/`, else the
+document folder's parent; `specRoot` names it.
+
+Every answer is `{ok, check, outcome, exitCode, findingCount, findings: [{kind,
+text}], summary}`: one finding per line the check reports, `kind` the line's
+tag; `summary` the check's counts. `outcome` is `clean` (exit 0) or `findings`
+(exit 1), both `ok: true`; `usageError` (exit 2: wrong arguments, or the
+project lacks the data a check requires — the error names the file) and
+`refused` (exit 2 with `REFUSED` lines: an import refused) are `ok: false`, as
+is `binaryMissing` (no `spec_checks` for this platform and none configured as
+`bridge.executables.spec_checks`; with `expected`, `help` and `page`, like
+`tomAi_specCodeSpecsValidate`).
+
+| Tool | Description | Agent SDK | Direct | VS Code LM | Local LLM |
+| ---- | ----------- | --------- | ------ | ---------- | --------- |
+| `tomAi_specImportAnswers` | The answers typed into a document's rendition (`*.md`), into its YAML in place and verified, the rendition regenerated (`import-answers`). A rendition that differs in more than answers is `refused` unless `allowOtherEdits`. The check runs on copies; the changed files are written through the store — refused when dirty in an editor or changed since read (`expectedRevision` for the YAML), `dryRun` answers the diffs. `summary.imported` lists each answer (question id, id path, first line), `files` what changed and was written. Approval. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRequiredFields` | Every form holds the fields the model marks required; int, bool and enum fields hold values of their type. Findings `MISSING` / `TYPE`; `summary` {forms, missing, badTypes}. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specQuestionRegister` | A question index file against the document's question blocks (`checks/question_register.yaml`: prefixes, count columns, statuses; defaults without it). Findings `REGISTER`; `summary` {indexRows, blocks, waiting, waitingStarred, findings, answeredNotApplied}. `write: true` rewrites the index's counts, the sentence below them and the id range, through the store (`expectedRevision`, `dryRun`). Approval. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specFeatureRegister` | Every functional requirement linked by exactly one feature; every linked id and prototype feature resolving; the stated total matching. Findings `FEATURES`; `summary` {features, functionalRequirements, prototypeFeatures, findings}. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specProjectIdeaCoverage` | Every Project Idea id cited by a requirement's source, carried by a covered id, or excluded by a record (`checks/project_idea_coverage.yaml`, or `exclusions`). Findings: `uncovered` ids, `UNKNOWN` exclusions; `summary.entries` the ids not plainly covered (`all`: every id), `summary.classes` the count per class. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specAuthorizationCheck` | Operations, the role matrix, screens and use cases agree (`checks/authorization_cross_check.yaml`, required). One finding per item, `kind` the check (A … F); `summary.checks` the count per check, `summary.notes` the consistent other-actor steps and the steps waiting for an open question. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specCoverage` | How much of the model the document fills, per configured row, against a full-model sample, and the class of every empty section (`checks/coverage_rows.yaml`, `checks/coverage_reasons.yaml`, required). `summary.table` the report's lines; `tsv: true` adds the TSV. | ✅ | ✅ | ⚪ | ✅ |
+
+`spec_checks validate` and `accept-marks` have no tools: `tomAi_specValidate`
+runs the same tiers, and `tomAi_specDecideMarks` with `all: "accept"` accepts
+every mark (on a 16 MB YAML too). On Tom UAM's Blueprint the tools give the
+results `dart pub global run tom_specs_clitool:spec_checks` gives (the tool
+test SK-6 compares them with the bundled binary's own run).
+
 ### 4.24 Plain DocSpecs Markdown
 
 Markdown that declares a DocSpecs schema (`<!-- docspec: <id>/<version> -->`)

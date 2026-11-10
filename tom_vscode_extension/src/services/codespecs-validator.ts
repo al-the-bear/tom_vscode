@@ -14,9 +14,8 @@
  */
 
 import * as path from 'path';
-import { execFile } from 'child_process';
 import { getCurrentPlatform } from '../utils/executableResolver';
-import { currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND } from './dartBinariesStatus';
+import { currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND, runBinaryFile, type BinaryRun } from './dartBinariesStatus';
 
 export const VALIDATION_FORMAT = 'codespecs-validation';
 export const VALIDATION_FORMAT_VERSION = 1;
@@ -112,26 +111,11 @@ export function validateCodespecsBinary(extensionRoot: string = dartBinariesExte
     return found.path;
 }
 
-export interface BinaryRun {
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-}
+export type { BinaryRun };
 
 /** Run the binary with `args`; resolves with its exit code and both streams (a non-zero exit is not a rejection). */
 export function runValidateCodespecs(args: string[], extensionRoot?: string): Promise<BinaryRun> {
-    const binary = validateCodespecsBinary(extensionRoot);
-    return new Promise((resolve, reject) => {
-        execFile(binary, args, { maxBuffer: 64 << 20, timeout: RUN_TIMEOUT_MS }, (error, stdout, stderr) => {
-            const code = (error as NodeJS.ErrnoException & { code?: unknown } | null)?.code;
-            if (error && typeof code !== 'number') {
-                // Spawn failure, timeout or signal — no exit code to interpret.
-                reject(new Error(`validate_codespecs did not run to completion: ${error.message}`));
-                return;
-            }
-            resolve({ exitCode: typeof code === 'number' ? code : 0, stdout, stderr });
-        });
-    });
+    return runBinaryFile(validateCodespecsBinary(extensionRoot), args, 'validate_codespecs', { timeoutMs: RUN_TIMEOUT_MS });
 }
 
 /** The trio's three package folders, absolute. */

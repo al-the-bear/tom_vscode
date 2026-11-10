@@ -213,6 +213,14 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specRender',
     'tomAi_specAnnotations',
     'tomAi_specExtractAnswers',
+    // TomSpecs process checks (the bundled spec_checks)
+    'tomAi_specRequiredFields',
+    'tomAi_specQuestionRegister',
+    'tomAi_specFeatureRegister',
+    'tomAi_specProjectIdeaCoverage',
+    'tomAi_specAuthorizationCheck',
+    'tomAi_specCoverage',
+    'tomAi_specImportAnswers',
     // CodeSpecs (Phase 4: spec → code-generation inputs)
     'tomAi_specCodeSpecsAreas',
     'tomAi_specCodeSpecsRouting',

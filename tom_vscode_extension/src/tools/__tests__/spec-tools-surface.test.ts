@@ -40,10 +40,12 @@ const WRITERS = [
     'tomAi_specDecideMarks',
     'tomAi_specEditComment',
     'tomAi_specEditMarkComment',
+    'tomAi_specImportAnswers',
     'tomAi_specInsertComment',
     'tomAi_specInsertQuestion',
     'tomAi_specMergeReviews',
     'tomAi_specMoveListItem',
+    'tomAi_specQuestionRegister',
     'tomAi_specRemoveAllAnnotations',
     'tomAi_specRemoveListItem',
     'tomAi_specResolveAnnotation',
@@ -72,7 +74,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 55);
+        assert.equal(specTools.length, 62);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);
@@ -110,7 +112,9 @@ describe('the spec tools as a set', () => {
                 assert.match(t.description, /tomAi_specOutline|tomAi_specReflect/, `${t.name}: does not say where to look first`);
             }
         }
-        const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert', 'tomAi_specWriteAnswers', 'tomAi_specReviewRoundCreate', 'tomAi_specMergeReviews', 'tomAi_specDecideConflicts'].includes(t.name));
+        const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert', 'tomAi_specWriteAnswers', 'tomAi_specReviewRoundCreate', 'tomAi_specMergeReviews', 'tomAi_specDecideConflicts',
+            // The process checks' writes rewrite files whole, through the check: no batch counterpart.
+            'tomAi_specImportAnswers', 'tomAi_specQuestionRegister'].includes(t.name));
         assert.equal(singleEdits.length, 19);
         for (const t of singleEdits) {
             assert.match(t.description, /tomAi_specApplyEdits/, `${t.name}: does not point to the batch for more than one change`);
