@@ -10,6 +10,7 @@
 /// Expected output:
 ///   12 todos across all scopes.
 ///   By status: not-started=7, in-progress=2, completed=3
+///   Repeated: 1, 1 waiting for their next repetition.
 library;
 
 import 'package:tom_vscode_scripting_api/tom_vscode_scripting_api.dart';
@@ -29,6 +30,14 @@ Future<bool> runTodosExample(VSCodeAdapter adapter) async {
       .map((e) => '${e.key.wire}=${e.value}')
       .join(', ');
   print('By status: ${breakdown.isEmpty ? '<no todos>' : breakdown}');
+
+  // Repeated todos (tom_todo_model 2.x): done ones wait for their next
+  // repetition (`waiting-for-repeat`, `nextRepeat`) instead of completing.
+  final repeated = all.todos.where((t) => t.repeat != null).toList();
+  if (repeated.isNotEmpty) {
+    print('Repeated: ${repeated.length}, '
+        '${repeated.where((t) => t.status == TomTodoStatus.waitingForRepeat).length} waiting for their next repetition.');
+  }
 
   // A todo the shared model cannot read is reported beside the list.
   for (final bad in all.invalid) {
