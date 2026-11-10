@@ -1,7 +1,9 @@
 /**
  * Questions belong to the prompt that asked them. An Anthropic send runs
  * inside {@link runAsAskOwner}; every question opened by its tool calls
- * (`tomAi_askUser`, the Agent SDK's `AskUserQuestion`, `tomAi_askInMdBrowser`)
+ * (`tomAi_askUser`, the Agent SDK's `AskUserQuestion`, `tomAi_askInMdBrowser`,
+ * the QuickPick and input box of `tomAi_askUserPicker` and of an
+ * `AskUserQuestion` without choices — `createLiveUserPrompter`)
  * registers its cancel with {@link registerAskCancel}. When the send ends —
  * answered, stopped, aborted or failed — the questions it left open are
  * cancelled, so no question panel outlives the prompt that asked it.

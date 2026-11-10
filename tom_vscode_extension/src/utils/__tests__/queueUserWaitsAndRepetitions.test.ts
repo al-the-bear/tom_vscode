@@ -77,7 +77,7 @@ describe('queue: waits for the user', () => {
         assert.equal(await answer, 'that one');
         assert.equal(hasUserWaits(), false, 'answered: closed');
         assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', \(\) => showLiveQuickPick/);
-        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', async \(\) => win\.showInputBox/);
+        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', async \(\) => \{[\s\S]{0,500}?await win\.showInputBox\(/);
         assert.match(src('tools', 'ask-in-md-browser-tool.ts'), /return whileWaitingForUser\('question', \(\) => new Promise<string>/);
         assert.match(src('handlers', 'anthropic-handler.ts'), /return whileWaitingForUser\('approval', \(\) => new Promise<boolean>/);
         const queue = src('managers', 'promptQueueManager.ts');

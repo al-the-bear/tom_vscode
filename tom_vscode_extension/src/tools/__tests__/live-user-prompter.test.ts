@@ -15,7 +15,9 @@ import assert from 'node:assert/strict';
 import { installVscodeStub } from './_vscode-stub.js';
 installVscodeStub({});
 
+import { runAsAskOwner } from '../../services/askOwners.js';
 import {
+    askUserPickerImpl,
     createLiveUserPrompter,
     QUICK_PICK_TIMED_OUT,
     type LiveWindow,
@@ -169,5 +171,76 @@ describe('live prompter — the free-text guarantee at the widget', () => {
         assert.equal(qp().matchOnDescription, true);
         assert.equal(qp().ignoreFocusOut, true);
         assert.equal(qp().shown, 1);
+    });
+});
+
+/**
+ * vscimpb33: a picker or input box belongs to the prompt that asked it (services/askOwners.ts). When that send
+ * ends first — answered, stopped, failed — the widget closes and answers as on Escape; an answered one is left
+ * alone; outside any send nothing owns it.
+ */
+describe('live prompter — the question ends with the prompt that asked', () => {
+    const tick = () => new Promise((r) => setImmediate(r));
+
+    test('a QuickPick open when its prompt ends closes as a dismissal', async () => {
+        const { win, qp } = fakeWindow();
+        let result: unknown = 'pending';
+        await runAsAskOwner(async () => {
+            void createLiveUserPrompter(win).showQuickPick([RED, OTHER], {}).then((r) => { result = r; });
+            await tick();
+            assert.equal(qp().shown, 1);
+        });
+        await tick();
+        assert.equal(result, undefined, 'dismissed');
+        assert.equal(qp().disposed, 1, 'the widget is taken off the screen');
+    });
+
+    test('an answered QuickPick is no longer cancelled when the prompt ends', async () => {
+        const { win, qp } = fakeWindow();
+        const answer = await runAsAskOwner(async () => {
+            const pending = createLiveUserPrompter(win).showQuickPick([RED, OTHER], {});
+            qp().pressEnter('', [qp().items[0]]);
+            return pending;
+        });
+        assert.deepEqual(answer, { label: 'Red', value: 'red' });
+        assert.equal(qp().disposed, 1, 'disposed once, by the answer');
+    });
+
+    test('an input box open when its prompt ends is cancelled through its token', async () => {
+        let token: { isCancellationRequested: boolean; onCancellationRequested(l: () => void): unknown } | undefined;
+        const win: LiveWindow = {
+            createQuickPick() { throw new Error('not used'); },
+            showInputBox(_o, t) {
+                token = t as never;
+                return new Promise((resolve) => { t!.onCancellationRequested(() => resolve(undefined)); });
+            },
+        };
+        let result: unknown = 'pending';
+        await runAsAskOwner(async () => {
+            void createLiveUserPrompter(win).showInputBox({ prompt: 'Why?' }).then((r) => { result = r; });
+            await tick();
+            assert.equal(token?.isCancellationRequested, false);
+        });
+        await tick();
+        assert.equal(token?.isCancellationRequested, true, 'the box is closed');
+        assert.equal(result, undefined);
+    });
+
+    test('tomAi_askUserPicker answers dismissed when its prompt ends; outside a send nothing cancels it', async () => {
+        const { win, qp } = fakeWindow();
+        const prompter = createLiveUserPrompter(win);
+        let answer = '';
+        await runAsAskOwner(async () => {
+            void askUserPickerImpl(prompter, { items: ['Red', 'Blue'], prompt: 'Which?' }).then((a) => { answer = a; });
+            await tick();
+        });
+        await tick();
+        assert.match(answer, /"dismissed": ?true/);
+        // A picker an MCP client asks for (no send owns it) stays until it is answered.
+        const outside = prompter.showQuickPick([RED], {});
+        await runAsAskOwner(async () => undefined);
+        assert.equal(qp().disposed, 0, 'another send ending does not touch it');
+        qp().pressEnter('', [qp().items[0]]);
+        assert.deepEqual(await outside, { label: 'Red', value: 'red' });
     });
 });

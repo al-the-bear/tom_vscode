@@ -43,9 +43,15 @@
  *     prompter drives `createQuickPick()` for every pick (it is also the only
  *     API that exposes the typed text) and retracts it with `dispose()`.
  *     Leaving it up would let the user pick into a void after the model moved on.
+ *   - The prompt that asked owns the question (`services/askOwners.ts`): when
+ *     that Anthropic send ends first — answered, stopped, failed — the picker
+ *     or input box closes and answers as on Escape (the tool: `dismissed`; the
+ *     Agent SDK's AskUserQuestion: its fallback). Outside a send nothing
+ *     owns it.
  */
 
 import { whileWaitingForUser } from '../services/userWaits';
+import { registerAskCancel } from '../services/askOwners';
 import * as vscode from 'vscode';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
@@ -284,7 +290,7 @@ export type LiveQuickPick<T extends vscode.QuickPickItem> = Pick<
  */
 export interface LiveWindow {
     createQuickPick<T extends vscode.QuickPickItem>(): LiveQuickPick<T>;
-    showInputBox(options: vscode.InputBoxOptions): Thenable<string | undefined>;
+    showInputBox(options: vscode.InputBoxOptions, token?: vscode.CancellationToken): Thenable<string | undefined>;
 }
 
 function toLiveItems(items: PickerItem[]): LiveQuickPickItem[] {
@@ -338,9 +344,13 @@ function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPick
             if (settled) { return; }
             settled = true;
             if (timer !== undefined) { clearTimeout(timer); }
+            unregister();
             resolve(result);
             qp.dispose();
         };
+        // The prompt that asked owns the question (services/askOwners.ts): when it ends
+        // first, the picker closes as on Escape — its answer would reach nobody.
+        const unregister = registerAskCancel(() => finish(undefined));
         const timer = opts.timeoutMs !== undefined && opts.timeoutMs > 0
             ? setTimeout(() => finish(QUICK_PICK_TIMED_OUT), opts.timeoutMs)
             : undefined;
@@ -367,6 +377,29 @@ function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPick
     });
 }
 
+/**
+ * A cancellation token of our own (the shape `showInputBox` reads), so the
+ * prompter needs no `vscode.CancellationTokenSource` and runs under a test stub.
+ */
+function cancellationSource(): { token: vscode.CancellationToken; cancel: () => void } {
+    const listeners = new Set<(e: unknown) => unknown>();
+    const token = {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener: (e: unknown) => unknown) => {
+            listeners.add(listener);
+            return { dispose: () => { listeners.delete(listener); } };
+        },
+    };
+    return {
+        token: token as unknown as vscode.CancellationToken,
+        cancel: () => {
+            if (token.isCancellationRequested) { return; }
+            token.isCancellationRequested = true;
+            for (const l of [...listeners]) { try { l(undefined); } catch { /* the others still hear it */ } }
+        },
+    };
+}
+
 /** Build a prompter over a window; {@link liveUserPrompter} is the one over `vscode.window`. */
 export function createLiveUserPrompter(win: LiveWindow): UserPrompter {
     return {
@@ -374,14 +407,23 @@ export function createLiveUserPrompter(win: LiveWindow): UserPrompter {
             return whileWaitingForUser('question', () => showLiveQuickPick(win, items, opts));
         },
         async showInputBox(opts) {
-            return whileWaitingForUser('question', async () => win.showInputBox({
-                prompt: opts.prompt,
-                placeHolder: opts.placeHolder,
-                value: opts.value,
-                password: opts.password,
-                title: opts.title,
-                ignoreFocusOut: opts.ignoreFocusOut,
-            }));
+            return whileWaitingForUser('question', async () => {
+                // Ended with the prompt that asked, like the QuickPick: the box closes, the answer is undefined.
+                const cancel = cancellationSource();
+                const unregister = registerAskCancel(cancel.cancel);
+                try {
+                    return await win.showInputBox({
+                        prompt: opts.prompt,
+                        placeHolder: opts.placeHolder,
+                        value: opts.value,
+                        password: opts.password,
+                        title: opts.title,
+                        ignoreFocusOut: opts.ignoreFocusOut,
+                    }, cancel.token);
+                } finally {
+                    unregister();
+                }
+            });
         },
     };
 }
