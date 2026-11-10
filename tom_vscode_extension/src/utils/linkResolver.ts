@@ -156,14 +156,42 @@ function isExternalUrl(href: string): boolean {
     return /^(https?:|mailto:|tel:|file:)/i.test(href);
 }
 
+/** [value] URL-decoded, or as it is when it is not valid URL encoding. */
+function safeDecode(value: string): string {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+}
+
+/** Whether [pathPart] names an existing file the way resolveFileLink looks it up. */
+function existsAsLinked(pathPart: string, context: LinkContext): boolean {
+    const candidates: string[] = [];
+    if (path.isAbsolute(pathPart)) {
+        candidates.push(pathPart);
+    } else {
+        if (context.currentFilePath) { candidates.push(path.resolve(path.dirname(context.currentFilePath), pathPart)); }
+        const wsRoot = context.workspaceRoot || WsPaths.wsRoot;
+        if (wsRoot) { candidates.push(path.join(wsRoot, pathPart)); }
+    }
+    return candidates.some((c) => fs.existsSync(c));
+}
+
 /**
  * Resolve a file link (with or without anchor).
  */
 function resolveFileLink(href: string, context: LinkContext): ResolvedLink {
     // Split off anchor fragment
     const hashIndex = href.indexOf('#');
-    const pathPart = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+    const rawPath = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
     const anchor = hashIndex >= 0 ? href.slice(hashIndex + 1) : undefined;
+
+    // A Markdown link to a path with a space is written (and rendered) with
+    // `%20`; the href arrives URL-encoded. The path as written is tried first
+    // (a file may have `%` in its name), then the decoded one.
+    const decodedPath = safeDecode(rawPath);
+    const pathPart = decodedPath !== rawPath && !existsAsLinked(rawPath, context) ? decodedPath : rawPath;
 
     // Resolve the file path
     let resolvedPath: string | undefined;
