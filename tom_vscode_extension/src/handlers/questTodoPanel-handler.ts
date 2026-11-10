@@ -78,7 +78,7 @@ function _ensureQueueMarksListener(): void {
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- see _queueItemsForMarks
         const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
         _queueMarksSignature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
-        _queueMarksListener = PromptQueueManager.instance.onDidChange(() => {
+        const onQueueChange = (): void => {
             const signature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
             if (signature === _queueMarksSignature) { return; }
             _queueMarksSignature = signature;
@@ -88,6 +88,16 @@ function _ensureQueueMarksListener(): void {
                     () => _markedWebviews.delete(view),
                 );
             }
+        };
+        // Bound through whenReady: a todo view restored before the queue manager starts
+        // would otherwise subscribe to nothing.
+        let listener: { dispose(): void } | undefined;
+        const holder = { dispose: (): void => { listener?.dispose(); listener = undefined; } };
+        _queueMarksListener = holder;
+        void PromptQueueManager.whenReady().then((qm) => {
+            if (_queueMarksListener !== holder || listener) { return; }
+            listener = qm.onDidChange(onQueueChange);
+            onQueueChange();
         });
     } catch { /* no queue: no marks to keep current */ }
 }

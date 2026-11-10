@@ -988,6 +988,7 @@ export class PromptQueueManager {
             m._reloadFromDisk();
         });
         PromptQueueManager._inst = m;
+        PromptQueueManager._readyResolve?.(m);
         // A prompt starts or stops waiting for the user: the editor shows it on the item.
         const stopWaits = onUserWaitsChanged(() => m._onDidChange.fire());
         ctx.subscriptions?.push({ dispose: stopWaits });
@@ -1000,6 +1001,18 @@ export class PromptQueueManager {
     static get instance(): PromptQueueManager {
         if (!PromptQueueManager._inst) { throw new Error('PromptQueueManager not initialised'); }
         return PromptQueueManager._inst;
+    }
+
+    private static _readyResolve: ((m: PromptQueueManager) => void) | undefined;
+    private static readonly _ready: Promise<PromptQueueManager> = new Promise((resolve) => { PromptQueueManager._readyResolve = resolve; });
+
+    /**
+     * The manager once it runs. A view that subscribes while the extension
+     * activates — an editor tab VS Code restores after a reload, before
+     * `init` — subscribes through this, or it would listen to nothing.
+     */
+    static whenReady(): Promise<PromptQueueManager> {
+        return PromptQueueManager._inst ? Promise.resolve(PromptQueueManager._inst) : PromptQueueManager._ready;
     }
 
     dispose(): void {

@@ -172,13 +172,14 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
     sendState();
     setTimeout(() => sendState(), 500);
 
-    // Listen for queue changes
-    try {
-        const qm = PromptQueueManager.instance;
+    // Listen for queue changes — through whenReady: a tab VS Code restores
+    // after a reload is bound while the extension activates, before the queue
+    // manager starts, and binding to `instance` then subscribed to nothing.
+    void PromptQueueManager.whenReady().then((qm) => {
+        if (_panel !== panel || _queueListener) { return; }
         _queueListener = qm.onDidChange(() => sendState());
-    } catch (e) {
-        console.error('[QueueEditor] Failed to bind onDidChange:', e);
-    }
+        sendState();
+    });
 
     // Re-push state when a Quest Refresh starts/ends so the webview can show
     // (or hide) its orange "refresh running" banner. The refresh fires outside

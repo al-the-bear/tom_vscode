@@ -66,6 +66,15 @@ button and the setup guide), and stops. With it, the extension:
 6. starts queue watchdog and timed-request timer engine,
 7. writes window state file for multi-window status tracking.
 
+The editor serializers are registered in step 2, so VS Code may restore an
+editor tab (Prompt Queue, Timed Requests) while activation awaits, before the
+queue manager and the timer engine start in step 3. Code that subscribes to
+one of them from a panel, view or watcher binds through
+`PromptQueueManager.whenReady()` / `TimerEngine.whenReady()`, never through
+`instance` (which throws until `init`): a restored tab would otherwise follow
+nothing until it is closed and reopened
+(`src/handlers/__tests__/editorRestoreBeforeInit.test.ts`).
+
 Nothing on a view's start-up path holds the extension host's one thread:
 every view of every Tom AI window waits while it is held, and so does every
 other extension. Workspace walks (`scanWorkspaceProjectsCached`,

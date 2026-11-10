@@ -123,12 +123,12 @@ function bindTimedRequestsEditorPanel(ctx: vscode.ExtensionContext, panel: vscod
     sendState();
     setTimeout(() => sendState(), 500);
 
-    try {
-        const te = TimerEngine.instance;
+    // Through whenReady: a tab restored after a reload is bound before the engine starts.
+    void TimerEngine.whenReady().then((te) => {
+        if (_panel !== panel || _timerListener) { return; }
         _timerListener = te.onDidChange(() => sendState());
-    } catch (e) {
-        console.error('[TimedRequestsEditor] Failed to bind onDidChange:', e);
-    }
+        sendState();
+    });
 
     panel.onDidDispose(() => {
         _panel = undefined;

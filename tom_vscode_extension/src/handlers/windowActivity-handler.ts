@@ -106,6 +106,7 @@ export function watchWindowActivity(context: vscode.ExtensionContext): void {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
-        subscribe(PromptQueueManager.instance.onDidChange as vscode.Event<unknown>);
-    } catch { /* not initialised */ }
+        // Through whenReady: this may run before the queue manager starts.
+        void PromptQueueManager.whenReady().then((qm) => subscribe(qm.onDidChange as vscode.Event<unknown>));
+    } catch { /* no queue module */ }
 }

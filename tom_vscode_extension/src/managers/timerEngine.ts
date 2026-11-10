@@ -108,6 +108,7 @@ export class TimerEngine {
         e.loadEntries();
         e.start();
         TimerEngine._inst = e;
+        TimerEngine._readyResolve?.(e);
         logTimed(`Timer engine started — ${e._entries.length} entries, activated=${e._timerActivated}`);
         // The repeated-todo controller checks once at window start while it is on.
         setTimeout(() => { e.runRepeatedTodoControllers(new Date(), true); }, 5_000);
@@ -169,6 +170,14 @@ export class TimerEngine {
     static get instance(): TimerEngine {
         if (!TimerEngine._inst) { throw new Error('TimerEngine not initialised'); }
         return TimerEngine._inst;
+    }
+
+    private static _readyResolve: ((e: TimerEngine) => void) | undefined;
+    private static readonly _ready: Promise<TimerEngine> = new Promise((resolve) => { TimerEngine._readyResolve = resolve; });
+
+    /** The engine once it runs; a view restored before `init` subscribes through this. */
+    static whenReady(): Promise<TimerEngine> {
+        return TimerEngine._inst ? Promise.resolve(TimerEngine._inst) : TimerEngine._ready;
     }
 
     dispose(): void {
