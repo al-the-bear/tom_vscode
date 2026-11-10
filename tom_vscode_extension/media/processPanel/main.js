@@ -157,7 +157,7 @@
     /** Icon and short text of each move kind in the action bar. */
     var MOVE_ICON = {
         proceed: 'play', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
-        'gate-failed': 'error', 'finish-process': 'check-all', skip: 'debug-step-over', back: 'arrow-left',
+        'gate-failed': 'error', 'finish-process': 'check-all', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left',
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
@@ -206,7 +206,7 @@
             var icon = m.kind === 'back' && m.label === 'Reopen' ? 'debug-reverse-continue'
                 : decide ? 'repo-forked'
                     : user ? 'person' : MOVE_ICON[m.kind] || 'circle';
-            var text = m.level && (m.kind === 'repeat' || m.kind === 'finish') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
+            var text = m.level && (m.kind === 'repeat' || m.kind === 'finish' || m.kind === 'leave-out') ? '<span class="lvl">' + LEVEL_SHORT[m.level] + '</span>' : '';
             // While the step runs, Proceed waits for its queue.
             var wait = running && m.kind === 'proceed';
             var title = wait ? 'The step is running — ' + current.stepRun.left + ' item(s) left; then ' + current.stepRun.to : m.label + ' → ' + m.to;
@@ -215,6 +215,26 @@
         }).join('');
         return '<div class="actions">' + (buttons || '<span class="muted">No move from here.</span>')
             + '<span class="spacer"></span><button class="icon" data-templates="1" title="Edit the Proceed prompt template"><span class="codicon codicon-symbol-snippet"></span></button></div>';
+    }
+
+    /** A phase's or step's condition note: optional, `runs only when …` and how it stands now. */
+    function conditionNote(note) {
+        if (!note) { return ''; }
+        var parts = [];
+        if (note.optional) { parts.push('optional'); }
+        if (note.when) { parts.push('runs only when ' + note.when + (note.verdict ? ' — ' + note.verdict : '')); }
+        return '<div class="cond-note"><span class="codicon codicon-filter"></span> ' + esc(parts.join('; ')) + '</div>';
+    }
+
+    /** What was left out (newest first): which alternative ran is what is not listed. */
+    function leftOutBox(items) {
+        if (!items || !items.length) { return ''; }
+        var BY = { condition: 'by its condition', user: 'by the user', agent: 'by the agent' };
+        return '<details class="left-out"><summary><span class="codicon codicon-debug-step-out"></span> Left out (' + items.length + ')</summary><ul>'
+            + items.map(function (r) {
+                return '<li title="' + esc(r.at || '') + '"><b>' + esc(r.where) + '</b>' + (r.phaseIteration > 1 ? ' <span class="muted">(iteration ' + r.phaseIteration + ')</span>' : '')
+                    + ' — ' + esc(r.reason) + ' <span class="muted">(' + esc(BY[r.by] || r.by) + ')</span></li>';
+            }).join('') + '</ul></details>';
     }
 
     function iteration(level, node, n, alwaysRepeatable) {
@@ -283,18 +303,24 @@
         var def = c.definition;
         if (def) {
             var phase = def.phases.find(function (p) { return p.id === c.state.phase; });
-            html += row('Phase', select('sel-phase', def.phases.map(function (p, i) { return { value: p.id, label: (i + 1) + '. ' + label(p) }; }), c.state.phase, 'Phase'),
+            var cond = c.conditions || { phase: null, steps: {} };
+            var leftIds = (c.state.skipped || []).filter(function (r) { return r.phase === c.state.phase && r.phaseIteration === c.state.phaseIteration && r.step; })
+                .map(function (r) { return r.step; });
+            html += row('Phase', select('sel-phase', def.phases.map(function (p, i) { return { value: p.id, label: (i + 1) + '. ' + label(p) + (p.optional || p.when ? ' ⁇' : '') }; }), c.state.phase, 'Phase (⁇: optional or conditional)'),
                 iteration('phase', phase, c.state.phaseIteration) + help('phase'), 'phase', phase && phase.description);
+            html += conditionNote(cond.phase);
             if (phase) {
                 var entries = stepsOf(phase);
                 var entry = entries.find(function (e) { return e.step.id === c.state.step; });
                 var stepOptions = entries.map(function (e, i) {
                     var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : '';
-                    return { value: e.step.id, label: (i + 1) + '. ' + prefix + label(e.step) };
+                    var mark = leftIds.indexOf(e.step.id) >= 0 ? ' — left out' : cond.steps[e.step.id] ? ' ⁇' : '';
+                    return { value: e.step.id, label: (i + 1) + '. ' + prefix + label(e.step) + mark };
                 });
                 var step = entry && entry.step;
-                html += row('Step', select('sel-step', stepOptions, c.state.step, 'Step of the phase'),
+                html += row('Step', select('sel-step', stepOptions, c.state.step, 'Step of the phase (⁇: optional or conditional)'),
                     iteration('step', step, c.state.stepIteration, entry && entry.kind === 'gate') + help('step'), 'step', step && step.description);
+                html += conditionNote(step && cond.steps[step.id]);
                 if (step && step.substeps && step.substeps.length) {
                     var sub = step.substeps.find(function (x) { return x.id === c.state.substep; });
                     html += row('Sub-step', select('sel-substep', step.substeps.map(function (x, i) { return { value: x.id, label: (i + 1) + '. ' + label(x) }; }), c.state.substep, 'Sub-step'),
@@ -312,6 +338,7 @@
                 }
             }
         }
+        html += leftOutBox(c.leftOut);
         if (c.processes.length === 0) {
             html += '<div class="muted">No processes yet — create one in the process editor (_ai/processes/).</div>';
         }

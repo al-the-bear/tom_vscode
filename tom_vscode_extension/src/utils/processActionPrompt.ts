@@ -34,6 +34,7 @@ import {
     type ProcessSession,
     type ProcessMove,
     type ProcessState,
+    type ConditionOptions,
 } from './processDefinition';
 
 /** The moves that have a prompt template: only Proceed runs anything. */
@@ -246,8 +247,8 @@ export interface DecisionDialog {
  * The dialog Proceed opens at a decision position — go on, or repeat a level
  * that ends here; after a gate, passed or failed. Null at any other position.
  */
-export function decisionDialog(def: ProcessDefinition, state: ProcessState): DecisionDialog | null {
-    const decision = decisionAt(def, state);
+export function decisionDialog(def: ProcessDefinition, state: ProcessState, conditions: ConditionOptions = {}): DecisionDialog | null {
+    const decision = decisionAt(def, state, conditions);
     if (!decision) { return null; }
     const ended = state.nestedEnded;
     return {

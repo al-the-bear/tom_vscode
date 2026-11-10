@@ -28,6 +28,12 @@
  *         step and sub-step dropdowns
  *   PW-16 PROCESS view: with several runs of the quest (vscimpb29), or a run other than `default`, a line names
  *         the run the view shows; one `default` run alone shows none
+ *   PW-17 PROCESS view: a phase's and a step's condition note (optional, runs only when …, how it stands now), ⁇ on
+ *         optional / conditional entries and "left out" on left-out steps in the dropdowns, the Left out list with
+ *         reason and who, and a Leave out button (with its level) that posts its move
+ *   PW-18 editor: phases, steps and post-gate steps (not gates) have `optional` and the condition editor — always /
+ *         a variable test (is, is not, is one of, is set, is not set) / an agent's judgement; each choice writes
+ *         `when:` into the model
  *   PW-13 editor: a "user action" checkbox on steps without sub-steps, sub-steps and the post-gate step, not
  *         on a gate or a step with sub-steps
  *   PW-9  action page (Proceed): shows what runs, where the state goes and the session (Change… asks the
@@ -248,6 +254,42 @@ describe('PROCESS view — user actions', () => {
     });
 });
 
+describe('PROCESS view: conditions', () => {
+    test('PW-17: conditions and what was left out', () => {
+        const { w, posted } = setup('processPanel');
+        const def = {
+            ...DEF,
+            phases: [{ ...DEF.phases[0], optional: true, steps: [{ ...DEF.phases[0].steps[0], when: { var: 'mode', equals: 'full' } }, DEF.phases[0].steps[1]] }, DEF.phases[1]],
+        };
+        const state = { ...STATE, step: 'review', skipped: [{ phase: 'build', phaseIteration: 2, step: 'code', reason: 'runs only when `mode` is `full`', by: 'condition', at: 'T' }] };
+        send(w, panelState({
+            definition: def, state,
+            moves: [...MOVES, { kind: 'leave-out', level: 'phase', label: 'Leave out the phase Build', to: 'Ship › Gate' }],
+            conditions: { phase: { optional: true, when: '', verdict: '' }, steps: { code: { optional: false, when: 'mode is full', verdict: 'does not hold now' } } },
+            leftOut: [{ where: 'Build › Code', phaseIteration: 2, reason: 'runs only when `mode` is `full`', by: 'condition', at: 'T' }],
+        }));
+        assert.match($(w, '#sel-phase option')[0].textContent, /Build \(build\) ⁇$/);
+        assert.deepEqual($(w, '#sel-step option').map((o) => o.textContent).slice(0, 2), ['1. Code (code) — left out', '2. Review (review)']);
+        assert.deepEqual($(w, '.cond-note').map((n) => n.textContent.trim()), ['optional'], 'the phase note; the current step has none');
+        send(w, panelState({ definition: def, state: { ...state, step: 'code' }, conditions: { phase: null, steps: { code: { optional: false, when: 'mode is full', verdict: 'does not hold now' } } } }));
+        assert.deepEqual($(w, '.cond-note').map((n) => n.textContent.trim()), ['runs only when mode is full — does not hold now']);
+        send(w, panelState({
+            definition: def, state,
+            moves: [...MOVES, { kind: 'leave-out', level: 'phase', label: 'Leave out the phase Build', to: 'Ship › Gate' }],
+            leftOut: [{ where: 'Build › Code', phaseIteration: 2, reason: 'runs only when `mode` is `full`', by: 'condition', at: 'T' }],
+        }));
+        const box = w.document.querySelector('.left-out');
+        assert.match(box.textContent, /Left out \(1\)/);
+        assert.match(box.textContent, /Build › Code \(iteration 2\) — runs only when `mode` is `full` \(by its condition\)/);
+        const leave = w.document.querySelector('[data-move="leave-out"]');
+        assert.equal(leave.dataset.level, 'phase');
+        assert.match(leave.textContent, /phase/);
+        assert.ok(leave.querySelector('.codicon-debug-step-out'));
+        leave.click();
+        assert.deepEqual(posted.at(-1), { type: 'action', kind: 'leave-out', level: 'phase' });
+    });
+});
+
 describe('process editor', () => {
     const load = (w: Win): void => {
         send(w, { type: 'list', processes: [{ id: 'flow', name: 'Flow', valid: true, errorCount: 0 }, { id: 'other', name: 'Other', valid: true, errorCount: 0 }], roles: ['code_reviewer', 'senior_developer'], currentProcess: 'flow', selected: 'flow' });
@@ -313,6 +355,45 @@ describe('process editor', () => {
         w.document.querySelector('.item[data-id="other"]').click();
         const select = posted.filter((m) => m.type === 'select').pop() as Win;
         assert.deepEqual([select.id, select.dirty, select.definition.name], ['other', true, 'Flow 2']);
+    });
+
+    test('PW-18: optional and conditional phases and steps', () => {
+        const { w, posted } = setup('processEditor');
+        load(w);
+        const mode = (path: string): Win => w.document.querySelector(`[data-cond-mode="${path}"]`);
+        assert.ok(mode('phases.0') && mode('phases.0.steps.0') && mode('phases.0.postGate'), 'phase, step and post-gate');
+        assert.equal(mode('phases.0.gate'), null, 'not a gate');
+        assert.equal(field(w, 'phases.0.gate.optional'), null);
+        const change = (el: Win, value: string | boolean): void => {
+            if (typeof value === 'boolean') { el.checked = value; } else { el.value = value; }
+            // A text field is taken as typed (input); selects and checkboxes on change.
+            el.dispatchEvent(new w.Event(el.tagName === 'INPUT' && el.type === 'text' ? 'input' : 'change', { bubbles: true }));
+        };
+        change(field(w, 'phases.0.optional'), true);
+        change(mode('phases.0.steps.0'), 'var');
+        change(field(w, 'phases.0.steps.0.when.var'), 'spec-mode');
+        change(field(w, 'phases.0.steps.0.when.equals'), 'change');
+        change(mode('phases.1'), 'judge');
+        change(field(w, 'phases.1.when.judge'), 'the change touches the data model');
+        const saved = (): Record<string, Win> => {
+            w.document.querySelector('[data-op="save"]').click();
+            return ([...posted].reverse().find((m) => m.type === 'save') as Record<string, Win>).definition;
+        };
+        let def = saved();
+        assert.equal(def.phases[0].optional, true);
+        assert.deepEqual(def.phases[0].steps[0].when, { var: 'spec-mode', equals: 'change' });
+        assert.deepEqual(def.phases[1].when, { judge: 'the change touches the data model' });
+        // The test: is one of (a list), is not set; back to always.
+        const test = (path: string): Win => w.document.querySelector(`[data-cond-test="${path}"]`);
+        assert.deepEqual([...test('phases.0.steps.0').options].map((o: Win) => o.textContent), ['is', 'is not', 'is one of', 'is set', 'is not set']);
+        change(test('phases.0.steps.0'), 'in');
+        change(field(w, 'phases.0.steps.0.when.in'), 'initial, change');
+        assert.deepEqual(saved().phases[0].steps[0].when, { var: 'spec-mode', in: ['initial', 'change'] });
+        change(test('phases.0.steps.0'), 'unset');
+        assert.deepEqual(saved().phases[0].steps[0].when, { var: 'spec-mode', set: false });
+        change(mode('phases.0.steps.0'), '');
+        def = saved();
+        assert.equal(def.phases[0].steps[0].when, undefined);
     });
 
     test('PW-13: the user-action checkbox', () => {

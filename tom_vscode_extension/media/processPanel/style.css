@@ -160,3 +160,10 @@ details.level > summary { cursor: pointer; }
 .sg-head { font-weight: 600; }
 .sg-reasons { margin: 2px 0 2px 16px; padding: 0; }
 .sg-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Optional / conditional phases and steps, and what was left out. */
+.cond-note { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: -2px 0 4px 0; }
+.cond-note .codicon { vertical-align: text-bottom; font-size: 0.95em; }
+.left-out { margin: 6px 0 2px; font-size: 0.92em; }
+.left-out summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
+.left-out ul { margin: 2px 0 0 0; padding-left: 18px; }

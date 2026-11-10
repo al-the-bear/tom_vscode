@@ -18,6 +18,11 @@
  *   PS-5 Skip removes the open marker of the quest and moves; a set state (tomAi_setProcessState) too
  *   PS-6 a step Proceed runs with no prompt (a user action) moves at once, no marker
  *   PS-7 the marker's move survives the queue file (`process-move`, `process-run` with its proceedId)
+ *   PS-8 conditions (vscimpb36): a step whose `judge:` condition the agent finds false during its Proceed run
+ *        (tomAi_setProcessState {leaveOut}) keeps its marker and is left out when the run ends, recorded as the
+ *        agent's; Leave out by the user passes an optional step and, by its variable, a conditional one; a
+ *        `leaveOut` without a run leaves out at once; where nothing is judged it is refused; a process started
+ *        from its beginning passes a first phase its condition excludes
  */
 
 import test, { after, describe } from 'node:test';
@@ -59,6 +64,34 @@ put('_ai/processes/flow/flow.process.yaml', [
     '',
 ].join('\n'));
 put('_ai/processes/flow/flow.md', '# Flow\n');
+put('_ai/processes/cond/cond.process.yaml', [
+    'id: cond',
+    'phases:',
+    '  - id: pre',
+    '    when:',
+    '      var: mode',
+    '      equals: full',
+    '    steps:',
+    '      - id: prepare',
+    '    gate:',
+    '      id: gate',
+    '  - id: main',
+    '    steps:',
+    '      - id: first',
+    '      - id: announce',
+    '        when:',
+    '          judge: the release changes the public API',
+    '      - id: extra',
+    '        optional: true',
+    '      - id: second',
+    '        when:',
+    '          var: mode',
+    '          equals: full',
+    '    gate:',
+    '      id: gate',
+    '',
+].join('\n'));
+put('_ai/processes/cond/cond.md', '# Cond\n');
 put('.tom/tom_vscode_extension.json', '{}\n');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
@@ -267,6 +300,51 @@ describe('a process step ends with its queue', () => {
         assert.match(text, new RegExp(`proceedId: ${marker.processRun!.proceedId}`));
         assert.deepEqual(parseProcessMove({ kind: 'proceed', label: 'Proceed', to: 'X' }), { kind: 'proceed', label: 'Proceed', to: 'X' });
         assert.equal(parseProcessMove({ kind: 'proceed' }), undefined);
+        clearQueue();
+    });
+
+    test('PS-8: conditions — the agent leaves a step out, the user an optional one', async () => {
+        clearQueue();
+        ChatVariablesStore.instance.set('mode', 'short', 'user');
+        // Started from its beginning: the first phase's condition fails, so it starts in `main`.
+        assert.equal(store().apply({ process: 'cond' }, 'user').ok, true);
+        assert.deepEqual([store().state.phase, store().state.step], ['main', 'first']);
+        assert.deepEqual(store().state.skipped?.map((r) => [r.phase, r.by]), [['pre', 'condition']]);
+        // Nothing to judge at `first`.
+        const refused = JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ leaveOut: 'x' } as never)));
+        assert.equal(refused.ok, false);
+        assert.match(refused.error, /nothing at the current position has a condition for the agent to judge/);
+
+        assert.equal(store().apply({ step: 'announce' }, 'user').ok, true);
+        const { prompt, marker } = await proceed();
+        set(prompt.id, 'sending');
+        const answer = JSON.parse(String(await runInProcessPosition(prompt.processRun, () => SET_PROCESS_STATE_TOOL.execute({ leaveOut: 'no public API change' } as never))));
+        assert.equal(answer.ok, true, JSON.stringify(answer));
+        assert.equal(answer.processMoveMarkersRemoved, undefined, 'the marker stays');
+        assert.deepEqual(store().state.leaveOut, { level: 'step', reason: 'no public API change' });
+        assert.equal(store().state.step, 'announce', 'nothing moves while the run runs');
+        set(prompt.id, 'sent');
+        await queue().sendNext();
+        assert.equal(queue().getById(marker.id)?.status, 'sent');
+        assert.equal(store().state.step, 'extra', 'left out when the run ended');
+        assert.equal(store().state.leaveOut, undefined);
+        const last = store().state.skipped!.at(-1)!;
+        assert.deepEqual([last.step, last.by, last.reason], ['announce', 'agent', 'no public API change']);
+
+        // The user leaves the optional step out; `second` is passed by its variable.
+        const left = await confirmProcessAction('leave-out', 'step', '');
+        assert.equal(left.ok, true, JSON.stringify(left));
+        assert.equal(store().state.step, 'gate');
+        assert.deepEqual(store().state.skipped!.slice(-2).map((r) => [r.step, r.by]), [['extra', 'user'], ['second', 'condition']]);
+
+        // Without a running step the agent's leaveOut leaves out at once.
+        assert.equal(store().apply({ step: 'announce' }, 'user').ok, true);
+        const now = JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ leaveOut: 'not needed' } as never)));
+        assert.equal(now.ok, true, JSON.stringify(now));
+        assert.equal(store().state.step, 'extra');
+        const both = JSON.parse(String(await SET_PROCESS_STATE_TOOL.execute({ leaveOut: 'x', step: 'first' } as never)));
+        assert.match(both.error, /`leaveOut` goes alone/);
+        ChatVariablesStore.instance.remove('mode');
         clearQueue();
     });
 });

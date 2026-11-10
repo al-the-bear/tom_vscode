@@ -53,6 +53,10 @@ import {
     EMPTY_PROCESS_STATE,
     applyProcessChange,
     availableMoves,
+    conditionLookup,
+    judgedLevelAt,
+    passExcluded,
+    type ConditionOptions,
     changeIteration,
     currentRole,
     effectiveSession,
@@ -306,7 +310,11 @@ export class ProcessStateStore {
         const check = checkNestedStart(levels, this.definitions(), kind, processId);
         if (!check.ok) { return check; }
         const before = topLevel(levels);
-        return this.writeLevels(repo, before, pushNestedLevel(levels, check.def, kind, followUp, new Date(), inputs), source);
+        const pushed = pushNestedLevel(levels, check.def, kind, followUp, new Date(), inputs);
+        // The new level starts at its first position — past what its conditions leave out.
+        const start = pushed[pushed.length - 1];
+        pushed[pushed.length - 1] = passExcluded(check.def, { ...EMPTY_PROCESS_STATE }, start, this.conditionOptions(start));
+        return this.writeLevels(repo, before, pushed, source);
     }
 
     /**
@@ -397,7 +405,7 @@ export class ProcessStateStore {
     contextBlock(): string {
         const v = this.viewed();
         const run = currentProcessRun();
-        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest);
+        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest, this.conditionOptions(v.state));
         if (!block) { return block; }
         const parents = parentProcessLines(this.levels, (l) => this.positionOf(l));
         return [...(parents.length ? [...parents, ''] : []), block, ...this.suggestionLines(v.def, v.state)].join('\n');
@@ -493,9 +501,38 @@ export class ProcessStateStore {
         return this.entry(this.rawState.process)?.description ?? '';
     }
 
+    /**
+     * What `when:` conditions are decided with: the chat variables (custom
+     * ones by name), and `input.<name>` from the level's inputs.
+     */
+    conditionOptions(state: ProcessState = this.state): ConditionOptions {
+        let values: Record<string, string> = {};
+        try { values = ChatVariablesStore.instance.toTemplateValues(); } catch { /* not initialised: no variable is set */ }
+        return { lookup: conditionLookup(values, state) };
+    }
+
     /** The moves the PROCESS view's action bar offers at the current position. */
     moves(): ProcessMove[] {
-        return availableMoves(this.currentDefinition(), this.state);
+        return availableMoves(this.currentDefinition(), this.state, this.conditionOptions());
+    }
+
+    /**
+     * The agent judged the condition of the running phase or step not to hold
+     * (tomAi_setProcessState `leaveOut`): recorded on the position; when the
+     * step's Proceed run ends, the process leaves the phase or step out
+     * instead of moving on through it. Without a running Proceed it is left
+     * out at once. Refused where nothing has a condition to judge.
+     */
+    leaveOut(reason: string, running: boolean, source: ChangeSource): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const judged = judgedLevelAt(this.currentDefinition(), this.state, this.conditionOptions().lookup);
+        if (!judged) { return { ok: false, error: 'nothing at the current position has a condition for the agent to judge (a `when:` with `judge:`, or a variable that is not set)' }; }
+        const why = reason.trim() || 'its condition does not hold';
+        const marked = this.commit(repo, this.state, { ...this.state, leaveOut: { level: judged.level, reason: why } }, source);
+        if (!marked.ok || running) { return marked; }
+        return this.move('leave-out', judged.level, source);
     }
 
     /** The move of `kind` (and `level`) offered now, if any. */
@@ -512,6 +549,8 @@ export class ProcessStateStore {
         if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        // The agent judged the step's condition not to hold: its Proceed run ends by leaving it out.
+        if (kind === 'proceed' && this.state.leaveOut) { kind = 'leave-out'; level = this.state.leaveOut.level; }
         const move = this.findMove(kind, level);
         if (!move) { return { ok: false, error: `"${kind}${level ? ` ${level}` : ''}" is not possible at the current position` }; }
         return this.commit(repo, this.state, move.target, source);
@@ -543,6 +582,12 @@ export class ProcessStateStore {
         }
         const result = applyProcessChange(before, this.definitions(), change);
         if (!result.ok) { return result; }
+        // A process started from its beginning (no position named) starts past what its conditions leave out.
+        const started = change.process !== undefined && change.process !== '' && change.process !== before.process;
+        if (started && change.phase === undefined && change.step === undefined && change.substep === undefined) {
+            const def = this.entry(change.process!)?.definition;
+            if (def) { result.state = passExcluded(def, { ...EMPTY_PROCESS_STATE }, result.state, this.conditionOptions(result.state)); }
+        }
         const { nestedEnded: _ended, ...next } = result.state;
         // Another process for the quest leaves every level of the stack: it is the quest's process now.
         if (change.process !== undefined && change.process !== before.process && this.rawLevels.length > 1) {
@@ -572,8 +617,8 @@ export class ProcessStateStore {
 
     private commit(repo: ProcessRepository, before: ProcessState, next: ProcessState, source: ChangeSource): ProcessChangeResult {
         // A move to another position leaves the step's suggestions behind (they belong to the step).
-        if (!samePosition(before, next) && (next.suggestions || next.suggestionsDue)) {
-            const { suggestions: _s, suggestionsDue: _d, ...rest } = next;
+        if (!samePosition(before, next) && (next.suggestions || next.suggestionsDue || next.leaveOut)) {
+            const { suggestions: _s, suggestionsDue: _d, leaveOut: _l, ...rest } = next;
             next = rest;
         }
         // Every change passes here, so the step it leaves is recorded once, in one place.

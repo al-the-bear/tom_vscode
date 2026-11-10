@@ -26,6 +26,7 @@ import {
     type ProcessChangeResult,
     type ProcessDefinition,
     type ProcessState,
+    type ProcessStep,
 } from '../utils/processDefinition';
 import type { ChangeSource } from '../managers/chatVariablesStore';
 import { unescapePlaceholders } from '../utils/placeholderEscape';
@@ -56,6 +57,12 @@ export interface ProcessToolDeps {
     deleteRuns?(runs: string[]): { ok: true; deleted: string[] } | { ok: false; error: string };
     /** Remove the open process-move markers of run `run` (default: the window's). */
     dropRunMarkers?(run: string | undefined): number;
+    /**
+     * The agent judged the running phase's or step's `when:` not to hold:
+     * recorded, and left out when the step's Proceed run ends (at once when
+     * none runs).
+     */
+    leaveOut?(reason: string): ProcessChangeResult;
 }
 
 /** `fn` on `run` when one is named and the deps know runs; else on the window's run. */
@@ -87,6 +94,8 @@ export function outlineDefinition(def: ProcessDefinition): unknown {
             name: p.name,
             repeatable: p.repeatable === true,
             ...(p.maxIterations ? { maxIterations: p.maxIterations } : {}),
+            ...(p.optional ? { optional: true } : {}),
+            ...(p.when ? { when: p.when } : {}),
             steps: phaseSteps(p).map((e) => ({
                 id: e.step.id,
                 kind: e.kind,
@@ -94,6 +103,8 @@ export function outlineDefinition(def: ProcessDefinition): unknown {
                 role: e.step.role,
                 repeatable: e.step.repeatable === true,
                 ...(e.step.maxIterations ? { maxIterations: e.step.maxIterations } : {}),
+                ...((e.step as ProcessStep).optional ? { optional: true } : {}),
+                ...((e.step as ProcessStep).when ? { when: (e.step as ProcessStep).when } : {}),
                 ...(e.step.substeps?.length ? {
                     substeps: e.step.substeps.map((s) => ({ id: s.id, name: s.name, role: s.role, repeatable: s.repeatable === true })),
                 } : {}),
@@ -223,8 +234,19 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number; run?
 // tomAi_setProcessState
 // ===========================================================================
 
-export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange & { run?: string }): Promise<string> {
-    const { run, ...change } = input;
+export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange & { run?: string; leaveOut?: string }): Promise<string> {
+    const { run, leaveOut, ...change } = input;
+    if (leaveOut !== undefined) {
+        if (Object.keys(change).length) { return JSON.stringify({ ok: false, error: '`leaveOut` goes alone: it records that the running phase or step is left out, and moves nothing else' }); }
+        if (typeof leaveOut !== 'string') { return JSON.stringify({ ok: false, error: '`leaveOut` is the reason, as text' }); }
+        if (!deps.leaveOut) { return JSON.stringify({ ok: false, error: 'leaving out is not available here' }); }
+        const answer = onRun(deps, run, () => {
+            const result = deps.leaveOut!(leaveOut);
+            if (!result.ok) { return result; }
+            return { ok: true, ...(run ? { run } : {}), state: result.state, leftOut: result.state.leaveOut ?? 'done' };
+        });
+        return JSON.stringify(answer, null, 2);
+    }
     const answer = onRun(deps, run, () => {
         const roleBefore = deps.currentRole();
         const result = deps.apply(change);
@@ -242,11 +264,11 @@ export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessC
     return JSON.stringify(answer, null, 2);
 }
 
-export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?: string }> = {
+export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?: string; leaveOut?: string }> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker. `run` moves another run of the quest (tomAi_listProcessRuns) instead of the window\'s current one.',
+        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker. `leaveOut` (alone; the reason): the running phase or step whose `when:` you judge does not hold is left out and recorded — when its Proceed run ends, at once without one. `run` moves another run of the quest (tomAi_listProcessRuns) instead of the window\'s current one.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -264,6 +286,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?
             substepIteration: { type: 'number', description: 'Iteration of the sub-step (≥ 1).' },
             completed: { type: 'boolean', description: 'true: the process is finished (its last step done).' },
             outputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Outputs of the running subprocess or branch, by declared name (merged with those set before).' },
+            leaveOut: { type: 'string', description: 'Why the running phase or step is left out: its `when:` condition, judged by you, does not hold. Goes alone.' },
             ...RUN_PARAM,
         },
     },
@@ -300,6 +323,12 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         selectRun: (run) => store().selectRun(run),
         createRun: (run, process, select) => store().createRun(run, process, source, select),
         deleteRuns: (runs) => store().deleteRuns(runs),
+        leaveOut: (reason) => {
+            // Inside a Proceed run of this quest the move waits for the run's marker.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const run = (require('../services/processRunContext.js') as typeof import('../services/processRunContext')).currentProcessRun();
+            return store().leaveOut(reason, !!run?.proceedId && run.quest === store().activeQuest, source);
+        },
     };
     function dropMarkers(run: string): number {
         // eslint-disable-next-line @typescript-eslint/no-require-imports

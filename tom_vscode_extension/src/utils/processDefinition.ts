@@ -117,10 +117,46 @@ export interface ProcessIoDecl {
 }
 
 /**
+ * When a phase or step runs (`when:`), in one of two notations — the key says
+ * who decides:
+ *
+ * - `{var, equals | notEquals | in | set}` — the extension decides, from the
+ *   chat variables (a custom one by its name, `custom.<name>` too, the
+ *   built-ins, and a nested level's `input.<name>`): a forward move passes a
+ *   phase or step whose condition does not hold by, recording why. A variable
+ *   that is not set decides nothing (except for `set`): the agent judges it.
+ * - `{judge: text}` — the agent decides, at Proceed: it is told the condition
+ *   and, when it does not hold, leaves the phase or step out
+ *   (`tomAi_setProcessState {leaveOut: why}`).
+ */
+export type ProcessCondition = ProcessVarCondition | ProcessJudgeCondition;
+
+export interface ProcessVarCondition {
+    var: string;
+    equals?: string;
+    notEquals?: string;
+    in?: string[];
+    /** true: runs when the variable has a value; false: when it has none. */
+    set?: boolean;
+}
+
+export interface ProcessJudgeCondition {
+    judge: string;
+}
+
+/** What a phase and a step (not a gate) may say about whether they run. */
+export interface ProcessConditional {
+    /** May be left out: the PROCESS view offers Leave out at its start. */
+    optional?: boolean;
+    /** Runs only when this holds ({@link ProcessCondition}). */
+    when?: ProcessCondition;
+}
+
+/**
  * A step. With `substeps` it is no action of its own but a group of them; its
  * `role` then applies to the sub-steps that name none.
  */
-export interface ProcessStep extends ProcessSubstep {
+export interface ProcessStep extends ProcessSubstep, ProcessConditional {
     substeps?: ProcessSubstep[];
 }
 
@@ -141,7 +177,7 @@ export interface ProcessPostGateStep extends ProcessStep {
     todoPrefix?: string;
 }
 
-export interface ProcessPhase {
+export interface ProcessPhase extends ProcessConditional {
     id: string;
     name?: string;
     description?: string;
@@ -218,9 +254,11 @@ function isSessionName(v: string): boolean {
 const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'phases'];
 const IO_KEYS = ['name', 'kind', 'description', 'required'];
 const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
-const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', 'steps', 'gate', 'postGate'];
+const CONDITIONAL_KEYS = ['optional', 'when'];
+const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches'];
-const STEP_KEYS = [...SUBSTEP_KEYS, 'substeps'];
+const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'substeps'];
+const CONDITION_TESTS = ['equals', 'notEquals', 'in', 'set'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const GATE_KEYS = [...STEP_KEYS, 'onFail'];
 const TODO_KEYS = ['title', 'description'];
@@ -337,8 +375,30 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             seen.add(id);
         });
     };
+    const checkConditional = (obj: Raw, path: string): void => {
+        if (obj.optional !== undefined && typeof obj.optional !== 'boolean') { err(`${path}.optional`, 'true or false'); }
+        const when = obj.when;
+        if (when === undefined) { return; }
+        const at = `${path}.when`;
+        const shape = '{var, equals | notEquals | in | set} (the extension decides) or {judge: text} (the agent decides at Proceed)';
+        if (!isObject(when)) { err(at, shape); return; }
+        if ('judge' in when) {
+            unknownKeys(when, ['judge'], at);
+            if (typeof when.judge !== 'string' || when.judge.trim() === '') { err(`${at}.judge`, 'the condition, as text the agent judges'); }
+            return;
+        }
+        unknownKeys(when, ['var', ...CONDITION_TESTS], at);
+        if (typeof when.var !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(when.var)) { err(`${at}.var`, 'a chat variable name (`spec-mode`, `custom.spec-mode`, `input.folder`)'); }
+        const tests = CONDITION_TESTS.filter((k) => when[k] !== undefined);
+        if (tests.length !== 1) { err(at, `exactly one of ${CONDITION_TESTS.join(', ')}`); return; }
+        const test = tests[0];
+        if ((test === 'equals' || test === 'notEquals') && typeof when[test] !== 'string') { err(`${at}.${test}`, 'text expected (quote numbers and true/false)'); }
+        if (test === 'in' && (!Array.isArray(when.in) || when.in.length === 0 || when.in.some((v) => typeof v !== 'string'))) { err(`${at}.in`, 'a list of texts'); }
+        if (test === 'set' && typeof when.set !== 'boolean') { err(`${at}.set`, 'true or false'); }
+    };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
+        if (isObject(obj)) { checkConditional(obj, path); }
         if (isObject(obj) && obj.userAction === true && obj.substeps !== undefined) {
             err(`${path}.userAction`, 'a step with sub-steps is a group — flag the sub-steps the user does');
         }
@@ -398,6 +458,7 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             checkText(phase, 'prompt', path);
             checkSession(phase, path);
             checkRepeat(phase, path, 'phase');
+            checkConditional(phase, path);
             const stepIds = new Set<string>();
             const noteStep = (stepId: string, stepPath: string): void => {
                 if (stepId && stepIds.has(stepId)) { err(`${stepPath}.id`, `"${stepId}" is used twice in phase "${phaseId}"`); }
@@ -423,6 +484,11 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                 }
                 if (isObject(phase.gate) && phase.gate.userAction !== undefined) {
                     err(`${path}.gate.userAction`, 'a gate is the agents\' check; the user\'s approval is the Gate passed / failed decision');
+                }
+                for (const key of CONDITIONAL_KEYS) {
+                    if (isObject(phase.gate) && phase.gate[key] !== undefined) {
+                        err(`${path}.gate.${key}`, 'every phase that runs ends with its gate — make the phase optional or conditional instead');
+                    }
                 }
             }
             if (phase.postGate !== undefined) {
@@ -485,7 +551,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
     };
     const substep = (s: ProcessSubstep): Raw => lists(pick(s, SUBSTEP_KEYS));
     const step = (s: ProcessStep): Raw => {
-        const out = lists(pick(s, SUBSTEP_KEYS));
+        const out = lists(pick(s, [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS]));
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
         return out;
     };
@@ -495,8 +561,9 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         ...(def.outputs?.length ? { outputs: def.outputs.map((d) => pick(d, [...IO_KEYS, 'value'])) } : {}),
         phases: def.phases.map((p) => {
             const gate = step(p.gate);
+            for (const key of CONDITIONAL_KEYS) { delete gate[key]; }
             if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
-            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations']), steps: p.steps.map(step), gate };
+            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS]), steps: p.steps.map(step), gate };
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -576,7 +643,36 @@ export interface ProcessState {
     suggestionsDue?: { kind: ProcessMoveKind; level?: ProcessLevel; label: string };
     /** The subprocesses and branches started from this level so far, oldest first (at most 50). */
     nestedRuns?: NestedRunRecord[];
+    /**
+     * The phases and steps left out so far, oldest first (at most 50): passed
+     * by because their `when:` did not hold, or left out by the user or the
+     * agent — which alternative ran is what is not here.
+     */
+    skipped?: ProcessSkipRecord[];
+    /**
+     * The agent judged the running phase's or step's `when:` not to hold
+     * (tomAi_setProcessState `leaveOut`): when its Proceed run ends, the
+     * process leaves it out instead of moving on through it. Dropped by every
+     * change of position.
+     */
+    leaveOut?: { level: 'phase' | 'step'; reason: string };
 }
+
+/** A phase or step left out, and why. */
+export interface ProcessSkipRecord {
+    phase: string;
+    phaseIteration: number;
+    /** The step left out; unset: the whole phase. */
+    step?: string;
+    reason: string;
+    /** Its `when:` did not hold (the extension decided), the user's Leave out, the agent's judgement. */
+    by: 'condition' | 'user' | 'agent';
+    /** ISO time. */
+    at: string;
+}
+
+/** How many skip records a level keeps. */
+export const MAX_SKIP_RECORDS = 50;
 
 /** An agent's suggestion of a process the position lists. */
 export interface StoredSuggestion {
@@ -934,17 +1030,197 @@ export function applyProcessChange(
 }
 
 // ============================================================================
+// Conditions — optional and conditional phases and steps
+// ============================================================================
+
+/** Reads a variable a condition names; undefined (or '') when it is not set. */
+export type ConditionLookup = (name: string) => string | undefined;
+
+/** What the moves need to decide `when:` conditions. */
+export interface ConditionOptions {
+    /** The variables conditions read. Without it no condition is decided and nothing is passed by. */
+    lookup?: ConditionLookup;
+    /** The time skip records carry; default now. */
+    now?: string;
+}
+
+/** `holds` / `fails`: the extension decided; `judge`: the agent judges it (a `judge:` condition, a variable not set). */
+export type ConditionVerdict = 'holds' | 'fails' | 'judge';
+
+export function isJudgeCondition(cond: ProcessCondition): cond is ProcessJudgeCondition {
+    return typeof (cond as ProcessJudgeCondition).judge === 'string';
+}
+
+/** Decide `cond` from `lookup`; see {@link ProcessCondition}. */
+export function evaluateCondition(cond: ProcessCondition, lookup?: ConditionLookup): ConditionVerdict {
+    if (isJudgeCondition(cond)) { return 'judge'; }
+    if (!lookup) { return 'judge'; }
+    const value = lookup(cond.var) ?? '';
+    const verdict = (b: boolean): ConditionVerdict => (b ? 'holds' : 'fails');
+    if (cond.set !== undefined) { return verdict((value !== '') === cond.set); }
+    if (value === '') { return 'judge'; }
+    if (cond.equals !== undefined) { return verdict(value === cond.equals); }
+    if (cond.notEquals !== undefined) { return verdict(value !== cond.notEquals); }
+    if (cond.in !== undefined) { return verdict(cond.in.includes(value)); }
+    return 'judge';
+}
+
+/** The condition as a reader says it: `` `spec-mode` is `change` ``, or the judge text. */
+export function conditionText(cond: ProcessCondition): string {
+    if (isJudgeCondition(cond)) { return cond.judge.trim(); }
+    const v = `\`${cond.var}\``;
+    if (cond.set !== undefined) { return cond.set ? `${v} is set` : `${v} is not set`; }
+    if (cond.equals !== undefined) { return `${v} is \`${cond.equals}\``; }
+    if (cond.notEquals !== undefined) { return `${v} is not \`${cond.notEquals}\``; }
+    return `${v} is one of ${(cond.in ?? []).map((x) => `\`${x}\``).join(', ')}`;
+}
+
+/**
+ * A lookup over variable values (chat variables as the placeholder engine
+ * has them): a name as given, else as `custom.<name>` (or without `custom.`),
+ * and `input.<name>` from the level's inputs.
+ */
+export function conditionLookup(values: Readonly<Record<string, string>>, state?: ProcessState): ConditionLookup {
+    return (name) => {
+        const v = name.startsWith('input.')
+            ? state?.inputs?.[name.slice('input.'.length)]
+            : values[name] ?? values[`custom.${name}`] ?? (name.startsWith('custom.') ? values[name.slice('custom.'.length)] : undefined);
+        return v === '' ? undefined : v;
+    };
+}
+
+function addSkip(state: ProcessState, record: ProcessSkipRecord): ProcessState {
+    return { ...state, skipped: [...(state.skipped ?? []), record].slice(-MAX_SKIP_RECORDS) };
+}
+
+function withoutLeaveOut(state: ProcessState): ProcessState {
+    if (!state.leaveOut) { return state; }
+    const { leaveOut: _l, ...rest } = state;
+    return rest;
+}
+
+/** The first position of the phase after `phase`; null after the last. */
+function afterPhase(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase): ProcessState | null {
+    const next = def.phases[def.phases.indexOf(phase) + 1];
+    return next ? withStep({ ...state, phase: next.id, phaseIteration: 1 }, firstStepOf(next), 1) : null;
+}
+
+/** The position after the whole step `stepId` of `phase` (the next step, else the next phase); null at the end. */
+function afterStep(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase, stepId: string): ProcessState | null {
+    const entries = phaseSteps(phase);
+    const index = entries.findIndex((e) => e.step.id === stepId);
+    if (index >= 0 && index < entries.length - 1) {
+        const next = entries[index + 1].step;
+        return withStep(state, next, reentryIteration(state, phase, next));
+    }
+    return afterPhase(def, state, phase);
+}
+
+/**
+ * Where a forward move from `from` to `target` really leads: every phase it
+ * enters and every step it enters whose `when:` the extension decides does
+ * not hold is passed by, and recorded in `skipped`. Past the last phase the
+ * process is finished. A decision position, a finished process, a condition
+ * the agent judges and a move without `options.lookup` stay as they are.
+ */
+export function passExcluded(def: ProcessDefinition, from: ProcessState, target: ProcessState, options: ConditionOptions = {}): ProcessState {
+    if (!options.lookup) { return target; }
+    const now = options.now ?? new Date().toISOString();
+    let prev = from;
+    let at = target;
+    for (let guard = 0; guard < 10_000; guard++) {
+        if (at.completed || at.decision) { return at; }
+        const phase = findPhase(def, at.phase);
+        if (!phase) { return at; }
+        const entersPhase = at.phase !== prev.phase || at.phaseIteration !== prev.phaseIteration;
+        let next: ProcessState | null | undefined;
+        if (entersPhase && phase.when && evaluateCondition(phase.when, options.lookup) === 'fails') {
+            at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, reason: `runs only when ${conditionText(phase.when)}`, by: 'condition', at: now });
+            next = afterPhase(def, at, phase);
+        } else {
+            const step = findStep(phase, at.step);
+            const entersStep = entersPhase || at.step !== prev.step || at.stepIteration !== prev.stepIteration;
+            if (!step || !entersStep || step === phase.gate || !step.when || evaluateCondition(step.when, options.lookup) !== 'fails') { return at; }
+            at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, step: step.id, reason: `runs only when ${conditionText(step.when)}`, by: 'condition', at: now });
+            next = afterStep(def, at, phase, step.id);
+        }
+        if (!next) { return { ...at, completed: true }; }
+        prev = at;
+        at = next;
+    }
+    return at;
+}
+
+/** Whether the conditional fields of `node` make it something that may be left out. */
+function leavable(node: ProcessConditional): boolean {
+    return node.optional === true || node.when !== undefined;
+}
+
+/**
+ * The Leave out moves at `pos`: the phase at its first position, the step
+ * (not a gate) anywhere in it, when they are optional or conditional. The
+ * record says who left it out: the agent when it judged the condition
+ * (`state.leaveOut`), else the user.
+ */
+function leaveOutMoves(def: ProcessDefinition, state: ProcessState, here: ProcessState, pos: Position, options: ConditionOptions): ProcessMove[] {
+    const now = options.now ?? new Date().toISOString();
+    const moves: ProcessMove[] = [];
+    const base = withoutLeaveOut(here);
+    const record = (level: 'phase' | 'step', node: ProcessConditional): Pick<ProcessSkipRecord, 'reason' | 'by'> => {
+        if (state.leaveOut?.level === level) { return { reason: state.leaveOut.reason || 'its condition does not hold', by: 'agent' }; }
+        return { reason: node.when ? `left out by the user (runs only when ${conditionText(node.when)})` : 'left out by the user (optional)', by: 'user' };
+    };
+    const lead = (skipped: ProcessState, next: ProcessState | null): ProcessState => (next ? passExcluded(def, skipped, next, options) : { ...skipped, completed: true });
+    if (pos.stepIndex === 0 && pos.substepIndex <= 0 && leavable(pos.phase)) {
+        const skipped = addSkip(base, { phase: pos.phase.id, phaseIteration: here.phaseIteration, ...record('phase', pos.phase), at: now });
+        moves.push({ kind: 'leave-out', level: 'phase', label: `Leave out the phase ${nameOf(pos.phase)}`, target: lead(skipped, afterPhase(def, skipped, pos.phase)) });
+    }
+    const entry = pos.entries[pos.stepIndex];
+    const step = entry.step as ProcessStep;
+    if (entry.kind !== 'gate' && leavable(step)) {
+        const skipped = addSkip(base, { phase: pos.phase.id, phaseIteration: here.phaseIteration, step: step.id, ...record('step', step), at: now });
+        moves.push({ kind: 'leave-out', level: 'step', label: `Leave out the step ${nameOf(step)}`, target: lead(skipped, afterStep(def, skipped, pos.phase, step.id)) });
+    }
+    return moves;
+}
+
+/**
+ * What the agent can leave out at `state` (tomAi_setProcessState
+ * `leaveOut`): the phase at its first position when its `when:` is for the
+ * agent to judge, else the step when its `when:` is; null when neither.
+ */
+export function judgedLevelAt(def: ProcessDefinition | null, state: ProcessState, lookup?: ConditionLookup): { level: 'phase' | 'step'; condition: ProcessCondition; node: ProcessPhase | ProcessStep } | null {
+    if (!def || !state.process || state.completed || state.decision) { return null; }
+    const pos = positionOf(def, state);
+    if (!pos) { return null; }
+    if (pos.stepIndex === 0 && pos.substepIndex <= 0 && pos.phase.when && evaluateCondition(pos.phase.when, lookup) === 'judge') {
+        return { level: 'phase', condition: pos.phase.when, node: pos.phase };
+    }
+    const entry = pos.entries[pos.stepIndex];
+    const step = entry.step as ProcessStep;
+    if (entry.kind !== 'gate' && step.when && evaluateCondition(step.when, lookup) === 'judge') {
+        return { level: 'step', condition: step.when, node: step };
+    }
+    return null;
+}
+
+/** The skip records of the phase iteration `state` is in, oldest first. */
+export function skippedInPhase(state: ProcessState): ProcessSkipRecord[] {
+    return (state.skipped ?? []).filter((r) => r.phase === state.phase && r.phaseIteration === state.phaseIteration);
+}
+
+// ============================================================================
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'back';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'leave-out' | 'back';
 
 /** The move kinds, in the order the action bar shows them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'back'];
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'leave-out', 'back'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
-    /** For `finish` the level that ends, for `repeat` the level that starts again. */
+    /** For `finish` the level that ends, for `repeat` the level that starts again, for `leave-out` the level left out. */
     level?: ProcessLevel;
     label: string;
     /** The state the move leads to. */
@@ -1060,39 +1336,40 @@ function whereTo(def: ProcessDefinition, from: ProcessState, to: ProcessState): 
  * that ends there (below its maxIterations), and after a gate, gate failed —
  * back to the gate's `onFail` step, by default the gate run again.
  */
-function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Position, forward: ProcessState | null): ProcessMove[] {
+function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Position, forward: ProcessState | null, options: ConditionOptions): ProcessMove[] {
     const entry = pos.entries[pos.stepIndex];
     const subs = entry.step.substeps ?? [];
     const isGate = entry.kind === 'gate';
     const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
     const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
     const onward = forward ? `go on to ${whereTo(def, here, forward)}` : '';
-    const options: ProcessMove[] = [];
-    if (!forward) {
-        options.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish the process' : 'Finish the process', target: { ...here, completed: true } });
+    const moves: ProcessMove[] = [];
+    if (!forward || forward.completed) {
+        // The end of the process — or everything after this is left out by its conditions.
+        moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish the process' : 'Finish the process', target: forward ?? { ...here, completed: true } });
     } else if (isGate && stepEnds) {
-        options.push({ kind: 'gate-passed', label: `Gate passed — ${onward}`, target: forward });
+        moves.push({ kind: 'gate-passed', label: `Gate passed — ${onward}`, target: forward });
     } else {
-        options.push({ kind: 'finish', label: onward.charAt(0).toUpperCase() + onward.slice(1), target: forward });
+        moves.push({ kind: 'finish', label: onward.charAt(0).toUpperCase() + onward.slice(1), target: forward });
     }
     if (isGate && stepEnds) {
         const gate = pos.phase.gate;
         const back = gate.onFail && gate.onFail !== gate.id ? findStep(pos.phase, gate.onFail) : undefined;
-        options.push(back
+        moves.push(back
             ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, reentryIteration(here, pos.phase, back)) }
             : { kind: 'gate-failed', label: `Gate failed — run ${nameOf(gate)} again`, target: changeIteration(here, def, 'step', 1) });
     }
     const sub = subs[pos.substepIndex];
     if (sub && canRepeat(sub, here.substepIteration)) {
-        options.push({ kind: 'repeat', level: 'substep', label: `Repeat ${nameOf(sub)}`, target: changeIteration(here, def, 'substep', 1) });
+        moves.push({ kind: 'repeat', level: 'substep', label: `Repeat ${nameOf(sub)}`, target: changeIteration(here, def, 'substep', 1) });
     }
     if (stepEnds && !isGate && canRepeat(entry.step, here.stepIteration)) {
-        options.push({ kind: 'repeat', level: 'step', label: `Repeat the step ${nameOf(entry.step)}`, target: changeIteration(here, def, 'step', 1) });
+        moves.push({ kind: 'repeat', level: 'step', label: `Repeat the step ${nameOf(entry.step)}`, target: changeIteration(here, def, 'step', 1) });
     }
     if (phaseEnds && canRepeat(pos.phase, here.phaseIteration)) {
-        options.push({ kind: 'repeat', level: 'phase', label: `Repeat the phase ${nameOf(pos.phase)}`, target: changeIteration(here, def, 'phase', 1) });
+        moves.push({ kind: 'repeat', level: 'phase', label: `Repeat the phase ${nameOf(pos.phase)}`, target: passExcluded(def, here, changeIteration(here, def, 'phase', 1), options) });
     }
-    return options.map((o) => ({ ...o, branchOption: true as const }));
+    return moves.map((o) => ({ ...o, branchOption: true as const }));
 }
 
 /**
@@ -1112,25 +1389,26 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
  * Only a decision position repeats or decides. A finished process offers only
  * `back` ("Reopen"); no process, nothing.
  */
-export function availableMoves(def: ProcessDefinition | null, state: ProcessState): ProcessMove[] {
+export function availableMoves(def: ProcessDefinition | null, state: ProcessState, options: ConditionOptions = {}): ProcessMove[] {
     if (!def || !state.process) { return []; }
-    if (state.nestedEnded) { return nestedEndedMoves(def, state); }
+    if (state.nestedEnded) { return nestedEndedMoves(def, state, options); }
     if (state.completed) { return [{ kind: 'back', label: 'Reopen', target: notRun({ ...state, completed: false }) }]; }
     const pos = positionOf(def, state);
     if (!pos) { return []; }
     const here = notRun(state);
     const forwardRaw = forwardTarget(def, here, pos);
-    const forward = forwardRaw ? notRun(forwardRaw) : null;
+    const forward = forwardRaw ? passExcluded(def, here, withoutLeaveOut(notRun(forwardRaw)), options) : null;
     const moves: ProcessMove[] = [];
     if (state.decision && isDecisionPoint(pos)) {
         moves.push({ kind: 'proceed', label: 'Decide…', target: state });
-        moves.push(...decisionOptions(def, here, pos, forward));
+        moves.push(...decisionOptions(def, here, pos, forward, options));
         moves.push({ kind: 'back', label: 'Back', target: here });
         return moves;
     }
     const next = isDecisionPoint(pos) || !forward ? { ...here, decision: true as const } : forward;
     moves.push({ kind: 'proceed', label: userActionAt(def, state) ? 'Confirm done' : 'Proceed', target: next });
     moves.push({ kind: 'skip', label: 'Skip', target: next });
+    moves.push(...leaveOutMoves(def, state, here, pos, options));
     const backRaw = backTarget(def, here, pos);
     if (backRaw) {
         const prev = positionOf(def, backRaw);
@@ -1145,9 +1423,9 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
  * decision after it) — or Run the step again (the step itself, its next
  * Proceed runs it).
  */
-function nestedEndedMoves(def: ProcessDefinition, state: ProcessState): ProcessMove[] {
+function nestedEndedMoves(def: ProcessDefinition, state: ProcessState, conditions: ConditionOptions = {}): ProcessMove[] {
     const { nestedEnded: ended, ...base } = state;
-    const proceed = availableMoves(def, base).find((m) => m.kind === 'proceed');
+    const proceed = availableMoves(def, base, conditions).find((m) => m.kind === 'proceed');
     const what = `${ended!.kind === 'branch' ? 'the branch' : 'the subprocess'} ${ended!.process} ${ended!.outcome === 'aborted' ? 'was aborted' : 'finished'}`;
     const options: ProcessMove[] = [];
     if (proceed) {
@@ -1159,12 +1437,12 @@ function nestedEndedMoves(def: ProcessDefinition, state: ProcessState): ProcessM
 }
 
 /** The decision the quest is at — its options — or null when it is not at a decision position. */
-export function decisionAt(def: ProcessDefinition | null, state: ProcessState): { options: ProcessMove[] } | null {
-    if (def && state.process && state.nestedEnded) { return { options: nestedEndedMoves(def, state).filter((m) => m.branchOption) }; }
+export function decisionAt(def: ProcessDefinition | null, state: ProcessState, conditions: ConditionOptions = {}): { options: ProcessMove[] } | null {
+    if (def && state.process && state.nestedEnded) { return { options: nestedEndedMoves(def, state, conditions).filter((m) => m.branchOption) }; }
     if (!def || !state.process || state.completed || !state.decision) { return null; }
     const pos = positionOf(def, state);
     if (!pos || !isDecisionPoint(pos)) { return null; }
-    return { options: availableMoves(def, state).filter((m) => m.branchOption) };
+    return { options: availableMoves(def, state, conditions).filter((m) => m.branchOption) };
 }
 
 // ============================================================================
@@ -1283,7 +1561,7 @@ function ioContextLines(def: ProcessDefinition, state: ProcessState): string[] {
     return lines;
 }
 
-export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false): string {
+export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
     const head = (node: { id: string; name?: string }, extra: string): string =>
@@ -1319,11 +1597,24 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
                     : session.basedOn ? ` (based on \`${session.basedOn}\`)` : '';
             lines.push(`Session: \`${session.name}\`${how} — prompts this step queues run in it unless they name another`);
         }
+        const leftOut = skippedInPhase(state);
         const outline = entries.map((e) => {
             const id = e.step.id === state.step ? `**\`${e.step.id}\`**` : `\`${e.step.id}\``;
-            return e.kind === 'step' ? id : `${id} (${e.kind})`;
+            const notes = [
+                e.kind === 'step' ? '' : e.kind,
+                (e.step as ProcessStep).optional ? 'optional' : '',
+                (e.step as ProcessStep).when ? `when ${conditionText((e.step as ProcessStep).when!)}` : '',
+                leftOut.some((r) => r.step === e.step.id) ? 'left out' : '',
+            ].filter(Boolean);
+            return notes.length ? `${id} (${notes.join(', ')})` : id;
         }).join(' → ');
         lines.push(`Steps of this phase: ${outline}`);
+        const phaseNotes = [phase.optional ? 'optional' : '', phase.when ? `runs only when ${conditionText(phase.when)}` : ''].filter(Boolean);
+        if (phaseNotes.length) { lines.push(`This phase is ${phaseNotes.join(' and ')}.`); }
+        const earlier = (state.skipped ?? []).slice(-10);
+        if (earlier.length) {
+            lines.push(`Left out so far: ${earlier.map((r) => `${r.step ? `step \`${r.step}\` of ` : ''}phase \`${r.phase}\`${r.phaseIteration > 1 ? ` (iteration ${r.phaseIteration})` : ''} — ${r.reason}`).join('; ')}`);
+        }
     }
     lines.push(...ioContextLines(def, state));
     if (step && entries.find((e) => e.step === step)?.kind === 'post-gate') {
@@ -1335,16 +1626,24 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
             if (post.todoPrefix) { lines.push(`- and the quest todos with the id prefix \`${post.todoPrefix}\``); }
         }
     }
+    const judged = judgedLevelAt(def, state, conditions.lookup);
+    if (judged) {
+        const what = judged.level === 'phase' ? 'phase' : 'step';
+        const condition = isJudgeCondition(judged.condition)
+            ? judged.condition.judge.trim()
+            : `${conditionText(judged.condition)} (the variable is not set, so the extension cannot decide it)`;
+        lines.push('', `**Condition** — this ${what} runs only when: ${condition}. Judge it before doing any of its work. When it holds, go on as usual. When it does not, do none of the ${what}'s work: call \`tomAi_setProcessState {leaveOut: "<why>"}\` and end your answer — the process then leaves the ${what} out and records why.`);
+    }
     if (!state.completed && userActionAt(def, state)) {
         lines.push('', '**User action** — this position is done by the user, not by an agent: do not do its work and do not move past it; the user confirms it with Proceed in the PROCESS view.');
     }
     if (state.completed) { lines.push('', 'The process is finished: its last step is done.'); }
-    const decision = decisionAt(def, state);
+    const decision = decisionAt(def, state, conditions);
     if (decision) {
         lines.push('', `**Decision** — this position has run; the user decides here how the process goes on: ${decision.options.map((o) => o.label).join('; ')}. An agent does not decide it and does not move past it.`);
     }
     lines.push('', inProceedRun
-        ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step.'
+        ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step (`leaveOut` is the exception: it only records that the step is to be left out).'
         : 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }
@@ -1421,7 +1720,26 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
             } }
             : {}),
         ...(Array.isArray(raw.nestedRuns) ? { nestedRuns: (raw.nestedRuns as unknown[]).filter(isObject).filter((x) => typeof x.process === 'string') as unknown as NestedRunRecord[] } : {}),
+        ...parseSkipped(raw.skipped),
+        ...(isObject(raw.leaveOut) && (raw.leaveOut.level === 'phase' || raw.leaveOut.level === 'step')
+            ? { leaveOut: { level: raw.leaveOut.level, reason: typeof raw.leaveOut.reason === 'string' ? raw.leaveOut.reason : '' } }
+            : {}),
     };
+}
+
+const SKIP_BY: readonly ProcessSkipRecord['by'][] = ['condition', 'user', 'agent'];
+
+function parseSkipped(raw: unknown): { skipped?: ProcessSkipRecord[] } {
+    if (!Array.isArray(raw)) { return {}; }
+    const out = raw.filter(isObject).filter((x) => typeof x.phase === 'string').map((x): ProcessSkipRecord => ({
+        phase: x.phase as string,
+        phaseIteration: Number.isInteger(x.phaseIteration) && (x.phaseIteration as number) >= 1 ? x.phaseIteration as number : 1,
+        ...(typeof x.step === 'string' && x.step ? { step: x.step } : {}),
+        reason: typeof x.reason === 'string' ? x.reason : '',
+        by: SKIP_BY.includes(x.by as ProcessSkipRecord['by']) ? x.by as ProcessSkipRecord['by'] : 'user',
+        at: typeof x.at === 'string' ? x.at : '',
+    }));
+    return out.length ? { skipped: out.slice(-MAX_SKIP_RECORDS) } : {};
 }
 
 /** A `{name: text}` record of a state file; left out when empty or not one. */
@@ -1475,6 +1793,8 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.suggestions?.length ? { suggestions: state.suggestions } : {}),
         ...(state.suggestionsDue ? { suggestionsDue: state.suggestionsDue } : {}),
         ...(state.nestedRuns?.length ? { nestedRuns: state.nestedRuns } : {}),
+        ...(state.skipped?.length ? { skipped: state.skipped } : {}),
+        ...(state.leaveOut ? { leaveOut: state.leaveOut } : {}),
     };
 }
 

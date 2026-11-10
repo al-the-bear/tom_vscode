@@ -32,7 +32,7 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import type { ProcessChange, ProcessLevel, ProcessMoveKind } from '../utils/processDefinition';
+import { conditionText, evaluateCondition, findPhase, findStep, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog } from '../services/processActionService';
@@ -52,6 +52,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
     private subscription?: vscode.Disposable;
     private queueSubscription?: vscode.Disposable;
+    private chatSubscription?: vscode.Disposable;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -77,7 +78,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         // The "no quest is open" banner (media/shared/questHint.js).
         this.context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
         webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this.send(); } });
-        webviewView.onDidDispose(() => { this.subscription?.dispose(); this.queueSubscription?.dispose(); this.view = undefined; });
+        webviewView.onDidDispose(() => { this.subscription?.dispose(); this.queueSubscription?.dispose(); this.chatSubscription?.dispose(); this.view = undefined; });
+        // `when:` conditions read chat variables: the moves change with them.
+        try { this.chatSubscription = ChatVariablesStore.instance.onDidChange(() => this.send()); } catch { /* not initialised */ }
         // A running step's progress follows the queue.
         this.queueSubscription = queueManager()?.onDidChange(() => this.send());
         void ProcessStateStore.ready.then((store) => {
@@ -131,6 +134,11 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             processInvalid: !!entry && !entry.definition,
             description: entry?.description ?? '',
             stepRole: store.currentRole(),
+            conditions: entry?.definition ? conditionNotes(entry.definition, state, store.conditionOptions().lookup) : null,
+            leftOut: (state.skipped ?? []).slice(-8).reverse().map((r) => ({
+                where: entry?.definition ? leftOutWhere(entry.definition, r.phase, r.step) : [r.phase, r.step].filter(Boolean).join(' › '),
+                phaseIteration: r.phaseIteration, reason: r.reason, by: r.by, at: r.at,
+            })),
             chatRole,
             stepRun: run ? { left: run.left, held: run.held, to: run.move.to, label: run.move.label } : null,
             moves: entry?.definition
@@ -209,7 +217,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     }
                     const def = store.currentDefinition();
                     // A decision runs nothing: the user picks how the process goes on.
-                    if (def && decisionDialog(def, store.state)) {
+                    if (def && decisionDialog(def, store.state, store.conditionOptions())) {
                         const { result } = await decideInDialog(this.context);
                         if (result) { this.report(result.ok ? { ok: true } : result); }
                         break;
@@ -243,6 +251,37 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             }
         }
     }
+}
+
+/** A phase's or step's conditional fields as the view shows them: optional, the condition, how it stands now. */
+interface ConditionNote { optional: boolean; when: string; verdict: string }
+
+function noteOf(node: ProcessConditional | undefined, lookup: ConditionLookup): ConditionNote | null {
+    if (!node || (!node.optional && !node.when)) { return null; }
+    const verdict = node.when ? evaluateCondition(node.when, lookup) : '';
+    return {
+        optional: node.optional === true,
+        // Plain text: the view escapes it; the backticks of conditionText are dropped.
+        when: node.when ? conditionText(node.when).replace(/`/g, '') : '',
+        verdict: verdict === 'holds' ? 'holds now' : verdict === 'fails' ? 'does not hold now' : verdict === 'judge' ? 'the agent judges it at Proceed' : '',
+    };
+}
+
+/** The notes of the current phase and of each of its steps (by id). */
+export function conditionNotes(def: ProcessDefinition, state: ProcessState, lookup: ConditionLookup = () => undefined): { phase: ConditionNote | null; steps: Record<string, ConditionNote> } {
+    const phase = findPhase(def, state.phase);
+    const steps: Record<string, ConditionNote> = {};
+    for (const e of phase ? phaseSteps(phase) : []) {
+        const note = e.kind === 'gate' ? null : noteOf(e.step, lookup);
+        if (note) { steps[e.step.id] = note; }
+    }
+    return { phase: noteOf(phase, lookup), steps };
+}
+
+function leftOutWhere(def: ProcessDefinition, phaseId: string, stepId?: string): string {
+    const phase = findPhase(def, phaseId);
+    const step = stepId ? findStep(phase, stepId) : undefined;
+    return [phase?.name || phaseId, stepId ? step?.name || stepId : ''].filter(Boolean).join(' › ');
 }
 
 /** Register the PROCESS view. The process editor is registered by processEditor-handler. */

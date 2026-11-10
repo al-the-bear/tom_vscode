@@ -154,7 +154,7 @@ export async function confirmProcessAction(
             : `the step is still running — ${running.left} item(s) left in the queue; the process moves to ${running.move.to} when they are done` };
     }
     const here = store.state;
-    if (decisionAt(def, here)) {
+    if (decisionAt(def, here, store.conditionOptions())) {
         return { ok: false, error: 'this is a decision: pick how the process goes on (repeat, go on, gate passed or failed) in the PROCESS view' };
     }
     const session = actionSession(def, here, sessionOverride, store.inheritedSession());
@@ -256,7 +256,7 @@ export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
 export async function decideInDialog(context?: vscode.ExtensionContext): Promise<{ picked?: string; result?: ProcessActionResult; helper?: DecisionHelperUse }> {
     const store = await ProcessStateStore.ready;
     const def = store.currentDefinition();
-    const decide = def ? decisionDialog(def, store.state) : null;
+    const decide = def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
     if (!decide) { return {}; }
     // With the extension's context the dialog also offers the helpers (Grill me, Explain a decision).
     const labels = decide.options.map((o) => o.label);
@@ -286,7 +286,7 @@ export function liveDecisionHelperDeps(context: vscode.ExtensionContext): Decisi
     const dialog = () => {
         const s = store();
         const def = s?.currentDefinition();
-        return s && def ? { s, def, decide: decisionDialog(def, s.state) } : undefined;
+        return s && def ? { s, def, decide: decisionDialog(def, s.state, s.conditionOptions()) } : undefined;
     };
     return {
         ...liveAssistDeps(context),
@@ -340,7 +340,7 @@ export async function runFinishReviewRound(context?: vscode.ExtensionContext): P
 export function decisionOptionLabels(): string[] {
     const store = ProcessStateStore.instance;
     const def = store?.currentDefinition();
-    const decide = store && def ? decisionDialog(def, store.state) : null;
+    const decide = store && def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
     return decide ? decide.options.map((o) => o.label) : [];
 }
 
@@ -352,7 +352,7 @@ export function decisionOptionLabels(): string[] {
 export async function takeDecisionOption(label: string): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
     const def = store.currentDefinition();
-    const decide = def ? decisionDialog(def, store.state) : null;
+    const decide = def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
     const option = decide?.options.find((o) => o.label === label);
     const result: ProcessActionResult = option
         ? await confirmProcessAction(option.kind, option.level, '')
@@ -366,6 +366,6 @@ export function reopenDecisionUnavailableNow(): string | undefined {
     const store = ProcessStateStore.instance;
     const def = store?.currentDefinition();
     if (!store || !def) { return 'the quest has no process set'; }
-    return decisionDialog(def, store.state) ? undefined : 'the process is not at a decision';
+    return decisionDialog(def, store.state, store.conditionOptions()) ? undefined : 'the process is not at a decision';
 }
 

@@ -148,6 +148,40 @@
             + '</span>';
     }
 
+    /**
+     * Whether a phase or step runs: `optional` (the user may leave it out) and
+     * `when:` — a variable test the extension decides, or a text the agent
+     * judges at Proceed. Not on a gate.
+     */
+    function conditionFields(path, node, what) {
+        var when = node.when || null;
+        var mode = !when ? '' : typeof when.judge === 'string' ? 'judge' : 'var';
+        var modes = [
+            { value: '', label: 'always runs' },
+            { value: 'var', label: 'runs when a variable…' },
+            { value: 'judge', label: 'runs when the agent judges…' },
+        ];
+        var html = '<div class="cond">'
+            + '<label class="check" title="The user may leave the ' + what + ' out (Leave out in the PROCESS view); left out, it is recorded"><input type="checkbox" data-path="' + path + '.optional" data-kind="bool"' + (node.optional ? ' checked' : '') + '> optional</label>'
+            + '<select data-cond-mode="' + path + '" title="When the ' + what + ' runs: a variable test is decided by the extension (a ' + what + ' it fails is passed by and recorded); a text is judged by the agent at Proceed">'
+            + modes.map(function (m) { return '<option value="' + m.value + '"' + (m.value === mode ? ' selected' : '') + '>' + m.label + '</option>'; }).join('') + '</select>';
+        if (mode === 'judge') {
+            html += text(path + '.when.judge', when.judge, 'e.g. the change touches the data model', 'cond-judge');
+        } else if (mode === 'var') {
+            var test = when.set === true ? 'set' : when.set === false ? 'unset' : when.notEquals !== undefined ? 'notEquals' : when.in !== undefined ? 'in' : 'equals';
+            var tests = [['equals', 'is'], ['notEquals', 'is not'], ['in', 'is one of'], ['set', 'is set'], ['unset', 'is not set']];
+            html += text(path + '.when.var', when.var, 'variable, e.g. spec-mode', 'cond-var')
+                + '<select data-cond-test="' + path + '" title="The test">' + tests.map(function (x) {
+                    return '<option value="' + x[0] + '"' + (x[0] === test ? ' selected' : '') + '>' + x[1] + '</option>';
+                }).join('') + '</select>';
+            if (test === 'equals' || test === 'notEquals') { html += text(path + '.when.' + test, when[test], 'value', 'cond-value'); }
+            if (test === 'in') {
+                html += '<input type="text" class="cond-value" data-path="' + path + '.when.in" data-kind="list" value="' + esc((when.in || []).join(', ')) + '" placeholder="values, comma-separated">';
+            }
+        }
+        return html + '</div>';
+    }
+
     /** The gate's failure target: one of the phase's steps, or the gate run again (unset). */
     function onFailField(path, gate, phaseStepsList) {
         var value = gate.onFail || '';
@@ -219,6 +253,7 @@
             + description(path, step.description, 2)
             + promptField(path, step.prompt)
             + sessionFields(path, step.session)
+            + (kind === 'step' || kind === 'post-gate' ? conditionFields(path, step, 'step') : '')
             + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '')
             + processListsBlock(path, step);
         if (kind !== 'substep') {
@@ -253,6 +288,7 @@
             + description(path, phase.description, 3)
             + promptField(path, phase.prompt)
             + sessionFields(path, phase.session)
+            + conditionFields(path, phase, 'phase')
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
             + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1, steps)
@@ -441,10 +477,12 @@
         var t = /** @type {HTMLInputElement} */ (e.target);
         if (!doc || !t) { return; }
         if (t.id === 'process-description') { doc.description = t.value; changed(); return; }
+        if (t.dataset && (t.dataset.condMode !== undefined || t.dataset.condTest !== undefined)) { onCondition(t); return; }
         var p = t.dataset && t.dataset.path;
         if (!p) { return; }
         var kind = t.dataset.kind;
-        var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+        var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value))
+            : kind === 'list' ? t.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : t.value;
         setAt(parsePath(p), value);
         // Another process for a list entry: its inputs are another's, so the mapping starts empty.
         if (/\.(subprocesses|branches)\.\d+\.process$/.test(p)) {
@@ -463,10 +501,33 @@
         changed();
     }
 
+    /** The condition's mode (always / variable / judge) or its test changed: `when:` is rebuilt. */
+    function onCondition(t) {
+        var path = t.dataset.condMode !== undefined ? t.dataset.condMode : t.dataset.condTest;
+        var node = getAt(parsePath(path));
+        if (!node) { return; }
+        var old = node.when || {};
+        if (t.dataset.condMode !== undefined) {
+            if (t.value === '') { delete node.when; }
+            else if (t.value === 'judge') { node.when = { judge: typeof old.judge === 'string' ? old.judge : '' }; }
+            else { node.when = { var: typeof old.var === 'string' ? old.var : '', equals: '' }; }
+        } else {
+            var keep = typeof old.equals === 'string' ? old.equals : typeof old.notEquals === 'string' ? old.notEquals : '';
+            var next = { var: old.var || '' };
+            if (t.value === 'set') { next.set = true; }
+            else if (t.value === 'unset') { next.set = false; }
+            else if (t.value === 'in') { next.in = keep ? [keep] : []; }
+            else { next[t.value] = keep; }
+            node.when = next;
+        }
+        changed();
+        renderMain();
+    }
+
     mainEl.addEventListener('input', onField);
     mainEl.addEventListener('change', function (e) {
         var t = /** @type {HTMLElement} */ (e.target);
-        if (t && (t.tagName === 'SELECT' || /** @type {HTMLInputElement} */ (t).type === 'checkbox')) { onField(e); }
+        if (t && (t.tagName === 'SELECT' || /** @type {HTMLInputElement} */ (t).type === 'checkbox' || t.dataset.kind === 'list')) { onField(e); }
     });
     mainEl.addEventListener('toggle', function (e) {
         var d = /** @type {HTMLDetailsElement} */ (e.target);

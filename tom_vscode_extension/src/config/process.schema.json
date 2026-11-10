@@ -189,6 +189,14 @@
           "type": "integer",
           "minimum": 1
         },
+        "optional": {
+          "type": "boolean",
+          "description": "May be left out: the PROCESS view offers Leave out at its start, and leaving it out is recorded in the process state with its reason. Not on a gate (the validator refuses it there)."
+        },
+        "when": {
+          "$ref": "#/$defs/condition",
+          "description": "Runs only when this holds. Not on a gate (the validator refuses it there)."
+        },
         "substeps": {
           "type": "array",
           "minItems": 1,
@@ -248,6 +256,14 @@
         "maxIterations": {
           "type": "integer",
           "minimum": 1
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "May be left out: the PROCESS view offers Leave out at its start, and leaving it out is recorded in the process state with its reason. Not on a gate (the validator refuses it there)."
+        },
+        "when": {
+          "$ref": "#/$defs/condition",
+          "description": "Runs only when this holds. Not on a gate (the validator refuses it there)."
         },
         "substeps": {
           "type": "array",
@@ -326,6 +342,14 @@
         "maxIterations": {
           "type": "integer",
           "minimum": 1
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "May be left out: the PROCESS view offers Leave out at its start, and leaving it out is recorded in the process state with its reason. Not on a gate (the validator refuses it there)."
+        },
+        "when": {
+          "$ref": "#/$defs/condition",
+          "description": "Runs only when this holds. Not on a gate (the validator refuses it there)."
         },
         "steps": {
           "type": "array",
@@ -418,6 +442,78 @@
           }
         ]
       }
+    },
+    "condition": {
+      "description": "When a phase or step runs. The key says who decides: `{var, equals | notEquals | in | set}` is decided by the extension from the chat variables (a custom one by its name, `custom.<name>`, the built-ins, `input.<name>` of a nested level) — a forward move passes a phase or step whose test fails by and records it; a variable that is not set decides nothing except `set`, and the agent judges it. `{judge: text}` is judged by the agent at Proceed, which leaves the phase or step out with tomAi_setProcessState {leaveOut: why} when it does not hold.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "var"
+          ],
+          "properties": {
+            "var": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$",
+              "description": "A chat variable: `spec-mode`, `custom.spec-mode`, `input.folder`."
+            },
+            "equals": {
+              "type": "string"
+            },
+            "notEquals": {
+              "type": "string"
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "set": {
+              "type": "boolean",
+              "description": "true: runs when the variable has a value; false: when it has none."
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "equals"
+              ]
+            },
+            {
+              "required": [
+                "notEquals"
+              ]
+            },
+            {
+              "required": [
+                "in"
+              ]
+            },
+            {
+              "required": [
+                "set"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "judge"
+          ],
+          "properties": {
+            "judge": {
+              "type": "string",
+              "pattern": "\\S",
+              "description": "The condition, as text the agent judges at Proceed."
+            }
+          }
+        }
+      ]
     }
   }
 }

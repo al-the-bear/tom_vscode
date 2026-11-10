@@ -995,6 +995,21 @@ prompt, Proceed asks the user to confirm it is done instead of queuing
 anything, and the *Current process* section tells the agent not to do its work
 and not to move past it.
 
+A phase or step (not a gate) may be `optional: true` and carry a `when:`
+condition. `when: {var, equals | notEquals | in | set}` is decided by the
+extension from the chat variables (and a subprocess's `input.<name>`): every
+forward move passes a phase or step whose test fails and records it in the
+state (`skipped`: phase, step, reason, by `condition` / `user` / `agent`).
+`when: {judge: text}` — and a variable test whose variable is not set — is
+the agent's: the *Current process* section states the condition at the
+position it applies to, and when it does not hold the agent does none of the
+work and calls `tomAi_setProcessState {leaveOut: "<why>"}` (alone). Inside a
+Proceed run the marker stays and the run ends by leaving the phase or step
+out; without one it is left out at once. Where nothing has a condition to
+judge, `leaveOut` is refused. The user leaves an optional or conditional phase
+or step out with **Leave out** in the PROCESS view. `tomAi_listProcesses`
+shows `optional` and `when` in each outline.
+
 A quest may hold several **runs**, each a process position of its own — another
 change worked on in parallel, another process in the same window. A run is the
 state file `process-state.<quest>.<run>.yaml` beside the quest's own, a stack of
@@ -1019,7 +1034,7 @@ run the window works on when the queue reaches it.
 | `tomAi_createProcessRun` | A new run (`run` a name, `process` the process it follows from its first position; selected unless `select: false`). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_selectProcessRun` | Work on another run in this window: the view, the process variables, the system prompt's process context and the tools follow it. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_deleteProcessRuns` | Delete runs (their state files); `default` and an unknown run are refused, then nothing is deleted. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); in a subprocess or branch, `outputs` sets its process's declared outputs (merged; an outputs-only call moves nothing and keeps a running step's marker), and a subprocess finishes only once its required outputs are set; checked against the definition, no approval prompt (visible live in the PROCESS view); `run` moves another run of the quest. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); in a subprocess or branch, `outputs` sets its process's declared outputs (merged; an outputs-only call moves nothing and keeps a running step's marker), and a subprocess finishes only once its required outputs are set; checked against the definition, no approval prompt (visible live in the PROCESS view); `leaveOut` (alone) leaves out the running phase or step whose `when:` the agent judges false; `run` moves another run of the quest. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_validateProcess` | Check a draft definition (`yaml` text or a `file`) before writing it: YAML, `process.schema.json`, the process editor's rules (a gate ends every phase, `onFail` inside its phase, no prompt on a user-action step, unique ids, profiles that exist) and the roles (existing under `_ai/roles/` or listed in `draftRoles`). Answers every finding with its source and path. Read-only. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_writeProcess` | Create a process: writes `_ai/processes/<id>/<id>.process.yaml` and `<id>.md` (`description`) only when the draft passes tomAi_validateProcess's checks; an existing id is refused unless `replace: true`; opens the result in the process editor (`open: false` not to). Approval. | ✅ | ✅ | ⚪ | ✅ |
 
@@ -1343,7 +1358,7 @@ Hand a staged or pending queue item to the manager's run loop — the **canonica
 
 ### `tomAi_setProcessState`
 
-Move the active quest in its process. Give any of `process` (an id from `tomAi_listProcesses`; another process starts at its first phase and step; `""` clears the state), `phase`, `step`, `substep` (applied in that order: a new phase starts at its first step, a step with sub-steps at its first sub-step; a step that already ran in this phase iteration starts at its next iteration), and `phaseIteration` / `stepIteration` / `substepIteration` (set as given; only on a repeatable level, at most its maxIterations; a gate can always be run again). `completed: true` marks the process finished; any other change opens it again. A step's id may be its phase's gate or post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, error}` and changes nothing. On success: `{ok, state, role, roleChanged}` — moving to a step that names a role also sets the `role` chat variable, so the role description in the system prompt follows the process. Record each move as the work moves on. A step started by the PROCESS view's Proceed moves on by itself when its queued items are done (a process-move marker in the queue); setting the state removes that marker (`processMoveMarkersRemoved`).
+Move the active quest in its process. Give any of `process` (an id from `tomAi_listProcesses`; another process starts at its first phase and step; `""` clears the state), `phase`, `step`, `substep` (applied in that order: a new phase starts at its first step, a step with sub-steps at its first sub-step; a step that already ran in this phase iteration starts at its next iteration), and `phaseIteration` / `stepIteration` / `substepIteration` (set as given; only on a repeatable level, at most its maxIterations; a gate can always be run again). `completed: true` marks the process finished; any other change opens it again. A step's id may be its phase's gate or post-gate step. Every name is checked against the definition; a refusal returns `{ok:false, error}` and changes nothing. On success: `{ok, state, role, roleChanged}` — moving to a step that names a role also sets the `role` chat variable, so the role description in the system prompt follows the process. Record each move as the work moves on. A step started by the PROCESS view's Proceed moves on by itself when its queued items are done (a process-move marker in the queue); setting the state removes that marker (`processMoveMarkersRemoved`). Another process given without a position starts past the phases and steps its `when:` conditions exclude. `leaveOut` (a text, the reason; given alone): the running phase or step whose `when:` the agent judges does not hold is left out — inside its Proceed run the marker stays and the run ends by leaving it out, without one at once; recorded in the state's `skipped` as the agent's; refused where nothing has a condition to judge.
 
 ### `tomAi_specAddNode`
 
