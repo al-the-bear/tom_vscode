@@ -160,6 +160,47 @@
             }).join('') + '</select></label>';
     }
 
+    /**
+     * A step's closed lists: `subprocesses:` (a level that hands a result back)
+     * and `branches:` (hands nothing back). Each entry names a process and may
+     * fill its declared inputs (a text the placeholder engine resolves when the
+     * level starts). An entry written as a bare id is held as {process} while
+     * editing; the writer folds one without description or inputs back.
+     */
+    function processListsBlock(path, step) {
+        var html = '';
+        ['subprocesses', 'branches'].forEach(function (key) {
+            var list = step[key] || [];
+            for (var k = 0; k < list.length; k++) { if (typeof list[k] === 'string') { list[k] = { process: list[k] }; } }
+            var rows = list.map(function (entry, k) {
+                var ep = path + '.' + key + '.' + k;
+                var target = processes.find(function (p) { return p.id === entry.process; });
+                var declared = (target && target.inputs) || [];
+                if (declared.length && !entry.inputs) { entry.inputs = {}; }
+                var options = [{ id: '', name: '— pick a process —' }].concat(processes);
+                if (entry.process && !target) { options.push({ id: entry.process, name: entry.process + ' (not defined)' }); }
+                var inputs = declared.map(function (d) {
+                    return '<label class="io-map" title="' + esc(d.description || '') + '"><code>' + esc(d.name) + '</code>' + (d.required ? '*' : '') + ' ← '
+                        + text(ep + '.inputs.' + d.name, entry.inputs[d.name], d.kind ? d.kind + ', e.g. ${…}' : 'a text, ${…} resolved at the start', 'io-from') + '</label>';
+                }).join('');
+                return '<div class="proc-entry">'
+                    + '<select data-path="' + ep + '.process" title="The process this step may start">' + options.map(function (o) {
+                        return '<option value="' + esc(o.id) + '"' + (o.id === (entry.process || '') ? ' selected' : '') + '>' + esc(o.name || o.id) + '</option>';
+                    }).join('') + '</select>'
+                    + text(ep + '.description', entry.description, 'why or when to start it (optional)', 'proc-desc')
+                    + '<button class="icon" data-op="remove" data-path="' + ep + '" title="Remove"><span class="codicon codicon-trash"></span></button>'
+                    + (inputs ? '<div class="io-maps">' + inputs + '</div>' : '')
+                    + '</div>';
+            }).join('');
+            html += '<div class="proc-list"><div class="note">' + (key === 'subprocesses'
+                ? 'Subprocesses — may start from here and hand a result back (its outputs, ${sub.&lt;process&gt;.&lt;name&gt;})'
+                : 'Branches — may start from here and hand nothing back') + '. Only the listed processes start from this ' + (path.indexOf('.substeps.') >= 0 ? 'sub-step' : 'step') + '.</div>'
+                + rows
+                + '<button class="add" data-op="add-entry" data-path="' + path + '.' + key + '"><span class="codicon codicon-add"></span> ' + (key === 'subprocesses' ? 'subprocess' : 'branch') + '</button></div>';
+        });
+        return '<details class="proc-lists"' + ((step.subprocesses && step.subprocesses.length) || (step.branches && step.branches.length) ? ' open' : '') + '><summary>Subprocesses and branches</summary>' + html + '</details>';
+    }
+
     /** A step card; `kind` is step, gate, post-gate or substep. */
     function stepCard(step, path, kind, index, count, phaseStepsList) {
         var title = { step: 'Step ' + (index + 1), gate: 'Quality gate', 'post-gate': 'Post-gate step', substep: 'Sub-step ' + (index + 1) }[kind];
@@ -178,7 +219,8 @@
             + description(path, step.description, 2)
             + promptField(path, step.prompt)
             + sessionFields(path, step.session)
-            + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '');
+            + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '')
+            + processListsBlock(path, step);
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -334,6 +376,15 @@
             case 'remove-postgate':
                 delete getAt(path.slice(0, -1)).postGate;
                 break;
+            case 'add-entry': {
+                // The list may not exist yet: its owner is the step.
+                var ownerNode = getAt(path.slice(0, -1));
+                var listKey = path[path.length - 1];
+                if (!ownerNode) { return; }
+                ownerNode[listKey] = ownerNode[listKey] || [];
+                ownerNode[listKey].push({ process: '' });
+                break;
+            }
             case 'add-input':
             case 'add-output': {
                 var key2 = name === 'add-input' ? 'inputs' : 'outputs';
@@ -356,7 +407,7 @@
                 // An empty sub-step or todo list is dropped: a step with sub-steps has at least one.
                 var owner = getAt(path.slice(0, -2));
                 var key = path[path.length - 2];
-                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs') && owner) { delete owner[key]; }
+                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs' || key === 'subprocesses' || key === 'branches') && owner) { delete owner[key]; }
                 break;
             }
             case 'up':
@@ -395,6 +446,14 @@
         var kind = t.dataset.kind;
         var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value)) : t.value;
         setAt(parsePath(p), value);
+        // Another process for a list entry: its inputs are another's, so the mapping starts empty.
+        if (/\.(subprocesses|branches)\.\d+\.process$/.test(p)) {
+            var entry = getAt(parsePath(p).slice(0, -1));
+            if (entry) { delete entry.inputs; }
+            changed();
+            renderMain();
+            return;
+        }
         // A phase title follows its name.
         var phase = t.closest('details.phase');
         if (phase && /^phases\.\d+\.name$/.test(p)) {

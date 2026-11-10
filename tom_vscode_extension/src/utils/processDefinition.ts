@@ -470,9 +470,22 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         }
         return out;
     };
-    const substep = (s: ProcessSubstep): Raw => pick(s, SUBSTEP_KEYS);
+    // A list entry with nothing but its process is written as the bare id; empty inputs are left out.
+    const entry = (e: ProcessListEntry): ProcessListEntry => {
+        if (typeof e === 'string') { return e; }
+        const inputs = Object.fromEntries(Object.entries(e.inputs ?? {}).filter(([, v]) => typeof v === 'string' && v !== ''));
+        if (!e.description && Object.keys(inputs).length === 0) { return e.process; }
+        return { process: e.process, ...(e.description ? { description: e.description } : {}), ...(Object.keys(inputs).length ? { inputs } : {}) };
+    };
+    const lists = (out: Raw): Raw => {
+        for (const key of ['subprocesses', 'branches']) {
+            if (Array.isArray(out[key])) { out[key] = (out[key] as ProcessListEntry[]).map(entry); }
+        }
+        return out;
+    };
+    const substep = (s: ProcessSubstep): Raw => lists(pick(s, SUBSTEP_KEYS));
     const step = (s: ProcessStep): Raw => {
-        const out = pick(s, SUBSTEP_KEYS);
+        const out = lists(pick(s, SUBSTEP_KEYS));
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
         return out;
     };

@@ -87,7 +87,11 @@ async function sendList(): Promise<void> {
     if (!selectedId && list.length) { selectedId = s.state.process || list[0].id; }
     void panel.webview.postMessage({
         type: 'list',
-        processes: list.map((e) => ({ id: e.id, name: e.definition?.name || e.id, valid: !!e.definition, errorCount: e.errors.length })),
+        // The declared inputs too: a step's subprocesses: / branches: entries fill them.
+        processes: list.map((e) => ({
+            id: e.id, name: e.definition?.name || e.id, valid: !!e.definition, errorCount: e.errors.length,
+            inputs: (e.definition?.inputs ?? []).map((d) => ({ name: d.name, ...(d.kind ? { kind: d.kind } : {}), required: d.required === true, description: d.description ?? '' })),
+        })),
         roles: listRoleNames(WsPaths.ai('roles')),
         currentProcess: s.state.process,
         selected: selectedId,

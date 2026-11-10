@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Process branching editor — src/handlers/processBranching-handler.ts. One
+  card per process the running step lists (subprocesses: and branches:), with
+  a follow-up choice and Start; Dismiss closes the page. First-paint data in
+  window.__INIT__ (processBranching-handler.branchingInit); every interaction
+  is wired with addEventListener (the loader's nonce-only CSP).
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="wrap">
+    <h2 id="title" class="title">Start from this step</h2>
+    <p class="hint">The processes this step lists — a <strong>subprocess</strong> hands a result back to the step, a <strong>branch</strong> hands nothing back. The step waits until the started process ends; then it does what you choose under <em>When it ends</em>.</p>
+    <div id="cards" class="cards"></div>
+    <div class="bar"><span class="spacer"></span><button id="btnDismiss" class="secondary">Dismiss</button></div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

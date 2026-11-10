@@ -83,6 +83,25 @@ export async function startNestedProcess(store: ProcessStateStore, ui: NestedSta
     const order = (['ask', 'go-on', 'run-again'] as NestedFollowUp[]).sort((a, b) => Number(b === recommended) - Number(a === recommended));
     const followUp = await ui.pickFollowUp(order.map((f) => ({ label: `${NESTED_FOLLOW_UP_LABELS[f]}${f === recommended ? ' (recommended)' : ''}`, followUp: f })));
     if (!followUp) { return false; }
+    return startListedProcess(store, ui, picked.kind, picked.process, followUp, maxDepth);
+}
+
+/**
+ * Start a process the running step lists (the start command, the process
+ * branching editor): the depth confirmation beyond `maxDepth`, the inputs
+ * filled at this position, the level pushed; the user is told what started.
+ */
+export async function startListedProcess(
+    store: ProcessStateStore,
+    ui: Pick<NestedStartUi, 'confirm' | 'info' | 'error'>,
+    kind: NestedKind,
+    process: string,
+    followUp: NestedFollowUp,
+    maxDepth: number = maxProcessDepth(),
+): Promise<boolean> {
+    const top = store.state;
+    const def = store.currentDefinition();
+    const picked = { kind, process };
     const levels = store.levels;
     if (startNeedsConfirmation(levels, maxDepth)) {
         const ok = await ui.confirm(
@@ -128,7 +147,8 @@ export async function abortNestedProcess(store: ProcessStateStore, ui: Pick<Nest
     return true;
 }
 
-const liveUi: NestedStartUi = {
+/** The live dialogs (QuickPicks, modal confirmations, notifications). */
+export const liveNestedUi: NestedStartUi = {
     pickProcess: async (items) => {
         const pick = await vscode.window.showQuickPick(items, { title: 'Start from this step', placeHolder: 'The processes the step lists' });
         return pick ? { kind: pick.nestedKind, process: pick.process } : undefined;
@@ -142,7 +162,7 @@ const liveUi: NestedStartUi = {
 /** Register both commands (once, at activation). */
 export function registerNestedProcessCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand(START_NESTED_COMMAND, async () => startNestedProcess(await ProcessStateStore.ready, liveUi)),
-        vscode.commands.registerCommand(ABORT_NESTED_COMMAND, async () => abortNestedProcess(await ProcessStateStore.ready, liveUi)),
+        vscode.commands.registerCommand(START_NESTED_COMMAND, async () => startNestedProcess(await ProcessStateStore.ready, liveNestedUi)),
+        vscode.commands.registerCommand(ABORT_NESTED_COMMAND, async () => abortNestedProcess(await ProcessStateStore.ready, liveNestedUi)),
     );
 }

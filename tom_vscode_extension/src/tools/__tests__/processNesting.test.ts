@@ -31,6 +31,9 @@
  *        outputs set; then they come back to the level below as ${sub.<process>.<name>} (defaults filled);
  *        an aborted level hands nothing back
  *   NP-11 the process editor edits a process's inputs and outputs and saves them in the definition
+ *   NP-12 the process branching editor (the Your turn box's button): a page with the step's listed processes;
+ *        Start starts the card's process with its follow-up and inputs and closes the page; Dismiss closes it;
+ *        a page whose position moved on closes by itself
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -113,6 +116,7 @@ import { decisionAt, parseProcessStateStack, parseProcessYaml, stringifyProcessD
 import { decisionDialog } from '../../utils/processActionPrompt.js';
 import { DEFAULT_MAX_PROCESS_DEPTH, fillNestedInputs, positionProcessLists, startNeedsConfirmation } from '../../utils/processStack.js';
 import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
+import { openProcessBranchingEditor } from '../../handlers/processBranching-handler.js';
 import { JSDOM } from 'jsdom';
 
 const subscriptions: Array<{ dispose(): void }> = [];
@@ -434,6 +438,36 @@ describe('nested processes', () => {
         assert.equal(store().apply({ outputs: { result: 'r.md' } }, 'user').ok, true);
         assert.equal(store().abortNested('user').ok, true);
         assert.equal(store().state.subOutputs, undefined, 'aborted: nothing handed back');
+    });
+
+    test('NP-12: the process branching editor', async () => {
+        reset();
+        const panels = (): Json[] => (vscodeStub.stub.window as Json).__webviewPanels;
+        const before = panels().length;
+        await openProcessBranchingEditor({ extensionPath: EXT_ROOT, subscriptions: [] } as never);
+        assert.equal(panels().length, before + 1);
+        const page = panels()[panels().length - 1];
+        const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(page.webview.html)?.[1] ?? 'null');
+        assert.deepEqual(init.cards.map((c: Json) => [c.kind, c.process]), [['subprocess', 'sub'], ['subprocess', 'main'], ['subprocess', 'iosub'], ['branch', 'side']]);
+        assert.deepEqual(init.cards[2].inputs.map((i: Json) => [i.name, i.from]), [['doc', 'docs/${step}.md'], ['folder', 'out']]);
+        page.webview.__receive({ type: 'start', kind: 'subprocess', process: 'iosub', followUp: 'run-again' });
+        await new Promise((r) => setTimeout(r, 20));
+        assert.deepEqual(store().levels.map((l) => [l.process, l.nested?.followUp]), [['main', undefined], ['iosub', 'run-again']]);
+        assert.deepEqual(store().state.inputs, { doc: 'docs/plan.md', folder: 'out' });
+        assert.equal(page.visible, false, 'started: the page closes');
+        // Dismiss closes it; so does a move of the position it was opened at.
+        reset();
+        await openProcessBranchingEditor({ extensionPath: EXT_ROOT, subscriptions: [] } as never);
+        const second = panels()[panels().length - 1];
+        second.webview.__receive({ type: 'dismiss' });
+        assert.equal(second.visible, false);
+        await openProcessBranchingEditor({ extensionPath: EXT_ROOT, subscriptions: [] } as never);
+        const third = panels()[panels().length - 1];
+        assert.equal(store().move('skip', undefined, 'user').ok, true);
+        assert.equal(third.visible, false, 'the position moved on: closed by itself');
+        // The view: switching the quest's process while levels run asks first (it leaves every level).
+        const view = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'processPanel-handler.ts'), 'utf8');
+        assert.match(view, /msg\.change\.process !== undefined && store\.levels\.length > 1[\s\S]{0,600}showWarningMessage\([\s\S]{0,400}leaves every level; nothing is handed back/);
     });
 
     test('NP-11: the process editor', async () => {

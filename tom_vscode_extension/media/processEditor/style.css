@@ -157,3 +157,12 @@ code { font-family: var(--vscode-editor-font-family); }
 .io-row .io-name { width: 120px; }
 .io-row .io-description { flex: 1; }
 .io-row .io-value { width: 220px; }
+
+.proc-lists { margin: 4px 0; }
+.proc-lists > summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
+.proc-list { margin: 4px 0 6px 8px; }
+.proc-entry { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
+.proc-entry .proc-desc { flex: 1; min-width: 160px; }
+.io-maps { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; margin-left: 12px; }
+.io-map { display: flex; gap: 6px; align-items: center; }
+.io-map .io-from { flex: 1; }

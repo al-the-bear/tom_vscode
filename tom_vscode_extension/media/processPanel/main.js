@@ -72,7 +72,54 @@
             + '<div class="ua-hint">' + (confirmed
                 ? 'Confirmed as done — decide how the process goes on.'
                 : 'This ' + action.level + ' is done by you, not by an agent. Do it, then click Proceed to confirm it is done.') + '</div>'
+            // The processes the step lists (subprocesses and branches) open in the process branching editor.
+            + (!confirmed && current && current.startable
+                ? '<button class="ua-branching" data-branching="1" title="The processes this step lists: a subprocess hands a result back, a branch hands nothing back"><span class="codicon codicon-debug-step-into"></span> Start a subprocess or branch…</button>'
+                : '')
             + '</div>';
+    }
+
+    /** Lower levels of the process stack the user opened (by index), kept across re-renders. */
+    var levelOpen = {};
+    var KIND_LABEL = { process: 'Quest process', subprocess: 'Subprocess', branch: 'Branch' };
+
+    function kvList(title, values) {
+        var keys = Object.keys(values || {});
+        if (!keys.length) { return ''; }
+        return '<div class="lv-kv"><span class="lv-label">' + esc(title) + '</span> ' + keys.map(function (k) {
+            return '<code>' + esc(k) + '</code> = ' + esc(values[k]);
+        }).join('; ') + '</div>';
+    }
+
+    function handedBack(subOutputs) {
+        var parts = [];
+        Object.keys(subOutputs || {}).forEach(function (p) {
+            Object.keys(subOutputs[p]).forEach(function (n) { parts.push('<code>${sub.' + esc(p) + '.' + esc(n) + '}</code> = ' + esc(subOutputs[p][n])); });
+        });
+        return parts.length ? '<div class="lv-kv"><span class="lv-label">Handed back</span> ' + parts.join('; ') + '</div>' : '';
+    }
+
+    /** A level below the running one: collapsed by default, it waits at its step. */
+    function lowerLevel(l, processRow) {
+        return '<details class="level waiting" data-level-index="' + l.index + '"' + (levelOpen[l.index] ? ' open' : '') + '>'
+            + '<summary><span class="lv-kind ' + esc(l.kind) + '">' + esc(KIND_LABEL[l.kind] || l.kind) + '</span> '
+            + '<span class="lv-name">' + esc(l.name) + '</span> <span class="muted">— ' + esc(l.position) + ' · waiting</span></summary>'
+            + '<div class="lv-body">'
+            + (processRow || '<div class="lv-kv"><span class="lv-label">Process</span> ' + esc(l.name) + ' <code>' + esc(l.process) + '</code></div>')
+            + '<div class="lv-kv"><span class="lv-label">At</span> ' + esc(l.position) + ' — waits for the level above</div>'
+            + (l.followUp ? '<div class="lv-kv"><span class="lv-label">When it ends</span> ' + esc(l.followUp) + '</div>' : '')
+            + kvList('Inputs', l.inputs) + handedBack(l.subOutputs)
+            + '</div></details>';
+    }
+
+    /** The running level's head: what it is, and Abort for a subprocess or branch. */
+    function runningHead(l) {
+        if (!l || l.kind === 'process') { return ''; }
+        return '<div class="level-head running"><span class="lv-kind ' + esc(l.kind) + '">' + esc(KIND_LABEL[l.kind]) + '</span> '
+            + '<span class="lv-name">' + esc(l.name) + '</span>'
+            + '<span class="spacer"></span><button class="icon" data-abort="1" title="Abort ' + (l.kind === 'branch' ? 'the branch' : 'the subprocess') + ' (asks first); the step below goes on with: ' + esc(l.followUp) + '"><span class="codicon codicon-debug-stop"></span> Abort</button></div>'
+            + (l.followUp ? '<div class="lv-kv"><span class="lv-label">When it ends</span> the step below: ' + esc(l.followUp) + '</div>' : '')
+            + kvList('Inputs', l.inputs) + kvList('Outputs set', l.outputs);
     }
 
     /** The steps of a phase in order: steps, gate, post-gate. */
@@ -179,7 +226,10 @@
             root.innerHTML = '<div class="muted">No quest is active. A process state belongs to a quest — choose one in the Chat Variables.</div>';
             return;
         }
-        var html = c.state.process && c.definition ? actionBar(c.moves) : '';
+        var levels = c.levels || [];
+        var nested = levels.length > 1;
+        var running = levels[levels.length - 1];
+        var html = '';
         var action = userActionHere(c);
         var decision = decisionHere(c);
         if (c.stepRun) { html += stepRunBanner(c.stepRun); }
@@ -190,8 +240,20 @@
             return { value: p.id, label: p.valid ? p.name + ' (' + p.id + ')' : p.id + ' (invalid)', disabled: !p.valid && p.id !== c.state.process };
         }));
         var edit = '<button class="icon" data-edit="1" title="Open the process editor"><span class="codicon codicon-edit"></span></button>';
-        html += row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),
-            (c.state.process ? help('process') : '') + edit, 'process', c.description);
+        // The quest's own process is switched only here, in the bottom level's dropdown (any process);
+        // a subprocess or branch level shows its process, which is what its step listed.
+        var questProcessRow = row('Process', select('sel-process', procOptions, nested ? levels[0].process : c.state.process, 'The process this quest follows' + (nested ? ' — switching leaves every level above' : '')),
+            edit, 'quest-process', '');
+        var top = '';
+        if (nested) {
+            top += '<div class="levels">' + levels.slice(0, -1).map(function (l) { return lowerLevel(l, l.index === 0 ? questProcessRow : ''); }).join('') + '</div>';
+            top += '<div class="level running-level">' + runningHead(running);
+        }
+        html = top + (c.state.process && c.definition ? actionBar(c.moves) : '') + html;
+        html += nested
+            ? row('Process', '<span class="lv-name">' + esc(running.name) + '</span> <code>' + esc(running.process) + '</code>', help('process') + edit, 'process', c.description)
+            : row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),
+                (c.state.process ? help('process') : '') + edit, 'process', c.description);
         if (c.processInvalid) {
             html += '<div class="warn">The definition of "' + esc(c.state.process) + '" has errors — fix it in the process editor.</div>';
         }
@@ -230,6 +292,7 @@
         if (c.processes.length === 0) {
             html += '<div class="muted">No processes yet — create one in the process editor (_ai/processes/).</div>';
         }
+        if (nested) { html += '</div>'; }
         root.innerHTML = html;
     }
 
@@ -260,8 +323,17 @@
             render();
         } else if (btn.dataset.edit) {
             post({ type: 'openEditor', id: current && current.state.process });
+        } else if (btn.dataset.abort) {
+            post({ type: 'abortNested' });
+        } else if (btn.dataset.branching) {
+            post({ type: 'openBranching' });
         }
     });
+
+    root.addEventListener('toggle', function (e) {
+        var d = e.target;
+        if (d && d.classList && d.classList.contains('level')) { levelOpen[d.getAttribute('data-level-index')] = d.open; }
+    }, true);
 
     window.addEventListener('message', function (e) {
         var msg = e.data;

@@ -1,0 +1,25 @@
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 0 16px; }
+.wrap { max-width: 860px; }
+.title { font-size: 1.2em; margin: 14px 0 4px; }
+.hint, .muted { color: var(--vscode-descriptionForeground); }
+.cards { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.card { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 10px 12px; }
+.card.suggested { border-color: var(--vscode-focusBorder); }
+.head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.name { font-weight: 600; }
+.id { opacity: 0.8; }
+.badge { font-size: 0.85em; padding: 1px 6px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.badge.branch { background: var(--vscode-charts-purple, #8a5cf5); color: #fff; }
+.label { font-weight: 600; margin-right: 4px; }
+.reason { margin: 4px 0; }
+.summary, .description, .starts, .inputs { margin: 3px 0; }
+.inputs ul { margin: 2px 0 0 18px; padding: 0; }
+.warn { color: var(--vscode-errorForeground); }
+.actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.actions .primary { margin-left: auto; }
+button { font-family: inherit; padding: 3px 12px; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button:disabled { opacity: 0.5; cursor: default; }
+.bar { display: flex; margin-bottom: 16px; }
+.spacer { flex: 1; }

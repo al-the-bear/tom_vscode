@@ -138,3 +138,19 @@ code { font-family: var(--vscode-editor-font-family); }
 .step-run .codicon { vertical-align: text-bottom; }
 .step-run.held { border-color: var(--vscode-errorForeground, #f14c4c); color: var(--vscode-errorForeground, #f14c4c); }
 .step-run .sr-hint { font-size: 0.9em; font-style: italic; margin-top: 2px; color: var(--vscode-descriptionForeground); }
+
+/* Nested processes: one section per level of the quest's process stack. */
+.levels { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+details.level { border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 2px 6px; opacity: 0.85; }
+details.level > summary { cursor: pointer; }
+.lv-body { padding: 4px 0 2px 4px; }
+.level.running-level { border-left: 3px solid var(--vscode-focusBorder); padding-left: 6px; }
+.level-head { display: flex; align-items: center; gap: 6px; margin: 2px 0 4px; }
+.level-head .spacer { flex: 1; }
+.lv-kind { font-size: 0.85em; padding: 0 5px; border-radius: 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.lv-kind.branch { background: var(--vscode-charts-purple, #8a5cf5); color: #fff; }
+.lv-kind.process { background: transparent; color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-panel-border); }
+.lv-name { font-weight: 600; }
+.lv-kv { margin: 1px 0; font-size: 0.95em; }
+.lv-label { color: var(--vscode-descriptionForeground); margin-right: 3px; }
+.ua-branching { margin-top: 6px; }

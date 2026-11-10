@@ -23,6 +23,9 @@
  * Assets: `media/processPanel/`.
  */
 
+import { positionProcessLists, NESTED_FOLLOW_UP_LABELS } from '../utils/processStack';
+import { ABORT_NESTED_COMMAND } from '../services/nestedProcessCommands';
+import { openProcessBranchingEditor } from './processBranching-handler';
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 
@@ -95,9 +98,30 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         // The queue may start after the view: subscribe once it is there.
         if (queue && !this.queueSubscription) { this.queueSubscription = queue.onDidChange(() => this.send()); }
         const run = queue?.stepRunProgress(store.activeQuest, store.levelIndex);
+        const levels = store.levels;
+        const lists = positionProcessLists(entry?.definition ?? null, state);
         void this.view.webview.postMessage({
             type: 'state',
             quest: store.activeQuest,
+            // Every level of the quest's process stack, bottom first (the running one is the last).
+            levels: levels.map((l, i) => {
+                const def = store.entry(l.process)?.definition ?? null;
+                return {
+                    index: i,
+                    process: l.process,
+                    name: def?.name || l.process,
+                    kind: l.nested?.kind ?? 'process',
+                    position: def ? positionText(def, l) : [l.phase, l.step].filter(Boolean).join(' › '),
+                    followUp: l.nested ? NESTED_FOLLOW_UP_LABELS[l.nested.followUp] : '',
+                    startedAt: l.nested?.startedAt ?? '',
+                    inputs: l.inputs ?? {},
+                    outputs: l.outputs ?? {},
+                    subOutputs: l.subOutputs ?? {},
+                    running: i === levels.length - 1,
+                };
+            }),
+            // What the running step lists to start (the Your turn box's button).
+            startable: lists.subprocesses.length + lists.branches.length,
             processes: store.list().map((e) => ({ id: e.id, name: e.definition?.name || e.id, valid: !!e.definition })),
             state,
             definition: entry?.definition ?? null,
@@ -133,7 +157,25 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 this.send();
                 break;
             case 'change':
-                if (msg.change) { this.report(this.byHand(store.activeQuest, store.apply(msg.change, 'user'))); }
+                if (!msg.change) { break; }
+                // Another process for the quest leaves every level of the stack: ask first.
+                if (msg.change.process !== undefined && store.levels.length > 1 && msg.change.process !== store.levels[0].process) {
+                    const leave = 'Switch and leave them';
+                    const answer = await vscode.window.showWarningMessage(
+                        `Switch the quest's process to ${msg.change.process || '— none —'}?`,
+                        { modal: true, detail: `${store.levels.length - 1} subprocess / branch level(s) are running above ${store.levels[0].process}. Switching the quest's process leaves every level; nothing is handed back.` },
+                        leave,
+                    );
+                    if (answer !== leave) { this.send(); break; }
+                }
+                this.report(this.byHand(store.activeQuest, store.apply(msg.change, 'user')));
+                break;
+            case 'abortNested':
+                await vscode.commands.executeCommand(ABORT_NESTED_COMMAND);
+                this.send();
+                break;
+            case 'openBranching':
+                await openProcessBranchingEditor(this.context);
                 break;
             case 'iteration':
                 if (msg.level && msg.delta) { this.report(this.byHand(store.activeQuest, store.stepIteration(msg.level, msg.delta, 'user'))); }
