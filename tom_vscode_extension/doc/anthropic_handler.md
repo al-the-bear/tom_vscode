@@ -295,6 +295,20 @@ Every hook gets Claude Code's input JSON on stdin (`session_id` = `<quest>:<sess
 
 On the **Agent SDK** the SDK runs the hooks of the setting sources it loads (the profile's or configuration's `settingSources`, `project` added when the workspace has a CLAUDE.md); the hooks of the other files go to its `hooks` option as callbacks that run the same commands — every hook runs once. Tests: `claudeHooks.test.ts` (HK-1..5), `claude-hooks-transports.test.ts` (HT-1..4).
 
+## 9. Claude Code features per transport
+
+Which Claude Code feature reaches which transport, and who serves it: Claude Code itself on the Agent SDK, the extension on the transports with its own loop.
+
+| Feature | Agent SDK | Direct, Local LLM | VS Code LM | Source |
+| --- | --- | --- | --- | --- |
+| CLAUDE.md (user, folder chain, `@` imports) | the SDK loads it (its `project` setting source) | in the system prompt as `${claudeMd}` | as direct | `src/services/claudeMd.ts` |
+| Skills (`.claude/skills/`) | the SDK's Skill tool | names and descriptions in the system prompt; `tomAi_loadSkill` returns a skill | as direct | `src/services/skills.ts`, [llm_tools.md §4.11b](llm_tools.md#411b-skills) |
+| Subagent definitions (`.claude/agents/`) | the SDK's `agents` option (its Task tool); also `tomAi_spawnSubagent {agent}` through our MCP server | `tomAi_spawnSubagent {agent}` | as direct | `src/services/agentDefinitions.ts` |
+| Slash commands (`.claude/commands/`) | the `/` completion of @CHAT and the queue editor expands the template before the send, whatever the transport | as Agent SDK | as Agent SDK | `src/services/slashCommands.ts` |
+| Hooks (settings files) | the SDK runs those of its setting sources; the rest as `hooks` callbacks | run by the handler (§8) | as direct | `src/services/claudeHooks.ts` |
+| External MCP servers (`.mcp.json`, `~/.claude.json`) | the SDK reads them itself | joined to the tool loop by the extension's MCP client | VS Code's own MCP tools | `src/services/externalMcp.ts`, [llm_tools.md §4.11c](llm_tools.md#411c-tools-of-external-mcp-servers) |
+| Plan mode | `plan` permission mode, `canUseTool` and our MCP tools gated | the handler's `runTool` gate | as direct | `src/tools/planning-tools.ts` |
+
 ## Related sections of the spec
 
 - §4 Trail system (raw + summary trails for `anthropic` subsystem)
