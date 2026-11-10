@@ -3,8 +3,9 @@
  * vscode stub, whose webview panels record what the host posts and take the
  * webview's messages (ccparity_i_assist-4).
  *
- *   AL-1 tomAi_askUser with an answer choice: the panel's first paint carries the choices and their layout; the
- *        webview's `choice` message answers the ask with the choice; the panel closes
+ *   AL-1 tomAi_askUser with answer choices: the panel's first paint carries the choices and their layout; the
+ *        webview's `answers` message (Send answers) answers the ask with every question's selection and words,
+ *        numbered (vscimpb35); the panel closes
  *   AL-2 a move with no process set is refused before a panel opens
  *   AL-3 askUserWithChoices (the Agent SDK route) asks through the same panel
  */
@@ -40,9 +41,9 @@ describe('choices in the live question panel', () => {
         const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(panel.webview.html)?.[1] ?? 'null');
         assert.deepEqual(init.choices.map((c: Json) => c.id), ['left', 'right']);
         assert.deepEqual(init.layout, [{ segments: [{ text: 'Which way? ' }, { choiceId: 'left' }], below: ['right'] }]);
-        panel.webview.__receive({ type: 'choice', requestId: 'stale', choiceId: 'right' });
-        panel.webview.__receive({ type: 'choice', requestId: init.requestId, choiceId: 'right' });
-        assert.equal(await call, 'The user clicked the choice "Right" (id right, answer). Answer: go right');
+        panel.webview.__receive({ type: 'answers', requestId: 'stale', answers: [{ choiceId: 'right' }], text: '' });
+        panel.webview.__receive({ type: 'answers', requestId: init.requestId, answers: [{ choiceId: 'right', text: 'the short way' }], text: 'ok' });
+        assert.equal(await call, 'The answers, numbered like the questions:\n1. chose "Right" (id right, answer: go right) and wrote: the short way\n\nok');
         assert.equal(panel.visible, false, 'the panel closes');
     });
 
@@ -59,7 +60,7 @@ describe('choices in the live question panel', () => {
         const panel = panels()[panels().length - 1];
         const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(panel.webview.html)?.[1] ?? 'null');
         assert.deepEqual(init.questions, ['[Flow] Next?']);
-        panel.webview.__receive({ type: 'choice', requestId: init.requestId, choiceId: 'ok' });
-        assert.match(await call, /clicked the choice "OK"/);
+        panel.webview.__receive({ type: 'answers', requestId: init.requestId, answers: [{ choiceId: 'ok' }], text: '' });
+        assert.match(await call, /^The answers, numbered like the questions:\n1\. chose "OK" \(id ok\)$/);
     });
 });

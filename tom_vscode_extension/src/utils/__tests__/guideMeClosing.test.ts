@@ -15,7 +15,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { appendTodoNote, guideMeClosingAsk, interpretGuideMeReply } from '../guideMeClosing.js';
-import { choiceAnswer } from '../askChoices.js';
+import { choiceAnswer, composeChoiceAnswers } from '../askChoices.js';
 
 describe('Guide me: what now with the todo', () => {
     test('GM-1: the panel', () => {
@@ -39,6 +39,13 @@ describe('Guide me: what now with the todo', () => {
         assert.deepEqual(interpretGuideMeReply(' the key is rotated on bigbeast, mbp next '), { kind: 'note', text: 'the key is rotated on bigbeast, mbp next' });
         assert.equal(interpretGuideMeReply('No answer.', 'No answer.'), undefined, 'a timeout');
         assert.equal(interpretGuideMeReply('askUser error: an ask is pending'), undefined);
+        // Sent with Send answers (vscimpb35): a choice, with the user's words beside it or not.
+        const sent = (choiceId: string | undefined, text: string) =>
+            composeChoiceAnswers(ask.questions, ask.choices, [{ ...(choiceId ? { choiceId } : {}), text }], '');
+        assert.deepEqual(interpretGuideMeReply(sent('complete', 'rotated on both hosts')), { kind: 'complete', note: 'rotated on both hosts' });
+        assert.deepEqual(interpretGuideMeReply(sent('queue', '')), { kind: 'queue' });
+        assert.deepEqual(interpretGuideMeReply(sent('leave', 'later')), { kind: 'note', text: 'later' }, 'Leave it, with words: a note');
+        assert.equal(interpretGuideMeReply(sent(undefined, '')), undefined);
         assert.equal(appendTodoNote(undefined, ' done half ', '2026-11-10'), '2026-11-10 (Guide me): done half');
         assert.equal(appendTodoNote('Earlier.\n', 'more', '2026-11-10'), 'Earlier.\n2026-11-10 (Guide me): more');
     });
@@ -48,6 +55,7 @@ describe('Guide me: what now with the todo', () => {
         assert.match(src, /\} else if \(outcome\.ok && use === 'userAction' && questId\) \{\s*await _guideMeClosing\(todo\.id, questId, sourceFile\);/);
         assert.match(src, /const queueTpl = resolveTodoButtonTemplate\(anthropic\?\.todoButtonTemplates, anthropic\?\.userMessageTemplates, 'other'\);/);
         assert.match(src, /await _queueTodo\(todo, questId, sourceFile, queueTpl\);/);
-        assert.match(src, /\{ status: 'completed', completed_date: todayLocalDate\(\) \}/);
+        assert.match(src, /\{ status: 'completed', completed_date: todayLocalDate\(\), \.\.\.noted \}/);
+        assert.match(src, /const note = pick\.kind === 'note' \? pick\.text : pick\.note;/, 'the words beside a choice go into the notes too');
     });
 });

@@ -17,7 +17,7 @@ import * as path from 'path';
 import { buildAssistPrompt, type AssistPromptsSection } from '../utils/assistPrompts';
 import { readMdQuestions, type MdQuestion } from '../utils/mdQuestions';
 import { createTemporarySession } from './temporarySessions';
-import { clickedChoiceId, type AskChoice } from '../utils/askChoices';
+import { readSingleAnswer, type AskChoice } from '../utils/askChoices';
 
 export type QuestionAssistUse = 'grillMe' | 'explainInDetail';
 
@@ -121,8 +121,8 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
 
 /** What the closing answer step chose: an option, the proposal, a typed answer, or nothing. */
 export type AnswerPick =
-    | { kind: 'option'; letter: string }
-    | { kind: 'proposal' }
+    | { kind: 'option'; letter: string; text?: string }
+    | { kind: 'proposal'; text?: string }
     | { kind: 'text'; text: string };
 
 const ACCEPT_PROPOSAL_ID = 'accept-proposal';
@@ -144,7 +144,7 @@ function shortLabel(text: string, max = 70): string {
 export function closingAnswerAsk(question: MdQuestion, file: string): { questions: string[]; title: string; choices: AskChoice[] } {
     const lines = [`${question.id}${question.topic ? ` — ${question.topic}` : ''}: ${question.text}`.trim()];
     if (question.proposed) { lines.push(`Proposed answer (${question.proposed.source}): ${question.proposed.text}`); }
-    lines.push('Pick one, or type your own answer. It is written into the Answer line.');
+    lines.push('Select one and Send answers — add your own words beside it, or type an answer without one. It is written into the Answer line.');
     const choices: AskChoice[] = [];
     if (question.proposed) { choices.push({ id: ACCEPT_PROPOSAL_ID, label: 'Accept the proposed answer', kind: 'answer' }); }
     for (const o of question.options) {
@@ -159,13 +159,17 @@ export function closingAnswerAsk(question: MdQuestion, file: string): { question
 export function interpretClosingReply(reply: string, question: MdQuestion, fallbackPrompt?: string): AnswerPick | undefined {
     const text = reply.trim();
     if (!text || text.startsWith('askUser error') || (fallbackPrompt && text === fallbackPrompt.trim())) { return undefined; }
-    const id = clickedChoiceId(text);
+    // A choice selected and sent (with the user's words beside it), a click, or text typed alone.
+    const { choiceId: id, text: own } = readSingleAnswer(text);
+    const words = own ? { text: own } : {};
     if (id !== undefined) {
-        if (id === ACCEPT_PROPOSAL_ID) { return question.proposed ? { kind: 'proposal' } : undefined; }
+        if (id === ACCEPT_PROPOSAL_ID) { return question.proposed ? { kind: 'proposal', ...words } : undefined; }
         const option = question.options.find((o) => optionChoiceId(o.letter) === id);
-        return option ? { kind: 'option', letter: option.letter } : undefined;
+        if (option) { return { kind: 'option', letter: option.letter, ...words }; }
+        // Leave it open: the words alone, if any, are the answer.
+        return own ? { kind: 'text', text: own } : undefined;
     }
-    return { kind: 'text', text };
+    return own ? { kind: 'text', text: own } : undefined;
 }
 
 /** After the turn: the question still open, the user picks or types its answer and it is written. */

@@ -30,7 +30,7 @@ installVscodeStub({});
 import {
     closingAnswerAsk, explanationFileFor, findQuestion, interpretClosingReply, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type AnswerPick, type QuestionAssistDeps,
 } from '../questionAssist.js';
-import { choiceAnswer } from '../../utils/askChoices.js';
+import { choiceAnswer, composeChoiceAnswers } from '../../utils/askChoices.js';
 import { proposeMdAnswer, readMdQuestions, settleProposedAnswer } from '../../utils/mdQuestions.js';
 import { ASSIST_PROMPT_INFO, ensureDefaultAssistPrompts, type AssistPromptsSection } from '../../utils/assistPrompts.js';
 
@@ -168,6 +168,14 @@ describe('Grill me / Explain in detail', () => {
         assert.deepEqual(interpretClosingReply('  both, in one go ', cc2), { kind: 'text', text: 'both, in one go' });
         assert.equal(interpretClosingReply('No answer came.', cc2, 'No answer came.'), undefined, 'the timeout fallback');
         assert.equal(interpretClosingReply('askUser error: busy', cc2), undefined);
+        // Sent with Send answers (vscimpb35): the choice selected, with the user's words beside it or not.
+        const sent = (choiceId: string | undefined, text: string, general = '') =>
+            composeChoiceAnswers(ask.questions, ask.choices, [{ ...(choiceId ? { choiceId } : {}), text }], general);
+        assert.deepEqual(interpretClosingReply(sent('option-b', 'the browser is smaller'), cc2), { kind: 'option', letter: 'b', text: 'the browser is smaller' });
+        assert.deepEqual(interpretClosingReply(sent('option-a', ''), cc2), { kind: 'option', letter: 'a' });
+        assert.deepEqual(interpretClosingReply(sent(undefined, 'both, in one go'), cc2), { kind: 'text', text: 'both, in one go' });
+        assert.equal(interpretClosingReply(sent('leave-open', ''), cc2), undefined, 'Leave it open, no words');
+        assert.equal(interpretClosingReply(sent(undefined, ''), cc2), undefined, 'nothing selected, nothing typed');
         // The run: after the turn the panel is asked and the pick written.
         const written: AnswerPick[] = [];
         const asked: string[] = [];
@@ -196,6 +204,7 @@ describe('Grill me / Explain in detail', () => {
         assert.equal(asked.length, before, 'no panel for an answered question');
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
         assert.match(src, /askAnswer: async \(input\) => \(await import\('\.\/askUser-handler\.js'\)\)\.askUserWithChoices\(input\)/);
-        assert.match(src, /liveMdAnswerWriter\.acceptProposal\(target\)/);
+        assert.match(src, /liveMdAnswerWriter\.acceptProposal\(\{ \.\.\.target, \.\.\.\(pick\.text && question\.proposed \? \{ text: `\$\{question\.proposed\.text\}\\n\$\{pick\.text\}` \} : \{\}\) \}\)/);
+        assert.match(src, /option: pick\.letter, \.\.\.\(pick\.text \? \{ answer: pick\.text \} : \{\}\)/, 'an option with the user\'s words: (b) words');
     });
 });

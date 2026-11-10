@@ -27,7 +27,7 @@ import {
     choiceClickAnswerAsync,
 } from '../tools/ask-user-tool';
 import { NESTED_FOLLOW_UP_LABELS } from '../utils/processStack';
-import { questionText, type AskChoice, type ChoiceContext, type MoveOutcome, type StartOutcome } from '../utils/askChoices';
+import { composeChoiceAnswers, questionText, type AskChoice, type ChoiceContext, type MoveOutcome, type QuestionAnswer, type StartOutcome } from '../utils/askChoices';
 import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
@@ -84,8 +84,8 @@ function openAskPanel(pending: PendingAsk): void {
     );
 
     const isPending = (): boolean => AskUserRegistry.instance.getPending()?.requestId === pending.requestId;
-    panel.webview.onDidReceiveMessage(async (msg: { type?: string; requestId?: string; text?: string; choiceId?: string }) => {
-        if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice')) { return; }
+    panel.webview.onDidReceiveMessage(async (msg: { type?: string; requestId?: string; text?: string; choiceId?: string; answers?: unknown }) => {
+        if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice' && msg.type !== 'answers')) { return; }
         if (!isPending()) {
             // An answer to a question that is no longer open (answered elsewhere, timed out,
             // cancelled with its prompt): the panel goes instead of waiting forever.
@@ -95,6 +95,16 @@ function openAskPanel(pending: PendingAsk): void {
         }
         if (msg.type === 'submit') {
             AskUserRegistry.instance.submit(pending.requestId, typeof msg.text === 'string' ? msg.text : '', 'vscode');
+            return;
+        }
+        if (msg.type === 'answers') {
+            // Send answers: every question's selected answer choice and own words, numbered (vscimpb35).
+            const answers = Array.isArray(msg.answers) ? (msg.answers as QuestionAnswer[]) : [];
+            AskUserRegistry.instance.submit(
+                pending.requestId,
+                composeChoiceAnswers(pending.questions, pending.choices, answers, typeof msg.text === 'string' ? msg.text : ''),
+                'vscode',
+            );
             return;
         }
         // A choice button: what it does (a move, a branch or subprocess started) is done here, then

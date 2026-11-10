@@ -111,3 +111,27 @@ button.primary:disabled {
 .ask-choice:disabled { cursor: default; opacity: 0.7; }
 .ask-choice-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .ask-choice-row .ask-choice { margin: 0; }
+/* An answer choice selected for its question (sent with Send answers). */
+.ask-choice.selected {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-color: var(--vscode-focusBorder);
+    font-weight: 600;
+}
+.ask-choice.selected::before { content: '✓ '; }
+/* A question's own words, beside its answer choices. */
+.ask-note {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    resize: vertical;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+    border-radius: 2px;
+}
+.ask-note:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }

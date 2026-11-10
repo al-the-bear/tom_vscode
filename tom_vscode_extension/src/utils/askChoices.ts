@@ -249,3 +249,75 @@ export function choiceAnswer(choice: AskChoice, move?: MoveOutcome, start?: Star
         }
     }
 }
+
+// ── Answers sent together (Send answers) ──────────────────────────────────────
+
+/** One question's answer as the panel sends it: the `answer` choice selected for it and the user's own words. */
+export interface QuestionAnswer {
+    choiceId?: string;
+    text?: string;
+}
+
+/** The question (0-based) each choice is shown with: its marker's question, else the one it is placed under. */
+export function choiceQuestionIndex(questions: string[], choices: AskChoice[]): Map<string, number> {
+    const at = new Map<string, number>();
+    layoutChoices(questions, choices).forEach((place, i) => {
+        for (const seg of place.segments) { if ('choiceId' in seg && !at.has(seg.choiceId)) { at.set(seg.choiceId, i); } }
+        for (const id of place.below) { if (!at.has(id)) { at.set(id, i); } }
+    });
+    return at;
+}
+
+/**
+ * The reply of a question panel whose `answer` choices select (vscimpb35):
+ * every question numbered as asked, with the choice selected for it (its
+ * label and id, and its `target` when that differs) and the user's own words for it,
+ * then the general text. A choice that is no `answer` choice of that question
+ * is ignored (a stale or forged id); a question with neither says so.
+ */
+export function composeChoiceAnswers(questions: string[], choices: AskChoice[], answers: QuestionAnswer[], general: string): string {
+    const where = choiceQuestionIndex(questions, choices);
+    const lines = ['The answers, numbered like the questions:'];
+    questions.forEach((_q, i) => {
+        const a = answers[i] ?? {};
+        const choice = a.choiceId !== undefined
+            ? choices.find((c) => c.id === a.choiceId && c.kind === 'answer' && where.get(c.id) === i)
+            : undefined;
+        const text = typeof a.text === 'string' ? a.text.trim() : '';
+        const parts: string[] = [];
+        if (choice) {
+            const target = choice.target && choice.target !== choice.label ? `, answer: ${choice.target}` : '';
+            parts.push(`chose "${choice.label}" (id ${choice.id}${target})`);
+        }
+        if (text) { parts.push(choice ? `and wrote: ${text}` : text); }
+        lines.push(`${i + 1}. ${parts.length ? parts.join(' ') : '(no answer)'}`);
+    });
+    const rest = general.trim();
+    if (rest) { lines.push('', rest); }
+    return lines.join('\n');
+}
+
+/** The header of a {@link composeChoiceAnswers} reply. */
+const ANSWERS_HEAD = 'The answers, numbered like the questions:';
+
+/**
+ * A one-question reply read back, whatever answered it: a Send-answers reply
+ * ({@link composeChoiceAnswers}: the choice selected and the user's words, the
+ * general text after them), a click on a choice that acts at once
+ * ({@link choiceAnswer}), or text typed anywhere (the panel without choices,
+ * Telegram). `text` is the user's own words, '' when none.
+ */
+export function readSingleAnswer(reply: string): { choiceId?: string; text: string } {
+    const trimmed = reply.trim();
+    const clicked = clickedChoiceId(trimmed);
+    if (clicked !== undefined) { return { choiceId: clicked, text: '' }; }
+    if (!trimmed.startsWith(ANSWERS_HEAD)) { return { text: trimmed }; }
+    const body = trimmed.slice(ANSWERS_HEAD.length).replace(/^\n/, '');
+    const blank = body.indexOf('\n\n');
+    const first = (blank < 0 ? body : body.slice(0, blank)).replace(/^1\. /, '');
+    const general = blank < 0 ? '' : body.slice(blank + 2).trim();
+    const chose = /^chose ".*?" \(id ([\w-]+)(?:, answer: [^)]*)?\)(?: and wrote: ([\s\S]*))?$/.exec(first);
+    const own = chose ? (chose[2] ?? '') : first === '(no answer)' ? '' : first;
+    const text = [own.trim(), general].filter(Boolean).join('\n\n');
+    return chose ? { choiceId: chose[1], text } : { text };
+}

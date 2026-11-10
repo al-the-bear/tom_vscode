@@ -2309,19 +2309,23 @@ async function _guideMeClosing(todoId: string, questId: string, sourceFile: stri
     const reply = await askUserWithChoices(guideMeClosingAsk(todo, queueTpl.name || queueTpl.id));
     const pick = interpretGuideMeReply(reply, readChatQuestionsConfig().fallbackPrompt);
     if (!pick) { return; }
+    // The user's own words, beside a choice or alone, go into the todo's notes.
+    const note = pick.kind === 'note' ? pick.text : pick.note;
+    const noted: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = note ? { notes: appendTodoNote(todo.notes, note, todayLocalDate()) } : {};
     if (pick.kind === 'queue') {
         if (queueTpl.missing || !queueTpl.body) {
             vscode.window.showWarningMessage(`The Todo buttons template "${queueTpl.id}" is not among the Anthropic templates: choose one on the Status Page (Todo buttons).`);
             return;
         }
+        if (note) { questTodo.updateTodo(questId, todo.id, noted); }
         await _queueTodo(todo, questId, sourceFile, queueTpl);
         return;
     }
     const updates: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = pick.kind === 'complete'
-        ? { status: 'completed', completed_date: todayLocalDate() }
+        ? { status: 'completed', completed_date: todayLocalDate(), ...noted }
         : pick.kind === 'inProgress'
-            ? { status: 'in-progress' }
-            : { notes: appendTodoNote(todo.notes, pick.text, todayLocalDate()) };
+            ? { status: 'in-progress', ...noted }
+            : noted;
     const updated = questTodo.updateTodo(questId, todo.id, updates);
     if (!updated) { vscode.window.showWarningMessage(`Todo ${todo.id} could not be updated.`); return; }
     const done = pick.kind === 'complete' ? 'completed' : pick.kind === 'inProgress' ? 'in progress' : 'given the note';

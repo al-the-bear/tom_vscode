@@ -1325,8 +1325,12 @@ function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssis
         fallbackPrompt: () => readChatQuestionsConfig().fallbackPrompt,
         writeAnswer: async (filePath, question, pick) => {
             const target = { file: filePath, id: question.id, line: question.line };
-            const raw = pick.kind === 'proposal' ? await liveMdAnswerWriter.acceptProposal(target)
-                : await liveMdAnswerWriter.setAnswer(pick.kind === 'option' ? { ...target, option: pick.letter } : { ...target, answer: pick.text });
+            // An option with the user's words: `(b) words`; the proposal with words: accepted, the words added.
+            const raw = pick.kind === 'proposal'
+                ? await liveMdAnswerWriter.acceptProposal({ ...target, ...(pick.text && question.proposed ? { text: `${question.proposed.text}\n${pick.text}` } : {}) })
+                : await liveMdAnswerWriter.setAnswer(pick.kind === 'option'
+                    ? { ...target, option: pick.letter, ...(pick.text ? { answer: pick.text } : {}) }
+                    : { ...target, answer: pick.text });
             try { const r = JSON.parse(raw) as { ok?: boolean; error?: string }; return r.ok ? '' : (r.error ?? 'refused'); } catch { return raw; }
         },
     };
