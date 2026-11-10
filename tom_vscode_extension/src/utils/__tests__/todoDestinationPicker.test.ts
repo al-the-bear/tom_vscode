@@ -8,7 +8,7 @@
  *   DP-5  todos of several quests: the workspace and another quest, no single "quest todos"
  *   DP-6  a workspace-relative path tells its quest and file
  *   DP-7  the prefix of an id is the panel's group key: everything before the first digit
- *   DP-8  the prefix choices for a target quest: its groups (largest first) with their next free number,
+ *   DP-8  the prefix choices for a target quest: its groups (alphabetically) with their next free number,
  *         then a prefix of your own, then "keep the ids"; a quest without groups offers those two
  *   DP-9  renaming: the moved todos get the chosen prefix and consecutive numbers after the group's
  *         highest, each keeping the tail after its number; an id without a number keeps itself as tail;
@@ -21,6 +21,9 @@
  *   DP-13 where a todo added to a group goes in a file: after the group's last todo below 999 (so before its
  *         finalizer), else before the first finalizer, else at the end
  *   DP-14 a new todo id: one word, not empty, no path characters, no id the quest already has (its own id is fine)
+ *   DP-15 the groups offered are the non-empty groups of the live todos only (not those only archived or deleted
+ *         todos hold), alphabetically; the next number still counts every id of the quest, archived and deleted
+ *         ones included, so no id is taken twice; "Enter a prefix…" stays for a group typed by hand
  */
 
 import test, { describe } from 'node:test';
@@ -153,5 +156,15 @@ describe('todo destination picker', () => {
         assert.match(String(todoIdInputError('', 'a1', taken)), /Enter/);
         assert.match(String(todoIdInputError('two words', 'a1', taken)), /one word/);
         assert.match(String(todoIdInputError('a/b', 'a1', taken)), /no \//);
+    });
+
+    test('DP-15: only the live groups, alphabetically', () => {
+        const all = ['zeta1_a', 'beta3_b', 'beta12_c', 'old5_d', 'gone2_e', 'alpha1_f', 'alpha2_g', 'alpha3_h'];
+        const live = ['zeta1_a', 'beta3_b', 'alpha1_f', 'alpha2_g', 'alpha3_h'];
+        const options = todoPrefixChoices(all, live);
+        assert.deepEqual(options.filter((o) => o.kind === 'group').map((o) => [o.prefix, o.count, o.next]), [
+            ['alpha', 3, 4], ['beta', 1, 13], ['zeta', 1, 2]], 'live groups only, alphabetically; beta numbered after the archived beta12');
+        assert.deepEqual(options.slice(-2).map((o) => o.kind), ['custom', 'keep'], 'typing a group by hand stays');
+        assert.deepEqual(todoPrefixChoices(['old5_d'], []).map((o) => o.kind), ['custom', 'keep'], 'a quest whose groups are all archived offers none');
     });
 });

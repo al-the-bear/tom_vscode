@@ -126,8 +126,9 @@ every open todo of the group (`qtGroupOpenTodos`).
 When `todoMoveNeedsIdChoice` says a todo enters a quest it is not in, the
 handler asks ONE id decision for all moved todos: `todoPrefixChoices` over the
 target's ids (`readAllTodos(quest, ALL_TODO_FILES)`, so archived and deleted
-ids count as taken) offers its groups (`kind: 'group'`), largest first with
-the next numbers, then *Enter a prefix…* (`custom`: an input box validated by
+ids count as taken) offers the groups of its live todos (`kind: 'group'`, the
+second argument, `readAllTodos(quest)`: a group only archived or deleted todos
+hold is not offered), alphabetically with the next numbers, then *Enter a prefix…* (`custom`: an input box validated by
 `validateTodoPrefix`, its info line the `todoPrefixPreview` of the new ids),
 then *Keep the ids* (`keep`). `todoRenames` maps each moved id to `<prefix><n><tail>`
 (consecutive after the group's highest, taken numbers skipped, the tail after

@@ -29,6 +29,7 @@ import { questTrailFolder } from '../utils/questPaths.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
+import { isArchivedOrDeletedTodoFile } from '../utils/todoArchiveNames';
 import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
@@ -1127,10 +1128,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             let renames: Map<string, string> | undefined;
             if (dest.kind === 'quest' && todoMoveNeedsIdChoice(found.map(s => s.origin), dest)) {
                 const targetIds = questTodo.readAllTodos(dest.questId, questTodo.ALL_TODO_FILES).map(t => t.id);
+                const liveTargetIds = questTodo.readAllTodos(dest.questId).map(t => t.id);
                 const movingIds = found.map(s => s.todoId);
                 const icon = { group: '$(symbol-number)', custom: '$(edit)', keep: '$(circle-slash)' };
                 const idPick = await vscode.window.showQuickPick(
-                    todoPrefixChoices(targetIds).map(o => ({ label: `${icon[o.kind]} ${o.label}`, description: o.description, option: o })),
+                    todoPrefixChoices(targetIds, liveTargetIds).map(o => ({ label: `${icon[o.kind]} ${o.label}`, description: o.description, option: o })),
                     { title: `Ids of the ${found.length === 1 ? 'moved todo' : `${found.length} moved todos`} in quest ${dest.questId}`, placeHolder: 'Number them into one of the quest\'s groups, under a prefix of your own, or keep the ids' },
                 );
                 if (!idPick) { return true; }
@@ -2068,8 +2070,9 @@ async function _moveTodosToGroup(questId: string, found: readonly MoveSource[], 
     const movingIds = found.map((s) => s.todoId);
     const all = questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES);
     const otherIds = all.map((t) => t.id).filter((id) => !movingIds.includes(id));
+    const liveOtherIds = all.filter((t) => !t._sourceFile || !isArchivedOrDeletedTodoFile(path.basename(t._sourceFile))).map((t) => t.id).filter((id) => !movingIds.includes(id));
     const ownGroups = new Set(movingIds.map(todoIdPrefix));
-    const groups = todoPrefixChoices(otherIds)
+    const groups = todoPrefixChoices(otherIds, liveOtherIds)
         .filter((o) => o.kind !== 'keep' && !(o.kind === 'group' && ownGroups.size === 1 && ownGroups.has(o.prefix ?? '')));
     const count = found.length === 1 ? 'the todo' : `the ${found.length} todos`;
     const icon = { group: '$(symbol-number)', custom: '$(edit)', keep: '' };

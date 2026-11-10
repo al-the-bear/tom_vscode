@@ -116,23 +116,31 @@ export interface TodoPrefixOption {
 }
 
 /**
- * What a move into a quest may rename the todos to: each prefix group of the
- * quest's todos (`targetIds`), largest first, starting after its highest
- * number — then a prefix the user enters, then "keep the ids".
+ * What a move into a quest may rename the todos to: each non-empty prefix
+ * group of the quest's live todos (`liveIds`; default `targetIds`),
+ * alphabetically, starting after its highest number among all the quest's
+ * todos (`targetIds`, archived and deleted ones included, so no id is taken
+ * twice) — then a prefix the user enters, then "keep the ids". A group only
+ * archived or deleted todos hold is not offered: it can still be typed.
  */
-export function todoPrefixChoices(targetIds: readonly string[]): TodoPrefixOption[] {
+export function todoPrefixChoices(targetIds: readonly string[], liveIds: readonly string[] = targetIds): TodoPrefixOption[] {
     const groups = new Map<string, { count: number; high: number }>();
-    for (const id of targetIds) {
+    for (const id of liveIds) {
         const prefix = todoIdPrefix(id);
         if (!prefix) { continue; }
         const g = groups.get(prefix) ?? { count: 0, high: 0 };
         g.count++;
-        const n = numberIn(id, prefix) ?? 0;
-        if (n < FINALIZER_INDEX) { g.high = Math.max(g.high, n); }
         groups.set(prefix, g);
     }
+    for (const id of targetIds) {
+        const prefix = todoIdPrefix(id);
+        const g = groups.get(prefix);
+        if (!g) { continue; }
+        const n = numberIn(id, prefix) ?? 0;
+        if (n < FINALIZER_INDEX) { g.high = Math.max(g.high, n); }
+    }
     const options: TodoPrefixOption[] = [...groups.entries()]
-        .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+        .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([prefix, g]) => ({
             kind: 'group' as const,
             label: prefix,

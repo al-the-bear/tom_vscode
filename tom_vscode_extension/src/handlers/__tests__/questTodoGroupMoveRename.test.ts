@@ -5,11 +5,14 @@
  *   GM-1 the ID edit: the input box offers the id, refuses one the quest has; the todo is renamed, references in
  *        the quest follow, the webview is told (qtRenamed, then the detail of the new id)
  *   GM-2 "Move to another group…": offered in the move picker; the group picked, the todos are numbered after its
- *        last todo below 999 and placed before its finalizer (`<prefix>999`); their own group is not offered
+ *        last todo below 999 and placed before its finalizer (`<prefix>999`); their own group is not offered,
+ *        nor a group only archived todos hold (it is numbered past, though: `fin5` is taken in the archive);
+ *        the groups come alphabetically, with "Enter a prefix…" after them
  *   GM-3 the webview: the ID field has the edit button for a quest todo (not for session todos); a click posts
  *        qtRenameTodo with the id and file; qtRenamed selects the new id and loads the list again
  */
 
+/* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
@@ -64,7 +67,10 @@ describe('todo panel: another group, and the id edit', () => {
     });
 
     test('GM-2: Move to another group', async () => {
-        seed(['fin1_bb-a', 'fin2_bb-b', 'fin999_bb-final', 'mov1_bb-x', 'mov2_bb-y']);
+        seed(['fin1_bb-a', 'fin2_bb-b', 'fin999_bb-final', 'mov1_bb-x', 'mov2_bb-y', 'abc1_bb-z']);
+        const archived = path.join(WS, '_ai', 'quests', QUEST, `todos-archived.${QUEST}.todo.yaml`);
+        questTodo.createTodoInFile(archived, { id: 'oldgrp1_bb-done', title: 'T', description: 'd', status: 'completed' } as never);
+        questTodo.createTodoInFile(archived, { id: 'fin5_bb-done', title: 'T', description: 'd', status: 'completed' } as never);
         const pickers: Json[] = [];
         stubWindow.showQuickPick = async (items: Json[], opts: Json) => {
             pickers.push({ items, opts });
@@ -78,8 +84,12 @@ describe('todo panel: another group, and the id edit', () => {
         }, webview);
         assert.ok(pickers[0].items.some((i: Json) => /Move to another group/.test(i.label)), 'offered');
         assert.ok(!pickers[1].items.some((i: Json) => i.option?.prefix === 'mov'), 'not their own group');
+        const groups = pickers[1].items.filter((i: Json) => i.option?.kind === 'group').map((i: Json) => i.option.prefix);
+        assert.ok(!groups.includes('oldgrp'), 'a group only archived todos hold is not offered');
+        assert.deepEqual(groups, [...groups].sort(), 'alphabetically');
+        assert.equal(pickers[1].items[groups.length].option.kind, 'custom', 'then Enter a prefix…');
         const ids = questTodo.readTodoFile(main).map((t) => t.id).filter((id) => /^(fin|mov)/.test(id));
-        assert.deepEqual(ids, ['fin1_bb-a', 'fin2_bb-b', 'fin3_bb-x', 'fin4_bb-y', 'fin999_bb-final'], 'at the end of the group, before its finalizer');
+        assert.deepEqual(ids, ['fin1_bb-a', 'fin2_bb-b', 'fin6_bb-x', 'fin7_bb-y', 'fin999_bb-final'], 'at the end of the group, before its finalizer, numbered past the archived fin5');
     });
 
     test('GM-3: the webview', () => {
