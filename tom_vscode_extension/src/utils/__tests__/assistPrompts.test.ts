@@ -10,6 +10,9 @@
  *   AP-4 the out-of-budget prompt is the template's: the built-in default is the text the code built (stopped
  *        profile, model, session, time, message, live trail, original prompt); a chosen template replaces it;
  *        the queue passes the config's section
+ *   AP-5 the three prompts that write a note (Explain in detail, Explain a decision, Grill me at a decision) ask
+ *        for every file as a Markdown link relative to the note, which the MD Browser follows; a default still
+ *        holding the text without that rule is brought to the current one
  */
 
 import test, { describe } from 'node:test';
@@ -77,6 +80,22 @@ describe('Assist prompts', () => {
         assert.equal(ensureDefaultAssistPrompts(config), false, 'once');
         const seeded = src('src', 'extension.ts');
         assert.match(seeded, /if \(ensureDefaultAssistPrompts\(stcConfig\)\)/, 'seeded at activation');
+    });
+
+    test('AP-5: notes link their files', () => {
+        for (const use of ['explainInDetail', 'explainDecision', 'grillMeDecision'] as const) {
+            const body = ASSIST_PROMPT_INFO[use].defaultBody;
+            assert.match(body, /Name every file as a Markdown link relative to the note/, use);
+            // The text before the rule, as a workspace seeded it: seeding replaces it.
+            const before = body.replace(/\n {3}Name every file as a Markdown link[^\n]*/, '');
+            assert.notEqual(before, body);
+            const config: { assistPrompts?: AssistPromptsSection } = {
+                assistPrompts: { templates: [{ id: ASSIST_PROMPT_INFO[use].defaultId, name: 'x', template: before }] },
+            };
+            ensureDefaultAssistPrompts(config);
+            const seeded = config.assistPrompts!.templates!.find((t) => t.id === ASSIST_PROMPT_INFO[use].defaultId)!;
+            assert.equal(seeded.template, body, `${use}: an unedited earlier default is replaced`);
+        }
     });
 
     test('AP-4: the out-of-budget prompt is the template\'s', () => {

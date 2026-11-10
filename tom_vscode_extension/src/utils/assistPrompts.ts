@@ -98,6 +98,29 @@ const GRILL_ME_BODY = [
     '4. End with one short paragraph: what you proposed and why.',
 ].join('\n');
 
+/** Explain in detail before its notes linked their files (a path in backticks cannot be clicked). */
+const EXPLAIN_IN_DETAIL_BODY_V2 = [
+    '**Explain in detail** question ${questionId} in `${file}`.',
+    '',
+    'The question as written:',
+    '',
+    '${questionBlock}',
+    '',
+    READ_AND_PROPOSE,
+    '',
+    '1. Read the document around the question so you know its context.',
+    '2. Write the explanation to `${explanationFile}`: what the question decides and why it matters; each option at length — what it means, what follows from it, what it costs and risks; how the recommendation was reached. End with the points worth digging deeper into.',
+    '3. Show it with tomAi_askInMdBrowser and the buttons `deeper` (Dig deeper), `propose` (Propose an answer) and `done` (Done); Keep this file is mine to decide.',
+    '   - Dig deeper: ask which point through tomAi_askUser, the points as `choices` (kind `answer`), extend the explanation, and show it again.',
+    '   - Propose an answer: propose it under the question (source `explain in detail`).',
+    '   - Done: stop.',
+    '4. Never write the Answer line yourself.',
+].join('\n');
+
+/** How a note names a file: a link the MD Browser can follow. */
+const LINK_FILES =
+    '   Name every file as a Markdown link relative to the note, e.g. `[the design](../designs/<id>/<id>.md)` — never as a bare path in backticks: the MD Browser opens a link on a click, a path not at all.';
+
 const EXPLAIN_IN_DETAIL_BODY = [
     '**Explain in detail** question ${questionId} in `${file}`.',
     '',
@@ -109,6 +132,7 @@ const EXPLAIN_IN_DETAIL_BODY = [
     '',
     '1. Read the document around the question so you know its context.',
     '2. Write the explanation to `${explanationFile}`: what the question decides and why it matters; each option at length — what it means, what follows from it, what it costs and risks; how the recommendation was reached. End with the points worth digging deeper into.',
+    LINK_FILES,
     '3. Show it with tomAi_askInMdBrowser and the buttons `deeper` (Dig deeper), `propose` (Propose an answer) and `done` (Done); Keep this file is mine to decide.',
     '   - Dig deeper: ask which point through tomAi_askUser, the points as `choices` (kind `answer`), extend the explanation, and show it again.',
     '   - Propose an answer: propose it under the question (source `explain in detail`).',
@@ -135,7 +159,8 @@ const SHOW_DECISION_ADVICE = [
     '4. Do not move the process and do not decide: the decision stays mine.',
 ].join('\n');
 
-const EXPLAIN_DECISION_BODY = [
+/** Explain a decision before its notes linked their files. */
+const EXPLAIN_DECISION_BODY_V2 = [
     '**Explain a decision** of process ${process}, at ${position}.',
     '',
     'The decision: ${decision}',
@@ -145,7 +170,18 @@ const EXPLAIN_DECISION_BODY = [
     SHOW_DECISION_ADVICE,
 ].join('\n');
 
-const GRILL_ME_DECISION_BODY = [
+const EXPLAIN_DECISION_BODY = [
+    '**Explain a decision** of process ${process}, at ${position}.',
+    '',
+    'The decision: ${decision}',
+    '',
+    '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
+    '2. Write your advice to `${noteFile}`: each choice — what happens next if it is taken, what speaks for and against it given the work so far — and which one you would take and why.',
+    LINK_FILES,
+    SHOW_DECISION_ADVICE,
+].join('\n');
+
+const GRILL_ME_DECISION_LINES = [
     '**Grill me** on a decision of process ${process}, at ${position}.',
     '',
     'The decision: ${decision}',
@@ -155,8 +191,12 @@ const GRILL_ME_DECISION_BODY = [
     '1. Read where the process is (tomAi_getProcessState) and what the work that led here did: the session\'s live trail, the files it changed.',
     '2. Ask me narrowing questions through tomAi_askUser — a few at a time, each saying what it settles; offer the likely answers as `choices` (kind `answer`) — until it is clear which choice fits. Never ask in your reply text.',
     '   Then write your advice to `${noteFile}`: what my answers settled, the choice you would take and why, and what speaks against the others.',
-    SHOW_DECISION_ADVICE,
-].join('\n');
+];
+
+/** Grill me at a decision before its notes linked their files. */
+const GRILL_ME_DECISION_BODY_V1 = [...GRILL_ME_DECISION_LINES, SHOW_DECISION_ADVICE].join('\n');
+
+const GRILL_ME_DECISION_BODY = [...GRILL_ME_DECISION_LINES, LINK_FILES, SHOW_DECISION_ADVICE].join('\n');
 
 const FINISH_REVIEW_ROUND_BODY = [
     '**Finish review round** — put the results in front of the user for the review, ${step} of process ${process}.',
@@ -172,9 +212,10 @@ const FINISH_REVIEW_ROUND_BODY = [
  * current default. An edited one is kept.
  */
 const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
-    explainDecision: [EXPLAIN_DECISION_BODY_V1],
+    explainDecision: [EXPLAIN_DECISION_BODY_V1, EXPLAIN_DECISION_BODY_V2],
     grillMe: [GRILL_ME_BODY_V1],
-    explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1],
+    explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1, EXPLAIN_IN_DETAIL_BODY_V2],
+    grillMeDecision: [GRILL_ME_DECISION_BODY_V1],
     finishReviewRound: [[
         '**Finish review round** of step ${step} (process ${process}).',
         '',
