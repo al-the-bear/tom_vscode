@@ -95,6 +95,38 @@
             },
             "additionalProperties": false
         },
+        "reminders": {
+            "type": "object",
+            "description": "Queue reminders (src/managers/reminderSystem.ts): the reminder prompt templates and when a reminder is sent for an item that waits for its answer file. Written by the reminder template editor and the tomAi_*ReminderTemplate tools.",
+            "properties": {
+                "templates": {
+                    "type": "array",
+                    "description": "The reminder templates. Missing or empty: the two built-ins (default 'Are you alive?', retry).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "minLength": 1, "description": "Stable key; an item's reminderTemplateId names it." },
+                            "name": { "type": "string", "description": "Display name; unique among the templates." },
+                            "prompt": { "type": "string", "description": "The reminder text, mustache {{token}} placeholders (REMINDER_PLACEHOLDER_HELP); the ${...} resolver is not applied." },
+                            "isDefault": { "type": "boolean", "description": "The default template (at most one)." }
+                        },
+                        "required": ["id", "name", "prompt"],
+                        "additionalProperties": false
+                    }
+                },
+                "config": {
+                    "type": "object",
+                    "description": "When reminders are sent.",
+                    "properties": {
+                        "enabled": { "type": "boolean", "description": "Send reminders at all. Default true." },
+                        "defaultTemplateId": { "type": "string", "description": "The template an item without its own uses. Default 'default'." },
+                        "defaultTimeoutMinutes": { "type": "number", "minimum": 1, "description": "Minutes an item waits for its answer before a reminder, when the queue sets none. Default 5, at least 1." }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
         "questRefresh": {
             "type": "object",
             "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",

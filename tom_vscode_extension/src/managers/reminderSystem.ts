@@ -12,23 +12,14 @@ import { randomUUID } from 'crypto';
 import { getConfigPath } from '../handlers/handler_shared';
 import { PromptQueueManager, QueuedPrompt } from './promptQueueManager';
 import { logQueue } from '../utils/queueLogger';
+import type { ReminderConfig, ReminderTemplate, RemindersConfig } from '../utils/sendToChatConfig';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface ReminderTemplate {
-    id: string;
-    name: string;
-    /**
-     * Template text using `{{tokenName}}` (mustache) syntax. The reminder
-     * runtime does not invoke the canonical placeholder resolver — it
-     * applies a fixed list of chain-replaces. See
-     * {@link REMINDER_PLACEHOLDER_HELP} for the set of supported tokens.
-     */
-    prompt: string;
-    isDefault: boolean;
-}
+// The config section's shapes are declared with the config type (`reminders` of SendToChatConfig).
+export type { ReminderTemplate, ReminderConfig } from '../utils/sendToChatConfig';
 
 /**
  * Source-of-truth help text for reminder-template authors. Kept close to
@@ -62,11 +53,6 @@ export const REMINDER_PLACEHOLDER_HELP =
     `<em>Reminder templates bypass the global <code>\${...}</code> resolver — ` +
     `only the tokens above are replaced.</em>`;
 
-export interface ReminderConfig {
-    enabled: boolean;
-    defaultTemplateId: string;
-    defaultTimeoutMinutes: number;   // min: 1, default: 5
-}
 
 // ============================================================================
 // Singleton
@@ -310,7 +296,7 @@ export class ReminderSystem {
             }
             const raw = fs.readFileSync(configPath, 'utf-8');
             const config = JSON.parse(raw);
-            const reminders = (config?.reminders && typeof config.reminders === 'object') ? config.reminders : {};
+            const reminders: RemindersConfig = (config?.reminders && typeof config.reminders === 'object') ? config.reminders : {};
 
             if (Array.isArray(reminders.templates) && reminders.templates.length > 0) {
                 this._templates = reminders.templates;

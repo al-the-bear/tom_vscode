@@ -476,6 +476,13 @@ export interface SendToChatConfig {
     questRefresh?: QuestRefreshConfig;
 
     /**
+     * Queue reminders (src/managers/reminderSystem.ts): the reminder
+     * templates and when a reminder is sent. Read and written by the
+     * ReminderSystem; missing parts take its defaults.
+     */
+    reminders?: RemindersConfig;
+
+    /**
      * The prompt template of the PROCESS view's Proceed button (`proceed`),
      * the only move that runs anything, edited in the process template
      * editor. Not set: its default (`DEFAULT_PROCESS_ACTION_TEMPLATES` in
@@ -516,6 +523,33 @@ export interface SendToChatConfig {
  * against defaults. Copilot is wired into the config/UI but its auto-trigger is
  * deferred (see quest_refresh_implementation_plan.md, Open decision option 3).
  */
+/** A reminder prompt template (`reminders.templates[]`). */
+export interface ReminderTemplate {
+    id: string;
+    name: string;
+    /**
+     * Template text using `{{tokenName}}` (mustache) syntax. The reminder
+     * runtime does not invoke the canonical placeholder resolver — it
+     * applies a fixed list of chain-replaces (REMINDER_PLACEHOLDER_HELP in
+     * src/managers/reminderSystem.ts lists the supported tokens).
+     */
+    prompt: string;
+    isDefault: boolean;
+}
+
+/** When reminders are sent (`reminders.config`). */
+export interface ReminderConfig {
+    enabled: boolean;
+    defaultTemplateId: string;
+    defaultTimeoutMinutes: number;   // min: 1, default: 5
+}
+
+/** The `reminders` section of the config. */
+export interface RemindersConfig {
+    templates?: ReminderTemplate[];
+    config?: Partial<ReminderConfig>;
+}
+
 export interface QuestRefreshConfig {
     anthropic?: QuestRefreshPanelConfig;
     copilot?: QuestRefreshPanelConfig;
