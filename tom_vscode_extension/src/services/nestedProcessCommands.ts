@@ -25,6 +25,7 @@ import { resolveVariables } from '../utils/variableResolver';
 const resolveInput = (text: string): string => resolveVariables(text);
 import {
     DEFAULT_MAX_PROCESS_DEPTH,
+    checkNestedStart,
     fillNestedInputs,
     listedEntry,
     NESTED_FOLLOW_UP_LABELS,
@@ -83,7 +84,7 @@ export async function startNestedProcess(store: ProcessStateStore, ui: NestedSta
     const order = (['ask', 'go-on', 'run-again'] as NestedFollowUp[]).sort((a, b) => Number(b === recommended) - Number(a === recommended));
     const followUp = await ui.pickFollowUp(order.map((f) => ({ label: `${NESTED_FOLLOW_UP_LABELS[f]}${f === recommended ? ' (recommended)' : ''}`, followUp: f })));
     if (!followUp) { return false; }
-    return startListedProcess(store, ui, picked.kind, picked.process, followUp, maxDepth);
+    return (await startListedProcess(store, ui, picked.kind, picked.process, followUp, maxDepth)).ok;
 }
 
 /**
@@ -98,28 +99,56 @@ export async function startListedProcess(
     process: string,
     followUp: NestedFollowUp,
     maxDepth: number = maxProcessDepth(),
-): Promise<boolean> {
+): Promise<NestedStartOutcome> {
     const top = store.state;
     const def = store.currentDefinition();
     const picked = { kind, process };
     const levels = store.levels;
+    // The step's lists first: an entry gone since it was offered (the step moved on) is the reason, not its inputs.
+    const allowed = checkNestedStart(levels, store.definitions(), kind, process);
+    if (!allowed.ok) { ui.error(`Could not start ${process}: ${allowed.error}`); return { ok: false, error: allowed.error }; }
     if (startNeedsConfirmation(levels, maxDepth)) {
         const ok = await ui.confirm(
             `Start ${picked.process} at nesting depth ${nestingDepth(levels) + 1}?`,
             `The quest's process stack is ${nestingDepth(levels)} level(s) deep above its own process, beyond the maximum of ${maxDepth} (Status Page, Process nesting). A process may start itself again; this asks so a runaway chain stops.`,
             'Start',
         );
-        if (!ok) { return false; }
+        if (!ok) { return { ok: false, error: `the start at nesting depth ${nestingDepth(levels) + 1} was not confirmed`, cancelled: true }; }
     }
     // The entry fills the process's inputs from this position (CC-61), resolved now, as the step sees them.
     const target = store.entry(picked.process)?.definition;
     const filled = target ? fillNestedInputs(target, listedEntry(def, top, picked.kind, picked.process), resolveInput) : { ok: true as const, inputs: {} };
-    if (!filled.ok) { ui.error(`Could not start ${picked.process}: ${filled.error}`); return false; }
+    if (!filled.ok) { ui.error(`Could not start ${picked.process}: ${filled.error}`); return { ok: false, error: filled.error }; }
     const result = store.startNested(picked.kind, picked.process, followUp, 'user', filled.inputs);
-    if (!result.ok) { ui.error(`Could not start ${picked.process}: ${result.error}`); return false; }
+    if (!result.ok) { ui.error(`Could not start ${picked.process}: ${result.error}`); return { ok: false, error: result.error }; }
     const waiting = queueItemsLeft(store);
-    ui.info(`Started ${levelName(topLevel(store.levels))}${waiting ? ` — its first Proceed goes in behind the ${waiting} item(s) of the step below still in the queue` : ''}.`);
-    return true;
+    const started = levelName(topLevel(store.levels));
+    ui.info(`Started ${started}${waiting ? ` — its first Proceed goes in behind the ${waiting} item(s) of the step below still in the queue` : ''}.`);
+    return { ok: true, started, followUp, inputs: filled.inputs };
+}
+
+/** What a start did: the level started (its name, follow-up, inputs), or why not. */
+export type NestedStartOutcome =
+    | { ok: true; started: string; followUp: NestedFollowUp; inputs: Record<string, string> }
+    | { ok: false; error: string; cancelled?: true };
+
+/**
+ * Start a process from a clicked branch / subprocess choice in a question
+ * (tomAi_askUser, the Agent SDK's AskUserQuestion): the follow-up is asked
+ * (ask me at the end first), then as every start — the step's lists checked
+ * again (an entry gone since the ask is refused), the depth confirmation, the
+ * inputs, the level.
+ */
+export async function startFromChoice(
+    store: ProcessStateStore,
+    ui: NestedStartUi,
+    kind: NestedKind,
+    process: string,
+    maxDepth: number = maxProcessDepth(),
+): Promise<NestedStartOutcome> {
+    const followUp = await ui.pickFollowUp((['ask', 'go-on', 'run-again'] as NestedFollowUp[]).map((f) => ({ label: NESTED_FOLLOW_UP_LABELS[f], followUp: f })));
+    if (!followUp) { return { ok: false, error: 'the user did not choose what the step does when it ends', cancelled: true }; }
+    return startListedProcess(store, ui, kind, process, followUp, maxDepth);
 }
 
 /** The step below's items still in the queue (its open run), 0 when none. */

@@ -204,8 +204,22 @@ export interface MoveOutcome {
     error?: string;
 }
 
+/** What a clicked branch / subprocess choice started: the level, or why nothing started. */
+export interface StartOutcome {
+    ok: boolean;
+    /** The level started, e.g. "the subprocess team_review". */
+    started?: string;
+    /** What the step does when the level ends (its label). */
+    followUp?: string;
+    /** The inputs it started with. */
+    inputs?: Record<string, string>;
+    error?: string;
+    /** The user cancelled (no follow-up chosen, the depth confirmation declined). */
+    cancelled?: boolean;
+}
+
 /** The answer the agent receives for a click on `choice`. */
-export function choiceAnswer(choice: AskChoice, move?: MoveOutcome): string {
+export function choiceAnswer(choice: AskChoice, move?: MoveOutcome, start?: StartOutcome): string {
     const head = `The user clicked the choice "${choice.label}" (id ${choice.id}, ${choice.kind}).`;
     switch (choice.kind) {
         case 'answer':
@@ -214,9 +228,19 @@ export function choiceAnswer(choice: AskChoice, move?: MoveOutcome): string {
             return move?.ok
                 ? `${head} The extension moved the process to ${move.where ?? choice.target}; do not move it yourself.`
                 : `${head} The move to ${choice.target} failed: ${move?.error ?? 'unknown error'}. The process was not moved.`;
-        default:
-            // Refused when the ask was made while no step lists them; starting
-            // one belongs to the nested processes (process stack).
-            return `${head} Starting a ${choice.kind} from a question is not available yet; nothing was started.`;
+        default: {
+            // A branch or subprocess the step lists: the extension starts it on the click (choiceClickAnswerAsync).
+            if (!start) { return `${head} Starting a ${choice.kind} from this question is not available here; nothing was started.`; }
+            if (!start.ok) {
+                return start.cancelled
+                    ? `${head} Starting ${choice.target} was cancelled: ${start.error ?? 'the user did not confirm'}. Nothing was started.`
+                    : `${head} Starting ${choice.target} failed: ${start.error ?? 'unknown error'}. Nothing was started.`;
+            }
+            const inputs = Object.entries(start.inputs ?? {});
+            return `${head} The extension started ${start.started ?? `the ${choice.kind} ${choice.target}`} on the quest's process stack`
+                + `${inputs.length ? `, with the inputs ${inputs.map(([n, v]) => `${n} = ${v}`).join(', ')}` : ''}.`
+                + ` The step waits until it ends, then: ${start.followUp ?? 'the decision Go on / Run the step again'}.`
+                + ' Do not move the process yourself; the new level runs once you end this turn.';
+        }
     }
 }

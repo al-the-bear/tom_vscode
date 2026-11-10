@@ -90,6 +90,6 @@ export async function openProcessBranchingEditor(context: vscode.ExtensionContex
         }
         if (msg?.type !== 'start' || !msg.kind || !msg.process) { return; }
         const started = await startListedProcess(store, liveNestedUi, msg.kind, msg.process, msg.followUp ?? 'ask');
-        if (started) { closeProcessBranchingEditor(); }
+        if (started.ok) { closeProcessBranchingEditor(); }
     });
 }

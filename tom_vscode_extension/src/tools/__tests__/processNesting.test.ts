@@ -41,6 +41,9 @@
  *   NP-14 the agent's view: the context block lists the parent processes above the running level and, at a
  *        step with lists, how to suggest; a level that names no session runs in the session of the step that
  *        started it (inheritedSession, actionSession)
+ *   NP-15 a branch / subprocess choice in tomAi_askUser: the click asks the follow-up and starts the level (a
+ *        subprocess with the inputs its entry fills, a branch with none); the answer says what started; an
+ *        entry gone by the click (the step moved on), a cancelled follow-up start nothing and say so
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -125,6 +128,7 @@ import { DEFAULT_MAX_PROCESS_DEPTH, fillNestedInputs, positionProcessLists, star
 import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
 import { openProcessBranchingEditor } from '../../handlers/processBranching-handler.js';
 import { SUGGEST_SUBPROCESS_TOOL } from '../process-stack-tools.js';
+import { ASK_USER_LIVE_TOOL } from '../../handlers/askUser-handler.js';
 import { onSuggestionsDue } from '../../services/processActionService.js';
 import { actionSession } from '../../utils/processActionPrompt.js';
 import { JSDOM } from 'jsdom';
@@ -539,6 +543,49 @@ describe('nested processes', () => {
         } finally {
             fs.writeFileSync(file, original);
             store().reload();
+        }
+    });
+
+    test('NP-15: branch and subprocess choices in questions', async () => {
+        const win = vscodeStub.stub.window as Json;
+        const original = win.showQuickPick;
+        let followUp: string | undefined = 'go-on';
+        win.showQuickPick = async (items: Json[]) => items.find((i: Json) => i.followUp === followUp);
+        const panels = (): Json[] => win.__webviewPanels;
+        const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));
+        const ask = async (choice: Json, before?: () => void): Promise<string> => {
+            const call = ASK_USER_LIVE_TOOL.execute({ questions: ['Start it? {{choice:c}}'], choices: [{ id: 'c', ...choice }] });
+            await tick();
+            const panel = panels()[panels().length - 1];
+            const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(panel.webview.html)?.[1] ?? 'null');
+            before?.();
+            panel.webview.__receive({ type: 'choice', requestId: init.requestId, choiceId: 'c' });
+            return call;
+        };
+        try {
+            reset();
+            const sub = await ask({ label: 'Review it', kind: 'subprocess', target: 'iosub' });
+            assert.equal(sub, 'The user clicked the choice "Review it" (id c, subprocess). The extension started the subprocess iosub on the quest\'s process stack, with the inputs doc = docs/plan.md, folder = out. The step waits until it ends, then: Go on past the step. Do not move the process yourself; the new level runs once you end this turn.');
+            assert.deepEqual(store().levels.map((l) => [l.process, l.nested?.kind, l.nested?.followUp]), [['main', undefined, undefined], ['iosub', 'subprocess', 'go-on']]);
+            assert.deepEqual(store().state.inputs, { doc: 'docs/plan.md', folder: 'out' }, 'the inputs its entry fills');
+            reset();
+            followUp = 'run-again';
+            const branch = await ask({ label: 'Explore', kind: 'branch', target: 'side' });
+            assert.match(branch, /started the branch side on the quest's process stack\. The step waits until it ends, then: Run the step again\./);
+            assert.deepEqual([store().state.process, store().state.inputs], ['side', undefined], 'a branch: no inputs');
+            // The entry is gone by the click: the step moved on meanwhile.
+            reset();
+            const gone = await ask({ label: 'Review it', kind: 'subprocess', target: 'iosub' }, () => { assert.equal(store().move('skip', undefined, 'user').ok, true); });
+            assert.match(gone, /Starting iosub failed: the step lists no subprocess "iosub" \(its subprocesses: none\); only the listed processes start from a step\. Nothing was started\./);
+            assert.equal(store().levels.length, 1);
+            // No follow-up chosen: cancelled.
+            reset();
+            followUp = undefined;
+            const cancelled = await ask({ label: 'Explore', kind: 'branch', target: 'side' });
+            assert.match(cancelled, /Starting side was cancelled: the user did not choose what the step does when it ends\. Nothing was started\./);
+            assert.equal(store().levels.length, 1);
+        } finally {
+            win.showQuickPick = original;
         }
     });
 

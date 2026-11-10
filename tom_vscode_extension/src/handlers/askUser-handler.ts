@@ -24,9 +24,10 @@ import {
     AskUserInput,
     AskUserDeps,
     askUserImpl,
-    choiceClickAnswer,
+    choiceClickAnswerAsync,
 } from '../tools/ask-user-tool';
-import { questionText, type AskChoice, type ChoiceContext, type MoveOutcome } from '../utils/askChoices';
+import { NESTED_FOLLOW_UP_LABELS } from '../utils/processStack';
+import { questionText, type AskChoice, type ChoiceContext, type MoveOutcome, type StartOutcome } from '../utils/askChoices';
 import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
@@ -83,7 +84,7 @@ function openAskPanel(pending: PendingAsk): void {
     );
 
     const isPending = (): boolean => AskUserRegistry.instance.getPending()?.requestId === pending.requestId;
-    panel.webview.onDidReceiveMessage((msg: { type?: string; requestId?: string; text?: string; choiceId?: string }) => {
+    panel.webview.onDidReceiveMessage(async (msg: { type?: string; requestId?: string; text?: string; choiceId?: string }) => {
         if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice')) { return; }
         if (!isPending()) {
             // An answer to a question that is no longer open (answered elsewhere, timed out,
@@ -96,14 +97,17 @@ function openAskPanel(pending: PendingAsk): void {
             AskUserRegistry.instance.submit(pending.requestId, typeof msg.text === 'string' ? msg.text : '', 'vscode');
             return;
         }
-        // A choice button: what it does (a move) is done here, then it answers. A move that
-        // throws still answers (with the error), so the panel never stays with its buttons locked.
+        // A choice button: what it does (a move, a branch or subprocess started) is done here, then
+        // it answers. One that throws still answers (with the error), so the panel never stays with its
+        // buttons locked.
         let answer: string | undefined;
         try {
-            answer = choiceClickAnswer(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
+            answer = await choiceClickAnswerAsync(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
         } catch (err) {
             answer = `The choice could not be carried out: ${(err as Error).message}`;
         }
+        // The question may have closed meanwhile (its prompt ended while the user chose a follow-up).
+        if (!isPending()) { disposePanel(pending.requestId); return; }
         AskUserRegistry.instance.submit(pending.requestId, answer ?? `Unknown choice "${String(msg.choiceId ?? '')}".`, 'vscode');
     });
 
@@ -227,6 +231,18 @@ function liveMoveTo(change: ProcessChange): MoveOutcome {
     return { ok: true, where: def && result.state ? positionText(def, result.state) : undefined };
 }
 
+/** A clicked branch / subprocess: started as the PROCESS view starts one (startFromChoice). */
+async function liveStartNested(kind: 'branch' | 'subprocess', process: string): Promise<StartOutcome> {
+    const store = processStore();
+    if (!store) { return { ok: false, error: 'the process store is not initialised' }; }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nested = require('../services/nestedProcessCommands.js') as typeof import('../services/nestedProcessCommands');
+    const outcome = await nested.startFromChoice(store as unknown as import('../managers/processStateStore').ProcessStateStore, nested.liveNestedUi, kind, process);
+    return outcome.ok
+        ? { ok: true, started: outcome.started, followUp: NESTED_FOLLOW_UP_LABELS[outcome.followUp], inputs: outcome.inputs }
+        : { ok: false, error: outcome.error, ...(outcome.cancelled ? { cancelled: true } : {}) };
+}
+
 const liveAskUserDeps: AskUserDeps = {
     registry: AskUserRegistry.instance,
     loadConfig: () => readChatQuestionsConfig(),
@@ -240,6 +256,7 @@ const liveAskUserDeps: AskUserDeps = {
     log: (entry) => appendQuestionLogEntry(entry),
     processContext: liveProcessContext,
     moveTo: liveMoveTo,
+    startNested: liveStartNested,
 };
 
 /**

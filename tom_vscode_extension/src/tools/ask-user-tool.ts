@@ -38,7 +38,7 @@ import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
 import {
     ASK_CHOICE_KINDS, MAX_ASK_CHOICES, choiceAnswer, questionText, resolveMoveTarget, validateChoices,
-    type AskChoice, type ChoiceContext, type MoveOutcome,
+    type AskChoice, type ChoiceContext, type StartOutcome, type MoveOutcome,
 } from '../utils/askChoices';
 import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 
@@ -71,6 +71,12 @@ export interface AskUserDeps {
     processContext?(): ChoiceContext;
     /** Make a move of the quest's process (a clicked move choice), as the PROCESS view makes one. */
     moveTo?(change: ProcessChange): MoveOutcome;
+    /**
+     * Start a clicked branch / subprocess, as the PROCESS view starts one
+     * (nestedProcessCommands.startFromChoice: the follow-up asked, the lists
+     * checked again, the depth confirmation, the inputs).
+     */
+    startNested?(kind: 'branch' | 'subprocess', process: string): Promise<StartOutcome>;
 }
 
 // ===========================================================================
@@ -158,6 +164,23 @@ export function choiceClickAnswer(
 }
 
 /**
+ * The answer for a click on any choice: a branch or subprocess starts its
+ * process (asynchronously: the user is asked for the follow-up and, deep in
+ * the stack, to confirm), everything else as {@link choiceClickAnswer}.
+ */
+export async function choiceClickAnswerAsync(
+    deps: Pick<AskUserDeps, 'processContext' | 'moveTo' | 'startNested'>,
+    pending: PendingAsk,
+    choiceId: string,
+): Promise<string | undefined> {
+    const choice = pending.choices.find((c) => c.id === choiceId);
+    if (!choice) { return undefined; }
+    if (choice.kind !== 'branch' && choice.kind !== 'subprocess') { return choiceClickAnswer(deps, pending, choiceId); }
+    if (!deps.startNested) { return choiceAnswer(choice); }
+    return choiceAnswer(choice, undefined, await deps.startNested(choice.kind, choice.target ?? ''));
+}
+
+/**
  * Append one resolved exchange to the questions journal, best-effort.
  *
  * Shared by both ask tools. It runs *before* the UI callback so a journal that
@@ -194,7 +217,7 @@ export function journal(
 
 export const ASK_USER_DESCRIPTION =
     'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One ask at a time; logged to the quest questions journal. ' +
-    '`choices` adds buttons, each `{id, label, kind, target?, question?}`: placed at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `kind` `answer` answers `target` (default the label); `move` moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) — the extension makes the move on the click and the answer says so; do not move it yourself; `branch` / `subprocess` name an entry of the current step\'s `branches:` / `subprocesses:` list. Any other position or process is refused before anything is shown.';
+    '`choices` adds buttons, each `{id, label, kind, target?, question?}`: placed at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `kind` `answer` answers `target` (default the label); `move` moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) — the extension makes the move on the click and the answer says so; do not move it yourself; `branch` / `subprocess` name an entry of the current step\'s `branches:` / `subprocesses:` list — on the click the extension starts it on the process stack (the user picks the follow-up) and the answer says what started. Any other position or process is refused before anything is shown.';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
     name: 'tomAi_askUser',

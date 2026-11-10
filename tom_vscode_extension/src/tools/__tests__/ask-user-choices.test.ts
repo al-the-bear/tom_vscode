@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { installVscodeStub } from './_vscode-stub.js';
 installVscodeStub({});
 
-import { askUserImpl, choiceClickAnswer, type AskUserDeps } from '../ask-user-tool.js';
+import { askUserImpl, choiceClickAnswer, choiceClickAnswerAsync, type AskUserDeps } from '../ask-user-tool.js';
 import { AskUserRegistry, type PendingAsk } from '../../services/askUserRegistry.js';
 import {
     choiceAnswer, layoutChoices, questionText, resolveMoveTarget, stepChoiceLists, validateChoices,
@@ -144,6 +144,32 @@ describe('choices in questions', () => {
         gone.deps.processContext = () => ({ def: null, state: { ...EMPTY_PROCESS_STATE } });
         assert.match(choiceClickAnswer(gone.deps, gone.registry.getPending()!, 'go')!, /failed: the quest has no process set any more/);
         assert.deepEqual(gone.moves, []);
+    });
+
+    test('CH-6: a clicked branch or subprocess starts its process', async () => {
+        const pending = {
+            requestId: 'r', questions: ['Q'], createdAt: 0, layout: [],
+            choices: [
+                { id: 'rev', label: 'Team review', kind: 'subprocess', target: 'team_review' },
+                { id: 'alt', label: 'Explore', kind: 'branch', target: 'explore' },
+                { id: 'later', label: 'Later', kind: 'answer', target: 'not now' },
+            ],
+        } as unknown as PendingAsk;
+        const calls: string[] = [];
+        const deps: Pick<AskUserDeps, 'startNested'> = {
+            startNested: async (kind, process) => {
+                calls.push(`${kind}:${process}`);
+                if (process === 'explore') { return { ok: false, error: 'the user did not choose what the step does when it ends', cancelled: true }; }
+                return { ok: true, started: 'the subprocess team_review', followUp: 'Go on past the step', inputs: { documents: 'docs/*.md' } };
+            },
+        };
+        assert.equal(await choiceClickAnswerAsync(deps, pending, 'rev'), 'The user clicked the choice "Team review" (id rev, subprocess). The extension started the subprocess team_review on the quest\'s process stack, with the inputs documents = docs/*.md. The step waits until it ends, then: Go on past the step. Do not move the process yourself; the new level runs once you end this turn.');
+        assert.equal(await choiceClickAnswerAsync(deps, pending, 'alt'), 'The user clicked the choice "Explore" (id alt, branch). Starting explore was cancelled: the user did not choose what the step does when it ends. Nothing was started.');
+        assert.deepEqual(calls, ['subprocess:team_review', 'branch:explore']);
+        assert.match(choiceAnswer(pending.choices[0], undefined, { ok: false, error: 'the step lists no subprocess "team_review"' })!, /Starting team_review failed: the step lists no subprocess "team_review"\. Nothing was started\./);
+        assert.match((await choiceClickAnswerAsync({}, pending, 'rev'))!, /Starting a subprocess from this question is not available here; nothing was started/);
+        assert.equal(await choiceClickAnswerAsync(deps, pending, 'later'), 'The user clicked the choice "Later" (id later, answer). Answer: not now', 'other kinds as before');
+        assert.equal(await choiceClickAnswerAsync(deps, pending, 'nope'), undefined);
     });
 
     test('CH-5: the Agent SDK\'s AskUserQuestion', () => {
