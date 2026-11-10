@@ -37,8 +37,8 @@ graph TB
         
         subgraph "UI Layer"
             EXP["Explorer Sidebar<br/>8 webview views"]
-            T2["@CHAT Bottom Panel<br/>Accordion notepad"]
-            T3["@WS Bottom Panel<br/>Accordion: Guidelines/Docs/Logs/Settings/Issues/Tests/QuestTodo"]
+            T2["@CHAT Bottom Panel<br/>Accordion: ANTHROPIC/LLM/Copilot/Logs"]
+            T3["@WS Bottom Panel<br/>Accordion: Guidelines/Docs/Settings/Issues/Tests/QuestTodo"]
             CE["Custom Editors<br/>Quest TODO, Trail Viewer"]
             WP["Standalone Webview Panels<br/>8 editors + Status Page + MD Browser"]
         end

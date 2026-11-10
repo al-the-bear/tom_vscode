@@ -458,7 +458,7 @@ Two-tier: `shared/` (cross-quest, one set of files) and the quest scope, which i
 
 **The picker always allows a free-text answer.** An **"Other…"** entry is appended to `items` automatically (`src/services/free-text-picker.ts`); taking it opens an input box and the typed text becomes the selection, with `label` and `value` both set to it. The entry is pinned (`alwaysShow`), so typing an answer that matches no item cannot filter it away. Pressing Enter then submits the typed text directly. That holds even though the pinned "Other…" row is the highlighted one at that point: a selection made only of pinned rows, with text in the box, counts as the text. The input box only opens for a user who picks "Other…" with nothing typed. A list of options is a guess about what the answer might be, and the real answer is regularly none of them — so `selected.value` may be text that was never among the offered items, and callers must not assume otherwise. The Agent SDK's built-in `AskUserQuestion` interceptor uses the same affordance.
 
-Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → Logs → Questions): the question as asked and the answer as given, or the fact that the wait timed out.
+Both log to the quest's **Questions** journal (`questions.<quest>.md`, @WS → Documentation → Questions): the question as asked and the answer as given, or the fact that the wait timed out.
 
 ### 4.19 Planning and delegation
 
