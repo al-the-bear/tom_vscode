@@ -21,6 +21,7 @@
 
 import type { ProcessLevel, ProcessMoveKind } from './processDefinition';
 import type { ProcessRun } from '../services/processRunContext';
+import { normalizeRun } from './processRuns';
 
 /** The move a marker makes when the queue reaches it. */
 export interface ProcessMoveSpec {
@@ -112,8 +113,8 @@ export interface StepRunProgress {
  * still have items queued, and the subprocess's first Proceed goes in behind
  * them.
  */
-export function stepRunProgress(items: readonly MarkerQueueItem[], quest: string, level?: number): StepRunProgress | undefined {
-    const marker = items.find((i) => isOpenMarker(i) && i.processRun?.quest === quest
+export function stepRunProgress(items: readonly MarkerQueueItem[], quest: string, level?: number, run?: string): StepRunProgress | undefined {
+    const marker = items.find((i) => isOpenMarker(i) && i.processRun?.quest === quest && ofRun(i.processRun, run)
         && (level === undefined || (i.processRun.level ?? 0) === level));
     if (!marker?.processMove || !marker.processRun?.proceedId) { return undefined; }
     const runItems = items.filter((i) => !isMarker(i) && sameProceedRun(i.processRun, marker.processRun));
@@ -127,7 +128,12 @@ export function stepRunProgress(items: readonly MarkerQueueItem[], quest: string
     };
 }
 
-/** The open markers of `quest` (what Skip, Back and a set state remove). */
-export function openMarkerIds(items: readonly MarkerQueueItem[], quest: string): string[] {
-    return items.filter((i) => isOpenMarker(i) && i.processRun?.quest === quest).map((i) => i.id);
+/** The open markers of `quest` — of its run `run` when given (what Skip, Back and a set state remove). */
+export function openMarkerIds(items: readonly MarkerQueueItem[], quest: string, run?: string): string[] {
+    return items.filter((i) => isOpenMarker(i) && i.processRun?.quest === quest && ofRun(i.processRun, run)).map((i) => i.id);
+}
+
+/** Whether a queued position belongs to run `run` (every run when `run` is undefined; an item without one is `default`'s). */
+function ofRun(position: ProcessRun | undefined, run: string | undefined): boolean {
+    return run === undefined || normalizeRun(position?.run) === normalizeRun(run);
 }

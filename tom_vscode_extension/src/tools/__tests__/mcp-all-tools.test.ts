@@ -350,6 +350,10 @@ function inputs(): Record<string, Input> {
         tomAi_readChatVariable: { key: 'mcpTest' },
         tomAi_setProcessState: { process: 'flow' },
         tomAi_getProcessState: { level: -1 },
+        // A run of its own, not selected: the tools after it keep working on the quest's own position.
+        tomAi_createProcessRun: { run: 'mcpRun', process: 'flow', select: false },
+        tomAi_selectProcessRun: { run: 'default' },
+        tomAi_deleteProcessRuns: { runs: ['mcpRun'] },
         tomAi_getSubprocessRuns: { all: true },
         // The sandbox's flow lists no processes to start: the suggestion is refused, nothing starts.
         tomAi_suggestSubprocess: { suggestions: [{ process: 'flow', reason: 'asked by the MCP test' }] },

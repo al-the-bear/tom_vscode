@@ -6,6 +6,8 @@
  *   <processes>/<id>/<id>.md             the description
  *   <quests>/<quest>/process-state.<quest>.yaml   where that quest is: a stack of
  *                                                 levels, the top one its position
+ *   <quests>/<quest>/process-state.<quest>.<run>.yaml   another run of the quest
+ *                                                 (processRuns.ts): its own stack
  *
  * `<processes>` is `_ai/processes`, `<quests>` is `_ai/quests`; both live in
  * the one shared `_ai` clone, so a quest's process state is the same on every
@@ -15,6 +17,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
+
+import { DEFAULT_RUN, runOfStateFile, runStateFileName } from './processRuns';
 
 import {
     EMPTY_PROCESS_STATE,
@@ -166,35 +170,83 @@ export class ProcessRepository {
         }
     }
 
-    stateFile(quest: string): string {
-        return path.join(this.questsDir, quest, `process-state.${quest}.yaml`);
+    /** The state file of `run` of `quest` (the quest's own file for `default`). */
+    stateFile(quest: string, run: string = DEFAULT_RUN): string {
+        return path.join(this.questsDir, quest, runStateFileName(quest, run));
     }
 
-    /** Where `quest` is: the top level of its stack; the empty state when it has no state file. */
-    readState(quest: string): ProcessState {
-        const { levels } = this.readStateStack(quest);
+    /** Where `run` of `quest` is: the top level of its stack; the empty state when it has no state file. */
+    readState(quest: string, run: string = DEFAULT_RUN): ProcessState {
+        const { levels } = this.readStateStack(quest, run);
         return levels[levels.length - 1];
     }
 
-    /** The quest's whole stack, bottom first; one empty level when it has no state file. */
-    readStateStack(quest: string): ProcessStateStack {
+    /** The whole stack of `run` of `quest`, bottom first; one empty level when it has no state file. */
+    readStateStack(quest: string, run: string = DEFAULT_RUN): ProcessStateStack {
         if (!quest) { return { levels: [{ ...EMPTY_PROCESS_STATE }] }; }
-        const text = readText(this.stateFile(quest));
+        const text = readText(this.stateFile(quest, run));
         return text ? parseProcessStateStack(text) : { levels: [{ ...EMPTY_PROCESS_STATE }] };
     }
 
-    /** Write `state` as the top level; the levels below it stay as they are. */
-    writeState(quest: string, state: ProcessState): void {
-        const below = this.readStateStack(quest).levels.slice(0, -1);
-        const file = this.stateFile(quest);
+    /** Write `state` as the top level of `run`; the levels below it stay as they are. */
+    writeState(quest: string, state: ProcessState, run: string = DEFAULT_RUN): void {
+        const below = this.readStateStack(quest, run).levels.slice(0, -1);
+        const file = this.stateFile(quest, run);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, stringifyProcessState(state, new Date().toISOString(), below), 'utf-8');
     }
 
-    /** Write the quest's whole stack (a level pushed or removed). */
-    writeStateStack(quest: string, levels: readonly ProcessState[]): void {
-        const file = this.stateFile(quest);
+    /** Write the whole stack of `run` (a level pushed or removed). */
+    writeStateStack(quest: string, levels: readonly ProcessState[], run: string = DEFAULT_RUN): void {
+        const file = this.stateFile(quest, run);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, stringifyProcessStateStack({ levels: [...levels] }, new Date().toISOString()), 'utf-8');
     }
+
+    /**
+     * The runs of `quest`, the last changed first: `default` always (its file
+     * may not exist yet), every other run whose state file is there. `changed`
+     * is the file's modification time (every move writes it), null without a file.
+     */
+    listRuns(quest: string): ProcessRunEntry[] {
+        if (!quest) { return [{ run: DEFAULT_RUN, file: '', changed: null }]; }
+        const dir = path.join(this.questsDir, quest);
+        const names = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+        const runs: ProcessRunEntry[] = [];
+        let hasDefault = false;
+        for (const name of names) {
+            const run = runOfStateFile(quest, name);
+            if (run === null) { continue; }
+            if (run === DEFAULT_RUN) { hasDefault = true; }
+            const file = path.join(dir, name);
+            runs.push({ run, file, changed: fs.statSync(file).mtime.toISOString() });
+        }
+        if (!hasDefault) { runs.push({ run: DEFAULT_RUN, file: this.stateFile(quest), changed: null }); }
+        // The last changed first; never changed last, `default` before the others among those.
+        return runs.sort((a, b) => (b.changed ?? '').localeCompare(a.changed ?? '')
+            || Number(b.run === DEFAULT_RUN) - Number(a.run === DEFAULT_RUN) || a.run.localeCompare(b.run));
+    }
+
+    /** Whether `run` of `quest` has a state file (`default` always counts as there). */
+    hasRun(quest: string, run: string): boolean {
+        return run === DEFAULT_RUN || fs.existsSync(this.stateFile(quest, run));
+    }
+
+    /** Delete `run` of `quest` (its state file). `default` is refused. */
+    deleteRun(quest: string, run: string): RepositoryResult {
+        if (run === DEFAULT_RUN) { return { ok: false, error: 'the run "default" cannot be deleted' }; }
+        const file = this.stateFile(quest, run);
+        if (!fs.existsSync(file)) { return { ok: false, error: `the quest ${quest} has no run "${run}"` }; }
+        fs.unlinkSync(file);
+        return { ok: true };
+    }
+}
+
+/** One run of a quest (ProcessRepository.listRuns). */
+export interface ProcessRunEntry {
+    run: string;
+    /** Its state file ('' without a quest). */
+    file: string;
+    /** When its state file was last written (ISO), null when it has none yet. */
+    changed: string | null;
 }

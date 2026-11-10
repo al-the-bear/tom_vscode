@@ -17,6 +17,8 @@
 import * as vscode from 'vscode';
 
 import { ProcessStateStore } from '../managers/processStateStore';
+import type { ProcessRun } from './processRunContext';
+import { DEFAULT_RUN } from '../utils/processRuns';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
@@ -140,12 +142,12 @@ export async function confirmProcessAction(
     const queue = PromptQueueManager.instance;
     if (move.kind !== 'proceed') {
         const moved = store.move(kind, level, 'user');
-        if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`); }
+        if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`, store.currentRun); }
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
     // Only the running level's step counts: a step below a subprocess may still have items queued,
     // and this level's first prompt goes in behind them (one level feeds the queue at a time).
-    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex);
+    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
     if (running) {
         return { ok: false, error: running.held
             ? 'an item of the running step failed: repeat the step or move on (Proceed in the PROCESS view)'
@@ -166,7 +168,7 @@ export async function confirmProcessAction(
         const error = ensureProcessSession(store.activeQuest, session.spec);
         if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
     }
-    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId(), level: store.levelIndex };
+    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId(), level: store.levelIndex, ...(store.currentRun !== DEFAULT_RUN ? { run: store.currentRun } : {}) };
     const spec: ProcessMoveSpec = { kind: move.kind, ...(move.level ? { level: move.level } : {}), label: move.label, to: positionText(def, move.target) };
     try {
         // Both deferred, then one kick: the prompt's send must not hold this
@@ -191,6 +193,11 @@ export async function applyProcessMoveMarker(marker: QueuedPrompt): Promise<{ ok
     const spec = marker.processMove;
     if (!run || !spec) { return { ok: false, error: 'the marker names no move' }; }
     if (store.activeQuest !== run.quest) { return { ok: false, error: `the quest ${run.quest} is not this window's quest` }; }
+    // The run it was queued for, whichever run the window works on now.
+    return store.withRun(run.run, () => applyMarkerToRun(store, run, spec));
+}
+
+function applyMarkerToRun(store: ProcessStateStore, run: ProcessRun, spec: ProcessMoveSpec): { ok: true } | { ok: false; error: string } {
     const now = store.state;
     // Only the level it was queued for, while it is the running one: a step below a subprocess waits for it.
     if ((run.level ?? 0) !== store.levelIndex) { return { ok: true }; }
@@ -226,17 +233,17 @@ export function installProcessMoveMarkers(): void {
 /** A held step: repeat it — the marker goes, and the action page queues the step again. */
 export async function dropHeldStep(): Promise<void> {
     const store = await ProcessStateStore.ready;
-    PromptQueueManager.instance.dropProcessMoveMarkers(store.activeQuest, 'step repeated');
+    PromptQueueManager.instance.dropProcessMoveMarkers(store.activeQuest, 'step repeated', store.currentRun);
 }
 
 /** A held step: move on — the marker goes and its move is made now. */
 export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
     const queue = PromptQueueManager.instance;
-    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex);
+    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
     if (!running) { return { ok: false, error: 'no step of this quest is running' }; }
     const marker = queue.items.find((i) => i.id === running.markerId);
-    queue.dropProcessMoveMarkers(store.activeQuest, 'moved on past a failed step');
+    queue.dropProcessMoveMarkers(store.activeQuest, 'moved on past a failed step', store.currentRun);
     const result = marker ? await applyProcessMoveMarker(marker) : { ok: false as const, error: 'the marker is gone' };
     return result.ok ? { ok: true, queued: false, label: running.move.label } : result;
 }
@@ -302,7 +309,7 @@ export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.
         definition: () => store.currentDefinition(),
         state: () => store.state,
         runningStepTarget: () => {
-            const run = queue()?.stepRunProgress(store.activeQuest, store.levelIndex);
+            const run = queue()?.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
             const marker = run ? queue()?.items.find((i) => i.id === run.markerId) : undefined;
             const spec = marker?.processMove;
             return spec ? store.findMove(spec.kind, spec.level)?.target : undefined;

@@ -42,6 +42,12 @@ export interface ProcessRun {
      * that level, and only while it is the running one.
      */
     level?: number;
+    /**
+     * The run of the quest it was queued for (src/utils/processRuns.ts);
+     * absent: `default`. Its marker moves that run, whichever run the window
+     * works on when the queue reaches it.
+     */
+    run?: string;
 }
 
 const storage = new AsyncLocalStorage<ProcessRun>();
@@ -76,6 +82,9 @@ export function parseProcessRun(raw: unknown): ProcessRun | undefined {
     return {
         quest: r.quest,
         ...(typeof r.proceedId === 'string' && r.proceedId ? { proceedId: r.proceedId } : {}),
+        // The level and the run decide which marker moves what: they survive a reload too.
+        ...(Number.isInteger(r.level) && (r.level as number) >= 0 ? { level: r.level as number } : {}),
+        ...(typeof r.run === 'string' && r.run && r.run !== 'default' ? { run: r.run } : {}),
         state: {
             process: str('process'), phase: str('phase'), phaseIteration: num('phaseIteration'),
             step: str('step'), stepIteration: num('stepIteration'),

@@ -251,7 +251,7 @@ function liveDeps(): ProcessStackDeps {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const queue = require('../managers/promptQueueManager.js').PromptQueueManager.instance;
-                const progress = queue?.stepRunProgress(store().activeQuest, store().levelIndex);
+                const progress = queue?.stepRunProgress(store().activeQuest, store().levelIndex, store().currentRun);
                 return !!progress && !progress.held;
             } catch { return false; }
         },

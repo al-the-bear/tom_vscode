@@ -13,6 +13,13 @@
  * Moving to another step or sub-step also sets the `role` chat variable to the
  * role that step names, so the role description in the system prompt follows
  * the process.
+ *
+ * Runs (vscimpb29, src/utils/processRuns.ts): a quest may hold several process
+ * positions, each a run with a state file of its own. The window works on one
+ * run at a time — its current run, kept per window and quest (`default` until
+ * another is selected) and offered as the `run` chat variable; every read and
+ * move goes to that run's file. {@link withRun} works on another run for one
+ * call (a tool naming a run, a queued Proceed of another run).
  */
 
 import * as vscode from 'vscode';
@@ -21,6 +28,8 @@ import { ChatVariablesStore, type ChangeSource } from './chatVariablesStore';
 import { WsPaths } from '../utils/workspacePaths';
 import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../utils/processRepository';
 import { currentProcessRun } from '../services/processRunContext';
+import { DEFAULT_RUN, normalizeRun, runNameError } from '../utils/processRuns';
+import type { ProcessRunEntry } from '../utils/processRepository';
 import * as fs from 'fs';
 import * as path from 'path';
 import { decisionsJournalHeader } from '../utils/decisionsJournalFormat';
@@ -95,11 +104,15 @@ export class ProcessStateStore {
 
     private entries: ProcessEntry[] = [];
     private quest = '';
+    /** The run this window works on (DEFAULT_RUN unless another was selected for the quest). */
+    private run = DEFAULT_RUN;
+    private readonly context: vscode.ExtensionContext;
     private rawState: ProcessState = { ...EMPTY_PROCESS_STATE };
     /** The quest's process stack, bottom first; its top is `rawState`. */
     private rawLevels: ProcessState[] = [{ ...EMPTY_PROCESS_STATE }];
 
     private constructor(context: vscode.ExtensionContext) {
+        this.context = context;
         context.subscriptions.push(this._onDidChange);
         this.reload();
         const chat = ChatVariablesStore.instance;
@@ -132,7 +145,10 @@ export class ProcessStateStore {
         const repo = this.repo();
         this.entries = repo ? repo.list() : [];
         try { this.quest = ChatVariablesStore.instance.quest; } catch { this.quest = ''; }
-        this.rawLevels = repo ? repo.readStateStack(this.quest).levels : [{ ...EMPTY_PROCESS_STATE }];
+        // The window's run of this quest; a run deleted meanwhile (another window) falls back to `default`.
+        const chosen = normalizeRun(this.context.workspaceState?.get<string>(runStateKey(this.quest)));
+        this.run = repo && this.quest && repo.hasRun(this.quest, chosen) ? chosen : DEFAULT_RUN;
+        this.rawLevels = repo ? repo.readStateStack(this.quest, this.run).levels : [{ ...EMPTY_PROCESS_STATE }];
         this.rawState = topLevel(this.rawLevels);
         this.fire();
     }
@@ -160,6 +176,96 @@ export class ProcessStateStore {
     /** The active quest; `''` when none. */
     get activeQuest(): string {
         return this.quest;
+    }
+
+    // ----- runs (vscimpb29) ---------------------------------------------------
+
+    /** The run this window works on. */
+    get currentRun(): string {
+        return this.run;
+    }
+
+    /** The quest's runs, the last changed first, each with its process and position. */
+    runs(): Array<ProcessRunEntry & { process: string; position: string; levels: number; current: boolean }> {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return []; }
+        return repo.listRuns(this.quest).map((r) => {
+            const levels = repo.readStateStack(this.quest, r.run).levels;
+            const top = topLevel(levels);
+            return { ...r, process: top.process, position: top.process ? this.positionOf(top) : '', levels: levels.length, current: r.run === this.run };
+        });
+    }
+
+    /** Work on `run` in this window from now on (it must exist; `default` always does). */
+    selectRun(run: string): ProcessChangeResult {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        const name = normalizeRun(run);
+        if (!repo.hasRun(this.quest, name)) { return { ok: false, error: `the quest ${this.quest} has no run "${name}"`, ...this.knownRuns(repo) }; }
+        void this.context.workspaceState?.update(runStateKey(this.quest), name);
+        this.reload();
+        return { ok: true, state: this.state };
+    }
+
+    /**
+     * A new run of the quest: its state file, at the first position of
+     * `process` when given (any process, also another than the other runs'),
+     * else with no process yet. Selected in this window unless `select` is false.
+     */
+    createRun(run: string, process: string | undefined, source: ChangeSource, select = true): ProcessChangeResult {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        const error = runNameError(run);
+        if (error) { return { ok: false, error }; }
+        if (repo.hasRun(this.quest, run)) { return { ok: false, error: `the quest ${this.quest} has a run "${run}" already` }; }
+        repo.writeStateStack(this.quest, [{ ...EMPTY_PROCESS_STATE }], run);
+        if (process) {
+            const set = this.withRun(run, () => this.apply({ process }, source));
+            if (!set.ok) { repo.deleteRun(this.quest, run); return set; }
+        }
+        return select ? this.selectRun(run) : { ok: true, state: repo.readState(this.quest, run) };
+    }
+
+    /** Delete runs of the quest (`default` is refused); a deleted current run leaves this window on `default`. */
+    deleteRuns(runs: readonly string[]): { ok: true; deleted: string[] } | { ok: false; error: string } {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        const names = runs.map(normalizeRun);
+        if (names.includes(DEFAULT_RUN)) { return { ok: false, error: 'the run "default" cannot be deleted' }; }
+        const missing = names.filter((n) => !repo.hasRun(this.quest, n));
+        if (missing.length) { return { ok: false, error: `the quest ${this.quest} has no run ${missing.map((m) => `"${m}"`).join(', ')}; nothing was deleted` }; }
+        for (const n of names) { repo.deleteRun(this.quest, n); }
+        if (names.includes(this.run)) { void this.context.workspaceState?.update(runStateKey(this.quest), DEFAULT_RUN); }
+        this.reload();
+        return { ok: true, deleted: names };
+    }
+
+    /**
+     * Do `fn` on `run` instead of the window's run (a tool naming a run, a
+     * queued Proceed of another run): its reads and moves go to that run's
+     * file; the window's run is back afterwards. Synchronous, so nothing else
+     * sees the swap. An unknown run is refused before `fn` runs.
+     */
+    withRun<T extends ProcessChangeResult | object>(run: string | undefined, fn: () => T): T | { ok: false; error: string } {
+        const name = normalizeRun(run);
+        if (name === this.run) { return fn(); }
+        const repo = this.repo();
+        if (!repo || !this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        if (!repo.hasRun(this.quest, name)) { return { ok: false, error: `the quest ${this.quest} has no run "${name}"`, ...this.knownRuns(repo) }; }
+        const own = this.run;
+        this.run = name;
+        this.rawLevels = repo.readStateStack(this.quest, name).levels;
+        this.rawState = topLevel(this.rawLevels);
+        try {
+            return fn();
+        } finally {
+            this.run = own;
+            this.reload();
+        }
+    }
+
+    private knownRuns(repo: ProcessRepository): { runs: string[] } {
+        return { runs: repo.listRuns(this.quest).map((r) => r.run) };
     }
 
     /** The current definition, when the quest has a process and it is valid. */
@@ -241,7 +347,7 @@ export class ProcessStateStore {
 
     /** Write a stack whose top changed level (pushed or removed); the role follows the new top. */
     private writeLevels(repo: ProcessRepository, before: ProcessState, levels: ProcessState[], source: ChangeSource): ProcessChangeResult {
-        repo.writeStateStack(this.quest, levels);
+        repo.writeStateStack(this.quest, levels, this.run);
         this.rawLevels = levels;
         this.rawState = topLevel(levels);
         // The new top's position names the role (a level started at its first step, or the step below going on).
@@ -278,7 +384,9 @@ export class ProcessStateStore {
      */
     variables(): Record<ProcessVariableKey, string> & Record<string, string> {
         const v = this.viewed();
-        return { ...processVariableValues(v.def, v.state, v.description), ...ioVariables(v.state) };
+        // `run`: the run the prompt runs for (a queued Proceed's), else the window's.
+        const run = currentProcessRun();
+        return { ...processVariableValues(v.def, v.state, v.description), ...ioVariables(v.state), run: run && run.quest === this.quest ? normalizeRun(run.run) : this.run };
     }
 
     /**
@@ -479,7 +587,7 @@ export class ProcessStateStore {
             }
             return this.endTop('finished', source, [...this.levels.slice(0, -1), result.state]);
         }
-        repo.writeState(this.quest, result.state);
+        repo.writeState(this.quest, result.state, this.run);
         this.rawState = result.state;
         this.rawLevels = [...this.rawLevels.slice(0, -1), result.state];
         const role = roleAfterMove(before, result.state, this.currentDefinition());
@@ -508,4 +616,9 @@ export class ProcessStateStore {
     copy(fromId: string, toId: string): RepositoryResult { return this.edit((r) => r.copy(fromId, toId)); }
 
     save(def: ProcessDefinition, description: string): RepositoryResult { return this.edit((r) => r.save(def, description)); }
+}
+
+/** The window's current run of `quest` (workspace state: per window, kept across a reload). */
+function runStateKey(quest: string): string {
+    return `tomAi.processRun.${quest}`;
 }

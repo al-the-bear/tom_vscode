@@ -97,12 +97,15 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         const queue = queueManager();
         // The queue may start after the view: subscribe once it is there.
         if (queue && !this.queueSubscription) { this.queueSubscription = queue.onDidChange(() => this.send()); }
-        const run = queue?.stepRunProgress(store.activeQuest, store.levelIndex);
+        const run = queue?.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
         const levels = store.levels;
         const lists = positionProcessLists(entry?.definition ?? null, state);
         void this.view.webview.postMessage({
             type: 'state',
             quest: store.activeQuest,
+            // The run this window works on, and how many the quest has (vscimpb29): the view names it when there are several.
+            run: store.currentRun,
+            runCount: store.runs().length,
             // Every level of the quest's process stack, bottom first (the running one is the last).
             levels: levels.map((l, i) => {
                 const def = store.entry(l.process)?.definition ?? null;
@@ -140,8 +143,8 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
     }
 
     /** A state set by hand ends a running step: its process-move marker goes. */
-    private byHand<T extends { ok: boolean }>(quest: string, result: T): T {
-        if (result.ok) { queueManager()?.dropProcessMoveMarkers(quest, 'state set in the PROCESS view'); }
+    private byHand<T extends { ok: boolean }>(quest: string, run: string, result: T): T {
+        if (result.ok) { queueManager()?.dropProcessMoveMarkers(quest, 'state set in the PROCESS view', run); }
         return result;
     }
 
@@ -168,7 +171,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     );
                     if (answer !== leave) { this.send(); break; }
                 }
-                this.report(this.byHand(store.activeQuest, store.apply(msg.change, 'user')));
+                this.report(this.byHand(store.activeQuest, store.currentRun, store.apply(msg.change, 'user')));
                 break;
             case 'abortNested':
                 await vscode.commands.executeCommand(ABORT_NESTED_COMMAND);
@@ -181,13 +184,13 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 this.report(store.dismissSuggestions('user'));
                 break;
             case 'iteration':
-                if (msg.level && msg.delta) { this.report(this.byHand(store.activeQuest, store.stepIteration(msg.level, msg.delta, 'user'))); }
+                if (msg.level && msg.delta) { this.report(this.byHand(store.activeQuest, store.currentRun, store.stepIteration(msg.level, msg.delta, 'user'))); }
                 break;
             case 'action':
                 if (msg.kind === 'proceed') {
                     // A step still running from the last Proceed: nothing to do yet,
                     // unless an item of it failed — then repeat it or move on.
-                    const run = queueManager()?.stepRunProgress(store.activeQuest, store.levelIndex);
+                    const run = queueManager()?.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
                     if (run && !run.held) {
                         void vscode.window.showInformationMessage(`The step is still running — ${run.left} item(s) left in the queue; the process moves to ${run.move.to} when they are done.`);
                         break;

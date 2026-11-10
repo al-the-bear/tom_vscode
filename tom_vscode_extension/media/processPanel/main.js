@@ -269,6 +269,10 @@
             top += '<div class="level running-level">' + runningHead(running);
         }
         html = top + (c.state.process && c.definition ? actionBar(c.moves) : '') + html;
+        // Several runs of the quest (process positions of their own): which one this view shows and moves.
+        if (c.run && (c.run !== 'default' || (c.runCount || 0) > 1)) {
+            html = '<div class="run-line" title="The run of the quest this window works on (tomAi_selectProcessRun; ' + esc(String(c.runCount || 1)) + ' runs)"><span class="codicon codicon-run-all"></span> Run: <b>' + esc(c.run) + '</b></div>' + html;
+        }
         html += nested
             ? row('Process', '<span class="lv-name">' + esc(running.name) + '</span> <code>' + esc(running.process) + '</code>', help('process') + edit, 'process', c.description)
             : row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),

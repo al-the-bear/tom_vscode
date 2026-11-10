@@ -3500,13 +3500,14 @@ export class PromptQueueManager {
     }
 
     /** The running step of `quest`: its open marker and how many of its run's items are left. */
-    stepRunProgress(quest: string, level?: number): StepRunProgress | undefined {
-        return stepRunProgress(this._items, quest, level);
+    /** The open Proceed run of `quest` (its `level`, its run `run` when given). */
+    stepRunProgress(quest: string, level?: number, run?: string): StepRunProgress | undefined {
+        return stepRunProgress(this._items, quest, level, run);
     }
 
     /** Remove the open process-move markers of `quest` (Skip, Back, a state set by hand). Answers how many. */
-    dropProcessMoveMarkers(quest: string, why: string): number {
-        const ids = new Set(openMarkerIds(this._items, quest));
+    dropProcessMoveMarkers(quest: string, why: string, run?: string): number {
+        const ids = new Set(openMarkerIds(this._items, quest, run));
         if (ids.size === 0) { return 0; }
         this._items = this._items.filter((i) => !ids.has(i.id));
         logQueue(`Process-move marker(s) of ${quest} removed (${why}): ${[...ids].join(', ')}`);

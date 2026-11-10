@@ -201,7 +201,7 @@ function sendAskTelegram(pending: PendingAsk): void {
 // ===========================================================================
 
 /** The process store, required lazily (it pulls in the manager layer). */
-function processStore(): { activeQuest: string; state: ChoiceContext['state']; currentDefinition(): ChoiceContext['def']; apply(change: ProcessChange, source: 'user'): { ok: boolean; error?: string; state?: ChoiceContext['state'] } } | undefined {
+function processStore(): { activeQuest: string; currentRun: string; state: ChoiceContext['state']; currentDefinition(): ChoiceContext['def']; apply(change: ProcessChange, source: 'user'): { ok: boolean; error?: string; state?: ChoiceContext['state'] } } | undefined {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/processStateStore.js').ProcessStateStore.instance;
@@ -223,7 +223,7 @@ function liveMoveTo(change: ProcessChange): MoveOutcome {
     if (!result.ok) { return { ok: false, error: result.error }; }
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require('../managers/promptQueueManager.js').PromptQueueManager.instance?.dropProcessMoveMarkers(store.activeQuest, 'state set by a choice in a question');
+        require('../managers/promptQueueManager.js').PromptQueueManager.instance?.dropProcessMoveMarkers(store.activeQuest, 'state set by a choice in a question', store.currentRun);
     } catch { /* no queue: nothing to drop */ }
     const def = store.currentDefinition();
     // eslint-disable-next-line @typescript-eslint/no-require-imports

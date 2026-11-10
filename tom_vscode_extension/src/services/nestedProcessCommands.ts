@@ -154,7 +154,7 @@ export async function startFromChoice(
 /** The step below's items still in the queue (its open run), 0 when none. */
 function queueItemsLeft(store: ProcessStateStore): number {
     try {
-        return PromptQueueManager.instance.stepRunProgress(store.activeQuest, store.levelIndex - 1)?.left ?? 0;
+        return PromptQueueManager.instance.stepRunProgress(store.activeQuest, store.levelIndex - 1, store.currentRun)?.left ?? 0;
     } catch {
         return 0;
     }

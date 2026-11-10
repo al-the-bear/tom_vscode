@@ -956,16 +956,31 @@ prompt, Proceed asks the user to confirm it is done instead of queuing
 anything, and the *Current process* section tells the agent not to do its work
 and not to move past it.
 
+A quest may hold several **runs**, each a process position of its own — another
+change worked on in parallel, another process in the same window. A run is the
+state file `process-state.<quest>.<run>.yaml` beside the quest's own, a stack of
+levels like it, of any process; the quest's own file is the run `default`,
+always there and never deleted. A window works on one run at a time (its
+current run, kept per window and quest, the chat variable `run`): the process
+chat variables, the `${process-context}` block, the PROCESS view and the
+process tools without `run` follow it. A Proceed prompt and its process-move
+marker carry their run, so the marker moves the run it was queued for whichever
+run the window works on when the queue reaches it.
+
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_listProcesses` | Every process with its outline (phases, steps with `kind` step / gate / post-gate, sub-steps, roles, repeat flags); invalid ones with their errors; the quest's current process. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getProcess` | One process in full: definition, Markdown description, file paths (default: the quest's process). | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block; `level` reads another level of the process stack (0 the quest's own process, -1 the running level, the default) — a lower level's answer says it waits and carries its own context. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getProcessState` | The quest's state, the role its step names, and the `${process-context}` block; `level` reads another level of the process stack (0 the quest's own process, -1 the running level, the default) — a lower level's answer says it waits and carries its own context; `run` reads another run of the quest. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getProcessStack` | Every level of the quest's process stack, bottom to top: kind (process, subprocess, branch), process, position, the step it was started from, its follow-up and start, inputs, outputs, handed-back outputs, open suggestions. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listSubprocessCandidates` | The processes the running step lists (`subprocesses:`, `branches:` — closed lists): kind, name, summary, the step's description, where it starts, the inputs the step fills, whether suggested. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_suggestSubprocess` | Suggest listed processes with a reason and optionally a recommended follow-up — as the last thing of a step; starts nothing. Kept with the step; when the step's queue items are done (at once when nothing runs) the process branching editor opens and the step's move waits for the user (Start, or Dismiss — then the move is made). An unlisted process, a missing reason, an ambiguous kind are refused. No approval prompt. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getSubprocessRuns` | What was started from a level (default the running one) — from its current step and iteration, or `all` steps: finished or aborted, when, the follow-up, where it was left, the outputs handed back. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); in a subprocess or branch, `outputs` sets its process's declared outputs (merged; an outputs-only call moves nothing and keeps a running step's marker), and a subprocess finishes only once its required outputs are set; checked against the definition, no approval prompt (visible live in the PROCESS view). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listProcessRuns` | The quest's runs, the last changed first: run, process, position, levels, when changed, which one this window works on. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_createProcessRun` | A new run (`run` a name, `process` the process it follows from its first position; selected unless `select: false`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_selectProcessRun` | Work on another run in this window: the view, the process variables, the system prompt's process context and the tools follow it. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_deleteProcessRuns` | Delete runs (their state files); `default` and an unknown run are refused, then nothing is deleted. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); in a subprocess or branch, `outputs` sets its process's declared outputs (merged; an outputs-only call moves nothing and keeps a running step's marker), and a subprocess finishes only once its required outputs are set; checked against the definition, no approval prompt (visible live in the PROCESS view); `run` moves another run of the quest. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_validateProcess` | Check a draft definition (`yaml` text or a `file`) before writing it: YAML, `process.schema.json`, the process editor's rules (a gate ends every phase, `onFail` inside its phase, no prompt on a user-action step, unique ids, profiles that exist) and the roles (existing under `_ai/roles/` or listed in `draftRoles`). Answers every finding with its source and path. Read-only. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_writeProcess` | Create a process: writes `_ai/processes/<id>/<id>.process.yaml` and `<id>.md` (`description`) only when the draft passes tomAi_validateProcess's checks; an existing id is refused unless `replace: true`; opens the result in the process editor (`open: false` not to). Approval. | ✅ | ✅ | ⚪ | ✅ |
 

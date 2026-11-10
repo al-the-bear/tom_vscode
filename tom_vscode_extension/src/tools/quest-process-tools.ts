@@ -9,6 +9,11 @@
  * the system prompt (`${process-context}`). These tools list and read the
  * definitions and read and move that position.
  *
+ * A quest may hold several runs, each a position of its own
+ * (src/utils/processRuns.ts): the run tools list, create, select and delete
+ * them, and `run` on tomAi_getProcessState / tomAi_setProcessState reads or
+ * moves one without selecting it.
+ *
  * (Not to be confused with `process-tools.ts`, which spawns OS processes.)
  */
 
@@ -40,6 +45,22 @@ export interface ProcessToolDeps {
     levels?(): ProcessState[];
     /** The context block of the level at an index (0 the bottom). */
     levelContextBlock?(index: number): string;
+    /** Do `fn` on run `run` instead of the window's (an unknown run is refused). */
+    withRun?<T extends object>(run: string | undefined, fn: () => T): T | { ok: false; error: string };
+    /** The window's run. */
+    currentRun?(): string;
+    /** The quest's runs, the last changed first. */
+    runs?(): Array<{ run: string; changed: string | null; process: string; position: string; levels: number; current: boolean }>;
+    selectRun?(run: string): ProcessChangeResult;
+    createRun?(run: string, process: string | undefined, select: boolean): ProcessChangeResult;
+    deleteRuns?(runs: string[]): { ok: true; deleted: string[] } | { ok: false; error: string };
+    /** Remove the open process-move markers of run `run` (default: the window's). */
+    dropRunMarkers?(run: string | undefined): number;
+}
+
+/** `fn` on `run` when one is named and the deps know runs; else on the window's run. */
+function onRun<T extends object>(deps: ProcessToolDeps, run: string | undefined, fn: () => T): T | { ok: false; error: string } {
+    return run && deps.withRun ? deps.withRun(run, fn) : fn();
 }
 
 /**
@@ -156,24 +177,31 @@ export const GET_PROCESS_TOOL: SharedToolDefinition<GetProcessInput> = {
 // tomAi_getProcessState
 // ===========================================================================
 
-export async function getProcessStateImpl(deps: ProcessToolDeps, input: { level?: number } = {}): Promise<string> {
-    const levels = deps.levels?.() ?? [deps.state()];
-    const index = resolveLevelIndex(levels.length, input.level);
-    if (typeof index !== 'number') { return JSON.stringify({ ok: false, error: index.error }); }
-    const top = index === levels.length - 1;
-    return JSON.stringify({
-        ok: true,
-        quest: deps.activeQuest(),
-        level: index,
-        levels: levels.length,
-        state: top ? deps.state() : levels[index],
-        ...(top ? { role: deps.currentRole() } : { waiting: 'this level waits at its step for the level above it' }),
-        // What the system prompt shows: a literal `$${…}` in a description reads as `${…}`.
-        context: unescapePlaceholders(top ? deps.contextBlock() : deps.levelContextBlock?.(index) ?? ''),
-    }, null, 2);
+export async function getProcessStateImpl(deps: ProcessToolDeps, input: { level?: number; run?: string } = {}): Promise<string> {
+    const answer = onRun(deps, input.run, () => {
+        const levels = deps.levels?.() ?? [deps.state()];
+        const index = resolveLevelIndex(levels.length, input.level);
+        if (typeof index !== 'number') { return { ok: false, error: index.error }; }
+        const top = index === levels.length - 1;
+        return {
+            ok: true,
+            quest: deps.activeQuest(),
+            ...(deps.currentRun ? { run: input.run || deps.currentRun() } : {}),
+            level: index,
+            levels: levels.length,
+            state: top ? deps.state() : levels[index],
+            ...(top ? { role: deps.currentRole() } : { waiting: 'this level waits at its step for the level above it' }),
+            // What the system prompt shows: a literal `$${…}` in a description reads as `${…}`.
+            context: unescapePlaceholders(top ? deps.contextBlock() : deps.levelContextBlock?.(index) ?? ''),
+        };
+    });
+    return JSON.stringify(answer, null, 2);
 }
 
-export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number }> = {
+/** The `run` argument of the process-state tools. */
+const RUN_PARAM = { run: { type: 'string', description: 'A run of the quest (tomAi_listProcessRuns) to read / move instead of the window\'s current run; it is not selected.' } };
+
+export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number; run?: string }> = {
     name: 'tomAi_getProcessState',
     displayName: 'Get Process State',
     description:
@@ -184,37 +212,41 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number }> = 
         '(positions, the steps of the phase, the post-gate todos when in that step, the descriptions). ' +
         'With subprocesses or branches running, `level` reads another level of the quest\'s process stack ' +
         '(0 the quest\'s own process, -1 the running level and the default). ' +
-        'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`.',
+        'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`; another run of the quest in `process-state.<quest>.<run>.yaml` — `run` reads that run (default: the window\'s current run, answered as `run`).',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: true,
-    inputSchema: { type: 'object', properties: { level: { type: 'number', description: 'Level of the process stack: 0 the bottom, -1 the top (default), -2 the one below it.' } } },
-    execute: async (input: { level?: number }) => getProcessStateImpl(liveDeps(), input ?? {}),
+    inputSchema: { type: 'object', properties: { level: { type: 'number', description: 'Level of the process stack: 0 the bottom, -1 the top (default), -2 the one below it.' }, ...RUN_PARAM } },
+    execute: async (input: { level?: number; run?: string }) => getProcessStateImpl(liveDeps(), input ?? {}),
 };
 
 // ===========================================================================
 // tomAi_setProcessState
 // ===========================================================================
 
-export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange): Promise<string> {
-    const roleBefore = deps.currentRole();
-    const result = deps.apply(input);
-    if (!result.ok) { return JSON.stringify(result); }
-    // The state is set by hand now: a step still running from a Proceed no longer moves it.
-    // Only outputs set (the subprocess's agent recording its result) moves nothing: the step runs on.
-    const onlyOutputs = Object.keys(input).every((k) => k === 'outputs');
-    const markersRemoved = onlyOutputs ? 0 : deps.dropProcessMoveMarkers();
-    const role = deps.currentRole();
-    return JSON.stringify({
-        ok: true, state: result.state, role, roleChanged: role !== roleBefore && role !== '',
-        ...(markersRemoved > 0 ? { processMoveMarkersRemoved: markersRemoved } : {}),
-    }, null, 2);
+export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange & { run?: string }): Promise<string> {
+    const { run, ...change } = input;
+    const answer = onRun(deps, run, () => {
+        const roleBefore = deps.currentRole();
+        const result = deps.apply(change);
+        if (!result.ok) { return result; }
+        // The state is set by hand now: a step still running from a Proceed no longer moves it.
+        // Only outputs set (the subprocess's agent recording its result) moves nothing: the step runs on.
+        const onlyOutputs = Object.keys(change).every((k) => k === 'outputs');
+        const markersRemoved = onlyOutputs ? 0 : (deps.dropRunMarkers ? deps.dropRunMarkers(run) : deps.dropProcessMoveMarkers());
+        const role = deps.currentRole();
+        return {
+            ok: true, ...(run ? { run } : {}), state: result.state, role, roleChanged: role !== roleBefore && role !== '',
+            ...(markersRemoved > 0 ? { processMoveMarkersRemoved: markersRemoved } : {}),
+        };
+    });
+    return JSON.stringify(answer, null, 2);
 }
 
-export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
+export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?: string }> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker.',
+        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker. `run` moves another run of the quest (tomAi_listProcessRuns) instead of the window\'s current one.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -232,6 +264,7 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange> = {
             substepIteration: { type: 'number', description: 'Iteration of the sub-step (≥ 1).' },
             completed: { type: 'boolean', description: 'true: the process is finished (its last step done).' },
             outputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Outputs of the running subprocess or branch, by declared name (merged with those set before).' },
+            ...RUN_PARAM,
         },
     },
     // The change source (which transport called) is read when the tool runs, as the chat-variable tools do.
@@ -259,13 +292,107 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         apply: (change) => store().apply(change, source),
         levels: () => store().levels,
         levelContextBlock: (index) => store().levelContextBlock(index),
-        dropProcessMoveMarkers: () => {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const queue = require('../managers/promptQueueManager.js').PromptQueueManager as { instance?: { dropProcessMoveMarkers(q: string, why: string): number } };
-            try { return queue.instance?.dropProcessMoveMarkers(store().activeQuest, 'state set with tomAi_setProcessState') ?? 0; } catch { return 0; }
-        },
+        dropProcessMoveMarkers: () => dropMarkers(store().currentRun),
+        dropRunMarkers: (run) => dropMarkers(run || store().currentRun),
+        withRun: (run, fn) => store().withRun(run, fn),
+        currentRun: () => store().currentRun,
+        runs: () => store().runs(),
+        selectRun: (run) => store().selectRun(run),
+        createRun: (run, process, select) => store().createRun(run, process, source, select),
+        deleteRuns: (runs) => store().deleteRuns(runs),
     };
+    function dropMarkers(run: string): number {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const queue = require('../managers/promptQueueManager.js').PromptQueueManager as { instance?: { dropProcessMoveMarkers(q: string, why: string, run?: string): number } };
+        try { return queue.instance?.dropProcessMoveMarkers(store().activeQuest, 'state set with tomAi_setProcessState', run) ?? 0; } catch { return 0; }
+    }
 }
+
+// ===========================================================================
+// Runs: tomAi_listProcessRuns, tomAi_createProcessRun, tomAi_selectProcessRun, tomAi_deleteProcessRuns
+// ===========================================================================
+
+const RUNS_NOTE = ' A run is a process position of its own in the quest (its own state file, any process); `default` is the quest\'s own position, always there and never deleted.';
+
+function needRuns(deps: ProcessToolDeps): string | null {
+    return deps.runs && deps.currentRun ? null : JSON.stringify({ ok: false, error: 'runs are not available here' });
+}
+
+export async function listProcessRunsImpl(deps: ProcessToolDeps): Promise<string> {
+    const missing = needRuns(deps);
+    if (missing) { return missing; }
+    return JSON.stringify({ ok: true, quest: deps.activeQuest(), currentRun: deps.currentRun!(), runs: deps.runs!() }, null, 2);
+}
+
+export async function createProcessRunImpl(deps: ProcessToolDeps, input: { run: string; process?: string; select?: boolean }): Promise<string> {
+    if (!deps.createRun) { return JSON.stringify({ ok: false, error: 'runs are not available here' }); }
+    if (typeof input.run !== 'string' || !input.run.trim()) { return JSON.stringify({ ok: false, error: '`run` is required: the new run\'s name' }); }
+    const result = deps.createRun(input.run.trim(), input.process || undefined, input.select !== false);
+    return JSON.stringify(result.ok ? { ok: true, run: input.run.trim(), selected: input.select !== false, state: result.state } : result, null, 2);
+}
+
+export async function selectProcessRunImpl(deps: ProcessToolDeps, input: { run: string }): Promise<string> {
+    if (!deps.selectRun) { return JSON.stringify({ ok: false, error: 'runs are not available here' }); }
+    const result = deps.selectRun(input.run ?? '');
+    return JSON.stringify(result.ok ? { ok: true, run: deps.currentRun?.() ?? input.run, state: result.state } : result, null, 2);
+}
+
+export async function deleteProcessRunsImpl(deps: ProcessToolDeps, input: { runs: string[] }): Promise<string> {
+    if (!deps.deleteRuns) { return JSON.stringify({ ok: false, error: 'runs are not available here' }); }
+    if (!Array.isArray(input.runs) || input.runs.length === 0) { return JSON.stringify({ ok: false, error: '`runs` is required: the names of the runs to delete' }); }
+    const result = deps.deleteRuns(input.runs.map(String));
+    return JSON.stringify(result.ok ? { ...result, currentRun: deps.currentRun?.() } : result, null, 2);
+}
+
+export const LIST_PROCESS_RUNS_TOOL: SharedToolDefinition<Record<string, never>> = {
+    name: 'tomAi_listProcessRuns',
+    displayName: 'List Process Runs',
+    description: 'The runs of the active quest, the last changed first: each `{run, process, position, levels, changed, current}` (`current`: the run this window works on, also `currentRun`).' + RUNS_NOTE,
+    tags: ['process', 'quest', 'tom-ai-chat'],
+    readOnly: true,
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => listProcessRunsImpl(liveDeps()),
+};
+
+export const CREATE_PROCESS_RUN_TOOL: SharedToolDefinition<{ run: string; process?: string; select?: boolean }> = {
+    name: 'tomAi_createProcessRun',
+    displayName: 'Create Process Run',
+    description: 'Create a run of the active quest: `run` its name (letters, digits, `_`, `-`), `process` the process it follows from its first position (any process; default none yet). It is selected in this window unless `select: false`. Refused: a taken name, `default`, an unknown process.' + RUNS_NOTE,
+    tags: ['process', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: false,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            run: { type: 'string', description: 'The new run\'s name, e.g. a change id.' },
+            process: { type: 'string', description: 'The process it follows (tomAi_listProcesses). Default: none yet.' },
+            select: { type: 'boolean', description: 'Work on it in this window from now on. Default true.' },
+        },
+        required: ['run'],
+    },
+    execute: async (input) => createProcessRunImpl(liveDeps(getCurrentToolContext()?.source ?? 'anthropic'), input),
+};
+
+export const SELECT_PROCESS_RUN_TOOL: SharedToolDefinition<{ run: string }> = {
+    name: 'tomAi_selectProcessRun',
+    displayName: 'Select Process Run',
+    description: 'Work on another run of the active quest in this window: the PROCESS view, the process chat variables, the system prompt\'s process context and the process tools without `run` follow it. Answers its state.' + RUNS_NOTE,
+    tags: ['process', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: false,
+    inputSchema: { type: 'object', properties: { run: { type: 'string', description: 'The run (tomAi_listProcessRuns); `default` the quest\'s own position.' } }, required: ['run'] },
+    execute: async (input) => selectProcessRunImpl(liveDeps(), input),
+};
+
+export const DELETE_PROCESS_RUNS_TOOL: SharedToolDefinition<{ runs: string[] }> = {
+    name: 'tomAi_deleteProcessRuns',
+    displayName: 'Delete Process Runs',
+    description: 'Delete runs of the active quest (their state files); `default` and an unknown run are refused and then nothing is deleted. A deleted current run leaves this window on `default`.' + RUNS_NOTE,
+    tags: ['process', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: { type: 'object', properties: { runs: { type: 'array', items: { type: 'string' }, description: 'The runs to delete.' } }, required: ['runs'] },
+    execute: async (input) => deleteProcessRunsImpl(liveDeps(), input),
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const QUEST_PROCESS_TOOLS: SharedToolDefinition<any>[] = [
@@ -273,4 +400,8 @@ export const QUEST_PROCESS_TOOLS: SharedToolDefinition<any>[] = [
     GET_PROCESS_TOOL,
     GET_PROCESS_STATE_TOOL,
     SET_PROCESS_STATE_TOOL,
+    LIST_PROCESS_RUNS_TOOL,
+    CREATE_PROCESS_RUN_TOOL,
+    SELECT_PROCESS_RUN_TOOL,
+    DELETE_PROCESS_RUNS_TOOL,
 ];

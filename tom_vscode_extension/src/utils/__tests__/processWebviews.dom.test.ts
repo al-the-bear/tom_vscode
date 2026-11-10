@@ -26,6 +26,8 @@
  *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description,
  *         in a box two lines taller than 30vh that scrolls with visible scrollbars) and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
  *         step and sub-step dropdowns
+ *   PW-16 PROCESS view: with several runs of the quest (vscimpb29), or a run other than `default`, a line names
+ *         the run the view shows; one `default` run alone shows none
  *   PW-13 editor: a "user action" checkbox on steps without sub-steps, sub-steps and the post-gate step, not
  *         on a gate or a step with sub-steps
  *   PW-9  action page (Proceed): shows what runs, where the state goes and the session (Change… asks the
@@ -126,6 +128,17 @@ describe('PROCESS view', () => {
         assert.match(w.document.querySelector('.desc').textContent, /Build it\./);
         w.document.querySelector('[data-edit]').click();
         assert.deepEqual(posted.pop(), { type: 'openEditor', id: 'flow' });
+    });
+
+    test('PW-16: the run', () => {
+        const { w } = setup('processPanel');
+        send(w, panelState({ run: 'default', runCount: 1 }));
+        assert.equal(w.document.querySelector('.run-line'), null, 'the default run alone: no line');
+        send(w, panelState({ run: 'default', runCount: 2 }));
+        assert.match(w.document.querySelector('.run-line').textContent, /Run: default/);
+        send(w, panelState({ run: 'chg1', runCount: 2 }));
+        assert.match(w.document.querySelector('.run-line').textContent, /Run: chg1/);
+        assert.match(w.document.querySelector('.run-line').title, /2 runs/);
     });
 
     test('PW-3: no quest', () => {
