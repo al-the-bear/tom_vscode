@@ -58,6 +58,7 @@ export async function saveChatDrafts(drafts: Record<string, ChatDraftState>): Pr
                     activeSlot: d.activeSlot || 1,
                     slots: d.slots || {},
                     slotKeep: normalizeSlotKeep(d.slotKeep),
+                    fresh: d.fresh === true,
                 };
                 const extras = chatProviders.get(section)?.persistDraftExtras?.(d);
                 if (extras) {
@@ -91,6 +92,7 @@ export async function loadChatDrafts(): Promise<Record<string, ChatDraftState>> 
                     activeSlot: (data.activeSlot as number) || 1,
                     slots: (data.slots as Record<string, string>) || {},
                     slotKeep: normalizeSlotKeep(data.slotKeep),
+                    fresh: data.fresh === true,
                 };
                 const extras = chatProviders.get(section)?.hydrateDraft?.(data) ?? {};
                 loaded[section] = { ...base, ...extras };

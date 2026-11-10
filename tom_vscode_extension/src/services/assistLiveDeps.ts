@@ -8,6 +8,7 @@
 
 import * as vscode from 'vscode';
 import type { AssistPromptsSection } from '../utils/assistPrompts';
+import { discardSessionCompletely } from './temporarySessions';
 
 export interface AssistLiveDeps {
     workspaceRoot: string;
@@ -44,7 +45,8 @@ export function liveAssistDeps(context: vscode.ExtensionContext): AssistLiveDeps
         sessionsFolder: () => memory.TwoTierMemoryService.instance.agentSdkSessionsFolder(),
         hasSession: (folder, name) => sessions.readSession(folder, name) !== undefined,
         createSession: (folder, name, opts) => sessions.createSession(folder, name, opts),
-        deleteSession: (folder, name) => { sessions.deleteSession(folder, name); },
+        // A temporary session leaves nothing: file, in-memory conversation, storage (temporarySessions.ts).
+        deleteSession: (folder, name) => { discardSessionCompletely(folder, paths.WsPaths.getWorkspaceQuestId(), name); },
         send: async (prompt, session, source) => {
             const { runAnthropicSend } = require('../handlers/sendToChatRouter.js') as typeof import('../handlers/sendToChatRouter');
             const outcome = await runAnthropicSend(context, prompt, { session, source });

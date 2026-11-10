@@ -23,6 +23,9 @@
  *   CB-10 a second Send while a send runs: the button stays enabled (its title says it offers an update or the
  *        queue), the second Send is posted and does not reset the status; the host's reply with panelBusy
  *        (sent as an update, queued, not sent) keeps the running send's state, a reply without it ends it
+ *   CB-11 Fresh: a box after Keep, off by default; Send posts `fresh` as it is; restored from the drafts and saved
+ *        with them; the status line after the answer names the fresh session's base; the host runs a Fresh send in a
+ *        temporary session based on the panel's session (never busy) and discards it completely afterwards
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
  *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
@@ -320,6 +323,40 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(removeOf('c2').disabled, false, 'a hung one too');
         assert.equal(removeOf('c2').title, 'Remove from the list');
         assert.match(q.document.body.textContent, /\[waiting for session walk\]/);
+    });
+    test('CB-11: Fresh', async () => {
+        const { w, posted } = chatPanel();
+        const doc = w.document;
+        const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+        const fresh = doc.getElementById('anthropic-fresh-session');
+        const keep = doc.getElementById('anthropic-keep-slot');
+        assert.ok(fresh, 'the Fresh box');
+        assert.equal(keep.closest('label').nextElementSibling, fresh.closest('label'), 'right after Keep');
+        assert.equal(fresh.checked, false, 'off by default');
+        doc.getElementById('anthropic-text').value = 'one';
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'sendAnthropic').pop()?.fresh, false);
+        fire({ type: 'anthropicResult', toolCallCount: 0 });
+        fire({ type: 'draftsLoaded', sections: { anthropic: { activeSlot: 1, slots: { '1': 'one' }, fresh: true } } });
+        assert.equal(fresh.checked, true, 'restored from the drafts');
+        pauseOver(w);
+        doc.querySelector('[data-action="send"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'sendAnthropic').pop()?.fresh, true);
+        fire({ type: 'anthropicResult', toolCallCount: 0, freshBase: 'chat' });
+        assert.match(doc.body.textContent, /Fresh session \(based on chat, discarded\)/);
+        // Saved with the drafts (after the panel's 1 s debounce).
+        fresh.checked = false;
+        fresh.dispatchEvent(new w.Event('change'));
+        await new Promise((r) => setTimeout(r, 1100));
+        const saved = posted.filter((m) => m.type === 'saveDrafts').pop() as { drafts: { anthropic: { fresh: boolean } } };
+        assert.equal(saved.drafts.anthropic.fresh, false);
+        // The host side.
+        const panel = src('handlers', 'chatPanel-handler.ts');
+        assert.match(panel, /const busy = fresh \? \{ kind: 'free' as const \} : await resolveBusySession\(/, 'a fresh session is never busy');
+        assert.match(panel, /createTemporarySession\(\{[\s\S]*?\}, targetSession, 'fresh'\)/, 'based on the panel\'s session');
+        assert.match(panel, /if \(freshSession\) \{ discardSessionCompletely\(folder, quest, freshSession\); \}/, 'discarded when the turn ends');
+        assert.match(panel, /message\.fresh === true/);
+        assert.match(src('services', 'assistLiveDeps.ts'), /deleteSession: \(folder, name\) => \{ discardSessionCompletely\(/, 'the assists discard theirs completely too');
     });
 });
 

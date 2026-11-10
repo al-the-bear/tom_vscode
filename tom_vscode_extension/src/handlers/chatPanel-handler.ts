@@ -43,7 +43,8 @@ import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_C
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { chatSessionFor, pickAgentSdkSession, sessionsFolder, setChatSessionFor } from './sessionPicker';
-import { readSession } from '../services/agentSdkSessionStore';
+import { createSession, readSession } from '../services/agentSdkSessionStore';
+import { createTemporarySession, discardSessionCompletely } from '../services/temporarySessions';
 import { sessionTransportMismatch } from '../services/directSessionHistory';
 import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import type { SessionRecord } from '../utils/agentSdkSessions';
@@ -452,7 +453,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             this._view?.webview.postMessage({ type: 'anthropicNotSent', message: 'Already sent: an identical send within 3 s was ignored.', ...(panelBusy ? { panelBusy } : {}) });
                             break;
                         }
-                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate, false, typeof message.slot === 'number' ? message.slot : undefined);
+                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate, false, typeof message.slot === 'number' ? message.slot : undefined, message.fresh === true);
                         break;
                     case 'cancel':
                         this._handleCancel(String(message.section || ''));
@@ -1400,7 +1401,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false, slot?: number): Promise<void> {
+    /**
+     * The panel's Send. `fresh` (the panel's Fresh box): the prompt runs in a
+     * new one-prompt session based on the panel's session — it starts from
+     * that conversation and changes nothing in it — which is discarded when
+     * the answer is in (services/temporarySessions.ts); nothing can follow up
+     * in it.
+     */
+    private async _handleSendAnthropic(text: string, profileId: string, modelId: string, configId: string, userMessageTemplateId?: string, skipQuestRefresh = false, slot?: number, fresh = false): Promise<void> {
         if (!text || !text.trim()) { return; }
         // Two prompts never share a conversation: a busy session (a queue item
         // or another chat send runs in it) makes the user choose — queue it
@@ -1409,7 +1417,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // A send of this panel still runs: the replies below must not end its "sending" state,
         // and no second send can start now (one interactive turn at a time).
         const panelBusy = isAnthropicSendInFlight();
-        const busy = await resolveBusySession({
+        // A fresh session is never busy: its base may be (it is only read).
+        const busy = fresh ? { kind: 'free' as const } : await resolveBusySession({
             session: targetSession,
             send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}) },
             interactive: true,
@@ -1536,10 +1545,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // the duration of the turn; flipped to green on success below.
         this._updateAnthropicWindowStatus('prompt-sent');
 
+        const quest = WsPaths.getWorkspaceQuestId();
+        const folder = sessionsFolder(quest);
+        let freshSession: string | undefined;
         try {
             // The send is shown in the prompt queue (status chat, then chat-sent with its answer).
-            // The session picked in the panel, or the free one chosen above.
-            const sessionKey = targetSession;
+            // The session picked in the panel, or the free one chosen above — or, Fresh, a new
+            // one-prompt session based on it.
+            if (fresh) {
+                const made = createTemporarySession({
+                    sessionsFolder: () => folder,
+                    hasSession: (f, name) => readSession(f, name) !== undefined,
+                    createSession: (f, name, opts) => createSession(f, name, opts),
+                }, targetSession, 'fresh');
+                if (!made.ok) { throw new Error(made.error); }
+                freshSession = made.session;
+            }
+            const sessionKey = freshSession ?? targetSession;
             // It has started: the slot it came from is cleared unless it keeps its text.
             this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
             const result = await trackChatSend(
@@ -1568,6 +1590,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 historyMode: cfg.historyMode || '',
                 // The send's tokens (input / output / cache read / cache write) for the status line.
                 usageLine: usageSummaryLine(result.usage),
+                ...(freshSession ? { freshBase: targetSession } : {}),
             });
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -1578,6 +1601,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 this._activeCts.delete('anthropic');
             }
             cts.dispose();
+            // A one-prompt session leaves nothing behind (its file, conversation and storage).
+            if (freshSession) { discardSessionCompletely(folder, quest, freshSession); }
             endAnthropicSend();
         }
     }

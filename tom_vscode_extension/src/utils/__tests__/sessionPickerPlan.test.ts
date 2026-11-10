@@ -89,7 +89,7 @@ describe('session picker plans', () => {
         assert.match(handler, /const \{ label, tooltip \} = sessionLabel\(name, record\);/);
         assert.match(handler, /this\._sendChatSession\(picked !== undefined\);/, 'a pick preselects the session\'s profile');
         const send = handler.indexOf('const mismatch = sessionTransportMismatch(');
-        assert.ok(send > 0 && send < handler.indexOf('const sessionKey = targetSession;'), 'Send checks the session before it sends');
+        assert.ok(send > 0 && send < handler.indexOf('const sessionKey = freshSession ?? targetSession;'), 'Send checks the session before it sends (a Fresh session is based on it: the same check)');
         assert.ok(handler.indexOf('let targetSession = this._chatSessionKey();') < send, 'the panel\'s session (or a free one chosen when it was busy)');
         const main = source('media', 'chatPanel', 'main.js');
         assert.match(main, /sessionLabel\.textContent = msg\.label \|\| msg\.name \|\| 'chat';/);

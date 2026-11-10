@@ -39,4 +39,11 @@ describe('Keep per prompt slot', () => {
         assert.deepEqual(loaded.anthropic?.slotKeep, { '2': false, '5': true });
         assert.equal(loaded.anthropic?.activeSlot, 2);
     });
+
+    test('DK-3: the Fresh box is saved and loaded with the drafts', async () => {
+        await saveChatDrafts({ anthropic: { text: 't', fresh: true } });
+        assert.equal((await loadChatDrafts()).anthropic?.fresh, true);
+        await saveChatDrafts({ anthropic: { text: 't' } });
+        assert.equal((await loadChatDrafts()).anthropic?.fresh, false, 'off unless set');
+    });
 });

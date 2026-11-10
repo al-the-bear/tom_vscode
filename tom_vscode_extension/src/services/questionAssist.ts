@@ -16,7 +16,7 @@
 import * as path from 'path';
 import { buildAssistPrompt, type AssistPromptsSection } from '../utils/assistPrompts';
 import { readMdQuestions, type MdQuestion } from '../utils/mdQuestions';
-import { temporarySessionName } from '../utils/questInbox';
+import { createTemporarySession } from './temporarySessions';
 import { clickedChoiceId, type AskChoice } from '../utils/askChoices';
 
 export type QuestionAssistUse = 'grillMe' | 'explainInDetail';
@@ -104,11 +104,9 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
     const prompt = buildAssistPrompt(deps.assistPrompts(), req.use, questionAssistValues(text, rel, question));
 
     const folder = deps.sessionsFolder();
-    const base = deps.baseSession();
-    const basedOn = base && deps.hasSession(folder, base) ? base : null;
-    const session = temporarySessionName(deps.now?.() ?? new Date(), req.use === 'grillMe' ? 'grill-me' : 'explain');
-    const made = deps.createSession(folder, session, basedOn ? { basedOn } : {});
-    if (!made.ok) { return { ok: false, error: `the temporary session could not be created: ${made.error ?? 'unknown error'}` }; }
+    const made = createTemporarySession(deps, deps.baseSession(), req.use === 'grillMe' ? 'grill-me' : 'explain', deps.now?.() ?? new Date());
+    if (!made.ok) { return { ok: false, error: made.error }; }
+    const { session, basedOn } = made;
     try {
         const sent = await deps.send(prompt, session, `${SOURCE[req.use]} (${req.questionId})`);
         if (!sent.ok) {

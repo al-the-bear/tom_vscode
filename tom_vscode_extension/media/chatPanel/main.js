@@ -367,6 +367,9 @@ function getSectionContent(id) {
                 '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
                 // Per prompt slot: keep the text after Send / a queue add, or clear it (kept over a reload).
                 '<label class="checkbox-label compact-keep" title="Keep this prompt slot&#39;s text after Send or adding to the queue (unchecked: the slot is cleared). Set per slot 1–9."><input type="checkbox" id="anthropic-keep-slot" checked> Keep</label>' +
+                // Fresh: Send runs the prompt in a new one-prompt session based on the panel's session,
+                // discarded when the answer is in — no follow-up reaches it (kept over a reload).
+                '<label class="checkbox-label compact-keep" title="Send in a fresh session: a new one-prompt session based on this panel&#39;s session (it starts from that conversation and changes nothing in it), deleted when the answer is in. No follow-up prompt reaches it: the next Send starts another fresh one."><input type="checkbox" id="anthropic-fresh-session"> Fresh</label>' +
                 // Queue buttons. Save to Queue stages the prompt on the prompt queue's own
                 // profile and session; the second pins this panel's profile and session.
                 // Both keep the panel's user-message template and repeat count.
@@ -654,7 +657,7 @@ function stopResize() { /* legacy */ }
 
 function handleAction(action, id, slot) {
     switch(action) {
-        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic' && !anthropicSending) { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo }); break; }
+        case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic' && !anthropicSending) { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } var freshCb = id === 'anthropic' ? document.getElementById('anthropic-fresh-session') : null; vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo, fresh: !!(freshCb && freshCb.checked) }); break; }
         case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
         case 'clearText': {
             if (!id) {break;}
@@ -1342,6 +1345,8 @@ window.addEventListener('message', function(e) {
         var anthropicStatus = buildAnthropicStatusLine(msg.historyMode || '');
         // The send's tokens, cache reads and writes included (usageSummaryLine on the host).
         if (msg.usageLine) {anthropicStatus += ' · ' + msg.usageLine;}
+        // A Fresh send: answered in a one-prompt session, already discarded.
+        if (msg.freshBase) {anthropicStatus = 'Fresh session (based on ' + msg.freshBase + ', discarded) · ' + anthropicStatus;}
         setAnthropicStatus(anthropicStatus);
     } else if (msg.type === 'anthropicSendStarted') {
         // The send started (its session was free, or a free one was chosen): the slot is cleared unless it keeps its text.
@@ -1489,6 +1494,8 @@ window.addEventListener('message', function(e) {
             if (da.slots && typeof da.slots === 'object') { anthrSectionState.slots = da.slots; }
             if (da.activeSlot && da.activeSlot >= 1 && da.activeSlot <= 9) { anthrSectionState.activeSlot = da.activeSlot; }
             if (da.slotKeep && typeof da.slotKeep === 'object') { anthrSectionState.keep = da.slotKeep; }
+            var freshRestore = document.getElementById('anthropic-fresh-session');
+            if (freshRestore) { freshRestore.checked = da.fresh === true; }
             var anthrTa = document.getElementById('anthropic-text');
             if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
             var anthrProfile = document.getElementById('anthropic-profile');
@@ -1770,6 +1777,7 @@ function saveDrafts() {
             activeSlot: anthrSectionState.activeSlot,
             slots: anthrSectionState.slots,
             slotKeep: anthrSectionState.keep || {},
+            fresh: !!((document.getElementById('anthropic-fresh-session') || {}).checked),
         };
         vscode.postMessage({ type: 'saveDrafts', drafts: drafts });
     }, 1000);
@@ -1787,6 +1795,11 @@ function saveDrafts() {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
 });
+// The Fresh checkbox is one for the panel (not per slot), saved with the drafts.
+(function() {
+    var freshCb = document.getElementById('anthropic-fresh-session');
+    if (freshCb) { freshCb.addEventListener('change', saveDrafts); }
+})();
 // The Keep checkbox sets the active slot's flag.
 (function() {
     var keepCb = document.getElementById('anthropic-keep-slot');

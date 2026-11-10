@@ -16,7 +16,7 @@
 
 import * as path from 'path';
 import { buildAssistPrompt, type AssistPromptsSection } from '../utils/assistPrompts';
-import { temporarySessionName } from '../utils/questInbox';
+import { createTemporarySession } from './temporarySessions';
 
 export type DecisionHelperUse = 'grillMeDecision' | 'explainDecision';
 
@@ -114,17 +114,17 @@ export async function runDecisionHelper(deps: DecisionHelperDeps, use: DecisionH
     const prompt = buildAssistPrompt(deps.assistPrompts(), use, { process: ctx.process, position: ctx.position, decision: ctx.decision, noteFile });
 
     const sessions = deps.sessionsFolder();
-    const base = deps.baseSession();
-    const basedOn = base && deps.hasSession(sessions, base) ? base : null;
-    const session = temporarySessionName(now, use === 'grillMeDecision' ? 'grill-me-decision' : 'explain-decision');
+    const token = use === 'grillMeDecision' ? 'grill-me-decision' : 'explain-decision';
+    let session = '';
     const run = { reopened: false };
     currentRun = run;
     let result: { ok: boolean; error?: string; rejected?: boolean } = { ok: false, error: 'not sent' };
     try {
         deps.ensureDir(folder);
-        const made = deps.createSession(sessions, session, basedOn ? { basedOn } : {});
-        if (!made.ok) { result = { ok: false, error: `the temporary session could not be created: ${made.error ?? 'unknown error'}` }; }
+        const made = createTemporarySession(deps, deps.baseSession(), token, now);
+        if (!made.ok) { result = { ok: false, error: made.error }; }
         else {
+            session = made.session;
             try {
                 result = await deps.send(prompt, session, `${DECISION_HELPER_LABELS[use]} (decision at ${ctx.position})`);
             } finally {
