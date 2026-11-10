@@ -18,6 +18,8 @@
  *   bridge <restart|stop|mode> — Control the Dart bridge
  *   cli-integration <start|stop> [port] — CLI integration server
  *   status               — Workspace/polling status overview
+ *   halt (pause)         — Pause the prompt queue (auto-send off)
+ *   continue (resume)    — Resume the prompt queue (auto-send on)
  *   stop                 — Stop Telegram polling
  */
 
@@ -616,6 +618,8 @@ export interface QueueControls {
     deleteAt: (oneBasedIndex: number) => QueueDeleteResult;
     /** Toggle pause/resume. Returns `true` when the queue is now running. */
     togglePause: () => boolean;
+    /** Pause (`false`) or resume (`true`) the queue (auto-send off / on). */
+    setRunning: (running: boolean) => void;
     /** Whether the queue is currently running (auto-send on) vs paused. */
     isRunning: () => boolean;
 }
@@ -846,6 +850,27 @@ async function queuePauseHandler(deps: CommandRegistryDeps): Promise<TelegramCom
     };
 }
 
+/**
+ * Handle `halt` / `pause` (`running: false`) and `continue` / `resume`
+ * (`running: true`): pause or resume the queue — auto-send off / on, the same
+ * switch `queue_pause` toggles — saying so when it already was.
+ */
+async function queueRunHandler(deps: CommandRegistryDeps, running: boolean): Promise<TelegramCommandResult> {
+    if (deps.queue.isRunning() === running) {
+        return {
+            text: running ? '▶️ The queue is already running.' : '⏸ The queue is already paused. Send continue to resume it.',
+            rawText: true,
+        };
+    }
+    deps.queue.setRunning(running);
+    return {
+        text: running
+            ? '▶️ Queue resumed — pending prompts will be sent.'
+            : '⏸ Queue paused — the running prompt finishes, no new prompts are sent. Send continue to resume.',
+        rawText: true,
+    };
+}
+
 /** Abbreviate a single-line preview of `text` to at most `max` chars. */
 function abbreviate(text: string, max: number): string {
     const oneLine = text.replace(/\s+/g, ' ').trim();
@@ -1066,6 +1091,15 @@ export function createCommandRegistry(
             description: 'Toggle queue execution (pause/resume)',
             handler: () => queuePauseHandler(deps),
         });
+        // `pause` / `resume` reach these too: the poller reads them as halt / continue.
+        for (const [name, alias, running] of [['halt', 'pause', false], ['continue', 'resume', true]] as const) {
+            registry.register({
+                name,
+                description: running ? 'Resume the prompt queue (auto-send on)' : 'Pause the prompt queue (auto-send off)',
+                usage: `${name} (or ${alias})`,
+                handler: () => queueRunHandler(deps, running),
+            });
+        }
     }
 
     // /stop — special: triggers the stop callback

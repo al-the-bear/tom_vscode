@@ -190,6 +190,7 @@ function buildQueueControls(): QueueControls {
             qm.autoSendEnabled = !qm.autoSendEnabled;
             return qm.autoSendEnabled;
         },
+        setRunning: (running) => { PromptQueueManager.instance.autoSendEnabled = running; },
         isRunning: () => PromptQueueManager.instance.autoSendEnabled,
     };
 }

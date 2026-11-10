@@ -65,6 +65,8 @@ Registered only while a live-conversation forwarder is active for the window.
 | `queue_list` | List pending / sending entries. |
 | `queue_delete <index>` | Remove the entry at the 1-based index. |
 | `queue_pause` | Toggle the queue between paused and running. |
+| `halt` / `pause` | Pause the queue (auto-send off; the running prompt finishes). Already paused: says so. |
+| `continue` / `resume` | Resume the queue (auto-send on). Already running: says so. |
 
 ### Workspace / tooling
 
