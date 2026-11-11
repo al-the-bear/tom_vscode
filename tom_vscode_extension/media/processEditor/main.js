@@ -235,6 +235,53 @@
         return '<details class="proc-lists"' + ((step.subprocesses && step.subprocesses.length) || (step.branches && step.branches.length) ? ' open' : '') + '><summary>Subprocesses and branches</summary>' + html + '</details>';
     }
 
+    /**
+     * Follow-up processes (`followUps:`, vscimpb47) of the process, a phase or
+     * a step: where the quest may continue when that level ends — a process,
+     * its phase and step (the first ones when not named), what to carry and
+     * the call context (`name: text` lines, resolved when the switch is made,
+     * read as ${origin.<name>}). Offered at the decision at the level's end.
+     */
+    function followUpsBlock(path, node, what) {
+        var list = node.followUps || [];
+        var lp = path ? path + '.followUps' : 'followUps';
+        var rows = list.map(function (entry, k) {
+            var ep = lp + '.' + k;
+            var target = processes.find(function (p) { return p.id === entry.process; });
+            var options = [{ id: '', name: '— pick a process —' }].concat(processes);
+            if (entry.process && !target) { options.push({ id: entry.process, name: entry.process + ' (not defined)' }); }
+            var phases = (target && target.phases) || [];
+            var phase = phases.find(function (ph) { return ph.id === entry.phase; });
+            var phaseOptions = [{ id: '', name: '— its first phase —' }].concat(phases);
+            if (entry.phase && !phase) { phaseOptions.push({ id: entry.phase, name: entry.phase + ' (not in the process)' }); }
+            var steps = (phase && phase.steps) || [];
+            var stepOptions = [{ id: '', name: '— the phase\'s first step —' }].concat(steps);
+            if (entry.step && !steps.some(function (st) { return st.id === entry.step; })) { stepOptions.push({ id: entry.step, name: entry.step + ' (not in the phase)' }); }
+            var sel = function (key, opts, value, title, disabled) {
+                return '<select data-path="' + ep + '.' + key + '" title="' + esc(title) + '"' + (disabled ? ' disabled' : '') + '>' + opts.map(function (o) {
+                    return '<option value="' + esc(o.id) + '"' + (o.id === (value || '') ? ' selected' : '') + '>' + esc(o.name || o.id) + '</option>';
+                }).join('') + '</select>';
+            };
+            var context = Object.keys(entry.context || {}).map(function (n) { return n + ': ' + entry.context[n]; }).join('\n');
+            return '<div class="proc-entry follow-up">'
+                + sel('process', options, entry.process, 'The process to continue in')
+                + sel('phase', phaseOptions, entry.phase, 'The phase to continue at', !target)
+                + sel('step', stepOptions, entry.step, 'The step of that phase to continue at', !phase)
+                + text(ep + '.description', entry.description, 'what continuing there is for (optional)', 'proc-desc')
+                + '<button class="icon" data-op="remove" data-path="' + ep + '" title="Remove"><span class="codicon codicon-trash"></span></button>'
+                + '<div class="io-maps"><label class="io-map" title="Chat variables the follow-up relies on; their values are recorded with the switch">carry '
+                + '<input type="text" data-path="' + ep + '.carry" data-kind="list" value="' + esc((entry.carry || []).join(', ')) + '" placeholder="chat variables, comma-separated"></label>'
+                + '<label class="io-map" title="The call context: one name: text per line, resolved when the switch is made; the follow-up reads ${origin.<name>}">call context '
+                + '<textarea data-path="' + ep + '.context" data-kind="kv" rows="2" placeholder="file: ${input.folder}/change.md">' + esc(context) + '</textarea></label></div>'
+                + '</div>';
+        }).join('');
+        return '<details class="proc-lists follow-ups"' + (list.length ? ' open' : '') + '><summary>Follow-up processes</summary>'
+            + '<div class="proc-list"><div class="note">Where the quest may continue when this ' + what + ' ends: offered at the decision there ("Continue in …"); '
+            + 'the position switches to the process named, in the same run, its chat variables kept. Its prompts read ${process-origin} and ${origin.&lt;name&gt;}.</div>'
+            + rows
+            + '<button class="add" data-op="add-entry" data-path="' + lp + '"><span class="codicon codicon-add"></span> follow-up</button></div></details>';
+    }
+
     /** A step card; `kind` is step, gate, post-gate or substep. */
     function stepCard(step, path, kind, index, count, phaseStepsList) {
         var title = { step: 'Step ' + (index + 1), gate: 'Quality gate', 'post-gate': 'Post-gate step', substep: 'Sub-step ' + (index + 1) }[kind];
@@ -255,7 +302,8 @@
             + sessionFields(path, step.session)
             + (kind === 'step' || kind === 'post-gate' ? conditionFields(path, step, 'step') : '')
             + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '')
-            + processListsBlock(path, step);
+            + processListsBlock(path, step)
+            + (kind !== 'substep' ? followUpsBlock(path, step, 'step') : '');
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -289,6 +337,7 @@
             + promptField(path, phase.prompt)
             + sessionFields(path, phase.session)
             + conditionFields(path, phase, 'phase')
+            + followUpsBlock(path, phase, 'phase')
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
             + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1, steps)
@@ -376,6 +425,7 @@
             + '<div class="card-head top process-session"><label>Session of every prompt</label>' + sessionFields('', def.session) + '</div>'
             + ioSection('inputs', def.inputs)
             + ioSection('outputs', def.outputs)
+            + followUpsBlock('', def, 'process (its last phase)')
             + '<div class="section-title">Description <span class="muted">(' + esc(doc.files ? doc.files.description.split(/[\\/]/).pop() : '') + ', Markdown)</span></div>'
             + '<textarea id="process-description" rows="8" placeholder="What this process is for and how it is worked through.">' + esc(doc.description) + '</textarea>'
             + '<div class="section-title">Phases <span class="muted">— each ends with a quality gate; an optional post-gate step holds the todos done before the next phase</span></div>'
@@ -413,8 +463,8 @@
                 delete getAt(path.slice(0, -1)).postGate;
                 break;
             case 'add-entry': {
-                // The list may not exist yet: its owner is the step.
-                var ownerNode = getAt(path.slice(0, -1));
+                // The list may not exist yet: its owner is the step (the process itself for its follow-ups).
+                var ownerNode = path.length === 1 ? def : getAt(path.slice(0, -1));
                 var listKey = path[path.length - 1];
                 if (!ownerNode) { return; }
                 ownerNode[listKey] = ownerNode[listKey] || [];
@@ -443,7 +493,7 @@
                 // An empty sub-step or todo list is dropped: a step with sub-steps has at least one.
                 var owner = getAt(path.slice(0, -2));
                 var key = path[path.length - 2];
-                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs' || key === 'subprocesses' || key === 'branches') && owner) { delete owner[key]; }
+                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs' || key === 'subprocesses' || key === 'branches' || key === 'followUps') && owner) { delete owner[key]; }
                 break;
             }
             case 'up':
@@ -482,8 +532,21 @@
         if (!p) { return; }
         var kind = t.dataset.kind;
         var value = kind === 'bool' ? t.checked : kind === 'int' ? (t.value === '' ? '' : Number(t.value))
-            : kind === 'list' ? t.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : t.value;
+            : kind === 'list' ? t.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean)
+                : kind === 'kv' ? kvValue(t.value) : t.value;
+        if (Array.isArray(value) && value.length === 0) { value = ''; }
         setAt(parsePath(p), value);
+        // A follow-up's other process or phase: the phase and step it named belong to the old one.
+        if (/followUps\.\d+\.(process|phase)$/.test(p)) {
+            var fu = getAt(parsePath(p).slice(0, -1));
+            if (fu) {
+                if (/\.process$/.test(p)) { delete fu.phase; }
+                delete fu.step;
+            }
+            changed();
+            renderMain();
+            return;
+        }
         // Another process for a list entry: its inputs are another's, so the mapping starts empty.
         if (/\.(subprocesses|branches)\.\d+\.process$/.test(p)) {
             var entry = getAt(parsePath(p).slice(0, -1));
@@ -499,6 +562,18 @@
             if (title) { title.textContent = 'Phase ' + (Number(phase.getAttribute('data-phase')) + 1) + (t.value ? ': ' + t.value : ''); }
         }
         changed();
+    }
+
+    /** `name: text` lines as a mapping ('' when none): a follow-up's call context. */
+    function kvValue(textValue) {
+        var out = {};
+        String(textValue || '').split('\n').forEach(function (line) {
+            var at = line.indexOf(':');
+            if (at <= 0) { return; }
+            var name = line.slice(0, at).trim();
+            if (name) { out[name] = line.slice(at + 1).trim(); }
+        });
+        return Object.keys(out).length ? out : '';
     }
 
     /** The condition's mode (always / variable / judge) or its test changed: `when:` is rebuilt. */

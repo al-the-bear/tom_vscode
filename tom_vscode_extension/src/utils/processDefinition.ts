@@ -154,10 +154,36 @@ export interface ProcessConditional {
 }
 
 /**
+ * A follow-up process (vscimpb47): where the quest may continue when the
+ * level that offers it ends — another process (or this one) at a named phase
+ * and step, its first ones by default. Offered as an option of the decision
+ * at the end of that level; the user picks it. The position switches there
+ * in the same run, the run's chat variables kept; `carry` names the
+ * variables the follow-up relies on (their values are recorded with the
+ * switch), `context` the call context — texts resolved by the placeholder
+ * engine when the switch is made, which the follow-up's prompts read as
+ * `${origin.<name>}`.
+ */
+export interface ProcessFollowUp {
+    process: string;
+    phase?: string;
+    step?: string;
+    description?: string;
+    carry?: string[];
+    context?: Record<string, string>;
+}
+
+/** What a level that may offer follow-ups carries. */
+export interface ProcessFollowUps {
+    /** Follow-up processes offered at the decision at its end ({@link ProcessFollowUp}). */
+    followUps?: ProcessFollowUp[];
+}
+
+/**
  * A step. With `substeps` it is no action of its own but a group of them; its
  * `role` then applies to the sub-steps that name none.
  */
-export interface ProcessStep extends ProcessSubstep, ProcessConditional {
+export interface ProcessStep extends ProcessSubstep, ProcessConditional, ProcessFollowUps {
     substeps?: ProcessSubstep[];
 }
 
@@ -178,7 +204,7 @@ export interface ProcessPostGateStep extends ProcessStep {
     todoPrefix?: string;
 }
 
-export interface ProcessPhase extends ProcessConditional {
+export interface ProcessPhase extends ProcessConditional, ProcessFollowUps {
     id: string;
     name?: string;
     description?: string;
@@ -194,7 +220,7 @@ export interface ProcessPhase extends ProcessConditional {
     postGate?: ProcessPostGateStep;
 }
 
-export interface ProcessDefinition {
+export interface ProcessDefinition extends ProcessFollowUps {
     id: string;
     name?: string;
     /** One line; the full description is the process's `.md` file. */
@@ -252,13 +278,14 @@ function isSessionName(v: string): boolean {
     return ID_PATTERN.test(v.replace(SESSION_PLACEHOLDER, '1'));
 }
 
-const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'phases'];
+const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'followUps', 'phases'];
+const FOLLOW_UP_KEYS = ['process', 'phase', 'step', 'description', 'carry', 'context'];
 const IO_KEYS = ['name', 'kind', 'description', 'required'];
 const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
 const CONDITIONAL_KEYS = ['optional', 'when'];
-const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'steps', 'gate', 'postGate'];
+const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps', 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches'];
-const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'substeps'];
+const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps'];
 const CONDITION_TESTS = ['equals', 'notEquals', 'in', 'set'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const GATE_KEYS = [...STEP_KEYS, 'onFail'];
@@ -274,6 +301,12 @@ function isObject(x: unknown): x is Raw {
 export interface ProcessValidationContext {
     /** The window's Anthropic profile ids: a session's `profile` must be one of them. Unset: not checked. */
     profileIds?: readonly string[];
+    /**
+     * The other processes (by id): a follow-up's process, phase and step must
+     * exist. Unset: not checked (a definition is valid on its own; the
+     * validator tool and the editor check them).
+     */
+    processOf?: (id: string) => ProcessDefinition | undefined;
 }
 
 /**
@@ -376,6 +409,51 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             seen.add(id);
         });
     };
+    const checkFollowUps = (obj: Raw, path: string): void => {
+        const list = obj.followUps;
+        if (list === undefined) { return; }
+        const at = `${path}${path ? '.' : ''}followUps`;
+        if (!Array.isArray(list)) { err(at, 'a list of {process, phase, step, description, carry, context}'); return; }
+        const seen = new Set<string>();
+        list.forEach((entry, i) => {
+            const entryAt = `${at}[${i}]`;
+            if (!isObject(entry)) { err(entryAt, 'an object {process, phase, step, description, carry, context}'); return; }
+            unknownKeys(entry, FOLLOW_UP_KEYS, entryAt);
+            for (const key of ['phase', 'step']) {
+                if (entry[key] !== undefined && (typeof entry[key] !== 'string' || !ID_PATTERN.test(entry[key] as string))) { err(`${entryAt}.${key}`, `a ${key} id: ${ID_MESSAGE}`); }
+            }
+            if (entry.step !== undefined && entry.phase === undefined) { err(`${entryAt}.step`, 'a step is named within its phase: name the phase too'); }
+            checkText(entry, 'description', entryAt);
+            if (entry.carry !== undefined && (!Array.isArray(entry.carry) || entry.carry.some((v) => typeof v !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(v)))) {
+                err(`${entryAt}.carry`, 'a list of chat variable names (`change`, `custom.change`)');
+            }
+            if (entry.context !== undefined) {
+                if (!isObject(entry.context)) {
+                    err(`${entryAt}.context`, 'a mapping of name → value (a text the placeholder engine resolves when the switch is made)');
+                } else {
+                    for (const [name, value] of Object.entries(entry.context)) {
+                        if (!ID_PATTERN.test(name)) { err(`${entryAt}.context.${name}`, `a context name: ${ID_MESSAGE}`); }
+                        if (typeof value !== 'string') { err(`${entryAt}.context.${name}`, 'text expected'); }
+                    }
+                }
+            }
+            if (typeof entry.process !== 'string' || !ID_PATTERN.test(entry.process)) { err(`${entryAt}.process`, `required: a process id (${ID_MESSAGE})`); return; }
+            const key = `${entry.process}/${entry.phase ?? ''}/${entry.step ?? ''}`;
+            if (seen.has(key)) { err(entryAt, `the follow-up ${followUpTarget(entry as unknown as ProcessFollowUp)} is listed twice`); }
+            seen.add(key);
+            if (!context.processOf) { return; }
+            // The target must exist: the process, its phase, the step in that phase.
+            const own = typeof raw === 'object' && raw !== null && (raw as Raw).id === entry.process ? raw as unknown as ProcessDefinition : undefined;
+            const target = own ?? context.processOf(entry.process);
+            if (!target || !Array.isArray(target.phases)) { err(`${entryAt}.process`, `no process "${entry.process}" under _ai/processes/`); return; }
+            if (entry.phase === undefined) { return; }
+            const phase = target.phases.find((p) => isObject(p) && p.id === entry.phase);
+            if (!phase) { err(`${entryAt}.phase`, `the process "${entry.process}" has no phase "${entry.phase}" (its phases: ${target.phases.map((p) => p.id).join(', ')})`); return; }
+            if (entry.step === undefined) { return; }
+            const steps = [...(phase.steps ?? []), phase.gate, ...(phase.postGate ? [phase.postGate] : [])].filter(isObject).map((x) => (x as { id: string }).id);
+            if (!steps.includes(entry.step as string)) { err(`${entryAt}.step`, `the phase "${entry.phase}" of "${entry.process}" has no step "${entry.step}" (its steps: ${steps.join(', ')})`); }
+        });
+    };
     const checkConditional = (obj: Raw, path: string): void => {
         if (obj.optional !== undefined && typeof obj.optional !== 'boolean') { err(`${path}.optional`, 'true or false'); }
         const when = obj.when;
@@ -399,7 +477,7 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
     };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
-        if (isObject(obj)) { checkConditional(obj, path); }
+        if (isObject(obj)) { checkConditional(obj, path); checkFollowUps(obj, path); }
         if (isObject(obj) && obj.userAction === true && obj.substeps !== undefined) {
             err(`${path}.userAction`, 'a step with sub-steps is a group — flag the sub-steps the user does');
         }
@@ -424,6 +502,7 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
     checkText(raw, 'name', '');
     checkText(raw, 'summary', '');
     checkSession(raw, '');
+    checkFollowUps(raw, '');
     for (const key of ['inputs', 'outputs']) {
         const list = raw[key];
         if (list === undefined) { continue; }
@@ -460,6 +539,7 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             checkSession(phase, path);
             checkRepeat(phase, path, 'phase');
             checkConditional(phase, path);
+            checkFollowUps(phase, path);
             const stepIds = new Set<string>();
             const noteStep = (stepId: string, stepPath: string): void => {
                 if (stepId && stepIds.has(stepId)) { err(`${stepPath}.id`, `"${stepId}" is used twice in phase "${phaseId}"`); }
@@ -544,15 +624,23 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         if (!e.description && Object.keys(inputs).length === 0) { return e.process; }
         return { process: e.process, ...(e.description ? { description: e.description } : {}), ...(Object.keys(inputs).length ? { inputs } : {}) };
     };
+    // A follow-up's keys in their order, empty ones left out.
+    const followUp = (f: ProcessFollowUp): Raw => {
+        const out = pick(f, ['process', 'phase', 'step', 'description', 'carry']);
+        const context = Object.fromEntries(Object.entries(f.context ?? {}).filter(([, v]) => typeof v === 'string' && v !== ''));
+        if (Object.keys(context).length) { out.context = context; }
+        return out;
+    };
     const lists = (out: Raw): Raw => {
         for (const key of ['subprocesses', 'branches']) {
             if (Array.isArray(out[key])) { out[key] = (out[key] as ProcessListEntry[]).map(entry); }
         }
+        if (Array.isArray(out.followUps)) { out.followUps = (out.followUps as ProcessFollowUp[]).map(followUp); }
         return out;
     };
     const substep = (s: ProcessSubstep): Raw => lists(pick(s, SUBSTEP_KEYS));
     const step = (s: ProcessStep): Raw => {
-        const out = lists(pick(s, [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS]));
+        const out = lists(pick(s, [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps']));
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
         return out;
     };
@@ -560,11 +648,12 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         ...pick(def, ['id', 'name', 'summary', 'session']),
         ...(def.inputs?.length ? { inputs: def.inputs.map((d) => pick(d, IO_KEYS)) } : {}),
         ...(def.outputs?.length ? { outputs: def.outputs.map((d) => pick(d, [...IO_KEYS, 'value'])) } : {}),
+        ...(def.followUps?.length ? { followUps: def.followUps.map(followUp) } : {}),
         phases: def.phases.map((p) => {
             const gate = step(p.gate);
             for (const key of CONDITIONAL_KEYS) { delete gate[key]; }
             if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
-            const out: Raw = { ...pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS]), steps: p.steps.map(step), gate };
+            const out: Raw = { ...lists(pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps'])), steps: p.steps.map(step), gate };
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -657,7 +746,35 @@ export interface ProcessState {
      * change of position.
      */
     leaveOut?: { level: 'phase' | 'step'; reason: string };
+    /**
+     * Where the process came from by follow-ups (vscimpb47), oldest first (at
+     * most {@link MAX_ORIGIN_RECORDS}): each switch adds the position it was
+     * made from. Its last entry is `${process-origin}`, its call context
+     * `${origin.<name>}`. Kept by every move within the process; a process
+     * set by hand starts without it.
+     */
+    origins?: ProcessOrigin[];
 }
+
+/** A switch to a follow-up process: where it was made from, and what it took along. */
+export interface ProcessOrigin {
+    process: string;
+    phase: string;
+    phaseIteration: number;
+    step: string;
+    stepIteration: number;
+    /** The level whose follow-up it was: the process (at its end), a phase, a step. */
+    level: 'process' | 'phase' | 'step';
+    /** ISO time of the switch. */
+    at: string;
+    /** The carried chat variables and their values at the switch (a variable not set is recorded empty). */
+    carried?: Record<string, string>;
+    /** The call context, resolved at the switch (`${origin.<name>}`). */
+    context?: Record<string, string>;
+}
+
+/** How many follow-up switches a state remembers. */
+export const MAX_ORIGIN_RECORDS = 20;
 
 /** A phase or step left out, and why. */
 export interface ProcessSkipRecord {
@@ -1043,6 +1160,8 @@ export interface ConditionOptions {
     lookup?: ConditionLookup;
     /** The time skip records carry; default now. */
     now?: string;
+    /** The other processes, for the follow-up options of a decision. Without it none is offered. */
+    processOf?: (id: string) => ProcessDefinition | undefined;
 }
 
 /** `holds` / `fails`: the extension decided; `judge`: the agent judges it (a `judge:` condition, a variable not set). */
@@ -1214,10 +1333,10 @@ export function skippedInPhase(state: ProcessState): ProcessSkipRecord[] {
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'skip' | 'leave-out' | 'back';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back';
 
 /** The move kinds, in the order the action bar shows them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'skip', 'leave-out', 'back'];
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
@@ -1228,6 +1347,12 @@ export interface ProcessMove {
     target: ProcessState;
     /** One of the options of the decision the quest is at; chosen in the decision dialog, not shown in the action bar. */
     branchOption?: true;
+    /**
+     * A `follow-up` move: which follow-up (`key`, unique among the options,
+     * e.g. `phase:0`) and what it says, so the switch can resolve its call
+     * context and record the carried variables (completeFollowUpSwitch).
+     */
+    followUp?: { key: string; entry: ProcessFollowUp };
 }
 
 interface Position {
@@ -1317,7 +1442,8 @@ function isDecisionPoint(pos: Position): boolean {
     return (entry.kind === 'gate' && stepEnds)
         || phaseEnds
         || subs[pos.substepIndex]?.repeatable === true
-        || (stepEnds && entry.step.repeatable === true);
+        || (stepEnds && entry.step.repeatable === true)
+        || (stepEnds && ((entry.step as ProcessStep).followUps?.length ?? 0) > 0);
 }
 
 const nameOf = (node: { id: string; name?: string }): string => node.name || node.id;
@@ -1370,7 +1496,102 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
     if (phaseEnds && canRepeat(pos.phase, here.phaseIteration)) {
         moves.push({ kind: 'repeat', level: 'phase', label: `Repeat the phase ${nameOf(pos.phase)}`, target: passExcluded(def, here, changeIteration(here, def, 'phase', 1), options) });
     }
+    moves.push(...followUpOptions(def, here, pos, stepEnds, phaseEnds, isGate, options));
     return moves.map((o) => ({ ...o, branchOption: true as const }));
+}
+
+/** Where a follow-up leads, for labels and messages: `process › phase › step` (what it names). */
+export function followUpTarget(f: ProcessFollowUp): string {
+    return [f.process, f.phase, f.step].filter(Boolean).join(' › ');
+}
+
+/**
+ * The follow-up options of the decision after `pos` (vscimpb47): the step's
+ * (when it ends there), the phase's and — at the end of the last phase — the
+ * process's, each a switch to its process at its phase and step (the first
+ * ones by default, past what their conditions leave out). Only the quest's
+ * own process offers them (a subprocess or branch hands back to its step),
+ * and only with `options.processOf`; a follow-up whose target is gone is not
+ * offered.
+ */
+function followUpOptions(def: ProcessDefinition, here: ProcessState, pos: Position, stepEnds: boolean, phaseEnds: boolean, isGate: boolean, options: ConditionOptions): ProcessMove[] {
+    if (!options.processOf || here.nested) { return []; }
+    const offered: Array<{ level: ProcessOrigin['level']; list: ProcessFollowUp[] }> = [];
+    if (stepEnds) { offered.push({ level: 'step', list: (pos.entries[pos.stepIndex].step as ProcessStep).followUps ?? [] }); }
+    if (phaseEnds) { offered.push({ level: 'phase', list: pos.phase.followUps ?? [] }); }
+    if (phaseEnds && pos.phaseIndex === def.phases.length - 1) { offered.push({ level: 'process', list: def.followUps ?? [] }); }
+    const now = options.now ?? new Date().toISOString();
+    const moves: ProcessMove[] = [];
+    for (const { level, list } of offered) {
+        list.forEach((entry, i) => {
+            const target = entry.process === def.id ? def : options.processOf!(entry.process);
+            const phase = target ? (entry.phase ? findPhase(target, entry.phase) : target.phases[0]) : undefined;
+            const step = phase ? (entry.step ? findStep(phase, entry.step) : firstStepOf(phase)) : undefined;
+            if (!target || !phase || !step) { return; }
+            const origin: ProcessOrigin = {
+                process: def.id, phase: here.phase, phaseIteration: here.phaseIteration, step: here.step, stepIteration: here.stepIteration, level, at: now,
+            };
+            const start = withStep({ ...EMPTY_PROCESS_STATE, process: target.id, phase: phase.id, phaseIteration: 1 }, step, 1);
+            const moved = passExcluded(target, { ...EMPTY_PROCESS_STATE }, start, options);
+            const origins = [...(here.origins ?? []), origin].slice(-MAX_ORIGIN_RECORDS);
+            const where = [nameOf(target), nameOf(phase), entry.step ? nameOf(step) : ''].filter(Boolean).join(' › ');
+            moves.push({
+                kind: 'follow-up',
+                label: `${isGate ? 'Gate passed — ' : ''}Continue in ${where}${entry.description ? ` (${entry.description})` : ''}`,
+                target: { ...moved, origins },
+                followUp: { key: `${level}:${i}`, entry },
+            });
+        });
+    }
+    return moves;
+}
+
+/**
+ * The state a follow-up switch writes: the move's target with the call
+ * context resolved (`resolve`, the placeholder engine as the decision sees
+ * it) and the carried variables' values (`lookup`) in its newest origin.
+ */
+export function completeFollowUpSwitch(move: ProcessMove, resolve: (text: string) => string, lookup: (name: string) => string | undefined): ProcessState {
+    const entry = move.followUp?.entry;
+    const origins = move.target.origins ?? [];
+    if (!entry || origins.length === 0) { return move.target; }
+    const last = { ...origins[origins.length - 1] };
+    const context = Object.fromEntries(Object.entries(entry.context ?? {}).map(([n, t]) => [n, resolve(t).trim()]));
+    if (Object.keys(context).length) { last.context = context; }
+    if (entry.carry?.length) { last.carried = Object.fromEntries(entry.carry.map((n) => [n, lookup(n) ?? ''])); }
+    return { ...move.target, origins: [...origins.slice(0, -1), last] };
+}
+
+/** The variables a follow-up's prompts read: `process-origin` (`<process>/<phase>`) and `origin.<name>` (its call context). */
+export function originVariables(state: ProcessState): Record<string, string> {
+    const last = state.origins?.[state.origins.length - 1];
+    if (!last) { return {}; }
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- a chat-variable name
+    const out: Record<string, string> = { 'process-origin': `${last.process}/${last.phase}` };
+    for (const [n, v] of Object.entries(last.context ?? {})) { out[`origin.${n}`] = v; }
+    return out;
+}
+
+/** The decisions-journal entry of a switch to a follow-up process: from where, to where, what it took along. */
+export function followUpJournalEntry(from: ProcessState, fromPosition: string, to: ProcessState, toPosition: string, run: string, at: Date = new Date()): string {
+    const origin = to.origins?.[to.origins.length - 1];
+    const kv = (rec: Record<string, string> | undefined): string => Object.entries(rec ?? {}).map(([k, v]) => `\`${k}\` = ${v || '(not set)'}`).join(', ');
+    return [
+        `## ${at.toISOString()} — continued in the follow-up process ${to.process}`,
+        '',
+        `- **From:** ${from.process} › ${fromPosition}${origin ? ` (the ${origin.level}'s follow-up)` : ''}`,
+        `- **To:** ${to.process} › ${toPosition}`,
+        ...(run && run !== 'default' ? [`- **Run:** ${run}`] : []),
+        ...(origin?.carried ? [`- **Carried:** ${kv(origin.carried)}`] : []),
+        ...(origin?.context ? [`- **Call context:** ${kv(origin.context)}`] : []),
+        '',
+    ].join('\n');
+}
+
+/** The follow-up chain of `state` as text, oldest first (`design › p1 → review`), '' without one. */
+export function originChainText(state: ProcessState): string {
+    if (!state.origins?.length) { return ''; }
+    return [...state.origins.map((o) => `${o.process} › ${o.phase}${o.level === 'step' ? ` › ${o.step}` : ''}`), state.process].join(' → ');
 }
 
 /**
@@ -1591,6 +1812,12 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
     const head = (node: { id: string; name?: string }, extra: string): string =>
         node.name ? `**${node.name}** (\`${node.id}\`${extra})` : `\`${node.id}\`${extra ? ` (${extra.replace(/^, /, '')})` : ''}`;
     lines.push(`Process: ${head(def, '')}${def.summary ? ` — ${def.summary}` : ''}`);
+    // Switched to as a follow-up process (vscimpb47): where from, and what the switch took along.
+    const origin = state.origins?.[state.origins.length - 1];
+    if (origin) {
+        const context = Object.keys(origin.context ?? {}).map((n) => `\`\${origin.${n}}\``).join(', ');
+        lines.push(`Continued from: \`${origin.process}\` › \`${origin.phase}\`${origin.level === 'step' ? ` › \`${origin.step}\`` : ''} as its ${origin.level}'s follow-up (\`\${process-origin}\`; chain: ${originChainText(state)})${context ? `; call context ${context}` : ''}${origin.carried ? `; carried ${Object.keys(origin.carried).map((n) => `\`${n}\``).join(', ')}` : ''}`);
+    }
     const phase = findPhase(def, state.phase);
     let step: ProcessStep | ProcessPostGateStep | undefined;
     let sub: ProcessSubstep | undefined;
@@ -1748,7 +1975,26 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         ...(isObject(raw.leaveOut) && (raw.leaveOut.level === 'phase' || raw.leaveOut.level === 'step')
             ? { leaveOut: { level: raw.leaveOut.level, reason: typeof raw.leaveOut.reason === 'string' ? raw.leaveOut.reason : '' } }
             : {}),
+        ...parseOrigins(raw.origins),
     };
+}
+
+const ORIGIN_LEVELS: readonly ProcessOrigin['level'][] = ['process', 'phase', 'step'];
+
+function parseOrigins(raw: unknown): { origins?: ProcessOrigin[] } {
+    if (!Array.isArray(raw)) { return {}; }
+    const out = raw.filter(isObject).filter((x) => typeof x.process === 'string' && typeof x.phase === 'string').map((x): ProcessOrigin => ({
+        process: x.process as string,
+        phase: x.phase as string,
+        phaseIteration: Number.isInteger(x.phaseIteration) && (x.phaseIteration as number) >= 1 ? x.phaseIteration as number : 1,
+        step: typeof x.step === 'string' ? x.step : '',
+        stepIteration: Number.isInteger(x.stepIteration) && (x.stepIteration as number) >= 1 ? x.stepIteration as number : 1,
+        level: ORIGIN_LEVELS.includes(x.level as ProcessOrigin['level']) ? x.level as ProcessOrigin['level'] : 'phase',
+        at: typeof x.at === 'string' ? x.at : '',
+        ...textRecord('carried', x.carried),
+        ...textRecord('context', x.context),
+    }));
+    return out.length ? { origins: out.slice(-MAX_ORIGIN_RECORDS) } : {};
 }
 
 const SKIP_BY: readonly ProcessSkipRecord['by'][] = ['condition', 'user', 'agent'];
@@ -1819,6 +2065,7 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.nestedRuns?.length ? { nestedRuns: state.nestedRuns } : {}),
         ...(state.skipped?.length ? { skipped: state.skipped } : {}),
         ...(state.leaveOut ? { leaveOut: state.leaveOut } : {}),
+        ...(state.origins?.length ? { origins: state.origins } : {}),
     };
 }
 

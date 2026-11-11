@@ -54,7 +54,10 @@ import {
     EMPTY_PROCESS_STATE,
     applyProcessChange,
     availableMoves,
+    completeFollowUpSwitch,
     conditionLookup,
+    followUpJournalEntry,
+    originVariables,
     judgedLevelAt,
     passExcluded,
     type ConditionOptions,
@@ -431,7 +434,7 @@ export class ProcessStateStore {
         const v = this.viewed();
         // `run`: the run the prompt runs for (a queued Proceed's), else the window's.
         const run = this.viewedRun();
-        return { ...processVariableValues(v.def, v.state, v.description, run), ...ioVariables(v.state), run };
+        return { ...processVariableValues(v.def, v.state, v.description, run), ...ioVariables(v.state), ...originVariables(v.state), run };
     }
 
     /** The run a prompt runs for: a queued Proceed's (while it is sent), else the window's. */
@@ -551,7 +554,8 @@ export class ProcessStateStore {
     conditionOptions(state: ProcessState = this.state): ConditionOptions {
         let values: Record<string, string> = {};
         try { values = ChatVariablesStore.instance.toTemplateValues(); } catch { /* not initialised: no variable is set */ }
-        return { lookup: conditionLookup(values, state) };
+        // The other processes: a decision offers the follow-ups whose target exists (vscimpb47).
+        return { lookup: conditionLookup(values, state), processOf: (id) => this.entry(id)?.definition ?? undefined };
     }
 
     /** The moves the PROCESS view's action bar offers at the current position. */
@@ -578,9 +582,10 @@ export class ProcessStateStore {
         return this.move('leave-out', judged.level, source);
     }
 
-    /** The move of `kind` (and `level`) offered now, if any. */
-    findMove(kind: ProcessMoveKind, level?: ProcessLevel): ProcessMove | undefined {
-        return this.moves().find((m) => m.kind === kind && (m.level ?? undefined) === (level ?? undefined));
+    /** The move of `kind` (and `level`; for a follow-up its `key`, else the first) offered now, if any. */
+    findMove(kind: ProcessMoveKind, level?: ProcessLevel, key?: string): ProcessMove | undefined {
+        return this.moves().find((m) => m.kind === kind && (m.level ?? undefined) === (level ?? undefined)
+            && (key === undefined || m.followUp?.key === key));
     }
 
     /**
@@ -588,15 +593,39 @@ export class ProcessStateStore {
      * position, so a view showing an outdated state cannot move the quest
      * somewhere the process does not lead from here.
      */
-    move(kind: ProcessMoveKind, level: ProcessLevel | undefined, source: ChangeSource): ProcessChangeResult {
+    move(kind: ProcessMoveKind, level: ProcessLevel | undefined, source: ChangeSource, followUp?: { key?: string; resolve?: (text: string) => string }): ProcessChangeResult {
         if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
         // The agent judged the step's condition not to hold: its Proceed run ends by leaving it out.
         if (kind === 'proceed' && this.state.leaveOut) { kind = 'leave-out'; level = this.state.leaveOut.level; }
-        const move = this.findMove(kind, level);
+        const move = this.findMove(kind, level, followUp?.key);
         if (!move) { return { ok: false, error: `"${kind}${level ? ` ${level}` : ''}" is not possible at the current position` }; }
-        return this.commit(repo, this.state, move.target, source);
+        if (move.kind !== 'follow-up') { return this.commit(repo, this.state, move.target, source); }
+        // A switch to a follow-up process: its call context resolved now, the carried variables' values recorded.
+        const before = this.state;
+        const lookup = this.conditionOptions().lookup ?? (() => undefined);
+        const target = completeFollowUpSwitch(move, followUp?.resolve ?? ((text) => text), lookup);
+        const result = this.commit(repo, before, target, source);
+        if (result.ok) { this.journalFollowUp(before, result.state); }
+        return result;
+    }
+
+    /** A switch to a follow-up process goes to the quest's decisions journal (best effort). */
+    private journalFollowUp(from: ProcessState, to: ProcessState): void {
+        try {
+            const quests = WsPaths.ai('quests');
+            if (!quests) { return; }
+            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
+            const where = (l: ProcessState): string => {
+                const def = this.entry(l.process)?.definition;
+                return def ? positionText(def, l) : `${l.phase} › ${l.step}`;
+            };
+            const entry = followUpJournalEntry(from, where(from), to, where(to), this.run);
+            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, `${head}${entry}\n`, 'utf-8');
+        } catch { /* the journal is a record, not a participant */ }
     }
 
     /** The role the current step names; `''` when none. */

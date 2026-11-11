@@ -141,11 +141,24 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 where: entry?.definition ? leftOutWhere(entry.definition, r.phase, r.step) : [r.phase, r.step].filter(Boolean).join(' › '),
                 phaseIteration: r.phaseIteration, reason: r.reason, by: r.by, at: r.at,
             })),
+            // Where it came from by follow-up processes (vscimpb47), oldest first.
+            origins: (state.origins ?? []).map((o) => {
+                const from = store.entry(o.process)?.definition;
+                return {
+                    process: from?.name || o.process,
+                    where: from ? leftOutWhere(from, o.phase, o.level === 'step' ? o.step : undefined) : [o.phase, o.level === 'step' ? o.step : ''].filter(Boolean).join(' › '),
+                    level: o.level, at: o.at, carried: o.carried ?? {}, context: o.context ?? {},
+                };
+            }),
             chatRole,
             stepRun: run ? { left: run.left, held: run.held, to: run.move.to, label: run.move.label } : null,
             moves: entry?.definition
                 ? store.moves().map((m) => ({
-                    kind: m.kind, level: m.level ?? null, label: m.label, to: positionText(entry.definition!, m.target),
+                    kind: m.kind, level: m.level ?? null, label: m.label,
+                    // A follow-up leads into another process: its position there.
+                    to: m.kind === 'follow-up'
+                        ? `${m.target.process} › ${positionText(store.entry(m.target.process)?.definition ?? entry.definition!, m.target)}`
+                        : positionText(entry.definition!, m.target),
                     ...(m.branchOption ? { branchOption: true } : {}),
                 }))
                 : [],

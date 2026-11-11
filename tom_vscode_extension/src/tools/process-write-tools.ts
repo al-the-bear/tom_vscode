@@ -34,6 +34,8 @@ export interface ProcessWriteDeps {
     rolesDir: string;
     /** The window's Anthropic profile ids (a session's profile must be one). */
     profileIds?(): readonly string[];
+    /** The processes under `_ai/processes/`, by id (a follow-up's process, phase and step must exist). */
+    processOf?(id: string): ProcessDefinition | undefined;
     /** Write both files (the store re-reads its processes afterwards). */
     write(def: ProcessDefinition, description: string): { ok: boolean; error?: string };
     /** Open the process editor on `id`. */
@@ -128,7 +130,10 @@ export function checkProcessDraft(deps: ProcessWriteDeps, input: ProcessDraftInp
             findings.push({ source: 'schema', path: schemaPath(e.instancePath, e.params), message: e.message ?? 'does not match the schema' });
         }
     }
-    const rules = validateProcessDefinition(raw, deps.profileIds ? { profileIds: deps.profileIds() } : {});
+    const rules = validateProcessDefinition(raw, {
+        ...(deps.profileIds ? { profileIds: deps.profileIds() } : {}),
+        ...(deps.processOf ? { processOf: (id: string) => deps.processOf!(id) } : {}),
+    });
     for (const e of rules.errors) { findings.push({ source: 'rules', path: e.path, message: e.message }); }
     const id = raw && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string' ? (raw as { id: string }).id : undefined;
     if (rules.definition) {
@@ -196,7 +201,8 @@ export const VALIDATE_PROCESS_TOOL: SharedToolDefinition<ProcessDraftInput> = {
     description:
         'Check a draft process definition (`yaml` text or a `file`) before writing it: YAML, `src/config/process.schema.json`, the ' +
         'rules the process editor applies (every phase ends with a gate; `onFail` names a step of its phase; a user-action step has ' +
-        'no prompt or session; ids unique in their scope; maxIterations only on a repeatable level; a session\'s profile exists) and the ' +
+        'no prompt or session; ids unique in their scope; maxIterations only on a repeatable level; a session\'s profile exists; a `followUps:` entry\'s ' +
+        'process, phase and step exist) and the ' +
         'roles (each `role` exists under `_ai/roles/` or is in `draftRoles`). Answers `{valid, id, exists, findings: [{source: yaml | ' +
         'schema | rules | roles | input, path, message}]}` — every finding, not just the first. Read-only; tomAi_writeProcess writes.',
     tags: ['process', 'quest', 'tom-ai-chat'],
@@ -240,6 +246,12 @@ function liveDeps(): ProcessWriteDeps {
         profileIds: () => {
             const { loadSendToChatConfig } = require('../utils/sendToChatConfig.js') as typeof import('../utils/sendToChatConfig');
             return (loadSendToChatConfig()?.anthropic?.profiles ?? []).map((p) => p.id);
+        },
+        processOf: (id) => {
+            const store = require('../managers/processStateStore.js').ProcessStateStore.instance as import('../managers/processStateStore').ProcessStateStore | undefined;
+            if (store) { return store.entry(id)?.definition ?? undefined; }
+            const repository = require('../utils/processRepository.js') as typeof import('../utils/processRepository');
+            return new repository.ProcessRepository(processesDir, paths.WsPaths.ai('quests') ?? '').list().find((e) => e.id === id)?.definition ?? undefined;
         },
         write: (def, description) => {
             // Through the store, so the PROCESS view and the editor see the new process at once.

@@ -134,14 +134,17 @@ export async function confirmProcessAction(
     level: ProcessLevel | undefined,
     customInstructions: string,
     sessionOverride?: string,
+    /** A `follow-up` option: which one (ProcessMove.followUp.key). */
+    followUpKey?: string,
 ): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
-    const move = store.findMove(kind, level);
+    const move = store.findMove(kind, level, followUpKey);
     const def = store.currentDefinition();
     if (!move || !def) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
     const queue = PromptQueueManager.instance;
     if (move.kind !== 'proceed') {
-        const moved = store.move(kind, level, 'user');
+        // A follow-up's call context is resolved by the placeholder engine as the decision sees it.
+        const moved = store.move(kind, level, 'user', move.kind === 'follow-up' ? { key: move.followUp?.key, resolve: (text) => resolveVariables(text) } : undefined);
         if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`, store.currentRun); }
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
@@ -271,7 +274,7 @@ export async function decideInDialog(context?: vscode.ExtensionContext): Promise
         return { helper: pick.use };
     }
     if (pick.kind !== 'option') { return {}; }
-    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '') };
+    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '', undefined, pick.option.followUp?.key) };
 }
 
 /** Reopen the decision (the note's button, the end of a helper's turn); a failed move is reported. */
@@ -355,7 +358,7 @@ export async function takeDecisionOption(label: string): Promise<ProcessActionRe
     const decide = def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
     const option = decide?.options.find((o) => o.label === label);
     const result: ProcessActionResult = option
-        ? await confirmProcessAction(option.kind, option.level, '')
+        ? await confirmProcessAction(option.kind, option.level, '', undefined, option.followUp?.key)
         : { ok: false, error: decide ? `the decision no longer offers "${label}"` : 'the process is not at a decision any more' };
     if (!result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
     return result;

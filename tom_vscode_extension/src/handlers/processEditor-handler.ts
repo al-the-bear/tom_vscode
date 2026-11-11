@@ -25,7 +25,9 @@ import { pickDefinitionSession } from './sessionPicker';
 function validateInWindow(def: unknown): ProcessValidation {
     const profiles = loadSendToChatConfig()?.anthropic?.profiles ?? [];
     const profileIds = profiles.map((p) => p?.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
-    return validateProcessDefinition(def, { profileIds });
+    // A follow-up's process, phase and step must exist (vscimpb47).
+    const processOf = (id: string): ProcessDefinition | undefined => ProcessStateStore.instance?.entry(id)?.definition ?? undefined;
+    return validateProcessDefinition(def, { profileIds, processOf });
 }
 
 /** Refuse to save a definition naming an unknown profile; the reason as a save error. */
@@ -91,6 +93,11 @@ async function sendList(): Promise<void> {
         processes: list.map((e) => ({
             id: e.id, name: e.definition?.name || e.id, valid: !!e.definition, errorCount: e.errors.length,
             inputs: (e.definition?.inputs ?? []).map((d) => ({ name: d.name, ...(d.kind ? { kind: d.kind } : {}), required: d.required === true, description: d.description ?? '' })),
+            // Its phases and their steps: a follow-up names where it continues.
+            phases: (e.definition?.phases ?? []).map((ph) => ({
+                id: ph.id, name: ph.name ?? '',
+                steps: [...ph.steps, ph.gate, ...(ph.postGate ? [ph.postGate] : [])].map((st) => ({ id: st.id, name: st.name ?? '' })),
+            })),
         })),
         roles: listRoleNames(WsPaths.ai('roles')),
         currentProcess: s.state.process,

@@ -738,7 +738,7 @@ describe('process-level session', () => {
         assert.match(service, /ensureSession\([\s\S]*?profile: spec\.profile \}/, 'Proceed passes the spec\'s profile');
         assert.match(service, /const error = ensureProcessSession\(store\.activeQuest, session\.spec\);/);
         const editor = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'processEditor-handler.ts'), 'utf-8');
-        assert.match(editor, /validateProcessDefinition\(def, \{ profileIds \}\)/, 'the editor checks against the window\'s profiles');
+        assert.match(editor, /validateProcessDefinition\(def, \{ profileIds(, processOf)? \}\)/, 'the editor checks against the window\'s profiles');
         assert.match(editor, /errors: validateInWindow\(msg\.definition\)\.errors/);
         assert.equal((editor.match(/const refusal = windowRefusal\(msg\.definition\);/g) ?? []).length, 2, 'both saves refuse an unknown profile');
         assert.match(editor, /case 'pickSession':[\s\S]*?pickDefinitionSession\(/, 'the editor\'s picker edits the definition only');

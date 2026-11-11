@@ -157,7 +157,7 @@
     /** Icon and short text of each move kind in the action bar. */
     var MOVE_ICON = {
         proceed: 'play', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
-        'gate-failed': 'error', 'finish-process': 'check-all', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left',
+        'gate-failed': 'error', 'finish-process': 'check-all', 'follow-up': 'arrow-swap', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left',
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
@@ -235,6 +235,21 @@
                 return '<li title="' + esc(r.at || '') + '"><b>' + esc(r.where) + '</b>' + (r.phaseIteration > 1 ? ' <span class="muted">(iteration ' + r.phaseIteration + ')</span>' : '')
                     + ' — ' + esc(r.reason) + ' <span class="muted">(' + esc(BY[r.by] || r.by) + ')</span></li>';
             }).join('') + '</ul></details>';
+    }
+
+    /** The follow-up chain: the processes this one was switched to from, oldest first, with what each switch took along. */
+    function originBox(origins, process) {
+        if (!origins || !origins.length) { return ''; }
+        var kv = function (rec) {
+            return Object.keys(rec || {}).map(function (k) { return k + ' = ' + (rec[k] || '(not set)'); }).join(', ');
+        };
+        return '<details class="origin-chain" open><summary><span class="codicon codicon-arrow-swap"></span> Continued from '
+            + esc(origins[origins.length - 1].process) + '</summary><ol>'
+            + origins.map(function (o) {
+                var extra = [kv(o.carried) ? 'carried: ' + kv(o.carried) : '', kv(o.context) ? 'context: ' + kv(o.context) : ''].filter(Boolean).join('; ');
+                return '<li title="' + esc(o.at || '') + '"><b>' + esc(o.process) + '</b> › ' + esc(o.where)
+                    + ' <span class="muted">(the ' + esc(o.level) + '\'s follow-up)</span>' + (extra ? '<div class="muted">' + esc(extra) + '</div>' : '') + '</li>';
+            }).join('') + '<li><b>' + esc(process) + '</b> <span class="muted">(now)</span></li></ol></details>';
     }
 
     /** When a run's state file was last written, as `YYYY-MM-DD HH:MM` local time; '' when never. */
@@ -371,6 +386,7 @@
                 }
             }
         }
+        html += originBox(c.origins, (c.definition && (c.definition.name || c.definition.id)) || (c.state && c.state.process) || '');
         html += leftOutBox(c.leftOut);
         if (c.processes.length === 0) {
             html += '<div class="muted">No processes yet — create one in the process editor (_ai/processes/).</div>';
