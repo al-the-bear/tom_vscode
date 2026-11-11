@@ -5,14 +5,16 @@
  *
  * The file is named after the workspace (the `.code-workspace` stem, else the
  * first folder's name) — one window per workspace, so it is the window's —
- * and the host (`_ai` is shared by the fleet: another machine's window of the
- * workspace has its own file). It is kept when the window closes: a reload,
+ * and the host. The folder is machine-local: `_ai/.gitignore` leaves
+ * `chat_variables/` out (vscimpb52), so no reconcile carries another
+ * machine's variables here. It is kept when the window closes: a reload,
  * an extension install and a restart find the variables as they were.
  * Custom variables (run parameters such as `design-mode`, a reported `TODO`)
  * stay until written or deleted. Files of older builds were named per window
  * *session* (`<workspace>.<sessionId>.chatvariable.yaml`, a new id on every
  * reload, and deleted on close), which lost every custom variable on a
- * reload; a window without a file of its own starts from the newest of them.
+ * reload; a window without a file of its own starts from the newest of them
+ * still on this machine (the versioned ones were removed from `_ai`).
  *
  * Runs (vscimpb43): the custom variables are a process run's parameters, so
  * each run of the quest (src/utils/processRuns.ts) has its own set. The
