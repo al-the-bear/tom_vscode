@@ -23,9 +23,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
+import { promisify } from 'util';
 import {
     currentHost,
-    extractTgz,
+    extractTar,
     integrityMatches,
     maxSatisfying,
     compareSemver,
@@ -41,9 +43,26 @@ import {
     type ProviderPackage,
     type ProviderState,
 } from '../utils/providerSdks';
+import type { DownloadFile } from './providerChildDownload';
 
-/** The part of `fetch` the installer uses. */
-export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer>; json(): Promise<unknown> }>;
+/** The part of `fetch` the installer uses; `body` and `headers` let a download stream with progress. */
+export type FetchLike = (url: string, init?: { signal?: AbortSignal }) => Promise<{
+    ok: boolean;
+    status: number;
+    arrayBuffer(): Promise<ArrayBuffer>;
+    json(): Promise<unknown>;
+    headers?: { get(name: string): string | null };
+    body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel?(reason?: unknown): Promise<void> } } | null;
+}>;
+
+const gunzip = promisify(zlib.gunzip);
+
+/** How long a download may receive nothing before it is given up (the Claude CLI package is over 100 MB). */
+export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
+/** How often a running download reports its progress. */
+export const DOWNLOAD_PROGRESS_INTERVAL_MS = 2_000;
+
+const mb = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
 
 export interface ProviderInstallerOptions {
     /** The folder the providers are installed in. */
@@ -55,6 +74,16 @@ export interface ProviderInstallerOptions {
     registry?: string;
     /** Progress lines (the page shows them). */
     log?: (line: string) => void;
+    /** A download that receives nothing this long is given up (default {@link DOWNLOAD_STALL_TIMEOUT_MS}). */
+    stallTimeoutMs?: number;
+    /** How often a download reports how far it is (default {@link DOWNLOAD_PROGRESS_INTERVAL_MS}). */
+    progressIntervalMs?: number;
+    /**
+     * Download tarballs to a file with this instead of `fetch` (the extension:
+     * a child process, providerChildDownload.ts — the extension host's `fetch`
+     * hung on the 110 MB Claude CLI package). Packuments still use `fetch`.
+     */
+    downloadFile?: DownloadFile;
 }
 
 /**
@@ -96,6 +125,9 @@ export class ProviderInstaller {
     private readonly host: HostPlatform;
     private readonly registry: string;
     private readonly log: (line: string) => void;
+    private readonly stallTimeoutMs: number;
+    private readonly progressIntervalMs: number;
+    private readonly downloadFile?: DownloadFile;
     private readonly packuments = new Map<string, Packument>();
 
     constructor(opts: ProviderInstallerOptions) {
@@ -105,6 +137,76 @@ export class ProviderInstaller {
         this.host = opts.host ?? currentHost();
         this.registry = (opts.registry ?? opts.manifest.registry).replace(/\/+$/, '');
         this.log = opts.log ?? (() => undefined);
+        this.stallTimeoutMs = opts.stallTimeoutMs ?? DOWNLOAD_STALL_TIMEOUT_MS;
+        this.progressIntervalMs = opts.progressIntervalMs ?? DOWNLOAD_PROGRESS_INTERVAL_MS;
+        this.downloadFile = opts.downloadFile;
+    }
+
+    /**
+     * Download a tarball, streamed: its progress is logged every few seconds
+     * (the Claude CLI package is over 100 MB, which on a slow line looked like
+     * a hang), and a download that receives nothing for the stall timeout is
+     * aborted with an error naming how far it got, instead of waiting forever.
+     * With `downloadFile` (the extension) the bytes travel through a file a
+     * child process writes; progress and the stall timeout work the same.
+     */
+    private async download(p: ProviderPackage): Promise<Buffer> {
+        const ctrl = new AbortController();
+        let stalled = false;
+        let received = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const arm = (): void => {
+            if (timer) { clearTimeout(timer); }
+            timer = setTimeout(() => { stalled = true; ctrl.abort(); }, this.stallTimeoutMs);
+        };
+        const where = (): string => `${p.name}@${p.version} (${p.resolved})`;
+        let lastReport = Date.now();
+        const progress = (bytes: number, total: number): void => {
+            received = bytes;
+            arm();
+            if (Date.now() - lastReport >= this.progressIntervalMs) {
+                lastReport = Date.now();
+                this.log(`   … ${mb(received)}${total ? ` of ${mb(total)}` : ''} MB`);
+            }
+        };
+        arm();
+        try {
+            if (this.downloadFile) {
+                const dir = path.join(this.root, '.downloads');
+                fs.mkdirSync(dir, { recursive: true });
+                const file = path.join(dir, `${p.name.replace(/[^a-zA-Z0-9._-]/g, '_')}-${p.version}.tgz`);
+                try {
+                    try {
+                        await this.downloadFile(p.resolved, file, progress, ctrl.signal);
+                    } catch (e) {
+                        if (stalled) { throw e; }
+                        throw new Error(`downloading ${where()} failed: ${(e as Error).message}`);
+                    }
+                    return fs.readFileSync(file);
+                } finally {
+                    fs.rmSync(file, { force: true });
+                }
+            }
+            const res = await this.fetchFn(p.resolved, { signal: ctrl.signal });
+            if (!res.ok) { throw new Error(`downloading ${p.name}@${p.version} failed: HTTP ${res.status} (${p.resolved})`); }
+            const total = Number(res.headers?.get('content-length') ?? 0) || 0;
+            const reader = res.body?.getReader();
+            if (!reader) { return Buffer.from(await res.arrayBuffer()); }
+            const chunks: Buffer[] = [];
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) { break; }
+                if (value) { chunks.push(Buffer.from(value)); progress(received + value.byteLength, total); }
+            }
+            return Buffer.concat(chunks);
+        } catch (e) {
+            if (stalled) {
+                throw new Error(`downloading ${where()} stopped: nothing received for ${Math.round(this.stallTimeoutMs / 1000)} s after ${mb(received)} MB — check the network (a proxy, a firewall) and install again`);
+            }
+            throw e;
+        } finally {
+            if (timer) { clearTimeout(timer); }
+        }
     }
 
     definition(id: string): ProviderDefinition {
@@ -134,13 +236,13 @@ export class ProviderInstaller {
             for (const p of packages) {
                 n++;
                 this.log(`(${n}/${packages.length}) ${p.name}@${p.version}`);
-                const res = await this.fetchFn(p.resolved);
-                if (!res.ok) { throw new Error(`downloading ${p.name}@${p.version} failed: HTTP ${res.status} (${p.resolved})`); }
-                const data = Buffer.from(await res.arrayBuffer());
+                const data = await this.download(p);
                 if (!integrityMatches(data, p.integrity)) {
                     throw new Error(`${p.name}@${p.version}: the download does not match its integrity (${p.integrity.slice(0, 20)}…)`);
                 }
-                extractTgz(data, path.join(staging, p.path));
+                // Unpacked off the extension host's event loop (gunzip), so a large package does not freeze the window.
+                if (data.length > 5 * 1024 * 1024) { this.log(`   unpacking ${mb(data.length)} MB…`); }
+                extractTar(await gunzip(data), path.join(staging, p.path));
             }
             // Every root must be there, or the provider cannot load.
             for (const r of def.roots) {

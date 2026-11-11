@@ -29,6 +29,7 @@ import {
     type ProviderState,
 } from '../utils/providerSdks';
 import { ProviderInstaller, type ProviderUpdateInfo } from '../services/providerInstaller';
+import { childProcessDownloader } from '../services/providerChildDownload';
 import { installedProviders, PROVIDER_SDKS_COMMAND, setProviderRoot, getProviderRoot } from '../services/providerRuntime';
 import { resetAgentSdkCache } from './agent-sdk-transport';
 import { AnthropicHandler } from './anthropic-handler';
@@ -88,6 +89,9 @@ function installer(): ProviderInstaller {
         root,
         manifest: readProviderManifest(extensionRoot),
         log: (line) => { logLines.push(line); post({ type: 'log', line }); },
+        // Tarballs are downloaded by VS Code's binary run as Node in a process of its own:
+        // the extension host's `fetch` never finished the 110 MB Claude CLI package on Windows.
+        downloadFile: childProcessDownloader(process.execPath, path.join(extensionRoot, 'out', 'services', 'providerDownloadWorker.js')),
     });
 }
 

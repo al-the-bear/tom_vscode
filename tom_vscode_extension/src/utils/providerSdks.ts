@@ -143,7 +143,11 @@ function paxPath(data: Buffer): string | undefined {
  * that would land outside `dest` refused. Answers the number of files written.
  */
 export function extractTgz(tgz: Buffer, dest: string): number {
-    const tar = zlib.gunzipSync(tgz);
+    return extractTar(zlib.gunzipSync(tgz), dest);
+}
+
+/** Unpack an (already gunzipped) npm tarball into `dest`, as {@link extractTgz}; answers the number of files written. */
+export function extractTar(tar: Buffer, dest: string): number {
     const root = path.resolve(dest);
     let files = 0;
     let longName: string | undefined;

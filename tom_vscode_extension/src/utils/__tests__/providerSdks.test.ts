@@ -20,6 +20,12 @@
  *   PS-6 loading: the direct SDK (require) and the Agent SDK (a file URL) from the installed provider, its CLI
  *        (source provider); without the provider and without the checkout's own copies (as in a VSIX):
  *        ProviderSdkMissing naming the Provider SDKs page
+ *   PS-7 a large download streams: its progress is logged while it runs and it completes; a download that receives
+ *        nothing for the stall timeout fails with an error naming the package and how far it got, and leaves no
+ *        staging folder and the installed provider as it was (a stuck download no longer waits forever)
+ *   PS-8 the extension's download path: tarballs fetched by a child process (providerChildDownload.ts, the
+ *        worker run by the Node binary) install as with fetch, with progress; a stalled one is given up after the
+ *        stall timeout and its process killed; an HTTP error names the package; no download file is left
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- package names and registry fields as npm writes them */
@@ -37,6 +43,7 @@ import {
     type ProviderManifest, type ProviderPackage,
 } from '../providerSdks';
 import { isMajorChange, ProviderInstaller } from '../../services/providerInstaller';
+import { childProcessDownloader } from '../../services/providerChildDownload';
 import * as runtime from '../../services/providerRuntime';
 import { locateAgentSdkCli } from '../../services/agentSdkCli';
 
@@ -117,9 +124,36 @@ function manifestPackage(name: string, version: string, extra: Partial<ProviderP
     return { name, version, path: `node_modules/${name}`, resolved: tarballUrl(name, version), integrity: sha512(t), ...extra };
 }
 
+/** Tarballs served slowly (in parts, a pause between) and ones that stop sending (PS-7). */
+const slowTarballs = new Map<string, Buffer>();
+const stallingTarballs = new Map<string, Buffer>();
+const openResponses = new Set<http.ServerResponse>();
+
 before(async () => {
     server = http.createServer((req, res) => {
         const url = decodeURIComponent(req.url ?? '');
+        const slow = slowTarballs.get(url);
+        if (slow) {
+            res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(slow.length) });
+            const parts = 6;
+            const size = Math.ceil(slow.length / parts);
+            let i = 0;
+            const next = (): void => {
+                if (i >= parts) { res.end(); return; }
+                res.write(slow.subarray(i * size, (i + 1) * size));
+                i++;
+                setTimeout(next, 40);
+            };
+            next();
+            return;
+        }
+        const stalling = stallingTarballs.get(url);
+        if (stalling) {
+            res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(stalling.length) });
+            res.write(stalling.subarray(0, Math.floor(stalling.length / 3)));
+            openResponses.add(res);
+            return;
+        }
         const t = tarballs.get(url);
         if (t) {
             res.writeHead(200, { 'content-type': 'application/octet-stream' });
@@ -143,7 +177,11 @@ before(async () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 });
-after(() => new Promise<void>((r) => server.close(() => r())));
+after(() => new Promise<void>((r) => {
+    for (const res of openResponses) { res.destroy(); }
+    server.closeAllConnections?.();
+    server.close(() => r());
+}));
 
 // ---------------------------------------------------------------------------
 
@@ -307,6 +345,52 @@ describe('provider SDKs', () => {
         inst.remove('test');
         assert.equal(fs.existsSync(path.join(root, 'test')), false);
         assert.deepEqual(readProviderState(root).providers, {});
+    });
+
+    test('PS-7: a large download streams, a stuck one is given up', async () => {
+        // A tarball big enough to report progress: random (incompressible) bytes in a file.
+        const big = tgz([{ name: 'package/package.json', data: '{"name":"@t/big","version":"1.0.0"}' }, { name: 'package/blob.bin', data: crypto.randomBytes(2 * 1024 * 1024).toString('base64') }]);
+        slowTarballs.set('/@t/big/-/1.0.0.tgz', big);
+        stallingTarballs.set('/@t/stuck/-/1.0.0.tgz', big);
+        const pkg = (name: string): ProviderPackage => ({ name, version: '1.0.0', path: `node_modules/${name}`, resolved: `${base}/${name}/-/1.0.0.tgz`, integrity: sha512(big) });
+        const manifest = (name: string): ProviderManifest => ({ formatVersion: 1, registry: base, providers: [{ id: 'big', name: 'Big', description: '', roots: [name], alsoInstall: [], packages: [pkg(name)] }] });
+        const root = path.join(SANDBOX, 'providers-big');
+        const lines: string[] = [];
+        const inst = new ProviderInstaller({ root, manifest: manifest('@t/big'), host: { os: 'darwin', cpu: 'arm64' }, log: (l) => lines.push(l), progressIntervalMs: 30, stallTimeoutMs: 2000 });
+        await inst.install('big');
+        assert.ok(fs.existsSync(path.join(root, 'big', 'node_modules', '@t', 'big', 'blob.bin')), 'installed');
+        assert.ok(lines.some((l) => /^ {3}… \d+\.\d of \d+\.\d MB$/.test(l)), `progress logged: ${lines.join(' | ')}`);
+        // Stuck: no data after a third — given up after the stall timeout, the installed provider kept.
+        const stuck = new ProviderInstaller({ root, manifest: manifest('@t/stuck'), host: { os: 'darwin', cpu: 'arm64' }, stallTimeoutMs: 300 });
+        await assert.rejects(stuck.install('big'), /downloading @t\/stuck@1\.0\.0 \(.*\) stopped: nothing received for 0 s after \d+\.\d MB — check the network/);
+        assert.equal(fs.existsSync(path.join(root, 'big.staging')), false, 'no staging folder left');
+        assert.ok(fs.existsSync(path.join(root, 'big', 'node_modules', '@t', 'big')), 'the installed provider as it was');
+    });
+
+    test('PS-8: tarballs downloaded by a child process', async () => {
+        const worker = path.join(__dirname, '..', '..', 'services', 'providerDownloadWorker.js');
+        assert.ok(fs.existsSync(worker), `compiled worker at ${worker}`);
+        const downloadFile = childProcessDownloader(process.execPath, worker);
+        const big = tgz([{ name: 'package/package.json', data: '{"name":"@t/kid","version":"1.0.0"}' }, { name: 'package/blob.bin', data: crypto.randomBytes(2 * 1024 * 1024).toString('base64') }]);
+        slowTarballs.set('/@t/kid/-/1.0.0.tgz', big);
+        stallingTarballs.set('/@t/kidstuck/-/1.0.0.tgz', big);
+        const pkg = (name: string): ProviderPackage => ({ name, version: '1.0.0', path: `node_modules/${name}`, resolved: `${base}/${name}/-/1.0.0.tgz`, integrity: sha512(big) });
+        const manifest = (name: string): ProviderManifest => ({ formatVersion: 1, registry: base, providers: [{ id: 'kid', name: 'Kid', description: '', roots: [name], alsoInstall: [], packages: [pkg(name)] }] });
+        const root = path.join(SANDBOX, 'providers-child');
+        const lines: string[] = [];
+        const inst = new ProviderInstaller({ root, manifest: manifest('@t/kid'), host: { os: 'darwin', cpu: 'arm64' }, log: (l) => lines.push(l), progressIntervalMs: 0, stallTimeoutMs: 5000, downloadFile });
+        await inst.install('kid');
+        assert.ok(fs.existsSync(path.join(root, 'kid', 'node_modules', '@t', 'kid', 'blob.bin')), 'installed');
+        assert.ok(lines.some((l) => /^ {3}… \d+\.\d of \d+\.\d MB$/.test(l)), `progress logged: ${lines.join(' | ')}`);
+        assert.deepEqual(fs.readdirSync(path.join(root, '.downloads')), [], 'no download file left');
+        // Stalled: given up after the stall timeout; the installed provider stays.
+        const stuck = new ProviderInstaller({ root, manifest: manifest('@t/kidstuck'), host: { os: 'darwin', cpu: 'arm64' }, stallTimeoutMs: 1500, downloadFile });
+        await assert.rejects(stuck.install('kid'), /downloading @t\/kidstuck@1\.0\.0 \(.*\) stopped: nothing received for 2 s after \d+\.\d MB/);
+        assert.ok(fs.existsSync(path.join(root, 'kid', 'node_modules', '@t', 'kid')), 'the installed provider as it was');
+        // An HTTP error names the package.
+        const missing = new ProviderInstaller({ root, manifest: manifest('@t/nowhere'), host: { os: 'darwin', cpu: 'arm64' }, downloadFile });
+        await assert.rejects(missing.install('kid'), /downloading @t\/nowhere@1\.0\.0 \(.*\) failed: HTTP 404/);
+        assert.deepEqual(fs.readdirSync(path.join(root, '.downloads')), [], 'no download file left after failures');
     });
 
     test('PS-6: loading from the installed provider', async () => {
