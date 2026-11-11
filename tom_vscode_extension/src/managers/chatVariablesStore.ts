@@ -14,6 +14,15 @@
  * reload, and deleted on close), which lost every custom variable on a
  * reload; a window without a file of its own starts from the newest of them.
  *
+ * Runs (vscimpb43): the custom variables are a process run's parameters, so
+ * each run of the quest (src/utils/processRuns.ts) has its own set. The
+ * `default` run's set is the custom part of the file above; another run's is
+ * `<workspace>.<host>.<run>.chatvariable.yaml` beside it. Which set reads and
+ * writes go to: a run a caller names (`withRun`), else the run a queued
+ * Proceed is sent for (processRunContext), else the window's run
+ * (`setWindowRun`, kept by the ProcessStateStore). The built-in variables and
+ * the change log stay one per window.
+ *
  * All panels, tools, and LLM integrations read/write through this store so
  * values stay in sync across the extension.
  *
@@ -26,6 +35,8 @@ import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
 import { hostSlugOf } from '../utils/hostSlug';
+import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
+import { currentProcessRun } from '../services/processRunContext';
 
 // ============================================================================
 // Types
@@ -42,6 +53,8 @@ export interface ChangeLogEntry {
     newValue: unknown;
     source: ChangeSource;
     requestId?: string;
+    /** A custom variable of a run other than `default`: that run. */
+    run?: string;
 }
 
 /** Serialisable snapshot of the store (for workspace state). */
@@ -53,6 +66,8 @@ export interface ChatVariablesSnapshot {
     todoFile: string;     // selected file name or "all"
     custom: Record<string, string>;
     changeLog: ChangeLogEntry[];
+    /** The run whose custom variables `custom` holds (snapshot() only; not written to the window file). */
+    run?: string;
 }
 
 /**
@@ -99,7 +114,14 @@ export class ChatVariablesStore {
     private _activeProjects: string[] = [];
     private _todo = '';          // selected todo ID
     private _todoFile = 'all';  // selected todo file
+    /** The `default` run's custom variables (the window file's `custom`). */
     private _custom: Record<string, string> = {};
+    /** Other runs' custom variables, read from their files when first needed. */
+    private _runSets = new Map<string, Record<string, string>>();
+    /** The run this window works on (ProcessStateStore.currentRun). */
+    private _windowRun = DEFAULT_RUN;
+    /** A run a caller named for one synchronous call (withRun). */
+    private _runOverride: string | undefined;
     private _changeLog: ChangeLogEntry[] = [];
     private _derived: DerivedVariableProvider[] = [];
 
@@ -141,7 +163,62 @@ export class ChatVariablesStore {
     get todoFile(): string { return this._todoFile; }
     set todoFile(v: string) { this.set('todoFile', v, 'user'); }
 
-    get custom(): Readonly<Record<string, string>> { return { ...this._custom }; }
+    get custom(): Readonly<Record<string, string>> { return { ...this.customSet() }; }
+
+    // ----- runs ---------------------------------------------------------------
+
+    /** The run reads and writes go to now: a named one, a queued Proceed's, else the window's. */
+    get activeRun(): string {
+        if (this._runOverride !== undefined) { return this._runOverride; }
+        const sending = currentProcessRun();
+        if (sending && sending.quest === this._quest) { return normalizeRun(sending.run); }
+        return this._windowRun;
+    }
+
+    /** The run this window works on. */
+    get windowRun(): string { return this._windowRun; }
+
+    /** The window works on `run` now: its custom variables are the ones read and written (listeners are told). */
+    setWindowRun(run: string): void {
+        const name = normalizeRun(run);
+        if (name === this._windowRun) { return; }
+        this._windowRun = name;
+        this._onDidChange.fire({ key: 'run', value: name });
+    }
+
+    /** `fn` with run `run`'s custom variables (synchronous: nothing else sees the switch). */
+    withRun<T>(run: string | undefined, fn: () => T): T {
+        const before = this._runOverride;
+        this._runOverride = normalizeRun(run);
+        try { return fn(); } finally { this._runOverride = before; }
+    }
+
+    /** The custom variables of `run` (the active one by default), loaded from its file when first needed. */
+    private customSet(run: string = this.activeRun): Record<string, string> {
+        if (run === DEFAULT_RUN) { return this._custom; }
+        let set = this._runSets.get(run);
+        if (!set) {
+            const snap = FsUtils.safeReadYaml<{ custom?: Record<string, string> }>(this.runFilePath(run));
+            set = snap?.custom && typeof snap.custom === 'object' ? { ...snap.custom } : {};
+            this._runSets.set(run, set);
+        }
+        return set;
+    }
+
+    /** The file of run `run`'s custom variables (`default`: the window file). */
+    runFilePath(run: string): string {
+        const name = normalizeRun(run);
+        return name === DEFAULT_RUN ? this.filePath : this.filePath.replace(/\.chatvariable\.yaml$/, `.${name}.chatvariable.yaml`);
+    }
+
+    /** A run was deleted: its custom variables and their file go (`default` has none of its own to delete). */
+    deleteRunSet(run: string): void {
+        const name = normalizeRun(run);
+        if (name === DEFAULT_RUN) { return; }
+        this._runSets.delete(name);
+        try { fs.rmSync(this.runFilePath(name), { force: true }); } catch { /* already gone */ }
+        if (this._windowRun === name) { this.setWindowRun(DEFAULT_RUN); }
+    }
 
     get changeLog(): readonly ChangeLogEntry[] { return this._changeLog; }
 
@@ -164,11 +241,11 @@ export class ChatVariablesStore {
             case 'todo':       this._todo = String(value ?? ''); break;
             case 'todoFile':   this._todoFile = String(value ?? 'all'); break;
             default:
-                // Custom variable
+                // Custom variable: the active run's.
                 if (value === undefined || value === null || value === '') {
-                    delete this._custom[key];
+                    delete this.customSet()[key];
                 } else {
-                    this._custom[key] = String(value);
+                    this.customSet()[key] = String(value);
                 }
                 break;
         }
@@ -181,6 +258,7 @@ export class ChatVariablesStore {
             newValue: this.getRaw(key),
             source,
             ...(requestId ? { requestId } : {}),
+            ...(this.isCustomKey(key) && this.activeRun !== DEFAULT_RUN ? { run: this.activeRun } : {}),
         });
         if (this._changeLog.length > MAX_CHANGE_LOG) {
             this._changeLog = this._changeLog.slice(-MAX_CHANGE_LOG);
@@ -235,7 +313,7 @@ export class ChatVariablesStore {
             default: {
                 const derived = this.derivedValues();
                 if (key in derived) { return derived[key]; }
-                return this._custom[key] ?? '';
+                return this.customSet()[key] ?? '';
             }
         }
     }
@@ -250,7 +328,7 @@ export class ChatVariablesStore {
             todoFile: this._todoFile,
             ...this.derivedValues(),
         };
-        for (const [k, v] of Object.entries(this._custom)) {
+        for (const [k, v] of Object.entries(this.customSet())) {
             out[`custom.${k}`] = v;
         }
         return out;
@@ -269,6 +347,15 @@ export class ChatVariablesStore {
             changeLog: this._changeLog,
         };
         FsUtils.safeWriteYaml(this.filePath, snap);
+        // Another run's custom variables: its own file (an empty set too, so a cleared run reads empty).
+        const run = this.activeRun;
+        if (run !== DEFAULT_RUN && this._runSets.has(run)) {
+            FsUtils.safeWriteYaml(this.runFilePath(run), { run, custom: { ...this.customSet(run) } });
+        }
+    }
+
+    private isCustomKey(key: string): boolean {
+        return !['quest', 'role', 'activeProjects', 'todo', 'todoFile'].includes(key);
     }
 
     private restore(): void {
@@ -364,8 +451,9 @@ export class ChatVariablesStore {
             activeProjects: [...this._activeProjects],
             todo: this._todo,
             todoFile: this._todoFile,
-            custom: { ...this._custom },
+            custom: { ...this.customSet() },
             changeLog: [...this._changeLog],
+            run: this.activeRun,
         };
     }
 }

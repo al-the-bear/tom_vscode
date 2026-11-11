@@ -18,6 +18,11 @@
  *        selects a run (the name checked against the rules and the runs there are, a process or none), a click
  *        selects one, trash offers the runs but `default` and deletes the chosen ones after the confirmation (a
  *        deleted current run leaves the window on `default`); the list is the last changed first, the current marked
+ *   RN-8 each run's own chat variables (vscimpb43): two runs keep different values of one custom variable, each in
+ *        its own file (`default`: the window file, another run `<workspace>.<host>.<run>.chatvariable.yaml`);
+ *        selecting a run restores its values (also in the template values); a queued Proceed of a run reads its
+ *        run's set while it is sent; withRun of the process store and the tools' `run` read and write a named
+ *        run's set (an unknown run refused); the built-ins stay one per window; deleting a run removes its file
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -66,7 +71,8 @@ import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueu
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, installProcessMoveMarkers } from '../../services/processActionService.js';
-import { parseProcessRun } from '../../services/processRunContext.js';
+import { parseProcessRun, runInProcessPosition } from '../../services/processRunContext.js';
+import { CHATVAR_READ_TOOL, CHATVAR_WRITE_TOOL } from '../tool-executors.js';
 import { handleRunMessage, type RunUiPort } from '../../services/processRunActions.js';
 import { liveRunStore } from '../../handlers/processPanel-handler.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
@@ -303,6 +309,62 @@ describe('process runs', () => {
         assert.equal(store().currentRun, DEFAULT_RUN, 'the deleted current run leaves default');
         assert.deepEqual(await handleRunMessage({ type: 'deleteRuns' }, live, ui), { handled: true, result: { ok: false, error: 'the quest has no run besides "default", which is never deleted' } });
         assert.deepEqual(await handleRunMessage({ type: 'action' }, live, ui), { handled: false });
+        clean();
+    });
+
+    test('RN-8: each run\'s own chat variables', async () => {
+        clean();
+        const chat = ChatVariablesStore.instance;
+        assert.equal(store().createRun('chv1', 'main', 'user', false).ok, true);
+        assert.equal(store().createRun('chv2', 'change', 'user', false).ok, true);
+        // One variable, three values: default, chv1, chv2.
+        chat.set('design', 'D', 'user');
+        assert.equal(store().selectRun('chv1').ok, true);
+        assert.equal(chat.activeRun, 'chv1');
+        assert.equal(chat.getRaw('design'), '', 'a new run starts with no custom variables');
+        chat.set('design', 'A', 'user');
+        assert.equal(store().selectRun('chv2').ok, true);
+        chat.set('design', 'B', 'user');
+        assert.deepEqual(chat.custom, { design: 'B' });
+        // Each in its own file.
+        const read = (run: string): string => fs.readFileSync(chat.runFilePath(run), 'utf8');
+        assert.match(chat.runFilePath('chv1'), /\.chv1\.chatvariable\.yaml$/);
+        assert.match(read('chv1'), /design: A/);
+        assert.match(read('chv2'), /design: B/);
+        assert.match(read(DEFAULT_RUN), /design: D/);
+        assert.doesNotMatch(read(DEFAULT_RUN), /design: [AB]/);
+        // Selecting a run restores its values; the built-ins are the window's.
+        assert.equal(store().selectRun('chv1').ok, true);
+        assert.equal(chat.getRaw('design'), 'A');
+        assert.equal(chat.toTemplateValues()['custom.design'], 'A');
+        assert.equal(chat.quest, QUEST, 'built-ins are one per window');
+        assert.equal(store().selectRun(DEFAULT_RUN).ok, true);
+        assert.equal(chat.getRaw('design'), 'D');
+        // A queued Proceed of a run reads its run's set while it is sent.
+        const sentAs = (run?: string): Promise<unknown> => runInProcessPosition({ quest: QUEST, state: store().state, ...(run ? { run } : {}) }, async () => chat.getRaw('design'));
+        assert.equal(await sentAs('chv2'), 'B');
+        assert.equal(await sentAs(), 'D', 'a default-run Proceed: default');
+        assert.equal(chat.getRaw('design'), 'D', 'the window stays on its run');
+        // withRun of the process store switches the chat set too.
+        assert.deepEqual(store().withRun('chv2', () => ({ value: chat.getRaw('design') })), { value: 'B' });
+        // The tools' `run`.
+        const w = JSON.parse(await CHATVAR_WRITE_TOOL.execute({ variables: { mode: 'change' }, run: 'chv1' }));
+        assert.deepEqual([w.ok, w.run, w.accepted.created], [true, 'chv1', ['mode']]);
+        assert.equal(chat.getRaw('mode'), '', 'not in the window\'s run');
+        const r = JSON.parse(await CHATVAR_READ_TOOL.execute({ run: 'chv1' }));
+        assert.deepEqual([r.run, r.custom], ['chv1', { design: 'A', mode: 'change' }]);
+        const one = JSON.parse(await CHATVAR_READ_TOOL.execute({ key: 'design', run: 'chv2' }));
+        assert.equal(one.value, 'B');
+        assert.match(JSON.parse(await CHATVAR_READ_TOOL.execute({ run: 'nope' })).error, /no run "nope"/);
+        assert.equal(JSON.parse(await CHATVAR_READ_TOOL.execute({})).run, DEFAULT_RUN);
+        // Deleting a run removes its file.
+        const file = chat.runFilePath('chv1');
+        assert.ok(fs.existsSync(file));
+        assert.equal(store().deleteRuns(['chv1', 'chv2']).ok, true);
+        assert.equal(fs.existsSync(file), false, 'gone with the run');
+        assert.equal(fs.existsSync(chat.runFilePath('chv2')), false);
+        assert.equal(chat.getRaw('design'), 'D');
+        chat.remove('design');
         clean();
     });
 });

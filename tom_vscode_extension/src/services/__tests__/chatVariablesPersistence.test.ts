@@ -15,6 +15,9 @@
  *        versions them); once it has its own file it reads only that
  *   CV-4 the file names: unsafe characters as `_`; a legacy file is `<workspace>.<sessionId>.chatvariable.yaml`
  *        of the same workspace, a session id being a UUID with digits or `window-<ms>`
+ *   CV-5 a process run's own custom variables (vscimpb43) are in `<workspace>.<host>.<run>.chatvariable.yaml`, survive
+ *        a reload (read back when the run is the window's again), are not the `default` run's, and are not taken
+ *        for an older build's per-session file
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- the keys are chat-variable names (`design-mode`, `TODO`) */
@@ -112,5 +115,26 @@ describe('custom chat variables survive a reload', () => {
             `q1.${uuid}.chatvariable.yaml`, 'q1.window-1794337981249.chatvariable.yaml', 'q1.alexiss-macbook-pro.chatvariable.yaml',
             `q1x.${uuid}.chatvariable.yaml`, `q1.${uuid}.yaml`, `${uuid}.chatvariable.yaml`,
         ], 'q1'), [`q1.${uuid}.chatvariable.yaml`, 'q1.window-1794337981249.chatvariable.yaml']);
+    });
+
+    it('CV-5: a run\'s own variables survive a reload', () => {
+        reload();
+        const store = open('session-r1');
+        store.set('design', 'default-value', 'user');
+        store.setWindowRun('chg1');
+        assert.deepEqual(store.custom, {}, 'a run starts with its own, empty set');
+        store.set('design', 'run-value', 'user');
+        const runFile = path.join(dir(), `q1.${hostSlugOf()}.chg1.chatvariable.yaml`);
+        assert.equal(store.runFilePath('chg1'), runFile);
+        assert.match(fs.readFileSync(runFile, 'utf8'), /design: run-value/);
+        reload();
+        const again = open('session-r2');
+        assert.equal(again.getRaw('design'), 'default-value', 'the window starts on default');
+        again.setWindowRun('chg1');
+        assert.equal(again.getRaw('design'), 'run-value', 'read back from its file');
+        assert.deepEqual(mod.legacyChatVariableFiles([path.basename(runFile)], 'q1'), [], 'not an older build\'s file');
+        again.deleteRunSet('chg1');
+        assert.equal(fs.existsSync(runFile), false);
+        assert.equal(again.windowRun, 'default', 'a deleted window run leaves default');
     });
 });

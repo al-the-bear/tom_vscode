@@ -152,6 +152,8 @@ export class ProcessStateStore {
         // The window's run of this quest; a run deleted meanwhile (another window) falls back to `default`.
         const chosen = normalizeRun(this.context.workspaceState?.get<string>(runStateKey(this.quest)));
         this.run = repo && this.quest && repo.hasRun(this.quest, chosen) ? chosen : DEFAULT_RUN;
+        // The run's own custom chat variables (its run parameters) are the ones read and written now.
+        try { ChatVariablesStore.instance.setWindowRun(this.run); } catch { /* not initialised */ }
         this.rawLevels = repo ? repo.readStateStack(this.quest, this.run).levels : [{ ...EMPTY_PROCESS_STATE }];
         this.rawState = topLevel(this.rawLevels);
         this.fire();
@@ -238,7 +240,11 @@ export class ProcessStateStore {
         if (names.includes(DEFAULT_RUN)) { return { ok: false, error: 'the run "default" cannot be deleted' }; }
         const missing = names.filter((n) => !repo.hasRun(this.quest, n));
         if (missing.length) { return { ok: false, error: `the quest ${this.quest} has no run ${missing.map((m) => `"${m}"`).join(', ')}; nothing was deleted` }; }
-        for (const n of names) { repo.deleteRun(this.quest, n); }
+        for (const n of names) {
+            repo.deleteRun(this.quest, n);
+            // Its chat-variable set goes with it.
+            try { ChatVariablesStore.instance.deleteRunSet(n); } catch { /* not initialised */ }
+        }
         if (names.includes(this.run)) { void this.context.workspaceState?.update(runStateKey(this.quest), DEFAULT_RUN); }
         this.reload();
         return { ok: true, deleted: names };
@@ -261,7 +267,10 @@ export class ProcessStateStore {
         this.rawLevels = repo.readStateStack(this.quest, name).levels;
         this.rawState = topLevel(this.rawLevels);
         try {
-            return fn();
+            // The run's chat variables too (its conditions read them).
+            let chat: ChatVariablesStore | undefined;
+            try { chat = ChatVariablesStore.instance; } catch { chat = undefined; }
+            return chat ? chat.withRun(name, fn) : fn();
         } finally {
             this.run = own;
             this.reload();

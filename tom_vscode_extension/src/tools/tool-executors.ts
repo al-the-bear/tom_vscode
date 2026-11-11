@@ -629,6 +629,17 @@ const liveChatvarAccess: ChatVariablesAccess = {
         const source = ctx?.source ?? 'anthropic';
         ChatVariablesStore.instance.setCustomBulk(values, source, ctx?.requestId);
     },
+    withRun(run, fn) {
+        // Only a run the quest has (the process store knows them).
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const processes = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        const known = processes?.runs().map((r) => r.run) ?? [];
+        if (!known.includes(run.trim())) {
+            throw new Error(`the quest has no run "${run}"; its runs: ${known.join(', ') || '(none)'}`);
+        }
+        return ChatVariablesStore.instance.withRun(run.trim(), fn);
+    },
+    activeRun() { return ChatVariablesStore.instance.activeRun; },
 };
 
 export const CHATVAR_READ_TOOL: SharedToolDefinition<ChatvarReadInput> = {
