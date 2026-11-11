@@ -128,6 +128,8 @@ export interface QueueItemSnapshot {
     session?: string;
     /** How the session is created when missing at dispatch (the item's session was given as a spec). */
     sessionCreate?: { basedOn?: string; mode?: string; profile?: string };
+    /** The process run of the quest the item belongs to (`default` for the quest's own position). */
+    run?: string;
     answerText?: string;
     lastDispatched?: string;
     /** Why the last send did not complete (rate limit, quota, overload, …), as the queue records it. */
@@ -158,7 +160,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
-    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate',
+    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
@@ -206,6 +208,8 @@ export interface EnqueueInput {
     anthropicConfigId?: string;
     /** A session name or a spec `{name, basedOn?, mode?, profile?}`. */
     session?: QueueSessionInput;
+    /** The process run the item belongs to; default the window's current run. */
+    run?: string;
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
     doneNotificationPrompt?: string;
@@ -229,6 +233,8 @@ export interface PromptQueueAccess {
     getByRequestId(requestId: string): QueueItemSnapshot | undefined;
 
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
+    /** The quest's process runs (`tomAi_addQueueItem {run}` must name one); unset: not checked. */
+    runs?(): string[];
     remove(id: string): void;
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
@@ -395,6 +401,8 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         anthropicConfigId: i.anthropicConfigId || null,
         session: i.session || null,
         ...(i.sessionCreate ? { sessionSpec: { name: i.session, ...i.sessionCreate } } : {}),
+        // The process run the item belongs to (a chat send: none).
+        ...(i.run ? { run: i.run } : {}),
         answerText: i.answerText || null,
         ...(i.doneNotificationPrompt ? { doneNotificationPrompt: i.doneNotificationPrompt, doneNotificationDisabled: !!i.doneNotificationDisabled } : {}),
         ...(i.notificationOf ? { notificationOf: i.notificationOf } : {}),
@@ -440,6 +448,8 @@ export interface AddQueueItemInput {
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
     doneNotificationPrompt?: string;
+    /** The process run of the quest the item belongs to (tomAi_listProcessRuns); default the window's. */
+    run?: string;
 }
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
@@ -452,7 +462,13 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         if (refused) { return refused; }
         const badSession = sessionRefusal(input.session);
         if (badSession) { return badSession; }
+        const run = typeof input.run === 'string' && input.run.trim() ? input.run.trim() : undefined;
+        if (run && access.runs) {
+            const known = access.runs();
+            if (!known.includes(run)) { return err(`The quest has no run "${run}"; its runs: ${known.join(', ') || '(none)'}. tomAi_listProcessRuns lists them.`); }
+        }
         const item = await access.enqueue({
+            ...(run ? { run } : {}),
             originalText: input.text,
             ...(input.todoIdPattern?.trim() ? { todoIdPattern: input.todoIdPattern.trim() } : {}),
             template: input.template,
@@ -540,6 +556,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
+            run: { type: 'string', description: 'The process run of the quest the item belongs to (tomAi_listProcessRuns): its sessions are the run\'s (`<session>@<run>`). Default: the run of the Proceed prompt it is queued from, else the window\'s run.' },
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
         },
     },
@@ -572,7 +589,7 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
 }
 
 export const LIST_QUEUE_DESCRIPTION =
-    'List queue items with status, ids, reminder metadata, transport, and ' +
+    'List queue items with status, ids, the process run each belongs to, reminder metadata, transport, and ' +
     'follow-up counts. **Default excludes `sent` items** — pass ' +
     '`includeSent: true` to see the whole history. Response includes ' +
     '`autoSendEnabled`, `responseTimeoutMinutes`, and `pendingCount` so the ' +

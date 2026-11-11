@@ -27,6 +27,9 @@
  *        `<session>@<run>` (and `default` keeps the plain name), each created; a based-on session the process names
  *        belongs to the run too; the `session` variable says it; an item queued while a run's Proceed runs takes the
  *        run's session, `chat` stays shared; deleting the runs keeps their sessions (named) or deletes them on ask
+ *   RN-10 every queue item carries its run (vscimpb45): the window's run by default, a run named, the run of the
+ *        Proceed it is queued from (ahead of a named one); written to and read from the queue file; a named session
+ *        becomes the run's; tomAi_addQueueItem takes `run` (an unknown one refused) and tomAi_listQueue shows it
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -85,6 +88,7 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, installProcessMoveMarkers } from '../../services/processActionService.js';
 import { parseProcessRun, runInProcessPosition } from '../../services/processRunContext.js';
 import { CHATVAR_READ_TOOL, CHATVAR_WRITE_TOOL } from '../tool-executors.js';
+import { ADD_TO_PROMPT_QUEUE_TOOL, QUEUE_LIST_TOOL } from '../chat-enhancement-tools.js';
 import { handleRunMessage, type RunUiPort } from '../../services/processRunActions.js';
 import { liveRunStore } from '../../handlers/processPanel-handler.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
@@ -425,6 +429,41 @@ describe('process runs', () => {
         assert.equal(sessionFile('work@ss2'), false);
         assert.equal(sessionFile('review@ss2'), false);
         assert.ok(sessionFile('work'), 'the default run\'s session stays');
+        clean();
+    });
+
+    test('RN-10: every queue item carries its run', async () => {
+        clean();
+        const add = (opts: Record<string, unknown> = {}): Promise<QueuedPrompt> => queue().enqueue({ originalText: 'x', deferSend: true, ...opts });
+        assert.equal((await add()).run, DEFAULT_RUN, 'the window on default');
+        assert.equal(store().createRun('qr1', 'main', 'user', true).ok, true);
+        const inRun = await add({ session: 'notes' });
+        assert.deepEqual([inRun.run, inRun.session], ['qr1', 'notes@qr1'], 'the window\'s run, and its session');
+        assert.equal((await add({ run: DEFAULT_RUN })).run, DEFAULT_RUN, 'a run named');
+        assert.equal(store().createRun('qr2', 'main', 'user', false).ok, true);
+        const proceedRun = { quest: QUEST, state: store().state, run: 'qr2' };
+        const queued = await runInProcessPosition(proceedRun, () => add({ run: 'qr1' }));
+        assert.equal(queued.run, 'qr2', 'the Proceed\'s run comes first');
+        // The queue file keeps it.
+        const qfiles: string[] = [];
+        const walk = (dir: string): void => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) { walk(p); } else if (/\.ya?ml$/.test(e.name) && fs.readFileSync(p, 'utf8').includes(inRun.id)) { qfiles.push(p); }
+            }
+        };
+        walk(SANDBOX);
+        assert.ok(qfiles.length > 0, 'the item\'s queue file');
+        assert.match(fs.readFileSync(qfiles[0], 'utf8'), /^\s*run: qr1$/m);
+        // The tools.
+        const refused = await call(ADD_TO_PROMPT_QUEUE_TOOL, { text: 'y', run: 'nope' });
+        assert.match(refused.error, /no run "nope"/);
+        const added = await call(ADD_TO_PROMPT_QUEUE_TOOL, { text: 'z', run: 'qr2' });
+        assert.equal(added.ok, true, JSON.stringify(added));
+        const listed = await call(QUEUE_LIST_TOOL, {});
+        const runs = (listed.items as Json[]).map((i) => i.run);
+        assert.ok(runs.includes('qr2') && runs.includes('qr1') && runs.includes(DEFAULT_RUN), JSON.stringify(runs));
+        for (const i of [...queue().items]) { queue().remove(i.id); }
         clean();
     });
 });

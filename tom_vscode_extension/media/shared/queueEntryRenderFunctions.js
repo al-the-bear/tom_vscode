@@ -310,6 +310,9 @@ function renderEntry(item, idx) {
   if (item.waitingForSession) {
     processBadge += '  <span class="waiting-session-badge" style="background:#3794ff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="A chat send runs in this session: the item goes once it has ended (two prompts never share a conversation)">[waiting for session ' + escapeHtml(String(item.waitingForSession)) + ']</span>';
   }
+  // The process run the item belongs to (vscimpb45): `default` muted, another run marked.
+  var itemRunName = item.run || (item.processRun && item.processRun.run) || 'default';
+  processBadge += '  <span class="run-badge' + (itemRunName === 'default' ? ' default-run' : '') + '" title="The process run of the quest this item belongs to' + (itemRunName === 'default' ? ' (the quest\'s own position)' : '') + '">[run ' + escapeHtml(itemRunName) + ']</span>';
   if (item.processMove) {
     processBadge += '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
       escapeHtml(item.processPosition || '') + ' → ' + escapeHtml(item.processMove.to) + ').">[⏭ process move]</span>';

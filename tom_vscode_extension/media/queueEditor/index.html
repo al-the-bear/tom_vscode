@@ -92,6 +92,9 @@
   <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
   <button onclick="collapseAll()">Collapse All</button>
   <button onclick="expandAll()">Expand All</button>
+  <label style="font-size:0.85em;opacity:0.85;" for="runFilter" title="The process run of the quest the items belong to">Run:</label>
+  <select id="runFilter" onchange="setRunFilter(this.value)" title="Show the items of one process run (chat sends are outside the runs: shown under all)"></select>
+  <label style="font-size:0.85em;opacity:0.85;" title="The items per process run, under a heading each"><input type="checkbox" id="groupByRun" onchange="setGroupByRun(this.checked)"> Group by run</label>
   <span id="countLabel" style="margin-left:auto; font-size:0.85em; opacity:0.7;"></span>
 </div>
 
@@ -122,6 +125,10 @@
       <option value="240">240 min</option>
       <option value="480">480 min</option>
     </select>
+  </div>
+  <div class="add-options">
+    <label style="margin-right:6px;" for="addRun">Run:</label>
+    <select id="addRun" title="The process run the item belongs to (its sessions are the run's, `<session>@<run>`); default the window's run"></select>
   </div>
   <div class="add-options">
     <label style="margin-right:6px;">Queue Repeats:</label>

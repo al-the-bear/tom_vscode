@@ -99,6 +99,12 @@ if (__INIT.codiconsUri) {
 }
 
 let currentItems = __INITIAL__.items || [];
+/* The quest's process runs and the window's run (vscimpb45): the run filter, Group by run, the add form's run. */
+let processRuns = Array.isArray(__INITIAL__.processRuns) ? __INITIAL__.processRuns : ['default'];
+let currentRun = __INITIAL__.currentRun || 'default';
+const __runViewState = (typeof vscode !== 'undefined' && vscode && typeof vscode.getState === 'function' && vscode.getState()) || {};
+let runFilter = typeof __runViewState.runFilter === 'string' ? __runViewState.runFilter : 'all';
+let groupByRun = __runViewState.groupByRun === true;
 // Pending items whose prompt is open for editing: item id -> the draft text.
 // The host holds the queue for them (beginTextEdit) until Save or Cancel.
 var queueTextEdits = {};
@@ -238,6 +244,8 @@ window.addEventListener('message', e => {
     }
     if (msg.type === 'state') {
       currentItems = msg.items || [];
+      if (Array.isArray(msg.processRuns)) { processRuns = msg.processRuns; }
+      if (typeof msg.currentRun === 'string') { currentRun = msg.currentRun; }
       // An open edit of an item that is no longer pending has nothing to save into.
       Object.keys(queueTextEdits).forEach(function(id) {
         var it = currentItems.find(function(i) { return i.id === id; });
@@ -415,13 +423,19 @@ function render() {
     + (chatRunning > 0 ? '  |  Chat: running' : '')
     + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
+  renderRunControls();
   const list = document.getElementById('queueList');
   if (currentItems.length === 0) {
     list.innerHTML = '<div class="empty">Queue is empty</div>';
     return;
   }
 
-  const displayItems = [...currentItems]
+  const runItems = runFilter === 'all' ? currentItems : currentItems.filter(function(i) { return queueItemRun(i) === runFilter; });
+  if (runItems.length === 0) {
+    list.innerHTML = '<div class="empty">No item of the run ' + escapeHtml(runFilter) + '</div>';
+    return;
+  }
+  const sortedItems = [...runItems]
     .map(function(item, idx) { return { item: item, idx: idx }; })
     .sort(function(a, b) {
       var statusA = a.item.status || 'staged';
@@ -433,6 +447,7 @@ function render() {
       return a.idx - b.idx;
     })
     .map(function(x) { return x.item; });
+  const displayItems = groupByRun ? groupItemsByRun(sortedItems) : sortedItems;
 
   // A prompt being edited survives the redraw a state push causes: its
   // focus, caret and scroll position are put back.
@@ -440,8 +455,18 @@ function render() {
   const editFocus = active && active.classList && active.classList.contains('qe-text-edit')
     ? { id: active.id, start: active.selectionStart, end: active.selectionEnd, scroll: active.scrollTop }
     : null;
+  let lastGroup = null;
   list.innerHTML = displayItems.map(function(item, idx) {
-    return renderEntry(item, idx);
+    let head = '';
+    if (groupByRun) {
+      const g = queueItemRun(item);
+      if (g !== lastGroup) {
+        const n = displayItems.filter(function(i) { return queueItemRun(i) === g; }).length;
+        head = '<div class="run-group-head" data-run="' + escapeHtml(g) + '">' + (g ? '<span class="codicon codicon-run-all"></span> Run ' + escapeHtml(g) + (g === currentRun ? ' <span class="muted">(this window\'s)</span>' : '') : '<span class="codicon codicon-comment-discussion"></span> Chat sends') + ' <span class="muted">(' + n + ')</span></div>';
+        lastGroup = g;
+      }
+    }
+    return head + renderEntry(item, idx);
   }).join('');
   if (editFocus) {
     const ta = document.getElementById(editFocus.id);
@@ -452,6 +477,61 @@ function render() {
     }
   }
 }
+
+/* ---- Process runs (vscimpb45) ---------------------------------------------- */
+
+/** The run an item belongs to: its own, else its Proceed's, else `default`; '' for a chat send (outside the runs). */
+function queueItemRun(item) {
+  if (!item || item.status === 'chat' || item.status === 'chat-sent') { return ''; }
+  return item.run || (item.processRun && item.processRun.run) || 'default';
+}
+
+/** The runs to choose from: the quest's, and any an item still names; `default` first. */
+function knownRuns() {
+  const set = {};
+  processRuns.forEach(function(r) { set[r] = true; });
+  currentItems.forEach(function(i) { const r = queueItemRun(i); if (r) { set[r] = true; } });
+  return Object.keys(set).sort(function(a, b) { return a === 'default' ? -1 : b === 'default' ? 1 : a < b ? -1 : a > b ? 1 : 0; });
+}
+
+/** The items grouped per run (`default` first, then by name, chat sends last), each group in its order. */
+function groupItemsByRun(items) {
+  const order = knownRuns().concat(['']);
+  return items.map(function(item, i) { return { item: item, i: i, g: order.indexOf(queueItemRun(item)) }; })
+    .sort(function(a, b) { return (a.g - b.g) || (a.i - b.i); })
+    .map(function(x) { return x.item; });
+}
+
+/** The toolbar's run filter, Group by run, and the add form's run picker. */
+function renderRunControls() {
+  const runs = knownRuns();
+  if (runFilter !== 'all' && runs.indexOf(runFilter) < 0) { runFilter = 'all'; }
+  const filter = document.getElementById('runFilter');
+  if (filter) {
+    filter.innerHTML = ['<option value="all"' + (runFilter === 'all' ? ' selected' : '') + '>All runs</option>'].concat(runs.map(function(r) {
+      return '<option value="' + escapeHtml(r) + '"' + (r === runFilter ? ' selected' : '') + '>' + escapeHtml(r) + (r === currentRun ? ' (this window\'s)' : '') + '</option>';
+    })).join('');
+  }
+  const group = document.getElementById('groupByRun');
+  if (group) { group.checked = groupByRun; }
+  const add = document.getElementById('addRun');
+  if (add) {
+    const chosen = add.dataset.touched === '1' && processRuns.indexOf(add.value) >= 0 ? add.value : currentRun;
+    add.innerHTML = processRuns.map(function(r) {
+      return '<option value="' + escapeHtml(r) + '"' + (r === chosen ? ' selected' : '') + '>' + escapeHtml(r) + (r === currentRun ? ' (this window\'s)' : '') + '</option>';
+    }).join('');
+    add.onchange = function() { add.dataset.touched = '1'; };
+  }
+}
+
+function saveRunViewState() {
+  if (typeof vscode !== 'undefined' && vscode && typeof vscode.setState === 'function') {
+    const prev = (typeof vscode.getState === 'function' && vscode.getState()) || {};
+    vscode.setState(Object.assign({}, prev, { runFilter: runFilter, groupByRun: groupByRun }));
+  }
+}
+function setRunFilter(value) { runFilter = value || 'all'; saveRunViewState(); render(); }
+function setGroupByRun(on) { groupByRun = !!on; saveRunViewState(); render(); }
 
 /* Editing a pending item's prompt: the draft lives here, the host holds the queue. */
 function startTextEdit(id) {
@@ -606,6 +686,9 @@ function addPrompt() {
     var tplC = document.getElementById('addForm-transport-tpl-copilot');
     if (tplC && tplC.value) { msg.messageTemplateId = tplC.value; }
   }
+  // The process run the item belongs to (default the window's).
+  var runSel = document.getElementById('addRun');
+  if (runSel && runSel.value) { msg.run = runSel.value; }
   vscode.postMessage(msg);
   ta.value = '';
 }

@@ -6,6 +6,7 @@
  * and integration with the Reminder and Timer systems.
  */
 
+import { normalizeRun } from '../utils/processRuns';
 import { runSessionName } from '../utils/runSessions';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -358,6 +359,14 @@ export interface QueuedPrompt {
      * quest has moved since (src/services/processRunContext.ts).
      */
     processRun?: ProcessRun;
+    /**
+     * The process run of the quest the item belongs to (vscimpb45;
+     * src/utils/processRuns.ts): its Proceed's run, else the run of the
+     * Proceed prompt it was queued from, else the one named when it was
+     * added, else the window's run then — `default` for the quest's own
+     * position. Chat sends carry none (they are outside the runs).
+     */
+    run?: string;
     /**
      * Set on a process-move marker (src/utils/processMoveMarker.ts): the item
      * is never sent to a model; when the queue reaches it and every earlier
@@ -2102,6 +2111,8 @@ export class PromptQueueManager {
         session?: string | Record<string, unknown>;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
+        /** The process run the item belongs to; default the Proceed's, else the window's current run. */
+        run?: string;
         /** Make the item a process-move marker (with `processRun`, the position it moves from). */
         processMove?: ProcessMoveSpec;
         /** "Pause after this". */
@@ -2117,9 +2128,10 @@ export class PromptQueueManager {
             assertValidRepeatCount(value);
         }
         const parsedSession = this.parseItemSession(opts.session);
-        // An item of a process run (queued by its Proceed, or while one runs) uses the run's own
-        // sessions: a named session becomes `<session>@<run>` (src/utils/runSessions.ts).
-        const itemRun = inheritedProcessRun(opts.processRun)?.run;
+        // The item's process run: its Proceed's (also inherited while one runs), else the one named,
+        // else the window's. It uses the run's own sessions: a named session becomes `<session>@<run>`
+        // (src/utils/runSessions.ts).
+        const itemRun = normalizeRun(inheritedProcessRun(opts.processRun)?.run ?? opts.run ?? windowProcessRun());
         const sessionSpec = parsedSession ? { ...parsedSession, name: runSessionName(parsedSession.name, itemRun) } : parsedSession;
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         // Spec §4.16 — pass the transport so template lookup hits the
@@ -2213,6 +2225,7 @@ export class PromptQueueManager {
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
+            run: itemRun,
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
@@ -5831,6 +5844,7 @@ export class PromptQueueManager {
                 runId: typeof main.execution?.['run-id'] === 'string' ? main.execution['run-id'] : undefined,
                 iterationSeq: typeof main.execution?.['iteration-seq'] === 'number' ? main.execution['iteration-seq'] : undefined,
                 processRun: parseProcessRun(main['process-run']),
+                ...(typeof main.run === 'string' && main.run ? { run: main.run } : {}),
                 ...(parseProcessMove(main['process-move']) ? { processMove: parseProcessMove(main['process-move']) } : {}),
                 answerText: main['answer-text'] || undefined,
                 chatSource: main['chat-source'] || undefined,
@@ -5974,6 +5988,7 @@ export class PromptQueueManager {
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
             ...(item.session ? { session: item.sessionCreate ? { name: item.session, ...item.sessionCreate } : item.session } : {}),
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
+            ...(item.run ? { run: item.run } : {}),
             ...(item.processMove ? { 'process-move': item.processMove } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
@@ -6361,4 +6376,17 @@ function readItemSession(raw: unknown): { session?: string; sessionCreate?: Omit
     if (typeof raw === 'string') { return { session: raw }; }
     const name = (raw as { name?: unknown }).name;
     return typeof name === 'string' && name ? { session: name } : {};
+}
+
+/**
+ * The run the window works on (ProcessStateStore.currentRun), for an item
+ * added without one; `default` while the process store is not there.
+ */
+function windowProcessRun(): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return (require('./processStateStore.js') as typeof import('./processStateStore')).ProcessStateStore.instance?.currentRun ?? 'default';
+    } catch {
+        return 'default';
+    }
 }

@@ -154,3 +154,10 @@
   .rep-answer-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .rep-answer-chip { font-size: 10px; padding: 1px 6px; border-radius: 9px; border: 1px solid #4a9eff; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
   .rep-answer-chip.active { background: #4a9eff; color: #fff; }
+
+/* The process run an item belongs to (vscimpb45): another run marked, `default` muted. */
+.run-badge { border: 1px solid #2f9e8f; color: var(--vscode-foreground); padding: 0 4px; border-radius: 3px; font-size: 10px; }
+.run-badge.default-run { border-color: var(--vscode-panel-border, #6a737d); opacity: 0.7; }
+/* Group by run: a heading per run, chat sends last. */
+.run-group-head { margin: 8px 0 2px; font-size: 0.9em; font-weight: 600; display: flex; align-items: center; gap: 5px; opacity: 0.9; }
+.run-group-head .muted { font-weight: normal; opacity: 0.7; }

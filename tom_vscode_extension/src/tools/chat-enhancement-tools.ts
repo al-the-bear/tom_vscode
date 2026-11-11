@@ -639,6 +639,12 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const item = await m.enqueue(input);
         return projectItem(item);
     },
+    runs() {
+        // The quest's process runs: a named run must be one of them.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = require('../managers/processStateStore.js').ProcessStateStore.instance as { runs(): Array<{ run: string }> } | undefined;
+        return store ? store.runs().map((r) => r.run) : ['default'];
+    },
     remove(id) {
         // Synchronous, like the other accessors: a manager that is not running
         // throws here, so the tool answers the error instead of `ok` (and no

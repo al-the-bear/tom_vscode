@@ -58,6 +58,8 @@ function processPositionOf(item: QueuedPrompt): string | undefined {
 let _panel: vscode.WebviewPanel | undefined;
 let _queueListener: vscode.Disposable | undefined;
 let _questRefreshListener: vscode.Disposable | undefined;
+/** The process store's changes: the state is sent again when the runs or the window's run changed. */
+let _runsListener: vscode.Disposable | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
 const QUEUE_COLLAPSED_STATE_KEY = 'tomAi.queueEditor.collapsedItemIds';
 let _collapsedItemIds = new Set<string>();
@@ -196,10 +198,26 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         console.error('[QueueEditor] Failed to bind onDidChangeRefreshing:', e);
     }
 
+    // The run filter and the add form's run follow the quest's runs and the window's run.
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const processes = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore;
+        void processes.ready.then((store) => {
+            if (_panel !== panel || _runsListener) { return; }
+            let last = JSON.stringify(queueRunState());
+            _runsListener = store.onDidChange(() => {
+                const now = JSON.stringify(queueRunState());
+                if (now !== last) { last = now; sendState(); }
+            });
+        });
+    } catch { /* no process store */ }
+
     _panel.onDidDispose(() => {
         _panel = undefined;
         // An edit left open in the closed editor would hold the queue for good.
         try { void PromptQueueManager.instance.endTextEdit(undefined); } catch { /* no queue */ }
+        _runsListener?.dispose();
+        _runsListener = undefined;
         _queueListener?.dispose();
         _queueListener = undefined;
         _questRefreshListener?.dispose();
@@ -852,6 +870,8 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
                     transport: addTransport,
                     anthropicProfileId: typeof msg.anthropicProfileId === 'string' && msg.anthropicProfileId ? msg.anthropicProfileId : undefined,
                     anthropicConfigId: typeof msg.anthropicConfigId === 'string' && msg.anthropicConfigId ? msg.anthropicConfigId : undefined,
+                    // The run picked in the add form (default the window's current run); an unknown one is refused.
+                    ...(typeof msg.run === 'string' && msg.run ? { run: addFormRun(msg.run) } : {}),
                 });
                 console.log('[QueueEditor] addPrompt enqueued successfully');
                 _panel?.webview.postMessage({ type: 'addSuccess' });
@@ -1228,7 +1248,22 @@ function buildState(): Record<string, unknown> {
         // Drives the webview's orange "Quest refresh is running…" banner
         // between the queue header and the first item.
         questRefreshActive,
+        // The quest's process runs (the run filter, Group by run, the add form's run) and the window's.
+        ...queueRunState(),
     };
+}
+
+/** The quest's process runs and the window's current run, for the run filter and the add form. */
+function queueRunState(): { processRuns: string[]; currentRun: string } {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        if (!store) { return { processRuns: ['default'], currentRun: 'default' }; }
+        const runs = store.runs().map((r) => r.run);
+        return { processRuns: runs.length ? runs : ['default'], currentRun: store.currentRun };
+    } catch {
+        return { processRuns: ['default'], currentRun: 'default' };
+    }
 }
 
 /** Send the editor its state again (another view changed something it shows, e.g. the compaction models). */
@@ -1246,3 +1281,10 @@ function sendState(): void {
     );
 }
 
+
+/** The add form's run: one of the quest's runs, else an error. */
+function addFormRun(run: string): string {
+    const { processRuns } = queueRunState();
+    if (!processRuns.includes(run)) { throw new Error(`The quest has no run "${run}" (its runs: ${processRuns.join(', ')}).`); }
+    return run;
+}
