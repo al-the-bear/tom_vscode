@@ -376,44 +376,6 @@ export async function ensureBridgeRunning(
 // ============================================================================
 
 /**
- * Get a Copilot chat model
- */
-export async function getCopilotModel(): Promise<vscode.LanguageModelChat | undefined> {
-    try {
-        // Get configuration
-        const config = vscode.workspace.getConfiguration('tomAi');
-        const preferredModel = config.get<string>('copilotModel', 'gpt-4o');
-
-        // Try to get the preferred model
-        let models = await vscode.lm.selectChatModels({
-            vendor: 'copilot',
-            family: preferredModel
-        });
-
-        // Fallback to any Copilot model
-        if (models.length === 0) {
-            models = await vscode.lm.selectChatModels({
-                vendor: 'copilot'
-            });
-        }
-
-        if (models.length === 0) {
-            vscode.window.showErrorMessage(
-                'No Copilot models available. Please ensure GitHub Copilot is installed and activated.'
-            );
-            return undefined;
-        }
-
-        console.log(`Using Copilot model: ${models[0].name} (${models[0].vendor})`);
-        return models[0];
-
-    } catch (error) {
-        console.error('Error getting Copilot model:', error);
-        return undefined;
-    }
-}
-
-/**
  * Send a request to Copilot and get the response
  */
 export async function sendCopilotRequest(

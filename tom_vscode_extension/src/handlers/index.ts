@@ -14,7 +14,6 @@ export {
     getConfigPath,
     getWorkspaceStructure,
     ensureBridgeRunning,
-    getCopilotModel,
     sendCopilotRequest,
     validateDartFile,
     getFilePath,

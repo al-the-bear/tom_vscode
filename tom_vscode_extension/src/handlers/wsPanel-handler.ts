@@ -43,7 +43,8 @@ import {
     handleStatusAction,
 } from './statusPage-handler.js';
 import { WsPaths } from '../utils/workspacePaths.js';
-import { scanWorkspaceProjectsCached } from '../utils/projectDetector.js';
+import { matchesExcludeGlob, scanWorkspaceProjectsCached } from '../utils/projectDetector.js';
+import { guidelinesExcludeGlobs } from '../utils/vscodeSettings.js';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview.js';
 import { openInExternalApplication } from './handler_shared.js';
 import {
@@ -422,8 +423,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         // window opened, so every other panel waited for @WS.
         const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true });
         const result: { id: string; label: string }[] = [];
+        // `tomAi.guidelines.excludeGlobs`: projects the Project list leaves out.
+        const exclude = guidelinesExcludeGlobs((key) => vscode.workspace.getConfiguration('tomAi').get(key));
 
         for (const proj of projects) {
+            if (matchesExcludeGlob(proj.relativePath, exclude)) { continue; }
             const guidelinesDir = path.join(proj.absolutePath, WsPaths.guidelinesFolder);
             if (fs.existsSync(guidelinesDir)) {
                 result.push({ id: `project:${proj.relativePath}`, label: proj.name });

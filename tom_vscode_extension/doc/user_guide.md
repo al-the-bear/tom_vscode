@@ -721,6 +721,25 @@ Use:
 - `@T: Open Config File`
 - `@T: Toggle Bridge Debug Logging`
 
+### VS Code settings (`tomAi.*`)
+
+Most of the extension's configuration is in its config file (`@T: Open Config File`). The VS Code settings it contributes, each read by the extension:
+
+| Setting | What it does |
+| --- | --- |
+| `tomAi.configPath` | The extension config file (`~` and `${workspaceFolder}` resolved) |
+| `tomAi.aiFolder` | The AI folder's name (default `_ai`) |
+| `tomAi.queueFolder` | The prompt queue's folder (default `${aiFolder}/queue`) |
+| `tomAi.bridge.requestTimeout` | How long a Dart bridge request may take, ms (default 30 000, at least 1 000) |
+| `tomAi.bridge.restartDelay` | The wait before the bridge restarts after it stopped, ms (default 5 000) |
+| `tomAi.bridge.maxRestarts` | Automatic restarts in a row before the extension gives up (default 10; 0: none); the count starts again when the bridge answers, or when you start it |
+| `tomAi.timedRequests.tickInterval` | How often the timed-request engine looks for due entries, ms (default 30 000, at least 1 000; read when the engine starts) |
+| `tomAi.todo.workspaceTodoFile`, `tomAi.todo.questTodoPattern`, `tomAi.notes.questNotesPattern` | The files of the WORKSPACE TODOS, QUEST TODOS and quest-notes views |
+| `tomAi.guidelines.excludeGlobs` | Projects the Guidelines panel's Project list leaves out (default `tom/zom_*/**`) |
+| `tomAi.projectDetection.excludeGlobs` | Folders the workspace's project scan skips (default `tom/zom_*/**`) |
+
+The trail is switched on and off on the Status Page (the config file's `trail.raw.enabled`), not by a VS Code setting.
+
 ### Provider SDKs
 
 The extension does not carry the model providers' SDKs; it installs them on request into its own storage, where they stay across extension updates. **`@T: Provider SDKs`** (also the **Provider SDKs** button in the Status Page's first section, which names the providers installed) opens the page:

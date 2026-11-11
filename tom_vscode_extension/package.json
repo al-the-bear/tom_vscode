@@ -2918,34 +2918,6 @@
     "configuration": {
       "title": "Tom AI",
       "properties": {
-        "tomAi.contextApproach": {
-          "type": "string",
-          "default": "accumulation",
-          "enum": [
-            "accumulation",
-            "persistent"
-          ],
-          "description": "Context persistence approach for AI operations"
-        },
-        "tomAi.maxContextSize": {
-          "type": "number",
-          "default": 50000,
-          "description": "Maximum context size in tokens"
-        },
-        "tomAi.autoRunOnSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically run scripts on save"
-        },
-        "tomAi.copilot.model": {
-          "type": "string",
-          "enum": [
-            "gpt-4o",
-            "gpt-4",
-            "gpt-3.5-turbo"
-          ],
-          "description": "Preferred Copilot model"
-        },
         "tomAi.configPath": {
           "type": "string",
           "default": "~/.tom/vscode/tom_vscode_extension.json",
@@ -2960,11 +2932,6 @@
           "type": "string",
           "default": "",
           "description": "Queue folder path (absolute or workspace-relative). Empty defaults to ${aiFolder}/queue."
-        },
-        "tomAi.trail.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable trail logging"
         },
         "tomAi.bridge.requestTimeout": {
           "type": "number",
@@ -2985,11 +2952,6 @@
           "type": "number",
           "default": 30000,
           "description": "Timed request engine tick interval in milliseconds"
-        },
-        "tomAi.copilot.showNotifications": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show notifications when sending text to Copilot Chat"
         },
         "tomAi.todo.workspaceTodoFile": {
           "type": "string",

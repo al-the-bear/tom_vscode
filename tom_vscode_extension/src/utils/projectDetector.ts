@@ -348,6 +348,11 @@ function globToRegExp(glob: string): RegExp {
     return new RegExp(`^${escaped}$`);
 }
 
+/** Whether a workspace-relative path matches one of `globs` (`*` within a segment, `**` across). */
+export function matchesExcludeGlob(relativePath: string, globs: readonly string[]): boolean {
+    return isExcludedRelativePath(relativePath, globs.map(globToRegExp));
+}
+
 function isExcludedRelativePath(relativePath: string, regexes: readonly RegExp[]): boolean {
     const normalized = relativePath.replace(/\\/g, '/');
     return regexes.some((regex) => regex.test(normalized) || regex.test(`${normalized}/`));

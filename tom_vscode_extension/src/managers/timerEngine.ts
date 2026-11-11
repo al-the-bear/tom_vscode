@@ -14,6 +14,7 @@ import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
 import { logTimed, logTimedError } from '../utils/queueLogger';
 import { liveRepeatedTodoPort, releaseDueRepeatedTodos } from '../services/repeatedTodoController';
 import { isTimedItemOf } from '../utils/timedQueueItems';
+import { timerTickIntervalMs } from '../utils/vscodeSettings';
 
 // ============================================================================
 // Types
@@ -87,7 +88,6 @@ export interface TimerScheduleSlot {
 // Singleton
 // ============================================================================
 
-const CHECK_INTERVAL_MS = 30_000;
 
 export class TimerEngine {
     private static _inst: TimerEngine | undefined;
@@ -298,7 +298,8 @@ export class TimerEngine {
 
     private start(): void {
         if (this._timer) { return; }
-        this._timer = setInterval(() => this.tick(), CHECK_INTERVAL_MS);
+        // `tomAi.timedRequests.tickInterval`, read when the engine starts.
+        this._timer = setInterval(() => this.tick(), timerTickIntervalMs((key) => vscode.workspace.getConfiguration('tomAi').get(key)));
     }
 
     private stop(): void {

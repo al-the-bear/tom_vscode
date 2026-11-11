@@ -8,6 +8,7 @@ import { AgentSdkBridge } from './services/agent-sdk-bridge';
 import { ServerToClientRpc } from './services/server-to-client-rpc';
 import { loadSdk, requireAgentSdkCli } from './handlers/agent-sdk-transport';
 import { toolLog } from './utils/toolLog';
+import { bridgeSettings, nextBridgeRestart, type BridgeSettings } from './utils/vscodeSettings';
 
 const DART_COMMAND = 'dart';
 
@@ -100,7 +101,17 @@ export class DartBridgeClient {
     private autoRestart: boolean = false;
     private isStarting: boolean = false;
     private restartTimer: NodeJS.Timeout | null = null;
-    private readonly defaultRequestTimeoutMs = 30000;
+    /** Automatic restarts since the bridge last answered a request (or was started by hand). */
+    private restartsInARow = 0;
+
+    /** The `tomAi.bridge.*` settings, read when they are needed (a change applies to the next request or restart). */
+    private get settings(): BridgeSettings {
+        return bridgeSettings((key) => vscode.workspace.getConfiguration('tomAi').get(key));
+    }
+
+    private get defaultRequestTimeoutMs(): number {
+        return this.settings.requestTimeoutMs;
+    }
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -136,6 +147,7 @@ export class DartBridgeClient {
         if (args !== undefined) { this.bridgeArgs = args; }
         if (runPubGet !== undefined) { this.bridgeRunPubGet = runPubGet; }
         this.autoRestart = true;
+        this.restartsInARow = 0;
         this.clearPendingRestartTimer();
         DartBridgeClient.outputChannel.show(true); // Show output channel (preserveFocus=true)
         await this.start();
@@ -313,14 +325,21 @@ export class DartBridgeClient {
         }
 
         this.clearPendingRestartTimer();
-        DartBridgeClient.outputChannel.appendLine(`[VS Code Extension] INFO Attempting to restart bridge in 5 seconds (${reason})...`);
+        const settings = this.settings;
+        const next = nextBridgeRestart(settings, this.restartsInARow);
+        if (!next) {
+            DartBridgeClient.outputChannel.appendLine(`[VS Code Extension] ERROR The bridge stopped (${reason}) after ${this.restartsInARow} automatic restart(s) in a row; not restarting again (tomAi.bridge.maxRestarts = ${settings.maxRestarts}). Restart it by hand.`);
+            return;
+        }
+        this.restartsInARow++;
+        DartBridgeClient.outputChannel.appendLine(`[VS Code Extension] INFO Attempting to restart bridge in ${next.delayMs} ms, attempt ${this.restartsInARow} of ${settings.maxRestarts} (${reason})...`);
 
         this.restartTimer = setTimeout(() => {
             this.restartTimer = null;
             this.start().catch(e => {
                 DartBridgeClient.outputChannel.appendLine(`[VS Code Extension] ERROR Failed to restart bridge: ${e}`);
             });
-        }, 5000);
+        }, next.delayMs);
     }
 
     private clearPendingRestartTimer(): void {
@@ -585,6 +604,8 @@ export class DartBridgeClient {
                     if (pending.timer) {
                         clearTimeout(pending.timer);
                     }
+                    // The bridge answers: the restarts that brought it back count from zero again.
+                    this.restartsInARow = 0;
 
                     if (message.error) {
                         const errMessage = typeof message.error === 'string'
