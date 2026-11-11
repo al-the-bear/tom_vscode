@@ -384,6 +384,11 @@ _ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
   fromWorkspace, targetQuestId | toWorkspace }`: the panel's ⬆️ move as a tool,
   through `moveTodoToDestination`; per-id refusals come back in `skipped`.
   `tomAi_moveQuestTodo` stays the move between two files of one quest.
+- `tomAi_renameQuestTodo` (same module, live deps in `chat-enhancement-tools.ts`)
+  — `{ questId, todoId, newId, group?, dryRun? }`: one todo through
+  `renameQuestTodo` (below), the ID edit's refusals (`todoIdInputError`, which
+  `renameQuestTodo` applies itself), `group` placing it at the end of that id
+  group; `dryRun` counts the references without writing.
 - `tomAi_renameTodoPrefix` (same module, live deps in `chat-enhancement-tools.ts`)
   — `{ questId, from, to, dryRun? }`: `renameTodoPrefix` renames every live todo
   of group `from` through `renameQuestTodo`, which rewrites `blocked_by` /

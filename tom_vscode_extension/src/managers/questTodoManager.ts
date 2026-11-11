@@ -25,7 +25,7 @@ import { ALL_TODO_FILES, deletedTodoFileName, matchesTodoFileScope, type TodoFil
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
-import { groupInsertIndex, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
+import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
@@ -1479,7 +1479,17 @@ export function placeTodoInGroup(filePath: string, todoId: string, prefix: strin
 
 /** What renameQuestTodo answers. */
 export type TodoRenameResult =
-    | { ok: true; file: string; references: number }
+    | {
+        ok: true;
+        /** Nothing was written: what the rename would do. */
+        dryRun: boolean;
+        /** The live todo file the todo is (or would be) in. */
+        file: string;
+        /** `blocked_by` / `dependencies` entries rewritten (on a dry run: that would be). */
+        references: number;
+        /** The `-deleted` file holding (or that would hold) the stub under the old id; absent when the id stays. */
+        stubFile?: string;
+    }
     | { ok: false; reason: string };
 
 /** The todo fields that name other todos by id. */
@@ -1496,18 +1506,25 @@ const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies'] as const;
  * (todo_schema_guard.py, invariant 5) refuses an id that vanishes.
  * With `group`, it moves to the end of that id group, before the group's
  * finalizers: into `targetFile` when given (a live todo file of the quest), else
- * within its own file. Refused, nothing written: an unknown todo, an empty or
- * spaced id, an id some todo of the quest already has (archived or deleted
- * ones included).
+ * within its own file. Refused, nothing written: an unknown todo, an id that is
+ * empty, holds a space or a path character (the todo panel's ID edit,
+ * todoIdInputError), an id some todo of the quest already has (archived or
+ * deleted ones included), a `group` that is no prefix. `dryRun` checks the same
+ * and counts the references it would rewrite, writing nothing.
  */
 export function renameQuestTodo(
     questId: string,
     oldId: string,
     newId: string,
-    opts: { group?: string; targetFile?: string } = {},
+    opts: { group?: string; targetFile?: string; dryRun?: boolean } = {},
 ): TodoRenameResult {
     const id = newId.trim();
-    if (!id || /\s/.test(id)) { return { ok: false, reason: 'A todo id is one word: no spaces, not empty.' }; }
+    const shape = todoIdInputError(id, oldId, new Set());
+    if (shape) { return { ok: false, reason: shape }; }
+    if (opts.group !== undefined) {
+        const group = validateTodoPrefix(opts.group);
+        if (group) { return { ok: false, reason: `group: ${group}` }; }
+    }
     const files = listTodoFiles(questId).map((f) => path.join(questFolder(questId), f));
     const source = files.find((f) => !!findTodoByIdInFile(f, oldId));
     if (!source) { return { ok: false, reason: `${oldId} is in no live todo file of quest ${questId}.` }; }
@@ -1517,6 +1534,17 @@ export function renameQuestTodo(
     const target = opts.targetFile && path.resolve(opts.targetFile) !== path.resolve(source) ? opts.targetFile : source;
     if (!files.some((f) => path.resolve(f) === path.resolve(target))) {
         return { ok: false, reason: `${path.basename(target)} is not a live todo file of quest ${questId}.` };
+    }
+    const stubFile = id !== oldId ? deletedTodoFileName(path.basename(source)) : undefined;
+    const others = (): string[] => listQuestIds().filter((q) => q !== questId)
+        .flatMap((q) => listTodoFiles(q).map((f) => path.join(questFolder(q), f)));
+    const renames = (): Array<[string[], Map<string, string>]> => [
+        [files, new Map([[oldId, id], [`${questId}/${oldId}`, `${questId}/${id}`]])],
+        [others(), new Map([[`${questId}/${oldId}`, `${questId}/${id}`]])],
+    ];
+    if (opts.dryRun) {
+        const references = id === oldId ? 0 : renames().reduce((n, [f, named]) => n + rewriteTodoReferences(f, named, false), 0);
+        return { ok: true, dryRun: true, file: path.basename(target), references, ...(stubFile ? { stubFile } : {}) };
     }
 
     // 1. The todo itself: renamed, and moved into the target file when that is another.
@@ -1549,20 +1577,18 @@ export function renameQuestTodo(
     // 2. The references to it, and the stub that keeps the old id in the corpus.
     let references = 0;
     if (id !== oldId) {
-        references += rewriteTodoReferences(files, new Map([[oldId, id], [`${questId}/${oldId}`, `${questId}/${id}`]]));
-        const others = listQuestIds().filter((q) => q !== questId)
-            .flatMap((q) => listTodoFiles(q).map((f) => path.join(questFolder(q), f)));
-        references += rewriteTodoReferences(others, new Map([[`${questId}/${oldId}`, `${questId}/${id}`]]));
+        for (const [f, named] of renames()) { references += rewriteTodoReferences(f, named); }
         writeRenameStub(questId, source, oldId, id);
     }
-    return { ok: true, file: path.basename(target), references };
+    return { ok: true, dryRun: false, file: path.basename(target), references, ...(stubFile ? { stubFile } : {}) };
 }
 
 /**
  * Rewrite every `blocked_by` / `dependencies` entry of `files` that `named`
- * maps to a new value; answers how many entries changed.
+ * maps to a new value; answers how many entries changed. With `write: false`
+ * nothing is written: only the count (a dry run).
  */
-function rewriteTodoReferences(files: readonly string[], named: ReadonlyMap<string, string>): number {
+function rewriteTodoReferences(files: readonly string[], named: ReadonlyMap<string, string>, write = true): number {
     let references = 0;
     for (const file of files) {
         const refDoc = loadDocument(file);
@@ -1593,6 +1619,7 @@ function rewriteTodoReferences(files: readonly string[], named: ReadonlyMap<stri
                 written.set(String((item as YAMLMap).get('id')), fields);
             }
         }
+        if (changed && !write) { references += changed; continue; }
         if (changed) {
             saveDocument(file, refDoc);
             for (const [todoId, fields] of written) { assertTodoFieldsPersisted(file, todoId, fields, 'rewriteTodoReferences'); }

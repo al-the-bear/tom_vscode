@@ -8,10 +8,13 @@
  *
  * tomAi_renameTodoPrefix — rename an id group of a quest in one step (the tool
  * behind the todo panel's "Rename group…" on a group separator).
+ *
+ * tomAi_renameQuestTodo — rename one todo (the tool behind the todo panel's ID
+ * edit), optionally placing it at the end of an id group.
  */
 
 import type { SharedToolDefinition } from './shared-tool-registry';
-import type { TodoMoveDestination, TodoPrefixRenameResult, TodoTransferResult } from '../managers/questTodoManager';
+import type { TodoMoveDestination, TodoPrefixRenameResult, TodoRenameResult, TodoTransferResult } from '../managers/questTodoManager';
 
 export interface TransferTodosInput {
     todoIds: string[];
@@ -172,6 +175,75 @@ export const RENAME_TODO_PREFIX_TOOL: SharedToolDefinition<RenameTodoPrefixInput
             from: { type: 'string', description: 'The group\'s prefix, e.g. `ww`.' },
             to: { type: 'string', description: 'The new prefix, e.g. `xx` (no digit, space or path character).' },
             dryRun: { type: 'boolean', description: 'Answer the renames and the documents naming the old prefix; write nothing. Default false.' },
+        },
+    },
+    execute: async () => '{"ok":false,"error":"execute() must be installed by chat-enhancement-tools.ts"}',
+};
+
+// ---------------------------------------------------------------------------
+// tomAi_renameQuestTodo — rename one quest todo
+// ---------------------------------------------------------------------------
+
+export interface RenameQuestTodoInput {
+    questId: string;
+    /** The todo's id now. */
+    todoId: string;
+    /** Its new id. */
+    newId: string;
+    /** An id group (prefix) to place it at the end of, before the group's finalizers. */
+    group?: string;
+    /** Check and count, write nothing. */
+    dryRun?: boolean;
+}
+
+/** What the tool needs from the todo store; the live one is questTodoManager.renameQuestTodo. */
+export interface RenameQuestTodoDeps {
+    questExists(questId: string): boolean;
+    renameQuestTodo(questId: string, oldId: string, newId: string, opts: { group?: string; dryRun?: boolean }): TodoRenameResult;
+    onMutate?(): void;
+}
+
+export async function renameQuestTodoImpl(deps: RenameQuestTodoDeps, input: RenameQuestTodoInput): Promise<string> {
+    const questId = typeof input.questId === 'string' ? input.questId.trim() : '';
+    const todoId = typeof input.todoId === 'string' ? input.todoId.trim() : '';
+    const newId = typeof input.newId === 'string' ? input.newId.trim() : '';
+    const group = typeof input.group === 'string' && input.group.trim() ? input.group.trim() : undefined;
+    if (!questId) { return fail('`questId` names the quest.'); }
+    if (!todoId) { return fail('`todoId` names the todo to rename.'); }
+    if (!deps.questExists(questId)) { return fail(`No quest "${questId}" (no _ai/quests/${questId}/ folder). tomAi_listQuests lists them.`); }
+    if (newId === todoId && !group) { return fail(`\`newId\` is ${todoId}'s own id: nothing to rename.`); }
+    const r = deps.renameQuestTodo(questId, todoId, newId, { ...(group ? { group } : {}), dryRun: input.dryRun === true });
+    if (!r.ok) { return fail(r.reason); }
+    if (!r.dryRun) { deps.onMutate?.(); }
+    return JSON.stringify({ ...r, from: todoId, to: newId, ...(group ? { group } : {}) });
+}
+
+export const RENAME_QUEST_TODO_DESCRIPTION =
+    'Rename one todo of quest `questId`: `todoId` becomes `newId`, in its live todo file, with every field kept and '
+    + '`[renamed from <old>]` added to its notes. Every `blocked_by` / `dependencies` entry naming it follows — plain and '
+    + '`<quest>/<id>` in the quest, `<quest>/<id>` in other quests; the old id keeps a cancelled stub naming the new id in the '
+    + '`-deleted` sibling of its file, so the `_ai` commit guard (an id may not vanish) accepts the change. `group` (a prefix) '
+    + 'also moves it to the end of that id group, before the group\'s finalizers. Answers `{ok, dryRun, from, to, file, '
+    + 'references, stubFile}`. Refused, nothing written: an unknown todo, a `newId` that is empty or holds a space or a / \\ : '
+    + '* ? " < > | # character, an id the quest already has (archived and deleted included), its own id without `group`, a '
+    + '`group` that is no prefix. `dryRun: true` checks the same and counts the references, writing nothing. A whole group: '
+    + 'tomAi_renameTodoPrefix.';
+
+export const RENAME_QUEST_TODO_TOOL: SharedToolDefinition<RenameQuestTodoInput> = {
+    name: 'tomAi_renameQuestTodo',
+    displayName: 'Rename Quest Todo',
+    description: RENAME_QUEST_TODO_DESCRIPTION,
+    tags: ['todo', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    inputSchema: {
+        type: 'object',
+        required: ['questId', 'todoId', 'newId'],
+        properties: {
+            questId: { type: 'string', description: 'The quest the todo belongs to.' },
+            todoId: { type: 'string', description: 'The todo\'s id now.' },
+            newId: { type: 'string', description: 'Its new id (one word; generate the date code with tomAi_generateIdPrefix).' },
+            group: { type: 'string', description: 'An id group prefix, e.g. `vscimpb`: place the todo at the end of that group.' },
+            dryRun: { type: 'boolean', description: 'Check the rename and count the references; write nothing. Default false.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by chat-enhancement-tools.ts"}',

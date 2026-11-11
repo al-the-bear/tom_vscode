@@ -30,7 +30,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { telegramNotifyTarget } from '../handlers/telegram-config';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
-import { RENAME_TODO_PREFIX_TOOL, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameTodoPrefixInput, type TransferTodosInput } from './todo-transfer-tools';
+import { RENAME_QUEST_TODO_TOOL, RENAME_TODO_PREFIX_TOOL, renameQuestTodoImpl, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameQuestTodoInput, type RenameTodoPrefixInput, type TransferTodosInput } from './todo-transfer-tools';
 
 // ============================================================================
 // §1.1  Notify User (Telegram)
@@ -417,6 +417,15 @@ export const RENAME_TODO_PREFIX_LIVE_TOOL: SharedToolDefinition<RenameTodoPrefix
     execute: (input) => renameTodoPrefixImpl({
         questExists: (q) => questTodo.questExists(q),
         renameTodoPrefix: (q, from, to, opts) => questTodo.renameTodoPrefix(q, from, to, opts),
+        onMutate: () => refreshSessionPanel(),
+    }, input),
+};
+
+export const RENAME_QUEST_TODO_LIVE_TOOL: SharedToolDefinition<RenameQuestTodoInput> = {
+    ...RENAME_QUEST_TODO_TOOL,
+    execute: (input) => renameQuestTodoImpl({
+        questExists: (q) => questTodo.questExists(q),
+        renameQuestTodo: (q, oldId, newId, opts) => questTodo.renameQuestTodo(q, oldId, newId, opts),
         onMutate: () => refreshSessionPanel(),
     }, input),
 };
@@ -1281,6 +1290,7 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     MOVE_TODO_TOOL,
     TRANSFER_TODOS_LIVE_TOOL,
     RENAME_TODO_PREFIX_LIVE_TOOL,
+    RENAME_QUEST_TODO_LIVE_TOOL,
     SESSION_TODO_ADD_TOOL,
     SESSION_TODO_LIST_TOOL,
     SESSION_TODO_GET_ALL_TOOL,
