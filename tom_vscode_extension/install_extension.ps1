@@ -37,6 +37,7 @@ param([switch]$NoDart, [switch]$PackageOnly, [switch]$BinariesOnly, [switch]$Lay
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot 'scripts/install_summary.ps1')
+. (Join-Path $PSScriptRoot 'scripts/find_code_cli.ps1')
 
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
@@ -246,11 +247,11 @@ Write-Host ""
 # skipped.
 if ($PackageOnlyMode) {
     Write-Host "Package only: the VSIX is built and checked, not installed."
-} elseif (Get-Command code -ErrorAction SilentlyContinue) {
-    $CodeCli = "code"
-    Write-Host "VS Code CLI detected"
+} elseif ($found = Find-TomCodeCli) {
+    $CodeCli = $found
+    Write-Host "VS Code CLI: $CodeCli"
 } else {
-    Write-Warning "VS Code CLI 'code' not found in PATH: the VSIX is built but not installed."
+    Write-Warning "VS Code CLI 'code' not found (not on PATH, not in the VS Code installation; set TOM_CODE_CLI to its path): the VSIX is built but not installed."
 }
 } # BinariesOnlyMode
 
@@ -552,7 +553,7 @@ if ($Result -match "^[Yy]") {
                 Write-Host "Package only: not installed (install the VSIX with 'code --install-extension', path below)."
             } elseif (-not $CodeCli) {
                 Write-Host ""
-                Write-Warning "Not installed: VS Code CLI 'code' not found (install the VSIX by hand, path below)."
+                Write-Warning "Not installed: no VS Code CLI found - not on PATH, not in the VS Code installation (set TOM_CODE_CLI to its path, or install the VSIX by hand, path below)."
             } else {
                 Write-Host ""
                 Write-Host "Installing extension in VS Code..."

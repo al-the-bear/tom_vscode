@@ -31,6 +31,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 # shellcheck source=scripts/install_summary.sh
 source "$SCRIPT_DIR/scripts/install_summary.sh"
+# shellcheck source=scripts/find_code_cli.sh
+source "$SCRIPT_DIR/scripts/find_code_cli.sh"
 
 for ARG in "$@"; do
     case "$ARG" in
@@ -185,10 +187,11 @@ echo "✅ Extension compiled successfully!"
 CODE_CLI=""
 if [ "$PACKAGE_ONLY" = "1" ]; then
     echo "📦 Package only: the VSIX is built and checked, not installed."
-elif command -v code &> /dev/null; then
-    CODE_CLI="code"
+elif CODE_CLI="$(tom_find_code_cli)"; then
+    echo "🧩 VS Code CLI: $CODE_CLI"
 else
-    echo "⚠️  VS Code CLI \`code\` not found: the VSIX is built but not installed."
+    CODE_CLI=""
+    echo "⚠️  VS Code CLI \`code\` not found (not on PATH, not in the VS Code installation; set TOM_CODE_CLI to its path): the VSIX is built but not installed."
 fi
 
 # Check if vsce is available (globally or via npx)
@@ -460,7 +463,7 @@ if [ $? -eq 0 ]; then
             echo "📦 Package only: not installed (install the VSIX with \`code --install-extension\`, path below)."
         else
             echo ""
-            echo "⚠️  Not installed: VS Code CLI \`code\` not found (install the VSIX by hand, path below)."
+            echo "⚠️  Not installed: no VS Code CLI found — not on PATH, not in the VS Code installation (set TOM_CODE_CLI to its path, or install the VSIX by hand, path below)."
         fi
     else
         echo "❌ Could not find generated VSIX file"

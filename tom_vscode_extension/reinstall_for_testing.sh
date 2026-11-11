@@ -87,11 +87,13 @@ echo ""
 echo "✅ Extension compiled successfully!"
 
 # Check if VS Code CLI is available
+# shellcheck source=scripts/find_code_cli.sh
+source "$SCRIPT_DIR/scripts/find_code_cli.sh"
 CODE_CLI=""
-if command -v code &> /dev/null; then
-    CODE_CLI="code"
+if CODE_CLI="$(tom_find_code_cli)"; then
+    echo "🧩 VS Code CLI: $CODE_CLI"
 else
-    echo "⚠️  VS Code CLI not found. Extension compiled but not installed."
+    echo "⚠️  VS Code CLI not found (not on PATH, not in the VS Code installation; set TOM_CODE_CLI to its path). Extension compiled but not installed."
     echo "   Press F5 to test in Extension Development Host"
     exit 0
 fi

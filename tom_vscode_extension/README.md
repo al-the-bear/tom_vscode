@@ -46,7 +46,7 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 | Node.js | ≥ 20 (LTS) | Enforced by the installer; the extension targets Node v25 — install/switch with nvm |
 | nvm | latest | Recommended — lets the installer install/switch to a supported Node automatically |
 | VS Code | ≥ 1.96.0 | `engines.vscode` in `package.json` |
-| `code` CLI | — | Must be on `PATH` for the installer to install the VSIX (VS Code → *Shell Command: Install 'code' command in PATH*) |
+| `code` CLI | — | Installs the VSIX: `code` on `PATH` (VS Code → *Shell Command: Install 'code' command in PATH*), else the CLI inside the VS Code installation (macOS `/Applications` or `~/Applications`, Linux `/usr/share/code` or `/snap/bin`, Windows `%LOCALAPPDATA%` or `%ProgramFiles%`; Insiders after Stable), or `TOM_CODE_CLI` naming it. The installer prints the one it uses; without one the VSIX is only packaged |
 | `@vscode/vsce` | latest | Auto-run via `npx` if not installed globally |
 
 The from-source build also needs two sibling Tom projects present on disk (see
@@ -140,7 +140,7 @@ It runs end to end:
    packages present as real files, no symlinks; the install stops otherwise;
    which of `tom_bs` / `validate_codespecs` / `spec_checks` it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
-   and installs it via the `code` CLI (without `code` it is only packaged).
+   and installs it via the VS Code CLI (`code` on PATH, else the installation's own; without one it is only packaged).
 8. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
 

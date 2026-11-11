@@ -84,7 +84,7 @@ describe('create_vsix scripts', () => {
     test('CS-4: package only', () => {
         const sh = read('install_extension.sh');
         assert.match(sh, /--package-only\) export TOM_PACKAGE_ONLY=1 ;;/);
-        assert.match(sh, /if \[ "\$PACKAGE_ONLY" = "1" \]; then\n\s+echo "📦 Package only: the VSIX is built and checked, not installed\."\nelif command -v code/, 'no code CLI looked up: no uninstall');
+        assert.match(sh, /if \[ "\$PACKAGE_ONLY" = "1" \]; then\n\s+echo "📦 Package only: the VSIX is built and checked, not installed\."\nelif CODE_CLI="\$\(tom_find_code_cli\)"/, 'no code CLI looked up: no uninstall');
         assert.match(sh, /# Uninstall old version\(s\)\nif \[ -n "\$CODE_CLI" \]; then/);
         assert.match(sh, /elif \[ "\$PACKAGE_ONLY" = "1" \]; then\n\s+echo ""\n\s+echo "📦 Package only: not installed/);
         assert.ok(sh.indexOf('node scripts/check-vsix-contents.cjs "$VSIX_FILE"') < sh.indexOf('📦 Package only: not installed'), 'still checked');

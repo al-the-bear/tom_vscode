@@ -82,9 +82,13 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "✅ Extension compiled successfully!" -ForegroundColor Green
 
-# Check if VS Code CLI is available
-if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
-    Write-Host "⚠️  VS Code CLI not found. Extension compiled but not installed." -ForegroundColor Yellow
+# Check if VS Code CLI is available (on PATH, else the installation's bundled CLI)
+. (Join-Path $ScriptDir 'scripts/find_code_cli.ps1')
+$CodeCli = Find-TomCodeCli
+if ($CodeCli) {
+    Write-Host "🧩 VS Code CLI: $CodeCli"
+} else {
+    Write-Host "⚠️  VS Code CLI not found (not on PATH, not in the VS Code installation; set TOM_CODE_CLI to its path). Extension compiled but not installed." -ForegroundColor Yellow
     Write-Host "   Press F5 to test in Extension Development Host"
     exit 0
 }
@@ -99,12 +103,12 @@ if (-not (Get-Command vsce -ErrorAction SilentlyContinue)) {
 Write-Host ""
 Write-Host "🗑️  Uninstalling old version..." -ForegroundColor Yellow
 try {
-    & code --uninstall-extension tom.dartscript-vscode 2>&1 | Out-Null
+    & $CodeCli --uninstall-extension tom.dartscript-vscode 2>&1 | Out-Null
 } catch {
     # Ignore errors if extension was not installed
 }
 try {
-    & code --uninstall-extension tom.tom-ai-extension 2>&1 | Out-Null
+    & $CodeCli --uninstall-extension tom.tom-ai-extension 2>&1 | Out-Null
 } catch {
     # Ignore errors if extension was not installed
 }
@@ -170,7 +174,7 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Package created: $($VsixFile.Name)" -ForegroundColor Green
         Write-Host ""
         Write-Host "🚀 Installing extension in VS Code..." -ForegroundColor Cyan
-        & code --install-extension "$($VsixFile.FullName)"
+        & $CodeCli --install-extension "$($VsixFile.FullName)"
 
         if ($LASTEXITCODE -eq 0) {
             Write-Host ""
