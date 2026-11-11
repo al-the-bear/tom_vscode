@@ -3,7 +3,7 @@
 # Package a private-distribution VSIX with this host's binaries built now and
 # every other platform's as the binaries layer holds them; install nothing.
 #
-#   ./create_currentbinaries_vsix.sh
+#   ./create_currentbinaries_vsix.sh [--no-release]
 #
 # 1. Builds tom_bs and validate_codespecs for THIS host and puts them into the
 #    binaries layer, tom_binaries/tom/<platform>/ (compile_and_install.sh
@@ -13,6 +13,11 @@
 #    tom_bs and validate_codespecs for every platform from the layer
 #    (TOM_LAYER_BINARIES=1), with the workspace template, as create_vsix.sh
 #    (no provider SDK: the extension installs them on request).
+# Every run publishes the VSIX as the GitHub Release `vscode-extension-latest` of
+# al-the-bear/tom_binaries (asset tom-ai-extension.vsix, with
+# vscode_extension/vsix/README.md there; scripts/vsix-release.cjs) when the
+# tom_vscode checkout has no local change and no unpushed commit; --no-release
+# skips it. The VSIX also stays here for a local install.
 # It ends with the VSIX path, the template path, the binaries the VSIX carries
 # per platform and, per platform, each binary's build stamp and whether it is
 # older than the sources here (scripts/binaries-layer.cjs report). A platform
@@ -25,12 +30,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/install_summary.sh
 source "$SCRIPT_DIR/scripts/install_summary.sh"
 
+NO_RELEASE=0
 for ARG in "$@"; do
     case "$ARG" in
-        -h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0)"; exit 1 ;;
+        --no-release) NO_RELEASE=1 ;;
+        -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-release])"; exit 1 ;;
     esac
 done
+RELEASE_PRECHECK="$(tom_release_precheck "$SCRIPT_DIR" "$NO_RELEASE")"
 
 if ! ( cd "$SCRIPT_DIR" && node scripts/find-dart.cjs > /dev/null ); then
     echo "❌ No Dart SDK found: this host's binaries cannot be built (create_vsix_nodart.sh packages without them)."
@@ -48,5 +56,6 @@ export TOM_SKIP_FINISH_TS=1
 "$SCRIPT_DIR/install_extension.sh"
 
 tom_print_layer_vsix_summary "$SCRIPT_DIR" ""
+tom_release_publish "$SCRIPT_DIR" "$(tom_newest_vsix "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
 exit 0

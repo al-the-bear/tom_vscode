@@ -2,7 +2,7 @@
 .SYNOPSIS
     Package a private-distribution VSIX: build everything, install nothing.
 .DESCRIPTION
-    create_vsix.ps1 [-NoDart | --no-dart]
+    create_vsix.ps1 [-NoDart | --no-dart] [-NoRelease | --no-release]
 
     The VSIX carries:
       - tom_bs and validate_codespecs for THIS host's platform (compiled from
@@ -16,8 +16,15 @@
     page). A thin wrapper over install_extension.ps1 (TOM_BRIDGE_FROM_SOURCE=1,
     TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
     template path and the binaries the VSIX carries per platform.
+
+    Every run publishes the VSIX as the GitHub Release
+    `vscode-extension-latest` of al-the-bear/tom_binaries (asset
+    tom-ai-extension.vsix, with vscode_extension/vsix/README.md there;
+    scripts/vsix-release.cjs) when the tom_vscode checkout has no local change
+    and no unpushed commit; -NoRelease (--no-release) skips it. The VSIX also
+    stays here for a local install.
 #>
-param([switch]$NoDart)
+param([switch]$NoDart, [switch]$NoRelease)
 
 $ErrorActionPreference = "Stop"
 
@@ -26,8 +33,12 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 foreach ($Arg in $args) {
     if ($Arg -eq '--no-dart') { $NoDart = $true }
-    else { Write-Error "Unknown option: $Arg (usage: create_vsix.ps1 [-NoDart | --no-dart])"; exit 1 }
+    elseif ($Arg -eq '--no-release') { $NoRelease = $true }
+    else { Write-Error "Unknown option: $Arg (usage: create_vsix.ps1 [-NoDart | --no-dart] [-NoRelease | --no-release])"; exit 1 }
 }
+# The release must name a commit anyone can check out: checked before anything is built.
+$ReleasePrecheck = Get-TomReleasePrecheck $ScriptDir $NoRelease
+$ReleaseScript = if ($env:TOM_RELEASE_SCRIPT) { $env:TOM_RELEASE_SCRIPT } else { 'create_vsix.ps1' }
 
 $env:TOM_BRIDGE_FROM_SOURCE = '1'
 $env:TOM_PACKAGE_ONLY = '1'
@@ -88,5 +99,6 @@ if (-not $NoDartMode) {
 } else {
     Write-TomNoDartWarning $Reason $true
 }
+Publish-TomRelease $ScriptDir "$Vsix" $ReleaseScript $ReleasePrecheck $NoRelease
 Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 if ($NoDartMode -and -not $NoDart) { Write-TomNoDartWarning $Reason $true }

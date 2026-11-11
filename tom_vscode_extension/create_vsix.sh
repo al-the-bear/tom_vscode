@@ -2,7 +2,7 @@
 
 # Package a private-distribution VSIX: build everything, install nothing.
 #
-#   ./create_vsix.sh [--no-dart]
+#   ./create_vsix.sh [--no-dart] [--no-release]
 #
 # The VSIX carries:
 #   - tom_bs and validate_codespecs for THIS host's platform (compiled from
@@ -13,6 +13,11 @@
 # --no-dart (create_vsix_nodart.sh) builds without the Dart binaries.
 #
 # No provider SDK: the extension installs them on request (Provider SDKs page).
+# Every run publishes the VSIX as the GitHub Release `vscode-extension-latest` of
+# al-the-bear/tom_binaries (asset tom-ai-extension.vsix, with
+# vscode_extension/vsix/README.md there; scripts/vsix-release.cjs) when the
+# tom_vscode checkout has no local change and no unpushed commit; --no-release
+# skips it. The VSIX also stays here for a local install.
 # A thin wrapper over install_extension.sh (TOM_BRIDGE_FROM_SOURCE=1,
 # TOM_PACKAGE_ONLY=1); it ends with the VSIX path, the
 # template path and the binaries the VSIX carries per platform.
@@ -24,13 +29,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/install_summary.sh"
 
 NO_DART_ON_PURPOSE=0
+NO_RELEASE=0
 for ARG in "$@"; do
     case "$ARG" in
         --no-dart) NO_DART_ON_PURPOSE=1 ;;
-        -h|--help) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart])"; exit 1 ;;
+        --no-release) NO_RELEASE=1 ;;
+        -h|--help) sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--no-release])"; exit 1 ;;
     esac
 done
+# The release must name a commit anyone can check out: checked before anything is built.
+RELEASE_PRECHECK="$(tom_release_precheck "$SCRIPT_DIR" "$NO_RELEASE")"
+RELEASE_SCRIPT="${TOM_RELEASE_SCRIPT:-$(basename "$0")}"
 
 export TOM_BRIDGE_FROM_SOURCE=1
 export TOM_PACKAGE_ONLY=1
@@ -67,6 +77,7 @@ elif [ "$NO_DART_ON_PURPOSE" = "1" ]; then
 else
     tom_print_no_dart_warning "$TOM_NO_DART_REASON" 1
 fi
+tom_release_publish "$SCRIPT_DIR" "$VSIX" "$RELEASE_SCRIPT" "$RELEASE_PRECHECK" "$NO_RELEASE"
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
 if [ "${TOM_NO_DART:-0}" = "1" ] && [ "$NO_DART_ON_PURPOSE" != "1" ]; then
     tom_print_no_dart_warning "$TOM_NO_DART_REASON" 1

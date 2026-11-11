@@ -21,16 +21,29 @@
     path, the template path, the binaries the VSIX carries per platform and
     each binary's build stamp and whether it is older than the sources here
     (scripts/binaries-layer.cjs report; a platform the layer lacks is named).
+
+    Every run publishes the VSIX as the GitHub Release
+    `vscode-extension-latest` of al-the-bear/tom_binaries (asset
+    tom-ai-extension.vsix, with vscode_extension/vsix/README.md there;
+    scripts/vsix-release.cjs) when the tom_vscode checkout has no local change
+    and no unpushed commit; -NoRelease (--no-release) skips it. The VSIX also
+    stays here for a local install.
 #>
 param(
     [string]$Layer = '',
-    [switch]$Clone
+    [switch]$Clone,
+    [switch]$NoRelease
 )
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptDir 'scripts/install_summary.ps1')
 $PublicRepo = 'https://github.com/al-the-bear/tom_binaries.git'
+foreach ($Arg in $args) {
+    if ($Arg -eq '--no-release') { $NoRelease = $true }
+    else { Write-Error "Unknown option: $Arg (usage: create_layerbinaries_vsix.ps1 [-Layer <dir>] [-Clone] [-NoRelease | --no-release])"; exit 1 }
+}
+$ReleasePrecheck = Get-TomReleasePrecheck $ScriptDir $NoRelease
 
 $WorkspaceLayer = Join-Path $ScriptDir '..\..\..\tom_binaries'
 if (-not $Layer -and -not $Clone -and (Test-Path (Join-Path $WorkspaceLayer 'tom'))) { $Layer = $WorkspaceLayer }
@@ -69,4 +82,5 @@ try {
 } finally {
     foreach ($name in $Names) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
 }
+Publish-TomRelease $ScriptDir "$(Get-TomNewestVsix $ScriptDir)" 'create_layerbinaries_vsix.ps1' $ReleasePrecheck $NoRelease
 Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"

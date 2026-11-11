@@ -311,8 +311,21 @@ extension updates:
 
 ### Installing the VSIX on another machine
 
-Both installers end with the VSIX's path. Copy that file to another machine
-and install it there (no checkout, Node or Dart needed):
+The latest VSIX is a download: <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension.vsix>
+(the GitHub Release `vscode-extension-latest` of `al-the-bear/tom_binaries`;
+its `vscode_extension/vsix/README.md` names the commit it was built from, its
+size, the script that packed it and the platforms whose Dart binaries it
+carries, with their build stamps). Every `create_*_vsix` script replaces it
+when the tom_vscode checkout it builds from has no local change and no
+unpushed commit (otherwise it says so and keeps the VSIX local);
+`--no-release` / `-NoRelease` leaves the release alone. It needs the GitHub
+CLI (`gh`) logged in with an account that may write to the repository; without
+it the script warns and the VSIX stays local. A script reading the binaries
+layer first brings it level with its remote (`scripts/binaries-layer.cjs
+sync`: the other hosts' binaries pulled, this host's unpushed ones pushed).
+
+Both installers end with the VSIX's path. Copy that file (or the download) to
+another machine and install it there (no checkout, Node or Dart needed):
 
 ```bash
 code --install-extension <path-to>/tom-ai-extension-0.1.0.vsix

@@ -232,6 +232,12 @@ if [ "$LAYER_BINARIES" = "1" ]; then
     # Every platform's tom_bs and validate_codespecs from the binaries layer, as
     # its hosts left them (create_fleetcompiled_vsix.sh,
     # create_currentbinaries_vsix.sh); how current each is, is reported there.
+    # The layer level with its remote first: the other hosts' binaries pulled, this
+    # host's unpushed ones pushed (scripts/binaries-layer.cjs sync; TOM_LAYER_NO_SYNC=1 skips it).
+    if [ "${TOM_LAYER_NO_SYNC:-0}" != "1" ]; then
+        echo "🔄 Bringing the binaries layer level with its remote..."
+        node scripts/binaries-layer.cjs sync || true
+    fi
     echo "📦 Bundling tom_bs, validate_codespecs and spec_checks from the binaries layer..."
     LAYER_ARGS=()
     [ -n "${TOM_LAYER_PLATFORMS:-}" ] && LAYER_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")

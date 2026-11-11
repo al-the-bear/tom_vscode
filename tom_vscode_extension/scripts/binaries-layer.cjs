@@ -6,6 +6,7 @@
  *   node scripts/binaries-layer.cjs bundle [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs report [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs unpushed
+ *   node scripts/binaries-layer.cjs sync
  *
  * The extension carries three binaries per platform, built with the Dart SDK:
  * tom_bs (the DartScript bridge) and tom_specs_clitool's validate_codespecs
@@ -45,6 +46,16 @@
  *   is ahead, and to push them with /tom_push_binaries. It fetches to count,
  *   and never merges, rebases or pushes: bringing the layer level is the
  *   user's step. Silent when the layer is level or absent; always exit 0.
+ *
+ * sync — before packaging from the layer (install_extension.* with
+ *   TOM_LAYER_BINARIES=1, so every create_*binaries_vsix script): bring the
+ *   layer level with its remote, so the VSIX packs the binaries every host
+ *   published. Behind: fast-forwarded. This host's binaries commits not on the
+ *   remote: pushed. Both (the remote moved meanwhile): rebased onto it (each
+ *   host's commit touches only its own platform's files), then pushed; a
+ *   rebase that does not go through is aborted and the layer packaged as it
+ *   is, with a warning. No layer, no repository or no upstream: nothing to do.
+ *   Always exit 0: the VSIX can still be packed from the local layer.
  *
  * TOM_BINARIES_LAYER overrides the layer folder (default
  * <workspace>/tom_binaries/tom), TOM_BINARIES_EXT_BIN the extension's bin/
@@ -394,7 +405,63 @@ function unpushed() {
     return 0;
 }
 
-module.exports = { DEFAULT_PLATFORMS, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed };
+/** `sync`: the layer level with its remote before packaging (see the header). Answers what it did. */
+function sync() {
+    let repo;
+    try {
+        if (!fs.existsSync(layerDir())) { return 'no layer'; }
+        repo = git(['rev-parse', '--show-toplevel'], layerDir());
+    } catch {
+        return 'not a repository';
+    }
+    try {
+        git(['fetch', '--quiet', 'origin'], repo, { timeout: 60000 });
+    } catch (e) {
+        console.log(`⚠️  The binaries layer could not be fetched (${firstLine(e)}): packaging what it holds.`);
+        return 'offline';
+    }
+    let upstream; let ahead; let behind;
+    try {
+        upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], repo);
+        ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`], repo));
+        behind = Number(git(['rev-list', '--count', `HEAD..${upstream}`], repo));
+    } catch {
+        return 'no upstream';
+    }
+    try {
+        if (behind > 0 && ahead === 0) {
+            git(['merge', '--ff-only', '--quiet', upstream], repo);
+            console.log(`  ↻ binaries layer fast-forwarded by ${behind} commit(s) to ${upstream} (the other hosts' binaries)`);
+            return 'pulled';
+        }
+        if (behind > 0) {
+            try {
+                git(['rebase', '--quiet', upstream], repo);
+            } catch (e) {
+                try { git(['rebase', '--abort'], repo); } catch { /* nothing to abort */ }
+                console.log(`⚠️  The binaries layer has ${ahead} commit(s) of its own and is ${behind} behind ${upstream}; they could not be put on top (${firstLine(e)}).`);
+                console.log('   Packaging the layer as it is; bring it level with /tom_push_binaries.');
+                return 'diverged';
+            }
+            console.log(`  ↻ binaries layer: ${ahead} commit(s) of this host put on top of ${behind} from ${upstream}`);
+        }
+        if (ahead > 0) {
+            git(['push', '--quiet'], repo, { timeout: 120000 });
+            console.log(`  ⬆ binaries layer: ${ahead} unpushed commit(s) pushed to ${upstream}`);
+            return 'pushed';
+        }
+    } catch (e) {
+        console.log(`⚠️  The binaries layer could not be brought level (${firstLine(e)}): packaging what it holds.`);
+        return 'failed';
+    }
+    return 'level';
+}
+
+function firstLine(e) {
+    return String((e && (e.stderr || e.message)) || e).split('\n').map((l) => l.trim()).find(Boolean) || 'error';
+}
+
+module.exports = { DEFAULT_PLATFORMS, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed, sync };
 
 if (require.main === module) {
     const [cmd, ...argv] = process.argv.slice(2);
@@ -406,8 +473,11 @@ if (require.main === module) {
         process.exitCode = report(platformsArg(argv));
     } else if (cmd === 'unpushed') {
         process.exitCode = unpushed();
+    } else if (cmd === 'sync') {
+        sync();
+        process.exitCode = 0;
     } else {
-        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | report [--platforms a,b] | unpushed');
+        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | report [--platforms a,b] | unpushed | sync');
         process.exitCode = 2;
     }
 }

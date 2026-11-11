@@ -22,6 +22,9 @@
  *   BL-6 unpushed: silent when the layer is level (or absent); after refused pushes it names how many
  *        layer commits are not on the remote and how to push them, repeated in the closing lines of every
  *        install and VSIX script (sh and ps1), so a refusal printed mid-build is not the only trace
+ *   BL-7 sync (before packaging from the layer, vscimpb70): a layer behind its remote is fast-forwarded (the other
+ *        hosts' binaries), one with commits of its own is pushed, one that moved on both sides gets its commits put
+ *        on top and pushed; a rebase that conflicts is aborted and the layer packaged as it is; no layer: nothing
  *   FB-1 the fleet_hosts registry: entries, build flags, comments ignored, the block's end
  *   FB-2 platform names from uname, Windows paths, the remote build commands (nice on Linux; PowerShell
  *        -File -BinariesOnly with TOM_LAYER_FF on Windows), a probe without `$`
@@ -273,6 +276,57 @@ describe('fleet build', () => {
         for (const f of ['install_extension.ps1', 'compile_and_install.ps1']) {
             assert.match(read(f), /Write-TomLayerUnpushedWarning/, f);
         }
+    });
+
+    test('BL-7: sync brings the layer level before packaging', () => {
+        const t = makeLayer();
+        const other = path.join(t.root, 'other');
+        git(t.root, 'clone', '--quiet', t.remote, other);
+        const commitIn = (repo: string, file: string, text: string): void => {
+            fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+            fs.writeFileSync(path.join(repo, file), text);
+            git(repo, 'add', '.');
+            git(repo, 'commit', '--quiet', '-m', file);
+        };
+        const remoteLog = (): string => git(t.root, '--git-dir', t.remote, 'log', '--format=%s', 'main');
+        // Behind: fast-forwarded.
+        commitIn(other, 'tom/win32-x64/tom_bs.exe', 'w1');
+        git(other, 'push', '--quiet');
+        let r = runLayer(t, 'sync');
+        assert.equal(r.status, 0, r.stderr);
+        assert.match(r.stdout, /fast-forwarded by 1 commit/);
+        assert.ok(fs.existsSync(path.join(t.layerDir, 'win32-x64', 'tom_bs.exe')));
+        // Ahead (a refused push left it local): pushed.
+        commitIn(t.repo, `tom/${PLATFORM}/tom_bs`, 'l1');
+        r = runLayer(t, 'sync');
+        assert.match(r.stdout, /1 unpushed commit\(s\) pushed/);
+        assert.match(remoteLog(), new RegExp(`^tom/${PLATFORM}/tom_bs`));
+        // Both moved: this host's commit on top of the other's, then pushed.
+        git(other, 'pull', '--quiet');
+        commitIn(other, 'tom/win32-x64/tom_bs.exe', 'w2');
+        git(other, 'push', '--quiet');
+        commitIn(t.repo, `tom/${PLATFORM}/spec_checks`, 'l2');
+        r = runLayer(t, 'sync');
+        assert.match(r.stdout, /1 commit\(s\) of this host put on top of 1/);
+        assert.deepEqual(remoteLog().split('\n').slice(0, 2), [`tom/${PLATFORM}/spec_checks`, 'tom/win32-x64/tom_bs.exe']);
+        // A conflict: aborted, packaged as it is.
+        git(other, 'pull', '--quiet');
+        commitIn(other, `tom/${PLATFORM}/spec_checks`, 'theirs');
+        git(other, 'push', '--quiet');
+        commitIn(t.repo, `tom/${PLATFORM}/spec_checks`, 'mine');
+        r = runLayer(t, 'sync');
+        assert.equal(r.status, 0);
+        assert.match(r.stdout, /could not be put on top[\s\S]*Packaging the layer as it is/);
+        assert.equal(fs.readFileSync(path.join(t.layerDir, PLATFORM, 'spec_checks'), 'utf8'), 'mine', 'the rebase was aborted');
+        assert.equal(git(t.repo, 'status', '--porcelain'), '', 'nothing left half-done');
+        // No layer: nothing to do.
+        assert.equal(runLayer({ layerDir: path.join(t.root, 'missing'), bin: t.bin }, 'sync').status, 0);
+        // The install scripts sync before bundling.
+        const sh = fs.readFileSync(path.join(EXT, 'install_extension.sh'), 'utf8');
+        assert.ok(sh.indexOf('node scripts/binaries-layer.cjs sync') < sh.indexOf('node scripts/binaries-layer.cjs bundle'), 'sh: sync, then bundle');
+        const ps = fs.readFileSync(path.join(EXT, 'install_extension.ps1'), 'utf8');
+        assert.ok(ps.indexOf('node scripts/binaries-layer.cjs sync') > 0 && ps.indexOf('node scripts/binaries-layer.cjs sync') < ps.indexOf('node scripts/binaries-layer.cjs bundle'), 'ps1: sync, then bundle');
+        fs.rmSync(t.root, { recursive: true, force: true });
     });
 
     test('FB-1: the fleet_hosts registry', () => {

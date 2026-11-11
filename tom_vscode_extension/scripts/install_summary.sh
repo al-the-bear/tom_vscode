@@ -98,3 +98,21 @@ tom_print_layer_vsix_summary() {
 tom_print_layer_unpushed_warning() {
     ( cd "$1" && node scripts/binaries-layer.cjs unpushed ) || true
 }
+
+# The VSIX as the GitHub Release of tom_binaries (scripts/vsix-release.cjs).
+# tom_release_precheck <script dir> <no-release 0|1>: run at the start of a
+# create_*_vsix script; prints `ok <commit>` or `skip <why>`.
+tom_release_precheck() {
+    if [ "$2" = "1" ]; then echo "skip --no-release given"; return 0; fi
+    ( cd "$1" && node scripts/vsix-release.cjs precheck ) 2>/dev/null || echo "skip the tom_vscode checkout could not be checked"
+}
+
+# tom_release_publish <script dir> <vsix> <script name> <precheck line> <no-release 0|1>:
+# run at its end; uploads the VSIX and writes vscode_extension/vsix/README.md, or says why not.
+tom_release_publish() {
+    echo ""
+    echo "──────── The VSIX as a download (GitHub Release of tom_binaries) ────────"
+    local args=(publish --vsix "$2" --script "$3" --precheck "$4")
+    [ "$5" = "1" ] && args+=(--no-release)
+    ( cd "$1" && node scripts/vsix-release.cjs "${args[@]}" ) || true
+}

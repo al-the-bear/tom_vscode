@@ -100,3 +100,39 @@ function Write-TomLayerUnpushedWarning([string]$Dir) {
     foreach ($line in @($out)) { Write-Host "$line" -ForegroundColor Yellow }
     Pop-Location
 }
+
+# The VSIX as the GitHub Release of tom_binaries (scripts/vsix-release.cjs).
+# Get-TomReleasePrecheck: run at the start of a create_*_vsix script; answers
+# `ok <commit>` or `skip <why>`.
+function Get-TomReleasePrecheck([string]$Dir, [bool]$NoRelease) {
+    if ($NoRelease) { return 'skip --no-release given' }
+    Push-Location $Dir
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $line = (& node scripts/vsix-release.cjs precheck 2>$null) | Select-Object -First 1
+    } finally {
+        $ErrorActionPreference = $saved
+        Pop-Location
+    }
+    if (-not $line) { return 'skip the tom_vscode checkout could not be checked' }
+    return "$line"
+}
+
+# Publish-TomRelease: run at its end; uploads the VSIX and writes
+# vscode_extension/vsix/README.md in tom_binaries, or says why not.
+function Publish-TomRelease([string]$Dir, [string]$Vsix, [string]$Script, [string]$Precheck, [bool]$NoRelease) {
+    Write-Host ""
+    Write-Host "-------- The VSIX as a download (GitHub Release of tom_binaries) --------"
+    $releaseArgs = @('scripts/vsix-release.cjs', 'publish', '--vsix', "$Vsix", '--script', $Script, '--precheck', $Precheck)
+    if ($NoRelease) { $releaseArgs += '--no-release' }
+    Push-Location $Dir
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & node @releaseArgs
+    } finally {
+        $ErrorActionPreference = $saved
+        Pop-Location
+    }
+}

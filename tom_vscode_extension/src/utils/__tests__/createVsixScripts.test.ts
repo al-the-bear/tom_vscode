@@ -52,7 +52,7 @@ describe('create_vsix scripts', () => {
         assert.match(tail, /node scripts\/check-vsix-contents\.cjs "\$VSIX"/);
         assert.match(tail, /tom_bs and validate_codespecs are in this VSIX for \$PLATFORM only: a Dart binary/);
         assert.match(tail, /Built without the Dart binaries \(--no-dart\)/);
-        assert.match(tail, /tom_print_no_dart_warning "\$TOM_NO_DART_REASON" 1\nfi\necho "🕒 Finished at/, 'the red warning only when Dart was not found');
+        assert.match(tail, /tom_print_no_dart_warning "\$TOM_NO_DART_REASON" 1\nfi\n(tom_release_publish [^\n]*\n)?echo "🕒 Finished at/, 'the red warning only when Dart was not found');
         assert.doesNotMatch(sh, /--install-extension"? "\$/, 'nothing installed by the wrapper');
     });
 
@@ -157,7 +157,7 @@ describe('create_vsix scripts', () => {
         assert.match(cur, /Write-TomLayerVsixSummary \$ScriptDir ''/);
         assert.ok(!cur.includes('TOM_BRIDGE_FROM_SOURCE'));
         const fleetPs = read('create_fleetcompiled_vsix.ps1');
-        assert.match(fleetPs, /param\(\[switch\]\$DryRun, \[string\]\$Hosts\)/);
+        assert.match(fleetPs, /param\(\[switch\]\$DryRun, \[string\]\$Hosts(, \[switch\]\$NoRelease)?\)/);
         assert.match(fleetPs, /& node scripts\/fleet-binaries\.cjs @FleetArgs/);
         assert.match(fleetPs, /if \(\$DryRun\) \{ exit 0 \}/);
         assert.ok(fleetPs.includes('$env:TOM_LAYER_PLATFORMS = "$Platforms"'));

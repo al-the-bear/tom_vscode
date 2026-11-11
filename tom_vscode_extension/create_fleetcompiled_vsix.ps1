@@ -24,8 +24,15 @@
     It ends with the VSIX path, the template path, the binaries the VSIX
     carries per platform and each binary's build stamp and freshness
     (scripts/binaries-layer.cjs report).
+
+    Every run publishes the VSIX as the GitHub Release
+    `vscode-extension-latest` of al-the-bear/tom_binaries (asset
+    tom-ai-extension.vsix, with vscode_extension/vsix/README.md there;
+    scripts/vsix-release.cjs) when the tom_vscode checkout has no local change
+    and no unpushed commit; -NoRelease (--no-release) skips it. The VSIX also
+    stays here for a local install.
 #>
-param([switch]$DryRun, [string]$Hosts)
+param([switch]$DryRun, [string]$Hosts, [switch]$NoRelease)
 
 $ErrorActionPreference = "Stop"
 
@@ -35,8 +42,10 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 for ($i = 0; $i -lt $args.Count; $i++) {
     if ($args[$i] -eq '--dry-run') { $DryRun = $true }
     elseif ($args[$i] -eq '--hosts' -and $i + 1 -lt $args.Count) { $Hosts = $args[$i + 1]; $i++ }
-    else { Write-Error "Unknown option: $($args[$i]) (usage: create_fleetcompiled_vsix.ps1 [-DryRun | --dry-run] [-Hosts mbp,bigbeast,...])"; exit 1 }
+    elseif ($args[$i] -eq '--no-release') { $NoRelease = $true }
+    else { Write-Error "Unknown option: $($args[$i]) (usage: create_fleetcompiled_vsix.ps1 [-DryRun | --dry-run] [-Hosts mbp,bigbeast,...] [-NoRelease | --no-release])"; exit 1 }
 }
+$ReleasePrecheck = Get-TomReleasePrecheck $ScriptDir $NoRelease
 $FleetArgs = @()
 if ($DryRun) { $FleetArgs += '--dry-run' }
 if ($Hosts) { $FleetArgs += @('--hosts', $Hosts) }
@@ -67,4 +76,5 @@ try {
 }
 
 Write-TomLayerVsixSummary $ScriptDir "$Platforms"
+Publish-TomRelease $ScriptDir "$(Get-TomNewestVsix $ScriptDir)" 'create_fleetcompiled_vsix.ps1' $ReleasePrecheck $NoRelease
 Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"

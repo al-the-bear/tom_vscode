@@ -304,6 +304,12 @@ if ($Result -match "^[Yy]") {
         # layer, as its hosts left them (create_fleetcompiled_vsix.ps1,
         # create_currentbinaries_vsix.ps1); how current each is, is reported
         # there.
+        # The layer level with its remote first: the other hosts' binaries pulled, this
+        # host's unpushed ones pushed (scripts/binaries-layer.cjs sync; TOM_LAYER_NO_SYNC=1 skips it).
+        if ($env:TOM_LAYER_NO_SYNC -ne '1') {
+            Write-Host "Bringing the binaries layer level with its remote..."
+            Invoke-Native { node scripts/binaries-layer.cjs sync }
+        }
         Write-Host "Bundling tom_bs, validate_codespecs and spec_checks from the binaries layer..."
         if ($env:TOM_LAYER_PLATFORMS) {
             Invoke-Native { node scripts/binaries-layer.cjs bundle --platforms $env:TOM_LAYER_PLATFORMS }

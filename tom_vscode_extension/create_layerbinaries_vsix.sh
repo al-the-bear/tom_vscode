@@ -4,7 +4,7 @@
 # validate_codespecs taken from the binaries layer; build nothing with Dart,
 # install nothing.
 #
-#   ./create_layerbinaries_vsix.sh [--layer <dir>] [--clone]
+#   ./create_layerbinaries_vsix.sh [--layer <dir>] [--clone] [--no-release]
 #
 # For a machine without a Dart SDK: the extension is built from this source
 # (Node.js 20+, npm and git; no Dart step runs even when Dart is installed),
@@ -16,6 +16,11 @@
 #     https://github.com/al-the-bear/tom_binaries into .tom_binaries/ here
 #     (refreshed on the next run; gitignored, not in the VSIX).
 #
+# Every run publishes the VSIX as the GitHub Release `vscode-extension-latest` of
+# al-the-bear/tom_binaries (asset tom-ai-extension.vsix, with
+# vscode_extension/vsix/README.md there; scripts/vsix-release.cjs) when the
+# tom_vscode checkout has no local change and no unpushed commit; --no-release
+# skips it. The VSIX also stays here for a local install.
 # The layer holds each platform's latest build, published by its host
 # (compile_and_install.sh / create_fleetcompiled_vsix.sh). It ends with the
 # VSIX path, the template path, the binaries the VSIX carries per platform and
@@ -30,14 +35,17 @@ PUBLIC_REPO="https://github.com/al-the-bear/tom_binaries.git"
 
 LAYER=""
 CLONE=0
+NO_RELEASE=0
 while [ $# -gt 0 ]; do
     case "$1" in
+        --no-release) NO_RELEASE=1; shift ;;
         --layer) LAYER="${2:-}"; [ -n "$LAYER" ] || { echo "❌ --layer needs a directory"; exit 1; }; shift 2 ;;
         --clone) CLONE=1; shift ;;
-        -h|--help) sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "❌ Unknown option: $1 (usage: $0 [--layer <dir>] [--clone])"; exit 1 ;;
+        -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "❌ Unknown option: $1 (usage: $0 [--layer <dir>] [--clone] [--no-release])"; exit 1 ;;
     esac
 done
+RELEASE_PRECHECK="$(tom_release_precheck "$SCRIPT_DIR" "$NO_RELEASE")"
 
 if [ -z "$LAYER" ] && [ "$CLONE" != "1" ] && [ -d "$SCRIPT_DIR/../../../tom_binaries/tom" ]; then
     LAYER="$SCRIPT_DIR/../../../tom_binaries"
@@ -72,4 +80,5 @@ export TOM_NO_DART_REASON="create_layerbinaries_vsix: the binaries come from the
 "$SCRIPT_DIR/install_extension.sh"
 
 tom_print_layer_vsix_summary "$SCRIPT_DIR" ""
+tom_release_publish "$SCRIPT_DIR" "$(tom_newest_vsix "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

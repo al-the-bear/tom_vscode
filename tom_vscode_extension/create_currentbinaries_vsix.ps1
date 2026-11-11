@@ -21,12 +21,24 @@
     report). A platform whose binaries are older is rebuilt by its own host
     (compile_and_install there, or create_fleetcompiled_vsix on a reconciled
     fleet).
+
+    Every run publishes the VSIX as the GitHub Release
+    `vscode-extension-latest` of al-the-bear/tom_binaries (asset
+    tom-ai-extension.vsix, with vscode_extension/vsix/README.md there;
+    scripts/vsix-release.cjs) when the tom_vscode checkout has no local change
+    and no unpushed commit; -NoRelease (--no-release) skips it. The VSIX also
+    stays here for a local install.
 #>
+param([switch]$NoRelease)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptDir 'scripts/install_summary.ps1')
-if ($args.Count -gt 0) { Write-Error "Unknown option: $($args[0]) (usage: create_currentbinaries_vsix.ps1)"; exit 1 }
+foreach ($Arg in $args) {
+    if ($Arg -eq '--no-release') { $NoRelease = $true }
+    else { Write-Error "Unknown option: $Arg (usage: create_currentbinaries_vsix.ps1 [-NoRelease | --no-release])"; exit 1 }
+}
+$ReleasePrecheck = Get-TomReleasePrecheck $ScriptDir $NoRelease
 
 Push-Location $ScriptDir
 $ErrorActionPreference = "Continue"
@@ -56,4 +68,5 @@ try {
 }
 
 Write-TomLayerVsixSummary $ScriptDir ''
+Publish-TomRelease $ScriptDir "$(Get-TomNewestVsix $ScriptDir)" 'create_currentbinaries_vsix.ps1' $ReleasePrecheck $NoRelease
 Write-Host "Finished at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
