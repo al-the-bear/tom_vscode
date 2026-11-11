@@ -40,6 +40,7 @@ import { PromptQueueManager } from '../managers/promptQueueManager';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
 import { openProcessEditor } from './processEditor-handler';
+import { handleRunMessage, type RunActionResult, type RunStorePort, type RunUiPort } from '../services/processRunActions';
 
 export const PROCESS_VIEW_ID = 'tomAi.process';
 
@@ -108,7 +109,8 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             quest: store.activeQuest,
             // The run this window works on, and how many the quest has (vscimpb29): the view names it when there are several.
             run: store.currentRun,
-            runCount: store.runs().length,
+            // The run list at the top: the last changed first, the current one marked (vscimpb42).
+            runs: store.runs().map((r) => ({ run: r.run, process: r.process, position: r.position, changed: r.changed, current: r.current })),
             // Every level of the quest's process stack, bottom first (the running one is the last).
             levels: levels.map((l, i) => {
                 const def = store.entry(l.process)?.definition ?? null;
@@ -161,8 +163,15 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         this.send();
     }
 
-    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind }): Promise<void> {
+    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind; run?: string }): Promise<void> {
         const store = await ProcessStateStore.ready;
+        // The run list: select, create (+), delete (trash).
+        const runs = await handleRunMessage(msg, liveRunStore(store), LIVE_RUN_UI);
+        if (runs.handled) {
+            if (runs.result && !runs.result.ok) { void vscode.window.showWarningMessage(`Process runs: ${runs.result.error}`); }
+            this.send();
+            return;
+        }
         switch (msg.type) {
             case 'ready':
                 this.send();
@@ -252,6 +261,41 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         }
     }
 }
+
+/** The run actions' store: the process store, a new run created and selected in this window. */
+export function liveRunStore(store: ProcessStateStore): RunStorePort {
+    const result = (r: { ok: boolean; error?: string }): RunActionResult => (r.ok ? { ok: true } : { ok: false, error: r.error ?? 'failed' });
+    return {
+        runs: () => store.runs(),
+        processes: () => store.list().filter((e) => !!e.definition).map((e) => ({ id: e.id, name: e.definition?.name || e.id })),
+        selectRun: (run) => result(store.selectRun(run)),
+        createRun: (run, process) => result(store.createRun(run, process, 'user', true)),
+        deleteRuns: (runs) => result(store.deleteRuns(runs)),
+    };
+}
+
+/** The run actions' pickers. */
+const LIVE_RUN_UI: RunUiPort = {
+    inputRunName: (validate) => Promise.resolve(vscode.window.showInputBox({
+        title: 'New process run',
+        prompt: 'The run\'s name — a process position of its own in this quest (e.g. a change id). It becomes this window\'s run.',
+        placeHolder: 'e.g. chg-42',
+        validateInput: validate,
+    })),
+    pickProcess: async (items) => {
+        const picked = await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, description: i.description, id: i.id })), {
+            title: 'The process the run follows', placeHolder: 'A process, or none yet',
+        });
+        return picked === undefined ? undefined : (picked.id || null);
+    },
+    pickRuns: async (items) => {
+        const picked = await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, description: i.description, run: i.run })), {
+            title: 'Delete process runs', placeHolder: 'The runs to delete (default is never deleted)', canPickMany: true,
+        });
+        return picked?.map((p) => p.run);
+    },
+    confirm: async (message, detail, button) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, button)) === button,
+};
 
 /** A phase's or step's conditional fields as the view shows them: optional, the condition, how it stands now. */
 interface ConditionNote { optional: boolean; when: string; verdict: string }

@@ -14,6 +14,10 @@
  *   RN-5 Proceed in a run: its items carry the run; another run's Proceed is not held up by them; when the queue
  *        reaches the marker, it moves the run it was queued for — also while the window works on another run
  *   RN-6 a queued position keeps its level and run in the entry file (parseProcessRun)
+ *   RN-7 the PROCESS view's run messages (processPanel-handler liveRunStore + processRunActions): + creates and
+ *        selects a run (the name checked against the rules and the runs there are, a process or none), a click
+ *        selects one, trash offers the runs but `default` and deletes the chosen ones after the confirmation (a
+ *        deleted current run leaves the window on `default`); the list is the last changed first, the current marked
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -63,6 +67,8 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, installProcessMoveMarkers } from '../../services/processActionService.js';
 import { parseProcessRun } from '../../services/processRunContext.js';
+import { handleRunMessage, type RunUiPort } from '../../services/processRunActions.js';
+import { liveRunStore } from '../../handlers/processPanel-handler.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
 import { DEFAULT_RUN, runNameError, runOfStateFile, runStateFileName } from '../../utils/processRuns.js';
 import {
@@ -245,5 +251,58 @@ describe('process runs', () => {
         assert.deepEqual([run?.level, run?.run, run?.proceedId], [1, 'chg9', 'proceed-x']);
         const plain = parseProcessRun({ quest: QUEST, state: { process: 'main' }, run: 'default' });
         assert.deepEqual([plain?.level, plain?.run], [undefined, undefined], 'default is no run of its own');
+    });
+
+    test('RN-7: the PROCESS view\'s run messages', async () => {
+        clean();
+        const asked: Json[] = [];
+        let answer: { name?: string; process?: string | null; runs?: string[]; confirm?: boolean } = {};
+        let validate: ((v: string) => string | undefined) | undefined;
+        const ui: RunUiPort = {
+            inputRunName: async (v) => { validate = v; return answer.name; },
+            pickProcess: async (items) => { asked.push({ processes: items.map((i) => i.id) }); return answer.process; },
+            pickRuns: async (items) => { asked.push({ runs: items.map((i) => i.run) }); return answer.runs; },
+            confirm: async (message) => { asked.push({ confirm: message }); return answer.confirm === true; },
+        };
+        const live = liveRunStore(store());
+        // +: a name, a process, created and selected.
+        answer = { name: 'chg7', process: 'change' };
+        assert.deepEqual(await handleRunMessage({ type: 'createRun' }, live, ui), { handled: true, result: { ok: true } });
+        assert.deepEqual(asked.shift(), { processes: ['', 'change', 'main'] }, 'none, then the processes');
+        assert.equal(store().currentRun, 'chg7');
+        assert.equal(store().state.process, 'change');
+        // + without a process (its name checked against the runs there are); a dismissed picker creates nothing.
+        answer = { name: 'chg8', process: null };
+        assert.deepEqual((await handleRunMessage({ type: 'createRun' }, live, ui)), { handled: true, result: { ok: true } });
+        asked.length = 0;
+        assert.equal(validate!('default'), 'every quest has the run "default" already');
+        assert.equal(validate!('chg7'), 'The quest has a run "chg7" already.');
+        assert.match(validate!('bad name') ?? '', /no run name/);
+        assert.equal(validate!('chg8'), undefined);
+        assert.equal(store().state.process, '', 'no process yet');
+        answer = { name: 'chg9', process: undefined };
+        assert.deepEqual(await handleRunMessage({ type: 'createRun' }, live, ui), { handled: true, result: undefined });
+        asked.length = 0;
+        assert.deepEqual(store().runs().map((r) => r.run).sort(), ['chg7', 'chg8', 'default']);
+        assert.equal(store().runs().find((r) => r.current)?.run, 'chg8', 'the current one marked');
+        // A click selects.
+        assert.deepEqual(await handleRunMessage({ type: 'selectRun', run: 'chg7' }, live, ui), { handled: true, result: { ok: true } });
+        assert.equal(store().currentRun, 'chg7');
+        await wait(15);
+        assert.equal(store().apply({ step: 'build' }, 'user').ok, true);
+        assert.equal(store().runs()[0].run, 'chg7', 'the last changed first');
+        // Trash: the runs but default, then the confirmation.
+        answer = { runs: ['chg7', 'chg8'], confirm: false };
+        assert.deepEqual(await handleRunMessage({ type: 'deleteRuns' }, live, ui), { handled: true, result: undefined });
+        assert.deepEqual(asked.shift(), { runs: ['chg7', 'chg8'] });
+        assert.match(asked.shift().confirm, /Delete 2 runs: chg7, chg8\?/);
+        assert.equal(store().runs().length, 3, 'not confirmed: nothing deleted');
+        answer = { runs: ['chg7', 'chg8'], confirm: true };
+        assert.deepEqual(await handleRunMessage({ type: 'deleteRuns' }, live, ui), { handled: true, result: { ok: true } });
+        assert.deepEqual(store().runs().map((r) => r.run), ['default']);
+        assert.equal(store().currentRun, DEFAULT_RUN, 'the deleted current run leaves default');
+        assert.deepEqual(await handleRunMessage({ type: 'deleteRuns' }, live, ui), { handled: true, result: { ok: false, error: 'the quest has no run besides "default", which is never deleted' } });
+        assert.deepEqual(await handleRunMessage({ type: 'action' }, live, ui), { handled: false });
+        clean();
     });
 });

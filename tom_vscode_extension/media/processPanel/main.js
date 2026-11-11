@@ -237,6 +237,40 @@
             }).join('') + '</ul></details>';
     }
 
+    /** When a run's state file was last written, as `YYYY-MM-DD HH:MM` local time; '' when never. */
+    function changedText(iso) {
+        if (!iso) { return ''; }
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) { return ''; }
+        var two = function (n) { return (n < 10 ? '0' : '') + n; };
+        return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes());
+    }
+
+    /** The run list at the top: every run with its process and position, the current one marked; + and trash. */
+    function runList(c) {
+        var runs = c.runs || [];
+        var deletable = runs.some(function (r) { return r.run !== 'default'; });
+        var rows = runs.map(function (r) {
+            var where = r.process ? r.process + (r.position ? ' — ' + r.position : '') : 'no process yet';
+            var when = changedText(r.changed);
+            return '<button class="run-item' + (r.current ? ' current' : '') + '" data-run-select="' + esc(r.run) + '"'
+                + ' title="' + esc(r.current ? 'This window works on this run' : 'Work on this run in this window') + (when ? ' — last changed ' + esc(when) : '') + '">'
+                + '<span class="codicon codicon-' + (r.current ? 'circle-filled' : 'circle-outline') + '"></span>'
+                + '<span class="run-name">' + esc(r.run) + '</span>'
+                + '<span class="run-where">' + esc(where) + '</span>'
+                + (when ? '<span class="run-when">' + esc(when) + '</span>' : '')
+                + '</button>';
+        }).join('');
+        return '<div class="runs">'
+            + '<div class="runs-head"><span class="codicon codicon-run-all"></span> Runs'
+            + '<span class="spacer"></span>'
+            + '<button class="icon" data-run-create="1" title="New run: a name, then the process it follows (optional); it becomes this window\'s run"><span class="codicon codicon-add"></span></button>'
+            + '<button class="icon" data-run-delete="1" title="Delete runs (default is never deleted)"' + (deletable ? '' : ' disabled') + '><span class="codicon codicon-trash"></span></button>'
+            + '</div>'
+            + '<div class="run-list">' + (rows || '<span class="muted">No runs.</span>') + '</div>'
+            + '</div>';
+    }
+
     function iteration(level, node, n, alwaysRepeatable) {
         var repeatable = node && (node.repeatable === true || !!alwaysRepeatable);
         var max = node && node.repeatable === true && node.maxIterations;
@@ -290,9 +324,8 @@
         }
         html = top + (c.state.process && c.definition ? actionBar(c.moves) : '') + html;
         // Several runs of the quest (process positions of their own): which one this view shows and moves.
-        if (c.run && (c.run !== 'default' || (c.runCount || 0) > 1)) {
-            html = '<div class="run-line" title="The run of the quest this window works on (tomAi_selectProcessRun; ' + esc(String(c.runCount || 1)) + ' runs)"><span class="codicon codicon-run-all"></span> Run: <b>' + esc(c.run) + '</b></div>' + html;
-        }
+        // The quest's runs (process positions of their own), the last changed first: click one to work on it.
+        html = runList(c) + html;
         html += nested
             ? row('Process', '<span class="lv-name">' + esc(running.name) + '</span> <code>' + esc(running.process) + '</code>', help('process') + edit, 'process', c.description)
             : row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),
@@ -362,7 +395,13 @@
         var target = /** @type {HTMLElement} */ (e.target);
         var btn = target && target.closest ? /** @type {HTMLButtonElement|null} */ (target.closest('button')) : null;
         if (!btn || btn.disabled) { return; }
-        if (btn.dataset.move) {
+        if (btn.dataset.runSelect !== undefined) {
+            if (!btn.classList.contains('current')) { post({ type: 'selectRun', run: btn.dataset.runSelect }); }
+        } else if (btn.dataset.runCreate) {
+            post({ type: 'createRun' });
+        } else if (btn.dataset.runDelete) {
+            post({ type: 'deleteRuns' });
+        } else if (btn.dataset.move) {
             post({ type: 'action', kind: btn.dataset.move, level: btn.dataset.level || undefined });
         } else if (btn.dataset.templates) {
             post({ type: 'openTemplates' });

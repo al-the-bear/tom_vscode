@@ -26,8 +26,10 @@
  *   PW-12 PROCESS view: at a user action a banner says it is the user's turn, what to do (the description,
  *         in a box two lines taller than 30vh that scrolls with visible scrollbars) and that Proceed confirms it; the Proceed button shows a person; user actions are marked 👤 in the
  *         step and sub-step dropdowns
- *   PW-16 PROCESS view: with several runs of the quest (vscimpb29), or a run other than `default`, a line names
- *         the run the view shows; one `default` run alone shows none
+ *   PW-16 PROCESS view: the run list at the top (vscimpb42) — every run in the order the host sends (the last
+ *         changed first) with its process and position (or "no process yet") and when it last changed, the current
+ *         one marked; a click on another posts selectRun, on the current one nothing; + posts createRun, trash
+ *         posts deleteRuns and is disabled while `default` is the only run
  *   PW-17 PROCESS view: a phase's and a step's condition note (optional, runs only when …, how it stands now), ⁇ on
  *         optional / conditional entries and "left out" on left-out steps in the dropdowns, the Left out list with
  *         reason and who, and a Leave out button (with its level) that posts its move
@@ -136,15 +138,37 @@ describe('PROCESS view', () => {
         assert.deepEqual(posted.pop(), { type: 'openEditor', id: 'flow' });
     });
 
-    test('PW-16: the run', () => {
-        const { w } = setup('processPanel');
-        send(w, panelState({ run: 'default', runCount: 1 }));
-        assert.equal(w.document.querySelector('.run-line'), null, 'the default run alone: no line');
-        send(w, panelState({ run: 'default', runCount: 2 }));
-        assert.match(w.document.querySelector('.run-line').textContent, /Run: default/);
-        send(w, panelState({ run: 'chg1', runCount: 2 }));
-        assert.match(w.document.querySelector('.run-line').textContent, /Run: chg1/);
-        assert.match(w.document.querySelector('.run-line').title, /2 runs/);
+    test('PW-16: the run list', () => {
+        const { w, posted } = setup('processPanel');
+        const runs = [
+            { run: 'chg1', process: 'flow', position: 'Build › Review', changed: '2026-11-11T08:05:00.000Z', current: true },
+            { run: 'default', process: 'flow', position: 'Build › Code', changed: '2026-11-10T19:00:00.000Z', current: false },
+            { run: 'idea', process: '', position: '', changed: null, current: false },
+        ];
+        send(w, panelState({ run: 'chg1', runs }));
+        const items = $(w, '.run-list .run-item');
+        assert.deepEqual(items.map((i) => i.dataset.runSelect), ['chg1', 'default', 'idea'], 'in the order sent');
+        assert.deepEqual(items.map((i) => i.classList.contains('current')), [true, false, false]);
+        assert.match(items[0].textContent, /chg1flow — Build › Review2026-11-11 \d\d:05/);
+        assert.match(items[2].textContent, /no process yet/);
+        assert.equal(items[2].querySelector('.run-when'), null, 'never changed: no time');
+        assert.ok(items[0].querySelector('.codicon-circle-filled') && items[1].querySelector('.codicon-circle-outline'));
+        assert.ok(w.document.querySelector('.runs').compareDocumentPosition(w.document.querySelector('.actions')) & 4, 'above the action bar');
+        const before = posted.length;
+        items[0].click();
+        assert.equal(posted.length, before, 'the current run: nothing');
+        items[1].click();
+        assert.deepEqual(posted.at(-1), { type: 'selectRun', run: 'default' });
+        w.document.querySelector('[data-run-create]').click();
+        assert.deepEqual(posted.at(-1), { type: 'createRun' });
+        const trash = w.document.querySelector('[data-run-delete]');
+        assert.equal(trash.disabled, false);
+        trash.click();
+        assert.deepEqual(posted.at(-1), { type: 'deleteRuns' });
+        send(w, panelState({ run: 'default', runs: [{ run: 'default', process: 'flow', position: 'Build › Code', changed: null, current: true }] }));
+        assert.equal(w.document.querySelector('[data-run-delete]').disabled, true, 'only default: nothing to delete');
+        assert.equal($(w, '.run-list .run-item').length, 1);
+        assert.match(w.document.querySelector('.runs').textContent, /Runs/);
     });
 
     test('PW-3: no quest', () => {
