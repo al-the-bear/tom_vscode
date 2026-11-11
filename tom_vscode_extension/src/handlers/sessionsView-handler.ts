@@ -218,12 +218,19 @@ async function removeUnusedSessions(): Promise<void> {
         void vscode.window.showWarningMessage('The process definitions are not loaded yet, so it is unknown which sessions they name. Try again in a moment.');
         return;
     }
+    // Why: a run's sessions (`<session>@<run>`) are kept while their run exists; without the runs they would look unused.
+    const runs = processes.runs().map((r) => r.run);
+    if (runs.length === 0) {
+        void vscode.window.showWarningMessage('The quest\'s process runs could not be read, so it is unknown which run sessions are in use. Try again in a moment.');
+        return;
+    }
     const folder = sessionsFolder(quest);
     const plan = planUnusedSessions({
         rows: sessionRows(listSessions(folder)),
         queueItems: queue.items,
         queueDefaultSession: queue.defaultAgentSdkSession,
         processes: [...processes.definitions().values()],
+        runs,
     });
     const namedKept = plan.kept.filter((k) => k.name !== 'default' && k.name !== 'chat');
     if (plan.offered.length === 0) {

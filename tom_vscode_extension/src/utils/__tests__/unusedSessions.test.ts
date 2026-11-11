@@ -7,6 +7,9 @@
  *        session, a session another one is based on, a temporary session
  *   US-3 kept: what a process definition names at any level (process, phase, step, gate, post-gate,
  *        sub-step), as name or base; a name with placeholders keeps every session it can become
+ *   US-5 a process run's session (`<name>@<run>`, vscimpb44) is kept while `<name>` is a session the process names
+ *        and its run exists (`named by the process "p" (work), run chg1`); once the run is gone it is offered;
+ *        a plain session is judged as before; an unnamed base offers it
  *   US-4 the action is a title-bar command of the SESSIONS view, registered by the handler
  */
 
@@ -22,12 +25,13 @@ import { planUnusedSessions, type SessionUsingItem } from '../unusedSessions';
 
 const rec = (name: string, extra: Partial<SessionRecord> = {}): SessionRecord => ({ name, mode: 'continue', createdAt: '2026-11-01T10:00:00Z', ...extra });
 
-function plan(records: SessionRecord[], opts: { items?: SessionUsingItem[]; defaultSession?: string; processes?: ProcessDefinition[] } = {}) {
+function plan(records: SessionRecord[], opts: { items?: SessionUsingItem[]; defaultSession?: string; processes?: ProcessDefinition[]; runs?: string[] } = {}) {
     return planUnusedSessions({
         rows: sessionRows(records),
         queueItems: opts.items ?? [],
         ...(opts.defaultSession ? { queueDefaultSession: opts.defaultSession } : {}),
         processes: opts.processes ?? [],
+        runs: opts.runs ?? ['default'],
     });
 }
 
@@ -92,6 +96,29 @@ describe('remove unused sessions: the plan', () => {
         assert.ok(reasonOf(p, 'post-2'));
         assert.deepEqual(p.offered.map((o) => o.name).sort(), ['todo-p1s1ss', 'unrelated'],
             'a placeholder stands for at least one character');
+    });
+
+    test('US-5: a process run\'s sessions', () => {
+        const def = {
+            id: 'p',
+            session: 'work',
+            phases: [{ id: 'p1', steps: [{ id: 's1', session: { name: 'step-${step-iteration}', basedOn: 'seed' } }] }],
+        } as unknown as ProcessDefinition;
+        const records = [rec('work'), rec('work@chg1'), rec('work@chg2'), rec('step-3@chg1'), rec('seed@chg1'), rec('other@chg1'), rec('lone')];
+        const live = plan(records, { processes: [def], runs: ['default', 'chg1'] });
+        assert.equal(reasonOf(live, 'work'), 'named by the process "p" (work)', 'a plain session as before');
+        assert.equal(reasonOf(live, 'work@chg1'), 'named by the process "p" (work), run chg1');
+        assert.equal(reasonOf(live, 'step-3@chg1'), 'named by the process "p" (step-${step-iteration}), run chg1');
+        assert.equal(reasonOf(live, 'seed@chg1'), 'the base of a session of the process "p", run chg1');
+        assert.deepEqual(live.offered.map((o) => o.name).sort(), ['lone', 'other@chg1', 'work@chg2'],
+            'a deleted run\'s session, and a run session the process does not name');
+        const gone = plan(records, { processes: [def], runs: ['default'] });
+        assert.equal(reasonOf(gone, 'work'), 'named by the process "p" (work)');
+        assert.deepEqual(gone.offered.map((o) => o.name).sort(), ['lone', 'other@chg1', 'seed@chg1', 'step-3@chg1', 'work@chg1', 'work@chg2'],
+            'the run deleted: its sessions are offered');
+        const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'sessionsView-handler.ts'), 'utf8');
+        assert.match(handler, /const runs = processes\.runs\(\)\.map\(\(r\) => r\.run\);/);
+        assert.match(handler, /^\s+runs,$/m, 'the handler passes the quest\'s runs');
     });
 
     test('US-4: a title-bar command of the SESSIONS view', () => {

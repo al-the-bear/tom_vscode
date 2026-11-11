@@ -11,7 +11,9 @@
  * - a session a process definition names — at the process, a phase, a step,
  *   a gate, a post-gate step or a sub-step, as its name or its base; a name
  *   with placeholders (`p2s${step-iteration}-todo`) keeps every session it
- *   can become;
+ *   can become; a process run's session (`<name>@<run>`, src/utils/runSessions.ts)
+ *   when its `<name>` is such a session and the run `<run>` still exists
+ *   (a deleted run's sessions are offered);
  * - a session another session is based on (deleting it is refused);
  * - a temporary session (`tmp-*`), which goes with its item.
  *
@@ -21,6 +23,8 @@
 
 import type { ProcessDefinition, ProcessSessionSpec } from './processDefinition';
 import type { SessionRow } from './sessionsViewRows';
+import { DEFAULT_RUN } from './processRuns';
+import { sessionBaseName, sessionRun } from './runSessions';
 
 /** What the plan needs of a queue item. */
 export interface SessionUsingItem {
@@ -35,6 +39,8 @@ export interface UnusedSessionsInput {
     queueItems: readonly SessionUsingItem[];
     queueDefaultSession?: string;
     processes: readonly ProcessDefinition[];
+    /** The quest's process runs (`default` and the others): a run's sessions are kept while it exists. */
+    runs: readonly string[];
 }
 
 export interface OfferedSession {
@@ -114,7 +120,19 @@ function keepReason(row: SessionRow, input: UnusedSessionsInput, uses: ReturnTyp
     if (input.queueDefaultSession === row.name) { return 'the queue\'s default session'; }
     const item = input.queueItems.find((i) => i.status !== 'sent' && (i.session === row.name || i.sessionCreate?.basedOn === row.name));
     if (item) { return `queue item ${item.id} (${item.status}) ${item.session === row.name ? 'runs in it' : 'is created from it'}`; }
-    return uses.find((u) => u.test(row.name))?.reason;
+    return processReason(row.name, input.runs, uses);
+}
+
+/**
+ * Why a process keeps session `name`: a name its definition writes, or — for a
+ * run's session `<name>@<run>` — `<name>` while the run `<run>` exists.
+ */
+function processReason(name: string, runs: readonly string[], uses: ReturnType<typeof processUses>): string | undefined {
+    const run = sessionRun(name);
+    if (run === DEFAULT_RUN) { return uses.find((u) => u.test(name))?.reason; }
+    if (!runs.includes(run)) { return undefined; }
+    const reason = uses.find((u) => u.test(sessionBaseName(name)))?.reason;
+    return reason ? `${reason}, run ${run}` : undefined;
 }
 
 export function planUnusedSessions(input: UnusedSessionsInput): UnusedSessionsPlan {
