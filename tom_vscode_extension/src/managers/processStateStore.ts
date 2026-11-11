@@ -29,6 +29,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../utils/processRepository';
 import { currentProcessRun } from '../services/processRunContext';
 import { DEFAULT_RUN, normalizeRun, runNameError } from '../utils/processRuns';
+import { sessionsOfRuns } from '../utils/runSessions';
 import type { ProcessRunEntry } from '../utils/processRepository';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -232,6 +233,33 @@ export class ProcessStateStore {
         return select ? this.selectRun(run) : { ok: true, state: repo.readState(this.quest, run) };
     }
 
+    /** The sessions runs of the quest use (`<session>@<run>`, src/utils/runSessions.ts), by name. */
+    runSessions(runs: readonly string[]): string[] {
+        if (!this.quest) { return []; }
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const memory = (require('../services/memory-service.js') as typeof import('../services/memory-service')).TwoTierMemoryService.instance;
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const sessions = (require('../services/agentSdkSessionStore.js') as typeof import('../services/agentSdkSessionStore'));
+            return sessionsOfRuns(sessions.listSessions(memory.agentSdkSessionsFolder(this.quest)).map((r) => r.name), runs);
+        } catch {
+            return [];
+        }
+    }
+
+    /** Delete the sessions of runs completely (file, conversation, storage, quest memory); answers their names. */
+    deleteRunSessions(runs: readonly string[]): string[] {
+        const names = this.runSessions(runs);
+        if (!names.length) { return []; }
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const memory = (require('../services/memory-service.js') as typeof import('../services/memory-service')).TwoTierMemoryService.instance;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { discardSessionCompletely } = require('../services/temporarySessions.js') as typeof import('../services/temporarySessions');
+        const folder = memory.agentSdkSessionsFolder(this.quest);
+        for (const name of names) { discardSessionCompletely(folder, this.quest, name); }
+        return names;
+    }
+
     /** Delete runs of the quest (`default` is refused); a deleted current run leaves this window on `default`. */
     deleteRuns(runs: readonly string[]): { ok: true; deleted: string[] } | { ok: false; error: string } {
         const repo = this.repo();
@@ -402,8 +430,14 @@ export class ProcessStateStore {
     variables(): Record<ProcessVariableKey, string> & Record<string, string> {
         const v = this.viewed();
         // `run`: the run the prompt runs for (a queued Proceed's), else the window's.
+        const run = this.viewedRun();
+        return { ...processVariableValues(v.def, v.state, v.description, run), ...ioVariables(v.state), run };
+    }
+
+    /** The run a prompt runs for: a queued Proceed's (while it is sent), else the window's. */
+    viewedRun(): string {
         const run = currentProcessRun();
-        return { ...processVariableValues(v.def, v.state, v.description), ...ioVariables(v.state), run: run && run.quest === this.quest ? normalizeRun(run.run) : this.run };
+        return run && run.quest === this.quest ? normalizeRun(run.run) : this.run;
     }
 
     /**
@@ -414,7 +448,7 @@ export class ProcessStateStore {
     contextBlock(): string {
         const v = this.viewed();
         const run = currentProcessRun();
-        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest, this.conditionOptions(v.state));
+        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest, this.conditionOptions(v.state), this.viewedRun());
         if (!block) { return block; }
         const parents = parentProcessLines(this.levels, (l) => this.positionOf(l));
         return [...(parents.length ? [...parents, ''] : []), block, ...this.suggestionLines(v.def, v.state)].join('\n');
@@ -425,7 +459,7 @@ export class ProcessStateStore {
         const level = this.levels[index];
         if (!level) { return ''; }
         const e = this.entry(level.process);
-        return processContextBlock(e?.definition ?? null, level, e?.description ?? '');
+        return processContextBlock(e?.definition ?? null, level, e?.description ?? '', false, {}, this.run);
     }
 
     private positionOf(level: ProcessState): string {
@@ -453,7 +487,7 @@ export class ProcessStateStore {
         const levels = this.levels;
         for (let i = levels.length - 2; i >= 0; i--) {
             const def = this.entry(levels[i].process)?.definition ?? null;
-            const spec = effectiveSession(def, levels[i]);
+            const spec = effectiveSession(def, levels[i], this.run);
             if (spec) { return spec; }
         }
         return null;

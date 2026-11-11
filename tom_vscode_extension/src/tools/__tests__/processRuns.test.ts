@@ -23,6 +23,10 @@
  *        selecting a run restores its values (also in the template values); a queued Proceed of a run reads its
  *        run's set while it is sent; withRun of the process store and the tools' `run` read and write a named
  *        run's set (an unknown run refused); the built-ins stay one per window; deleting a run removes its file
+ *   RN-9 the run's sessions (vscimpb44): a Proceed in two runs of one process queues its prompt in two sessions,
+ *        `<session>@<run>` (and `default` keeps the plain name), each created; a based-on session the process names
+ *        belongs to the run too; the `session` variable says it; an item queued while a run's Proceed runs takes the
+ *        run's session, `chat` stays shared; deleting the runs keeps their sessions (named) or deletes them on ask
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -53,6 +57,14 @@ for (const id of ['main', 'change']) {
     ].join('\n'));
     put(`_ai/processes/${id}/${id}.md`, `# ${id}\n`);
 }
+// A process that names its sessions: `work`, and `review` based on `work` (vscimpb44).
+put('_ai/processes/sess/sess.process.yaml', [
+    'id: sess', 'name: sess', 'session: work', 'phases:', '  - id: p1', '    steps:',
+    '      - id: plan', '        name: Plan', '      - id: check', '        name: Check',
+    '        session:', '          name: review', '          basedOn: work', '          mode: per-prompt',
+    '    gate:', '      id: g1', '',
+].join('\n'));
+put('_ai/processes/sess/sess.md', '# sess\n');
 put('.tom/tom_vscode_extension.json', '{}\n');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
@@ -274,7 +286,7 @@ describe('process runs', () => {
         // +: a name, a process, created and selected.
         answer = { name: 'chg7', process: 'change' };
         assert.deepEqual(await handleRunMessage({ type: 'createRun' }, live, ui), { handled: true, result: { ok: true } });
-        assert.deepEqual(asked.shift(), { processes: ['', 'change', 'main'] }, 'none, then the processes');
+        assert.deepEqual(asked.shift(), { processes: ['', 'change', 'main', 'sess'] }, 'none, then the processes');
         assert.equal(store().currentRun, 'chg7');
         assert.equal(store().state.process, 'change');
         // + without a process (its name checked against the runs there are); a dismissed picker creates nothing.
@@ -365,6 +377,54 @@ describe('process runs', () => {
         assert.equal(fs.existsSync(chat.runFilePath('chv2')), false);
         assert.equal(chat.getRaw('design'), 'D');
         chat.remove('design');
+        clean();
+    });
+
+    test('RN-9: a run\'s own sessions', async () => {
+        clean();
+        const sessionsDir = path.join(QDIR, 'history');
+        const sessionFile = (name: string): boolean => fs.readdirSync(sessionsDir, { recursive: true }).some((f) => String(f).endsWith(`${name}.session.json`));
+        const proceed = async (): Promise<QueuedPrompt> => {
+            const r = await confirmProcessAction('proceed', undefined, '');
+            assert.equal(r.ok, true, JSON.stringify(r));
+            return queue().items.filter((i) => !i.processMove).at(-1)!;
+        };
+        // The default run: the plain name.
+        assert.equal(store().apply({ process: 'sess' }, 'user').ok, true);
+        assert.equal((await proceed()).session, 'work');
+        for (const i of [...queue().items]) { queue().remove(i.id); }
+        // Two runs of the same process: two sessions.
+        for (const run of ['ss1', 'ss2']) {
+            assert.equal(store().createRun(run, 'sess', 'user', true).ok, true);
+            assert.equal(store().variables().session, `work@${run}`, 'the session variable says it');
+            const item = await proceed();
+            assert.equal(item.session, `work@${run}`);
+            assert.equal(item.processRun?.run, run);
+            assert.ok(sessionFile(`work@${run}`), `work@${run} created`);
+            for (const i of [...queue().items]) { queue().remove(i.id); }
+        }
+        // A based-on session the process names belongs to the run too.
+        assert.equal(store().apply({ step: 'check' }, 'user').ok, true);
+        const review = await proceed();
+        assert.equal(review.session, 'review@ss2');
+        const reviewFile = fs.readdirSync(sessionsDir, { recursive: true }).map(String).find((f) => f.endsWith('review@ss2.session.json'))!;
+        assert.equal(JSON.parse(fs.readFileSync(path.join(sessionsDir, reviewFile), 'utf8')).basedOn, 'work@ss2');
+        // An item queued while the run's Proceed runs takes the run's session; `chat` stays shared.
+        const walk = await runInProcessPosition(review.processRun, () => queue().enqueue({ originalText: 'walk', session: 'notes', deferSend: true }));
+        assert.equal(walk.session, 'notes@ss2');
+        const chatItem = await runInProcessPosition(review.processRun, () => queue().enqueue({ originalText: 'chat', session: 'chat', deferSend: true }));
+        assert.equal(chatItem.session, 'chat');
+        for (const i of [...queue().items]) { queue().remove(i.id); }
+        // Deleting runs: their sessions kept (named), or deleted on ask.
+        assert.deepEqual(store().runSessions(['ss1']), ['work@ss1']);
+        const kept = await call(DELETE_PROCESS_RUNS_TOOL, { runs: ['ss1'] });
+        assert.deepEqual(kept.sessionsKept, ['work@ss1']);
+        assert.ok(sessionFile('work@ss1'), 'kept');
+        const gone = await call(DELETE_PROCESS_RUNS_TOOL, { runs: ['ss2'], deleteSessions: true });
+        assert.deepEqual([...gone.sessionsDeleted].sort(), ['review@ss2', 'work@ss2']);
+        assert.equal(sessionFile('work@ss2'), false);
+        assert.equal(sessionFile('review@ss2'), false);
+        assert.ok(sessionFile('work'), 'the default run\'s session stays');
         clean();
     });
 });

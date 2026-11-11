@@ -64,7 +64,7 @@ export function openProcessAction(context: vscode.ExtensionContext, kind: Proces
 
 /** How the page shows the session: its name, where it comes from, and the definition's base and mode. */
 function sessionView(def: ProcessDefinition, state: ProcessState): Record<string, unknown> {
-    const s = actionSession(def, state, sessionOverride, ProcessStateStore.instance?.inheritedSession());
+    const s = actionSession(def, state, sessionOverride, ProcessStateStore.instance?.inheritedSession(), ProcessStateStore.instance?.currentRun);
     return { name: s.name, source: s.source, ...(s.spec?.basedOn ? { basedOn: s.spec.basedOn } : {}), ...(s.spec?.mode ? { mode: s.spec.mode } : {}) };
 }
 
@@ -135,10 +135,10 @@ async function handle(context: vscode.ExtensionContext, msg: { type: string; cus
             const def = store.currentDefinition();
             const move = store.findMove(current.kind, current.level);
             if (!def || !move) { return; }
-            const fromProcess = actionSession(def, store.state, undefined, store.inheritedSession());
+            const fromProcess = actionSession(def, store.state, undefined, store.inheritedSession(), store.currentRun);
             const picked = await pickAgentSdkSession({
                 questId: store.activeQuest,
-                current: actionSession(def, store.state, sessionOverride, store.inheritedSession()).name || undefined,
+                current: actionSession(def, store.state, sessionOverride, store.inheritedSession(), store.currentRun).name || undefined,
                 title: `Session for "${move.label}"`,
                 defaultLabel: fromProcess.name ? `As the process says (${fromProcess.name})` : 'As the process says (the queue default)',
             });

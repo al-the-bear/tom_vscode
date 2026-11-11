@@ -81,7 +81,11 @@ export interface SessionStart {
     note?: string;
 }
 
-export const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/**
+ * A session name: letters, digits, `_` and `-`, starting with a letter or
+ * digit; a process run's session adds `@<run>` (src/utils/runSessions.ts).
+ */
+export const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*(?:@[A-Za-z0-9][A-Za-z0-9_-]*)?$/;
 
 export function isValidSessionName(name: string): boolean {
     return SESSION_NAME_PATTERN.test(name);

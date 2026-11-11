@@ -57,6 +57,10 @@ export interface ProcessToolDeps {
     deleteRuns?(runs: string[]): { ok: true; deleted: string[] } | { ok: false; error: string };
     /** Remove the open process-move markers of run `run` (default: the window's). */
     dropRunMarkers?(run: string | undefined): number;
+    /** The sessions runs use (`<session>@<run>`). */
+    runSessions?(runs: string[]): string[];
+    /** Delete those sessions with their storage; answers their names. */
+    deleteRunSessions?(runs: string[]): string[];
     /**
      * The agent judged the running phase's or step's `when:` not to hold:
      * recorded, and left out when the step's Proceed run ends (at once when
@@ -323,6 +327,8 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         selectRun: (run) => store().selectRun(run),
         createRun: (run, process, select) => store().createRun(run, process, source, select),
         deleteRuns: (runs) => store().deleteRuns(runs),
+        runSessions: (runs) => store().runSessions(runs),
+        deleteRunSessions: (runs) => store().deleteRunSessions(runs),
         leaveOut: (reason) => {
             // Inside a Proceed run of this quest the move waits for the run's marker.
             // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -366,11 +372,20 @@ export async function selectProcessRunImpl(deps: ProcessToolDeps, input: { run: 
     return JSON.stringify(result.ok ? { ok: true, run: deps.currentRun?.() ?? input.run, state: result.state } : result, null, 2);
 }
 
-export async function deleteProcessRunsImpl(deps: ProcessToolDeps, input: { runs: string[] }): Promise<string> {
+export async function deleteProcessRunsImpl(deps: ProcessToolDeps, input: { runs: string[]; deleteSessions?: boolean }): Promise<string> {
     if (!deps.deleteRuns) { return JSON.stringify({ ok: false, error: 'runs are not available here' }); }
     if (!Array.isArray(input.runs) || input.runs.length === 0) { return JSON.stringify({ ok: false, error: '`runs` is required: the names of the runs to delete' }); }
-    const result = deps.deleteRuns(input.runs.map(String));
-    return JSON.stringify(result.ok ? { ...result, currentRun: deps.currentRun?.() } : result, null, 2);
+    const runs = input.runs.map(String);
+    const sessions = deps.runSessions?.(runs) ?? [];
+    const result = deps.deleteRuns(runs);
+    if (!result.ok) { return JSON.stringify(result, null, 2); }
+    // The runs' own sessions (`<session>@<run>`) go only when asked.
+    const sessionsDeleted = input.deleteSessions === true && sessions.length ? deps.deleteRunSessions?.(runs) ?? [] : [];
+    return JSON.stringify({
+        ...result, currentRun: deps.currentRun?.(),
+        ...(sessionsDeleted.length ? { sessionsDeleted } : {}),
+        ...(sessions.length && !sessionsDeleted.length ? { sessionsKept: sessions } : {}),
+    }, null, 2);
 }
 
 export const LIST_PROCESS_RUNS_TOOL: SharedToolDefinition<Record<string, never>> = {
@@ -413,13 +428,16 @@ export const SELECT_PROCESS_RUN_TOOL: SharedToolDefinition<{ run: string }> = {
     execute: async (input) => selectProcessRunImpl(liveDeps(), input),
 };
 
-export const DELETE_PROCESS_RUNS_TOOL: SharedToolDefinition<{ runs: string[] }> = {
+export const DELETE_PROCESS_RUNS_TOOL: SharedToolDefinition<{ runs: string[]; deleteSessions?: boolean }> = {
     name: 'tomAi_deleteProcessRuns',
     displayName: 'Delete Process Runs',
-    description: 'Delete runs of the active quest (their state files); `default` and an unknown run are refused and then nothing is deleted. A deleted current run leaves this window on `default`.' + RUNS_NOTE,
+    description: 'Delete runs of the active quest (their state files and chat-variable sets); `default` and an unknown run are refused and then nothing is deleted. A deleted current run leaves this window on `default`. The runs\' own sessions (`<session>@<run>`) are deleted with `deleteSessions: true`, else kept and named in `sessionsKept`.' + RUNS_NOTE,
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
-    inputSchema: { type: 'object', properties: { runs: { type: 'array', items: { type: 'string' }, description: 'The runs to delete.' } }, required: ['runs'] },
+    inputSchema: { type: 'object', properties: {
+        runs: { type: 'array', items: { type: 'string' }, description: 'The runs to delete.' },
+        deleteSessions: { type: 'boolean', description: 'Also delete the runs\' sessions (`<session>@<run>`) with their storage. Default false.' },
+    }, required: ['runs'] },
     execute: async (input) => deleteProcessRunsImpl(liveDeps(), input),
 };
 

@@ -8,6 +8,8 @@
  *   RA-4 trash: the runs but `default` to choose from; nothing chosen or not confirmed deletes nothing; the
  *        confirmation names the runs and, when it is among them, this window's run; only `default`: refused
  *   RA-5 the message routing: the three run messages are handled, any other is not
+ *   RA-6 the runs' sessions (`<session>@<run>`, vscimpb44): after the runs are deleted they are offered for deletion
+ *        (named in the question); declined, they stay; no session, no question
  */
 
 import test, { describe } from 'node:test';
@@ -18,9 +20,11 @@ import {
     type RunListEntry, type RunStorePort, type RunUiPort,
 } from '../processRunActions.js';
 
-function fakeStore(runs: RunListEntry[]): RunStorePort & { calls: string[] } {
+function fakeStore(runs: RunListEntry[], sessions: string[] = []): RunStorePort & { calls: string[] } {
     const calls: string[] = [];
     return {
+        runSessions: (r) => sessions.filter((s) => r.some((run) => s.endsWith(`@${run}`))),
+        deleteRunSessions: (r) => { calls.push(`delete sessions of ${r.join(',')}`); return sessions; },
         calls,
         runs: () => runs,
         processes: () => [{ id: 'main', name: 'Main' }, { id: 'change', name: '' }],
@@ -107,5 +111,23 @@ describe('the PROCESS view\'s run messages', () => {
         assert.deepEqual(await handleRunMessage({ type: 'createRun' }, store, fakeUi({})), { handled: true, result: undefined });
         assert.deepEqual(await handleRunMessage({ type: 'deleteRuns' }, store, fakeUi({})), { handled: true, result: undefined });
         assert.deepEqual(await handleRunMessage({ type: 'action' }, store, fakeUi({})), { handled: false });
+    });
+
+    test('RA-6: the runs\' sessions are offered for deletion', async () => {
+        const store = fakeStore([entry('default', true), entry('chg1'), entry('chg2')], ['design@chg1', 'review@chg1', 'design@chg2', 'design']);
+        const ui = fakeUi({ runs: ['chg1'], confirm: true });
+        assert.deepEqual(await deleteRunsAction(store, ui), { ok: true });
+        assert.equal(ui.seen[2].message, 'Also delete the 2 sessions of the run?');
+        assert.match(String(ui.seen[2].detail), /^design@chg1, review@chg1 — /);
+        assert.deepEqual(store.calls, ['delete chg1', 'delete sessions of chg1']);
+        let asked = 0;
+        const declining: RunUiPort = { ...fakeUi({ runs: ['chg2'] }), confirm: async () => { asked++; return asked === 1; } };
+        const keep = fakeStore([entry('default', true), entry('chg2')], ['design@chg2']);
+        assert.deepEqual(await deleteRunsAction(keep, declining), { ok: true });
+        assert.deepEqual(keep.calls, ['delete chg2'], 'declined: the sessions stay');
+        const none = fakeStore([entry('default', true), entry('chg3')]);
+        const ui3 = fakeUi({ runs: ['chg3'], confirm: true });
+        await deleteRunsAction(none, ui3);
+        assert.equal(ui3.seen.length, 2, 'no session: no second question');
     });
 });

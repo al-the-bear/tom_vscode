@@ -271,6 +271,8 @@ export function liveRunStore(store: ProcessStateStore): RunStorePort {
         selectRun: (run) => result(store.selectRun(run)),
         createRun: (run, process) => result(store.createRun(run, process, 'user', true)),
         deleteRuns: (runs) => result(store.deleteRuns(runs)),
+        runSessions: (runs) => store.runSessions(runs),
+        deleteRunSessions: (runs) => store.deleteRunSessions(runs),
     };
 }
 

@@ -25,6 +25,7 @@
  */
 
 import { parse, stringify } from 'yaml';
+import { runSessionName } from './runSessions';
 
 // ============================================================================
 // Definition types
@@ -1465,11 +1466,12 @@ export function processVariableValues(
     def: ProcessDefinition | null,
     state: ProcessState,
     processDescription: string,
+    run?: string,
 ): Record<ProcessVariableKey, string> {
     const out = Object.fromEntries(PROCESS_VARIABLE_KEYS.map((k) => [k, ''])) as Record<ProcessVariableKey, string>;
     if (!state.process) { return out; }
     out.process = state.process;
-    out.session = effectiveSession(def, state)?.name ?? '';
+    out.session = effectiveSession(def, state, run)?.name ?? '';
     out['process-description'] = processDescription;
     if (!state.phase) { return out; }
     out.phase = state.phase;
@@ -1507,9 +1509,11 @@ export function sessionSpec(spec: ProcessSessionSpec | undefined): ProcessSessio
 /**
  * The session the position runs in: the sub-step's, else the step's, else the
  * phase's, else the process's; null when none names one. The iteration placeholders of its names
- * are filled in from `state`.
+ * are filled in from `state`. In a process run other than `default` the name
+ * is the run's session, `<session>@<run>` (src/utils/runSessions.ts), and so
+ * is a `basedOn` that names another session of the process.
  */
-export function effectiveSession(def: ProcessDefinition | null, state: ProcessState): ProcessSession | null {
+export function effectiveSession(def: ProcessDefinition | null, state: ProcessState, run?: string): ProcessSession | null {
     if (!def) { return null; }
     const phase = findPhase(def, state.phase);
     const step = findStep(phase, state.step);
@@ -1519,7 +1523,27 @@ export function effectiveSession(def: ProcessDefinition | null, state: ProcessSt
     if (!spec) { return null; }
     const iteration: Record<string, number> = { phase: state.phaseIteration, step: state.stepIteration, substep: state.substepIteration };
     const fill = (name: string): string => name.replace(SESSION_PLACEHOLDER, (_m, level: string) => String(iteration[level] || 1));
-    return { ...spec, name: fill(spec.name), ...(spec.basedOn ? { basedOn: fill(spec.basedOn) } : {}) };
+    const name = runSessionName(fill(spec.name), run);
+    if (!spec.basedOn) { return { ...spec, name }; }
+    const basedOn = fill(spec.basedOn);
+    // A base the process itself names belongs to the run too; another (a prepared context) is shared.
+    const own = processSessionNames(def).some((n) => fill(n) === basedOn);
+    return { ...spec, name, basedOn: own ? runSessionName(basedOn, run) : basedOn };
+}
+
+/** Every session name the definition gives (process, phases, steps with gate and post-gate, sub-steps), unfilled. */
+function processSessionNames(def: ProcessDefinition): string[] {
+    const names: string[] = [];
+    const add = (spec: ProcessSessionSpec | undefined): void => { const s = sessionSpec(spec); if (s) { names.push(s.name); } };
+    add(def.session);
+    for (const phase of def.phases) {
+        add(phase.session);
+        for (const e of phaseSteps(phase)) {
+            add(e.step.session);
+            for (const sub of e.step.substeps ?? []) { add(sub.session); }
+        }
+    }
+    return names;
 }
 
 function iterationText(node: { repeatable?: boolean; maxIterations?: number }, n: number): string {
@@ -1561,7 +1585,7 @@ function ioContextLines(def: ProcessDefinition, state: ProcessState): string[] {
     return lines;
 }
 
-export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}): string {
+export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}, run?: string): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
     const head = (node: { id: string; name?: string }, extra: string): string =>
@@ -1588,7 +1612,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
                 lines.push(`Sub-step: ${head(sub, `, ${step.substeps.indexOf(sub) + 1} of ${step.substeps.length}`)}, ${iterationText(sub, state.substepIteration)}${subRole ? ` — role \`${subRole}\`` : ''}`);
             }
         }
-        const session = effectiveSession(def, state);
+        const session = effectiveSession(def, state, run);
         if (session) {
             const from = session.basedOn ? `from \`${session.basedOn}\`` : 'fresh';
             const how = session.mode === 'per-prompt' || session.mode === 'fork-from-base'

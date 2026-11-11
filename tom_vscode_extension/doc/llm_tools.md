@@ -1020,7 +1020,11 @@ current run, kept per window and quest, the chat variable `run`): the process
 chat variables, the `${process-context}` block, the PROCESS view and the
 process tools without `run` follow it. A Proceed prompt and its process-move
 marker carry their run, so the marker moves the run it was queued for whichever
-run the window works on when the queue reaches it.
+run the window works on when the queue reaches it. A run other than `default` has its own
+custom chat variables (`<workspace>.<host>.<run>.chatvariable.yaml`) and its
+own sessions: a session the process names, and one an item of the run names,
+is `<session>@<run>` there (`default`, `chat` and temporary sessions stay
+shared), so two runs of one process never continue each other's conversation.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
@@ -1034,7 +1038,7 @@ run the window works on when the queue reaches it.
 | `tomAi_listProcessRuns` | The quest's runs, the last changed first: run, process, position, levels, when changed, which one this window works on. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_createProcessRun` | A new run (`run` a name, `process` the process it follows from its first position; selected unless `select: false`). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_selectProcessRun` | Work on another run in this window: the view, the process variables, the system prompt's process context and the tools follow it. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_deleteProcessRuns` | Delete runs (their state files); `default` and an unknown run are refused, then nothing is deleted. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_deleteProcessRuns` | Delete runs (their state files and chat-variable sets); `default` and an unknown run are refused, then nothing is deleted. The runs' sessions (`<session>@<run>`) go with `deleteSessions: true`, else they are kept and named in `sessionsKept`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_setProcessState` | Move the quest: `process` (`""` clears), `phase`, `step`, `substep`, the three iterations (a gate can always be run again; a step that already ran in this phase iteration is entered at its next iteration) and `completed` (the process finished; any other change opens it again); in a subprocess or branch, `outputs` sets its process's declared outputs (merged; an outputs-only call moves nothing and keeps a running step's marker), and a subprocess finishes only once its required outputs are set; checked against the definition, no approval prompt (visible live in the PROCESS view); `leaveOut` (alone) leaves out the running phase or step whose `when:` the agent judges false; `run` moves another run of the quest. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_validateProcess` | Check a draft definition (`yaml` text or a `file`) before writing it: YAML, `process.schema.json`, the process editor's rules (a gate ends every phase, `onFail` inside its phase, no prompt on a user-action step, unique ids, profiles that exist) and the roles (existing under `_ai/roles/` or listed in `draftRoles`). Answers every finding with its source and path. Read-only. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_writeProcess` | Create a process: writes `_ai/processes/<id>/<id>.process.yaml` and `<id>.md` (`description`) only when the draft passes tomAi_validateProcess's checks; an existing id is refused unless `replace: true`; opens the result in the process editor (`open: false` not to). Approval. | ✅ | ✅ | ⚪ | ✅ |

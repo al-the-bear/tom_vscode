@@ -88,7 +88,7 @@ export function buildProcessActionPrompt(
     if (!template.trim()) { return ''; }
     const values = processActionValues(def, store.state, move, customInstructions, store.processDescription());
     // `${session}`: the session the prompt is queued in (picked on the page or named by the process).
-    values.session = actionSession(def, store.state, sessionOverride, store.inheritedSession?.()).name;
+    values.session = actionSession(def, store.state, sessionOverride, store.inheritedSession?.(), store.currentRun).name;
     // `${finish-review-round}`: the Assist prompt a closing item shows the results with
     // (tomAi_askInMdBrowser + Finish review round). The review is the position this move leads to.
     const review = userActionAt(def, move.target) ? move.target : store.state;
@@ -157,7 +157,7 @@ export async function confirmProcessAction(
     if (decisionAt(def, here, store.conditionOptions())) {
         return { ok: false, error: 'this is a decision: pick how the process goes on (repeat, go on, gate passed or failed) in the PROCESS view' };
     }
-    const session = actionSession(def, here, sessionOverride, store.inheritedSession());
+    const session = actionSession(def, here, sessionOverride, store.inheritedSession(), store.currentRun);
     // A user action is done by the user: confirming it queues nothing.
     const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
     if (!text) {

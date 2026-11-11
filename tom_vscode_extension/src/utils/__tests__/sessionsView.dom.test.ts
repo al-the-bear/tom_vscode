@@ -9,6 +9,8 @@
  *        a click posts the row's name
  *   SV-4 a temporary session (`tmp-<yymmdd-hhmmss>-<token>`, of an item another quest sent) is listed last and
  *        tagged temporary; a lasting session whose name merely starts with `tmp` is not
+ *   SV-5 a process run's sessions (`<session>@<run>`, vscimpb44) come after the others, grouped under their run,
+ *        shown by their session name with an `@<run>` tag; the row keeps the full name; a click posts it
  *   SV-3 the host: Reset clears the id, Delete asks first and goes through deleteSession; the add command
  *        is the picker's new-session path; the folder is watched with an error listener and the store's
  *        notifications refresh the view
@@ -117,5 +119,30 @@ describe('SESSIONS view', () => {
         assert.deepEqual(pkg.contributes.menus['view/title'].find((m: { command: string }) => m.command === 'tomAi.sessions.add'),
             { command: 'tomAi.sessions.add', when: 'view == tomAi.sessions', group: 'navigation' });
         assert.match(source('src', 'extension.ts'), /registerSessionsView\(context\);/);
+    });
+
+    test('SV-5: a run\'s sessions', (t) => {
+        const dom = new JSDOM(source('media', 'sessionsView', 'index.html').replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' });
+        const w = dom.window as Win;
+        t.after(() => w.close());
+        const posted: Array<Record<string, unknown>> = [];
+        w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) });
+        w.__INIT__ = {};
+        w.eval(source('media', 'sessionsView', 'main.js'));
+        const records: SessionRecord[] = [
+            { name: 'work@chg2', mode: 'continue' }, { name: 'work', mode: 'continue' },
+            { name: 'review@chg1', mode: 'per-prompt', basedOn: 'work@chg1' }, { name: 'work@chg1', mode: 'continue' },
+        ];
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: 'q', rows: sessionRows(records) } }));
+        const order = [...w.document.querySelectorAll('.run-group, .session')].map((e: Win) => e.classList.contains('run-group') ? `[${e.textContent.trim()}]` : e.dataset.name);
+        assert.deepEqual(order, ['default', 'chat', 'work', '[Run chg1]', 'review@chg1', 'work@chg1', '[Run chg2]', 'work@chg2']);
+        const row = w.document.querySelector('.session[data-name="work@chg1"]');
+        assert.equal(row.querySelector('.name').textContent, 'work');
+        assert.equal(row.querySelector('.name').title, 'work@chg1');
+        assert.equal(row.querySelector('.tag.run').textContent, '@chg1');
+        assert.ok(row.classList.contains('in-run'));
+        assert.equal(row.querySelector('button[data-op="delete"]').disabled, true, 'review@chg1 is based on it');
+        w.document.querySelector('.session[data-name="work@chg2"] button[data-op="delete"]').click();
+        assert.deepEqual(posted.at(-1), { type: 'delete', name: 'work@chg2' }, 'the full name is posted');
     });
 });

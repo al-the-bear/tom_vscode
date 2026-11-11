@@ -6,6 +6,7 @@
  * and integration with the Reminder and Timer systems.
  */
 
+import { runSessionName } from '../utils/runSessions';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
@@ -2115,7 +2116,11 @@ export class PromptQueueManager {
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
             assertValidRepeatCount(value);
         }
-        const sessionSpec = this.parseItemSession(opts.session);
+        const parsedSession = this.parseItemSession(opts.session);
+        // An item of a process run (queued by its Proceed, or while one runs) uses the run's own
+        // sessions: a named session becomes `<session>@<run>` (src/utils/runSessions.ts).
+        const itemRun = inheritedProcessRun(opts.processRun)?.run;
+        const sessionSpec = parsedSession ? { ...parsedSession, name: runSessionName(parsedSession.name, itemRun) } : parsedSession;
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         // Spec §4.16 — pass the transport so template lookup hits the
         // correct store. The initial expanded text is what the queue

@@ -4,7 +4,8 @@
  *   selectRun {run}  — work on that run in this window (ProcessStateStore.selectRun)
  *   createRun        — a name (the run-name rules, not taken), then a process (optional),
  *                      then the run is created and selected
- *   deleteRuns       — a multi-select of the runs except `default`, a confirmation, then they go
+ *   deleteRuns       — a multi-select of the runs except `default`, a confirmation, then they go;
+ *                      their sessions (`<session>@<run>`) are offered for deletion after
  *
  * vscode-free: the store and the pickers come in as ports (the handler wires
  * ProcessStateStore and vscode.window), so the tests drive them with fakes.
@@ -32,6 +33,10 @@ export interface RunStorePort {
     selectRun(run: string): RunActionResult;
     createRun(run: string, process: string | undefined): RunActionResult;
     deleteRuns(runs: readonly string[]): RunActionResult;
+    /** The sessions the runs use (`<session>@<run>`). */
+    runSessions(runs: readonly string[]): string[];
+    /** Delete those sessions with their storage. */
+    deleteRunSessions(runs: readonly string[]): string[];
 }
 
 /** The pickers (vscode.window in the handler). Each answers undefined when dismissed. */
@@ -99,7 +104,17 @@ export async function deleteRunsAction(store: RunStorePort, ui: RunUiPort): Prom
         button,
     );
     if (!ok) { return undefined; }
-    return store.deleteRuns(picked);
+    const sessions = store.runSessions(picked);
+    const deleted = store.deleteRuns(picked);
+    if (!deleted.ok || sessions.length === 0) { return deleted; }
+    // The runs' own sessions (`<session>@<run>`): offered, not taken for granted — a conversation may still be wanted.
+    const also = await ui.confirm(
+        `Also delete the ${sessions.length === 1 ? 'session' : `${sessions.length} sessions`} of ${picked.length === 1 ? 'the run' : 'these runs'}?`,
+        `${sessions.join(', ')} — with their history, trails, tool results and quest memory. Kept, they stay in the SESSIONS view.`,
+        sessions.length === 1 ? 'Delete the session' : 'Delete the sessions',
+    );
+    if (also) { store.deleteRunSessions(picked); }
+    return deleted;
 }
 
 /** The view's run messages; `handled: false` for any other message. */
