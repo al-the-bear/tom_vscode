@@ -118,7 +118,8 @@ export function removeSessionStorage(historyRoot: string, memoryRoot: string, qu
  * never overwrites a stored result.
  */
 export function nextFreeToolResultIndex(folder: string): number {
-    let max = 0;
+    // Past what retention pruned too: a pruned key is never given out again.
+    let max = readToolResultRetentionMarker(folder)?.prunedThrough ?? 0;
     try {
         for (const f of fs.readdirSync(folder)) {
             const m = /^t(\d+)\.json$/.exec(f);
@@ -126,6 +127,31 @@ export function nextFreeToolResultIndex(folder: string): number {
         }
     } catch { /* no folder yet */ }
     return max + 1;
+}
+
+/** The file in a tool-results folder recording what retention pruned (services/tool-result-store.ts). */
+export const TOOL_RESULT_RETENTION_MARKER = '.retention.json';
+
+/** What retention pruned in a tool-results folder: every key up to `prunedThrough` is gone. */
+export interface ToolResultRetentionMarker {
+    prunedThrough: number;
+    /** ISO time of the last prune. */
+    prunedAt: string;
+    /** The limits it ran with. */
+    maxAgeDays: number;
+    maxPerSession: number;
+}
+
+/** The retention marker of `folder`, if retention pruned anything there. */
+export function readToolResultRetentionMarker(folder: string): ToolResultRetentionMarker | undefined {
+    try {
+        const raw = JSON.parse(fs.readFileSync(path.join(folder, TOOL_RESULT_RETENTION_MARKER), 'utf8')) as Partial<ToolResultRetentionMarker>;
+        return Number.isInteger(raw.prunedThrough) && (raw.prunedThrough as number) > 0
+            ? { prunedThrough: raw.prunedThrough as number, prunedAt: String(raw.prunedAt ?? ''), maxAgeDays: Number(raw.maxAgeDays ?? 0), maxPerSession: Number(raw.maxPerSession ?? 0) }
+            : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 // ---------------------------------------------------------------------------

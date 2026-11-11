@@ -1194,6 +1194,9 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (!stcConfig.trail) { stcConfig.trail = {}; }
             if (message.maxRawFiles !== undefined) { stcConfig.trail.maxRawFiles = message.maxRawFiles; }
             if (message.maxEntries !== undefined) { stcConfig.trail.maxEntries = message.maxEntries; }
+            // The stored tool results' retention (vscimpb49); 0 switches a limit off.
+            if (Number.isFinite(message.toolResultsMaxAgeDays) && message.toolResultsMaxAgeDays >= 0) { stcConfig.trail.toolResultsMaxAgeDays = message.toolResultsMaxAgeDays; }
+            if (Number.isFinite(message.toolResultsMaxPerSession) && message.toolResultsMaxPerSession >= 0) { stcConfig.trail.toolResultsMaxPerSession = message.toolResultsMaxPerSession; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Trail settings updated');
             break;
@@ -1774,6 +1777,8 @@ export interface StatusData {
         enabled: boolean;
         maxRawFiles: number;
         maxEntries: number;
+        toolResultsMaxAgeDays: number;
+        toolResultsMaxPerSession: number;
     };
     telegram: {
         polling: boolean;
@@ -2045,6 +2050,8 @@ export async function gatherStatusData(): Promise<StatusData> {
             enabled: isTrailEnabled(),
             maxRawFiles: sendToChatConfig?.trail?.maxRawFiles ?? 1000,
             maxEntries: sendToChatConfig?.trail?.maxEntries ?? 1000,
+            toolResultsMaxAgeDays: configuredToolResultRetention().maxAgeDays,
+            toolResultsMaxPerSession: configuredToolResultRetention().maxPerSession,
         },
         telegram: {
             polling: isTelegramPollingActive(),
@@ -2555,6 +2562,12 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <label>Max (entries per trail file):</label>
             <input type="number" id="sp-trailMaxEntries" value="${status.trail.maxEntries}" min="10" max="100000">
             <button class="sp-btn" data-status-action="updateTrailSettings">Save</button>
+        </div>
+        <div class="sp-settings-row" title="Every tool call of a session is stored (history/sessions/&lt;session&gt;/trail/tool_results/t&lt;n&gt;.json) so tomAi_readPastToolResult can read it later. After each send the oldest are pruned: those older than the days given and those beyond the newest per session. 0 switches a limit off.">
+            <label>Stored tool results — keep days:</label>
+            <input type="number" id="sp-trailToolResultsMaxAgeDays" value="${status.trail.toolResultsMaxAgeDays}" min="0" max="3650">
+            <label>at most per session:</label>
+            <input type="number" id="sp-trailToolResultsMaxPerSession" value="${status.trail.toolResultsMaxPerSession}" min="0" max="1000000">
         </div>
     </div>
 
@@ -3277,6 +3290,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
  * embed) keep their imports unchanged.
  */
 import { getEmbeddedStatusStyles } from './statusPage/statusPageStyles';
+import { configuredToolResultRetention } from '../services/tool-result-store';
 export { getEmbeddedStatusStyles };
 
 

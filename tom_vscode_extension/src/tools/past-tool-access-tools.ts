@@ -91,6 +91,21 @@ export interface ToolHistoryAccess {
     callerSession?(): string | undefined;
     /** Every result a session stored on disk, oldest → newest. */
     listStoredResults?(session: string): PastToolEntry[];
+    /**
+     * Whether `key` was pruned by the stored results' retention (in `session`,
+     * else the caller's session and the folders without one): when and with
+     * which limits; undefined when it was not.
+     */
+    prunedInfo?(key: string, session?: string): { prunedAt: string; maxAgeDays: number; maxPerSession: number } | undefined;
+}
+
+/** The answer for a key retention pruned: what happened and the limits it ran with. */
+function prunedAnswer(key: string, rawKey: string, info: { prunedAt: string; maxAgeDays: number; maxPerSession: number }, session?: string): string {
+    const limits = [info.maxAgeDays > 0 ? `older than ${info.maxAgeDays} days` : '', info.maxPerSession > 0 ? `beyond the newest ${info.maxPerSession} per session` : ''].filter(Boolean).join(' or ');
+    return err(`The past tool result "${key}"${session ? ` of session ${session}` : ''} was pruned by retention${info.prunedAt ? ` (${info.prunedAt})` : ''}: stored results ${limits || 'over the limit'} are removed. Run the tool again if its result is still needed.`, {
+        rawKey, normalisedKey: key, pruned: true, ...(session ? { session } : {}),
+        hint: 'The retention is set on the Status Page (trail.toolResultsMaxAgeDays, trail.toolResultsMaxPerSession).',
+    });
 }
 
 /** A past call, with the session it was made in when read across sessions. */
@@ -432,6 +447,10 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
             if (picked.refusal) { return picked.refusal; }
             const found = (picked.entries ?? []).filter((e) => e.key === normalised);
             if (found.length === 0) {
+                for (const session of picked.chosen ?? []) {
+                    const info = access.prunedInfo?.(normalised, session);
+                    if (info) { return prunedAnswer(normalised, rawKey, info, session); }
+                }
                 return err(`No past tool result with key "${normalised}" in ${(picked.chosen ?? []).join(', ') || 'the sessions given'}.`, {
                     rawKey, normalisedKey: normalised, hint: 'tomAi_listPastToolCalls with the same `sessions` lists the keys there.',
                 });
@@ -464,6 +483,8 @@ export async function readPastToolResultImpl(access: ToolHistoryAccess, input: R
         }
 
         if (!entry) {
+            const info = access.prunedInfo?.(normalised);
+            if (info) { return prunedAnswer(normalised, rawKey, info); }
             const trailNote = ring
                 ? 'Use tomAi_listPastToolCalls to enumerate the keys currently in scope.'
                 : 'No ToolTrail active — pass an exact key from a stub like "Past tool call tX" in the conversation.';
@@ -523,7 +544,7 @@ export const READ_PAST_TOOL_RESULT_TOOL: SharedToolDefinition<ReadPastToolResult
 // ===========================================================================
 
 import { getActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
-import { listStoredToolResults, readToolResultAnySubsystem } from '../services/tool-result-store';
+import { listStoredToolResults, prunedToolResultInfo, readToolResultAnySubsystem } from '../services/tool-result-store';
 
 function toPastToolEntry(e: ToolTrailEntry): PastToolEntry {
     return {
@@ -564,6 +585,9 @@ const liveAccess: ToolHistoryAccess = {
             key: r.key, timestamp: r.timestamp, round: r.round, toolName: r.toolName,
             inputSummary: r.inputSummary, result: r.result, durationMs: r.durationMs, error: r.error,
         }));
+    },
+    prunedInfo(key, session) {
+        return prunedToolResultInfo(key, undefined, session ?? getActiveToolTrail()?.session);
     },
     readFromDisk(key) {
         // The active trail is the session the call runs in: its own results first.

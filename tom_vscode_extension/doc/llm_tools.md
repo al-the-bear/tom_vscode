@@ -536,7 +536,7 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_listPastToolCalls` | List recent tool calls with replay keys. Optional filters: `toolName`, `sinceRound`, `limit` (default 20, max 200). | ✅ | ✅ | ⚪ | ⚪ |
 | `tomAi_searchPastToolResults` | Regex search across past result bodies; returns snippets with replay keys. Arguments: `pattern`, optional `toolName`, `caseSensitive`, `limit`, `contextChars`. | ✅ | ✅ | ⚪ | ⚪ |
-| `tomAi_readPastToolResult` | Return the body of a past tool call by its replay key (e.g. `t14`), paged by `offset` / `length` (default 30,000 chars; the answer gives `resultSize` and `nextOffset`). Its answers are never cut inline. | ✅ | ✅ | ⚪ | ⚪ |
+| `tomAi_readPastToolResult` | Return the body of a past tool call by its replay key (e.g. `t14`), paged by `offset` / `length` (default 30,000 chars; the answer gives `resultSize` and `nextOffset`). Its answers are never cut inline. A key the stored results' retention removed (older than `trail.toolResultsMaxAgeDays`, beyond `trail.toolResultsMaxPerSession`) answers `pruned: true` with *pruned by retention*, not *not found*. | ✅ | ✅ | ⚪ | ⚪ |
 
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 

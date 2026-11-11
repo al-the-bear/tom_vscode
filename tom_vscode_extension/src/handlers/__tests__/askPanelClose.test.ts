@@ -157,7 +157,7 @@ describe('question panels close when their question is resolved', () => {
 
     test('PC-6: the wiring', () => {
         const src = (...p: string[]): string => fs.readFileSync(path.join(EXT, 'src', ...p), 'utf8');
-        assert.match(src('handlers', 'anthropic-handler.ts'), /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\s*return runAsAskOwner\(\(\) => this\.sendMessageOwned\(options\)\);/);
+        assert.match(src('handlers', 'anthropic-handler.ts'), /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\s*(try \{\s*)?return (await )?runAsAskOwner\(\(\) => this\.sendMessageOwned\(options\)\);/);
         const registry = src('services', 'askUserRegistry.ts');
         assert.match(registry, /unregisterOwner: registerAskCancel\(\(\) => this\.cancelRequest\(pending\.requestId, ASK_OWNER_ENDED_NOTE\)\)/);
         assert.match(registry, /this\.active = undefined;\s+\/\/ clear first → guards re-entrancy\s+active\.unregisterOwner\(\);/);

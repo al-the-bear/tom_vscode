@@ -421,6 +421,8 @@
                 "enabled": { "type": "boolean", "default": true },
                 "maxEntries": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max entries in consolidated summary trail files (prompts.md / answers.md) before oldest are trimmed." },
                 "maxRawFiles": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max total raw trail files (prompt, answer, payload, tool_request, tool_answer combined) per quest directory. Oldest files are deleted when the limit is exceeded." },
+                "toolResultsMaxAgeDays": { "type": "integer", "minimum": 0, "default": 30, "description": "The stored tool results of a session (history/sessions/<session>/trail/tool_results/t<n>.json, read back by tomAi_readPastToolResult) older than this many days are pruned after each send. 0: no age limit." },
+                "toolResultsMaxPerSession": { "type": "integer", "minimum": 0, "default": 1000, "description": "At most this many stored tool results per session, the newest; the older ones are pruned after each send. 0: no count limit." },
                 "stripThinking": { "type": "boolean", "default": false },
                 "paths": {
                     "type": "object",

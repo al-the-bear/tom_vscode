@@ -2035,7 +2035,13 @@ export class AnthropicHandler {
      * so their panels close with it.
      */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
-        return runAsAskOwner(() => this.sendMessageOwned(options));
+        try {
+            return await runAsAskOwner(() => this.sendMessageOwned(options));
+        } finally {
+            // After each send: the stored tool results are pruned to their retention (vscimpb49) —
+            // the trigger needs no scheduler. Off the send's path, so the answer is not held up.
+            scheduleToolResultRetention();
+        }
     }
 
     private async sendMessageOwned(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
@@ -4329,4 +4335,24 @@ export async function spawnAnthropicSubagent(options: {
         model: effectiveConfiguration.model,
         ...(notes.length > 0 ? { notes } : {}),
     };
+}
+
+let toolResultRetentionPending = false;
+
+/** Prune the active quest's stored tool results once the current tick is done (one run per burst of sends). */
+function scheduleToolResultRetention(): void {
+    if (toolResultRetentionPending) { return; }
+    toolResultRetentionPending = true;
+    setTimeout(() => {
+        toolResultRetentionPending = false;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const store = require('../services/tool-result-store.js') as typeof import('../services/tool-result-store');
+            const pruned = store.pruneQuestToolResults(undefined);
+            const total = pruned.reduce((n, r) => n + r.pruned, 0);
+            if (total > 0) { debugLog(`[AnthropicHandler] tool-result retention pruned ${total} stored result(s) in ${pruned.length} folder(s)`, 'INFO', 'extension'); }
+        } catch (e) {
+            debugLog(`[AnthropicHandler] tool-result retention skipped: ${e instanceof Error ? e.message : String(e)}`, 'WARN', 'extension');
+        }
+    }, 0);
 }

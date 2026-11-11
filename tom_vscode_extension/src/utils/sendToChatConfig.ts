@@ -98,6 +98,10 @@ export interface SendToChatConfig {
         maxRawFiles?: number;
         /** Max entries in consolidated summary trail files before trimming (default: 1000). */
         maxEntries?: number;
+        /** Stored tool results older than this many days are pruned after each send (default 30; 0: no age limit). */
+        toolResultsMaxAgeDays?: number;
+        /** At most this many stored tool results per session, the newest (default 1000; 0: no count limit). */
+        toolResultsMaxPerSession?: number;
     };
 
     /**
