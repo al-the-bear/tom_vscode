@@ -27,6 +27,8 @@
  *        `<session>@<run>` (and `default` keeps the plain name), each created; a based-on session the process names
  *        belongs to the run too; the `session` variable says it; an item queued while a run's Proceed runs takes the
  *        run's session, `chat` stays shared; deleting the runs keeps their sessions (named) or deletes them on ask
+ *   RN-11 two runs of ONE process (vscimpb48): each moved on its own — by the tools (`run`) and in the store as the
+ *        PROCESS view moves the selected run (Proceed / apply) — each into its own state file, the other unchanged
  *   RN-10 every queue item carries its run (vscimpb45): the window's run by default, a run named, the run of the
  *        Proceed it is queued from (ahead of a named one); written to and read from the queue file; a named session
  *        becomes the run's; tomAi_addQueueItem takes `run` (an unknown one refused) and tomAi_listQueue shows it
@@ -464,6 +466,28 @@ describe('process runs', () => {
         const runs = (listed.items as Json[]).map((i) => i.run);
         assert.ok(runs.includes('qr2') && runs.includes('qr1') && runs.includes(DEFAULT_RUN), JSON.stringify(runs));
         for (const i of [...queue().items]) { queue().remove(i.id); }
+        clean();
+    });
+
+    test('RN-11: two runs of one process', async () => {
+        clean();
+        assert.equal((await call(CREATE_PROCESS_RUN_TOOL, { run: 'chgA', process: 'change', select: false })).ok, true);
+        assert.equal((await call(CREATE_PROCESS_RUN_TOOL, { run: 'chgB', process: 'change', select: false })).ok, true);
+        assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['plan', 'plan'], 'both at the first position of change');
+        // The tools move one run.
+        assert.equal((await call(SET_PROCESS_STATE_TOOL, { run: 'chgA', step: 'build' })).ok, true);
+        assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['build', 'plan']);
+        assert.equal((await call(GET_PROCESS_STATE_TOOL, { run: 'chgB' })).state.step, 'plan');
+        // The PROCESS view moves the run it has selected: chgB's Skip, then chgA stays.
+        assert.equal(store().selectRun('chgB').ok, true);
+        assert.equal(store().move('skip', undefined, 'user').ok, true);
+        assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['build', 'build']);
+        assert.equal(store().apply({ step: 'g1' }, 'user').ok, true);
+        assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['build', 'g1']);
+        const files = fs.readdirSync(QDIR).filter((f) => /^process-state\./.test(f)).sort();
+        assert.ok(files.includes(`process-state.${QUEST}.chgA.yaml`) && files.includes(`process-state.${QUEST}.chgB.yaml`), files.join(', '));
+        assert.match(fs.readFileSync(fileOf('chgA'), 'utf8'), /process: change[\s\S]*step: build/);
+        assert.match(fs.readFileSync(fileOf('chgB'), 'utf8'), /process: change[\s\S]*step: g1/);
         clean();
     });
 });

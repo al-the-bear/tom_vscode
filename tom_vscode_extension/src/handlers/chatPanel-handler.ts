@@ -98,6 +98,9 @@ import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { getQuestLogsClientConfig, getQuestLogsHtmlFragment, handleQuestLogsMessage } from './questLogs-handler';
 import { isPlanModeActive, leavePlanModeByUser, onPlanModeChanged, registerPlanDecider, type PlanDecision } from '../tools/planning-tools';
 import { usageSummaryLine } from '../utils/usageCost';
+import { CHAT_RUN_SECTIONS, chatRunKey, chatRunOptions, chatRunSession, effectiveChatRun, needsRunContext, type ChatRunSection } from '../utils/chatPanelRuns';
+import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
+import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
@@ -429,6 +432,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         wireCompletionMessages(webviewView.webview);
         // The "no quest is open" banner (media/shared/questHint.js).
         this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
+        // The run pickers follow the quest's runs and the window's run (created, deleted, selected).
+        this._watchRuns(webviewView);
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(
@@ -464,6 +469,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'refreshVsCodeLmModels':
                         await this._sendVsCodeLmModels();
                         break;
+                    case 'setChatRun': {
+                        const section = CHAT_RUN_SECTIONS.find((x) => x === message.section);
+                        if (section && typeof message.run === 'string') { await this._setChatRun(section, message.run); }
+                        this._sendChatRuns();
+                        if (section === 'anthropic') { this._sendChatSession(); }
+                        break;
+                    }
                     case 'pickAnthropicSession': {
                         const quest = WsPaths.getWorkspaceQuestId();
                         const picked = await pickAgentSdkSession({
@@ -817,10 +829,95 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY);
     }
 
+    // ----- the run pickers (vscimpb48, src/utils/chatPanelRuns.ts) ---------------
+
+    /** The quest's runs and the window's run (the PROCESS view's); `default` alone without a process store. */
+    private _questRuns(): { runs: string[]; windowRun: string } {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+            if (store) { return { runs: store.runs().map((r) => r.run), windowRun: store.currentRun }; }
+        } catch { /* no process store */ }
+        return { runs: [DEFAULT_RUN], windowRun: DEFAULT_RUN };
+    }
+
+    /** The run a subpanel is on: its pick while the quest has it, else `default` (the pick is then forgotten). */
+    private _chatRun(section: ChatRunSection): string {
+        const key = chatRunKey(WsPaths.getWorkspaceQuestId(), section);
+        const stored = this._context.workspaceState.get<string>(key);
+        const run = effectiveChatRun(stored, this._questRuns().runs);
+        if (stored && stored !== run) { void this._context.workspaceState.update(key, undefined); }
+        return run;
+    }
+
+    private async _setChatRun(section: ChatRunSection, run: string): Promise<void> {
+        const name = effectiveChatRun(run, this._questRuns().runs);
+        await this._context.workspaceState.update(chatRunKey(WsPaths.getWorkspaceQuestId(), section), name === DEFAULT_RUN ? undefined : name);
+    }
+
+    /** The session the ANTHROPIC/LLM subpanel sends in: its picked session in its run (`<session>@<run>`). */
+    private _panelSession(): string {
+        return chatRunSession(this._chatSessionKey(), this._chatRun('anthropic'));
+    }
+
+    /**
+     * The process position a subpanel's send runs as: its run's, when that is
+     * not the window's run (then its chat variables, process variables and
+     * context are the run's); none when it is.
+     */
+    private _chatRunContext(section: ChatRunSection): ProcessRun | undefined {
+        const run = this._chatRun(section);
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+            if (!store || !needsRunContext(run, store.currentRun)) { return undefined; }
+            const read = store.withRun(run, () => ({ state: store.state }));
+            if (!('state' in read)) { return undefined; }
+            return { quest: store.activeQuest, state: read.state, ...(run !== DEFAULT_RUN ? { run } : {}) };
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Tell the webview the runs each subpanel can pick and the one it is on. */
+    private _sendChatRuns(): void {
+        const { runs, windowRun } = this._questRuns();
+        void this._view?.webview.postMessage({
+            type: 'chatRuns',
+            options: chatRunOptions(runs, windowRun),
+            windowRun,
+            selected: Object.fromEntries(CHAT_RUN_SECTIONS.map((section) => [section, this._chatRun(section)])),
+        });
+    }
+
+    private _runsListener?: { dispose(): void };
+
+    /** Follow the runs: a run created, deleted or selected in the PROCESS view updates the pickers (a deleted one falls back). */
+    private _watchRuns(view: vscode.WebviewView): void {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const processes = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore;
+            void processes.ready.then((store) => {
+                if (this._view !== view) { return; }
+                this._runsListener?.dispose();
+                let last = '';
+                this._runsListener = store.onDidChange(() => {
+                    const now = JSON.stringify(this._questRuns());
+                    if (now === last) { return; }
+                    last = now;
+                    this._sendChatRuns();
+                    this._sendChatSession();
+                });
+                view.onDidDispose(() => { this._runsListener?.dispose(); this._runsListener = undefined; });
+                this._sendChatRuns();
+            });
+        } catch { /* no process store */ }
+    }
+
     /** The panel's session file, if it has one. */
     private _chatSessionRecord(): SessionRecord | undefined {
         try {
-            return readSession(sessionsFolder(WsPaths.getWorkspaceQuestId()), this._chatSessionKey());
+            return readSession(sessionsFolder(WsPaths.getWorkspaceQuestId()), this._panelSession());
         } catch {
             return undefined;
         }
@@ -832,7 +929,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * picked, so its profile (if any) becomes the panel's selected profile.
      */
     private _sendChatSession(preselectProfile = false): void {
-        const name = this._chatSessionKey();
+        const name = this._panelSession();
         const record = this._chatSessionRecord();
         const { label, tooltip } = sessionLabel(name, record);
         void this._view?.webview.postMessage({
@@ -846,6 +943,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     private _sendProfiles(): void {
         this._sendChatSession();
+        this._sendChatRuns();
         const config = loadSendToChatConfig();
         // A profile on the direct API whose key variable is not in this VS Code's
         // environment is marked in its label: every send through it would fail.
@@ -1305,12 +1403,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         logCopilotPrompt(text, template);
 
         const body = userMessageTemplateBody(config, template);
-        let expanded = body ? await expandTemplate(fillTemplate(body, text)) : await expandTemplate(text);
+        // The placeholders resolve as the subpanel's run: its chat variables and process position.
+        const runContext = this._chatRunContext('copilot');
+        const expandAsRun = (t: string): Promise<string> => runInProcessPosition(runContext, () => expandTemplate(t));
+        let expanded = body ? await expandAsRun(fillTemplate(body, text)) : await expandAsRun(text);
         if (isAnswerFileTemplate) {
             // Delete the existing answer file before sending, so a stale one is not read as the answer.
             deleteAnswerFile();
             this._notifyAnswerFileStatus();
-            expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), expanded));
+            expanded = await expandAsRun(fillWrapper(copilotQueueWrapper(config), expanded));
         }
 
         // Extract requestId from expanded prompt so trail and answer share the same ID
@@ -1413,14 +1514,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Two prompts never share a conversation: a busy session (a queue item
         // or another chat send runs in it) makes the user choose — queue it
         // next or after the current item, or send it in a free session.
-        let targetSession = this._chatSessionKey();
+        // The panel's session in the panel's run (`<session>@<run>`), and that run's position while it runs.
+        let targetSession = this._panelSession();
+        const panelRun = this._chatRun('anthropic');
+        const runContext = this._chatRunContext('anthropic');
         // A send of this panel still runs: the replies below must not end its "sending" state,
         // and no second send can start now (one interactive turn at a time).
         const panelBusy = isAnthropicSendInFlight();
         // A fresh session is never busy: its base may be (it is only read).
         const busy = fresh ? { kind: 'free' as const } : await resolveBusySession({
             session: targetSession,
-            send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}) },
+            send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}), run: panelRun },
             interactive: true,
             canSendElsewhere: !panelBusy,
         });
@@ -1566,7 +1670,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
             const result = await trackChatSend(
                 { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel' },
-                () => AnthropicHandler.instance.sendMessage({
+                () => runInProcessPosition(runContext, () => AnthropicHandler.instance.sendMessage({
                     userText: text,
                     profile,
                     configuration: cfg,
@@ -1577,7 +1681,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     sessionKey,
                     skipQuestRefresh,
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
-                }),
+                })),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.
                 { cancel: () => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
             );
@@ -1754,7 +1858,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({
             type: 'anthropicHistoryCleared',
             sessions: names,
-            panelSession: names.includes(this._chatSessionKey()),
+            panelSession: names.includes(this._panelSession()),
         });
     }
 
@@ -1762,7 +1866,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const quest = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         return pickSessions(quest, {
             title,
-            current: this._chatSessionKey(),
+            current: this._panelSession(),
             extra: sessionsWithStorage(TwoTierMemoryService.instance.historyFolder(quest || undefined)),
             ...(destructive ? { destructive } : {}),
         });
@@ -1774,7 +1878,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * in the MD Browser custom editor. When the file is missing we
      * fall through to a warning instead of opening something blank.
      */
-    private async _openSessionHistoryMarkdown(session: string = this._chatSessionKey()): Promise<void> {
+    private async _openSessionHistoryMarkdown(session: string = this._panelSession()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         // Every session keeps its own history.
         const folder = sessionRoot(TwoTierMemoryService.instance.historyFolder(questId || undefined), session);
@@ -1818,7 +1922,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * handler appends events. The file is created on the session's first
      * send; before that an info message names it.
      */
-    private async _openLiveTrailMarkdown(section: string = 'anthropic', session: string = this._chatSessionKey()): Promise<void> {
+    private async _openLiveTrailMarkdown(section: string = 'anthropic', session: string = this._panelSession()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         // Resolve the quest folder the same way LiveTrailWriter does.
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
@@ -2177,6 +2281,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     ...(transport === 'anthropic' && transportOpts?.usePanelTarget && !next
                         ? { anthropicProfileId: transportOpts.anthropicProfileId, anthropicConfigId: transportOpts.anthropicConfigId, session: this._chatSessionKey() }
                         : {}),
+                    // The run the subpanel is on (its session becomes the run's, `<session>@<run>`).
+                    run: this._chatRun(origin?.section === 'anthropic' || (!origin?.section && transport === 'anthropic') ? 'anthropic' : 'copilot'),
                 });
                 const count = queue.items.length;
                 vscode.window.showInformationMessage(next

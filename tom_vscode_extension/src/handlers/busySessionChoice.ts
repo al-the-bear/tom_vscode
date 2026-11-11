@@ -37,6 +37,8 @@ export interface ChatSendForQueue {
     configId?: string;
     /** The user-message template id. */
     template?: string;
+    /** The process run it belongs to (the chat panel's run picker); unset: the window's. */
+    run?: string;
 }
 
 /** The sessions a send could go to instead: the queue's and the panel's own, then the quest's named ones. */
@@ -95,6 +97,7 @@ export async function resolveBusySession(params: {
         ...(params.send.profileId ? { anthropicProfileId: params.send.profileId } : {}),
         ...(params.send.configId ? { anthropicConfigId: params.send.configId } : {}),
         ...(params.send.template ? { template: params.send.template } : {}),
+        ...(params.send.run ? { run: params.send.run } : {}),
     };
     if (choice.kind === 'next') { await queue.enqueueNext(opts); } else { await queue.enqueueAfterCurrent(opts); }
     return { kind: 'queued', how: choice.kind, session: params.session };

@@ -46,7 +46,7 @@ describe('session selection wiring', () => {
         assert.match(actions, /case 'rawTrail':[\s\S]{0,400}sessionTrailFolder\(root, n\)/);
         assert.match(panel, /private async _openAnthropicSummaryTrail[\s\S]*?_pickPanelSessions\('Open the summary trail'\)/);
         const pick = panel.slice(panel.indexOf('private async _pickPanelSessions('));
-        assert.match(pick, /current: this\._chatSessionKey\(\)/, "the panel's session preselected");
+        assert.match(pick, /current: this\._(chatSessionKey|panelSession)\(\)/, "the panel's session preselected (in the panel's run)");
         const webview = source('media', 'chatPanel', 'main.js');
         assert.match(webview, /msg\.type === 'anthropicHistoryCleared'/);
         assert.doesNotMatch(webview, /case 'clearAnthropicHistory':[^\n]*setAnthropicStatus/, 'no "cleared" before the choice');

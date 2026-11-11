@@ -63,3 +63,7 @@
 .plan-popup { max-width: 640px; }
 .plan-body { padding: 8px; max-height: 50vh; overflow: auto; }
 .plan-feedback { width: calc(100% - 16px); margin: 0 8px 8px; resize: vertical; font-family: inherit; }
+
+/* The run pickers (vscimpb48): a subpanel on another run than the PROCESS view's is marked. */
+.run-select { max-width: 9em; margin-left: 4px; }
+.run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }

@@ -278,6 +278,39 @@ function getPromptEditorComponent(options) {
         (options.afterEditorHtml || '');
 }
 
+/*
+ * The run pickers (vscimpb48): each subpanel's select lists the quest's runs
+ * (`default` first, the PROCESS view's marked) and shows the run it is on;
+ * a change asks the host to switch it. A run deleted elsewhere comes back as
+ * `default` from the host.
+ */
+var chatRunsState = { options: [{ run: 'default', label: 'default' }], selected: {}, windowRun: 'default' };
+function applyChatRuns(msg) {
+    chatRunsState = {
+        options: Array.isArray(msg.options) && msg.options.length ? msg.options : [{ run: 'default', label: 'default' }],
+        selected: msg.selected || {},
+        windowRun: msg.windowRun || 'default',
+    };
+    renderChatRunSelects();
+}
+function renderChatRunSelects() {
+    ['anthropic', 'copilot'].forEach(function(section) {
+        var sel = document.getElementById(section + '-run');
+        if (!sel) { return; }
+        var current = chatRunsState.selected[section] || 'default';
+        sel.innerHTML = chatRunsState.options.map(function(o) {
+            return '<option value="' + escapeAttr(o.run) + '"' + (o.run === current ? ' selected' : '') + '>Run: ' + escapeAttr(o.label) + '</option>';
+        }).join('');
+        sel.value = current;
+        sel.classList.toggle('run-other', current !== chatRunsState.windowRun);
+        sel.onchange = function() {
+            chatRunsState.selected[section] = sel.value;
+            sel.classList.toggle('run-other', sel.value !== chatRunsState.windowRun);
+            vscode.postMessage({ type: 'setChatRun', section: section, run: sel.value });
+        };
+    });
+}
+
 function getSectionContent(id) {
     var contents = {
         copilot: getPromptEditorComponent({
@@ -288,6 +321,9 @@ function getSectionContent(id) {
             selectorClass: 'compact-select',
             selectorTitle: 'Template',
             toolbarClass: 'copilot-compact-toolbar',
+            // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
+            secondarySelectorHtml:
+                '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>',
             prefixButtons:
                 '<button class="icon-btn" data-action="openContextPopup" data-id="copilot" title="Context & Settings"><span class="codicon codicon-tools"></span></button>',
             manageButtons:
@@ -346,6 +382,8 @@ function getSectionContent(id) {
                 // Agent SDK session: the button names the session the panel
                 // sends in; a click opens VS Code's picker (pick / new / based on).
                 '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name">chat</span></button>' +
+                // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
+                '<select id="anthropic-run" class="run-select" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
                 // Config dropdown intentionally removed — the profile
                 // owns configurationId and the handler resolves via
                 // profile.configurationId → isDefault → first. Pick a
@@ -943,6 +981,8 @@ function confirmDelete(itemType, sectionId) {
 
 function populateDropdowns() {
     populateCopilotTemplates();
+    // The run pickers are part of the sections: fill them again after a render.
+    renderChatRunSelects();
     // Use populateEntitySelect for anthropic profiles so the entry marked
     // isDefault is preselected; the label shown is the human-readable name.
     if (anthropicProfileEntries && anthropicProfileEntries.length > 0) {
@@ -1264,6 +1304,8 @@ window.addEventListener('message', function(e) {
         populateDropdowns();
         updateAnthropicApiKeyDot();
         updateClaudeCliDot();
+    } else if (msg.type === 'chatRuns') {
+        applyChatRuns(msg);
     } else if (msg.type === 'anthropicSession') {
         // The session as the queue's context bar shows it: name, base, lifetime, model.
         var sessionLabel = document.getElementById('anthropic-session-name');
