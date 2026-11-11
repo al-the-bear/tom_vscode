@@ -16,6 +16,8 @@ export interface HealthCheckInput {
     sendingSentAtIso?: string;
     responseFileTimeoutMinutes?: number;
     nowMs?: number;
+    /** Queue per run on: whether a lane could start an item now (decides the drain instead of the sending count). */
+    laneStartPossible?: boolean;
 }
 
 export interface HealthCheckDecisions {
@@ -79,10 +81,12 @@ export function computeHealthCheckDecisions(input: HealthCheckInput): HealthChec
     }
 
     const shouldRestartWatcher = !input.hasAnswerWatcher || shouldEnsureDirectory || shouldRestartForStaleSending;
+    // With lanes (Queue per run) one lane can be idle while another sends: then the drain is due when an item could start.
     const shouldTriggerSendNext =
         input.autoSendEnabled &&
-        input.pendingCount > 0 &&
-        input.sendingCount === 0;
+        (input.laneStartPossible !== undefined
+            ? input.laneStartPossible
+            : input.pendingCount > 0 && input.sendingCount === 0);
 
     return {
         shouldRestartWatcher,

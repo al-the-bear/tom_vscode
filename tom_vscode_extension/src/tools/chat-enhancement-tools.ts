@@ -645,6 +645,11 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const store = require('../managers/processStateStore.js').ProcessStateStore.instance as { runs(): Array<{ run: string }> } | undefined;
         return store ? store.runs().map((r) => r.run) : ['default'];
     },
+    lanes() {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const m = require('../managers/promptQueueManager.js').PromptQueueManager.instance as { queuePerRun: boolean; heldRuns: readonly string[] };
+        return { queuePerRun: m.queuePerRun, heldRuns: [...m.heldRuns] };
+    },
     remove(id) {
         // Synchronous, like the other accessors: a manager that is not running
         // throws here, so the tool answers the error instead of `ok` (and no

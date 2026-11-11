@@ -304,6 +304,10 @@ export interface QueueReloadAfterReloadSetting {
 const QUEUE_SCOPE_WORKSPACE = '__workspace__';
 
 export interface QueueSettings {
+    /** Queue per run (vscimpb46): one lane per process run, the lanes sending in parallel. */
+    'queue-per-run'?: boolean;
+    /** The runs held by Pause per run. */
+    'held-runs'?: string[];
     'response-timeout-minutes'?: number;
     'default-reminder-template-id'?: string;
     'auto-send-enabled'?: boolean;

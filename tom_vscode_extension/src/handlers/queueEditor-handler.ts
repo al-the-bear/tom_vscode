@@ -17,6 +17,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
+import type { LaneSummary } from '../utils/queueLanes';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
@@ -799,12 +800,20 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             qm.autoPauseEnabled = !qm.autoPauseEnabled;
             sendState();
             break;
+        case 'setQueuePerRun':
+            qm.queuePerRun = msg.value === true;
+            sendState();
+            break;
+        case 'setRunHeld':
+            if (typeof msg.run === 'string' && msg.run) { qm.setRunHeld(msg.run, msg.held === true); }
+            sendState();
+            break;
         case 'restartQueue':
             qm.restartQueue();
             sendState();
             break;
         case 'stopActiveItem': {
-            const stopped = qm.stopActiveItem();
+            const stopped = qm.stopActiveItem(typeof msg.id === 'string' && msg.id ? msg.id : undefined);
             if (!stopped) {
                 vscode.window.showInformationMessage('No prompt is currently running.');
             }
@@ -1250,6 +1259,8 @@ function buildState(): Record<string, unknown> {
         questRefreshActive,
         // The quest's process runs (the run filter, Group by run, the add form's run) and the window's.
         ...queueRunState(),
+        // Queue per run: the setting, the held runs and each lane (empty while it is off).
+        ...queueLaneState(),
     };
 }
 
@@ -1263,6 +1274,16 @@ function queueRunState(): { processRuns: string[]; currentRun: string } {
         return { processRuns: runs.length ? runs : ['default'], currentRun: store.currentRun };
     } catch {
         return { processRuns: ['default'], currentRun: 'default' };
+    }
+}
+
+/** Queue per run (vscimpb46): the setting, the held runs and the lanes with what each holds. */
+function queueLaneState(): { queuePerRun: boolean; heldRuns: string[]; lanes: LaneSummary[] } {
+    try {
+        const qm = PromptQueueManager.instance;
+        return { queuePerRun: qm.queuePerRun, heldRuns: [...qm.heldRuns], lanes: qm.laneSummaries(queueRunState().processRuns) };
+    } catch {
+        return { queuePerRun: false, heldRuns: [], lanes: [] };
     }
 }
 

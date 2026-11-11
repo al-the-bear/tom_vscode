@@ -95,8 +95,11 @@
   <label style="font-size:0.85em;opacity:0.85;" for="runFilter" title="The process run of the quest the items belong to">Run:</label>
   <select id="runFilter" onchange="setRunFilter(this.value)" title="Show the items of one process run (chat sends are outside the runs: shown under all)"></select>
   <label style="font-size:0.85em;opacity:0.85;" title="The items per process run, under a heading each"><input type="checkbox" id="groupByRun" onchange="setGroupByRun(this.checked)"> Group by run</label>
+  <label style="font-size:0.85em;opacity:0.85;" title="A queue setting: each process run gets its own lane — one item sending per lane, the lanes in parallel, each run's items in order. Off: one item at a time for the whole queue."><input type="checkbox" id="queuePerRun" onchange="setQueuePerRun(this.checked)"> Queue per run</label>
   <span id="countLabel" style="margin-left:auto; font-size:0.85em; opacity:0.7;"></span>
 </div>
+<!-- Queue per run: one row per lane (run), what it sends and holds, Pause / Resume per run. -->
+<div class="lane-strip" id="laneStrip" style="display:none;"></div>
 
 <div class="add-form" id="addForm">
   <label>Prompt</label>

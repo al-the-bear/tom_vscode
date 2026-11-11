@@ -105,6 +105,9 @@ let currentRun = __INITIAL__.currentRun || 'default';
 const __runViewState = (typeof vscode !== 'undefined' && vscode && typeof vscode.getState === 'function' && vscode.getState()) || {};
 let runFilter = typeof __runViewState.runFilter === 'string' ? __runViewState.runFilter : 'all';
 let groupByRun = __runViewState.groupByRun === true;
+// Queue per run (a queue setting, from the host) and its lanes (each says whether its run is held).
+let queuePerRun = __INITIAL__.queuePerRun === true;
+let lanes = Array.isArray(__INITIAL__.lanes) ? __INITIAL__.lanes : [];
 // Pending items whose prompt is open for editing: item id -> the draft text.
 // The host holds the queue for them (beginTextEdit) until Save or Cancel.
 var queueTextEdits = {};
@@ -246,6 +249,8 @@ window.addEventListener('message', e => {
       currentItems = msg.items || [];
       if (Array.isArray(msg.processRuns)) { processRuns = msg.processRuns; }
       if (typeof msg.currentRun === 'string') { currentRun = msg.currentRun; }
+      queuePerRun = msg.queuePerRun === true;
+      lanes = Array.isArray(msg.lanes) ? msg.lanes : [];
       // An open edit of an item that is no longer pending has nothing to save into.
       Object.keys(queueTextEdits).forEach(function(id) {
         var it = currentItems.find(function(i) { return i.id === id; });
@@ -514,6 +519,9 @@ function renderRunControls() {
   }
   const group = document.getElementById('groupByRun');
   if (group) { group.checked = groupByRun; }
+  const perRun = document.getElementById('queuePerRun');
+  if (perRun) { perRun.checked = queuePerRun; }
+  renderLaneStrip();
   const add = document.getElementById('addRun');
   if (add) {
     const chosen = add.dataset.touched === '1' && processRuns.indexOf(add.value) >= 0 ? add.value : currentRun;
@@ -530,6 +538,30 @@ function saveRunViewState() {
     vscode.setState(Object.assign({}, prev, { runFilter: runFilter, groupByRun: groupByRun }));
   }
 }
+/* Queue per run: a row per lane — sending / pending, and Pause / Resume for the run. */
+function renderLaneStrip() {
+  const strip = document.getElementById('laneStrip');
+  if (!strip) { return; }
+  if (!queuePerRun || lanes.length === 0) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+  strip.style.display = '';
+  strip.innerHTML = lanes.map(function(l) {
+    const state = l.held ? 'held' : (l.sending > 0 ? 'sending' : (l.pending > 0 ? (autoSend ? 'waiting' : 'paused') : 'idle'));
+    const action = l.held
+      ? '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="0" title="Resume this run: its lane sends again">Resume</button>'
+      : '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="1" title="Pause this run: its lane starts nothing; its sending item stops before its next prompt">Pause</button>';
+    return '<span class="lane lane-' + state + '" data-lane="' + escapeHtml(l.run) + '">'
+      + '<b>' + escapeHtml(l.run) + '</b>' + (l.run === currentRun ? ' (this window\'s)' : '')
+      + ' · ' + l.sending + ' sending · ' + l.pending + ' pending'
+      + (l.held ? ' · <i>held</i>' : '') + ' ' + action + '</span>';
+  }).join('');
+  strip.querySelectorAll('.lane-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { setRunHeld(btn.dataset.run, btn.dataset.held === '1'); });
+  });
+}
+// eslint-disable-next-line no-unused-vars -- called by the checkbox's onchange in index.html
+function setQueuePerRun(on) { vscode.postMessage({ type: 'setQueuePerRun', value: !!on }); }
+function setRunHeld(run, held) { vscode.postMessage({ type: 'setRunHeld', run: run, held: !!held }); }
+
 function setRunFilter(value) { runFilter = value || 'all'; saveRunViewState(); render(); }
 function setGroupByRun(on) { groupByRun = !!on; saveRunViewState(); render(); }
 

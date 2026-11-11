@@ -235,6 +235,8 @@ export interface PromptQueueAccess {
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
     /** The quest's process runs (`tomAi_addQueueItem {run}` must name one); unset: not checked. */
     runs?(): string[];
+    /** Queue per run (vscimpb46): its setting and the held runs; unset: not reported. */
+    lanes?(): { queuePerRun: boolean; heldRuns: string[] };
     remove(id: string): void;
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
@@ -578,6 +580,7 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
         return JSON.stringify({
             ok: true,
             autoSendEnabled: access.autoSendEnabled(),
+            ...(access.lanes ? access.lanes() : {}),
             responseTimeoutMinutes: access.responseFileTimeoutMinutes(),
             pendingCount: access.pendingCount(),
             totalCount: items.length,
@@ -592,7 +595,8 @@ export const LIST_QUEUE_DESCRIPTION =
     'List queue items with status, ids, the process run each belongs to, reminder metadata, transport, and ' +
     'follow-up counts. **Default excludes `sent` items** — pass ' +
     '`includeSent: true` to see the whole history. Response includes ' +
-    '`autoSendEnabled`, `responseTimeoutMinutes`, and `pendingCount` so the ' +
+    '`autoSendEnabled`, `queuePerRun` (one lane per run, sending in parallel) with the `heldRuns` (paused per run), ' +
+    '`responseTimeoutMinutes`, and `pendingCount` so the ' +
     'model can see the queue\'s run-loop state at a glance. Items have ' +
     '`textPreview` (first 160 chars) — use `tomAi_listQueue` for browsing, ' +
     'and inspect specific items with the other queue tools using `id`.';

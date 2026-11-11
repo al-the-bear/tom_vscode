@@ -8,6 +8,7 @@
 
 import { normalizeRun } from '../utils/processRuns';
 import { runSessionName } from '../utils/runSessions';
+import { isLaneHeld, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
@@ -691,13 +692,15 @@ export class PromptQueueManager {
     private _processingAnswerFile = false;
 
     /**
-     * Cancellation source for the in-flight Anthropic dispatch, if any.
+     * Cancellation source of each in-flight Anthropic dispatch, by the id of
+     * the item it runs for (`''` for a dispatch of no item) — with Queue per
+     * run several items dispatch at once (src/utils/queueLanes.ts).
      * Created in `dispatchStage` immediately before `sendMessage`,
      * disposed in the matching `finally`. The Stop button in the queue
      * editor triggers `stopActiveItem()`, which cancels this CTS so the
      * Anthropic round loop bails out at its next checkpoint.
      */
-    private _activeAnthropicCts?: vscode.CancellationTokenSource;
+    private _activeAnthropicCts = new Map<string, vscode.CancellationTokenSource>();
 
     /**
      * Monotonic "dispatch epoch" bumped every time an in-flight dispatch
@@ -707,9 +710,24 @@ export class PromptQueueManager {
      * and, when the await settles, asks `dispatchWasSuperseded` whether a
      * cancel happened in the meantime — if so the frame becomes a no-op
      * instead of promoting the item to `error` / advancing the queue.
-     * See `dispatchWasSuperseded` for the full rationale.
+     * See `dispatchWasSuperseded` for the full rationale. Kept per item (a
+     * cancel of one lane's item does not stand down another lane's frames)
+     * plus one for a cancel of no item in particular, which concerns all:
+     * a frame's epoch is their sum. With one item sending at a time this is
+     * the single counter it always was.
      */
-    private _dispatchEpoch = 0;
+    private _itemEpochs = new Map<string, number>();
+    private _globalEpoch = 0;
+
+    /**
+     * Queue per run (vscimpb46, src/utils/queueLanes.ts): one lane per process
+     * run, the lanes sending in parallel. Off: the single lane.
+     */
+    private _queuePerRun = false;
+    /** The runs held by Pause per run (only read while Queue per run is on). */
+    private _heldRuns: string[] = [];
+    /** The lane settings are in the settings file (written once set, so an untouched queue's file stays as it was). */
+    private _laneSettingsStored = false;
 
     /** Maps QueuedPrompt.id → entry filename on disk. */
     private _fileNameMap = new Map<string, string>();
@@ -1110,7 +1128,7 @@ export class PromptQueueManager {
     }
 
     private get answerFilePath(): string {
-        const sending = this._items.find(i => i.status === 'sending');
+        const sending = this._answerItem();
         return this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
     }
 
@@ -1282,13 +1300,16 @@ export class PromptQueueManager {
         const decisions = computeHealthCheckDecisions({
             hasAnswerWatcher: !!this._answerWatcher,
             autoSendEnabled: this._autoSendEnabled,
+            // With lanes (Queue per run) a lane can be idle while another sends: the drain is due
+            // whenever an item could start (the stale-sending check still sees what sends).
+            ...(this._queuePerRun ? { laneStartPossible: this._laneStarts().length > 0 } : {}),
             // An interrupted item is work the drain must pick up — it resumes via
             // the hook at the top of `sendNext` — so it counts towards the
             // trigger. This is what lets Auto-Start replay it after a reload.
             pendingCount: pendingCount + interruptedCount,
             sendingCount,
             answerDirectoryExists: fs.existsSync(this.answerDirectory),
-            sendingSentAtIso: sending?.sentAt,
+            sendingSentAtIso: (this._queuePerRun ? this._answerItem() : sending)?.sentAt,
             responseFileTimeoutMinutes: this._responseFileTimeoutMinutes,
         });
 
@@ -1311,7 +1332,7 @@ export class PromptQueueManager {
         } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
-        } else if ((resumedWaiting || resumedRetry || queueStartJustFired) && sendingCount === 0) {
+        } else if ((resumedWaiting || resumedRetry || queueStartJustFired) && (sendingCount === 0 || this._queuePerRun)) {
             // A parked item (waiting reset OR retry backoff) just became due, or
             // a deferred queue start just elapsed, but auto-send may be off (the
             // queue could have been paused independently). Drive the drain
@@ -1328,7 +1349,7 @@ export class PromptQueueManager {
         if (this._processingAnswerFile) {
             return;
         }
-        const sending = this._items.find(i => i.status === 'sending');
+        const sending = this._answerItem();
         if (!sending || !sending.expectedRequestId) {
             return;
         }
@@ -1486,7 +1507,7 @@ export class PromptQueueManager {
     }
 
     private async checkResponseTimeouts(): Promise<void> {
-        const sending = this._items.find(i => i.status === 'sending');
+        const sending = this._answerItem();
         if (!sending || !sending.sentAt) { return; }
 
         // Anthropic items don't have an answer-file wait — the response
@@ -1594,7 +1615,7 @@ export class PromptQueueManager {
         this._processingAnswerFile = true;
 
         try {
-        const sending = this._items.find(i => i.status === 'sending');
+        let sending = this._answerItem();
         const filePath = changedFilePath || this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
         logQueue(`Watching for answer at ${filePath}`);
         debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
@@ -1644,6 +1665,10 @@ export class PromptQueueManager {
         const resolvedAnswerRequestId = detectedRequest.requestId;
         if (detectedRequest.source !== 'none') {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
+        }
+        // Several lanes send at once (Queue per run): the answer belongs to the sending item that expects it.
+        if (this._queuePerRun && resolvedAnswerRequestId) {
+            sending = this._items.find(i => i.status === 'sending' && i.expectedRequestId === resolvedAnswerRequestId) ?? sending;
         }
 
         // Strict sequencing and ownership:
@@ -1708,7 +1733,7 @@ export class PromptQueueManager {
         }
 
         // At this point the answer is relevant for the active sending item.
-        this.propagateAnswerResponseValues(answer);
+        this.propagateAnswerResponseValues(answer, 'copilot', sending);
         this.markAnswerFileProcessed(filePath, answer);
 
         logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
@@ -1785,6 +1810,7 @@ export class PromptQueueManager {
     private propagateAnswerResponseValues(
         answer: Record<string, unknown> | undefined,
         source: ChangeSource = 'copilot',
+        item?: QueuedPrompt,
     ): void {
         debugLog(`[PromptQueueManager] propagateAnswerResponseValues called (source=${source})`, 'DEBUG', 'queue');
         if (!answer || typeof answer !== 'object') {
@@ -1816,7 +1842,13 @@ export class PromptQueueManager {
             if (chatStore && typeof chatStore.setCustomBulk === 'function') {
                 if (Object.keys(customValues).length > 0) {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: calling setCustomBulk with ${Object.keys(customValues).length} values: ${JSON.stringify(customValues)}`, 'INFO', 'queue');
-                    chatStore.setCustomBulk(customValues, source, answerRequestId);
+                    // Lanes send several runs at once (Queue per run): the values go to the answering item's run.
+                    const write = (): void => chatStore.setCustomBulk(customValues, source, answerRequestId);
+                    if (this._queuePerRun && item && typeof chatStore.withRun === 'function') {
+                        chatStore.withRun(laneOf(item, true), write);
+                    } else {
+                        write();
+                    }
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: setCustomBulk completed`, 'DEBUG', 'queue');
                 } else {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: no custom values to set (all built-in)`, 'DEBUG', 'queue');
@@ -1837,9 +1869,9 @@ export class PromptQueueManager {
      * every pre-prompt, the main prompt, every repeat, and every follow-up — so
      * variable setting works on every final answer, not only the last.
      */
-    private _propagateDirectAnswer(text: string): void {
+    private _propagateDirectAnswer(text: string, item?: QueuedPrompt): void {
         if (!text) { return; }
-        this.propagateAnswerResponseValues({ responseValues: extractResponseValuesFromText(text) }, 'anthropic');
+        this.propagateAnswerResponseValues({ responseValues: extractResponseValuesFromText(text) }, 'anthropic', item);
     }
 
     // ----- queue CRUD --------------------------------------------------------
@@ -1875,6 +1907,12 @@ export class PromptQueueManager {
         // and returned 'paused', so calling
         // `dispatchNextStageForSendingItem` again here advances to
         // the next un-dispatched repetition.
+        if (this._queuePerRun) {
+            // Every lane resumes its paused item (a held run's stays); free lanes take their next item.
+            this._resumePausedLanes();
+            void this.sendNext();
+            return;
+        }
         const resuming = this._items.find(i =>
             i.status === 'sending' && this._itemHasInFlightProgress(i),
         );
@@ -1888,7 +1926,7 @@ export class PromptQueueManager {
         // `decision-needed` item counts as work: `sendNext` releases it first
         // if its decisions have been answered in the meantime.
         const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
-        if (hasWork && !this._items.some(i => i.status === 'sending')) {
+        if (hasWork && this._mayDrain()) {
             void this.sendNext();
         }
     }
@@ -1930,10 +1968,10 @@ export class PromptQueueManager {
      *   - `'dispatched'` — Copilot: wait for the next answer file.
      */
     private async _resumePausedSendingItem(item: QueuedPrompt): Promise<void> {
-        const epoch = this._dispatchEpoch;
+        const epoch = this._epochOf(item);
         try {
             const outcome = await this.dispatchNextStageForSendingItem(item);
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`_resumePausedSendingItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
@@ -1956,7 +1994,7 @@ export class PromptQueueManager {
                 logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`_resumePausedSendingItem(${item.id}): dispatch cancelled by an explicit action — error suppressed`);
                 return;
             }
@@ -2269,7 +2307,7 @@ export class PromptQueueManager {
         }
 
         // If nothing is sending and auto-send is on, kick off unless explicitly deferred
-        if (!opts.deferSend && this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+        if (!opts.deferSend && this._autoSendEnabled && this._mayDrain()) {
             await this.sendNext();
         }
 
@@ -2327,7 +2365,7 @@ export class PromptQueueManager {
         if (ended.length === 0) { return; }
         logQueue(`Text edit closed on ${ended.join(', ')}${text !== undefined ? ' (saved)' : ''}`);
         this._onDidChange.fire();
-        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+        if (this._autoSendEnabled && this._mayDrain()) {
             await this.sendNext();
         }
     }
@@ -2356,7 +2394,7 @@ export class PromptQueueManager {
         // because the sending item is gone) and drop auto-send to OFF so the
         // queue doesn't immediately fire the next pending prompt.
         if (effect.wasSending) {
-            this._cancelActiveDispatch();
+            this._cancelActiveDispatch(removing);
             if (this._autoSendEnabled && !effect.nextAutoSendEnabled) {
                 this._autoSendEnabled = false;
                 this.persistSettings();
@@ -2901,7 +2939,9 @@ export class PromptQueueManager {
      * - otherwise mark sent, enqueue repeat (if configured), and send next pending item.
      */
     async continueSending(id?: string): Promise<boolean> {
-        const sending = this._items.find(i => i.status === 'sending');
+        const sending = id
+            ? this._items.find(i => i.id === id && i.status === 'sending')
+            : this._items.find(i => i.status === 'sending');
         if (!sending) {
             return false;
         }
@@ -2918,18 +2958,18 @@ export class PromptQueueManager {
         // The CTS lifecycle guard in dispatchStage (`if (this._activeAnthropicCts === cts)`)
         // ensures the cancelled handler's `finally` will not clobber the freshly-set
         // CTS for the next stage's dispatch.
-        this._cancelActiveDispatch();
+        this._cancelActiveDispatch(sending);
 
         // Baseline epoch *after* our own cancel: this advance frame now
         // owns the item. If a *further* explicit action (a second
         // Continue / Stop) bumps the epoch again while we await, stand
         // down rather than marking `error` — that later action owns the
         // item's next state.
-        const epoch = this._dispatchEpoch;
+        const epoch = this._epochOf(sending);
         try {
             return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue');
         } catch (err) {
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(sending))) {
                 logQueue(`continueSending(${sending.id}): superseded by a later explicit action — error suppressed`);
                 return false;
             }
@@ -3038,7 +3078,7 @@ export class PromptQueueManager {
             // the handler stops executing even when setStatus is called
             // directly (e.g. from the queue editor's "set to staged"
             // action, not through stopActiveItem).
-            this._cancelActiveDispatch();
+            this._cancelActiveDispatch(item);
             // Stopped before the answer: hand back a todo this dispatch claimed.
             this.releaseQuestTodoClaim(item, `stopped (${fromStatus} → staged)`);
             if (item.prePrompts && item.prePrompts.length > 0) {
@@ -3089,7 +3129,7 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         
         // If changed to pending and autoSend is on, try to send
-        if (status === 'pending' && this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+        if (status === 'pending' && this._autoSendEnabled && this._mayDrain()) {
             void this.sendNext();
         }
         return true;
@@ -3108,15 +3148,22 @@ export class PromptQueueManager {
      * the queue polls for an answer file.  Calling this method for a
      * Copilot-transport item is a no-op and safe.
      */
-    private _cancelActiveDispatch(): void {
+    private _cancelActiveDispatch(item?: QueuedPrompt): void {
         // Bump the dispatch epoch so any send-owning frame currently
         // awaiting a dispatch (sendItem / resume / resend / continue)
         // recognises that this cancellation was intentional and turns
         // its completion into a no-op rather than an `error` transition
         // or a duplicate queue advance. See `dispatchWasSuperseded`.
-        this._dispatchEpoch++;
-        const cts = this._activeAnthropicCts;
-        if (cts) {
+        // The item's dispatch (and one of no item); without an item, every dispatch.
+        if (item) {
+            this._itemEpochs.set(item.id, (this._itemEpochs.get(item.id) ?? 0) + 1);
+        } else {
+            this._globalEpoch++;
+        }
+        const keys = item ? [item.id, ''] : [...this._activeAnthropicCts.keys()];
+        for (const key of keys) {
+            const cts = this._activeAnthropicCts.get(key);
+            if (!cts) { continue; }
             try {
                 cts.cancel();
             } catch (err) {
@@ -3163,9 +3210,13 @@ export class PromptQueueManager {
      * Returns `true` if a sending item was found and/or an active
      * dispatch was cancelled; `false` if there was nothing to stop.
      */
-    stopActiveItem(): boolean {
-        const sending = this._items.find(i => i.status === 'sending');
-        const hasActiveCts = !!this._activeAnthropicCts;
+    stopActiveItem(id?: string): boolean {
+        const sending = id
+            ? this._items.find(i => i.id === id && i.status === 'sending')
+            : this._items.find(i => i.status === 'sending');
+        const hasActiveCts = sending
+            ? this._activeAnthropicCts.has(sending.id) || this._activeAnthropicCts.has('')
+            : this._activeAnthropicCts.size > 0;
 
         if (!sending && !hasActiveCts) {
             logQueue('stopActiveItem: no sending item and no active dispatch to stop');
@@ -3175,7 +3226,7 @@ export class PromptQueueManager {
         // Cancel the in-flight Anthropic dispatch regardless of item
         // status — the CTS is the authoritative signal that the handler
         // is actually executing.
-        this._cancelActiveDispatch();
+        this._cancelActiveDispatch(sending);
 
         if (!sending) {
             // The handler was mid-flight but the item's status had
@@ -3218,7 +3269,7 @@ export class PromptQueueManager {
             logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
             return false;
         }
-        this._cancelActiveDispatch();
+        this._cancelActiveDispatch(sending);
         // Interrupted before the answer: hand the todo back. The resume replays
         // the same main prompt through Resend, which claims it again.
         this.releaseQuestTodoClaim(sending, 'interrupted for continuation');
@@ -3271,7 +3322,7 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         logQueue(`Converted ${changed} staged items to pending`);
 
-        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+        if (this._autoSendEnabled && this._mayDrain()) {
             void this.sendNext();
         }
         return changed;
@@ -3351,7 +3402,7 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
         }
-        if (this._autoSendEnabled && !this._items.some(i => i.status === 'sending')) {
+        if (this._autoSendEnabled && this._mayDrain()) {
             void this.sendNext();
         }
     }
@@ -3438,6 +3489,118 @@ export class PromptQueueManager {
         }
     }
 
+    // ----- lanes: Queue per run (src/utils/queueLanes.ts) --------------------
+
+    private _laneOptions(): { perRun: boolean; heldRuns: readonly string[] } {
+        return { perRun: this._queuePerRun, heldRuns: this._heldRuns };
+    }
+
+    /** The dispatch epoch a frame of `item` watches (see `_itemEpochs`). */
+    private _epochOf(item: QueuedPrompt | undefined): number {
+        return this._globalEpoch + (item ? this._itemEpochs.get(item.id) ?? 0 : 0);
+    }
+
+    /** How `item` runs now: its session on the Anthropic transport, else the Copilot chat. */
+    private _laneTarget(item: QueuedPrompt): LaneTarget {
+        const session = this.anthropicSessionOf(item);
+        return session ? { transport: 'anthropic', session } : { transport: 'copilot' };
+    }
+
+    /**
+     * Whether a drain may be started: with one lane only while nothing sends
+     * (as always); with lanes whenever — `sendNext` fills the free lanes.
+     */
+    private _mayDrain(): boolean {
+        return this._queuePerRun || !this._items.some(i => i.status === 'sending');
+    }
+
+    /**
+     * The sending item a Copilot answer file belongs to: with one lane the
+     * sending item; with lanes the one on the Copilot transport (at most one
+     * sends at a time).
+     */
+    private _answerItem(): QueuedPrompt | undefined {
+        if (!this._queuePerRun) { return this._items.find(i => i.status === 'sending'); }
+        return this._items.find(i => i.status === 'sending' && this._laneTarget(i).transport === 'copilot');
+    }
+
+    /** The items that may start now, one per free lane. */
+    private _laneStarts(): QueuedPrompt[] {
+        return pickLaneStarts(this._items, this._laneOptions(), (i) => this._laneTarget(i))
+            .filter((i) => !this._textEdits.has(i.id) && !this.chatHoldingSessionOf(i));
+    }
+
+    /** `sendNext` with Queue per run on: every free lane takes its next item; they send in parallel. */
+    private async _sendNextInLanes(): Promise<void> {
+        if (!this._items.some(i => i.status === 'pending')) {
+            logQueue('sendNext: no pending items');
+            if (!this._items.some(i => i.status === 'sending')
+                && shouldAutoPauseOnEmpty(this._autoSendEnabled, 0, this._autoPauseEnabled)) {
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                this._onDidChange.fire();
+                logQueue('Queue empty — auto-pausing');
+            }
+            return;
+        }
+        const starts = this._laneStarts();
+        if (starts.length === 0) {
+            logQueue('sendNext: every lane with pending items is sending, held, waiting for a session or being edited');
+            return;
+        }
+        logQueue(`sendNext: starting ${starts.map(i => `${i.id} (run ${laneOf(i, true)})`).join(', ')}`);
+        await Promise.all(starts.map((item) => this.sendItem(item)));
+    }
+
+    /** Resume the paused sending items of the lanes that are not held (auto-send just came on, or a run was resumed). */
+    private _resumePausedLanes(run?: string): void {
+        const opts = this._laneOptions();
+        for (const item of this._items) {
+            if (item.status !== 'sending' || !this._itemHasInFlightProgress(item) || item.awaitingAnswer) { continue; }
+            if (isLaneHeld(item, opts) || (run !== undefined && laneOf(item, true) !== run)) { continue; }
+            logQueue(`Resuming paused item ${item.id} of run ${laneOf(item, true)}`);
+            void this._resumePausedSendingItem(item);
+        }
+    }
+
+    /** Queue per run: one lane per process run, sending in parallel. */
+    get queuePerRun(): boolean { return this._queuePerRun; }
+
+    set queuePerRun(v: boolean) {
+        if (v === this._queuePerRun) { return; }
+        this._queuePerRun = v;
+        this._laneSettingsStored = true;
+        logQueue(`Queue per run ${v ? 'on: one lane per run' : 'off: one lane'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+        if (v && this._autoSendEnabled) { void this.sendNext(); }
+    }
+
+    /** The runs held by Pause per run. */
+    get heldRuns(): readonly string[] { return this._heldRuns; }
+
+    /** Hold (Pause) or release (Resume) one run's lane. Returns whether it changed. */
+    setRunHeld(run: string, held: boolean): boolean {
+        const name = normalizeRun(run);
+        const isHeld = this._heldRuns.includes(name);
+        if (held === isHeld) { return false; }
+        this._heldRuns = held ? [...this._heldRuns, name].sort() : this._heldRuns.filter((r) => r !== name);
+        this._laneSettingsStored = true;
+        logQueue(`Run ${name} ${held ? 'held (Pause per run)' : 'resumed'}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+        if (!held && this._queuePerRun && this._autoSendEnabled) {
+            this._resumePausedLanes(name);
+            void this.sendNext();
+        }
+        return true;
+    }
+
+    /** The lanes as the queue editor shows them (none with Queue per run off). */
+    laneSummaries(runs: readonly string[]): LaneSummary[] {
+        return laneSummaries(this._items, runs, this._laneOptions());
+    }
+
     // ----- sending -----------------------------------------------------------
 
     /**
@@ -3489,6 +3652,7 @@ export class PromptQueueManager {
         // fire on a queue whose only work is that item. Guarded by auto-send:
         // nothing goes out until the user re-arms the queue.
         if (this._autoSendEnabled && this._resumeInterruptedItem()) { return; }
+        if (this._queuePerRun) { await this._sendNextInLanes(); return; }
         const next = this._items.find(i => i.status === 'pending');
         if (!next) {
             logQueue('sendNext: no pending items');
@@ -3637,11 +3801,11 @@ export class PromptQueueManager {
         // this send and now owns the item's next state. We must then
         // neither advance the queue (success path) nor mark `error`
         // (catch path). See `dispatchWasSuperseded`.
-        const epoch = this._dispatchEpoch;
+        const epoch = this._epochOf(item);
 
         try {
             const outcome = await this.dispatchNextStageForSendingItem(item);
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`sendItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
@@ -3684,7 +3848,7 @@ export class PromptQueueManager {
                 logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 // The throw is the byproduct of an intentional cancel
                 // (Continue / Stop / set-to-staged); the action that
                 // cancelled already set the item's terminal state. Do
@@ -3725,8 +3889,13 @@ export class PromptQueueManager {
         if (!last) {
             throw new Error(`Queue item ${id} has no previously-dispatched prompt to resend`);
         }
-        if (this._items.some(i => i.status === 'sending')) {
-            throw new Error('Another queue item is currently sending; wait for it to finish before resending');
+        const busy = this._queuePerRun
+            ? laneConflict(item, this._items.filter(i => i.status === 'sending'), this._laneOptions(), (i) => this._laneTarget(i))
+            : (this._items.some(i => i.status === 'sending') ? 'another item is sending' : undefined);
+        if (busy) {
+            throw new Error(this._queuePerRun
+                ? `Cannot resend now: ${busy}; wait for it to finish before resending`
+                : 'Another queue item is currently sending; wait for it to finish before resending');
         }
 
         logQueue(`Resending last ${last.kind} prompt for item ${item.id} via ${last.transport}`);
@@ -3770,7 +3939,7 @@ export class PromptQueueManager {
             item,
         };
 
-        const epoch = this._dispatchEpoch;
+        const epoch = this._epochOf(item);
         try {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
@@ -3781,7 +3950,7 @@ export class PromptQueueManager {
             // text the user had just cancelled. See `resolveResendText`.
             const resendText = override?.text ?? resolveResendText(last, item.expandedText);
             const dispatchResult = await this.dispatchStage(resendText, resolved, container);
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
@@ -3829,7 +3998,7 @@ export class PromptQueueManager {
                 // answer file appears (or to 'error' on timeout).
             }
         } catch (err) {
-            if (dispatchWasSuperseded(epoch, this._dispatchEpoch)) {
+            if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch cancelled by an explicit action — error suppressed`);
                 return;
             }
@@ -4209,7 +4378,7 @@ export class PromptQueueManager {
         logQueue(`retryWaitingNow(${id}): waiting → pending (manual retry)`);
         this.persist();
         this._onDidChange.fire();
-        if (!this._items.some(i => i.status === 'sending')) {
+        if (this._mayDrain()) {
             await this.sendNext();
         }
         return true;
@@ -4237,7 +4406,7 @@ export class PromptQueueManager {
         logQueue(`retryRetryingNow(${id}): retry → pending (manual retry, attempt ${item.retryAttempt ?? 0})`);
         this.persist();
         this._onDidChange.fire();
-        if (!this._items.some(i => i.status === 'sending')) {
+        if (this._mayDrain()) {
             await this.sendNext();
         }
         return true;
@@ -4519,7 +4688,8 @@ export class PromptQueueManager {
         // can cancel the in-flight round loop. Disposed in `finally` so
         // a stale token never lingers across dispatches.
         const cts = new vscode.CancellationTokenSource();
-        this._activeAnthropicCts = cts;
+        const ctsKey = waitItem?.id ?? '';
+        this._activeAnthropicCts.set(ctsKey, cts);
         try {
             // The prompt runs as the process position it belongs to (processRunContext).
             // Its tool calls run as this item: a wait for the user they open is shown on it (userWaits).
@@ -4548,14 +4718,14 @@ export class PromptQueueManager {
             // (The Copilot transport already propagates once per answer file.)
             // The internal Quest Refresh dispatch opts out (`propagateAnswer`).
             if (propagateAnswer) {
-                this._propagateDirectAnswer(result.text);
+                this._propagateDirectAnswer(result.text, waitItem);
             }
-            this._clearRetryOnDispatchSuccess();
+            this._clearRetryOnDispatchSuccess(waitItem);
             return { mode: 'direct', answerText: result.text };
         } finally {
             this._showSendWait(waitItem, null);
-            if (this._activeAnthropicCts === cts) {
-                this._activeAnthropicCts = undefined;
+            if (this._activeAnthropicCts.get(ctsKey) === cts) {
+                this._activeAnthropicCts.delete(ctsKey);
             }
             cts.dispose();
         }
@@ -4602,8 +4772,8 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
-    private _clearRetryOnDispatchSuccess(): void {
-        const sending = this._items.find(i => i.status === 'sending');
+    private _clearRetryOnDispatchSuccess(item?: QueuedPrompt): void {
+        const sending = this._queuePerRun && item ? item : this._items.find(i => i.status === 'sending');
         if (!sending) { return; }
         if (sending.retryAttempt === undefined && sending.retryUntil === undefined) { return; }
         clearRetryBookkeeping(sending);
@@ -4677,12 +4847,14 @@ export class PromptQueueManager {
      * while the queue is paused.
      */
     private _pauseBeforeNextDispatch(item: QueuedPrompt): boolean {
-        if (!pausesBeforeNextDispatch(this._autoSendEnabled, item)) { return false; }
+        // A held run (Pause per run, with Queue per run on) pauses like auto-send off.
+        const held = isLaneHeld(item, this._laneOptions());
+        if (!pausesBeforeNextDispatch(this._autoSendEnabled && !held, item)) { return false; }
         // Between prompts and paused: none is in flight, so the item is idle
         // (its header goes amber).
         item.awaitingAnswer = false;
         item.inFlightRepetition = undefined;
-        logQueue(`dispatchNext: auto-send paused, leaving item ${item.id} in 'sending' with progress preserved`);
+        logQueue(`dispatchNext: ${held ? `run ${laneOf(item, true)} held` : 'auto-send paused'}, leaving item ${item.id} in 'sending' with progress preserved`);
         return true;
     }
 
@@ -5060,7 +5232,8 @@ export class PromptQueueManager {
         // An item marked "send between iterations" goes now, before this
         // loop's next iteration: it moves in front of the loop item, which
         // steps back to pending with its counters kept and resumes after it.
-        const between = itemToSendBetween(this._items, item, mainSentCount, plan.mode !== 'exhausted');
+        // With lanes (Queue per run) only a marked item of this loop's own lane steps in; another lane's runs on its own.
+        const between = itemToSendBetween(this._queuePerRun ? this._items.filter(i => i === item || laneOf(i, true) === laneOf(item, true)) : this._items, item, mainSentCount, plan.mode !== 'exhausted');
         if (between) {
             this._items = orderForBetween(this._items, item, between);
             item.status = 'pending';
@@ -5346,7 +5519,7 @@ export class PromptQueueManager {
                     this._autoSendEnabled = true;
                     this.persistSettings();
                     this._onDidChange.fire();
-                    if (this._items.some(i => i.status === 'pending' || i.status === 'interrupted') && !this._items.some(i => i.status === 'sending')) {
+                    if (this._items.some(i => i.status === 'pending' || i.status === 'interrupted') && this._mayDrain()) {
                         void this.sendNext();
                     }
                 }, 30_000);
@@ -5354,7 +5527,7 @@ export class PromptQueueManager {
         }
 
         // If auto-send is now enabled (via auto-start) and there are pending items, kick off
-        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && !this._items.some(i => i.status === 'sending')) {
+        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && this._mayDrain()) {
             void this.sendNext();
         }
 
@@ -5381,6 +5554,9 @@ export class PromptQueueManager {
             'default-agent-sdk-session': this._defaultAgentSdkSession,
             'default-message-template-id': this._defaultMessageTemplateId,
             'queue-start-at': this._queueStartAt,
+            // Written once the user touched them, so a queue that never used lanes keeps its file as it was.
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the settings file's keys
+            ...(this._laneSettingsStored ? { 'queue-per-run': this._queuePerRun, 'held-runs': [...this._heldRuns] } : {}),
         });
     }
 
@@ -5420,6 +5596,14 @@ export class PromptQueueManager {
             }
             if (typeof settings['default-message-template-id'] === 'string') {
                 this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
+            }
+            if (typeof settings['queue-per-run'] === 'boolean') {
+                this._queuePerRun = settings['queue-per-run'];
+                this._laneSettingsStored = true;
+            }
+            if (Array.isArray(settings['held-runs'])) {
+                this._heldRuns = settings['held-runs'].filter((r): r is string => typeof r === 'string' && r.length > 0).map(normalizeRun);
+                this._laneSettingsStored = true;
             }
             if (typeof settings['queue-start-at'] === 'string') {
                 this._queueStartAt = settings['queue-start-at'] || undefined;
