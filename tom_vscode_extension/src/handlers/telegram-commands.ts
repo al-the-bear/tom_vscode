@@ -185,13 +185,16 @@ function buildQueueControls(): QueueControls {
             const preview = item.originalText.replace(/\s+/g, ' ').trim().slice(0, 80);
             return { ok: true, message: `🗑 Deleted entry ${oneBasedIndex}: ${preview}` };
         },
-        togglePause: () => {
+        // Per run (settings per run): `run` names one, default the window's.
+        togglePause: (run) => {
             const qm = PromptQueueManager.instance;
-            qm.autoSendEnabled = !qm.autoSendEnabled;
-            return qm.autoSendEnabled;
+            const on = !qm.runQueueSettings(run).autoSend;
+            qm.setRunAutoSend(run, on);
+            return on;
         },
-        setRunning: (running) => { PromptQueueManager.instance.autoSendEnabled = running; },
-        isRunning: () => PromptQueueManager.instance.autoSendEnabled,
+        setRunning: (running, run) => { PromptQueueManager.instance.setRunAutoSend(run, running); },
+        isRunning: (run) => PromptQueueManager.instance.runQueueSettings(run).autoSend,
+        windowRun: () => PromptQueueManager.instance.windowRun,
     };
 }
 

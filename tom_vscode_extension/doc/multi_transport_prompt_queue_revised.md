@@ -438,15 +438,21 @@ todo-id-pattern: chat*                  # the todos it runs: a todo id, <prefix>
                                         # the todo panel marks them queued (utils/todoQueueMarks.ts)
 ```
 
-**Queue-level default** persists to `queue-settings.yaml` via `QueueSettings`:
+**Queue settings per run** persist to `queue-settings.yaml` via `QueueSettings` (`utils/runQueueSettings.ts`): each process run has its own auto-send, Auto-Start / -Pause / -Continue, walk continuations, defaults (transport, profile, configuration, session, prompt template) and Copilot answer timeout and reminder template, under `runs:`:
 
 ```yaml
-default-transport: anthropic
-default-anthropic-profile-id: software-engineer
-default-anthropic-config-id: claude-sonnet-46
+runs:
+  default:
+    auto-send-enabled: true
+    default-transport: anthropic
+    default-anthropic-profile-id: software-engineer
+  collab:
+    auto-send-enabled: false
+    default-agent-sdk-session: idea
+    response-timeout-minutes: 30
 ```
 
-All keys are additive-optional. A missing key resolves to `undefined` → inherit-from-default behaviour.
+All keys are additive-optional. The old shape — the same keys at the top level, one set for the whole queue — is read as the `default` run's settings and as the start values of a run without settings of its own; it is never written back (the keys stay as they were). A missing key takes the start value, else the built-in default. The queue always runs one lane per run (`utils/queueLanes.ts`): a run whose auto-send is off is a held lane. The manager's queue-wide accessors (`autoSendEnabled`, `defaultTransport`, `setDefaultTransport`, ...) read and set the window's run; `runQueueSettings(run)` / `setRunQueueSettings(run, patch)` / `setRunAutoSend(run, on)` take a run. Every place that used to switch the queue-wide auto-send off (an error, interrupt for continuation, needs attention, a decision hold, out of credit, Auto-Pause, *pause after this*, deleting the sending item) switches off the run of the item (`_pauseRunOf`).
 
 ### 4.15 Reusable TransportPicker component
 
@@ -908,7 +914,7 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
   - **A held item is released only once its decisions are answered — the rest of the queue runs past it.** `sendNext()` calls `_releaseResolvedDecisionItems()` before picking the next item; it re-reads the quest todos and `releaseResolvedDecisionItems` (pure, `queueStep3Utils.ts`) puts back to `'pending'` every held item whose walk is no longer held (`decisionHoldingWalk` finds nothing: the todo it was held at had its decisions answered; a later `decision-needed` todo holds it again only when the walk reaches it). An item whose decisions are still open stays held and `sendNext` picks the next *pending* prompt instead, so a `dec*` item waiting on the user no longer stops prompts that have nothing to decide. Releasing unconditionally on resume is what made the play button look like a no-op: the released item was the first pending one in array order, so it was picked, re-blocked, and auto-send went straight back off. Items whose block can never resolve — a repeat count that is not a `prefix*` pattern, or an unreadable/empty todo set — are released rather than stranded; the gate then reports `exhausted` and the item finishes. Only `status` is touched, so an item with prior repetitions resumes on its counters rather than re-sending from the top. `decision-needed` is state-machine-managed: `tomAi_setQueueItemStatus` cannot set it.
 - **One gate decides whether the queue advances after a completion.** `decideAdvanceAfterCompletion(pauseAfter, autoSendEnabled)` (`src/utils/queueStep3Utils.ts`), reached through the manager's `_shouldAdvanceQueueAfter(item)`, answers both reasons the queue might stop — the queue is paused, or the item carries "pause after this" — and applies the flag's side effect of flipping auto-send off. A completion tail calls `sendNext()` / `delaySendNext()` **only** when it returns true.
   - **All six completion sites go through it**: answer-wait timer, answer-file watcher, resume-from-pause, manual **Continue** (`advanceSendingItemWithoutAnswer`), `sendItem`, `resendLastPrompt`. Neither the pause nor the auto-send toggle may depend on *how* an item happened to finish. `queueAdvanceAfterCompletion.test.ts` asserts this against the manager *source* — `PromptQueueManager` imports `vscode` and cannot be instantiated under `node:test`, so the wiring is checked by scanning each `status = 'sent'` site for a guarded advance.
-  - **`sendNext()` itself deliberately does not check `autoSendEnabled`**, because the explicit escape hatches need to kick a paused queue: the health-check resume after a rate-limit / retry / deferred-start window, per-item `retryWaitingNow` / `retryRetryingNow`, `retryAllErrors` (which re-enables auto-send first), and `sendItem` called directly by "send now". That is precisely why the check is mandatory in the completion tails — and why it lives in one method instead of being restated at each of them: a tail that restates only half the condition looks correct in isolation while letting a paused queue start the next item.
+  - **`sendNext(force?)` starts only the runs whose auto-send is on**; the explicit escape hatches name the runs they kick even while paused (`force`): the health-check resume after a rate-limit / retry window (the runs of the items that became due), per-item `retryWaitingNow` / `retryRetryingNow` (the item's run), `retryAllErrors` (which re-enables the auto-send of the runs it retries first), and `sendItem` called directly by "send now". That is precisely why the check is mandatory in the completion tails — and why it lives in one method instead of being restated at each of them: a tail that restates only half the condition looks correct in isolation while letting a paused queue start the next item.
   - **"Pause after this" holds at item granularity, not stage granularity.** `item.pauseAfter` never shortens an item: the gate is consulted only where an item reaches `'sent'`, so all pre-prompts, every main-prompt repetition and all follow-ups run first.
   - **Sticky, not one-shot.** The flag stays on the item, so re-sending it pauses again. It is persisted under `meta.pause-after` and rendered inverted in the entry header — including on a finished item, so a leftover flag stays visible.
 - **Pre-prompts with anthropic transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.

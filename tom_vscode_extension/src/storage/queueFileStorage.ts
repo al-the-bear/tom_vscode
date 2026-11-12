@@ -314,9 +314,16 @@ export interface QueueReloadAfterReloadSetting {
 const QUEUE_SCOPE_WORKSPACE = '__workspace__';
 
 export interface QueueSettings {
-    /** Queue per run (vscimpb46): one lane per process run, the lanes sending in parallel. */
+    /**
+     * The queue settings of each process run (utils/runQueueSettings.ts), keyed
+     * like the old top-level keys below. Those top-level keys are the settings
+     * file's old shape: read as the `default` run's settings and as the start
+     * values of a run without settings of its own, never written.
+     */
+    runs?: Record<string, Record<string, unknown>>;
+    /** Old shape (Queue per run is always on now); ignored. */
     'queue-per-run'?: boolean;
-    /** The runs held by Pause per run. */
+    /** Old shape (a paused run is one whose auto-send is off); ignored. */
     'held-runs'?: string[];
     'response-timeout-minutes'?: number;
     'default-reminder-template-id'?: string;

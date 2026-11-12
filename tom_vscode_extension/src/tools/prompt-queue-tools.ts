@@ -227,9 +227,16 @@ export type QueueSessionInput = string | { name: string; basedOn?: string; mode?
 export interface PromptQueueAccess {
     /** Snapshot of `queue.items`, in queue order. */
     items(): QueueItemSnapshot[];
+    /** The window's run's auto-send. */
     autoSendEnabled(): boolean;
+    /** The window's run's Copilot answer timeout. */
     responseFileTimeoutMinutes(): number;
     pendingCount(): number;
+    /**
+     * The queue settings per run (vscimpb60a): those of `run` (default: the
+     * window's run) and every run's auto-send. Unset: not reported.
+     */
+    runSettings?(run?: string): { run: string; settings: Record<string, unknown>; runs: Array<{ run: string; autoSend: boolean }> };
 
     getById(id: string): QueueItemSnapshot | undefined;
     getByRequestId(requestId: string): QueueItemSnapshot | undefined;
@@ -237,8 +244,6 @@ export interface PromptQueueAccess {
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
     /** The quest's process runs (`tomAi_addQueueItem {run}` must name one); unset: not checked. */
     runs?(): string[];
-    /** Queue per run (vscimpb46): its setting and the held runs; unset: not reported. */
-    lanes?(): { queuePerRun: boolean; heldRuns: string[] };
     remove(id: string): void;
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
@@ -579,7 +584,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
 // tomAi_listQueue
 // ===========================================================================
 
-export interface ListQueueInput { includeSent?: boolean }
+export interface ListQueueInput { includeSent?: boolean; run?: string }
 
 export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueInput): Promise<string> {
     try {
@@ -587,11 +592,19 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
         const items = access.items()
             .filter((i) => includeSent || (i.status !== 'sent' && i.status !== 'chat-sent'))
             .map(compactItem);
+        const run = typeof input.run === 'string' && input.run.trim() ? input.run.trim() : undefined;
+        const perRun = access.runSettings ? access.runSettings(run) : undefined;
         return JSON.stringify({
             ok: true,
-            autoSendEnabled: access.autoSendEnabled(),
-            ...(access.lanes ? access.lanes() : {}),
-            responseTimeoutMinutes: access.responseFileTimeoutMinutes(),
+            ...(perRun
+                ? {
+                    run: perRun.run,
+                    autoSendEnabled: perRun.settings.autoSend,
+                    responseTimeoutMinutes: perRun.settings.responseTimeoutMinutes,
+                    settings: perRun.settings,
+                    runs: perRun.runs,
+                }
+                : { autoSendEnabled: access.autoSendEnabled(), responseTimeoutMinutes: access.responseFileTimeoutMinutes() }),
             pendingCount: access.pendingCount(),
             totalCount: items.length,
             items,
@@ -605,8 +618,9 @@ export const LIST_QUEUE_DESCRIPTION =
     'List queue items with status, ids, the process run each belongs to, reminder metadata, transport, and ' +
     'follow-up counts. **Default excludes `sent` items** — pass ' +
     '`includeSent: true` to see the whole history. Response includes ' +
-    '`autoSendEnabled`, `queuePerRun` (one lane per run, sending in parallel) with the `heldRuns` (paused per run), ' +
-    '`responseTimeoutMinutes`, and `pendingCount` so the ' +
+    'the queue settings of one process run (`run`, default the window\'s run; each run has its own, its lane sending ' +
+    'beside the others): `autoSendEnabled`, `responseTimeoutMinutes` and all of them as `settings`, every run\'s ' +
+    'auto-send as `runs`, and `pendingCount` so the ' +
     'model can see the queue\'s run-loop state at a glance. Items have ' +
     '`textPreview` (first 160 chars) — use `tomAi_listQueue` for browsing, ' +
     'and inspect specific items with the other queue tools using `id`.';
@@ -621,6 +635,7 @@ export const LIST_QUEUE_TOOL: SharedToolDefinition<ListQueueInput> = {
         type: 'object',
         properties: {
             includeSent: { type: 'boolean', description: 'Default false.' },
+            run: { type: 'string', description: 'The process run whose queue settings are reported. Default: the window\'s run.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

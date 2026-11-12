@@ -10,8 +10,11 @@
  *        with its count, in their order inside a group
  *   QR-4 the add form's run picker: the quest's runs, the window's chosen by default; Add sends the run picked;
  *        the host passes it to enqueue (an unknown one refused) and puts the runs and the window's run into the state
- *   QR-5 Queue per run (vscimpb46): the checkbox shows the setting and sends it; with it on, the lane strip has a
- *        row per lane — sending / pending, `held` — and Pause / Resume, which send the run's hold; off: no strip
+ *   QR-5 one lane per run, always (vscimpb46, vscimpb60a): no Queue per run checkbox; the lane strip has a row per
+ *        lane — sending / pending, `paused` — and Pause / Resume, which send the run's auto-send
+ *   QR-6 the toolbar's settings are those of a run (vscimpb60a): the window's run under All runs, the filtered run
+ *        otherwise (its label says which); the toggles show that run's values and send its name; changing the
+ *        filter tells the host the run (`setSettingsRun`)
  */
 
 import test, { describe } from 'node:test';
@@ -122,29 +125,51 @@ describe('Prompt Queue editor — process runs', () => {
         assert.match(host, /\.\.\.queueRunState\(\),/);
     });
 
-    test('QR-5: Queue per run — the checkbox and the lane strip', (t) => {
-        const off = setup(t, ITEMS);
-        assert.equal(off.w.document.getElementById('queuePerRun').checked, false);
-        assert.equal(off.w.document.getElementById('laneStrip').style.display, 'none', 'off: no strip');
-        off.w.setQueuePerRun(true);
-        assert.deepEqual(off.posted.filter((m) => m.type === 'setQueuePerRun').at(-1), { type: 'setQueuePerRun', value: true });
+    test('QR-5: the lane strip, one lane per run', (t) => {
+        const plain = setup(t, ITEMS);
+        assert.equal(plain.w.document.getElementById('queuePerRun'), null, 'no Queue per run checkbox');
         const lanes = [
             { run: 'default', sending: 0, pending: 2, held: false },
             { run: 'chg1', sending: 1, pending: 0, held: false },
             { run: 'chg2', sending: 0, pending: 2, held: true },
         ];
-        const { w, posted } = setup(t, ITEMS, {}, { queuePerRun: true, heldRuns: ['chg2'], lanes });
-        assert.equal(w.document.getElementById('queuePerRun').checked, true);
+        const { w, posted } = setup(t, ITEMS, {}, { heldRuns: ['chg2'], lanes });
         const rows = [...w.document.querySelectorAll('#laneStrip .lane')];
         assert.deepEqual(rows.map((r: Win) => r.textContent.replace(/\s+/g, ' ').trim()), [
             'default · 0 sending · 2 pending Pause',
             'chg1 (this window\'s) · 1 sending · 0 pending Pause',
-            'chg2 · 0 sending · 2 pending · held Resume',
+            'chg2 · 0 sending · 2 pending · paused Resume',
         ]);
-        assert.deepEqual(rows.map((r: Win) => r.className), ['lane lane-paused', 'lane lane-sending', 'lane lane-held']);
+        assert.deepEqual(rows.map((r: Win) => r.className), ['lane lane-waiting', 'lane lane-sending', 'lane lane-held']);
         rows[2].querySelector('button').click();
         assert.deepEqual(posted.filter((m) => m.type === 'setRunHeld').at(-1), { type: 'setRunHeld', run: 'chg2', held: false });
         rows[1].querySelector('button').click();
         assert.deepEqual(posted.filter((m) => m.type === 'setRunHeld').at(-1), { type: 'setRunHeld', run: 'chg1', held: true });
+    });
+
+    test('QR-6: the toolbar\'s settings are a run\'s', (t) => {
+        const runQueueSettings = {
+            chg1: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
+            chg2: { autoSend: false, autoStart: true, autoPause: false, autoContinue: true, responseTimeoutMinutes: 120, defaultTransport: 'anthropic' },
+            default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
+        };
+        const { w, posted } = setup(t, ITEMS, {}, { runQueueSettings });
+        assert.match(w.document.getElementById('settingsRunLabel').textContent, /^Settings of run chg1 \(this window's\)$/, 'All runs: the window\'s run');
+        assert.deepEqual(posted.filter((m) => m.type === 'setSettingsRun').at(-1), { type: 'setSettingsRun', run: 'chg1' });
+        assert.match(w.document.getElementById('autoSendBtn').title, /ON/);
+        w.setRunFilter('chg2');
+        assert.deepEqual(posted.filter((m) => m.type === 'setSettingsRun').at(-1), { type: 'setSettingsRun', run: 'chg2' });
+        assert.equal(w.document.getElementById('settingsRunLabel').textContent, 'Settings of run chg2');
+        assert.match(w.document.getElementById('autoSendBtn').title, /OFF/);
+        assert.match(w.document.getElementById('autoStartBtn').title, /ON/);
+        assert.equal(w.document.getElementById('responseTimeout').value, '120');
+        w.toggleAutoSend();
+        w.toggleAutoPause();
+        w.setResponseTimeout('30');
+        assert.deepEqual(posted.slice(-3), [
+            { type: 'toggleAutoSend', run: 'chg2' },
+            { type: 'toggleAutoPause', run: 'chg2' },
+            { type: 'setResponseTimeout', minutes: 30, run: 'chg2' },
+        ]);
     });
 });

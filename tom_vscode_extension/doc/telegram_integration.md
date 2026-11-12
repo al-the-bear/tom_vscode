@@ -64,9 +64,9 @@ Registered only while a live-conversation forwarder is active for the window.
 | `queue_prompt [count] [next] <text>` | Append `<text>` to the prompt queue; optional repeat `count` and `next` to jump the line. |
 | `queue_list` | List pending / sending entries. |
 | `queue_delete <index>` | Remove the entry at the 1-based index. |
-| `queue_pause` | Toggle the queue between paused and running. |
-| `halt` / `pause` | Pause the queue (auto-send off; the running prompt finishes). Already paused: says so. |
-| `continue` / `resume` | Resume the queue (auto-send on). Already running: says so. |
+| `queue_pause [run]` | Toggle a run of the queue between paused and running (default: the window's run). |
+| `halt [run]` / `pause [run]` | Pause a run (its auto-send off; its running prompt finishes; default: the window's run). Already paused: says so. |
+| `continue [run]` / `resume [run]` | Resume a run (its auto-send on; default: the window's run). Already running: says so. |
 
 ### Workspace / tooling
 

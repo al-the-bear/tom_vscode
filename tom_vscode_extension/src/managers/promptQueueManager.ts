@@ -6,9 +6,10 @@
  * and integration with the Reminder and Timer systems.
  */
 
-import { normalizeRun } from '../utils/processRuns';
+import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
+import { BUILTIN_RUN_QUEUE_SETTINGS, readRunQueueSettings, runQueueSettingsToFile, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName } from '../utils/runSessions';
-import { isLaneHeld, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
+import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
@@ -73,7 +74,7 @@ import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '..
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
-import { DEFAULT_WALK_CONTINUATIONS, completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
+import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
@@ -677,39 +678,25 @@ export class PromptQueueManager {
     private static _inst: PromptQueueManager | undefined;
 
     private _items: QueuedPrompt[] = [];
-    private _autoSendEnabled = true;
     /** Items run again with Send Now whose current run must not queue their next template iteration again. */
     private readonly _repeatRuns = new Set<string>();
     // Last 'queue' window-status active state written, to skip redundant
     // writes in _refreshQueueWindowStatus(). undefined = never written yet.
     private _lastQueueActiveWritten?: boolean;
     private _autoSendDelayMs = 2000;
-    private _autoStartEnabled = false;
-    private _autoPauseEnabled = true;
-    /** Continuations a walk iteration gets while its todo is not completed (queue setting `walk-continuations`). */
-    private _walkContinuations = DEFAULT_WALK_CONTINUATIONS;
-    private _autoContinueEnabled = false;
-    private _responseFileTimeoutMinutes = 60;
-    private _defaultReminderTemplateId: string | undefined;
-    // Queue-level default transport (spec §4.10). New items that don't
-    // pin a transport inherit this at enqueue-time.
-    private _defaultTransport: QueuedTransport = 'copilot';
-    private _defaultAnthropicProfileId: string | undefined;
-    private _defaultAnthropicConfigId: string | undefined;
-    /** The queue-level default Agent SDK session; unset = `default`. */
-    private _defaultAgentSdkSession: string | undefined;
     /**
-     * Queue-level default message-wrapping template. Applies to:
-     *   - queue-template dispatches: `queueFromTemplate` stamps this
-     *     onto each main prompt at queue time so all prompts in a
-     *     batch share the same wrapping.
-     *   - items that lack an explicit `template`: `resolveTemplateString`
-     *     falls back to this before giving up.
-     * An anthropic.userMessageTemplates[].id — the one template store,
-     * read by both transports.
+     * The queue settings of each process run (vscimpb60a, utils/runQueueSettings.ts):
+     * auto-send, Auto-Start / -Pause / -Continue, the walk continuations, the
+     * defaults new items take (transport, profile, configuration, session,
+     * prompt template), the Copilot answer timeout and reminder template.
+     * `default` always; another run once a setting of it was set. A run with
+     * none of its own reads {@link _runStart}.
      */
-    private _defaultMessageTemplateId: string | undefined;
-    private _autoContinueTimer?: ReturnType<typeof setTimeout>;
+    private _runSettings = new Map<string, RunQueueSettings>([[DEFAULT_RUN, { ...BUILTIN_RUN_QUEUE_SETTINGS }]]);
+    /** The start values of a run without settings of its own: the settings file's old top-level keys over the built-in ones. */
+    private _runStart: RunQueueSettings = { ...BUILTIN_RUN_QUEUE_SETTINGS };
+    /** Auto-Continue's start, by run. */
+    private _autoContinueTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private _reloadDebounceTimer?: ReturnType<typeof setTimeout>;
     private _answerWatcher?: fs.FSWatcher;
     private _timeoutWatcher?: ReturnType<typeof setInterval>;
@@ -759,15 +746,6 @@ export class PromptQueueManager {
     /** The controls of each sending item's background wait (Wait without limit, Keep waiting, Stop waiting), while its send runs. */
     private readonly _backgroundControls = new Map<string, BackgroundWaitControl>();
 
-    /**
-     * Queue per run (vscimpb46, src/utils/queueLanes.ts): one lane per process
-     * run, the lanes sending in parallel. Off: the single lane.
-     */
-    private _queuePerRun = false;
-    /** The runs held by Pause per run (only read while Queue per run is on). */
-    private _heldRuns: string[] = [];
-    /** The lane settings are in the settings file (written once set, so an untouched queue's file stays as it was). */
-    private _laneSettingsStored = false;
 
     /** Maps QueuedPrompt.id → entry filename on disk. */
     private _fileNameMap = new Map<string, string>();
@@ -1034,7 +1012,7 @@ export class PromptQueueManager {
         try {
             const hasSending = this._items.some(i => i.status === 'sending');
             const hasPending = this._items.some(i => i.status === 'pending');
-            const active = hasSending || (this._autoSendEnabled && hasPending);
+            const active = hasSending || (hasPending && this._anyRunMayStart());
             if (active === this._lastQueueActiveWritten) { return; }
             const quest = (await_import_ChatVariablesStore())?.quest || '';
             const windowId = getWindowStatusWindowId();
@@ -1075,7 +1053,7 @@ export class PromptQueueManager {
         // Items other quests' windows sent while this window was not running, and from now on as they arrive.
         m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
         void m.takeInbox();
-        logQueue(`PromptQueueManager initialised — ${m._items.length} items restored, autoSend=${m._autoSendEnabled}`);
+        logQueue(`PromptQueueManager initialised — ${m._items.length} items restored, runs paused: ${m._pausedRuns().join(', ') || 'none'}`);
     }
 
     static get instance(): PromptQueueManager {
@@ -1100,10 +1078,8 @@ export class PromptQueueManager {
         this._answerWatcher?.close();
         for (const timer of this._renameDebounceTimers.values()) { clearTimeout(timer); }
         this._renameDebounceTimers.clear();
-        if (this._autoContinueTimer) {
-            clearTimeout(this._autoContinueTimer);
-            this._autoContinueTimer = undefined;
-        }
+        for (const timer of this._autoContinueTimers.values()) { clearTimeout(timer); }
+        this._autoContinueTimers.clear();
         if (this._reloadDebounceTimer) {
             clearTimeout(this._reloadDebounceTimer);
             this._reloadDebounceTimer = undefined;
@@ -1145,9 +1121,10 @@ export class PromptQueueManager {
             return;
         }
 
-        if (this._autoSendEnabled) {
+        const paused = this._pausedRuns();
+        if (this.allRunQueueSettings().some((r) => r.settings.autoSend) || this._items.some((i) => i.status === 'pending' && this._autoSendFor(i))) {
             this._statusBarItem.text = `$(play) Queue Active (${pending} pending)`;
-            this._statusBarItem.tooltip = 'Prompt Queue auto-send enabled';
+            this._statusBarItem.tooltip = `Prompt Queue auto-send on${paused.length ? `; paused runs: ${paused.join(', ')}` : ''}`;
             return;
         }
 
@@ -1279,11 +1256,14 @@ export class PromptQueueManager {
         // window reload) the retry fires at the right instant even if the
         // window was reloaded while the item was parked.
         const nowMs = Date.now();
+        /** The runs of the parked items that became due: they resume even while their run is paused. */
+        const resumedRuns = new Set<string>();
         let resumedWaiting = false;
         for (const item of this._items) {
             if (item.status === 'waiting' && isWaitingDue(item.waitingUntil, nowMs)) {
                 clearWaitingState(item);
                 resumedWaiting = true;
+                resumedRuns.add(itemRun(item));
                 logQueue(`Health check: reset window elapsed for item ${item.id}; resuming as pending`);
             }
         }
@@ -1297,6 +1277,7 @@ export class PromptQueueManager {
             if (item.status === 'retry' && isRetryDue(item.retryUntil, nowMs)) {
                 fireRetry(item);
                 resumedRetry = true;
+                resumedRuns.add(itemRun(item));
                 logQueue(`Health check: retry countdown elapsed for item ${item.id}; resuming as pending`);
             }
         }
@@ -1317,24 +1298,23 @@ export class PromptQueueManager {
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
         const interruptedCount = this._items.filter(i => i.status === 'interrupted').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
-        const sending = this._items.find(i => i.status === 'sending');
         const decisions = computeHealthCheckDecisions({
             hasAnswerWatcher: !!this._answerWatcher,
-            autoSendEnabled: this._autoSendEnabled,
-            // With lanes (Queue per run) a lane can be idle while another sends: the drain is due
-            // whenever an item could start (the stale-sending check still sees what sends).
-            ...(this._queuePerRun ? { laneStartPossible: this._laneStarts().length > 0 } : {}),
+            autoSendEnabled: this._anyRunMayStart(),
+            // A lane can be idle while another sends: the drain is due whenever an item could start
+            // (the stale-sending check still sees what sends).
+            laneStartPossible: this._laneStarts().length > 0,
             // An interrupted item is work the drain must pick up — it resumes via
             // the hook at the top of `sendNext` — so it counts towards the
             // trigger. This is what lets Auto-Start replay it after a reload.
             pendingCount: pendingCount + interruptedCount,
             sendingCount,
             answerDirectoryExists: fs.existsSync(this.answerDirectory),
-            sendingSentAtIso: (this._queuePerRun ? this._answerItem() : sending)?.sentAt,
-            responseFileTimeoutMinutes: this._responseFileTimeoutMinutes,
+            sendingSentAtIso: this._answerItem()?.sentAt,
+            responseFileTimeoutMinutes: (this._answerItem() ? this._itemSettings(this._answerItem()!) : this._settingsOf(undefined)).responseTimeoutMinutes,
         });
 
-        logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, autoSend=${this._autoSendEnabled}, blockingWaiting=${hasBlockingWaiting}`);
+        logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, pausedRuns=${this._pausedRuns().join(',') || 'none'}, blockingWaiting=${hasBlockingWaiting}`);
 
         if (decisions.shouldEnsureDirectory) {
             fs.mkdirSync(this.answerDirectory, { recursive: true });
@@ -1351,13 +1331,13 @@ export class PromptQueueManager {
         } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
-        } else if ((resumedWaiting || resumedRetry) && (sendingCount === 0 || this._queuePerRun)) {
+        } else if (resumedWaiting || resumedRetry) {
             // A parked item (waiting reset OR retry backoff) just became due,
             // but auto-send may be off (the
             // queue could have been paused independently). Drive the drain
             // directly so it resumes regardless of the auto-send flag.
             logQueue('Health check resuming after a parked window (rate-limit reset, retry backoff, or deferred start)');
-            await this.sendNext();
+            await this.sendNext(resumedRuns);
         }
 
         // Secondary safety net from Issue 7: scan for expected answer during health check.
@@ -1449,9 +1429,9 @@ export class PromptQueueManager {
 
         const timeoutCandidate = activeFollowUp?.reminderTimeoutMinutes
             ?? item.reminderTimeoutMinutes
-            ?? this._responseFileTimeoutMinutes;
+            ?? this._itemSettings(item).responseTimeoutMinutes;
 
-        return Math.max(1, Math.round(timeoutCandidate || this._responseFileTimeoutMinutes));
+        return Math.max(1, Math.round(timeoutCandidate || this._itemSettings(item).responseTimeoutMinutes));
     }
 
     private isReminderEligible(item: QueuedPrompt): boolean {
@@ -1560,12 +1540,11 @@ export class PromptQueueManager {
                         this._onDidChange.fire();
 
                         if (this._shouldAdvanceQueueAfter(sending)) {
-                            const pendingCount = this._items.filter(i => i.status === 'pending').length;
-                            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
-                                this._autoSendEnabled = false;
-                                this.persistSettings();
-                                this._onDidChange.fire();
-                                logQueue('Queue empty — auto-pausing');
+                            // Auto-Pause per run: the run whose lane has nothing left pauses; the other runs go on.
+                            const runSettings = this._itemSettings(sending);
+                            const pendingCount = this._items.filter(i => i.status === 'pending' && itemRun(i) === itemRun(sending)).length;
+                            if (shouldAutoPauseOnEmpty(runSettings.autoSend, pendingCount, runSettings.autoPause)) {
+                                this._pauseRunOf(sending, 'its lane is empty (Auto-Pause)');
                             } else {
                                 await this.delaySendNext();
                             }
@@ -1686,7 +1665,7 @@ export class PromptQueueManager {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
         }
         // Several lanes send at once (Queue per run): the answer belongs to the sending item that expects it.
-        if (this._queuePerRun && resolvedAnswerRequestId) {
+        if (resolvedAnswerRequestId) {
             sending = this._items.find(i => i.status === 'sending' && i.expectedRequestId === resolvedAnswerRequestId) ?? sending;
         }
 
@@ -1781,12 +1760,11 @@ export class PromptQueueManager {
                 this._onDidChange.fire();
 
                 if (this._shouldAdvanceQueueAfter(sending)) {
-                    const pendingCount = this._items.filter(i => i.status === 'pending').length;
-                    if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
-                        this._autoSendEnabled = false;
-                        this.persistSettings();
-                        this._onDidChange.fire();
-                        logQueue('Queue empty — auto-pausing');
+                    // Auto-Pause per run: the run whose lane has nothing left pauses; the other runs go on.
+                    const runSettings = this._itemSettings(sending);
+                    const pendingCount = this._items.filter(i => i.status === 'pending' && itemRun(i) === itemRun(sending)).length;
+                    if (shouldAutoPauseOnEmpty(runSettings.autoSend, pendingCount, runSettings.autoPause)) {
+                        this._pauseRunOf(sending, 'its lane is empty (Auto-Pause)');
                     } else {
                         // Send next pending item after delay
                         await this.delaySendNext();
@@ -1863,7 +1841,7 @@ export class PromptQueueManager {
                     debugLog(`[PromptQueueManager] propagateAnswerResponseValues: calling setCustomBulk with ${Object.keys(customValues).length} values: ${JSON.stringify(customValues)}`, 'INFO', 'queue');
                     // Lanes send several runs at once (Queue per run): the values go to the answering item's run.
                     const write = (): void => chatStore.setCustomBulk(customValues, source, answerRequestId);
-                    if (this._queuePerRun && item && typeof chatStore.withRun === 'function') {
+                    if (item && typeof chatStore.withRun === 'function') {
                         chatStore.withRun(laneOf(item, true), write);
                     } else {
                         write();
@@ -1897,60 +1875,19 @@ export class PromptQueueManager {
 
     get items(): readonly QueuedPrompt[] { return this._items; }
     get pendingCount(): number { return this._items.filter(i => i.status === 'pending').length; }
-    get autoSendEnabled(): boolean { return this._autoSendEnabled; }
-    get responseFileTimeoutMinutes(): number { return this._responseFileTimeoutMinutes; }
+    /** The window's run's auto-send (settings per run: {@link runQueueSettings}). */
+    get autoSendEnabled(): boolean { return this._settingsOf(undefined).autoSend; }
+    /** The window's run's Copilot answer timeout. */
+    get responseFileTimeoutMinutes(): number { return this._settingsOf(undefined).responseTimeoutMinutes; }
 
+    /**
+     * Switch the window's run's auto-send. Pausing has no immediate effect —
+     * the pause gate catches the run's next repetition; an in-flight rep
+     * finishes naturally. Switching on replays the run's interrupted item,
+     * else resumes its paused item, else starts its lane (setRunQueueSettings).
+     */
     set autoSendEnabled(v: boolean) {
-        this._autoSendEnabled = v;
-        logQueue(`Auto-send toggled: ${v ? 'on' : 'off'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-
-        if (!v) {
-            // Pausing has no immediate effect — the pause gate in
-            // `dispatchNextStageForSendingItem` catches the next
-            // repetition; any in-flight rep finishes naturally.
-            return;
-        }
-
-        // An interrupted item (interrupt-for-continuation) is replayed before
-        // any paused or pending work — it is the rep the user pulled the plug
-        // on. `sendNext` carries the same hook for drains that don't come
-        // through this setter (auto-start, a manually-sent item completing).
-        if (this._resumeInterruptedItem()) { return; }
-
-        // Re-enabling auto-send. Resume an item the pause gate holds
-        // (sending, with prior progress, no stage in flight) before
-        // falling through to `sendNext`. An item whose stage is still in
-        // flight — paused and resumed before it ended — is NOT resumed:
-        // its running frame goes on past the gate by itself, and a second
-        // frame beside it would send the walk twice and mark it sent
-        // under the first (vscimpb53).
-        if (this._queuePerRun) {
-            // Every lane resumes its paused item (a held run's stays); free lanes take their next item.
-            this._resumePausedLanes();
-            void this.sendNext();
-            return;
-        }
-        const stillRunning = this._items.find(i => i.status === 'sending' && this._itemHasInFlightProgress(i) && !this._isPausedAtGate(i));
-        if (stillRunning) {
-            logQueue(`Auto-send re-enabled: item ${stillRunning.id} still has a stage in flight — it goes on by itself, nothing is resumed`);
-            return;
-        }
-        const resuming = this._items.find(i => this._isPausedAtGate(i));
-        if (resuming) {
-            logQueue(`Auto-send re-enabled: resuming paused item ${resuming.id} (mp.idx=${resuming.repeatIndex ?? 0}, fu.idx=${resuming.followUpIndex ?? 0})`);
-            void this._resumePausedSendingItem(resuming);
-            return;
-        }
-
-        // No paused item to resume — start the next pending item. A held
-        // `decision-needed` item counts as work: `sendNext` releases it first
-        // if its decisions have been answered in the meantime.
-        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
-        if (hasWork && this._mayDrain()) {
-            void this.sendNext();
-        }
+        this.setRunAutoSend(undefined, v);
     }
 
     /**
@@ -2025,46 +1962,22 @@ export class PromptQueueManager {
         }
     }
 
-    set responseFileTimeoutMinutes(v: number) {
-        this._responseFileTimeoutMinutes = Math.max(5, Math.round(v || 60));
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
+    set responseFileTimeoutMinutes(v: number) { this.setRunQueueSettings(undefined, { responseTimeoutMinutes: v }); }
 
-    get defaultReminderTemplateId(): string | undefined { return this._defaultReminderTemplateId; }
-
-    set defaultReminderTemplateId(v: string | undefined) {
-        this._defaultReminderTemplateId = v || undefined;
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
+    get defaultReminderTemplateId(): string | undefined { return this._settingsOf(undefined).defaultReminderTemplateId; }
+    set defaultReminderTemplateId(v: string | undefined) { this.setRunQueueSettings(undefined, { defaultReminderTemplateId: v }); }
 
     get autoSendDelayMs(): number { return this._autoSendDelayMs; }
     set autoSendDelayMs(v: number) { this._autoSendDelayMs = Math.max(500, v); }
 
-    get autoContinueEnabled(): boolean { return this._autoContinueEnabled; }
-    set autoContinueEnabled(v: boolean) {
-        this._autoContinueEnabled = v;
-        logQueue(`Auto-continue toggled: ${v ? 'on' : 'off'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
+    get autoContinueEnabled(): boolean { return this._settingsOf(undefined).autoContinue; }
+    set autoContinueEnabled(v: boolean) { this.setRunQueueSettings(undefined, { autoContinue: v }); }
 
-    get autoStartEnabled(): boolean { return this._autoStartEnabled; }
-    set autoStartEnabled(v: boolean) {
-        this._autoStartEnabled = v;
-        logQueue(`Auto-start toggled: ${v ? 'on' : 'off'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
+    get autoStartEnabled(): boolean { return this._settingsOf(undefined).autoStart; }
+    set autoStartEnabled(v: boolean) { this.setRunQueueSettings(undefined, { autoStart: v }); }
 
-    get autoPauseEnabled(): boolean { return this._autoPauseEnabled; }
-    set autoPauseEnabled(v: boolean) {
-        this._autoPauseEnabled = v;
-        logQueue(`Auto-pause toggled: ${v ? 'on' : 'off'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
+    get autoPauseEnabled(): boolean { return this._settingsOf(undefined).autoPause; }
+    set autoPauseEnabled(v: boolean) { this.setRunQueueSettings(undefined, { autoPause: v }); }
 
     /** Restart the queue: reset stuck "sending" items to "pending" and restart processing. */
     restartQueue(): void {
@@ -2082,7 +1995,7 @@ export class PromptQueueManager {
         }
         this._onDidChange.fire();
         // If auto-send is on, start processing
-        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending')) {
+        if (this._anyRunMayStart()) {
             void this.sendNext();
         }
     }
@@ -2177,7 +2090,7 @@ export class PromptQueueManager {
         // dispatch-time recomputation in dispatchNextStageForSendingItem
         // gets it right).
         const resolveInitialTransport: QueuedTransport =
-            opts.transport ?? this._defaultTransport ?? 'copilot';
+            opts.transport ?? this._settingsOf(itemRun).defaultTransport ?? 'copilot';
         const expanded = await this._buildExpandedText(
             opts.originalText,
             opts.template,
@@ -2196,7 +2109,7 @@ export class PromptQueueManager {
         );
 
         // Compute effective reminder template: provided value, or fall back to default
-        let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._defaultReminderTemplateId;
+        let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._settingsOf(itemRun).defaultReminderTemplateId;
         // Fix Issue 3 Bug B: keep '__none__' as stored value (do NOT clear to undefined)
         // This preserves the explicit "no reminder" signal through the entire pipeline.
         const isNoReminder = effectiveReminderTemplateId === '__none__';
@@ -2306,7 +2219,7 @@ export class PromptQueueManager {
         }
 
         // If nothing is sending and auto-send is on, kick off unless explicitly deferred
-        if (!opts.deferSend && this._autoSendEnabled && this._mayDrain()) {
+        if (!opts.deferSend && this._autoSendFor(item) && this._mayDrain()) {
             await this.sendNext();
         }
 
@@ -2364,7 +2277,7 @@ export class PromptQueueManager {
         if (ended.length === 0) { return; }
         logQueue(`Text edit closed on ${ended.join(', ')}${text !== undefined ? ' (saved)' : ''}`);
         this._onDidChange.fire();
-        if (this._autoSendEnabled && this._mayDrain()) {
+        if (this._anyRunMayStart() && this._mayDrain()) {
             await this.sendNext();
         }
     }
@@ -2381,7 +2294,8 @@ export class PromptQueueManager {
         if (removing && (removing.status === 'sending' || removing.status === 'interrupted')) {
             this.releaseQuestTodoClaim(removing, `removed while ${removing.status}`);
         }
-        const effect = computeRemovalEffect(this._items, id, this._autoSendEnabled);
+        const removingAutoSend = removing ? this._autoSendFor(removing) : false;
+        const effect = computeRemovalEffect(this._items, id, removingAutoSend);
         this._items = effect.items;
         if (effect.removed) {
             logQueue(`Item removed: id=${effect.removed.id}, type=${effect.removed.type}, status=${effect.removed.status}`);
@@ -2394,10 +2308,8 @@ export class PromptQueueManager {
         // queue doesn't immediately fire the next pending prompt.
         if (effect.wasSending) {
             this._cancelActiveDispatch(removing);
-            if (this._autoSendEnabled && !effect.nextAutoSendEnabled) {
-                this._autoSendEnabled = false;
-                this.persistSettings();
-                logQueue(`Auto-send disabled: currently-sending item ${id} was deleted`);
+            if (removingAutoSend && !effect.nextAutoSendEnabled) {
+                this._pauseRunOf(removing, `its sending item ${id} was deleted`);
             }
         }
 
@@ -2469,8 +2381,8 @@ export class PromptQueueManager {
         // Pass the item's effective transport so template lookup hits
         // the right store (spec §4.16). Falls back to the queue default
         // when the item has no explicit transport set.
-        const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
-        item.expandedText = await this._buildExpandedText(newText, item.template, copilotWrapFor(item.transport ?? this._defaultTransport ?? 'copilot', item.answerWrapper), {
+        const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
+        item.expandedText = await this._buildExpandedText(newText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -2499,8 +2411,8 @@ export class PromptQueueManager {
 
         if (!changed) { return false; }
 
-        const effectiveTransport: QueuedTransport = item.transport ?? this._defaultTransport;
-        item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(item.transport ?? this._defaultTransport ?? 'copilot', item.answerWrapper), {
+        const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
+        item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -2560,10 +2472,11 @@ export class PromptQueueManager {
     applyQueueDefaultsToItem(id: string): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
+        const runDefaults = this._itemSettings(item);
         applyQueueDefaultTransportToItem(item, {
-            transport: this._defaultTransport,
-            anthropicProfileId: this._defaultAnthropicProfileId,
-            anthropicConfigId: this._defaultAnthropicConfigId,
+            transport: runDefaults.defaultTransport,
+            anthropicProfileId: runDefaults.defaultAnthropicProfileId,
+            anthropicConfigId: runDefaults.defaultAnthropicConfigId,
         });
         this.persist();
         this._onDidChange.fire();
@@ -3034,12 +2947,11 @@ export class PromptQueueManager {
         // the finish line by hand does not entitle the queue to start the next
         // one — a paused queue stays paused, and "pause after this" still bites.
         if (this._shouldAdvanceQueueAfter(sending)) {
-            const pendingCount = this._items.filter(i => i.status === 'pending').length;
-            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, pendingCount, this._autoPauseEnabled)) {
-                this._autoSendEnabled = false;
-                this.persistSettings();
-                this._onDidChange.fire();
-                logQueue('Queue empty — auto-pausing');
+            // Auto-Pause per run: the run whose lane has nothing left pauses; the other runs go on.
+            const runSettings = this._itemSettings(sending);
+            const pendingCount = this._items.filter(i => i.status === 'pending' && itemRun(i) === itemRun(sending)).length;
+            if (shouldAutoPauseOnEmpty(runSettings.autoSend, pendingCount, runSettings.autoPause)) {
+                this._pauseRunOf(sending, 'its lane is empty (Auto-Pause)');
             } else {
                 await this.delaySendNext();
             }
@@ -3148,7 +3060,7 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         
         // If changed to pending and autoSend is on, try to send
-        if (status === 'pending' && this._autoSendEnabled && this._mayDrain()) {
+        if (status === 'pending' && this._autoSendFor(item) && this._mayDrain()) {
             void this.sendNext();
         }
         return true;
@@ -3301,9 +3213,8 @@ export class PromptQueueManager {
         const result = applyInterruptForContinuation(sending);
         this.removePendingReminderFor(sending.id);
         // Off, not merely paused: the pause gate only refuses the *next* rep,
-        // and the point here is that nothing at all goes out until re-armed.
-        this._autoSendEnabled = false;
-        this.persistSettings();
+        // and the point here is that nothing at all goes out of its run until re-armed.
+        this._pauseRunOf(sending, `${sending.id} interrupted for continuation`);
         this.persist();
         this._onDidChange.fire();
         logQueue(`interruptActiveItemForContinuation: ${sending.id} held for continuation (${result.canResend ? 'will resend its last dispatch' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
@@ -3311,11 +3222,21 @@ export class PromptQueueManager {
     }
 
     /**
-     * Replay the interrupted item, if there is one and nothing is sending.
-     * Returns `true` when a resume was started, so the caller stops draining.
+     * Replay the interrupted item of a run whose auto-send is on (or of `run`
+     * only), if its lane sends nothing. Returns `true` when a resume was
+     * started, so the caller stops draining.
      */
-    private _resumeInterruptedItem(): boolean {
-        const resume = pickInterruptedResume(this._items);
+    private _resumeInterruptedItem(run?: string): boolean {
+        const runs = run !== undefined ? [normalizeRun(run)]
+            : [...new Set(this._items.filter((i) => i.status === 'interrupted' && this._autoSendFor(i)).map((i) => itemRun(i)))];
+        for (const name of runs) {
+            if (this._resumeInterruptedItemOfRun(name)) { return true; }
+        }
+        return false;
+    }
+
+    private _resumeInterruptedItemOfRun(run: string): boolean {
+        const resume = pickInterruptedResume(this._items.filter((i) => itemRun(i) === run));
         if (!resume) { return false; }
         const item = this._items.find(i => i.id === resume.id);
         if (!item) { return false; }
@@ -3344,7 +3265,7 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         logQueue(`Converted ${changed} staged items to pending`);
 
-        if (this._autoSendEnabled && this._mayDrain()) {
+        if (this._anyRunMayStart() && this._mayDrain()) {
             void this.sendNext();
         }
         return changed;
@@ -3424,7 +3345,7 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
         }
-        if (this._autoSendEnabled && this._mayDrain()) {
+        if (this._anyRunMayStart() && this._mayDrain()) {
             void this.sendNext();
         }
     }
@@ -3537,8 +3458,13 @@ export class PromptQueueManager {
 
     // ----- lanes: Queue per run (src/utils/queueLanes.ts) --------------------
 
-    private _laneOptions(): { perRun: boolean; heldRuns: readonly string[] } {
-        return { perRun: this._queuePerRun, heldRuns: this._heldRuns };
+    /**
+     * The lanes: always one per run (vscimpb60a); a run whose auto-send is off
+     * is held — its lane starts nothing (`force`: runs started anyway, by an
+     * explicit retry).
+     */
+    private _laneOptions(force?: ReadonlySet<string>): { perRun: boolean; heldRuns: readonly string[] } {
+        return { perRun: true, heldRuns: this._pausedRuns(force) };
     }
 
     /** The dispatch epoch a frame of `item` watches (see `_itemEpochs`). */
@@ -3557,7 +3483,7 @@ export class PromptQueueManager {
      * (as always); with lanes whenever — `sendNext` fills the free lanes.
      */
     private _mayDrain(): boolean {
-        return this._queuePerRun || !this._items.some(i => i.status === 'sending');
+        return true;
     }
 
     /**
@@ -3566,83 +3492,70 @@ export class PromptQueueManager {
      * sends at a time).
      */
     private _answerItem(): QueuedPrompt | undefined {
-        if (!this._queuePerRun) { return this._items.find(i => i.status === 'sending'); }
         return this._items.find(i => i.status === 'sending' && this._laneTarget(i).transport === 'copilot');
     }
 
     /** The items that may start now, one per free lane. */
-    private _laneStarts(): QueuedPrompt[] {
-        return pickLaneStarts(this._items, this._laneOptions(), (i) => this._laneTarget(i))
+    private _laneStarts(force?: ReadonlySet<string>): QueuedPrompt[] {
+        return pickLaneStarts(this._items, this._laneOptions(force), (i) => this._laneTarget(i))
             .filter((i) => !this._textEdits.has(i.id) && !this.chatHoldingSessionOf(i));
     }
 
-    /** `sendNext` with Queue per run on: every free lane takes its next item; they send in parallel. */
-    private async _sendNextInLanes(): Promise<void> {
+    /** `sendNext`: every free lane of a run that sends takes its next item; they send in parallel. */
+    private async _sendNextInLanes(force?: ReadonlySet<string>): Promise<void> {
         if (!this._items.some(i => i.status === 'pending')) {
             logQueue('sendNext: no pending items');
-            if (!this._items.some(i => i.status === 'sending')
-                && shouldAutoPauseOnEmpty(this._autoSendEnabled, 0, this._autoPauseEnabled)) {
-                this._autoSendEnabled = false;
-                this.persistSettings();
-                this._onDidChange.fire();
-                logQueue('Queue empty — auto-pausing');
-            }
+            this._autoPauseIdleRuns();
             return;
         }
-        const starts = this._laneStarts();
+        const starts = this._laneStarts(force);
         if (starts.length === 0) {
-            logQueue('sendNext: every lane with pending items is sending, held, waiting for a session or being edited');
+            logQueue('sendNext: every lane with pending items is sending, paused, waiting for a session or being edited');
             return;
         }
         logQueue(`sendNext: starting ${starts.map(i => `${i.id} (run ${laneOf(i, true)})`).join(', ')}`);
         await Promise.all(starts.map((item) => this.sendItem(item)));
     }
 
-    /** Resume the paused sending items of the lanes that are not held (auto-send just came on, or a run was resumed). */
+    /** Auto-Pause per run: a sending run with Auto-Pause whose items are all done (none pending, sending or interrupted) pauses. */
+    private _autoPauseIdleRuns(): void {
+        const runs = new Set(this._items.map((i) => itemRun(i)));
+        for (const run of runs) {
+            const settings = this._settingsOf(run);
+            const own = this._items.filter((i) => itemRun(i) === run);
+            if (own.some((i) => i.status === 'pending' || i.status === 'sending' || i.status === 'interrupted')) { continue; }
+            if (shouldAutoPauseOnEmpty(settings.autoSend, 0, settings.autoPause)) {
+                const first = own[0];
+                this._pauseRunOf(first, 'its lane is empty (Auto-Pause)');
+            }
+        }
+    }
+
+    /** Resume the paused sending items of the runs that send (of `run` only when given): auto-send just came on. */
     private _resumePausedLanes(run?: string): void {
-        const opts = this._laneOptions();
         for (const item of this._items) {
             if (!this._isPausedAtGate(item)) { continue; }
-            if (isLaneHeld(item, opts) || (run !== undefined && laneOf(item, true) !== run)) { continue; }
-            logQueue(`Resuming paused item ${item.id} of run ${laneOf(item, true)}`);
+            if (!this._autoSendFor(item) || (run !== undefined && itemRun(item) !== normalizeRun(run))) { continue; }
+            logQueue(`Resuming paused item ${item.id} of run ${itemRun(item)}`);
             void this._resumePausedSendingItem(item);
         }
     }
 
-    /** Queue per run: one lane per process run, sending in parallel. */
-    get queuePerRun(): boolean { return this._queuePerRun; }
+    /** The queue always runs one lane per run (vscimpb60a): kept for callers reading it. */
+    get queuePerRun(): boolean { return true; }
 
-    set queuePerRun(v: boolean) {
-        if (v === this._queuePerRun) { return; }
-        this._queuePerRun = v;
-        this._laneSettingsStored = true;
-        logQueue(`Queue per run ${v ? 'on: one lane per run' : 'off: one lane'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-        if (v && this._autoSendEnabled) { void this.sendNext(); }
-    }
+    /** The runs whose auto-send is off. */
+    get heldRuns(): readonly string[] { return this._pausedRuns(); }
 
-    /** The runs held by Pause per run. */
-    get heldRuns(): readonly string[] { return this._heldRuns; }
-
-    /** Hold (Pause) or release (Resume) one run's lane. Returns whether it changed. */
+    /** Pause or resume one run (its auto-send). Returns whether it changed. */
     setRunHeld(run: string, held: boolean): boolean {
         const name = normalizeRun(run);
-        const isHeld = this._heldRuns.includes(name);
-        if (held === isHeld) { return false; }
-        this._heldRuns = held ? [...this._heldRuns, name].sort() : this._heldRuns.filter((r) => r !== name);
-        this._laneSettingsStored = true;
-        logQueue(`Run ${name} ${held ? 'held (Pause per run)' : 'resumed'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-        if (!held && this._queuePerRun && this._autoSendEnabled) {
-            this._resumePausedLanes(name);
-            void this.sendNext();
-        }
+        if (this._settingsOf(name).autoSend === !held) { return false; }
+        this.setRunAutoSend(name, !held);
         return true;
     }
 
-    /** The lanes as the queue editor shows them (none with Queue per run off). */
+    /** The lanes as the queue editor shows them. */
     laneSummaries(runs: readonly string[]): LaneSummary[] {
         return laneSummaries(this._items, runs, this._laneOptions());
     }
@@ -3662,12 +3575,8 @@ export class PromptQueueManager {
      * re-written at six call sites.
      */
     private _shouldAdvanceQueueAfter(item: QueuedPrompt): boolean {
-        const decision = decideAdvanceAfterCompletion(item.pauseAfter, this._autoSendEnabled);
-        if (decision.disableAutoSend) {
-            this._autoSendEnabled = false;
-            this.persistSettings();
-            this._onDidChange.fire();
-        }
+        const decision = decideAdvanceAfterCompletion(item.pauseAfter, this._autoSendFor(item));
+        if (decision.disableAutoSend) { this._pauseRunOf(item, `"pause after this" on ${item.id}`); }
         if (!decision.advance) {
             logQueue(
                 `Queue held after item ${item.id} — `
@@ -3683,38 +3592,16 @@ export class PromptQueueManager {
         await this.sendNext();
     }
 
-    async sendNext(): Promise<void> {
+    /**
+     * Start what may start: the interrupted item of a run that sends goes
+     * first (ahead of its backlog); else every free lane of a run that sends
+     * takes its next item. `force`: runs started even while paused — the
+     * explicit escape hatches (health-check resume of a parked item, retry now).
+     */
+    async sendNext(force?: ReadonlySet<string>): Promise<void> {
         this._releaseResolvedDecisionItems();
-        // Interrupt-for-continuation: the held item goes first — ahead of the
-        // backlog, and before the "no pending items" auto-pause below could
-        // fire on a queue whose only work is that item. Guarded by auto-send:
-        // nothing goes out until the user re-arms the queue.
-        if (this._autoSendEnabled && this._resumeInterruptedItem()) { return; }
-        if (this._queuePerRun) { await this._sendNextInLanes(); return; }
-        const next = this._items.find(i => i.status === 'pending');
-        if (!next) {
-            logQueue('sendNext: no pending items');
-            if (shouldAutoPauseOnEmpty(this._autoSendEnabled, 0, this._autoPauseEnabled)) {
-                this._autoSendEnabled = false;
-                this.persistSettings();
-                this._onDidChange.fire();
-                logQueue('Queue empty — auto-pausing');
-            }
-            return;
-        }
-        // Don't send if something is already sending
-        if (this._items.some(i => i.status === 'sending')) {
-            logQueue(`sendNext: skipped — another item is already sending`);
-            return;
-        }
-        // Its text is open in the queue editor: wait until it is saved or
-        // cancelled (endTextEdit sends it then).
-        if (this._textEdits.has(next.id)) {
-            logQueue(`sendNext: held — item ${next.id} is being edited`);
-            return;
-        }
-        logQueue(`sendNext: sending item ${next.id}`);
-        await this.sendItem(next);
+        if (this._resumeInterruptedItem()) { return; }
+        await this._sendNextInLanes(force);
     }
 
     // ----- process-move markers (src/utils/processMoveMarker.ts) ------------
@@ -3922,13 +3809,9 @@ export class PromptQueueManager {
         // Resending a running stage (resendSendingStage): the item itself is sending, and is not in its own way.
         const interruptRunning = opts?.interruptRunning === true && item.status === 'sending';
         const others = this._items.filter(i => i.status === 'sending' && !(interruptRunning && i.id === item.id));
-        const busy = this._queuePerRun
-            ? laneConflict(item, others, this._laneOptions(), (i) => this._laneTarget(i))
-            : (others.length > 0 ? 'another item is sending' : undefined);
+        const busy = laneConflict(item, others, this._laneOptions(), (i) => this._laneTarget(i));
         if (busy) {
-            throw new Error(this._queuePerRun
-                ? `Cannot resend now: ${busy}; wait for it to finish before resending`
-                : 'Another queue item is currently sending; wait for it to finish before resending');
+            throw new Error(`Cannot resend now: ${busy}; wait for it to finish before resending`);
         }
 
         logQueue(`Resending last ${last.kind} prompt for item ${item.id} via ${last.transport}${interruptRunning ? ' (its running turn is ended)' : ''}`);
@@ -4154,11 +4037,7 @@ export class PromptQueueManager {
             const refused = applyErrorTransition(item, err, { interruption: interruption ?? null });
             logQueueError(scope, err);
             logQueue(`Item ${item.id} failed (${scope}): the API refused the request (400 invalid_request_error) — not retried`);
-            if (refused.shouldDisableAutoSend && this._autoSendEnabled) {
-                this._autoSendEnabled = false;
-                this.persistSettings();
-                logQueue(`Auto-send disabled by error on item ${item.id} (${scope})`);
-            }
+            if (refused.shouldDisableAutoSend) { this._pauseRunOf(item, `error on item ${item.id} (${scope})`); }
             this.persist();
             this._onDidChange.fire();
             void this._itemFinished(item, { kind: 'error', message: item.error ?? String(err) });
@@ -4196,11 +4075,7 @@ export class PromptQueueManager {
         const result = applyErrorTransition(item, err, { interruption: interruption ?? null });
         logQueueError(scope, err);
 
-        if (result.shouldDisableAutoSend && this._autoSendEnabled) {
-            this._autoSendEnabled = false;
-            this.persistSettings();
-            logQueue(`Auto-send disabled by error on item ${item.id} (${scope})`);
-        }
+        if (result.shouldDisableAutoSend) { this._pauseRunOf(item, `error on item ${item.id} (${scope})`); }
 
         this.persist();
         this._onDidChange.fire();
@@ -4281,11 +4156,7 @@ export class PromptQueueManager {
             return;
         }
         logQueue(`Item ${item.id} ran out of credit on profile ${profileId} (${scope}); waiting for the user (continue on a profile, or resend)`);
-        if (this._autoSendEnabled) {
-            this._autoSendEnabled = false;
-            this.persistSettings();
-            logQueue(`Auto-send disabled: out of credit on item ${item.id}`);
-        }
+        this._pauseRunOf(item, `out of credit on item ${item.id}`);
         this.persist();
         this._onDidChange.fire();
         try {
@@ -4353,7 +4224,7 @@ export class PromptQueueManager {
             const questId = await_import_ChatVariablesStore()?.quest || undefined;
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { TwoTierMemoryService } = require('../services/memory-service');
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.session ?? this._defaultAgentSdkSession ?? 'default');
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.session ?? runQueueSession(this._itemSettings(item).defaultAgentSdkSession, item.run));
             logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
         } catch (e) {
             logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
@@ -4426,8 +4297,9 @@ export class PromptQueueManager {
         logQueue(`retryWaitingNow(${id}): waiting → pending (manual retry)`);
         this.persist();
         this._onDidChange.fire();
+        // An explicit retry: its run starts it even while paused.
         if (this._mayDrain()) {
-            await this.sendNext();
+            await this.sendNext(new Set([itemRun(item)]));
         }
         return true;
     }
@@ -4454,8 +4326,9 @@ export class PromptQueueManager {
         logQueue(`retryRetryingNow(${id}): retry → pending (manual retry, attempt ${item.retryAttempt ?? 0})`);
         this.persist();
         this._onDidChange.fire();
+        // An explicit retry: its run starts it even while paused.
         if (this._mayDrain()) {
-            await this.sendNext();
+            await this.sendNext(new Set([itemRun(item)]));
         }
         return true;
     }
@@ -4479,11 +4352,7 @@ export class PromptQueueManager {
             logQueue(`stopRetrying(${id}): no-op (status was ${item.status})`);
             return false;
         }
-        if (this._autoSendEnabled) {
-            this._autoSendEnabled = false;
-            this.persistSettings();
-            logQueue(`Auto-send disabled by stopRetrying on item ${item.id}`);
-        }
+        this._pauseRunOf(item, `stopRetrying on item ${item.id}`);
         logQueue(`stopRetrying(${id}): retry → error (queue paused)`);
         this.persist();
         this._onDidChange.fire();
@@ -4547,11 +4416,12 @@ export class PromptQueueManager {
         // otherwise the lead resend would complete and the answer-
         // file poll loop / sendNext call would refuse to start the
         // next pending item.
-        if (!this._autoSendEnabled) {
-            this._autoSendEnabled = true;
-            this.persistSettings();
-            logQueue('retryAllErrors: re-enabled auto-send for the retry cascade');
+        for (const run of new Set(errorItems.map((i) => itemRun(i)))) {
+            if (this._settingsOf(run).autoSend) { continue; }
+            this._runSettings.set(run, { ...this._settingsOf(run), autoSend: true });
+            logQueue(`retryAllErrors: re-enabled auto-send of run ${run} for the retry cascade`);
         }
+        this.persistSettings();
 
         this.persist();
         this._onDidChange.fire();
@@ -4629,7 +4499,8 @@ export class PromptQueueManager {
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
     ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {
         // A run's item without its own session runs in the run's queue session (default@<run>), never in another run's.
-        const session = item.session ?? runQueueSession(this._defaultAgentSdkSession, item.run);
+        const runDefaults = this._itemSettings(item);
+        const session = item.session ?? runQueueSession(runDefaults.defaultAgentSdkSession, item.run);
         const processRun = item.processRun;
         // The profile: the stage's, else the item's, else the session's, else the queue default.
         const sessionProfile = this.sessionProfileOf(session, session === item.session ? item.sessionCreate : undefined);
@@ -4638,8 +4509,8 @@ export class PromptQueueManager {
                 session,
                 processRun,
                 transport: stage.transport,
-                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? sessionProfile ?? this._defaultAnthropicProfileId,
-                anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? this._defaultAnthropicConfigId,
+                anthropicProfileId: stage.anthropicProfileId ?? item.anthropicProfileId ?? sessionProfile ?? runDefaults.defaultAnthropicProfileId,
+                anthropicConfigId: stage.anthropicConfigId ?? item.anthropicConfigId ?? runDefaults.defaultAnthropicConfigId,
             };
         }
         if (item.transport) {
@@ -4647,16 +4518,16 @@ export class PromptQueueManager {
                 session,
                 processRun,
                 transport: item.transport,
-                anthropicProfileId: item.anthropicProfileId ?? sessionProfile ?? this._defaultAnthropicProfileId,
-                anthropicConfigId: item.anthropicConfigId ?? this._defaultAnthropicConfigId,
+                anthropicProfileId: item.anthropicProfileId ?? sessionProfile ?? runDefaults.defaultAnthropicProfileId,
+                anthropicConfigId: item.anthropicConfigId ?? runDefaults.defaultAnthropicConfigId,
             };
         }
         return {
             session,
             processRun,
-            transport: this._defaultTransport,
-            anthropicProfileId: sessionProfile ?? this._defaultAnthropicProfileId,
-            anthropicConfigId: this._defaultAnthropicConfigId,
+            transport: runDefaults.defaultTransport,
+            anthropicProfileId: sessionProfile ?? runDefaults.defaultAnthropicProfileId,
+            anthropicConfigId: runDefaults.defaultAnthropicConfigId,
         };
     }
 
@@ -4908,7 +4779,7 @@ export class PromptQueueManager {
     }
 
     private _clearRetryOnDispatchSuccess(item?: QueuedPrompt): void {
-        const sending = this._queuePerRun && item ? item : this._items.find(i => i.status === 'sending');
+        const sending = item ?? this._items.find(i => i.status === 'sending');
         if (!sending) { return; }
         if (sending.retryAttempt === undefined && sending.retryUntil === undefined) { return; }
         clearRetryBookkeeping(sending);
@@ -4982,14 +4853,13 @@ export class PromptQueueManager {
      * while the queue is paused.
      */
     private _pauseBeforeNextDispatch(item: QueuedPrompt): boolean {
-        // A held run (Pause per run, with Queue per run on) pauses like auto-send off.
-        const held = isLaneHeld(item, this._laneOptions());
-        if (!pausesBeforeNextDispatch(this._autoSendEnabled && !held, item)) { return false; }
+        // The item's run's auto-send (settings per run).
+        if (!pausesBeforeNextDispatch(this._autoSendFor(item), item)) { return false; }
         // Between prompts and paused: none is in flight, so the item is idle
         // (its header goes amber).
         item.awaitingAnswer = false;
         item.inFlightRepetition = undefined;
-        logQueue(`dispatchNext: ${held ? `run ${laneOf(item, true)} held` : 'auto-send paused'}, leaving item ${item.id} in 'sending' with progress preserved`);
+        logQueue(`dispatchNext: run ${laneOf(item, true)} paused, leaving item ${item.id} in 'sending' with progress preserved`);
         return true;
     }
 
@@ -5262,17 +5132,14 @@ export class PromptQueueManager {
 
     /** Continuations a walk iteration of `item` gets: its own, else the queue's. */
     walkContinuationsOf(item: QueuedPrompt): number {
-        return item.walkContinuations ?? this._walkContinuations;
+        return item.walkContinuations ?? this._itemSettings(item).walkContinuations;
     }
 
-    /** The queue's default for walk continuations (queue setting `walk-continuations`). */
-    get walkContinuations(): number { return this._walkContinuations; }
+    /** The window's run's default for walk continuations (setting `walk-continuations`). */
+    get walkContinuations(): number { return this._settingsOf(undefined).walkContinuations; }
     set walkContinuations(n: number) {
-        const valid = validContinuations(n);
-        if (valid === undefined || valid === this._walkContinuations) { return; }
-        this._walkContinuations = valid;
-        this.persistSettings();
-        this._onDidChange.fire();
+        if (validContinuations(n) === undefined) { return; }
+        this.setRunQueueSettings(undefined, { walkContinuations: n });
     }
 
     /**
@@ -5303,8 +5170,7 @@ export class PromptQueueManager {
             }
             if (n >= max) {
                 item.needsAttention = needsAttentionReason(todoId, verdict.status, n);
-                this._autoSendEnabled = false;
-                this.persistSettings();
+                this._pauseRunOf(item, `walk ${item.id} needs attention`);
                 this.persist();
                 this._onDidChange.fire();
                 logQueue(`Walk ${item.id}: todo ${todoId} still ${verdict.status} after ${n} continuation(s) — needs attention, auto-send off`);
@@ -5486,8 +5352,7 @@ export class PromptQueueManager {
             item.status = 'decision-needed';
             item.awaitingAnswer = false;
             item.inFlightRepetition = undefined;
-            this._autoSendEnabled = false;
-            this.persistSettings();
+            this._pauseRunOf(item, `walk ${item.id} waits for a decision`);
             this.persist();
             this._onDidChange.fire();
             return 'paused';
@@ -5505,7 +5370,7 @@ export class PromptQueueManager {
         // loop's next iteration: it moves in front of the loop item, which
         // steps back to pending with its counters kept and resumes after it.
         // With lanes (Queue per run) only a marked item of this loop's own lane steps in; another lane's runs on its own.
-        const between = itemToSendBetween(this._queuePerRun ? this._items.filter(i => i === item || laneOf(i, true) === laneOf(item, true)) : this._items, item, mainSentCount, plan.mode !== 'exhausted');
+        const between = itemToSendBetween(this._items.filter(i => i === item || laneOf(i, true) === laneOf(item, true)), item, mainSentCount, plan.mode !== 'exhausted');
         if (between) {
             this._items = orderForBetween(this._items, item, between);
             item.status = 'pending';
@@ -5775,39 +5640,9 @@ export class PromptQueueManager {
         // Restore queue-level settings
         this.restoreSettings();
 
-        // Auto-start: if enabled, keep auto-send on after restore; otherwise start paused.
-        if (this._autoStartEnabled) {
-            logQueue('Auto-start: enabling auto-send on activation');
-            this._autoSendEnabled = true;
-        } else {
-            this._autoSendEnabled = false;
-        }
+        this._applyActivationRunSettings();
 
-        // Auto-continue: if enabled and there are pending items with remaining repetitions,
-        // schedule auto-start after 30 seconds to let VS Code fully initialize.
-        if (this._autoContinueEnabled && !this._autoStartEnabled) {
-            const hasPendingRepetitions = this._items.some(i =>
-                i.status === 'pending' &&
-                ((resolveRepeatCount(i.templateRepeatCount) > 1 && (i.templateRepeatIndex ?? 0) >= 1) ||
-                 (resolveRepeatCount(i.repeatCount ?? 1) > 1 && (i.repeatIndex ?? 0) >= 1)),
-            );
-            const hasInterrupted = this._items.some(i => i.status === 'interrupted');
-            if (hasPendingRepetitions || hasInterrupted) {
-                logQueue('Auto-continue: pending repetitions found, scheduling auto-start in 30s');
-                this._autoContinueTimer = setTimeout(() => {
-                    logQueue('Auto-continue: enabling auto-send to resume repetitions');
-                    this._autoSendEnabled = true;
-                    this.persistSettings();
-                    this._onDidChange.fire();
-                    if (this._items.some(i => i.status === 'pending' || i.status === 'interrupted') && this._mayDrain()) {
-                        void this.sendNext();
-                    }
-                }, 30_000);
-            }
-        }
-
-        // If auto-send is now enabled (via auto-start) and there are pending items, kick off
-        if (this._autoSendEnabled && this._items.some(i => i.status === 'pending') && this._mayDrain()) {
+        if (this._anyRunMayStart() && this._mayDrain()) {
             void this.sendNext();
         }
 
@@ -5815,86 +5650,159 @@ export class PromptQueueManager {
         this._refreshQueueWindowStatus();
     }
 
-    /** Persist queue-level settings to disk. */
+    /**
+     * At activation, per run: Auto-Start decides whether the run sends (every
+     * run with settings of its own and every run that has items now; a run
+     * created later starts from the start values), and a paused run with
+     * Auto-Continue and pending repetitions (or an interrupted item) starts
+     * after 30 seconds.
+     */
+    private _applyActivationRunSettings(): void {
+        for (const item of this._items) {
+            const run = itemRun(item);
+            if (!this._runSettings.has(run)) { this._runSettings.set(run, { ...this._runStart }); }
+        }
+        for (const [run, settings] of this._runSettings) {
+            settings.autoSend = settings.autoStart;
+            if (settings.autoStart) { logQueue(`Auto-start: run ${run} sends on activation`); continue; }
+            if (!settings.autoContinue) { continue; }
+            const own = this._items.filter((i) => itemRun(i) === run);
+            const hasPendingRepetitions = own.some(i =>
+                i.status === 'pending' &&
+                ((resolveRepeatCount(i.templateRepeatCount) > 1 && (i.templateRepeatIndex ?? 0) >= 1) ||
+                 (resolveRepeatCount(i.repeatCount ?? 1) > 1 && (i.repeatIndex ?? 0) >= 1)),
+            );
+            if (!hasPendingRepetitions && !own.some(i => i.status === 'interrupted')) { continue; }
+            logQueue(`Auto-continue: run ${run} has pending repetitions, scheduling its start in 30s`);
+            this._autoContinueTimers.set(run, setTimeout(() => {
+                this._autoContinueTimers.delete(run);
+                logQueue(`Auto-continue: run ${run} sends again to resume its repetitions`);
+                this.setRunAutoSend(run, true);
+            }, 30_000));
+        }
+    }
+
+    /**
+     * Persist the run settings (`runs:` of queue-settings.yaml). The file's old
+     * top-level keys stay as they are — read as the start values of a new run —
+     * and are never written.
+     */
     private persistSettings(): void {
         // Auto-send toggling changes whether this window drives the queue, so
         // refresh the live 'queue' window-status dot.
         this._refreshQueueWindowStatus();
-        writeQueueSettings({
-            'response-timeout-minutes': this._responseFileTimeoutMinutes,
-            'default-reminder-template-id': this._defaultReminderTemplateId,
-            'auto-send-enabled': this._autoSendEnabled,
-            'auto-start-enabled': this._autoStartEnabled,
-            'auto-pause-enabled': this._autoPauseEnabled,
-            'auto-continue-enabled': this._autoContinueEnabled,
-            'walk-continuations': this._walkContinuations,
-            // Queue-level default transport (spec §4.10).
-            'default-transport': this._defaultTransport,
-            'default-anthropic-profile-id': this._defaultAnthropicProfileId,
-            'default-anthropic-config-id': this._defaultAnthropicConfigId,
-            'default-agent-sdk-session': this._defaultAgentSdkSession,
-            'default-message-template-id': this._defaultMessageTemplateId,
-            // Written once the user touched them, so a queue that never used lanes keeps its file as it was.
-            // eslint-disable-next-line @typescript-eslint/naming-convention -- the settings file's keys
-            ...(this._laneSettingsStored ? { 'queue-per-run': this._queuePerRun, 'held-runs': [...this._heldRuns] } : {}),
-        });
+        writeQueueSettings({ runs: runQueueSettingsToFile(this._runSettings) });
     }
 
-    /** Restore queue-level settings from disk. */
+    /** Restore the run settings from disk (any shape: old top-level keys, `runs:`, both). */
     private restoreSettings(): void {
-        const settings = readQueueSettings();
-        if (settings) {
-            if (typeof settings['response-timeout-minutes'] === 'number') {
-                this._responseFileTimeoutMinutes = Math.max(5, settings['response-timeout-minutes']);
-            }
-            if (settings['default-reminder-template-id']) {
-                this._defaultReminderTemplateId = settings['default-reminder-template-id'];
-            }
-            if (typeof settings['auto-send-enabled'] === 'boolean') {
-                this._autoSendEnabled = settings['auto-send-enabled'];
-            }
-            if (typeof settings['auto-start-enabled'] === 'boolean') {
-                this._autoStartEnabled = settings['auto-start-enabled'];
-            }
-            if (typeof settings['auto-pause-enabled'] === 'boolean') {
-                this._autoPauseEnabled = settings['auto-pause-enabled'];
-            }
-            if (validContinuations(settings['walk-continuations']) !== undefined) {
-                this._walkContinuations = validContinuations(settings['walk-continuations'])!;
-            }
-            if (typeof settings['auto-continue-enabled'] === 'boolean') {
-                this._autoContinueEnabled = settings['auto-continue-enabled'];
-            }
-            if (settings['default-transport'] === 'copilot' || settings['default-transport'] === 'anthropic') {
-                this._defaultTransport = settings['default-transport'];
-            }
-            if (typeof settings['default-anthropic-profile-id'] === 'string') {
-                this._defaultAnthropicProfileId = settings['default-anthropic-profile-id'] || undefined;
-            }
-            if (typeof settings['default-anthropic-config-id'] === 'string') {
-                this._defaultAnthropicConfigId = settings['default-anthropic-config-id'] || undefined;
-            }
-            if (typeof settings['default-agent-sdk-session'] === 'string') {
-                this._defaultAgentSdkSession = settings['default-agent-sdk-session'] || undefined;
-            }
-            if (typeof settings['default-message-template-id'] === 'string') {
-                this._defaultMessageTemplateId = settings['default-message-template-id'] || undefined;
-            }
-            if (typeof settings['queue-per-run'] === 'boolean') {
-                this._queuePerRun = settings['queue-per-run'];
-                this._laneSettingsStored = true;
-            }
-            if (Array.isArray(settings['held-runs'])) {
-                this._heldRuns = settings['held-runs'].filter((r): r is string => typeof r === 'string' && r.length > 0).map(normalizeRun);
-                this._laneSettingsStored = true;
-            }
-            console.log('[PromptQueueManager] restoreSettings:', {
-                timeout: this._responseFileTimeoutMinutes,
-                defaultTemplate: this._defaultReminderTemplateId,
-                autoSend: this._autoSendEnabled,
-                defaultTransport: this._defaultTransport,
-            });
+        const stored = readRunQueueSettings(readQueueSettings());
+        this._runStart = stored.start;
+        this._runSettings = stored.runs;
+        logQueue(`restoreSettings: runs ${[...this._runSettings.keys()].join(', ')}`);
+    }
+
+    // ----- settings per run (vscimpb60a) ---------------------------------------
+
+    /** The window's run: the run the queue-wide accessors (autoSendEnabled, defaultTransport, ...) read and set. */
+    private _windowRun(): string {
+        return normalizeRun(windowProcessRun());
+    }
+
+    /** The live settings of `run` (its own, else the start values; never stored by reading). */
+    private _settingsOf(run: string | undefined): RunQueueSettings {
+        const name = normalizeRun(run ?? this._windowRun());
+        return this._runSettings.get(name) ?? this._runStart;
+    }
+
+    /** The settings of the run `item` belongs to. */
+    private _itemSettings(item: QueuedPrompt): RunQueueSettings {
+        return this._settingsOf(itemRun(item));
+    }
+
+    /** Whether the run of `item` sends (its auto-send). */
+    private _autoSendFor(item: QueuedPrompt): boolean {
+        return this._itemSettings(item).autoSend;
+    }
+
+    /** The runs whose auto-send is off: their lanes start nothing (utils/queueLanes.ts). */
+    private _pausedRuns(force?: ReadonlySet<string>): string[] {
+        const runs = new Set<string>([...this._runSettings.keys()]);
+        for (const i of this._items) { runs.add(itemRun(i)); }
+        return [...runs].filter((run) => !this._settingsOf(run).autoSend && !force?.has(run)).sort();
+    }
+
+    /** Whether some run with auto-send on has an item to start. */
+    private _anyRunMayStart(): boolean {
+        return this._items.some((i) => (i.status === 'pending' || i.status === 'interrupted') && this._autoSendFor(i));
+    }
+
+    /** The window's run (the run the queue-wide accessors and a command without a run act on). */
+    get windowRun(): string { return this._windowRun(); }
+
+    /** The Copilot answer timeout of the run `item` belongs to. */
+    responseTimeoutMinutesFor(item: QueuedPrompt): number { return this._itemSettings(item).responseTimeoutMinutes; }
+
+    /** The settings of `run` (default: the window's run), a copy. */
+    runQueueSettings(run?: string): RunQueueSettings {
+        return { ...this._settingsOf(run) };
+    }
+
+    /** Every run with settings of its own, `default` first, with a copy of them. */
+    allRunQueueSettings(): Array<{ run: string; settings: RunQueueSettings }> {
+        return [...this._runSettings.keys()]
+            .sort((a, b) => Number(b === DEFAULT_RUN) - Number(a === DEFAULT_RUN) || a.localeCompare(b))
+            .map((run) => ({ run, settings: { ...this._runSettings.get(run)! } }));
+    }
+
+    /**
+     * Change settings of `run` (default: the window's run): stored, persisted,
+     * shown. Auto-send coming on starts the run's lane (its paused item first).
+     */
+    setRunQueueSettings(run: string | undefined, patch: Partial<RunQueueSettings>): void {
+        const name = normalizeRun(run ?? this._windowRun());
+        const before = this._settingsOf(name);
+        const next: RunQueueSettings = { ...before, ...patch };
+        if (patch.responseTimeoutMinutes !== undefined) { next.responseTimeoutMinutes = Math.max(5, Math.round(patch.responseTimeoutMinutes || 60)); }
+        if (patch.walkContinuations !== undefined) { next.walkContinuations = validContinuations(patch.walkContinuations) ?? before.walkContinuations; }
+        for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId'] as const) {
+            if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
         }
+        this._runSettings.set(name, next);
+        const changed = Object.keys(patch).filter((k) => (before as unknown as Record<string, unknown>)[k] !== (next as unknown as Record<string, unknown>)[k]);
+        if (changed.length) { logQueue(`Run ${name}: ${changed.map((k) => `${k}=${String((next as unknown as Record<string, unknown>)[k])}`).join(', ')}`); }
+        this.persistSettings();
+        this._onDidChange.fire();
+        // Auto-send set on (also when it already was: the run's lane is started, as switching it on always did).
+        if (patch.autoSend === true) { this._onRunResumed(name); }
+    }
+
+    /** Switch the auto-send of `run` on or off (default: the window's run). */
+    setRunAutoSend(run: string | undefined, on: boolean): void {
+        this.setRunQueueSettings(run, { autoSend: on });
+    }
+
+    /** Switch off the auto-send of the run `item` belongs to (an error, an interrupt, needs attention, ...), saying why. */
+    private _pauseRunOf(item: QueuedPrompt | undefined, why: string): void {
+        const run = item ? itemRun(item) : this._windowRun();
+        if (!this._settingsOf(run).autoSend) { return; }
+        this._runSettings.set(run, { ...this._settingsOf(run), autoSend: false });
+        logQueue(`Run ${run} paused: ${why}`);
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * Auto-send of `run` just came on: its interrupted item goes first, else
+     * its paused sending item resumes, else the free lanes take their next
+     * items. A sending item whose stage is still in flight goes on by itself
+     * (a second frame beside it would send the walk twice, vscimpb53).
+     */
+    private _onRunResumed(run: string): void {
+        if (this._resumeInterruptedItem(run)) { return; }
+        this._resumePausedLanes(run);
+        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
+        if (hasWork && this._mayDrain()) { void this.sendNext(); }
     }
 
     /**
@@ -5903,17 +5811,15 @@ export class PromptQueueManager {
      * time (spec §4.10). The defaults also drive what the Add form in
      * the queue editor pre-selects.
      */
-    get defaultTransport(): QueuedTransport { return this._defaultTransport; }
-    get defaultAnthropicProfileId(): string | undefined { return this._defaultAnthropicProfileId; }
-    get defaultAnthropicConfigId(): string | undefined { return this._defaultAnthropicConfigId; }
-    get defaultMessageTemplateId(): string | undefined { return this._defaultMessageTemplateId; }
-    get defaultAgentSdkSession(): string | undefined { return this._defaultAgentSdkSession; }
+    get defaultTransport(): QueuedTransport { return this._settingsOf(undefined).defaultTransport; }
+    get defaultAnthropicProfileId(): string | undefined { return this._settingsOf(undefined).defaultAnthropicProfileId; }
+    get defaultAnthropicConfigId(): string | undefined { return this._settingsOf(undefined).defaultAnthropicConfigId; }
+    get defaultMessageTemplateId(): string | undefined { return this._settingsOf(undefined).defaultMessageTemplateId; }
+    get defaultAgentSdkSession(): string | undefined { return this._settingsOf(undefined).defaultAgentSdkSession; }
 
-    /** Set the queue-level default Agent SDK session; '' / undefined = the queue's own `default`. */
-    setDefaultAgentSdkSession(name: string | undefined): void {
-        this._defaultAgentSdkSession = name?.trim() || undefined;
-        this.persistSettings();
-        this._onDidChange.fire();
+    /** Set a run's default Agent SDK session (default: the window's run); '' / undefined = the run's own `default`. */
+    setDefaultAgentSdkSession(name: string | undefined, run?: string): void {
+        this.setRunQueueSettings(run, { defaultAgentSdkSession: name });
     }
 
     /**
@@ -6023,15 +5929,10 @@ export class PromptQueueManager {
         transport: QueuedTransport,
         anthropicProfileId?: string,
         anthropicConfigId?: string,
+        run?: string,
     ): void {
-        this._defaultTransport = transport;
-        this._defaultAnthropicProfileId = anthropicProfileId?.trim() || undefined;
-        // Config is now derived from the profile; the UI no longer
-        // surfaces it. Accept but ignore an explicit value so legacy
-        // callers don't fail the signature.
-        this._defaultAnthropicConfigId = anthropicConfigId?.trim() || undefined;
-        this.persistSettings();
-        this._onDidChange.fire();
+        // A run's defaults (default: the window's run). The configuration is derived from the profile; an explicit one is kept.
+        this.setRunQueueSettings(run, { defaultTransport: transport, defaultAnthropicProfileId: anthropicProfileId, defaultAnthropicConfigId: anthropicConfigId });
     }
     /**
      * Update the queue-level default message-wrapping template. The
@@ -6039,10 +5940,8 @@ export class PromptQueueManager {
      * template id when defaultTransport is 'anthropic', a copilot
      * template name when it's 'copilot'. Passing '' clears it.
      */
-    setDefaultMessageTemplate(templateId?: string): void {
-        this._defaultMessageTemplateId = templateId?.trim() || undefined;
-        this.persistSettings();
-        this._onDidChange.fire();
+    setDefaultMessageTemplate(templateId?: string, run?: string): void {
+        this.setRunQueueSettings(run, { defaultMessageTemplateId: templateId });
     }
 
     /** Reload state from disk (called by file watcher). */

@@ -616,12 +616,18 @@ export interface QueueControls {
     list: () => QueueListEntry[];
     /** Delete the entry at a 1-based index within {@link list}. */
     deleteAt: (oneBasedIndex: number) => QueueDeleteResult;
-    /** Toggle pause/resume. Returns `true` when the queue is now running. */
-    togglePause: () => boolean;
-    /** Pause (`false`) or resume (`true`) the queue (auto-send off / on). */
-    setRunning: (running: boolean) => void;
-    /** Whether the queue is currently running (auto-send on) vs paused. */
-    isRunning: () => boolean;
+    /**
+     * The queue's settings are per process run: pause and resume act on one
+     * run's auto-send — `run`, default the window's run ({@link windowRun}).
+     */
+    /** Toggle pause/resume of a run. Returns `true` when it now runs. */
+    togglePause: (run?: string) => boolean;
+    /** Pause (`false`) or resume (`true`) a run (its auto-send off / on). */
+    setRunning: (running: boolean, run?: string) => void;
+    /** Whether a run currently runs (auto-send on) vs paused. */
+    isRunning: (run?: string) => boolean;
+    /** The window's run, the one a command without a run acts on. */
+    windowRun?: () => string;
 }
 
 /** Render an elapsed-milliseconds duration as a compact `Xm Ys` / `Ys` string. */
@@ -734,7 +740,7 @@ async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCom
     const forwarding = status.forwarding ? '▶️ on' : '⏹ off';
     const mode = status.listening ? '🔊 listening' : '🔇 silent';
     const pending = deps.queue.list().filter((e) => e.status === 'pending').length;
-    const queueState = deps.queue.isRunning() ? '▶️ running' : '⏸ paused';
+    const queueState = `${deps.queue.isRunning() ? '▶️ running' : '⏸ paused'} (run ${queueRunName(deps)})`;
     const stateLines =
         `Forwarding: ${forwarding}\n` +
         `Mode: ${mode}\n` +
@@ -815,7 +821,7 @@ async function queueListHandler(deps: CommandRegistryDeps): Promise<TelegramComm
     if (entries.length === 0) {
         return { text: '📭 The prompt queue is empty.', rawText: true };
     }
-    const running = deps.queue.isRunning() ? '▶️ running' : '⏸ paused';
+    const running = `run ${queueRunName(deps)} ${deps.queue.isRunning() ? '▶️ running' : '⏸ paused'}`;
     const lines = entries.map((e, i) => {
         const marker = e.status === 'sending' ? '▶️' : '•';
         return `${i + 1}. ${marker} ${abbreviate(e.preview, 80)}`;
@@ -839,34 +845,50 @@ async function queueDeleteHandler(
     return { text: result.message, rawText: true };
 }
 
-/** Handle `queue_pause` — toggle queue execution; report the new state. */
-async function queuePauseHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
-    const running = deps.queue.togglePause();
+/** The run a queue command names (its argument), else undefined: the window's run. */
+function queueRunArg(cmd: ParsedTelegramCommand | undefined): string | undefined {
+    const run = (cmd?.rawArgs ?? '').trim().split(/\s+/)[0];
+    return run ? run : undefined;
+}
+
+/** The run's name as the messages say it. */
+function queueRunName(deps: CommandRegistryDeps, run?: string): string {
+    return run ?? deps.queue.windowRun?.() ?? 'default';
+}
+
+/** Handle `queue_pause [run]` — toggle a run's queue execution (default: the window's run); report the new state. */
+async function queuePauseHandler(deps: CommandRegistryDeps, cmd?: ParsedTelegramCommand): Promise<TelegramCommandResult> {
+    const run = queueRunArg(cmd);
+    const running = deps.queue.togglePause(run);
+    const name = queueRunName(deps, run);
     return {
         text: running
-            ? '▶️ Queue resumed — pending prompts will be sent.'
-            : '⏸ Queue paused — no new prompts will be sent until you resume.',
+            ? `▶️ Run ${name} resumed — its pending prompts will be sent.`
+            : `⏸ Run ${name} paused — no new prompts of it will be sent until you resume.`,
         rawText: true,
     };
 }
 
 /**
- * Handle `halt` / `pause` (`running: false`) and `continue` / `resume`
- * (`running: true`): pause or resume the queue — auto-send off / on, the same
- * switch `queue_pause` toggles — saying so when it already was.
+ * Handle `halt [run]` / `pause [run]` (`running: false`) and `continue [run]` /
+ * `resume [run]` (`running: true`): pause or resume one run of the queue — its
+ * auto-send off / on, the switch `queue_pause` toggles; default the window's
+ * run — saying so when it already was.
  */
-async function queueRunHandler(deps: CommandRegistryDeps, running: boolean): Promise<TelegramCommandResult> {
-    if (deps.queue.isRunning() === running) {
+async function queueRunHandler(deps: CommandRegistryDeps, running: boolean, cmd?: ParsedTelegramCommand): Promise<TelegramCommandResult> {
+    const run = queueRunArg(cmd);
+    const name = queueRunName(deps, run);
+    if (deps.queue.isRunning(run) === running) {
         return {
-            text: running ? '▶️ The queue is already running.' : '⏸ The queue is already paused. Send continue to resume it.',
+            text: running ? `▶️ Run ${name} is already running.` : `⏸ Run ${name} is already paused. Send continue to resume it.`,
             rawText: true,
         };
     }
-    deps.queue.setRunning(running);
+    deps.queue.setRunning(running, run);
     return {
         text: running
-            ? '▶️ Queue resumed — pending prompts will be sent.'
-            : '⏸ Queue paused — the running prompt finishes, no new prompts are sent. Send continue to resume.',
+            ? `▶️ Run ${name} resumed — its pending prompts will be sent.`
+            : `⏸ Run ${name} paused — its running prompt finishes, no new prompts of it are sent. Send continue to resume.`,
         rawText: true,
     };
 }
@@ -1088,16 +1110,17 @@ export function createCommandRegistry(
         });
         registry.register({
             name: 'queue_pause',
-            description: 'Toggle queue execution (pause/resume)',
-            handler: () => queuePauseHandler(deps),
+            description: 'Toggle a run\'s queue execution (pause/resume); default the window\'s run',
+            usage: 'queue_pause [run]',
+            handler: (cmd) => queuePauseHandler(deps, cmd),
         });
         // `pause` / `resume` reach these too: the poller reads them as halt / continue.
         for (const [name, alias, running] of [['halt', 'pause', false], ['continue', 'resume', true]] as const) {
             registry.register({
                 name,
-                description: running ? 'Resume the prompt queue (auto-send on)' : 'Pause the prompt queue (auto-send off)',
-                usage: `${name} (or ${alias})`,
-                handler: () => queueRunHandler(deps, running),
+                description: running ? 'Resume a run of the prompt queue (its auto-send on); default the window\'s run' : 'Pause a run of the prompt queue (its auto-send off); default the window\'s run',
+                usage: `${name} [run] (or ${alias} [run])`,
+                handler: (cmd) => queueRunHandler(deps, running, cmd),
             });
         }
     }

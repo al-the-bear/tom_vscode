@@ -167,6 +167,11 @@ after(() => {
 });
 
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
+/**
+ * Step the queue by hand with auto-send off: every run's lane takes its next item (the queue's settings are per
+ * run and a paused run starts nothing unless forced, as an explicit retry does).
+ */
+const drive = (): Promise<void> => queue().sendNext(new Set(['default', ...queue().items.map((i) => i.processRun?.run ?? i.run ?? 'default')]));
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const set = (id: string, status: QueuedPrompt['status']): void => { (queue().getById(id) as QueuedPrompt).status = status; };
 const stateFile = (): string => fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.yaml`), 'utf8');
@@ -351,11 +356,11 @@ describe('nested processes', () => {
         assert.equal(childMarker.processRun?.level, 1);
         // The queue reaches the step below's marker: it moves nothing while the level above runs.
         set(parentPrompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(parentMarker.id)?.status, 'sent');
         assert.deepEqual(store().levels.map((l) => l.step), ['plan', 'work'], 'nothing moved');
         set(queue().items[2].id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.deepEqual(store().levels.map((l) => [l.step, l.decision]), [['plan', undefined], ['sg', undefined]], 'the new level moved');
         for (const i of [...queue().items]) { queue().remove(i.id); }
     });
@@ -497,7 +502,7 @@ describe('nested processes', () => {
         assert.equal(opened, 0, 'the running step is not interrupted');
         assert.deepEqual(store().state.suggestions?.map((x) => [x.process, x.kind]), [['side', 'branch']]);
         set(prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(marker.id)?.status, 'sent');
         assert.equal(store().state.step, 'plan', 'the move waits for the choice');
         assert.deepEqual(store().state.suggestionsDue?.kind, 'proceed');

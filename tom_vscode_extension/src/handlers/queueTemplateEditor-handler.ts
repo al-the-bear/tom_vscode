@@ -598,12 +598,8 @@ async function queueFromTemplate(msg: any): Promise<void> {
         qm._reloadFromDisk();
       }
       const queueItems = Array.isArray(qm.items) ? qm.items : [];
-      if (
-        qm.autoSendEnabled
-        && typeof qm.sendNext === 'function'
-        && !queueItems.some((i: any) => i.status === 'sending')
-        && queueItems.some((i: any) => i.status === 'pending')
-      ) {
+      // sendNext starts what may start: the free lanes of the runs whose auto-send is on (settings per run).
+      if (typeof qm.sendNext === 'function' && queueItems.some((i: any) => i.status === 'pending')) {
         void qm.sendNext();
       }
     } catch {

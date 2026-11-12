@@ -105,9 +105,31 @@ let currentRun = __INITIAL__.currentRun || 'default';
 const __runViewState = (typeof vscode !== 'undefined' && vscode && typeof vscode.getState === 'function' && vscode.getState()) || {};
 let runFilter = typeof __runViewState.runFilter === 'string' ? __runViewState.runFilter : 'all';
 let groupByRun = __runViewState.groupByRun === true;
-// Queue per run (a queue setting, from the host) and its lanes (each says whether its run is held).
-let queuePerRun = __INITIAL__.queuePerRun === true;
+// The lanes, one per run (each says whether its run is paused), and the queue settings of each run (from the host).
 let lanes = Array.isArray(__INITIAL__.lanes) ? __INITIAL__.lanes : [];
+let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQueueSettings === 'object') ? __INITIAL__.runQueueSettings : {};
+
+/** The run the toolbar's settings are for: the run the Run filter shows, else the window's run. */
+function settingsRun() { return runFilter !== 'all' ? runFilter : currentRun; }
+
+/** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults, Copilot timeout and reminder). */
+function applyRunSettings() {
+  const s = runQueueSettings[settingsRun()];
+  if (!s) { return; }
+  autoSend = s.autoSend === true;
+  autoStart = s.autoStart === true;
+  autoPause = s.autoPause !== false;
+  autoContinue = s.autoContinue === true;
+  responseTimeoutMinutes = s.responseTimeoutMinutes || 60;
+  defaultReminderTemplateId = s.defaultReminderTemplateId || '';
+  queueDefaultTransport = s.defaultTransport || 'copilot';
+  queueDefaultSessionLabel = s.defaultAgentSdkSession || 'default';
+  queueDefaultAnthropicProfileId = s.defaultAnthropicProfileId || '';
+  queueDefaultMessageTemplateId = s.defaultMessageTemplateId || '';
+}
+
+/** Tell the host which run the toolbar's settings are for (the transport picker's messages carry none). */
+function postSettingsRun() { vscode.postMessage({ type: 'setSettingsRun', run: settingsRun() }); }
 // Pending items whose prompt is open for editing: item id -> the draft text.
 // The host holds the queue for them (beginTextEdit) until Save or Cancel.
 var queueTextEdits = {};
@@ -201,7 +223,7 @@ if (__ctxSummary) {
     var link = e.target && e.target.closest ? e.target.closest('.ctx-link') : null;
     if (!link) { return; }
     e.preventDefault();
-    vscode.postMessage({ type: link.dataset.pick === 'role' ? 'pickRole' : 'pickQueueDefaultSession' });
+    vscode.postMessage(link.dataset.pick === 'role' ? { type: 'pickRole' } : { type: 'pickQueueDefaultSession', run: settingsRun() });
   });
 }
 var __afSlot = document.getElementById('addTransportRow');
@@ -231,6 +253,8 @@ function syncCopilotOnlyFields() {
 /* Render immediately from embedded state */
 try {
   renderCompactionPickers(__INITIAL__.compactionPickers);
+  applyRunSettings();
+  postSettingsRun();
   normalizeState();
   render();
   populateAddForm();
@@ -260,8 +284,8 @@ window.addEventListener('message', e => {
       currentItems = msg.items || [];
       if (Array.isArray(msg.processRuns)) { processRuns = msg.processRuns; }
       if (typeof msg.currentRun === 'string') { currentRun = msg.currentRun; }
-      queuePerRun = msg.queuePerRun === true;
       lanes = Array.isArray(msg.lanes) ? msg.lanes : [];
+      runQueueSettings = (msg.runQueueSettings && typeof msg.runQueueSettings === 'object') ? msg.runQueueSettings : {};
       // An open edit of an item that is no longer pending has nothing to save into.
       Object.keys(queueTextEdits).forEach(function(id) {
         var it = currentItems.find(function(i) { return i.id === id; });
@@ -285,6 +309,7 @@ window.addEventListener('message', e => {
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
+      applyRunSettings();
       questRefreshActive = msg.questRefreshActive === true;
       renderCompactionPickers(msg.compactionPickers);
       normalizeState();
@@ -526,8 +551,11 @@ function renderRunControls() {
   }
   const group = document.getElementById('groupByRun');
   if (group) { group.checked = groupByRun; }
-  const perRun = document.getElementById('queuePerRun');
-  if (perRun) { perRun.checked = queuePerRun; }
+  const label = document.getElementById('settingsRunLabel');
+  if (label) {
+    label.textContent = 'Settings of run ' + settingsRun() + (settingsRun() === currentRun ? ' (this window\'s)' : '');
+    label.title = 'The auto-send, Auto-Start / -Pause / -Continue, the defaults and the Copilot answer timeout and reminder template here are those of this run; pick another run in Run: to change its settings.';
+  }
   renderLaneStrip();
   const add = document.getElementById('addRun');
   if (add) {
@@ -545,31 +573,37 @@ function saveRunViewState() {
     vscode.setState(Object.assign({}, prev, { runFilter: runFilter, groupByRun: groupByRun }));
   }
 }
-/* Queue per run: a row per lane — sending / pending, and Pause / Resume for the run. */
+/* A row per lane (run) — sending / pending, and Pause / Resume: the run's auto-send. */
 function renderLaneStrip() {
   const strip = document.getElementById('laneStrip');
   if (!strip) { return; }
-  if (!queuePerRun || lanes.length === 0) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+  if (lanes.length === 0) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
   strip.style.display = '';
   strip.innerHTML = lanes.map(function(l) {
-    const state = l.held ? 'held' : (l.sending > 0 ? 'sending' : (l.pending > 0 ? (autoSend ? 'waiting' : 'paused') : 'idle'));
+    const state = l.held ? 'held' : (l.sending > 0 ? 'sending' : (l.pending > 0 ? 'waiting' : 'idle'));
     const action = l.held
-      ? '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="0" title="Resume this run: its lane sends again">Resume</button>'
-      : '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="1" title="Pause this run: its lane starts nothing; its sending item stops before its next prompt">Pause</button>';
+      ? '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="0" title="Resume this run: its auto-send comes on and its lane sends again">Resume</button>'
+      : '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="1" title="Pause this run: its auto-send goes off; its lane starts nothing and its sending item stops before its next prompt">Pause</button>';
     return '<span class="lane lane-' + state + '" data-lane="' + escapeHtml(l.run) + '">'
       + '<b>' + escapeHtml(l.run) + '</b>' + (l.run === currentRun ? ' (this window\'s)' : '')
       + ' · ' + l.sending + ' sending · ' + l.pending + ' pending'
-      + (l.held ? ' · <i>held</i>' : '') + ' ' + action + '</span>';
+      + (l.held ? ' · <i>paused</i>' : '') + ' ' + action + '</span>';
   }).join('');
   strip.querySelectorAll('.lane-btn').forEach(function(btn) {
     btn.addEventListener('click', function() { setRunHeld(btn.dataset.run, btn.dataset.held === '1'); });
   });
 }
-// eslint-disable-next-line no-unused-vars -- called by the checkbox's onchange in index.html
-function setQueuePerRun(on) { vscode.postMessage({ type: 'setQueuePerRun', value: !!on }); }
 function setRunHeld(run, held) { vscode.postMessage({ type: 'setRunHeld', run: run, held: !!held }); }
 
-function setRunFilter(value) { runFilter = value || 'all'; saveRunViewState(); render(); }
+function setRunFilter(value) {
+  runFilter = value || 'all';
+  saveRunViewState();
+  // The toolbar's settings follow the run shown.
+  postSettingsRun();
+  applyRunSettings();
+  render();
+  if (typeof populateAddForm === 'function') { populateAddForm(); }
+}
 function setGroupByRun(on) { groupByRun = !!on; saveRunViewState(); render(); }
 
 /* Editing a pending item's prompt: the draft lives here, the host holds the queue. */
@@ -615,15 +649,15 @@ function expandAll() {
   render();
 }
 
-function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend' }); }
-function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart' }); }
-function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause' }); }
-function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue' }); }
+function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend', run: settingsRun() }); }
+function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart', run: settingsRun() }); }
+function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause', run: settingsRun() }); }
+function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue', run: settingsRun() }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem' }); }
 function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation' }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
-function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60 }); }
+function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60, run: settingsRun() }); }
 function setDefaultReminderTemplate(templateId) {
   const normalizedTemplateId = templateId || '';
   defaultReminderTemplateId = normalizedTemplateId;
@@ -631,7 +665,7 @@ function setDefaultReminderTemplate(templateId) {
   if (addSel) {
     addSel.value = normalizedTemplateId;
   }
-  vscode.postMessage({ type: 'setDefaultReminderTemplate', templateId: normalizedTemplateId });
+  vscode.postMessage({ type: 'setDefaultReminderTemplate', templateId: normalizedTemplateId, run: settingsRun() });
 }
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
 function clearSent() { vscode.postMessage({ type: 'clearSent' }); }

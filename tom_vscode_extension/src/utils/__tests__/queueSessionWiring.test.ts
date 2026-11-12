@@ -67,9 +67,9 @@ describe('queue session wiring', () => {
         // only moves a stage off a profile that ran out of credit (outOfBudget.ts).
         assert.match(body(queue, 'private resolveStageTransport('), /return applyBudgetFallback\(this\.resolveStageTransportAsQueued\(item, stage\), item\.budgetFallback\);/);
         const resolve = body(queue, 'private resolveStageTransportAsQueued(');
-        assert.match(resolve, /stage\.anthropicProfileId \?\? item\.anthropicProfileId \?\? sessionProfile \?\? this\._defaultAnthropicProfileId/);
-        assert.match(resolve, /item\.anthropicProfileId \?\? sessionProfile \?\? this\._defaultAnthropicProfileId/);
-        assert.match(resolve, /anthropicProfileId: sessionProfile \?\? this\._defaultAnthropicProfileId/);
+        assert.match(resolve, /stage\.anthropicProfileId \?\? item\.anthropicProfileId \?\? sessionProfile \?\? runDefaults\.defaultAnthropicProfileId/);
+        assert.match(resolve, /item\.anthropicProfileId \?\? sessionProfile \?\? runDefaults\.defaultAnthropicProfileId/);
+        assert.match(resolve, /anthropicProfileId: sessionProfile \?\? runDefaults\.defaultAnthropicProfileId/);
         assert.match(body(queue, 'private sessionProfileOf('), /readSession\(this\.sessionsFolder\(\), name\)\?\.profileId \?\? create\?\.profile/,
             'the session file\'s profile, else the spec it will be created with');
     });

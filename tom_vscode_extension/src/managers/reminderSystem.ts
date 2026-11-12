@@ -201,7 +201,8 @@ export class ReminderSystem {
             if (!item.sentAt) { continue; }
 
             const sentTime = new Date(item.sentAt).getTime();
-            const timeoutMinutes = queue.responseFileTimeoutMinutes || this._config.defaultTimeoutMinutes;
+            // The Copilot answer timeout of the item's run (queue settings per run).
+            const timeoutMinutes = queue.responseTimeoutMinutesFor(item) || this._config.defaultTimeoutMinutes;
             const timeoutMs = timeoutMinutes * 60_000;
             const elapsed = Math.round((now - sentTime) / 60_000);
 

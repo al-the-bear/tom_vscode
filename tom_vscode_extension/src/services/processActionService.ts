@@ -182,7 +182,8 @@ export async function confirmProcessAction(
     } catch (e) {
         return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
     }
-    if (queue.autoSendEnabled) { void queue.sendNext(); }
+    // sendNext starts only the runs whose auto-send is on (queue settings per run).
+    void queue.sendNext();
     return { ok: true, queued: true, label: move.label };
 }
 

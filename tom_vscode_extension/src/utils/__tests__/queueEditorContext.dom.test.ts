@@ -5,7 +5,7 @@
  *
  *   QC-1 the bar reads `Quest: … | Role: … | Session: …` (then Projects); Role and Session are links;
  *        without a role the Role link offers to set one; there is no separate session row
- *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession`; a state update
+ *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession` with the settings run; a state update
  *        refreshes the session shown
  *   QC-3 the Session link names the default session's base and its lifetime when not `continue`
  *        (`Session: walk based on prep (per iteration)`), all of it the link
@@ -64,7 +64,7 @@ describe('Prompt Queue editor — the context bar', () => {
         link('role').click();
         assert.deepEqual(posted.pop(), { type: 'pickRole' });
         link('session').click();
-        assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultSession' });
+        assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultSession', run: 'default' });
         window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'state', items: [], context: { quest: 'q', role: 'spec_author', activeProjects: [] }, queueDefaultSession: 'per-todo' } }));
         assert.equal(link('session').textContent, 'per-todo');
     });

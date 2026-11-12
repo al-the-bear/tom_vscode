@@ -19,7 +19,11 @@ export interface SummaryItem {
 
 export interface SummaryQueue {
     items: readonly SummaryItem[];
+    /** The run the settings are of (the window's). */
+    run?: string;
     autoSend: boolean;
+    /** The runs whose auto-send is off. */
+    pausedRuns?: readonly string[];
     defaultTransport?: string;
     defaultProfileId?: string;
     defaultSession?: string;
@@ -47,7 +51,9 @@ export function summarizeQueue(q: SummaryQueue): WindowQueueSummary {
     const transport = ld?.transport ?? sending?.transport ?? q.defaultTransport;
     const profileId = transport === 'anthropic' ? (ld?.anthropicProfileId ?? sending?.anthropicProfileId ?? q.defaultProfileId) : undefined;
     return {
+        ...(q.run ? { run: q.run } : {}),
         autoSend: q.autoSend,
+        ...(q.pausedRuns && q.pausedRuns.length ? { pausedRuns: [...q.pausedRuns] } : {}),
         paused: !!sending && !q.autoSend,
         counts,
         ...(q.defaultTransport ? { defaultTransport: q.defaultTransport } : {}),

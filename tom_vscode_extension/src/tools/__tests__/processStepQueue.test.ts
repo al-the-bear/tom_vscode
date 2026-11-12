@@ -158,6 +158,11 @@ after(() => {
 });
 
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
+/**
+ * Step the queue by hand with auto-send off: every run's lane takes its next item (the queue's settings are per
+ * run and a paused run starts nothing unless forced, as an explicit retry does).
+ */
+const drive = (): Promise<void> => queue().sendNext(new Set(['default', ...queue().items.map((i) => i.processRun?.run ?? i.run ?? 'default')]));
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const markers = (): QueuedPrompt[] => queue().items.filter((i) => i.processMove);
 const set = (id: string, status: QueuedPrompt['status']): void => { (queue().getById(id) as QueuedPrompt).status = status; };
@@ -210,12 +215,12 @@ describe('a process step ends with its queue', () => {
         set(prompt.id, 'sent');
         set(walk1.id, 'sent');
         set(walk2.id, 'waiting');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(marker.id)?.status, 'pending', 'the marker waits');
         assert.equal(store().state.step, 'code', 'the state stays');
         assert.equal(queue().stepRunProgress(QUEST)?.left, 1);
         set(walk2.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(marker.id)?.status, 'sent', 'the marker has moved');
         assert.equal(store().state.step, 'check', 'the process moved on');
         assert.equal(queue().stepRunProgress(QUEST), undefined, 'no step running');
@@ -225,7 +230,7 @@ describe('a process step ends with its queue', () => {
         await at('review');
         const { prompt, marker } = await proceed();
         set(prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(marker.id)?.status, 'sent');
         assert.deepEqual([store().state.step, store().state.decision], ['review', true], 'the decision opens');
     });
@@ -234,7 +239,7 @@ describe('a process step ends with its queue', () => {
         await at('code');
         const first = await proceed();
         set(first.prompt.id, 'error');
-        await queue().sendNext();
+        await drive();
         const held = queue().getById(first.marker.id)!;
         assert.deepEqual([held.status, held.error], ['error', PROCESS_MARKER_HELD_ERROR], 'held');
         assert.equal(store().state.step, 'code');
@@ -248,14 +253,14 @@ describe('a process step ends with its queue', () => {
         const second = await proceed();
         assert.notEqual(second.marker.processRun?.proceedId, first.marker.processRun?.proceedId, 'a new run');
         set(second.prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(store().state.step, 'check', 'the old failed item does not hold the new run');
 
         // Move on: the marker's move is made now.
         await at('code');
         const third = await proceed();
         set(third.prompt.id, 'error');
-        await queue().sendNext();
+        await drive();
         const moved = await moveOnFromHeldStep();
         assert.equal(moved.ok, true, JSON.stringify(moved));
         assert.equal(store().state.step, 'check');
@@ -328,7 +333,7 @@ describe('a process step ends with its queue', () => {
         assert.deepEqual(store().state.leaveOut, { level: 'step', reason: 'no public API change' });
         assert.equal(store().state.step, 'announce', 'nothing moves while the run runs');
         set(prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(queue().getById(marker.id)?.status, 'sent');
         assert.equal(store().state.step, 'extra', 'left out when the run ended');
         assert.equal(store().state.leaveOut, undefined);
@@ -363,7 +368,7 @@ describe('a process step ends with its queue', () => {
         await at('code');
         const { prompt } = await proceed();
         set(prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(store().state.step, 'check');
         // The response values of an answer (`TODO`) add to them.
         chat.setCustomBulk({ TODO: '_ai/quests/q1/todos.q1.todo.yaml/a1_x' }, 'anthropic');
@@ -371,13 +376,13 @@ describe('a process step ends with its queue', () => {
         assert.equal((await confirmProcessAction('proceed', undefined, '')).ok, true);
         const review = await proceed();
         set(review.prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal(store().state.decision, true);
         assert.equal((await confirmProcessAction('finish', undefined, '')).ok, true);
         // The gate, then the process finished at its decision.
         const gate = await proceed();
         set(gate.prompt.id, 'sent');
-        await queue().sendNext();
+        await drive();
         assert.equal((await confirmProcessAction('finish-process', undefined, '')).ok, true);
         assert.equal(store().state.completed, true);
         // A phase move and another process, set by the tool.

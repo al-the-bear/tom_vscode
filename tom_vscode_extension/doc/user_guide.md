@@ -508,28 +508,35 @@ The queue uses RequestId-based answer file matching:
 
 ### Automation Settings
 
+Every process run has its own queue settings: the ones below, the defaults new items take (transport, profile, session, prompt template), the walk continuations, and the Copilot answer timeout and reminder template. The toolbar shows and sets the settings of one run — the one the **Run** filter shows, the window's run under *All runs* — and says which (*Settings of run …*). Only the compaction and memory-extraction models are shared by all runs (above the toolbar). The settings are kept in `queue-settings.yaml` under `runs:`; a file in the old shape (one set of keys for the whole queue) is read as the `default` run's settings and as the start values of a run that has none of its own yet.
+
 | Setting | Default | Description |
 | --- | --- | --- |
-| Auto-send | Off | Send pending items one after another |
-| Auto-start | Off | Turn auto-send on when the window starts |
-| Auto-pause | On | Pause auto-send when queue empties |
-| Auto-continue | Off | Resume after a reload (see below) |
+| Auto-send | Off | Send the run's pending items one after another |
+| Auto-start | Off | Turn the run's auto-send on when the window starts |
+| Auto-pause | On | Pause the run's auto-send when its items are all done |
+| Auto-continue | Off | Resume the run after a reload (see below) |
 
-Without Auto-start the queue starts paused at every window start: auto-send is
+Without Auto-start a run starts paused at every window start: its auto-send is
 off until you turn it on (or Auto-continue does). **Auto-continue** (only when
-Auto-start is off) turns auto-send on 30 s after the window starts if an item
-is interrupted or is pending with repetitions left.
+Auto-start is off) turns the run's auto-send on 30 s after the window starts if
+one of its items is interrupted or is pending with repetitions left. A run
+created after the window started takes the start values.
 
 Turning **Auto-send** off never interrupts the item that is already running —
-it finishes its stages and then the queue stops instead of starting the next
-one. This holds for every transport and however the running item finishes
+it finishes its stages and then its run stops instead of starting the next
+one; the other runs go on. This holds for every transport and however the running item finishes
 (answer file, answer-wait timeout, manual **Continue**, or a resend).
 
-A few explicit actions deliberately start an item even while auto-send is off,
-because that is what they are for: **Send now** on an item, the per-item
-**Retry now** on a waiting or retrying item, and **Retry All Errors** (which
-turns auto-send back on for the cascade). The background health check also
-resumes an item whose rate-limit or retry window has just elapsed.
+A few explicit actions deliberately start an item even while its run's
+auto-send is off, because that is what they are for: **Send now** on an item,
+the per-item **Retry now** on a waiting or retrying item, and **Retry All
+Errors** (which turns the auto-send of the runs it retries back on for the
+cascade). The background health check also resumes an item whose rate-limit or
+retry window has just elapsed. Everything that stops a run by itself — an
+error, an interrupt for continuation, a walk that needs attention or waits for
+a decision, out of credit, Auto-pause, *pause after this* — stops only the run
+the item belongs to.
 
 ### Send between iterations
 
@@ -658,7 +665,7 @@ Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 - **Out of budget**: when a prompt stops because the API credit balance is too low, the item shows an *Out of budget* panel — the profile and session that stopped, a profile picker, **Continue on profile** (sends it on the picked profile with a note pointing to the stopped session's live trail — the *Out of budget* Assist prompt, see [Assist prompts](#assist-prompts)) and **Resend** (the last request again, once there is credit). A profile can name the profile to continue on and switch to it by itself (profile editor: *Out of Budget: Continue On*, *Switch Automatically*); the picker then starts on that profile. An agent can do the same (also when you ask it from Telegram): `tomAi_resendQueueItem` with `profileId`.
 - **Sessions**: an Anthropic item shows the session it runs in (speech-bubble chip in its header), with a `*` after the name when that session is based on another; its tooltip names the base and the lifetime (new for every prompt or every queue iteration), and a session the item will create when it is sent reads from the item's spec. A click on a staged or pending item opens the session picker (an existing session, a new one, one based on another, or the queue default). The transport gear asks for the session as its last step. The context bar at the top reads *Quest: … | Role: … | Session: …*: **Session** is the queue's default session, the one every item that names none runs in (unset: the queue's own `default`), shown with its base and lifetime, e.g. *Session: walk based on prep (per iteration)*; **Role** is the role chat variable. Both are underlined links: a click opens a VS Code picker — the roles under `_ai/roles/` (or none), or the session picker. Agents set it with `session` on `tomAi_addQueueItem` / `tomAi_updateQueueItem` and create sessions with `tomAi_createSession` — see [Named sessions](#named-sessions).
 - **Process runs**: every item belongs to a process run of the quest (`[run chg1]` in its header; `default`, the quest's own position, muted): the run of the Proceed it was queued from, else the one picked in the add form's **Run** (the window's run by default), and its sessions are that run's (`<session>@<run>`). The toolbar's **Run** filter shows one run's items (or all runs); **Group by run** lists them under a heading per run, chat sends last. Chat sends belong to no run.
-- **Queue per run** (toolbar checkbox, a queue setting kept in `queue-settings.yaml` as `queue-per-run`): each process run gets its own lane — one item sends per lane at a time, the lanes send in parallel, and each run's items go in their order (a lane whose next item cannot start waits; its later items do not jump ahead), so a run's process-move marker moves it exactly when its own step is done. Two prompts never share a conversation: an item waits while another sending item runs in its session, and the Copilot transport sends one item at a time. A row per lane below the toolbar shows what it sends and holds, with **Pause** / **Resume** for that run (`held-runs`): a paused run starts nothing, and its sending item stops before its next prompt (SENDING (PAUSED)). Auto-send stays the switch for everything. Chat sends are outside the lanes. Off (the default), the queue sends one item at a time, in order, as before. `tomAi_listQueue` reports `queuePerRun` and `heldRuns`.
+- **One lane per run**: each process run has its own lane — one item sends per lane at a time, the lanes send in parallel, and each run's items go in their order (a lane whose next item cannot start waits; its later items do not jump ahead), so a run's process-move marker moves it exactly when its own step is done. Two prompts never share a conversation: an item waits while another sending item runs in its session, and the Copilot transport sends one item at a time. A row per lane below the toolbar shows what it sends and holds, with **Pause** / **Resume** for that run — its auto-send: a paused run starts nothing, and its sending item stops before its next prompt (SENDING (PAUSED)). Chat sends are outside the lanes. `tomAi_listQueue` reports a run's settings (`run`, default the window's) and every run's auto-send (`runs`); the Status Page's *Queue & Timer* switches and Telegram's `queue_pause`, `halt` and `continue` act on the window's run unless a run is named.
 
 ## 5) Timed Requests
 

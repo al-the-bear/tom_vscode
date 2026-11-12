@@ -1,20 +1,29 @@
 /**
- * Queue per run (vscimpb46, src/utils/queueLanes.ts) through the real queue manager and process store under
- * the vscode stub. The dispatch of an item is replaced by a gate the test opens, so it can see what sends
- * at the same time; everything else — picking, the lanes, completion, the markers — is the manager's own.
+ * The queue's lanes and settings per process run (vscimpb46, vscimpb60a; src/utils/queueLanes.ts,
+ * src/utils/runQueueSettings.ts) through the real queue manager and process store under the vscode stub. The
+ * dispatch of an item is replaced by a gate the test opens, so it can see what sends at the same time;
+ * everything else — picking, the lanes, completion, the markers, the settings — is the manager's own.
  *
- *   QM-1 off (the default): one item sends at a time, whatever its run; the next one starts when it is done;
- *        the settings file has no lane keys
- *   QM-2 on: each run's lane sends one item, the lanes in parallel; a run's second item waits for its first and
- *        starts when it is done while the other lane still sends; the setting is in the settings file, and read
- *        back by a new manager
+ *   QM-2 one lane per run, always: the lanes send in parallel; a run's second item waits for its first and
+ *        starts when it is done while the other lane still sends
  *   QM-3 two runs of different processes move independently: each Proceed's marker moves its own run's state
  *        file when its own step's item is done, while the other run's item still sends
- *   QM-4 Pause per run: a held run starts nothing while the others go; its sending item stops before its next
- *        prompt (the pause gate); Resume starts it; the held runs are kept in the settings file
- *   QM-5 the editor and the tool: the state carries queuePerRun, heldRuns and the lanes; the page has the
- *        checkbox and the lane strip with Pause / Resume (its messages reach the manager); tomAi_listQueue
- *        reports queuePerRun and heldRuns
+ *   QM-4 auto-send per run: a paused run starts nothing while another sends; its sending item stops before its
+ *        next prompt (the pause gate); resuming it starts it; each run's auto-send is in the settings file
+ *        (`runs:`), no lane keys
+ *   QM-6 an error in one run (an item the API refuses) pauses only that run; the other run's next item sends
+ *   QM-7 each run's defaults: transport, profile, configuration, session, prompt template, reminder template,
+ *        Copilot answer timeout and walk continuations are the item's run's
+ *   QM-8 Auto-Pause per run: a run whose lane empties pauses (Auto-Pause on); a run with it off goes on
+ *   QM-9 Auto-Start and Auto-Continue per run at activation: a run with Auto-Start sends, one without starts
+ *        paused, one with Auto-Continue and an interrupted item gets its 30 s start; a run created later
+ *        starts from the start values
+ *   QM-10 a settings file in the old shape (top-level keys) loads into the default run and gives a new run its
+ *        start values; writing keeps the old keys as they were and adds `runs:`
+ *   QM-5 the editor, the tool, Telegram, the Status Page and the window status take or show a run: the editor's
+ *        toolbar settings are those of its settings run (messages name it), the lane strip pauses / resumes a
+ *        run; tomAi_listQueue reports a run's settings and every run's auto-send; Telegram's pause / continue
+ *        take a run (default the window's)
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -63,7 +72,7 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, installProcessMoveMarkers } from '../../services/processActionService.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
 import { DEFAULT_RUN } from '../../utils/processRuns.js';
-import { readQueueSettings } from '../../storage/queueFileStorage.js';
+import { getQueueFolder, readQueueSettings } from '../../storage/queueFileStorage.js';
 import { listQueueImpl, type PromptQueueAccess } from '../prompt-queue-tools.js';
 
 let context: never;
@@ -127,42 +136,27 @@ function clean(): void {
     store().selectRun(DEFAULT_RUN);
     for (const r of store().runs()) { if (r.run !== DEFAULT_RUN) { store().deleteRuns([r.run]); } }
     for (const r of [...queue().heldRuns]) { queue().setRunHeld(r, false); }
+    queue().setRunAutoSend('default', false);
 }
 const add = (text: string, run: string, session: string): Promise<QueuedPrompt> =>
     queue().enqueue({ originalText: text, run, session, transport: 'anthropic', deferSend: true, initialStatus: 'pending' } as never);
 
-describe('Queue per run', () => {
+describe('lanes and settings per run', () => {
     test('setup', async () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
         gateDispatch();
-        assert.equal(queue().queuePerRun, false, 'off by default');
+        assert.equal(queue().queuePerRun, true, 'one lane per run, always');
     });
 
-    test('QM-1: off — one item at a time', async () => {
+    test('QM-2: the lanes send in parallel', async () => {
         clean();
-        const a = await add('a', 'r1', 'sa');
-        const b = await add('b', 'r2', 'sb');
-        queue().autoSendEnabled = true;
-        await wait(60);
-        assert.deepEqual([statusOf(a), statusOf(b)], ['sending', 'pending'], 'b waits although its run differs');
-        await finish(a);
-        assert.deepEqual([statusOf(a), statusOf(b)], ['sent', 'sending']);
-        await finish(b);
-        const settings = readQueueSettings() as Json;
-        assert.equal('queue-per-run' in settings, false, 'an untouched queue writes no lane keys');
-        assert.equal('held-runs' in settings, false);
-        clean();
-    });
-
-    test('QM-2: on — the lanes send in parallel', async () => {
-        clean();
-        queue().queuePerRun = true;
         const a1 = await add('a1', 'r1', 'sa');
         const b1 = await add('b1', 'r2', 'sb');
         const a2 = await add('a2', 'r1', 'sa2');
-        queue().autoSendEnabled = true;
+        queue().setRunQueueSettings('r1', { autoSend: true, autoPause: false });
+        queue().setRunQueueSettings('r2', { autoSend: true, autoPause: false });
         await wait(60);
         assert.deepEqual([statusOf(a1), statusOf(b1), statusOf(a2)], ['sending', 'sending', 'pending'], 'one per lane, in parallel');
         assert.deepEqual([...inFlight.keys()].sort(), [a1.id, b1.id].sort());
@@ -170,16 +164,17 @@ describe('Queue per run', () => {
         assert.deepEqual([statusOf(a1), statusOf(b1), statusOf(a2)], ['sent', 'sending', 'sending'], 'r1 goes on while r2 still sends');
         await finish(b1);
         await finish(a2);
-        assert.equal((readQueueSettings() as Json)['queue-per-run'], true);
-        // A new window reads it back from the settings file.
-        (queue() as Json)._queuePerRun = false;
-        (queue() as Json).restoreSettings();
-        assert.equal(queue().queuePerRun, true, 'read back');
+        const settings = readQueueSettings() as Json;
+        assert.equal('queue-per-run' in settings, false, 'no lane keys any more');
+        assert.equal('held-runs' in settings, false);
         clean();
     });
 
     test('QM-3: two runs of different processes move independently', async () => {
         clean();
+        // Each run's own defaults: on the Copilot transport (the start values) the two would share the one chat.
+        queue().setRunQueueSettings('ra', { defaultTransport: 'anthropic', autoSend: false });
+        queue().setRunQueueSettings('rb', { defaultTransport: 'anthropic', autoSend: false });
         assert.equal(store().createRun('ra', 'design', 'user', true).ok, true);
         assert.equal((await confirmProcessAction('proceed', undefined, '')).ok, true);
         assert.equal(store().createRun('rb', 'review', 'user', true).ok, true);
@@ -188,7 +183,8 @@ describe('Queue per run', () => {
         const pa = prompts.find((i) => i.processRun?.run === 'ra')!;
         const pb = prompts.find((i) => i.processRun?.run === 'rb')!;
         assert.deepEqual([pa.session, pb.session], ['work@ra', 'check@rb'], 'each run in its own session');
-        queue().autoSendEnabled = true;
+        queue().setRunAutoSend('ra', true);
+        queue().setRunAutoSend('rb', true);
         await wait(60);
         assert.deepEqual([statusOf(pa), statusOf(pb)], ['sending', 'sending'], 'both runs\' steps send at once');
         await finish(pb);
@@ -202,50 +198,188 @@ describe('Queue per run', () => {
         clean();
     });
 
-    test('QM-4: Pause per run', async () => {
+    test('QM-4: auto-send per run', async () => {
         clean();
-        queue().setRunHeld('r2', true);
-        assert.deepEqual((readQueueSettings() as Json)['held-runs'], ['r2']);
+        queue().setRunQueueSettings('r1', { autoSend: true, autoPause: false });
+        queue().setRunAutoSend('r2', false);
         const a = await add('a', 'r1', 'sa');
         const b = await add('b', 'r2', 'sb');
-        queue().autoSendEnabled = true;
+        queue().autoSendEnabled = true; // the window's run (default): r2 stays paused
         await wait(60);
-        assert.deepEqual([statusOf(a), statusOf(b)], ['sending', 'pending'], 'the held run waits, the other goes');
-        // The pause gate: a sending item of a held run stops before its next prompt; another run's does not.
+        assert.deepEqual([statusOf(a), statusOf(b)], ['sending', 'pending'], 'the paused run waits, the other goes');
+        assert.deepEqual(queue().heldRuns.includes('r2'), true);
+        // The pause gate: a sending item of a paused run stops before its next prompt; another run's does not.
         const gate = (item: QueuedPrompt): boolean => (queue() as Json)._pauseBeforeNextDispatch(queue().getById(item.id));
         const held = { ...queue().getById(b.id)!, status: 'sending', repeatIndex: 1 } as QueuedPrompt;
         assert.equal((queue() as Json)._pauseBeforeNextDispatch(held), true);
         assert.equal(gate(a), false);
-        queue().setRunHeld('r2', false);
+        const runs = (readQueueSettings() as Json).runs;
+        assert.equal(runs.r2['auto-send-enabled'], false);
+        assert.equal(runs.r1['auto-send-enabled'], true);
+        queue().setRunAutoSend('r2', true);
         await wait(60);
-        assert.equal(statusOf(b), 'sending', 'Resume starts it');
+        assert.equal(statusOf(b), 'sending', 'resuming the run starts it');
         await finish(a);
         await finish(b);
-        assert.deepEqual((readQueueSettings() as Json)['held-runs'], []);
+        assert.equal((readQueueSettings() as Json).runs.r2['auto-send-enabled'], true);
         clean();
     });
 
-    test('QM-5: the editor and the tool', async () => {
+    test('QM-6: an error stops only its run', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoSend: true, autoPause: false });
+        queue().setRunQueueSettings('r2', { autoSend: true, autoPause: false });
+        const a = await add('a', 'r1', 'sa');
+        const b = await add('b', 'r2', 'sb');
+        const b2 = await add('b2', 'r2', 'sb2');
+        queue().setRunAutoSend('r1', true);
+        await wait(60);
+        assert.deepEqual([statusOf(a), statusOf(b)], ['sending', 'sending']);
+        const live = queue().getById(a.id)!;
+        (queue() as Json)._markItemError(live, new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"}}'), 'test');
+        assert.equal(statusOf(a), 'error');
+        assert.equal(queue().runQueueSettings('r1').autoSend, false, 'r1 paused');
+        assert.equal(queue().runQueueSettings('r2').autoSend, true, 'r2 not');
+        await finish(b);
+        assert.equal(statusOf(b2), 'sending', 'r2 goes on with its next item');
+        await finish(b2);
+        clean();
+    });
+
+    test('QM-7: each run\'s defaults', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', {
+            defaultTransport: 'anthropic', defaultAnthropicProfileId: 'p1', defaultAnthropicConfigId: 'c1', defaultAgentSdkSession: 'work',
+            defaultMessageTemplateId: 't1', defaultReminderTemplateId: 'rem1', responseTimeoutMinutes: 30, walkContinuations: 4,
+        });
+        queue().setRunQueueSettings('r2', { defaultTransport: 'copilot', defaultReminderTemplateId: 'rem2', responseTimeoutMinutes: 120, walkContinuations: 0 });
+        const plain = (run: string): Promise<QueuedPrompt> => queue().enqueue({ originalText: `x ${run}`, run, deferSend: true } as never);
+        const i1 = await plain('r1');
+        const i2 = await plain('r2');
+        const t1 = (queue() as Json).resolveStageTransportAsQueued(i1);
+        const t2 = (queue() as Json).resolveStageTransportAsQueued(i2);
+        assert.deepEqual([t1.transport, t1.anthropicProfileId, t1.anthropicConfigId, t1.session], ['anthropic', 'p1', 'c1', 'work@r1']);
+        assert.equal(t2.transport, 'copilot');
+        assert.deepEqual([i1.reminderTemplateId, i2.reminderTemplateId], ['rem1', 'rem2'], 'the reminder template of the run');
+        assert.deepEqual([queue().responseTimeoutMinutesFor(i1), queue().responseTimeoutMinutesFor(i2)], [30, 120], 'the Copilot answer timeout of the run');
+        assert.deepEqual([queue().walkContinuationsOf(i1), queue().walkContinuationsOf(i2)], [4, 0], 'walk continuations of the run');
+        assert.equal(queue().runQueueSettings('r1').defaultMessageTemplateId, 't1');
+        queue().setDefaultMessageTemplate('t2', 'r2');
+        queue().setDefaultTransport('anthropic', 'p2', undefined, 'r2');
+        queue().setDefaultAgentSdkSession('other', 'r2');
+        assert.deepEqual([queue().runQueueSettings('r2').defaultMessageTemplateId, queue().runQueueSettings('r2').defaultAnthropicProfileId, queue().runQueueSettings('r2').defaultAgentSdkSession], ['t2', 'p2', 'other']);
+        assert.equal(queue().runQueueSettings('r1').defaultAnthropicProfileId, 'p1', 'r1 unchanged');
+        // The window's run's accessors (the Status Page and the tools read them) are the window's run's settings.
+        queue().defaultReminderTemplateId = 'remDefault';
+        assert.deepEqual([queue().runQueueSettings('default').defaultReminderTemplateId, queue().runQueueSettings('r1').defaultReminderTemplateId], ['remDefault', 'rem1']);
+        clean();
+    });
+
+    test('QM-8: Auto-Pause per run', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoSend: true, autoPause: true });
+        queue().setRunQueueSettings('r2', { autoSend: true, autoPause: false });
+        const a = await add('a', 'r1', 'sa');
+        const b = await add('b', 'r2', 'sb');
+        queue().setRunAutoSend('r1', true);
+        await wait(60);
+        await finish(a);
+        await finish(b);
+        assert.equal(queue().runQueueSettings('r1').autoSend, false, 'r1 paused when its lane emptied');
+        assert.equal(queue().runQueueSettings('r2').autoSend, true, 'r2 (Auto-Pause off) goes on');
+        clean();
+    });
+
+    test('QM-9: Auto-Start and Auto-Continue per run at activation', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoStart: true, autoSend: false });
+        queue().setRunQueueSettings('r2', { autoStart: false, autoSend: true });
+        queue().setRunQueueSettings('r3', { autoStart: false, autoContinue: true, autoSend: true });
+        const c = await add('c', 'r3', 'sc');
+        (queue().getById(c.id) as Json).status = 'interrupted';
+        (queue() as Json)._applyActivationRunSettings();
+        try {
+            assert.deepEqual(['r1', 'r2', 'r3'].map((r) => queue().runQueueSettings(r).autoSend), [true, false, false]);
+            assert.equal((queue() as Json)._autoContinueTimers.has('r3'), true, 'r3 starts after 30 s');
+            assert.equal((queue() as Json)._autoContinueTimers.has('r2'), false);
+            assert.equal(queue().runQueueSettings('fresh').autoSend, (queue() as Json)._runStart.autoSend, 'a run created later: the start values');
+        } finally {
+            for (const t of (queue() as Json)._autoContinueTimers.values()) { clearTimeout(t); }
+            (queue() as Json)._autoContinueTimers.clear();
+        }
+        queue().remove(c.id);
+        clean();
+    });
+
+    test('QM-10: a settings file in the old shape', () => {
+        const file = path.join(getQueueFolder()!, 'queue-settings.yaml');
+        const keep = fs.readFileSync(file, 'utf8');
+        fs.writeFileSync(file, [
+            'response-timeout-minutes: 30', 'default-reminder-template-id: remOld', 'auto-send-enabled: true', 'auto-start-enabled: true',
+            'auto-pause-enabled: false', 'auto-continue-enabled: true', 'walk-continuations: 3', 'default-transport: anthropic',
+            'default-anthropic-profile-id: pOld', 'default-agent-sdk-session: sOld', 'default-message-template-id: tOld',
+            'queue-per-run: true', 'held-runs: [x]', '',
+        ].join('\n'));
+        (queue() as Json).restoreSettings();
+        const d = queue().runQueueSettings('default');
+        assert.deepEqual(
+            [d.responseTimeoutMinutes, d.defaultReminderTemplateId, d.autoSend, d.autoStart, d.autoPause, d.autoContinue, d.walkContinuations, d.defaultTransport, d.defaultAnthropicProfileId, d.defaultAgentSdkSession, d.defaultMessageTemplateId],
+            [30, 'remOld', true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
+            'the old keys are the default run\'s',
+        );
+        assert.equal(queue().runQueueSettings('brandnew').defaultAnthropicProfileId, 'pOld', 'and a new run\'s start values');
+        queue().setRunQueueSettings('r1', { autoPause: true });
+        const written = readQueueSettings() as Json;
+        assert.equal(written['auto-pause-enabled'], false, 'the old keys stay as they were');
+        assert.equal(written.runs.default['default-anthropic-profile-id'], 'pOld');
+        assert.equal(written.runs.r1['auto-pause-enabled'], true);
+        assert.equal(written.runs.r1['default-anthropic-profile-id'], 'pOld', 'r1 started from the start values');
+        // A file with `runs:` reads each run's own settings over the start values.
+        (queue() as Json).restoreSettings();
+        assert.equal(queue().runQueueSettings('r1').autoPause, true);
+        fs.writeFileSync(file, keep);
+        (queue() as Json).restoreSettings();
+    });
+
+    test('QM-5: the editor, the tool, Telegram, the Status Page, the window status', async () => {
         clean();
         queue().setRunHeld('r2', true);
+        assert.equal(queue().runQueueSettings('r2').autoSend, false, 'Pause in the lane strip: the run\'s auto-send');
+        // tomAi_listQueue: a run's settings and every run's auto-send.
         const access = {
             items: () => queue().items as never, autoSendEnabled: () => queue().autoSendEnabled,
-            responseFileTimeoutMinutes: () => 60, pendingCount: () => 0,
-            lanes: () => ({ queuePerRun: queue().queuePerRun, heldRuns: [...queue().heldRuns] }),
+            responseFileTimeoutMinutes: () => queue().responseFileTimeoutMinutes, pendingCount: () => 0,
+            runSettings: (run?: string) => ({
+                run: run ?? queue().windowRun, settings: { ...queue().runQueueSettings(run) },
+                runs: ['default', 'r2'].map((r) => ({ run: r, autoSend: queue().runQueueSettings(r).autoSend })),
+            }),
         } as unknown as PromptQueueAccess;
-        const listed = JSON.parse(await listQueueImpl(access, {}));
-        assert.deepEqual([listed.queuePerRun, listed.heldRuns], [true, ['r2']]);
-        assert.deepEqual(queue().laneSummaries(['default', 'r1']).map((l) => [l.run, l.held]), [['default', false], ['r1', false], ['r2', true]]);
+        const listed = JSON.parse(await listQueueImpl(access, { run: 'r2' }));
+        assert.deepEqual([listed.run, listed.autoSendEnabled, listed.settings.autoSend], ['r2', false, false]);
+        assert.deepEqual(listed.runs.find((r: Json) => r.run === 'r2'), { run: 'r2', autoSend: false });
+        const tools = fs.readFileSync(path.join(EXT_ROOT, 'src', 'tools', 'chat-enhancement-tools.ts'), 'utf8');
+        assert.match(tools, /runSettings\(run\) \{[\s\S]{0,600}settings: \{ \.\.\.m\.runQueueSettings\(name\) \}/);
+        assert.deepEqual(queue().laneSummaries(['default', 'r1']).map((l) => [l.run, l.held]).filter(([r]) => r !== 'r1'), [['default', true], ['r2', true]]);
+        // The editor: settings messages name the run; the host applies them to it.
         const handler = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'queueEditor-handler.ts'), 'utf8');
-        assert.match(handler, /case 'setQueuePerRun':\s*qm\.queuePerRun = msg\.value === true;/);
+        assert.match(handler, /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\);/);
+        assert.match(handler, /case 'setSettingsRun':/);
+        assert.match(handler, /setDefaultTransport\(transport, pid, undefined, run\)/);
         assert.match(handler, /case 'setRunHeld':\s*if \(typeof msg\.run === 'string' && msg\.run\) \{ qm\.setRunHeld\(msg\.run, msg\.held === true\); \}/);
         assert.match(handler, /\.\.\.queueLaneState\(\),/);
         const html = fs.readFileSync(path.join(EXT_ROOT, 'media', 'queueEditor', 'index.html'), 'utf8');
-        assert.match(html, /<input type="checkbox" id="queuePerRun" onchange="setQueuePerRun\(this\.checked\)"> Queue per run/);
+        assert.doesNotMatch(html, /id="queuePerRun"/, 'the Queue per run checkbox is gone');
+        assert.match(html, /id="settingsRunLabel"/);
         assert.match(html, /id="laneStrip"/);
+        // Telegram: pause / continue of a run.
+        const telegram = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'telegram-commands.ts'), 'utf8');
+        assert.match(telegram, /setRunning: \(running, run\) => \{ PromptQueueManager\.instance\.setRunAutoSend\(run, running\); \}/);
+        // The Status Page and the window status say the run.
+        const status = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'statusPage-handler.ts'), 'utf8');
+        assert.match(status, /queueRun = PromptQueueManager\.instance\.windowRun;/);
+        const activity = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'windowActivity-handler.ts'), 'utf8');
+        assert.match(activity, /run: qm\.windowRun,[\s\S]{0,120}pausedRuns: qm\.heldRuns,/);
         queue().setRunHeld('r2', false);
-        queue().queuePerRun = false;
-        assert.equal((readQueueSettings() as Json)['queue-per-run'], false, 'turned off: written off');
         clean();
     });
 });

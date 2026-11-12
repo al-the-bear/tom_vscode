@@ -60,7 +60,12 @@ export interface WindowSendingItem {
 
 /** The queue of a window, summed up. */
 export interface WindowQueueSummary {
+    /** The run the settings below are of (the window's run; queue settings are per run). */
+    run?: string;
+    /** The window's run's auto-send. */
     autoSend: boolean;
+    /** The runs whose auto-send is off. */
+    pausedRuns?: string[];
     /** A sending item held by "pause" / auto-send off. */
     paused: boolean;
     /** Items per status. */

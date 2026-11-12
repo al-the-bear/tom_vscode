@@ -1725,6 +1725,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
  */
 export interface StatusData {
     queue: {
+        /** The run these settings are of: the window's (queue settings are per run). */
+        run: string;
+        /** The runs whose auto-send is off. */
+        pausedRuns: string[];
         autoSendEnabled: boolean;
         autoStartEnabled: boolean;
         autoPauseEnabled: boolean;
@@ -1961,6 +1965,8 @@ export async function gatherStatusData(): Promise<StatusData> {
     let queueAutoStart = false;
     let queueAutoPause = true;
     let queueAutoContinue = false;
+    let queueRun = 'default';
+    let queuePausedRuns: string[] = [];
     const queueSettings = readQueueSettings();
     const queueReloadPrompt = getQueueReloadAfterReloadSetting(queueSettings, questId);
     const queueReloadPromptEnabled = queueReloadPrompt.enabled === true;
@@ -1971,6 +1977,8 @@ export async function gatherStatusData(): Promise<StatusData> {
         queueAutoStart = PromptQueueManager.instance.autoStartEnabled;
         queueAutoPause = PromptQueueManager.instance.autoPauseEnabled;
         queueAutoContinue = PromptQueueManager.instance.autoContinueEnabled;
+        queueRun = PromptQueueManager.instance.windowRun;
+        queuePausedRuns = [...PromptQueueManager.instance.heldRuns];
     } catch { /* not initialised yet */ }
     let timerActivated = true;
     let schedule: TimerScheduleSlot[] = [];
@@ -1982,6 +1990,8 @@ export async function gatherStatusData(): Promise<StatusData> {
     
     return {
         queue: {
+            run: queueRun,
+            pausedRuns: queuePausedRuns,
             autoSendEnabled: queueAutoSend,
             autoStartEnabled: queueAutoStart,
             autoPauseEnabled: queueAutoPause,
@@ -2470,6 +2480,10 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
     <div class="sp-section">
         <div class="sp-section-header">
             <span class="sp-section-title">🔄 Queue &amp; Timer</span>
+        </div>
+        <div class="sp-settings-row" title="The prompt queue's settings are per process run; these are the window's run's. The queue editor shows and sets every run's.">
+            <label>Run:</label>
+            <span>${escapeHtml(status.queue.run)} (this window's)${status.queue.pausedRuns.length ? ` · paused runs: ${escapeHtml(status.queue.pausedRuns.join(', '))}` : ''}</span>
         </div>
         <div class="sp-settings-row">
             <label>Queue Auto-Send:</label>

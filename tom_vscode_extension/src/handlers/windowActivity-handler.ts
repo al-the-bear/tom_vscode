@@ -55,7 +55,10 @@ export function collectWindowActivity(context: vscode.ExtensionContext): WindowA
         const qm = PromptQueueManager.instance;
         activity.queue = summarizeQueue({
             items: qm.items,
+            // The queue settings are per run: the window's run's, and which runs are paused.
+            run: qm.windowRun,
             autoSend: qm.autoSendEnabled,
+            pausedRuns: qm.heldRuns,
             defaultTransport: qm.defaultTransport,
             defaultProfileId: qm.defaultAnthropicProfileId,
             defaultSession: qm.defaultAgentSdkSession,

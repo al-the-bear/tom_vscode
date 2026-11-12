@@ -1,6 +1,6 @@
 /**
  * A run's queue items without a session of their own run in the run's queue session (qrun1), through the real
- * manager with Queue per run; the transport is a stub whose turns wait until the test ends them.
+ * manager (one lane per run, always); the transport is a stub whose turns wait until the test ends them.
  *
  *   RQ-1 an item of run `collab` without a session sends while an item of the default run sends in `default`:
  *        in `default@collab`, not waiting for `default` (the collab run was stuck so on 2026-11-12)
@@ -100,7 +100,6 @@ handler.sendMessage = (opts: Json) => new Promise((resolve) => {
 describe('the queue session of a run', () => {
     test('RQ-1: two runs, no named sessions: they send at once, each in its own session', async () => {
         queue().setDefaultTransport('anthropic', 'sdk');
-        queue().queuePerRun = true;
         await queue().enqueue({ originalText: 'default-run work', transport: 'anthropic', anthropicProfileId: 'sdk', run: 'default', deferSend: true, initialStatus: 'pending' } as never);
         await queue().enqueue({ originalText: 'collab-run work', transport: 'anthropic', anthropicProfileId: 'sdk', run: 'collab', deferSend: true, initialStatus: 'pending' } as never);
         queue().autoSendEnabled = true;
@@ -117,7 +116,7 @@ describe('the queue session of a run', () => {
     test('RQ-2: a named session is kept', async () => {
         turns.length = 0;
         await queue().enqueue({ originalText: 'named work', transport: 'anthropic', anthropicProfileId: 'sdk', run: 'collab', session: 'idea@collab', deferSend: true, initialStatus: 'pending' } as never);
-        queue().autoSendEnabled = true; // Auto-Pause stopped the queue when RQ-1 emptied it
+        queue().setRunAutoSend('collab', true); // Auto-Pause stopped the run when RQ-1 emptied its lane
         await wait(400);
         assert.equal(turns.find((o) => String(o.userText).includes('named work'))?.sessionKey, 'idea@collab');
         for (const end of ends.splice(0)) { end(); }

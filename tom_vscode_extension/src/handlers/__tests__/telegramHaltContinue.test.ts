@@ -6,6 +6,8 @@
  *   TH-2 `halt` turns auto-send off and says so; again: already paused; `continue` turns it on; again: already
  *        running — the same switch `queue_pause` toggles
  *   TH-3 `help` lists both, with their aliases
+ *   TH-4 the queue's settings are per run (vscimpb60a): `halt <run>`, `continue <run>` and `queue_pause <run>` act on
+ *        that run only; without a run the window's run; the messages name the run
  */
 
 import test, { describe } from 'node:test';
@@ -41,16 +43,24 @@ function notifierWithChannel(): { send(text: string): TelegramCommand | null } {
 }
 
 /** The registry with a queue whose auto-send switch is `state.running`. */
-function registryWithQueue(): { state: { running: boolean; toggles: number }; run(text: string): Promise<string> } {
-    const state = { running: true, toggles: 0 };
+function registryWithQueue(): { state: { running: boolean; toggles: number; runs: Map<string, boolean> }; run(text: string): Promise<string> } {
+    // Each run's auto-send; `running` is the window's run's (`default`).
+    const runs = new Map<string, boolean>([['default', true], ['collab', true]]);
+    const state = {
+        get running(): boolean { return runs.get('default')!; },
+        set running(v: boolean) { runs.set('default', v); },
+        toggles: 0,
+        runs,
+    };
     const deps = {
         queue: {
             addPrompt: async () => undefined,
             list: () => [],
             deleteAt: () => ({ ok: false, message: '' }),
-            togglePause: () => { state.toggles++; state.running = !state.running; return state.running; },
-            setRunning: (running: boolean) => { state.running = running; },
-            isRunning: () => state.running,
+            togglePause: (run?: string) => { state.toggles++; runs.set(run ?? 'default', !runs.get(run ?? 'default')); return runs.get(run ?? 'default')!; },
+            setRunning: (running: boolean, run?: string) => { runs.set(run ?? 'default', running); },
+            isRunning: (run?: string) => runs.get(run ?? 'default') ?? true,
+            windowRun: () => 'default',
         },
     } as unknown as CommandRegistryDeps;
     const registry = createCommandRegistry(() => undefined, deps);
@@ -76,16 +86,27 @@ describe('Telegram halt / continue', () => {
     test('TH-2: pause and resume the queue', async () => {
         const { state, run } = registryWithQueue();
         // handleStandaloneCommand dispatches a halt / continue command by its type.
-        assert.match(await run('halt'), /Queue paused/);
+        assert.match(await run('halt'), /Run default paused/);
         assert.equal(state.running, false);
         assert.match(await run('halt'), /already paused/);
         assert.equal(state.running, false);
-        assert.match(await run('continue'), /Queue resumed/);
+        assert.match(await run('continue'), /Run default resumed/);
         assert.equal(state.running, true);
         assert.match(await run('continue'), /already running/);
         assert.equal(state.toggles, 0, 'set, never toggled');
         assert.match(await run('queue_pause'), /paused/);
         assert.equal(state.running, false, 'the same switch');
+    });
+
+    test('TH-4: a run of the queue', async () => {
+        const { state, run } = registryWithQueue();
+        assert.match(await run('halt collab'), /Run collab paused/);
+        assert.deepEqual([state.runs.get('collab'), state.runs.get('default')], [false, true], 'only collab');
+        assert.match(await run('continue collab'), /Run collab resumed/);
+        assert.equal(state.runs.get('collab'), true);
+        assert.match(await run('queue_pause collab'), /Run collab paused/);
+        assert.deepEqual([state.runs.get('collab'), state.runs.get('default')], [false, true]);
+        assert.match(await run('help halt'), /halt \[run\]/);
     });
 
     test('TH-3: listed in help', async () => {

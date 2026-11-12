@@ -343,8 +343,10 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const transport = (msg.transport === 'anthropic' ? 'anthropic' : 'copilot') as 'copilot' | 'anthropic';
           const pid = typeof msg.anthropicProfileId === 'string' ? msg.anthropicProfileId : '';
           const tplId = typeof msg.messageTemplateId === 'string' ? msg.messageTemplateId : '';
-          PromptQueueManager.instance.setDefaultTransport(transport, pid);
-          PromptQueueManager.instance.setDefaultMessageTemplate(tplId);
+          // The defaults of the run the editor's settings are for (settings per run).
+          const run = settingsRunOf(msg);
+          PromptQueueManager.instance.setDefaultTransport(transport, pid, undefined, run);
+          PromptQueueManager.instance.setDefaultMessageTemplate(tplId, run);
           sendState();
           return;
         }
@@ -380,11 +382,12 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const pqm = PromptQueueManager.instance;
           const quest = WsPaths.getWorkspaceQuestId();
           if (msg.type === 'pickQueueDefaultSession') {
+            const run = settingsRunOf(msg);
             const picked = await pickAgentSdkSession({
-              questId: quest, current: pqm.defaultAgentSdkSession, title: 'Default session of the prompt queue',
-              defaultLabel: 'The queue\'s own session (default)',
+              questId: quest, current: pqm.runQueueSettings(run).defaultAgentSdkSession, title: `Default session of run ${run ?? 'default'} in the prompt queue`,
+              defaultLabel: 'The run\'s own session (default)',
             });
-            if (picked !== undefined) { pqm.setDefaultAgentSdkSession(picked); }
+            if (picked !== undefined) { pqm.setDefaultAgentSdkSession(picked, run); }
           } else {
             const id = typeof msg.id === 'string' ? msg.id : '';
             const item = id ? pqm.getById(id) : undefined;
@@ -787,26 +790,20 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
                 );
             }
             break;
+        case 'setSettingsRun':
+            editorSettingsRun = typeof msg.run === 'string' && msg.run.trim() ? msg.run.trim() : undefined;
+            break;
+        // The toolbar's settings are those of one run (settings per run): the message names it.
         case 'toggleAutoSend':
-            qm.autoSendEnabled = !qm.autoSendEnabled;
+        case 'toggleAutoContinue':
+        case 'toggleAutoStart':
+        case 'toggleAutoPause': {
+            const run = settingsRunOf(msg);
+            const key = ({ toggleAutoSend: 'autoSend', toggleAutoContinue: 'autoContinue', toggleAutoStart: 'autoStart', toggleAutoPause: 'autoPause' } as const)[msg.type as 'toggleAutoSend'];
+            qm.setRunQueueSettings(run, { [key]: !qm.runQueueSettings(run)[key] });
             sendState();        // explicit update in case onDidChange listener isn't wired
             break;
-        case 'toggleAutoContinue':
-            qm.autoContinueEnabled = !qm.autoContinueEnabled;
-            sendState();
-            break;
-        case 'toggleAutoStart':
-            qm.autoStartEnabled = !qm.autoStartEnabled;
-            sendState();
-            break;
-        case 'toggleAutoPause':
-            qm.autoPauseEnabled = !qm.autoPauseEnabled;
-            sendState();
-            break;
-        case 'setQueuePerRun':
-            qm.queuePerRun = msg.value === true;
-            sendState();
-            break;
+        }
         case 'setRunHeld':
             if (typeof msg.run === 'string' && msg.run) { qm.setRunHeld(msg.run, msg.held === true); }
             sendState();
@@ -846,11 +843,11 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           });
           break;
         case 'setResponseTimeout':
-          qm.responseFileTimeoutMinutes = Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60);
+          qm.setRunQueueSettings(settingsRunOf(msg), { responseTimeoutMinutes: Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60) });
           sendState();
           break;
         case 'setDefaultReminderTemplate':
-          qm.defaultReminderTemplateId = msg.templateId || undefined;
+          qm.setRunQueueSettings(settingsRunOf(msg), { defaultReminderTemplateId: msg.templateId || undefined });
           sendState();
           break;
         case 'addPrompt':
@@ -1371,14 +1368,31 @@ function queueRunState(): { processRuns: string[]; currentRun: string } {
     }
 }
 
-/** Queue per run (vscimpb46): the setting, the held runs and the lanes with what each holds. */
-function queueLaneState(): { queuePerRun: boolean; heldRuns: string[]; lanes: LaneSummary[] } {
+/**
+ * The lanes (one per run, always) with what each holds and whether its run is
+ * paused, and the queue settings of each run (vscimpb60a): the editor shows
+ * those of its settings run.
+ */
+function queueLaneState(): { heldRuns: string[]; lanes: LaneSummary[]; runQueueSettings: Record<string, unknown> } {
     try {
         const qm = PromptQueueManager.instance;
-        return { queuePerRun: qm.queuePerRun, heldRuns: [...qm.heldRuns], lanes: qm.laneSummaries(queueRunState().processRuns) };
+        const { processRuns } = queueRunState();
+        const runQueueSettings: Record<string, unknown> = {};
+        for (const run of new Set(['default', ...processRuns, ...qm.allRunQueueSettings().map((r) => r.run)])) {
+            runQueueSettings[run] = qm.runQueueSettings(run);
+        }
+        return { heldRuns: [...qm.heldRuns], lanes: qm.laneSummaries(processRuns), runQueueSettings };
     } catch {
-        return { queuePerRun: false, heldRuns: [], lanes: [] };
+        return { heldRuns: [], lanes: [], runQueueSettings: {} };
     }
+}
+
+/** The run the editor's toolbar settings are for (its Run filter, else the window's run), as the webview last said. */
+let editorSettingsRun: string | undefined;
+
+/** The run a settings message of the editor is for: its own `run`, else the editor's settings run; undefined = the window's run. */
+function settingsRunOf(msg: { run?: unknown }): string | undefined {
+    return typeof msg.run === 'string' && msg.run.trim() ? msg.run.trim() : editorSettingsRun;
 }
 
 /** Send the editor its state again (another view changed something it shows, e.g. the compaction models). */

@@ -645,10 +645,16 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const store = require('../managers/processStateStore.js').ProcessStateStore.instance as { runs(): Array<{ run: string }> } | undefined;
         return store ? store.runs().map((r) => r.run) : ['default'];
     },
-    lanes() {
+    runSettings(run) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const m = require('../managers/promptQueueManager.js').PromptQueueManager.instance as { queuePerRun: boolean; heldRuns: readonly string[] };
-        return { queuePerRun: m.queuePerRun, heldRuns: [...m.heldRuns] };
+        const m = require('../managers/promptQueueManager.js').PromptQueueManager.instance as import('../managers/promptQueueManager').PromptQueueManager;
+        const name = run ?? m.windowRun;
+        const known = new Set(['default', ...m.allRunQueueSettings().map((r) => r.run), ...m.items.map((i) => i.processRun?.run ?? i.run ?? 'default')]);
+        return {
+            run: name,
+            settings: { ...m.runQueueSettings(name) },
+            runs: [...known].sort().map((r) => ({ run: r, autoSend: m.runQueueSettings(r).autoSend })),
+        };
     },
     remove(id) {
         // Synchronous, like the other accessors: a manager that is not running
