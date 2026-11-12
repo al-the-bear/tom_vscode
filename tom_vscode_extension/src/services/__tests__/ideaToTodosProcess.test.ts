@@ -9,10 +9,10 @@
  *        phase); the repeatable steps; the reviews are user actions; the roles are the shared three
  *   IT-2 the Proceed prompts: a step before a review ends with the Finish review round prompt, filled in; the
  *        placeholders meant for later stay for later (`${repeatTodoId}`, `${senderQuest}`, `${itemOutcome}`);
- *        the deepening files `ideadeep<iteration>-*` todos and queues their walk
+ *        the deepening files `ideadeep<phase iteration>x<step iteration>-*` todos and queues their walk
  *   IT-3 the schema idea-blueprint/1.0: a phase-1 document (Intent, Quests) and a full one with parts validate,
  *        one without its quests does not
- *   IT-4 the description: the round folders, filing per quest, the escaped placeholder
+ *   IT-4 the description: the round folders (iterations in phases 3 and 4 too), filing per quest, the escaped placeholder
  */
 
 import * as fs from 'fs';
@@ -66,7 +66,13 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         const roles = new Set(def!.phases.flatMap((p) => phaseSteps(p).flatMap((e) => [e.step.role, ...(e.step.substeps ?? []).map((x) => x.role)])).filter(Boolean));
         assert.deepEqual([...roles].sort(), ['idea_author', 'idea_reviewer', 'todo_planner']);
         for (const role of roles) { assert.ok(fs.existsSync(path.join(WS, '_ai', 'roles', role!, 'role.md')), `${role}/role.md`); }
-        assert.match(step('idea', 'questions').prompt!, /tomAi_writeChatVariable \(`idea`\)[\s\S]*\$\{file-_ai\/processes\/_prompts\/question_round\.md\}/, 'phase 1 settles the name, then the shared question round');
+        for (const phase of def!.phases) { assert.equal(phase.repeatable, true, `${phase.id} is repeatable`); }
+        assert.match(step('idea', 'start').prompt!, /tomAi_askUser[\s\S]*tomAi_writeChatVariable: `idea`[\s\S]*`idea-input-mode`[\s\S]*Resume an idea[\s\S]*tomAi_setProcessState/, '00 Start: new or resumed, settled with the user');
+        assert.match(step('idea', 'questions').prompt!, /\$\{file-_ai\/processes\/_prompts\/idea_context\.md\}[\s\S]*\$\{file-_ai\/processes\/_prompts\/question_round\.md\}/, 'the idea context, then the shared question round');
+        for (const p of ['deepening', 'todos']) {
+            assert.equal(step(p, 'iteration').repeatable, true, `${p}: repeatable iteration`);
+            assert.equal(step(p, 'iteration').substeps![1].userAction, true, `${p}: its review is yours`);
+        }
         assert.match(step('blueprint', 'iteration').substeps![0].prompt!, /\$\{file-_ai\/processes\/_prompts\/review_round\.md\}/, 'the shared review round');
         assert.match(step('todos', 'file').prompt!, /tomAi_createQuestTodo[\s\S]*tomAi_sendItemToQuest[\s\S]*doneNotificationPrompt/);
     });
@@ -83,7 +89,7 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(questions, /How a question round goes \(shared by idea_to_todos and process_design[\s\S]*tomAi_askUser[\s\S]*`choices` \(kind `answer`\)/, 'the shared question round, included');
         const initial = prompt(at('blueprint', 'initial'));
         assert.ok(!initial.includes('${finish-review-round}'), 'filled in');
-        assert.match(initial, /\*\*Finish review round\*\* — put the results in front of the user for the review, Phase 2 — Blueprint › Review the Initial Version of process idea_to_todos\./);
+        assert.match(initial, /\*\*Finish review round\*\* — put the results in front of the user for the review, Phase 2 — Blueprint #1 › Review the Initial Version of process idea_to_todos\./);
         assert.match(initial, /`finishReviewRound: true`/);
         const revise = prompt(at('blueprint', 'iteration', 'revise'));
         assert.match(revise, /Iteration 2 of the blueprint/);
@@ -91,8 +97,8 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(revise, /How a review is taken in \(shared by idea_to_todos and process_design/, 'the shared review round, included');
         assert.match(revise, /`finishReviewRound: true`/, 'the revision ends with the review too');
         const deepen = prompt(at('deepening', 'deepen'));
-        assert.match(deepen, /ideadeep2-<n>_<date code>-<section id>/);
-        assert.match(deepen, /`repeatCount: "ideadeep2-\*"`/);
+        assert.match(deepen, /ideadeep1x2-<n>_<date code>-<section id>/);
+        assert.match(deepen, /`repeatCount: "ideadeep1x2-\*"`/);
         assert.match(deepen, /Please do the quest todo \$\{repeatTodoId\} — \$\{repeatTodoTitle\}\./, 'left for the queue');
         assert.match(deepen, /The Finish review round instructions for the closing item:\n\n\*\*Finish review round\*\*/);
         const file = prompt(at('todos', 'file'));
@@ -125,10 +131,10 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
 
     test('IT-4: the description', () => {
         const md = fs.readFileSync(path.join(PROCESS, 'idea_to_todos.md'), 'utf8');
-        for (const folder of ['01_Idea/<NN>_Questions Round/', '02_Blueprint/01_Initial Version/', '02_Blueprint/02_<NN>_Iteration/', '03_Deepening/01_Deepening/', '04_Todos/02_Filing/']) {
+        for (const folder of ['01_Idea/<NN>_Questions Round/', '02_Blueprint/01_Initial Version/', '02_Blueprint/02_<NN>_Iteration/', '03_Deepening/01_Deepening/', '03_Deepening/02_<NN>_Iteration/', '04_Todos/02_<NN>_Iteration/', '04_Todos/03_Filing/']) {
             assert.ok(md.includes(folder), folder);
         }
-        assert.match(md, /`_ai\/quests\/<quest>\/ideas\/<name>\/<name>\.md`/);
+        assert.match(md, /`_ai\/quests\/<quest>\/ideas\/<idea>\/<idea>\.md`/);
         assert.match(md, /`\$\$\{finish-review-round\}`/, 'escaped, so it survives the description\'s resolution');
         assert.ok(!/(?<!\$)\$\{finish-review-round\}/.test(md));
         assert.match(md, /tomAi_sendItemToQuest/);

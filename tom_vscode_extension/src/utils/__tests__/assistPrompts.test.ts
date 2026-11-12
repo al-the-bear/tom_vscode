@@ -13,6 +13,9 @@
  *   AP-5 the three prompts that write a note (Explain in detail, Explain a decision, Grill me at a decision) ask
  *        for every file as a Markdown link relative to the note, which the MD Browser follows; a default still
  *        holding the text without that rule is brought to the current one
+ *   AP-6 Finish review round tells one document from several: one is shown itself, its current version in
+ *        front; several get the review document ${reviewFile}; a default still holding the earlier text is
+ *        brought to the current one
  */
 
 import test, { describe } from 'node:test';
@@ -99,6 +102,30 @@ describe('Assist prompts', () => {
             const seeded = config.assistPrompts!.templates!.find((t) => t.id === ASSIST_PROMPT_INFO[use].defaultId)!;
             assert.equal(seeded.template, body, `${use}: an unedited earlier default is replaced`);
         }
+    });
+
+    test('AP-6: a review of several documents gets a review document', () => {
+        const info = ASSIST_PROMPT_INFO.finishReviewRound;
+        assert.ok('reviewFile' in info.placeholders);
+        const filled = buildAssistPrompt(undefined, 'finishReviewRound', {
+            process: 'p', step: 's', resultsFile: 'the document this step produced', reviewFile: 'review_a_b_repetition_2_20261112_090507.md',
+        });
+        assert.match(filled, /One document: make sure its current version is open and in front/);
+        assert.match(filled, /Several documents: write the review document `review_a_b_repetition_2_20261112_090507\.md`/);
+        assert.match(filled, /older copies/);
+        // The text before it, as a workspace seeded it: seeding replaces it.
+        const before = [
+            '**Finish review round** — put the results in front of the user for the review, ${step} of process ${process}.',
+            '',
+            '1. Show ${resultsFile} with tomAi_askInMdBrowser: `finishReviewRound: true`, the title `Review: ${step}`; Keep this file is the user\'s to decide. If the call is refused (no review follows), open the document with tomAi_openInMdBrowser instead and say so.',
+            '2. Wait for the answer. On `finish` the extension has confirmed the review, closed that panel and moved the process on — the next step\'s prompt is queued, or the decision is open: report its `summary` in one line and end your answer. Do not move the process or queue anything yourself.',
+            '3. On anything else (the panel closed, a timeout) report it and end without moving the process.',
+        ].join('\n');
+        const config: { assistPrompts?: AssistPromptsSection } = {
+            assistPrompts: { templates: [{ id: info.defaultId, name: 'x', template: before }] },
+        };
+        ensureDefaultAssistPrompts(config);
+        assert.equal(config.assistPrompts!.templates!.find((t) => t.id === info.defaultId)!.template, info.defaultBody);
     });
 
     test('AP-4: the out-of-budget prompt is the template\'s', () => {

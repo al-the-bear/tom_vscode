@@ -212,13 +212,26 @@ const GRILL_ME_DECISION_BODY_V2 = [...GRILL_ME_DECISION_LINES, LINK_FILES, SHOW_
 
 const GRILL_ME_DECISION_BODY = [...GRILL_ME_DECISION_LINES, LINK_FILES, SHOW_DECISION_ADVICE].join('\n');
 
-const FINISH_REVIEW_ROUND_BODY = [
+/** Finish review round before it told one document from several (the review document). */
+const FINISH_REVIEW_ROUND_BODY_V2 = [
     '**Finish review round** — put the results in front of the user for the review, ${step} of process ${process}.',
     '',
     '1. Show ${resultsFile} with tomAi_askInMdBrowser: `finishReviewRound: true`, the title `Review: ${step}`; Keep this file is the user\'s to decide. If the call is refused (no review follows), open the document with tomAi_openInMdBrowser instead and say so.',
     '2. Wait for the answer. On `finish` the extension has confirmed the review, closed that panel and moved the process on — the next step\'s prompt is queued, or the decision is open: report its `summary` in one line and end your answer. Do not move the process or queue anything yourself.',
     '3. On anything else (the panel closed, a timeout) report it and end without moving the process.',
 ].join('\n');
+
+const FINISH_REVIEW_ROUND_BODY = [
+    '**Finish review round** — put the results in front of the user for the review, ${step} of process ${process}.',
+    '',
+    '1. What is under review: ${resultsFile} — every document this step produced or changed that the user is to review (the step\'s prompt names them). Close the MD Browser panels that show older copies of them (round folders; tomAi_listMdBrowserPanels, tomAi_closeMdBrowser with each `panelId`), so only current versions are open.',
+    '2. One document: make sure its current version is open and in front, and show it with tomAi_askInMdBrowser: `finishReviewRound: true`, the title `Review: ${step}`.',
+    '   Several documents: write the review document `${reviewFile}` in the step\'s round folder (else beside the first document): the review\'s title and position, then one entry per document — a Markdown link relative to it (a space written `%20`), what changed in it this round, its open questions (count and ids) and what to look at. Open each document\'s current version (tomAi_openInMdBrowser, `preserveFocus: true`), then show the review document with tomAi_askInMdBrowser: `finishReviewRound: true`, the title `Review: ${step}`.',
+    '   Keep this file is the user\'s to decide. If the call is refused (no review follows), open the document(s) with tomAi_openInMdBrowser instead and say so.',
+    '3. Wait for the answer. On `finish` the extension has confirmed the review, closed that panel and moved the process on — the next step\'s prompt is queued, or the decision is open: report its `summary` in one line and end your answer. Do not move the process or queue anything yourself.',
+    '4. On anything else (the panel closed, a timeout) report it and end without moving the process.',
+].join('\n');
+
 
 /**
  * Earlier built-in defaults, by use: a default template on disk whose text is
@@ -230,7 +243,7 @@ const PREVIOUS_DEFAULT_BODIES: Partial<Record<string, string[]>> = {
     grillMe: [GRILL_ME_BODY_V1],
     explainInDetail: [EXPLAIN_IN_DETAIL_BODY_V1, EXPLAIN_IN_DETAIL_BODY_V2],
     grillMeDecision: [GRILL_ME_DECISION_BODY_V1, GRILL_ME_DECISION_BODY_V2],
-    finishReviewRound: [[
+    finishReviewRound: [FINISH_REVIEW_ROUND_BODY_V2, [
         '**Finish review round** of step ${step} (process ${process}).',
         '',
         'The review\'s results are in `${resultsFile}`.',
@@ -305,6 +318,7 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
             process: 'the process id',
             step: 'the review (the user-action step the results are reviewed in)',
             resultsFile: 'the document to review (`the document this step produced` in a process step\'s prompt)',
+            reviewFile: 'the name of the review document a review of several documents gets (`review_<phase>_<step>_repetition_<n>_<yyyymmdd_hhmmss>.md`)',
         },
     },
     outOfBudget: {

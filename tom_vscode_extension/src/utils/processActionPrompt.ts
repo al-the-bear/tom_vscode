@@ -178,6 +178,18 @@ export function positionText(def: ProcessDefinition, state: ProcessState): strin
     return parts.join(' › ') + (state.completed ? ' (finished)' : '');
 }
 
+/**
+ * The name of the review document a review over several documents gets:
+ * `review_<phase>_<step>_repetition_<n>_<yyyymmdd_hhmmss>.md`, `<n>` the
+ * repetition (iteration) of the step the review belongs to, the time local.
+ * A review of one document needs none: that document is shown itself.
+ */
+export function reviewFileName(state: ProcessState, now: Date = new Date()): string {
+    const two = (n: number): string => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}_${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
+    return `review_${state.phase}_${state.step}_repetition_${state.stepIteration || 1}_${stamp}.md`;
+}
+
 /** The session a move's prompt is queued in, and where that choice comes from. */
 export interface ActionSession {
     /** The session name; `''` = the queue's default. */

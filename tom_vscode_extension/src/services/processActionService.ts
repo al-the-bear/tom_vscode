@@ -45,7 +45,7 @@ import {
     type ProcessActionTemplates,
 } from '../utils/processActionPrompt';
 import { decisionAt, samePosition, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
-import { positionText } from '../utils/processActionPrompt';
+import { positionText, reviewFileName } from '../utils/processActionPrompt';
 import { markerText, newProceedId, type ProcessMoveSpec } from '../utils/processMoveMarker';
 import type { QueuedPrompt } from '../managers/promptQueueManager';
 
@@ -96,6 +96,7 @@ export function buildProcessActionPrompt(
         process: def.id,
         step: positionText(def, review),
         resultsFile: 'the document this step produced',
+        reviewFile: reviewFileName(review),
     });
     return resolveVariables(template, { values }).trim();
 }

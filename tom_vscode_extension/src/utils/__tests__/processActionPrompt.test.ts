@@ -17,6 +17,7 @@
  *   PA-8 the decision dialog: at a decision position its options, each the move it makes; null elsewhere
  *   PA-7 confirming a user action: the dialog says it is a user action, names the position, gives what
  *        is to be done (its description, else its name) and asks to confirm that it is done
+ *   PA-9 the review document's name: review_<phase>_<step>_repetition_<step iteration>_<yyyymmdd_hhmmss>.md
  */
 
 import test, { describe } from 'node:test';
@@ -43,6 +44,7 @@ import {
     actionSession,
     userActionConfirmation,
     decisionDialog,
+    reviewFileName,
 } from '../processActionPrompt.js';
 import { expressionVariableNames } from '../templateExpression.js';
 
@@ -217,5 +219,14 @@ phases:
         assert.deepEqual(dialog.options.map((o) => [o.kind, o.label]),
             [['gate-passed', 'Gate passed — go on to two › c'], ['gate-failed', 'Gate failed — run g again'], ['repeat', 'Repeat the phase one']],
             'the phase is repeatable and ends at its gate');
+    });
+
+    test('PA-9: the review document\'s name', () => {
+        const at = { process: 'idea_to_todos', phase: 'blueprint', phaseIteration: 1, step: 'iteration', stepIteration: 3,
+            substep: 'review', substepIteration: 1, completed: false } as ProcessState;
+        const now = new Date(2026, 10, 12, 9, 5, 7);
+        assert.equal(reviewFileName(at, now), 'review_blueprint_iteration_repetition_3_20261112_090507.md');
+        assert.equal(reviewFileName({ ...at, step: 'review-initial', stepIteration: 0, substep: '' }, now),
+            'review_blueprint_review-initial_repetition_1_20261112_090507.md', 'a step never run counts as the first');
     });
 });

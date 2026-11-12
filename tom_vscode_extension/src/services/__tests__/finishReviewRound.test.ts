@@ -11,7 +11,8 @@
  *   FR-4 the decision case: the next position is a decision — the decision opens, nothing is queued
  *   FR-5 the next step is the user's again, or the process ends: nothing queued; the summary for the agent
  *   FR-7 the Proceed prompt of a step whose prompt ends with `${finish-review-round}` carries the filled Assist
- *        prompt: the review it leads to, the process, `finishReviewRound: true`
+ *        prompt: the review it leads to, the process, `finishReviewRound: true`, the review document's name
+ *        (`review_<phase>_<review step>_repetition_<n>_<timestamp>.md`) for several documents
  *   FR-6 wiring: `${finish-review-round}` in a step's prompt expands to the Assist prompt in the Proceed prompt;
  *        tom_specs' closing items and § Showing the result use it; the PROCESS view's Decide… is the same dialog;
  *        an unedited earlier default of the Assist prompt is brought to the current one
@@ -178,7 +179,8 @@ describe('Finish review round', () => {
         const text = buildProcessActionPrompt(store as never, move, '');
         assert.ok(!text.includes('${finish-review-round}'), 'expanded');
         assert.match(text, /\*\*Finish review round\*\* — put the results in front of the user for the review, p1 › review of process spec\./);
-        assert.match(text, /Show the document this step produced with tomAi_askInMdBrowser: `finishReviewRound: true`/);
+        assert.match(text, /One document: make sure its current version is open and in front, and show it with tomAi_askInMdBrowser: `finishReviewRound: true`/);
+        assert.match(text, /Several documents: write the review document `review_p1_review_repetition_1_\d{8}_\d{6}\.md`/, 'the review document, named');
     });
 });
 
