@@ -709,6 +709,23 @@ after the pause gate, before a todo is claimed — the loop item steps back to
 pending with its counters kept, the marked item moves in front of it and is
 sent, and the loop resumes after it (`src/utils/queueSendBetween.ts`).
 
+**Let the next item go first** (`src/utils/queueYield.ts`) is the reverse: the
+iteration item yields. `letNextGoFirst(id)` on a pending iteration item moves
+it directly behind the next pending item of its lane (`orderForYield`); on a
+sending one it arms `yieldAfterIteration` (persisted as
+`meta.yield-after-iteration`; a second call cancels it). At the next iteration
+boundary — the same point as send-between: after the finished iteration's
+answer, waits and continuation check and the pause gate, before a todo is
+claimed — an armed item with a following pending item in its lane
+(`yieldTarget`) clears the flag, steps back to pending with its counters, run
+id and answers kept, moves behind that item, and the frame ends `'paused'`;
+`sendNext` then sends the item in front, and the walk resumes after it. With no
+following item (or a walk that is done) the flag is dropped and the loop goes
+on. The editor's state carries `canLetNextGoFirst` / `letNextGoFirstUnavailable`
+per pending or sending iteration item (the step-over button, disabled with the
+reason); Continue offers it (`continueOptions`, action `letNextGoFirst`); and
+`tomAi_updateQueueItem` takes `letNextGoFirst: true | false`.
+
 **Queue next** (the @CHAT ANTHROPIC/LLM subpanel; `addToQueue` with `next`)
 calls `enqueueNext`: the item is enqueued pending (not deferred) at
 `nextQueuePosition` — directly under the sending item, or in front of the

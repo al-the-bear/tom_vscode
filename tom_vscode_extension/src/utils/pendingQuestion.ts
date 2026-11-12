@@ -12,7 +12,7 @@
  */
 
 /** What Continue does on a running item. */
-export type ContinueAction = 'answer' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'resend' | 'skip';
+export type ContinueAction = 'answer' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'letNextGoFirst' | 'resend' | 'skip';
 
 export interface ContinueOption {
     action: ContinueAction;
@@ -41,7 +41,7 @@ export const QUESTION_CLOSED_BY_SKIP =
  * the item's turn waits for its background work (`backgroundLimit`: the
  * limit as text, e.g. `6 h`) it also offers the wait's three choices.
  */
-export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string }): ContinueOption[] {
+export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string; canLetNextGoFirst?: boolean; yieldArmed?: boolean }): ContinueOption[] {
     const options: ContinueOption[] = [];
     if (o.waitingForAnswer) { options.push({ action: 'answer', label: 'Answer now' }); }
     if (o.backgroundLimit !== undefined) {
@@ -50,6 +50,12 @@ export function continueOptions(o: { waitingForAnswer: boolean; canResend: boole
             { action: 'keepWaiting', label: `Keep waiting up to ${o.backgroundLimit}` },
             { action: 'stopWaiting', label: 'Stop waiting' },
         );
+    }
+    // An iteration item: the running iteration finishes, then the next item of its lane goes first (vscimpb60e).
+    if (o.yieldArmed) {
+        options.push({ action: 'letNextGoFirst', label: 'Keep iterating (do not let the next item go first)' });
+    } else if (o.canLetNextGoFirst) {
+        options.push({ action: 'letNextGoFirst', label: 'Let the next item go first' });
     }
     if (o.canResend) { options.push({ action: 'resend', label: 'Resend this stage' }); }
     options.push({ action: 'skip', label: o.walk ? 'Skip to the next todo' : 'Skip to the next stage' });

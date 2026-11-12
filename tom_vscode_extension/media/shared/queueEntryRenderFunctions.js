@@ -321,7 +321,11 @@ function renderEntry(item, idx) {
     : '';
   var processBadge = userWaitBadge + attentionBadge + (item.sendBetween
     ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
-    : '');
+    : '')
+    // "Let the next item go first" armed (vscimpb60e): shown until it yields.
+    + (item.yieldAfterIteration
+      ? '  <span class="yield-badge" style="background:#0e7c86;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="After its running iteration this item steps back and the next item of its lane goes first; the walk resumes after it. Click the step-over button again to keep iterating.">[yields after this iteration]</span>'
+      : '');
   // A chat send runs in the session this item runs in: it waits and goes once that send ended.
   if (item.waitingForSession) {
     processBadge += '  <span class="waiting-session-badge" style="background:#3794ff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="A chat send runs in this session: the item goes once it has ended (two prompts never share a conversation)">[waiting for session ' + escapeHtml(String(item.waitingForSession)) + ']</span>';
@@ -411,6 +415,15 @@ function renderEntry(item, idx) {
             ? '<span class="codicon codicon-debug-step-into send-between-btn" style="cursor:pointer;color:' + (item.sendBetween ? '#b5179e' : '#000') + ';" onclick="toggleSendBetween(\'' + safeId + '\')" title="' +
               (item.sendBetween ? 'Marked: sent after the running loop\'s current iteration, before its next one. Click to unmark.' : 'Send between iterations: after the running loop\'s current iteration, before its next one') + '"></span>'
             : (isPending ? '<span class="codicon codicon-arrow-circle-up" style="cursor:pointer;color:#000;" onclick="moveToFront(\'' + safeId + '\')" title="Send next (move to front of pending queue)"></span>' : '')) +
+          // Let the next item go first (vscimpb60e): an iteration item, pending or sending. Disabled (with the
+          // reason) when no pending item follows it in its lane; armed (inverted) until it yields.
+          ((isPending || isSending) && (item.canLetNextGoFirst !== undefined || item.yieldAfterIteration)
+            ? (item.yieldAfterIteration
+              ? '<span class="codicon codicon-debug-step-over yield-btn armed" style="cursor:pointer;color:#fff;background:#0e7c86;border-radius:3px;padding:1px 3px;" onclick="letNextGoFirst(\'' + safeId + '\')" title="Yields after this iteration — click to keep iterating instead"></span>'
+              : item.canLetNextGoFirst
+                ? '<span class="codicon codicon-debug-step-over yield-btn" style="cursor:pointer;color:#000;" onclick="letNextGoFirst(\'' + safeId + '\')" title="' + (isSending ? 'Let the next item go first: this iteration finishes, then the next item of its lane is sent; the walk resumes after it' : 'Let the next item go first: this item moves behind the next item of its lane') + '"></span>'
+                : '<span class="codicon codicon-debug-step-over yield-btn disabled" aria-disabled="true" style="color:#999;cursor:not-allowed;" title="Let the next item go first — not now: ' + escapeHtml(String(item.letNextGoFirstUnavailable || '')) + '"></span>')
+            : '') +
           (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           // Pause after this — let the item finish its repeat loop, then hold
           // the queue instead of starting the next item. Shown wherever the

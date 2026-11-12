@@ -553,6 +553,23 @@ with its current iteration, the marked item simply runs next. With auto-send
 off the loop holds as usual and the mark stays. **Queue next** in the
 ANTHROPIC/LLM subpanel does all of this in one click for a new prompt.
 
+### Let the next item go first
+
+The other way round: an iteration item (a repeat count above 1 or a `prefix*`
+todo walk), pending or sending, has a **Let the next item go first** button
+(the step-over icon; also among Continue's choices on a running item). On a
+**sending** one the running iteration finishes normally — its answer is kept,
+its todo handled as usual, its waits (background work, a question) and the
+check of an unfinished todo first — and then, instead of its next iteration,
+the item steps back to pending with its walk position kept and moves behind
+the next pending item of its run's lane; that item is sent, and when it ends
+the walk resumes with its next todo. Until it yields the item shows
+**[yields after this iteration]**; click the button again to keep iterating
+instead. On a **pending** item the button moves it at once behind the next
+pending item of its lane. Without a following pending item in its lane the
+button is disabled and its tooltip says why. Agents do the same with
+`tomAi_updateQueueItem` and `letNextGoFirst: true` (`false` cancels it).
+
 ### Waiting for a session
 
 A pending item whose session a chat send is running in waits: it shows

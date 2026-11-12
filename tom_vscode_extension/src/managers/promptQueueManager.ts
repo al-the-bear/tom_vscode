@@ -58,6 +58,7 @@ import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
 import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
+import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
@@ -363,6 +364,12 @@ export interface QueuedPrompt {
      * iteration and before its next one. At most one item carries it.
      */
     sendBetween?: boolean;
+    /**
+     * "Let the next item go first" (src/utils/queueYield.ts): this sending
+     * iteration item steps back after its running iteration and moves behind
+     * the next pending item of its lane; the walk resumes after that item.
+     */
+    yieldAfterIteration?: boolean;
     // Multi-transport fields (design doc §4.1). Items without `transport`
     // resolve to 'copilot' at dispatch time — byte-identical to the
     // pre-multi-transport behaviour.
@@ -2522,6 +2529,55 @@ export class PromptQueueManager {
      * any other mark. Returns its new value, or `undefined` when the id is
      * unknown or the item is not under a running loop.
      */
+    /** The items of `item`'s lane (its run), in queue order. */
+    private _laneItemsOf(item: QueuedPrompt): QueuedPrompt[] {
+        return this._items.filter(i => i === item || laneOf(i, true) === laneOf(item, true));
+    }
+
+    /** Why "Let the next item go first" is not offered on item `id` now (undefined when it is; vscimpb60e). */
+    letNextGoFirstUnavailable(id: string): string | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return `Queue item ${id} not found`; }
+        if (item.yieldAfterIteration) { return undefined; }
+        return yieldUnavailableReason(this._laneItemsOf(item), item);
+    }
+
+    /**
+     * "Let the next item go first" (src/utils/queueYield.ts): a pending
+     * iteration item moves at once behind the next pending item of its lane
+     * (`moved`); a sending one is armed and yields after its running
+     * iteration (`armed`); pressed again while armed, it is cancelled
+     * (`cancelled`). Refused (`{ok: false, reason}`) without a following
+     * pending item in its lane, or on an item that does not iterate.
+     */
+    letNextGoFirst(id: string): { ok: true; mode: 'moved' | 'armed' | 'cancelled'; behind?: string } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return { ok: false, reason: `Queue item ${id} not found` }; }
+        if (item.yieldAfterIteration) {
+            item.yieldAfterIteration = undefined;
+            logQueue(`Let the next item go first: cancelled on ${id}`);
+            this.persist();
+            this._onDidChange.fire();
+            return { ok: true, mode: 'cancelled' };
+        }
+        const lane = this._laneItemsOf(item);
+        const reason = yieldUnavailableReason(lane, item);
+        if (reason) { return { ok: false, reason }; }
+        const target = yieldTarget(lane, item)!;
+        if (item.status === 'pending') {
+            this._items = orderForYield(this._items, item, target);
+            logQueue(`Let the next item go first: pending ${id} moved behind ${target.id}`);
+            this.persist();
+            this._onDidChange.fire();
+            return { ok: true, mode: 'moved', behind: target.id };
+        }
+        item.yieldAfterIteration = true;
+        logQueue(`Let the next item go first: ${id} yields to ${target.id} after its running iteration`);
+        this.persist();
+        this._onDidChange.fire();
+        return { ok: true, mode: 'armed', behind: target.id };
+    }
+
     toggleSendBetween(id: string): boolean | undefined {
         const changed = toggleSendBetween(this._items, id);
         if (changed.length === 0) { return undefined; }
@@ -5375,6 +5431,26 @@ export class PromptQueueManager {
         // loop's next iteration: it moves in front of the loop item, which
         // steps back to pending with its counters kept and resumes after it.
         // With lanes (Queue per run) only a marked item of this loop's own lane steps in; another lane's runs on its own.
+        // "Let the next item go first" (vscimpb60e): the iteration that ran is finished — its answer, its waits,
+        // its continuation check — and the next one has not started. The item steps back (counters, run id and
+        // answers kept) behind the next pending item of its lane, which goes now; the walk resumes after it.
+        if (item.yieldAfterIteration) {
+            item.yieldAfterIteration = undefined;
+            const target = mainSentCount >= 1 && plan.mode !== 'exhausted' ? yieldTarget(this._laneItemsOf(item), item) : undefined;
+            if (target) {
+                this._items = orderForYield(this._items, item, target);
+                item.status = 'pending';
+                item.awaitingAnswer = false;
+                item.inFlightRepetition = undefined;
+                logQueue(`MP dispatch: item ${item.id} lets ${target.id} go first after iteration ${mainSentCount}; it resumes after it`);
+                this.persist();
+                this._onDidChange.fire();
+                setTimeout(() => { void this.sendNext(); }, 0);
+                return 'paused';
+            }
+            logQueue(`MP dispatch: item ${item.id} was to let the next item go first, but ${plan.mode === 'exhausted' ? 'its walk is done' : 'no pending item follows it in its lane'} — it goes on`);
+            this.persist();
+        }
         const between = itemToSendBetween(this._items.filter(i => i === item || laneOf(i, true) === laneOf(item, true)), item, mainSentCount, plan.mode !== 'exhausted');
         if (between) {
             this._items = orderForBetween(this._items, item, between);
@@ -6179,6 +6255,7 @@ export class PromptQueueManager {
                 status: (meta.status as QueuedPromptStatus) || 'pending',
                 pauseAfter: meta['pause-after'] === true ? true : undefined,
                 sendBetween: meta['send-between'] === true ? true : undefined,
+                yieldAfterIteration: meta['yield-after-iteration'] === true ? true : undefined,
                 type: kind.type,
                 ...(kind.timedEntryId ? { timedEntryId: kind.timedEntryId } : {}),
                 createdAt: (meta.created as string) || new Date().toISOString(),
@@ -6543,6 +6620,7 @@ export class PromptQueueManager {
                 // Omitted when unset so untouched entries round-trip unchanged.
                 ...(item.pauseAfter ? { 'pause-after': true } : {}),
                 ...(item.sendBetween ? { 'send-between': true } : {}),
+                ...(item.yieldAfterIteration ? { 'yield-after-iteration': true } : {}),
                 ...(item.type === 'timed' || item.type === 'reminder' ? { type: item.type } : {}),
                 // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
                 ...(item.timedEntryId ? { 'timed-entry-id': item.timedEntryId } : {}),

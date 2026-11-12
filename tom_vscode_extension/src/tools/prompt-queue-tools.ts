@@ -101,6 +101,8 @@ export interface QueueItemSnapshot {
     status: QueueStatus;
     /** The todos it runs: a todo id, `<prefix>*`, or several separated by commas. */
     todoIdPattern?: string;
+    /** "Let the next item go first" armed: yields after its running iteration (vscimpb60e). */
+    yieldAfterIteration?: boolean;
     type?: string;
     originalText: string;
     template?: string;
@@ -162,6 +164,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
+    'yieldAfterIteration',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -255,6 +258,8 @@ export interface PromptQueueAccess {
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
     }): void;
+    /** "Let the next item go first" (vscimpb60e); unset: not offered. */
+    letNextGoFirst?(id: string): { ok: true; mode: 'moved' | 'armed' | 'cancelled'; behind?: string } | { ok: false; reason: string };
     updateItemRepetition(id: string, opts: {
         repeatCount?: number | string;
         repeatPrefix?: string;
@@ -844,6 +849,11 @@ export interface UpdateQueueItemInput {
     /** '' removes it. */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
+    /**
+     * "Let the next item go first" (vscimpb60e): true lets the next pending item of its lane go before this iteration
+     * item (a pending one moves behind it now, a sending one after its running iteration); false cancels an armed one.
+     */
+    letNextGoFirst?: boolean;
 }
 
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
@@ -909,8 +919,20 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 return err(`The done-notification of queue item "${input.queueItemId}" cannot be changed (the item is finished).`);
             }
         }
+        let letNextGoFirst: { mode: string; behind?: string } | undefined;
+        if (input.letNextGoFirst !== undefined) {
+            const armed = access.getById(input.queueItemId)?.yieldAfterIteration === true;
+            // true on an armed item and false on an unarmed one change nothing.
+            if (input.letNextGoFirst !== armed) {
+                const r = access.letNextGoFirst?.(input.queueItemId);
+                if (!r) { return err('Let the next item go first is not available here.'); }
+                if (!r.ok) { return err(`Let the next item go first: ${r.reason}.`); }
+                letNextGoFirst = { mode: r.mode, ...(r.behind ? { behind: r.behind } : {}) };
+            }
+        }
         const updated = access.getById(input.queueItemId);
         return ok({
+            ...(letNextGoFirst ? { letNextGoFirst } : {}),
             id: input.queueItemId,
             status: updated?.status,
             template: updated?.template,
@@ -936,7 +958,10 @@ export const UPDATE_QUEUE_ITEM_DESCRIPTION =
     'frozen. `repeatCount`/`templateRepeatCount` accept literal numbers or ' +
     'chat-variable names. To change pre-prompts use `tomAi_updateQueuePrePrompt`; ' +
     'for follow-ups use `tomAi_updateQueueFollowUp`. `doneNotificationPrompt` (\'\' removes it) and ' +
-    '`doneNotificationDisabled` can be changed until the item is finished, also while it is sending.';
+    '`doneNotificationDisabled` can be changed until the item is finished, also while it is sending. ' +
+    '`letNextGoFirst: true` on a pending or sending iteration item (a `<prefix>*` walk or a repeat count) lets the ' +
+    'next pending item of its lane go first — a pending one moves behind it now, a sending one after its running ' +
+    'iteration, the walk resuming after it; `false` cancels it. Refused without a following item in its lane.';
 
 export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> = {
     name: 'tomAi_updateQueueItem',
@@ -969,6 +994,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             session: SESSION_SCHEMA,
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationDisabled: { type: 'boolean', description: 'Keep the done-notification prompt but do not queue it.' },
+            letNextGoFirst: { type: 'boolean', description: 'An iteration item lets the next pending item of its lane go first (a sending one after its running iteration); false cancels it.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

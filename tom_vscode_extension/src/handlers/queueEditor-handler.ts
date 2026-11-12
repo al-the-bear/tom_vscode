@@ -35,7 +35,7 @@ import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { positionText } from '../utils/processActionPrompt';
-import { runningLoopAbove } from '../utils/queueSendBetween';
+import { isLoopItem, runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
@@ -644,6 +644,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'toggleSendBetween':
             qm.toggleSendBetween(msg.id);
             break;
+        case 'letNextGoFirst': {
+            const r = qm.letNextGoFirst(String(msg.id ?? ''));
+            if (!r.ok) {
+                vscode.window.showInformationMessage(`Let the next item go first: ${r.reason}.`);
+            } else if (r.mode === 'armed') {
+                vscode.window.setStatusBarMessage('$(debug-step-over) The item lets the next one go first after its running iteration', 4000);
+            }
+            sendState();
+            break;
+        }
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
@@ -1074,6 +1084,18 @@ function pendingQuestionLabelOf(item: QueuedPrompt): string | undefined {
     } catch { return undefined; }
 }
 
+/** The button's state on `item` (vscimpb60e): shown on pending / sending iteration items, with why it is disabled. */
+function letNextGoFirstStateOf(item: QueuedPrompt): { canLetNextGoFirst?: boolean; letNextGoFirstUnavailable?: string } {
+    if (item.status !== 'pending' && item.status !== 'sending') { return {}; }
+    if (!isLoopItem(item)) { return {}; }
+    try {
+        const why = PromptQueueManager.instance.letNextGoFirstUnavailable(item.id);
+        return why ? { canLetNextGoFirst: false, letNextGoFirstUnavailable: why } : { canLetNextGoFirst: true };
+    } catch {
+        return {};
+    }
+}
+
 /**
  * Continue on a sending item: never blindly. The user picks Answer now (only
  * while its turn waits for an answer), Resend this stage or Skip; dismissing
@@ -1089,6 +1111,9 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
         waitingForAnswer: question !== undefined,
         canResend: item.lastDispatched !== undefined,
         walk,
+        // "Let the next item go first" (vscimpb60e): an iteration item with a following item in its lane.
+        canLetNextGoFirst: isLoopItem(item) && !qm.letNextGoFirstUnavailable(id),
+        yieldArmed: item.yieldAfterIteration === true,
         ...(background ? { backgroundLimit: formatLimit(background.limitMinutes) } : {}),
     });
     const text = continuePrompt({
@@ -1106,6 +1131,11 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     if (action === 'waitWithoutLimit') { qm.waitWithoutLimit(id); return; }
     if (action === 'keepWaiting') { qm.keepWaitingForBackground(id); return; }
     if (action === 'stopWaiting') { qm.stopBackgroundWait(id); return; }
+    if (action === 'letNextGoFirst') {
+        const r = qm.letNextGoFirst(id);
+        if (!r.ok) { vscode.window.showInformationMessage(`Let the next item go first: ${r.reason}.`); }
+        return;
+    }
     if (action === 'resend') {
         await resendRunningStage(qm, id, true);
         return;
@@ -1300,6 +1330,9 @@ function buildState(): Record<string, unknown> {
                 ...(item.sendUsage ? { sendUsageLine: itemUsageSummaryLine(item.sendUsage) } : {}),
                 // Directly under a running loop: Send next means "send between iterations".
                 ...(runningLoopAbove(items, item.id) ? { canSendBetween: true } : {}),
+                // "Let the next item go first" (vscimpb60e): offered on a pending / sending iteration item;
+                // why not, when it cannot (no following item in its lane), for the disabled button's tooltip.
+                ...(letNextGoFirstStateOf(item)),
                 // Its text is open for editing: the queue waits for it.
                 ...(isTextBeingEdited(item.id) ? { textEditing: true } : {}),
                 // A chat send runs in its session: it waits for the session.
