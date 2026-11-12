@@ -19,6 +19,8 @@ export interface RepetitionAnswer {
     text: string;
     /** When it was recorded (ISO). */
     at: string;
+    /** The repetition's turn ended with background work still running (its answer carries the hint): a red chip. */
+    backgroundLeft?: true;
 }
 
 /** What this module reads and writes of a queue item. */
@@ -59,11 +61,12 @@ export function recordRepetitionAnswer(
     text: string,
     resolve: (raw: number | string | undefined) => number,
     now: Date = new Date(),
+    backgroundLeft = false,
 ): void {
     const key = repetitionKeyOf(item, resolve);
     if (!key || !text.trim()) { return; }
     const list = [...(item.repetitionAnswers ?? [])];
-    const entry = { key, text, at: now.toISOString() };
+    const entry: RepetitionAnswer = { key, text, at: now.toISOString(), ...(backgroundLeft ? { backgroundLeft: true as const } : {}) };
     const at = list.findIndex((a) => a.key === key);
     if (at >= 0) { list[at] = entry; } else { list.push(entry); }
     item.repetitionAnswers = list.slice(-MAX_REPETITION_ANSWERS);
@@ -75,7 +78,7 @@ export function repetitionAnswersFromYaml(raw: unknown): RepetitionAnswer[] | un
     const list = raw
         .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
         .filter((a) => (typeof a.key === 'string' || typeof a.key === 'number') && typeof a.text === 'string')
-        .map((a) => ({ key: String(a.key), text: String(a.text), at: typeof a.at === 'string' ? a.at : '' }));
+        .map((a) => ({ key: String(a.key), text: String(a.text), at: typeof a.at === 'string' ? a.at : '', ...(a['background-left'] === true ? { backgroundLeft: true as const } : {}) }));
     return list.length ? list : undefined;
 }
 

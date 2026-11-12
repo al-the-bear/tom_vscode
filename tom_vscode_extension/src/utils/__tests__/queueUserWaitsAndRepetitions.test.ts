@@ -12,6 +12,12 @@
  *   UW-4 a sending item whose turn waits in a tomAi_askUser question: the badge says since when, Open question posts
  *        `openPendingQuestion`, Continue posts `continueSending` (the extension asks first), Resend of the running
  *        stage posts `resendSendingStage`; no Resend before anything was dispatched
+ *   UW-5 a sending item waiting for its background work (vscimpb57): the line (count, running time, limit), the ?
+ *        list (each task with its command and output file / handle, kept open over a redraw), the three buttons
+ *        posting `backgroundWaitAction`; Wait without limit disabled once there is no limit; nothing for an item
+ *        that does not wait (and nothing for a non-sending item, also after a reload's stale state)
+ *   UW-6 a repetition whose turn ended with background work still running: its chip red, and the answer shown red
+ *        with a note; an item without repetitions: the answer red from answerBackgroundLeft
  *   RP-1 the repetition key: the walked todo's id, else the repetition number, else the template repetition
  *        number; none for an item that does not repeat
  *   RP-2 recording: one answer per repetition, a repetition answered again replaces its entry in place, empty
@@ -101,6 +107,78 @@ describe('queue: waits for the user', () => {
             assert.match(el('prompt-approval').querySelector('.waiting-user-badge').textContent, /waiting for your approval/);
             assert.equal(el('prompt-free').classList.contains('waiting-for-user'), false);
             assert.match(media('shared', 'queueEntryStyles.css'), /\.queue-item\.waiting-for-user \{[^}]*background/);
+        } finally {
+            w.close();
+        }
+    });
+
+    test('UW-5: waiting for its background work', () => {
+        const posted: unknown[] = [];
+        const view = {
+            line: '2 tasks, 1 h 20 min of 6 h', limit: '6 h', unlimited: false,
+            items: [
+                { id: 'b1', kind: 'task', description: 'Wait for the corpus run', command: 'until [ -f done ]; do sleep 30; done', outputFile: '/tmp/b1.output' },
+                { id: 'proc_2', kind: 'command', description: 'npm test', command: 'npm test' },
+            ],
+        };
+        const w = queueEditor([
+            { ...base, id: 'g1', status: 'sending', originalText: 'prompt-bg', backgroundWaitView: view },
+            { ...base, id: 'g2', status: 'sending', originalText: 'prompt-unlimited', backgroundWaitView: { ...view, line: '1 task, 3 h, no limit', unlimited: true, items: [view.items[0]] } },
+            { ...base, id: 'g3', status: 'pending', originalText: 'prompt-stale', backgroundWaitView: view },
+            { ...base, id: 'g4', status: 'sending', originalText: 'prompt-plain' },
+        ], posted);
+        try {
+            posted.length = 0;
+            const el = (text: string): Win => [...w.document.querySelectorAll('.queue-item')].find((e: Win) => e.textContent.includes(text));
+            const bg = el('prompt-bg').querySelector('.bg-wait');
+            assert.match(bg.querySelector('.bg-wait-badge').textContent, /Waiting for background work — 2 tasks, 1 h 20 min of 6 h/);
+            assert.equal(bg.querySelector('.bg-wait-list'), null, 'the list is closed');
+            const click = (b: Win): void => { w.eval(String(b.getAttribute('onclick')).replace('event.stopPropagation();', '')); };
+            click(bg.querySelector('.bg-wait-help'));
+            const list = el('prompt-bg').querySelector('.bg-wait-list');
+            assert.ok(list, 'the ? opened the list (kept over the redraw)');
+            assert.match(list.textContent, /Wait for the corpus run \[b1\]/);
+            assert.match(list.textContent, /until \[ -f done \]; do sleep 30; done/);
+            assert.match(list.textContent, /output: \/tmp\/b1\.output/);
+            assert.match(list.textContent, /npm test \[handle proc_2\]/);
+            const buttons = [...el('prompt-bg').querySelectorAll('.bg-wait-btn')];
+            assert.deepEqual(buttons.map((b: Win) => b.textContent), ['Wait without limit', 'Keep waiting up to 6 h', 'Stop waiting']);
+            for (const b of buttons) { click(b); }
+            assert.deepEqual(JSON.parse(JSON.stringify(posted)), [
+                { type: 'backgroundWaitAction', id: 'g1', action: 'waitWithoutLimit' },
+                { type: 'backgroundWaitAction', id: 'g1', action: 'keepWaiting' },
+                { type: 'backgroundWaitAction', id: 'g1', action: 'stopWaiting' },
+            ]);
+            assert.equal(el('prompt-unlimited').querySelector('[data-bg-action="waitWithoutLimit"]').disabled, true, 'no limit already');
+            assert.equal(el('prompt-stale').querySelector('.bg-wait'), null, 'only a sending item waits');
+            assert.equal(el('prompt-plain').querySelector('.bg-wait'), null);
+            assert.match(media('shared', 'queueEntryStyles.css'), /\.bg-wait \{/);
+        } finally {
+            w.close();
+        }
+    });
+
+    test('UW-6: an answer that ended with background work still running is red', () => {
+        const w = queueEditor([
+            { ...base, id: 'r1', status: 'sent', originalText: 'prompt-walk', repeatCount: 'ww*', answerText: 'B done',
+                repetitionAnswers: [
+                    { key: 'ww1_x', text: 'A ended early\n\n_(1 background task was still running …)_', at: '2026-11-12T18:00:00Z', backgroundLeft: true },
+                    { key: 'ww2_x', text: 'B done', at: '2026-11-12T19:00:00Z' },
+                ] },
+            { ...base, id: 'r2', status: 'sent', originalText: 'prompt-single', answerText: 'Stopped waiting …', answerBackgroundLeft: true },
+        ]);
+        try {
+            const el = (text: string): Win => [...w.document.querySelectorAll('.queue-item')].find((e: Win) => e.textContent.includes(text));
+            const chips = [...el('prompt-walk').querySelectorAll('.rep-answer-chip')];
+            assert.deepEqual(chips.map((c: Win) => [c.textContent, c.classList.contains('bg-left')]), [['ww1_x', true], ['ww2_x', false]]);
+            assert.match(chips[0].title, /ended with background work still running/);
+            assert.equal(el('prompt-walk').querySelector('.answer-preview').classList.contains('bg-left'), false, 'the latest answer is not');
+            w.eval("showRepetitionAnswer('r1', 'ww1_x')");
+            const shown = el('prompt-walk').querySelector('.answer-preview');
+            assert.ok(shown.classList.contains('bg-left'), 'the red repetition shown: red');
+            assert.match(shown.textContent, /background work still running/);
+            assert.ok(el('prompt-single').querySelector('.answer-preview').classList.contains('bg-left'));
+            assert.match(media('shared', 'queueEntryStyles.css'), /\.rep-answer-chip\.bg-left \{/);
         } finally {
             w.close();
         }

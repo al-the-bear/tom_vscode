@@ -6,6 +6,12 @@
  *        profile's / 6 h apply in the handler)
  *   QB-2 the waiting state the turn reports is kept on the item (backgroundWaitOf) and in its queue file
  *        (`background-wait`), and cleared when the wait is over and when the stage ends
+ *   QB-3 each button (vscimpb57): Wait without limit, Keep waiting and Stop waiting reach the waiting turn's
+ *        controls, also through the editor's applyBackgroundWaitAction; Stop waiting ends the turn and the queue goes
+ *        on; none of them acts on an item that does not wait (before the wait, after the stage)
+ *   QB-4 a turn that ended with background work still running: its repetition answer and the item's answer are
+ *        flagged (a red chip), in memory and in the queue file; the next answer without it clears the item's flag
+ *   QB-5 Continue on a waiting item offers the three choices, then Resend and Skip; the choice reaches the turn
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- config keys */
@@ -50,6 +56,7 @@ import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
 import type { BackgroundWaitState } from '../../utils/backgroundWait.js';
+import { applyBackgroundWaitAction, continueWithChoice } from '../../handlers/queueEditor-handler.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
@@ -93,11 +100,25 @@ after(() => {
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const sends: Json[] = [];
-let finishTurn: (() => void) | undefined;
+let finishTurn: ((result?: Json) => void) | undefined;
 handler.sendMessage = (opts: Json) => new Promise((resolve) => {
     sends.push(opts);
-    finishTurn = () => resolve({ text: 'done', turnsUsed: 1, toolCallCount: 0 });
+    finishTurn = (result?: Json) => resolve(result ?? { text: 'done', turnsUsed: 1, toolCallCount: 0 });
 });
+/** A waiting turn's controls, as the transports hand them out: each call recorded; stop ends the turn as the transports do. */
+function startWaiting(opts: Json, calls: string[]): void {
+    opts.onBackgroundWaitControl({
+        waitWithoutLimit: () => { calls.push('waitWithoutLimit'); opts.onBackgroundWait({ ...STATE, unlimited: true }); },
+        keepWaiting: () => { calls.push('keepWaiting'); opts.onBackgroundWait({ ...STATE, limitFrom: new Date().toISOString() }); },
+        stop: () => {
+            calls.push('stop');
+            opts.onBackgroundWait(undefined);
+            opts.onBackgroundWaitControl(undefined);
+            finishTurn?.({ text: 'stopped\n\n_(1 background task was still running …)_', turnsUsed: 1, toolCallCount: 0, backgroundLeft: true });
+        },
+    });
+    opts.onBackgroundWait(STATE);
+}
 const STATE: BackgroundWaitState = {
     since: '2026-11-12T18:00:00.000Z',
     limitMinutes: 30,
@@ -160,5 +181,78 @@ describe('a queue item and its background wait', () => {
         finishTurn?.();
         await wait(150);
         assert.equal(queue().backgroundWaitOf(item.id), undefined, 'cleared when the stage ended');
+    });
+
+    test('QB-3: each button reaches the waiting turn', async () => {
+        sends.length = 0;
+        const item: QueuedPrompt = await queue().enqueue({ originalText: 'buttons', transport: 'anthropic', anthropicProfileId: 'sdk', deferSend: true, initialStatus: 'staged' } as never);
+        void queue().sendNow(item.id);
+        await wait(150);
+        const calls: string[] = [];
+        // The turn runs but does not wait yet: no button acts.
+        sends[0].onBackgroundWaitControl({ waitWithoutLimit: () => calls.push('early'), keepWaiting: () => calls.push('early'), stop: () => calls.push('early') });
+        assert.deepEqual([queue().waitWithoutLimit(item.id), queue().keepWaitingForBackground(item.id), queue().stopBackgroundWait(item.id)], [false, false, false]);
+        startWaiting(sends[0], calls);
+        assert.equal(queue().waitWithoutLimit(item.id), true);
+        assert.equal(queue().backgroundWaitOf(item.id)?.unlimited, true, 'the state says no limit');
+        assert.equal(queue().keepWaitingForBackground(item.id), true);
+        assert.ok(queue().backgroundWaitOf(item.id)?.limitFrom, 'the limit counts from now');
+        assert.equal(applyBackgroundWaitAction(queue(), item.id, 'keepWaiting'), true, 'the editor\'s and @CHAT\'s route');
+        assert.equal(queue().stopBackgroundWait(item.id), true);
+        assert.deepEqual(calls, ['waitWithoutLimit', 'keepWaiting', 'keepWaiting', 'stop']);
+        await wait(200);
+        assert.equal(queue().getById(item.id)?.status, 'sent', 'the turn ended; the queue went on');
+        assert.equal(queue().stopBackgroundWait(item.id), false, 'after the stage: nothing to stop');
+    });
+
+    test('QB-4: a turn that left background work running is flagged', async () => {
+        sends.length = 0;
+        const item: QueuedPrompt = await queue().enqueue({ originalText: 'repeated', repeatCount: 2, transport: 'anthropic', anthropicProfileId: 'sdk', deferSend: true, initialStatus: 'staged' } as never);
+        // Auto-send on: the second repetition goes out after the first (off, it would hold at the pause gate).
+        queue().autoSendEnabled = true;
+        void queue().sendNow(item.id);
+        await wait(150);
+        startWaiting(sends[0], []);
+        assert.equal(queue().stopBackgroundWait(item.id), true);
+        await wait(200);
+        const live = queue().getById(item.id) as QueuedPrompt;
+        assert.deepEqual(live.repetitionAnswers?.map((a) => [a.key, a.backgroundLeft === true]), [['1', true]]);
+        assert.equal(live.answerBackgroundLeft, true);
+        const file = queueFileText(item.id);
+        assert.match(file, /background-left: true/);
+        assert.match(file, /answer-background-left: true/);
+        finishTurn?.(); // the second repetition answers normally
+        await wait(200);
+        const done = queue().getById(item.id) as QueuedPrompt;
+        assert.deepEqual(done.repetitionAnswers?.map((a) => [a.key, a.backgroundLeft === true]), [['1', true], ['2', false]]);
+        assert.equal(done.answerBackgroundLeft, undefined, 'the latest answer is not');
+        queue().autoSendEnabled = false;
+    });
+
+    test('QB-5: Continue on a waiting item', async () => {
+        sends.length = 0;
+        const shown: unknown[][] = [];
+        let pick: string | undefined;
+        const win = vscodeStub.stub.window as Json;
+        const original = win.showWarningMessage;
+        win.showWarningMessage = (...args: unknown[]) => { shown.push(args); return Promise.resolve(pick); };
+        try {
+            const item: QueuedPrompt = await queue().enqueue({ originalText: 'continue me', transport: 'anthropic', anthropicProfileId: 'sdk', deferSend: true, initialStatus: 'staged' } as never);
+            void queue().sendNow(item.id);
+            await wait(150);
+            const calls: string[] = [];
+            startWaiting(sends[0], calls);
+            pick = 'Wait without limit';
+            await continueWithChoice(queue(), item.id);
+            assert.deepEqual(shown[0].slice(2), ['Wait without limit', 'Keep waiting up to 30 min', 'Stop waiting', 'Resend this stage', 'Skip to the next stage']);
+            assert.match(String(shown[0][0]), /waiting for its background work \(1 task, .* of 30 min\)/);
+            pick = 'Stop waiting';
+            await continueWithChoice(queue(), item.id);
+            assert.deepEqual(calls, ['waitWithoutLimit', 'stop']);
+            await wait(200);
+            assert.equal(queue().getById(item.id)?.status, 'sent');
+        } finally {
+            win.showWarningMessage = original;
+        }
     });
 });

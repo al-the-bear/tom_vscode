@@ -6,6 +6,8 @@
  *   PQ-3 nothing dispatched yet: no Resend; a walk says "next todo", other items "next stage"
  *   PQ-4 the dialog text names the waiting time, and says Resend and Skip close the question
  *   PQ-5 the waiting label: local clock time and how long, in minutes or hours
+ *   PQ-6 waiting for its background work: Wait without limit, Keep waiting up to <limit>, Stop waiting, then
+ *        Resend and Skip (vscimpb57); the dialog text says what each does
  */
 
 import test, { describe } from 'node:test';
@@ -49,5 +51,18 @@ describe('pending question and Continue', () => {
         assert.equal(waitingSinceLabel(at, at + 7 * 60_000), 'since 20:31 (7 min)');
         assert.equal(waitingSinceLabel(at, at + (9 * 60 + 25) * 60_000), 'since 20:31 (9 h 25 min)');
         assert.equal(waitingSinceLabel(new Date(2026, 10, 11, 5, 4).getTime(), new Date(2026, 10, 11, 5, 4).getTime()), 'since 05:04 (under a minute)');
+    });
+
+    test('PQ-6: waiting for its background work', () => {
+        assert.deepEqual(continueOptions({ waitingForAnswer: false, canResend: true, walk: true, backgroundLimit: '6 h' }), [
+            { action: 'waitWithoutLimit', label: 'Wait without limit' },
+            { action: 'keepWaiting', label: 'Keep waiting up to 6 h' },
+            { action: 'stopWaiting', label: 'Stop waiting' },
+            { action: 'resend', label: 'Resend this stage' },
+            { action: 'skip', label: 'Skip to the next todo' },
+        ]);
+        const text = continuePrompt({ walk: true, backgroundWait: '2 tasks, 1 h 20 min of 6 h' });
+        assert.match(text.message, /waiting for its background work \(2 tasks, 1 h 20 min of 6 h\)/);
+        assert.match(text.detail, /Stop waiting ends the turn now/);
     });
 });

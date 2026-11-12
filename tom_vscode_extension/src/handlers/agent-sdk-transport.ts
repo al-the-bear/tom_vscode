@@ -320,7 +320,7 @@ import {
     type BackgroundWaitSnapshot,
 } from '../services/agent-sdk-input-channel';
 import { QUEUE_RUN_DISALLOWED_BUILT_INS, queueRunTools, withDetachGuard } from '../utils/agentSdkQueueRun';
-import { stillRunningHint, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
+import { stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
 
 /** A CLI background task as the background wait names it. */
 function taskWorkItem(t: BackgroundTaskInfo): BackgroundWorkItem {
@@ -336,7 +336,13 @@ function taskWorkItem(t: BackgroundTaskInfo): BackgroundWorkItem {
 /** The channel's wait as the queue item keeps it, or undefined when it is not waiting. */
 function backgroundWaitStateOf(snapshot: BackgroundWaitSnapshot | undefined): BackgroundWaitState | undefined {
     if (!snapshot) { return undefined; }
-    return { since: new Date(snapshot.since).toISOString(), limitMinutes: snapshot.limitMs / 60_000, items: snapshot.tasks.map(taskWorkItem) };
+    return {
+        since: new Date(snapshot.since).toISOString(),
+        limitMinutes: snapshot.limitMs / 60_000,
+        ...(snapshot.limitFrom !== snapshot.since ? { limitFrom: new Date(snapshot.limitFrom).toISOString() } : {}),
+        ...(snapshot.unlimited ? { unlimited: true as const } : {}),
+        items: snapshot.tasks.map(taskWorkItem),
+    };
 }
 
 // Re-export the pure retry-decision API so existing consumers
@@ -426,6 +432,8 @@ export interface AgentSdkSendParams {
     backgroundLimitMs?: number;
     /** The background wait's state while the turn waits, `undefined` when it ends. */
     onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
+    /** The controls of the background wait (Wait without limit, Keep waiting, Stop waiting) while the send runs; `undefined` when it ends. */
+    onBackgroundWaitControl?: (control: BackgroundWaitControl | undefined) => void;
     /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
     thinkingOptions?: AgentSdkThinkingOptions;
     /**
@@ -592,6 +600,8 @@ export interface AgentSdkResult {
     sessionId?: string;
     /** The turn's token counts (cache reads and writes included), from the SDK's result message. */
     usage?: LiveTrailTokenCounts;
+    /** The turn ended with background work still running (the limit, or the user stopped waiting). */
+    backgroundLeft?: true;
 }
 
 // ============================================================================
@@ -1042,6 +1052,14 @@ async function runAgentSdkAttempt(
         },
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
+    // The user's controls of the wait (they do nothing while the channel does not wait).
+    try {
+        params.onBackgroundWaitControl?.({
+            waitWithoutLimit: () => input.waitWithoutLimit(),
+            keepWaiting: () => input.keepWaiting(),
+            stop: () => input.stopWaiting(),
+        });
+    } catch { /* display only */ }
     // While it runs, a chat send into its session can be an update to it.
     const unregisterLive = params.liveInputSession ? registerLiveQuery(params.liveInputSession, input) : undefined;
     const abortController = new AbortController();
@@ -1475,12 +1493,13 @@ async function runAgentSdkAttempt(
         cancelSub?.dispose();
         stopPlanFollow?.();
         try { params.onBackgroundWait?.(undefined); } catch { /* display only */ }
+        try { params.onBackgroundWaitControl?.(undefined); } catch { /* display only */ }
     }
 
     // The wait ended at its limit (or was off) with work still running: the answer says what.
     const stillRunning = input.stillRunningAtClose;
     if (stillRunning.length > 0) {
-        lastText += stillRunningHint(stillRunning.map(taskWorkItem), input.backgroundLimit / 60_000);
+        lastText += stillRunningHint(stillRunning.map(taskWorkItem), input.backgroundLimit / 60_000, input.stillRunningReason);
     }
 
     // Clean exit — write the final text (with an informative placeholder
@@ -1503,6 +1522,7 @@ async function runAgentSdkAttempt(
         stopReason,
         sessionId: attempt.sessionOut.capturedSessionId,
         ...(usageTotals ? { usage: usageTotals } : {}),
+        ...(stillRunning.length > 0 ? { backgroundLeft: true as const } : {}),
     };
 }
 

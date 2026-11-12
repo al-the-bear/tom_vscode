@@ -482,6 +482,8 @@ function renderEntry(item, idx) {
 
   return '<div class="queue-item ' + cls.join(' ') + '">' +
     headerHtml +
+    // Waiting for its background work: always visible, with the ? list and the three choices.
+    renderBackgroundWait(item, safeId) +
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
     // The chips come first, under the header: they say why the item will
     // not be sent, or why its last send did not complete — easy to miss below
@@ -548,9 +550,11 @@ function renderRepetitionChips(item, reps, shownKey) {
   return '<div class="rep-answer-chips" title="The answer of each repetition: click one to show it">' +
     reps.map(function(r) {
       var active = r.key === shownKey;
-      return '<button type="button" class="rep-answer-chip' + (active ? ' active' : '') + '"' +
+      // Red: the repetition's turn ended with background work still running (the limit, or Stop waiting).
+      return '<button type="button" class="rep-answer-chip' + (active ? ' active' : '') + (r.backgroundLeft ? ' bg-left' : '') + '"' +
         ' data-qid="' + escapeHtml(String(item.id)) + '" data-rep-key="' + escapeHtml(String(r.key)) + '"' +
-        ' title="' + escapeHtml('The answer of ' + (/^[0-9]+$/.test(String(r.key)) ? 'repetition ' : 'todo ') + r.key + (r.at ? ' (' + new Date(r.at).toLocaleString() + ')' : '')) + '">' +
+        ' title="' + escapeHtml('The answer of ' + (/^[0-9]+$/.test(String(r.key)) ? 'repetition ' : 'todo ') + r.key + (r.at ? ' (' + new Date(r.at).toLocaleString() + ')' : '')
+          + (r.backgroundLeft ? ' \u2014 it ended with background work still running; the answer names it' : '')) + '">' +
         escapeHtml(String(r.key)) + '</button>';
     }).join('') +
   '</div>';
@@ -571,6 +575,44 @@ document.addEventListener('click', function(e) {
   showRepetitionAnswer(chip.getAttribute('data-qid'), chip.getAttribute('data-rep-key'));
 });
 
+/**
+ * A sending item whose turn waits for its background work (backgroundWaitView,
+ * built by the host): the line (count, running time, limit), a ? that opens
+ * the list of running tasks with their commands and output file / handle, and
+ * the three choices — Wait without limit, Keep waiting up to <limit>, Stop
+ * waiting. The open list is kept per item over redraws.
+ */
+function renderBackgroundWait(item, safeId) {
+  var view = item.backgroundWaitView;
+  if (!view || item.status !== 'sending') { return ''; }
+  window.__bgWaitOpen = window.__bgWaitOpen || {};
+  var open = window.__bgWaitOpen[item.id] === true;
+  var list = !open ? '' : '<div class="bg-wait-list">' + (view.items || []).map(function(t) {
+    return '<div class="bg-wait-task">'
+      + '<span class="bg-wait-task-name">' + escapeHtml(String(t.description || t.command || t.id)) + '</span>'
+      + ' <span class="bg-wait-task-id">[' + escapeHtml(String(t.kind === 'command' ? 'handle ' + t.id : t.id)) + ']</span>'
+      + (t.command && t.command !== t.description ? '<div class="bg-wait-task-cmd"><code>' + escapeHtml(String(t.command)) + '</code></div>' : '')
+      + (t.outputFile ? '<div class="bg-wait-task-out">output: <code>' + escapeHtml(String(t.outputFile)) + '</code></div>' : '')
+      + '</div>';
+  }).join('') + '</div>';
+  return '<div class="bg-wait" data-qid="' + escapeHtml(String(item.id)) + '">'
+    + '<span class="bg-wait-badge" title="The turn ended while background work it started still runs: the queue waits for it">\u23f3 Waiting for background work \u2014 ' + escapeHtml(String(view.line)) + '</span>'
+    + ' <button type="button" class="bg-wait-help" onclick="event.stopPropagation();toggleBackgroundTasks(\'' + safeId + '\')" title="The running tasks with their commands">?</button>'
+    + ' <button type="button" class="bg-wait-btn" data-bg-action="waitWithoutLimit" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'waitWithoutLimit\')"' + (view.unlimited ? ' disabled' : '') + ' title="Wait until the work ends, however long">Wait without limit</button>'
+    + ' <button type="button" class="bg-wait-btn" data-bg-action="keepWaiting" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'keepWaiting\')" title="Start the limit again from now">Keep waiting up to ' + escapeHtml(String(view.limit)) + '</button>'
+    + ' <button type="button" class="bg-wait-btn stop" data-bg-action="stopWaiting" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'stopWaiting\')" title="End the turn now (its answer names what still runs); the queue goes on">Stop waiting</button>'
+    + list
+    + '</div>';
+}
+
+/** Open or close the ? list of an item's running tasks. */
+// eslint-disable-next-line no-unused-vars -- called by the ? button's onclick (renderBackgroundWait)
+function toggleBackgroundTasks(id) {
+  window.__bgWaitOpen = window.__bgWaitOpen || {};
+  window.__bgWaitOpen[id] = !window.__bgWaitOpen[id];
+  if (typeof render === 'function') { render(); }
+}
+
 function renderAnswerBlock(item, safeId) {
   var answerBlock = '';
   var reps = Array.isArray(item.repetitionAnswers) ? item.repetitionAnswers.filter(function(r) { return r && typeof r.text === 'string'; }) : [];
@@ -581,6 +623,9 @@ function renderAnswerBlock(item, safeId) {
     : (typeof item.answerText === 'string' && item.answerText.length > 0 ? item.answerText : (reps.length ? reps[reps.length - 1].text : ''));
   var shownKey = selected ? selected.key
     : (reps.length && (reps[reps.length - 1].text === shownText) ? reps[reps.length - 1].key : undefined);
+  // The answer shown ended with background work still running: red, with the hint in its text.
+  var shownRep = reps.filter(function(r) { return r.key === shownKey; })[0];
+  var bgLeft = shownRep ? shownRep.backgroundLeft === true : (!selected && item.answerBackgroundLeft === true);
   if (shownText.length > 0) {
     var ansId = 'ans-' + safeId;
     var fullText = shownText;
@@ -593,9 +638,11 @@ function renderAnswerBlock(item, safeId) {
       '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="overlay" data-qid="' + escapeHtml(String(item.id)) + '" title="Show the answer as markdown over the queue"><span class="codicon codicon-eye"></span></button>' +
       '<button class="icon-btn qe-md-btn" type="button" data-qe-md-mode="editor" data-qid="' + escapeHtml(String(item.id)) + '" title="Open the answer in the markdown preview editor"><span class="codicon codicon-open-preview"></span></button>' +
       '</span>';
-    answerBlock = '<div class="answer-preview" style="margin-top:6px;padding:6px 8px;border-left:3px solid #4a9eff;background:rgba(74,158,255,0.06);font-size:0.85em;">' +
+    var answerColor = bgLeft ? '#e5534b' : '#4a9eff';
+    answerBlock = '<div class="answer-preview' + (bgLeft ? ' bg-left' : '') + '" style="margin-top:6px;padding:6px 8px;border-left:3px solid ' + answerColor + ';background:' + (bgLeft ? 'rgba(229,83,75,0.07)' : 'rgba(74,158,255,0.06)') + ';font-size:0.85em;">' +
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
-        '<strong style="color:#4a9eff;">Answer' + (shownKey !== undefined && reps.length > 1 ? ' \u2014 ' + escapeHtml(String(shownKey)) : '') + '</strong>' +
+        '<strong style="color:' + answerColor + ';">Answer' + (shownKey !== undefined && reps.length > 1 ? ' \u2014 ' + escapeHtml(String(shownKey)) : '') + '</strong>' +
+        (bgLeft ? '<span class="bg-left-note" title="The turn ended with background work still running (the limit, or Stop waiting); the answer names it">background work still running</span>' : '') +
         '<span style="opacity:0.7;font-size:10px;">' + fullText.length + ' chars</span>' +
         mdBtns +
         (fullText.length > 600 ? '<span id="' + ansId + '-toggle" class="codicon codicon-chevron-down answer-toggle-icon" style="margin-left:auto;cursor:pointer;color:var(--fg);opacity:1;" onclick="toggleAnswerExpand(\'' + ansId + '\')" title="Expand / collapse"></span>' : '') +

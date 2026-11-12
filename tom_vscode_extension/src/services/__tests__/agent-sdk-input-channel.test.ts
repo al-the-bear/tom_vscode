@@ -57,6 +57,10 @@
  *         a task left running delivers nothing to the turn.
  *   BG-10 the transport passes the limit and the waiting state, ends the answer with the
  *         still-running hint, and guards queue runs (utils/agentSdkQueueRun.ts).
+ *   BG-11 the user's choices (vscimpb57): Wait without limit (the limit no longer ends it),
+ *         Keep waiting (the limit again from now), Stop waiting (closes now, naming what still
+ *         runs, reason `stopped`); no-ops when not waiting; the transport hands them to the queue
+ *         and gives the hint its reason.
  *
  * Pure module — no `vscode`, no SDK — so it runs directly under `node --test`.
  */
@@ -493,5 +497,78 @@ describe('agent-sdk-transport background-wait wiring (BG-10)', () => {
         assert.match(src, /params\.queueRun === true \? queueRunTools\(tools\) : tools/);
         assert.match(src, /hooks: withDetachGuard\(/);
         assert.match(src, /disallowedTools: \[\.\.\.QUEUE_RUN_DISALLOWED_BUILT_INS\]/);
+    });
+});
+
+describe("QueryInputChannel — the user's choices while it waits (BG-11)", () => {
+    const bgChanged = (ids: string[]) => ({ type: 'system', subtype: 'background_tasks_changed', tasks: ids.map((id) => ({ task_id: id, task_type: 'local_bash', description: `task ${id}` })) });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    function waitingChannel(limitMs: number, events: Array<{ kind: string }>) {
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: limitMs, onEvent: (e) => events.push(e) });
+        ch.observe(running);
+        ch.observe(bgChanged(['b1']));
+        ch.observe(resultFor([UUID]));
+        ch.observe(idle);
+        return ch;
+    }
+
+    test('Wait without limit: the limit no longer ends the wait', async () => {
+        const events: Array<{ kind: string }> = [];
+        const ch = waitingChannel(60, events);
+        ch.waitWithoutLimit();
+        assert.equal(ch.backgroundWait()?.unlimited, true);
+        await wait(120);
+        assert.equal(ch.closed, false, 'past the limit, still waiting');
+        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'limit-changed']);
+        // A follow-up turn while the task still runs does not start a new wait (nor a new limit).
+        ch.observe(running);
+        ch.observe(resultFor());
+        ch.observe(idle);
+        assert.equal(ch.backgroundWait()?.unlimited, true);
+        ch.observe(bgChanged([]));
+        ch.close('test');
+    });
+
+    test('Keep waiting: the limit again from now', async () => {
+        const events: Array<{ kind: string }> = [];
+        const ch = waitingChannel(100, events);
+        const first = ch.backgroundWait()!;
+        await wait(70);
+        ch.keepWaiting();
+        const again = ch.backgroundWait()!;
+        assert.ok(again.limitFrom > first.limitFrom, 'the limit counts from now');
+        assert.equal(again.since, first.since, 'the wait itself still began then');
+        await wait(60);
+        assert.equal(ch.closed, false, 'the old limit has passed, the new one not');
+        await wait(80);
+        assert.equal(ch.closeReason, 'background-wait-limit');
+        assert.equal(ch.stillRunningReason, 'limit');
+    });
+
+    test('Stop waiting: closes now, naming what still runs', () => {
+        const events: Array<{ kind: string; tasks?: Array<{ taskId: string }> }> = [];
+        const ch = waitingChannel(60_000, events);
+        ch.stopWaiting();
+        assert.equal(ch.closeReason, 'background-wait-stopped');
+        assert.equal(ch.stillRunningReason, 'stopped');
+        assert.deepEqual(ch.stillRunningAtClose.map((t) => t.taskId), ['b1']);
+        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'stopped']);
+        assert.match(describeInputChannelEvent(events[1] as never), /Stopped waiting \(your choice\)/);
+    });
+
+    test('not waiting: the choices do nothing', () => {
+        const ch = new QueryInputChannel('p', { uuid: UUID });
+        ch.waitWithoutLimit();
+        ch.keepWaiting();
+        ch.stopWaiting();
+        assert.equal(ch.closed, false);
+        ch.close('test');
+    });
+
+    test('the transport hands the choices to the queue and gives the hint its reason', () => {
+        const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'agent-sdk-transport.ts'), 'utf-8');
+        assert.match(src, /onBackgroundWaitControl\?\.\(\{\s*waitWithoutLimit: \(\) => input\.waitWithoutLimit\(\),\s*keepWaiting: \(\) => input\.keepWaiting\(\),\s*stop: \(\) => input\.stopWaiting\(\),/);
+        assert.match(src, /stillRunningHint\(stillRunning\.map\(taskWorkItem\), input\.backgroundLimit \/ 60_000, input\.stillRunningReason\)/);
+        assert.match(src, /backgroundLeft: true as const/);
     });
 });

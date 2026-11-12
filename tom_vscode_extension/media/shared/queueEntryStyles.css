@@ -110,6 +110,18 @@
   .waiting-user-badge { background: #d18616; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
   .open-question-btn { background: #d18616; color: #fff; border: none; padding: 1px 7px; border-radius: 3px; font-size: 10px; cursor: pointer; }
   .open-question-btn:hover { filter: brightness(1.15); }
+  .bg-wait { margin: 4px 0 2px; padding: 4px 8px; border-left: 3px solid #d18616; background: rgba(209,134,22,0.08); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .bg-wait-badge { font-weight: 600; }
+  .bg-wait-help, .bg-wait-btn { font-size: 10px; padding: 1px 7px; border-radius: 3px; border: 1px solid #d18616; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+  .bg-wait-btn.stop { border-color: #e5534b; }
+  .bg-wait-btn:disabled { opacity: 0.5; cursor: default; }
+  .bg-wait-list { flex-basis: 100%; margin-top: 4px; }
+  .bg-wait-task { margin: 2px 0; }
+  .bg-wait-task-id { opacity: 0.7; }
+  .bg-wait-task-cmd, .bg-wait-task-out { margin-left: 12px; opacity: 0.85; }
+  .rep-answer-chip.bg-left { border-color: #e5534b; color: #e5534b; }
+  .rep-answer-chip.bg-left.active { background: #e5534b; color: #fff; }
+  .bg-left-note { font-size: 10px; color: #e5534b; }
   .warning-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
     padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600;
     background: rgba(233, 167, 0, 0.15); color: var(--vscode-inputValidation-warningBorder, #e9a700);

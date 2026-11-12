@@ -74,6 +74,7 @@ export type InputCloseReason =
     | 'result-without-session-state'
     | 'background-done'
     | 'background-wait-limit'
+    | 'background-wait-stopped'
     | (string & {});
 
 /** A live, non-ambient background task the CLI reported. */
@@ -92,6 +93,10 @@ export interface BackgroundWaitSnapshot {
     /** Epoch ms the wait began. */
     since: number;
     limitMs: number;
+    /** Epoch ms the limit counts from (Keep waiting restarts it). */
+    limitFrom: number;
+    /** Wait without limit: the limit no longer applies. */
+    unlimited: boolean;
     tasks: BackgroundTaskInfo[];
 }
 
@@ -105,6 +110,10 @@ export type InputChannelEvent =
     | { kind: 'done' }
     /** The limit was reached; closing despite these tasks. */
     | { kind: 'limit'; tasks: BackgroundTaskInfo[]; limitMs: number }
+    /** The user changed the limit: none (Wait without limit), or the limit again from now (Keep waiting). */
+    | { kind: 'limit-changed'; unlimited: boolean; limitMs: number }
+    /** The user stopped waiting; closing despite these tasks. */
+    | { kind: 'stopped'; tasks: BackgroundTaskInfo[] }
     /** Background waiting is off (limit 0); closing despite these tasks. */
     | { kind: 'abandoned'; tasks: BackgroundTaskInfo[] };
 
@@ -168,6 +177,11 @@ export class QueryInputChannel {
     private backgroundTimer: ReturnType<typeof setTimeout> | undefined;
     /** Epoch ms the current background wait began. */
     private waitingSince: number | undefined;
+    /** Epoch ms the limit counts from, and whether the user lifted it. */
+    private limitFrom: number | undefined;
+    private unlimited = false;
+    /** Why the channel closed with work still running. */
+    private stillRunningWhy: 'limit' | 'stopped' | 'off' | undefined;
     /** The tasks still running when the channel closed at the limit (or with waiting off). */
     private stillRunning: BackgroundTaskInfo[] = [];
     private reason: InputCloseReason | undefined;
@@ -216,7 +230,43 @@ export class QueryInputChannel {
     /** What the channel waits for now, or undefined when it is not waiting. */
     backgroundWait(): BackgroundWaitSnapshot | undefined {
         if (this.waitingSince === undefined || this.closed) { return undefined; }
-        return { since: this.waitingSince, limitMs: this.backgroundLimitMs, tasks: this.liveBackgroundTasks() };
+        return {
+            since: this.waitingSince,
+            limitMs: this.backgroundLimitMs,
+            limitFrom: this.limitFrom ?? this.waitingSince,
+            unlimited: this.unlimited,
+            tasks: this.liveBackgroundTasks(),
+        };
+    }
+
+    /** Why the channel closed with work still running (`stillRunningAtClose`), if it did. */
+    get stillRunningReason(): 'limit' | 'stopped' | 'off' | undefined { return this.stillRunningWhy; }
+
+    /** Wait until the tasks end, however long (the user's choice). No-op when not waiting. */
+    waitWithoutLimit(): void {
+        if (this.waitingSince === undefined || this.closed) { return; }
+        this.unlimited = true;
+        if (this.backgroundTimer !== undefined) { clearTimeout(this.backgroundTimer); this.backgroundTimer = undefined; }
+        this.emit({ kind: 'limit-changed', unlimited: true, limitMs: this.backgroundLimitMs });
+    }
+
+    /** Start the limit again from now (the user's choice). No-op when not waiting. */
+    keepWaiting(): void {
+        if (this.waitingSince === undefined || this.closed) { return; }
+        this.unlimited = false;
+        this.limitFrom = Date.now();
+        if (this.backgroundTimer !== undefined) { clearTimeout(this.backgroundTimer); }
+        this.backgroundTimer = setTimeout(() => this.onBackgroundLimit(), this.backgroundLimitMs);
+        this.emit({ kind: 'limit-changed', unlimited: false, limitMs: this.backgroundLimitMs });
+    }
+
+    /** End the wait now (the user's choice): the turn ends, naming what still runs. No-op when not waiting. */
+    stopWaiting(): void {
+        if (this.waitingSince === undefined || this.closed) { return; }
+        this.stillRunning = this.liveBackgroundTasks();
+        this.stillRunningWhy = 'stopped';
+        this.emit({ kind: 'stopped', tasks: this.stillRunning });
+        this.close('background-wait-stopped');
     }
 
     /** The tasks still running when the channel closed at the limit (or with waiting off); empty otherwise. */
@@ -301,13 +351,16 @@ export class QueryInputChannel {
         }
         if (this.backgroundLimitMs <= 0) {
             this.stillRunning = this.liveBackgroundTasks();
+            this.stillRunningWhy = 'off';
             this.emit({ kind: 'abandoned', tasks: this.stillRunning });
             this.close('idle-after-answer');
             return;
         }
-        if (this.backgroundTimer === undefined) {
+        if (this.waitingSince === undefined) {
             // One limit for the whole wait: a follow-up turn while other tasks still run does not restart it.
             this.waitingSince = Date.now();
+            this.limitFrom = this.waitingSince;
+            this.unlimited = false;
             this.emit({ kind: 'waiting', tasks: this.liveBackgroundTasks(), limitMs: this.backgroundLimitMs });
             this.backgroundTimer = setTimeout(() => this.onBackgroundLimit(), this.backgroundLimitMs);
         }
@@ -343,6 +396,7 @@ export class QueryInputChannel {
         this.backgroundTimer = undefined;
         if (this.closed || this.liveTasks.size === 0) { return; }
         this.stillRunning = this.liveBackgroundTasks();
+        this.stillRunningWhy = 'limit';
         this.emit({ kind: 'limit', tasks: this.stillRunning, limitMs: this.backgroundLimitMs });
         this.close('background-wait-limit');
     }
@@ -402,6 +456,8 @@ export class QueryInputChannel {
             this.backgroundTimer = undefined;
         }
         this.waitingSince = undefined;
+        this.limitFrom = undefined;
+        this.unlimited = false;
     }
 
     /**
@@ -464,6 +520,13 @@ export function describeInputChannelEvent(event: InputChannelEvent): string {
             return 'The background work has ended; the turn goes on with its result.';
         case 'limit':
             return `Stopped waiting after ${formatMinutes(event.limitMs)} (the background-wait limit): ${countTasks(event.tasks.length)} still running (${listTasks(event.tasks)}). `
+                + 'Their results will not be delivered to this turn.';
+        case 'limit-changed':
+            return event.unlimited
+                ? 'Waiting without limit for the background work (your choice).'
+                : `Waiting again up to ${formatMinutes(event.limitMs)} from now for the background work (your choice).`;
+        case 'stopped':
+            return `Stopped waiting (your choice): ${countTasks(event.tasks.length)} still running (${listTasks(event.tasks)}). `
                 + 'Their results will not be delivered to this turn.';
         case 'abandoned':
             return `Not waiting for ${countTasks(event.tasks.length)} still running (the background-wait limit is 0): ${listTasks(event.tasks)}. `

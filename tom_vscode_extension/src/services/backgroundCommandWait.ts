@@ -11,15 +11,15 @@
  */
 
 import type { OwnedCommand } from '../tools/process-tools';
-import type { BackgroundWaitState, BackgroundWorkItem } from '../utils/backgroundWait';
+import type { BackgroundWaitControl, BackgroundWaitState, BackgroundWorkItem } from '../utils/backgroundWait';
 
 export type CommandWaitOutcome =
     /** Nothing of the send's was running. */
     | { kind: 'none' }
     /** Everything waited for has ended (their final state). */
     | { kind: 'finished'; commands: OwnedCommand[] }
-    /** The limit was reached (or waiting is off, limit 0) with these still running. */
-    | { kind: 'limit'; running: BackgroundWorkItem[] }
+    /** The limit was reached, the user stopped waiting, or waiting is off (limit 0), with these still running. */
+    | { kind: 'limit'; running: BackgroundWorkItem[]; reason: 'limit' | 'stopped' | 'off' }
     /** The send was cancelled while waiting. */
     | { kind: 'cancelled' };
 
@@ -31,6 +31,8 @@ export interface CommandWaitDeps {
     isCancelled(): boolean;
     /** The waiting state while waiting, `undefined` once the wait is over. */
     onState?(state: BackgroundWaitState | undefined): void;
+    /** The user's controls of the wait while it runs, `undefined` once it is over. */
+    onControl?(control: BackgroundWaitControl | undefined): void;
     /** Poll interval. Default 2 s. */
     pollMs?: number;
 }
@@ -43,32 +45,48 @@ function workItem(c: OwnedCommand): BackgroundWorkItem {
 export async function waitForOwnedCommands(limitMinutes: number, deps: CommandWaitDeps): Promise<CommandWaitOutcome> {
     const first = deps.list().filter((c) => c.running);
     if (first.length === 0) { return { kind: 'none' }; }
-    if (limitMinutes <= 0) { return { kind: 'limit', running: first.map(workItem) }; }
+    if (limitMinutes <= 0) { return { kind: 'limit', running: first.map(workItem), reason: 'off' }; }
     const handles = new Set(first.map((c) => c.handle));
     const since = deps.now();
     const limitMs = limitMinutes * 60_000;
-    const stateOf = (running: OwnedCommand[]): BackgroundWaitState => ({
+    // The user's choices: no limit, the limit again from now, stop now.
+    let limitFrom = since;
+    let unlimited = false;
+    let stopRequested = false;
+    let running = first;
+    const stateOf = (now: OwnedCommand[]): BackgroundWaitState => ({
         since: new Date(since).toISOString(),
         limitMinutes,
-        items: running.map(workItem),
+        ...(limitFrom !== since ? { limitFrom: new Date(limitFrom).toISOString() } : {}),
+        ...(unlimited ? { unlimited: true as const } : {}),
+        items: now.map(workItem),
     });
-    let shown = [...handles].join(',');
-    deps.onState?.(stateOf(first));
+    let shown = '';
+    const show = (): void => {
+        const key = JSON.stringify(stateOf(running));
+        if (key === shown) { return; }
+        shown = key;
+        deps.onState?.(stateOf(running));
+    };
+    deps.onControl?.({
+        waitWithoutLimit: () => { unlimited = true; show(); },
+        keepWaiting: () => { unlimited = false; limitFrom = deps.now(); show(); },
+        stop: () => { stopRequested = true; },
+    });
+    show();
     try {
         for (;;) {
             await deps.sleep(deps.pollMs ?? 2_000);
             if (deps.isCancelled()) { return { kind: 'cancelled' }; }
             const mine = deps.list().filter((c) => handles.has(c.handle));
-            const running = mine.filter((c) => c.running);
+            running = mine.filter((c) => c.running);
             if (running.length === 0) { return { kind: 'finished', commands: mine }; }
-            if (deps.now() - since >= limitMs) { return { kind: 'limit', running: running.map(workItem) }; }
-            const key = running.map((c) => c.handle).join(',');
-            if (key !== shown) {
-                shown = key;
-                deps.onState?.(stateOf(running));
-            }
+            if (stopRequested) { return { kind: 'limit', running: running.map(workItem), reason: 'stopped' }; }
+            if (!unlimited && deps.now() - limitFrom >= limitMs) { return { kind: 'limit', running: running.map(workItem), reason: 'limit' }; }
+            show();
         }
     } finally {
+        deps.onControl?.(undefined);
         deps.onState?.(undefined);
     }
 }

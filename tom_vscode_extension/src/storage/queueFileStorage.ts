@@ -193,7 +193,9 @@ export interface QueuePromptYaml {
     /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
     'todo-id-pattern'?: string;
     /** A repeated item's main-prompt answer per repetition (the todo id or the repetition number). */
-    'repetition-answers'?: Array<{ key: string; text: string; at: string }>;
+    'repetition-answers'?: Array<{ key: string; text: string; at: string; 'background-left'?: boolean }>;
+    /** The main answer's turn ended with background work still running (a red answer). */
+    'answer-background-left'?: boolean;
     /** The longest a turn of the item waits for its own background work, in minutes (0: no wait). */
     'background-wait-limit-minutes'?: number;
     /** While a turn waits for its background work: since, the limit and what still runs (utils/backgroundWait.ts). */

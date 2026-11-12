@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto';
 import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwners';
 import { commandsFinishedMessage, waitForOwnedCommands } from '../services/backgroundCommandWait';
 import { commandsOfOwner } from '../tools/process-tools';
-import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitState } from '../utils/backgroundWait';
+import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { whileWaitingForUser } from '../services/userWaits';
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
@@ -409,6 +409,8 @@ export interface AnthropicSendOptions {
     backgroundWaitLimitMinutes?: number;
     /** While the turn waits for its background work: the state; `undefined` once the wait is over. */
     onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
+    /** The controls of the background wait while it runs (Wait without limit, Keep waiting, Stop waiting); `undefined` once it is over. */
+    onBackgroundWaitControl?: (control: BackgroundWaitControl | undefined) => void;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -519,6 +521,8 @@ export interface AnthropicSendResult {
      * included. Set by the direct transport when the API reported usage.
      */
     usage?: LiveTrailTokenCounts;
+    /** The turn ended with background work still running (the limit, or the user stopped waiting): its answer carries the hint. */
+    backgroundLeft?: true;
 }
 
 /** The send result with its usage, when there is any. */
@@ -1876,6 +1880,7 @@ export class AnthropicHandler {
             now: () => Date.now(),
             sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
             isCancelled: () => options.cancellationToken?.isCancellationRequested === true,
+            onControl: (control) => { try { options.onBackgroundWaitControl?.(control); } catch { /* display only */ } },
             onState: (state) => {
                 if (state && !announced) {
                     announced = true;
@@ -1889,8 +1894,8 @@ export class AnthropicHandler {
                 liveTrail?.appendNotice('The background commands have ended; the turn goes on with their result.');
                 return { continueWith: commandsFinishedMessage(outcome.commands) };
             case 'limit':
-                liveTrail?.appendNotice(`Stopped waiting (the background-wait limit): still running ${listBackgroundWork(outcome.running)}.`);
-                return { hint: stillRunningHint(outcome.running, limit) };
+                liveTrail?.appendNotice(`Stopped waiting (${outcome.reason === 'stopped' ? 'your choice' : 'the background-wait limit'}): still running ${listBackgroundWork(outcome.running)}.`);
+                return { hint: stillRunningHint(outcome.running, limit, outcome.reason) };
             default:
                 return {};
         }
@@ -2561,6 +2566,7 @@ export class AnthropicHandler {
                     queueRun: options.source === 'queue',
                     backgroundLimitMs: resolveBackgroundWaitLimitMinutes(options.backgroundWaitLimitMinutes, profile.backgroundWaitLimitMinutes) * 60_000,
                     ...(options.onBackgroundWait ? { onBackgroundWait: options.onBackgroundWait } : {}),
+                    ...(options.onBackgroundWaitControl ? { onBackgroundWaitControl: options.onBackgroundWaitControl } : {}),
                     context: {
                         requestApproval: (req) => this.awaitApproval(req),
                         sessionApprovals: this.sessionApprovals,
@@ -2912,7 +2918,8 @@ export class AnthropicHandler {
                     if (background.hint) { lastText += background.hint; }
                     this.takeHookStop(requestId);
                     const usage = finishUsage();
-                    return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
+                    const finished = withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
+                    return background.hint ? { ...finished, backgroundLeft: true } : finished;
                 }
 
                 messages.push({ role: 'assistant', content: response.content });
@@ -3505,7 +3512,7 @@ export class AnthropicHandler {
                     this.takeHookStop(requestId);
                     lastStopReason = 'end_turn';
                     writeLocalUsage();
-                    return withUsage(this.finalize(
+                    const finished = withUsage(this.finalize(
                         userContent,
                         lastText,
                         turn + 1,
@@ -3519,6 +3526,7 @@ export class AnthropicHandler {
                         effectiveUserText,
                         liveTrail,
                     ), Object.keys(localUsage).length > 0 ? localUsage : undefined);
+                    return background.hint ? { ...finished, backgroundLeft: true } : finished;
                 }
 
                 // Append assistant turn with tool_calls so Ollama sees the

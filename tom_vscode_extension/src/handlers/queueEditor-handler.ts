@@ -39,6 +39,7 @@ import { runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
+import { backgroundWaitLine, formatLimit, listBackgroundWork } from '../utils/backgroundWait';
 import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
 import { questTrailFolder } from '../utils/questPaths';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
@@ -642,6 +643,10 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'openPendingQuestion':
           await vscode.commands.executeCommand('tomAi.showPendingQuestion');
           break;
+        case 'backgroundWaitAction':
+          // The waiting item's buttons: Wait without limit / Keep waiting / Stop waiting.
+          applyBackgroundWaitAction(qm, msg.id, msg.action);
+          break;
         case 'resendLastPrompt':
           try {
             await qm.resendLastPrompt(msg.id);
@@ -1084,8 +1089,18 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     if (!item || item.status !== 'sending') { return; }
     const question = qm.pendingQuestionOf(id);
     const walk = walkPrefixOf(item) !== undefined;
-    const options = continueOptions({ waitingForAnswer: question !== undefined, canResend: item.lastDispatched !== undefined, walk });
-    const text = continuePrompt({ waitingSince: question ? waitingSinceLabel(question.askedAt, Date.now()) : undefined, walk });
+    const background = qm.backgroundWaitOf(id);
+    const options = continueOptions({
+        waitingForAnswer: question !== undefined,
+        canResend: item.lastDispatched !== undefined,
+        walk,
+        ...(background ? { backgroundLimit: formatLimit(background.limitMinutes) } : {}),
+    });
+    const text = continuePrompt({
+        waitingSince: question ? waitingSinceLabel(question.askedAt, Date.now()) : undefined,
+        walk,
+        ...(background ? { backgroundWait: backgroundWaitLine(background, Date.now()) } : {}),
+    });
     const picked = await vscode.window.showWarningMessage(text.message, { modal: true, detail: text.detail }, ...options.map((o) => o.label));
     const action: ContinueAction | undefined = options.find((o) => o.label === picked)?.action;
     if (!action) { return; }
@@ -1093,6 +1108,9 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
         await vscode.commands.executeCommand('tomAi.showPendingQuestion');
         return;
     }
+    if (action === 'waitWithoutLimit') { qm.waitWithoutLimit(id); return; }
+    if (action === 'keepWaiting') { qm.keepWaitingForBackground(id); return; }
+    if (action === 'stopWaiting') { qm.stopBackgroundWait(id); return; }
     if (action === 'resend') {
         await resendRunningStage(qm, id, true);
         return;
@@ -1115,6 +1133,33 @@ async function resendRunningStage(qm: PromptQueueManager, id: string, confirmed 
     } catch (err) {
         vscode.window.showWarningMessage(`Resend failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+}
+
+/** What the editor shows of a sending item's background wait, or undefined when it does not wait. */
+export function backgroundWaitViewOf(item: QueuedPrompt, now = Date.now()): { line: string; limit: string; unlimited: boolean; items: Array<{ id: string; description: string; command?: string; outputFile?: string; kind: string }> } | undefined {
+    if (item.status !== 'sending' || !item.backgroundWait) { return undefined; }
+    const state = item.backgroundWait;
+    return {
+        line: backgroundWaitLine(state, now),
+        limit: formatLimit(state.limitMinutes),
+        unlimited: state.unlimited === true,
+        items: state.items.map((i) => ({ id: i.id, kind: i.kind, description: i.description, ...(i.command ? { command: i.command } : {}), ...(i.outputFile ? { outputFile: i.outputFile } : {}) })),
+    };
+}
+
+/** A waiting item's button: the manager's action, answered with a note when the wait is already over. */
+export function applyBackgroundWaitAction(qm: PromptQueueManager, id: string, action: unknown): boolean {
+    const done = action === 'waitWithoutLimit' ? qm.waitWithoutLimit(id)
+        : action === 'keepWaiting' ? qm.keepWaitingForBackground(id)
+            : action === 'stopWaiting' ? qm.stopBackgroundWait(id)
+                : false;
+    if (!done) {
+        const state = qm.backgroundWaitOf(id);
+        void vscode.window.showInformationMessage(state
+            ? `The item's wait cannot be changed now (${listBackgroundWork(state.items)}).`
+            : 'The item no longer waits for background work.');
+    }
+    return done;
 }
 
 /** Whether a `chat` item's send still runs (it holds its session). */
@@ -1272,6 +1317,8 @@ function buildState(): Record<string, unknown> {
                 ...(waitingForUserOf(item) ? { waitingForUser: waitingForUserOf(item) } : {}),
                 // Its turn waits in a tomAi_askUser question: since when (and the Open question button).
                 ...(pendingQuestionLabelOf(item) ? { pendingQuestionSince: pendingQuestionLabelOf(item) } : {}),
+                // Its turn waits for its background work: the line, the limit and the running tasks (the ? list).
+                ...(backgroundWaitViewOf(item) ? { backgroundWaitView: backgroundWaitViewOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };

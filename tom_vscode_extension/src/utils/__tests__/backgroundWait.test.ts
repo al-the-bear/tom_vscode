@@ -5,6 +5,8 @@
  *   BW-2 the hint names the limit and what still ran, or that waiting is off
  *   BW-3 the waiting state round-trips through the queue file; a malformed one reads as none
  *   BW-4 limits as given: whole minutes, 0 or more
+ *   BW-5 the waiting line: `2 tasks, 1 h 20 min of 6 h`; no limit; a limit restarted from a time; the stop reason in the
+ *        hint; limit-from and unlimited round-trip through the queue file
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- the queue file's YAML keys */
@@ -14,6 +16,7 @@ import assert from 'node:assert/strict';
 import {
     DEFAULT_BACKGROUND_WAIT_LIMIT_MINUTES,
     backgroundWaitFromYaml,
+    backgroundWaitLine,
     backgroundWaitToYaml,
     formatLimit,
     resolveBackgroundWaitLimitMinutes,
@@ -72,5 +75,21 @@ describe('background wait', () => {
         assert.equal(validLimit(-1), undefined);
         assert.equal(validLimit(''), undefined);
         assert.equal(validLimit('abc'), undefined);
+    });
+
+    test('BW-5: the waiting line, the stop reason, the file', () => {
+        const since = new Date(2026, 10, 12, 18, 0).toISOString();
+        const items = [
+            { id: 'b1', kind: 'task' as const, description: 'suites' },
+            { id: 'b2', kind: 'task' as const, description: 'corpus' },
+        ];
+        const now = Date.parse(since) + 80 * 60_000;
+        assert.equal(backgroundWaitLine({ since, limitMinutes: 360, items }, now), '2 tasks, 1 h 20 min of 6 h');
+        assert.equal(backgroundWaitLine({ since, limitMinutes: 360, unlimited: true, items: [items[0]] }, now), '1 task, 1 h 20 min, no limit');
+        const from = new Date(2026, 10, 12, 19, 5).toISOString();
+        assert.equal(backgroundWaitLine({ since, limitMinutes: 360, limitFrom: from, items }, now), '2 tasks, 1 h 20 min, limit 6 h from 19:05');
+        assert.match(stillRunningHint([items[0]], 360, 'stopped'), /the user stopped waiting for it/);
+        const state: BackgroundWaitState = { since, limitMinutes: 360, limitFrom: from, unlimited: true, items };
+        assert.deepEqual(backgroundWaitFromYaml(JSON.parse(JSON.stringify(backgroundWaitToYaml(state)))), state);
     });
 });

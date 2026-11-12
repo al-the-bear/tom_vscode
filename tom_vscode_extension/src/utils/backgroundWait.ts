@@ -44,8 +44,44 @@ export interface BackgroundWaitState {
     since: string;
     /** The limit that bounds it, in minutes. */
     limitMinutes: number;
+    /** ISO instant the limit counts from (Keep waiting restarts it); absent: `since`. */
+    limitFrom?: string;
+    /** The user chose Wait without limit: the limit no longer applies. */
+    unlimited?: true;
     /** The work still running. */
     items: BackgroundWorkItem[];
+}
+
+/**
+ * What the user can do with a running wait (the queue editor's and @CHAT's
+ * buttons, Continue's choices); the transport that waits hands it to the
+ * queue while it waits.
+ */
+export interface BackgroundWaitControl {
+    /** Wait until the work ends, however long. */
+    waitWithoutLimit(): void;
+    /** Start the limit again from now (the configured limit). */
+    keepWaiting(): void;
+    /** End the wait now: the turn ends with the still-running hint, the queue goes on. */
+    stop(): void;
+}
+
+/** Why a wait ended with work still running. */
+export type StillRunningReason = 'limit' | 'stopped' | 'off';
+
+/** `2 tasks, 1 h 20 min of 6 h` — what is waited for, how long so far, and the limit. */
+export function backgroundWaitLine(state: BackgroundWaitState, now: number): string {
+    const n = state.items.length;
+    const since = Date.parse(state.since);
+    const elapsed = formatLimit(Math.max(0, (now - (Number.isFinite(since) ? since : now)) / 60_000));
+    const count = `${n} ${n === 1 ? 'task' : 'tasks'}`;
+    if (state.unlimited) { return `${count}, ${elapsed}, no limit`; }
+    if (state.limitFrom && state.limitFrom !== state.since) {
+        const from = new Date(state.limitFrom);
+        const two = (v: number): string => (v < 10 ? `0${v}` : String(v));
+        return `${count}, ${elapsed}, limit ${formatLimit(state.limitMinutes)} from ${two(from.getHours())}:${two(from.getMinutes())}`;
+    }
+    return `${count}, ${elapsed} of ${formatLimit(state.limitMinutes)}`;
 }
 
 function positiveOrZero(n: unknown): number | undefined {
@@ -68,6 +104,8 @@ export function backgroundWaitToYaml(state: BackgroundWaitState): Record<string,
     return {
         since: state.since,
         'limit-minutes': state.limitMinutes,
+        ...(state.limitFrom ? { 'limit-from': state.limitFrom } : {}),
+        ...(state.unlimited ? { unlimited: true } : {}),
         items: state.items.map((i) => ({
             id: i.id,
             kind: i.kind,
@@ -96,7 +134,13 @@ export function backgroundWaitFromYaml(raw: unknown): BackgroundWaitState | unde
             ...(typeof i['output-file'] === 'string' ? { outputFile: i['output-file'] } : {}),
         });
     }
-    return { since: r.since, limitMinutes: limit, items };
+    return {
+        since: r.since,
+        limitMinutes: limit,
+        ...(typeof r['limit-from'] === 'string' ? { limitFrom: r['limit-from'] } : {}),
+        ...(r.unlimited === true ? { unlimited: true as const } : {}),
+        items,
+    };
 }
 
 /** `6 h`, `90 min`, `1 h 30 min`. */
@@ -121,11 +165,13 @@ export function listBackgroundWork(items: readonly BackgroundWorkItem[]): string
  * The hint the turn's answer ends with when the wait ended with work still
  * running: the limit reached (or waiting off, limit 0).
  */
-export function stillRunningHint(items: readonly BackgroundWorkItem[], limitMinutes: number): string {
+export function stillRunningHint(items: readonly BackgroundWorkItem[], limitMinutes: number, reason?: StillRunningReason): string {
     const n = items.length;
     const what = `${n} background ${n === 1 ? 'task was' : 'tasks were'} still running`;
-    const why = limitMinutes > 0
-        ? `the queue stopped waiting after ${formatLimit(limitMinutes)} (the background-wait limit)`
-        : 'waiting for background work is off (limit 0)';
+    const why = reason === 'stopped'
+        ? 'the user stopped waiting for it'
+        : (reason ?? (limitMinutes > 0 ? 'limit' : 'off')) === 'limit'
+            ? `the queue stopped waiting after ${formatLimit(limitMinutes)} (the background-wait limit)`
+            : 'waiting for background work is off (limit 0)';
     return `\n\n_(${what} when this turn ended — ${why}; ${n === 1 ? 'its result' : 'their results'} did not reach this turn: ${listBackgroundWork(items)}.)_`;
 }

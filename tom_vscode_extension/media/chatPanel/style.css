@@ -67,3 +67,14 @@
 /* The run pickers (vscimpb48): a subpanel on another run than the PROCESS view's is marked. */
 .run-select { max-width: 9em; margin-left: 4px; }
 .run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }
+
+/* A queue item waiting for its background work (renderQueueBackgroundWaits). */
+.bg-waits { margin: 4px 0; }
+.bg-wait { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #d18616; background: rgba(209,134,22,0.08); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.bg-wait-badge { font-weight: 600; }
+.bg-wait-help, .bg-wait-btn { font-size: 10px; padding: 1px 7px; border-radius: 3px; border: 1px solid #d18616; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+.bg-wait-btn.stop { border-color: #e5534b; }
+.bg-wait-btn:disabled { opacity: 0.5; cursor: default; }
+.bg-wait-list { flex-basis: 100%; margin-top: 4px; }
+.bg-wait-task-id { opacity: 0.7; }
+.bg-wait-task-cmd, .bg-wait-task-out { margin-left: 12px; opacity: 0.85; }

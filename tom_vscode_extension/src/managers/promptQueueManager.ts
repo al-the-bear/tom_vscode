@@ -72,7 +72,7 @@ import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
-import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitState } from '../utils/backgroundWait';
+import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
@@ -338,6 +338,8 @@ export interface QueuedPrompt {
      * cleared when the wait ends.
      */
     backgroundWait?: BackgroundWaitState;
+    /** The latest main answer's turn ended with background work still running (its answer carries the hint): shown red. */
+    answerBackgroundLeft?: true;
     /**
      * "Pause after this": when set, the queue stops once this item has
      * finished its **last** stage / repetition — the item itself always runs
@@ -749,6 +751,8 @@ export class PromptQueueManager {
      * a stage of it is in flight: it is not "paused", whatever auto-send says.
      */
     private _frameOwners = new Map<string, symbol>();
+    /** The controls of each sending item's background wait (Wait without limit, Keep waiting, Stop waiting), while its send runs. */
+    private readonly _backgroundControls = new Map<string, BackgroundWaitControl>();
 
     /**
      * Queue per run (vscimpb46, src/utils/queueLanes.ts): one lane per process
@@ -4817,6 +4821,11 @@ export class PromptQueueManager {
                 // The turn waits for its own background work, at most the item's (else the profile's) limit.
                 ...(waitItem?.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: waitItem.backgroundWaitLimitMinutes } : {}),
                 onBackgroundWait: (state) => this._showBackgroundWait(waitItem, state),
+                // The user's controls of the wait (the editor's and @CHAT's buttons, Continue's choices).
+                onBackgroundWaitControl: (control) => {
+                    if (!waitItem) { return; }
+                    if (control) { this._backgroundControls.set(waitItem.id, control); } else { this._backgroundControls.delete(waitItem.id); }
+                },
             })));
             if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
                 logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
@@ -4825,7 +4834,11 @@ export class PromptQueueManager {
             }
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
-                if (waitItem && stageForAnswer === waitItem) { recordRepetitionAnswer(waitItem, result.text, resolveRepeatCount); }
+                if (waitItem && stageForAnswer === waitItem) {
+                    // A turn that ended with background work still running: its answer (the hint in it) shows red.
+                    recordRepetitionAnswer(waitItem, result.text, resolveRepeatCount, new Date(), result.backgroundLeft === true);
+                    if (result.backgroundLeft) { waitItem.answerBackgroundLeft = true; } else { delete waitItem.answerBackgroundLeft; }
+                }
             }
             if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
             // Propagate responseValues on EVERY direct answer — pre-prompt,
@@ -4841,6 +4854,7 @@ export class PromptQueueManager {
         } finally {
             this._showSendWait(waitItem, null);
             this._showBackgroundWait(waitItem, undefined);
+            if (waitItem) { this._backgroundControls.delete(waitItem.id); }
             if (this._activeAnthropicCts.get(ctsKey) === cts) {
                 this._activeAnthropicCts.delete(ctsKey);
             }
@@ -4903,6 +4917,43 @@ export class PromptQueueManager {
     /** What a turn of item `id` waits for in the background, while it waits. */
     backgroundWaitOf(id: string): BackgroundWaitState | undefined {
         return this._items.find(i => i.id === id)?.backgroundWait;
+    }
+
+    /** The controls of the background wait of the sending item `id`, while it waits. */
+    private _backgroundControlOf(id: string): BackgroundWaitControl | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending' || !item.backgroundWait) { return undefined; }
+        return this._backgroundControls.get(id);
+    }
+
+    /** Wait without limit for the background work item `id`'s turn waits for. Answers whether it waited. */
+    waitWithoutLimit(id: string): boolean {
+        const control = this._backgroundControlOf(id);
+        if (!control) { return false; }
+        logQueue(`Item ${id}: wait without limit for its background work (the user's choice)`);
+        control.waitWithoutLimit();
+        return true;
+    }
+
+    /** Start the background-wait limit of item `id` again from now. Answers whether it waited. */
+    keepWaitingForBackground(id: string): boolean {
+        const control = this._backgroundControlOf(id);
+        if (!control) { return false; }
+        logQueue(`Item ${id}: keep waiting for its background work, the limit again from now (the user's choice)`);
+        control.keepWaiting();
+        return true;
+    }
+
+    /**
+     * Stop waiting for the background work of item `id`: its turn ends with the
+     * still-running hint and the queue goes on with the next stage or item. Answers whether it waited.
+     */
+    stopBackgroundWait(id: string): boolean {
+        const control = this._backgroundControlOf(id);
+        if (!control) { return false; }
+        logQueue(`Item ${id}: stop waiting for its background work (the user's choice)`);
+        control.stop();
+        return true;
     }
 
     /** Add one stage's usage to the item's run sum (`sendUsage`), so the queue editor shows it while the item runs. */
@@ -6254,6 +6305,7 @@ export class PromptQueueManager {
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
                 ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
+                ...(main['answer-background-left'] === true ? { answerBackgroundLeft: true } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
 
@@ -6399,7 +6451,8 @@ export class PromptQueueManager {
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
-            ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({ key: a.key, text: a.text, at: a.at })) } : {}),
+            ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({ key: a.key, text: a.text, at: a.at, ...(a.backgroundLeft ? { 'background-left': true } : {}) })) } : {}),
+            ...(item.answerBackgroundLeft ? { 'answer-background-left': true } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)

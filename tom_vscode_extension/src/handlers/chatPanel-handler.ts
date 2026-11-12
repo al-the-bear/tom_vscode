@@ -434,6 +434,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
         // The run pickers follow the quest's runs and the window's run (created, deleted, selected).
         this._watchRuns(webviewView);
+        // A queue item waiting for its background work: shown here too, with the same choices.
+        this._watchQueueBackgroundWaits(webviewView);
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(
@@ -658,6 +660,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
                         break;
+                    case 'queueBackgroundWaitAction': {
+                        // A waiting queue item's button: Wait without limit / Keep waiting / Stop waiting.
+                        const queueModule = await import('../managers/promptQueueManager.js');
+                        const { applyBackgroundWaitAction } = await import('./queueEditor-handler.js');
+                        applyBackgroundWaitAction(queueModule.PromptQueueManager.instance, String(message.id ?? ''), message.action);
+                        break;
+                    }
                     case 'openQueueTemplatesEditor':
                         await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
                         break;
@@ -891,6 +900,36 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _runsListener?: { dispose(): void };
+
+    /**
+     * The queue items waiting for their background work, as the webview shows
+     * them (the same line, list and buttons as the queue editor): sent on every
+     * queue change that alters them, and each minute while one waits (its
+     * running time). Nothing waits: an empty list hides the line.
+     */
+    private _watchQueueBackgroundWaits(view: vscode.WebviewView): void {
+        void (async () => {
+            const queueModule = await import('../managers/promptQueueManager.js');
+            const { backgroundWaitViewOf } = await import('./queueEditor-handler.js');
+            const queue = await queueModule.PromptQueueManager.whenReady();
+            if (this._view !== view) { return; }
+            let last = '';
+            const send = (): void => {
+                const waits = queue.items
+                    .map((item) => ({ item, view: backgroundWaitViewOf(item) }))
+                    .filter((w) => w.view !== undefined)
+                    .map((w) => ({ id: w.item.id, label: String(w.item.originalText || w.item.expandedText || w.item.id).split('\n')[0].slice(0, 80), view: w.view }));
+                const now = JSON.stringify(waits);
+                if (now === last) { return; }
+                last = now;
+                void view.webview.postMessage({ type: 'queueBackgroundWaits', waits });
+            };
+            const sub = queue.onDidChange(send);
+            const timer = setInterval(send, 60_000);
+            view.onDidDispose(() => { sub.dispose(); clearInterval(timer); });
+            send();
+        })().catch(() => { /* no queue in this window */ });
+    }
 
     /** Follow the runs: a run created, deleted or selected in the PROCESS view updates the pickers (a deleted one falls back). */
     private _watchRuns(view: vscode.WebviewView): void {

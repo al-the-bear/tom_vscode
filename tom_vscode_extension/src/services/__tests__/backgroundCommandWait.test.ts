@@ -9,6 +9,8 @@
  *   CW-4 the limit ends the wait with what still runs; limit 0 does not wait; nothing running is "none"
  *   CW-5 a cancelled send stops waiting
  *   CW-6 the message the turn goes on with names each command and how it ended
+ *   CW-7 the user's choices (vscimpb57): Stop waiting ends the wait (reason `stopped`); Wait without limit waits
+ *        past the limit; Keep waiting starts the limit again; the controls are handed out while waiting, then withdrawn
  */
 
 import test, { after, describe } from 'node:test';
@@ -82,7 +84,7 @@ describe('waiting for a send\'s command streams', () => {
     test('CW-4: the limit, limit 0, nothing running', async () => {
         const handle = await start('send-4', 'sleep 5');
         const outcome = await waitForOwnedCommands(0.005, deps('send-4'));
-        assert.deepEqual(outcome, { kind: 'limit', running: [{ id: handle, kind: 'command', description: 'sleep 5', command: 'sleep 5' }] });
+        assert.deepEqual(outcome, { kind: 'limit', running: [{ id: handle, kind: 'command', description: 'sleep 5', command: 'sleep 5' }], reason: 'limit' });
         const off = await waitForOwnedCommands(0, deps('send-4'));
         assert.equal(off.kind, 'limit', 'limit 0: no wait, what runs is named');
         assert.deepEqual(await waitForOwnedCommands(360, deps('nobody')), { kind: 'none' });
@@ -95,6 +97,36 @@ describe('waiting for a send\'s command streams', () => {
         const d = deps('send-5', { isCancelled: () => cancelled });
         assert.deepEqual(await waitForOwnedCommands(360, d), { kind: 'cancelled' });
         assert.equal(d.states[d.states.length - 1], undefined);
+    });
+
+    test('CW-7: the user\'s choices', async () => {
+        // Stop waiting.
+        await start('send-7a', 'sleep 5');
+        let control: import('../../utils/backgroundWait.js').BackgroundWaitControl | undefined;
+        const controls: unknown[] = [];
+        const d = deps('send-7a', { onControl: (c) => { controls.push(c); control = c; } });
+        setTimeout(() => control?.stop(), 120);
+        const stopped = await waitForOwnedCommands(360, d);
+        assert.equal(stopped.kind, 'limit');
+        assert.equal(stopped.kind === 'limit' ? stopped.reason : '', 'stopped');
+        assert.equal(controls[controls.length - 1], undefined, 'withdrawn once the wait is over');
+        // Wait without limit: past a 300 ms limit, until the command ends.
+        await start('send-7b', 'sleep 0.6');
+        const d2 = deps('send-7b', { onControl: (c) => { if (c) { c.waitWithoutLimit(); } } });
+        const unlimited = await waitForOwnedCommands(0.005, d2);
+        assert.equal(unlimited.kind, 'finished', 'waited past the limit');
+        assert.equal(d2.states.find((s) => s?.unlimited)?.unlimited, true, 'the state says no limit');
+        // Keep waiting: the limit again from now.
+        await start('send-7c', 'sleep 0.7');
+        let keep: import('../../utils/backgroundWait.js').BackgroundWaitControl | undefined;
+        const d3 = deps('send-7c', { onControl: (c) => { keep = c; } });
+        setTimeout(() => keep?.keepWaiting(), 250);
+        const keptFrom = Date.now();
+        const kept = await waitForOwnedCommands(0.006, d3); // 360 ms, restarted at 250 ms → 610 ms
+        assert.equal(kept.kind, 'limit');
+        assert.ok(Date.now() - keptFrom >= 550, 'the limit ran again from the click, not from the start');
+        assert.ok(d3.states.some((s) => s?.limitFrom !== undefined), 'the state names the new start');
+        _resetRegistryForTesting();
     });
 
     test('CW-6: the message to go on with', () => {
