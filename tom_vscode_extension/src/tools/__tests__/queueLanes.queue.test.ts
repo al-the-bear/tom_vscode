@@ -20,9 +20,11 @@
  *        starts from the start values
  *   QM-10 a settings file in the old shape (top-level keys) loads into the default run and gives a new run its
  *        start values; writing keeps the old keys as they were and adds `runs:`
+ *   QM-11 the queue editor's tab actions act on their run only (vscimpb60b): Send all staged, Restart, Stop, Retry
+ *        errors (not refused while another run sends), Delete errors, Clear sent, Clear all; a chat send records the
+ *        run it ran in
  *   QM-5 the editor, the tool, Telegram, the Status Page and the window status take or show a run: the editor's
- *        toolbar settings are those of its settings run (messages name it), the lane strip pauses / resumes a
- *        run; tomAi_listQueue reports a run's settings and every run's auto-send; Telegram's pause / continue
+ *        toolbar settings are those of its tab's run (messages name it); tomAi_listQueue reports a run's settings and every run's auto-send; Telegram's pause / continue
  *        take a run (default the window's)
  */
 
@@ -341,10 +343,57 @@ describe('lanes and settings per run', () => {
         (queue() as Json).restoreSettings();
     });
 
+    test('QM-11: the tab actions act on their run', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoSend: false });
+        queue().setRunQueueSettings('r2', { autoSend: false });
+        const st = (text: string, run: string): Promise<QueuedPrompt> =>
+            queue().enqueue({ originalText: text, run, transport: 'anthropic', session: `s-${text}`, deferSend: true, initialStatus: 'staged' } as never);
+        const a = await st('a', 'r1');
+        const b = await st('b', 'r2');
+        assert.equal(queue().sendAllStaged('r1'), 1);
+        assert.deepEqual([statusOf(a), statusOf(b)], ['pending', 'staged'], 'Send all staged: r1 only');
+        // Another run sending does not stop retrying r1's errors.
+        queue().setRunAutoSend('r2', true);
+        queue().sendAllStaged('r2');
+        await wait(60);
+        assert.equal(statusOf(b), 'sending');
+        (queue().getById(a.id) as Json).status = 'error';
+        const retried = await queue().retryAllErrors('r1');
+        assert.equal(retried.requeued + retried.resent, 1, 'r1\'s error retried while r2 sends');
+        await assert.rejects(() => queue().retryAllErrors('r2'), /Run r2 is sending/);
+        // The retry switched r1 on again: its item sends beside r2's.
+        await wait(60);
+        assert.deepEqual([statusOf(a), statusOf(b)], ['sending', 'sending']);
+        // Restart and Stop of one run leave the other's sending item alone.
+        queue().restartQueue('r1');
+        assert.equal(statusOf(b), 'sending', 'Restart of r1 leaves r2 sending');
+        assert.equal(queue().stopActiveItem(undefined, 'r2'), true, 'Stop of r2 stops its item');
+        assert.equal(statusOf(b), 'staged');
+        await wait(60);
+        assert.equal(statusOf(a), 'sending', 'r1 goes on');
+        assert.equal(queue().stopActiveItem(undefined, 'r1'), true);
+        inFlight.clear();
+        // Delete errors, Clear sent, Clear all: per run.
+        (queue().getById(a.id) as Json).status = 'error';
+        (queue().getById(b.id) as Json).status = 'error';
+        queue().clearByStatus('error', 'r1');
+        assert.deepEqual([statusOf(a), statusOf(b)], [undefined, 'error']);
+        const c = await st('c', 'r1');
+        queue().clearAll('r2');
+        assert.deepEqual([statusOf(b), statusOf(c)], [undefined, 'staged'], 'Clear all of r2 leaves r1');
+        // A chat send records the run it ran in.
+        const chatId = queue().addChatItem({ text: 'hi', session: 'chat@r2', source: 'panel', run: 'r2' });
+        assert.equal(queue().getById(chatId)?.run, 'r2');
+        const plain = queue().addChatItem({ text: 'hi', session: 'chat', source: 'panel', run: 'default' });
+        assert.equal(queue().getById(plain)?.run, undefined, 'default: no run written');
+        clean();
+    });
+
     test('QM-5: the editor, the tool, Telegram, the Status Page, the window status', async () => {
         clean();
         queue().setRunHeld('r2', true);
-        assert.equal(queue().runQueueSettings('r2').autoSend, false, 'Pause in the lane strip: the run\'s auto-send');
+        assert.equal(queue().runQueueSettings('r2').autoSend, false, 'setRunHeld (Telegram, tools): the run\'s auto-send');
         // tomAi_listQueue: a run's settings and every run's auto-send.
         const access = {
             items: () => queue().items as never, autoSendEnabled: () => queue().autoSendEnabled,
@@ -360,17 +409,17 @@ describe('lanes and settings per run', () => {
         const tools = fs.readFileSync(path.join(EXT_ROOT, 'src', 'tools', 'chat-enhancement-tools.ts'), 'utf8');
         assert.match(tools, /runSettings\(run\) \{[\s\S]{0,600}settings: \{ \.\.\.m\.runQueueSettings\(name\) \}/);
         assert.deepEqual(queue().laneSummaries(['default', 'r1']).map((l) => [l.run, l.held]).filter(([r]) => r !== 'r1'), [['default', true], ['r2', true]]);
-        // The editor: settings messages name the run; the host applies them to it.
+        // The editor: settings messages name the run; the host applies them to it (the tabs: queueEditorRuns.dom.test).
         const handler = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'queueEditor-handler.ts'), 'utf8');
         assert.match(handler, /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\);/);
         assert.match(handler, /case 'setSettingsRun':/);
         assert.match(handler, /setDefaultTransport\(transport, pid, undefined, run\)/);
-        assert.match(handler, /case 'setRunHeld':\s*if \(typeof msg\.run === 'string' && msg\.run\) \{ qm\.setRunHeld\(msg\.run, msg\.held === true\); \}/);
+        assert.doesNotMatch(handler, /case 'setRunHeld':/, 'the lane strip and its message are gone: a tab\'s play / pause is its run\'s auto-send');
         assert.match(handler, /\.\.\.queueLaneState\(\),/);
         const html = fs.readFileSync(path.join(EXT_ROOT, 'media', 'queueEditor', 'index.html'), 'utf8');
         assert.doesNotMatch(html, /id="queuePerRun"/, 'the Queue per run checkbox is gone');
-        assert.match(html, /id="settingsRunLabel"/);
-        assert.match(html, /id="laneStrip"/);
+        assert.match(html, /id="runTabs"/, 'a tab per run (vscimpb60b) instead of the lane strip');
+        assert.doesNotMatch(html, /id="laneStrip"/);
         // Telegram: pause / continue of a run.
         const telegram = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'telegram-commands.ts'), 'utf8');
         assert.match(telegram, /setRunning: \(running, run\) => \{ PromptQueueManager\.instance\.setRunAutoSend\(run, running\); \}/);

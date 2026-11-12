@@ -38,6 +38,8 @@ export interface ChatQueueItem {
     chatSource?: string;
     /** The window that ran it (the queue folder is shared by every window of the quest). */
     chatWindowId?: string;
+    /** The process run it ran in (the queue editor shows it in that run's tab); unset: `default`. */
+    run?: string;
     answerText?: string;
     error?: string;
 }
@@ -55,6 +57,7 @@ export function newChatItem(opts: {
     source: string;
     windowId: string;
     now: Date;
+    run?: string;
 }): ChatQueueItem {
     return {
         id: opts.id,
@@ -70,6 +73,7 @@ export function newChatItem(opts: {
         session: opts.session,
         chatSource: opts.source,
         chatWindowId: opts.windowId,
+        ...(opts.run && opts.run !== 'default' ? { run: opts.run } : {}),
     };
 }
 

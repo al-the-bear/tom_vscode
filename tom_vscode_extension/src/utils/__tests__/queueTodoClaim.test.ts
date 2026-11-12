@@ -171,7 +171,7 @@ describe('queueTodoClaim', () => {
         ]) {
             assert.match(body(exit), /releaseQuestTodoClaim\(/, `no release in ${exit}`);
         }
-        assert.match(body('clearAll()'), /_releaseClaimsOfDroppedItems\(/);
+        assert.match(body('clearAll(run?: string)'), /_releaseClaimsOfDroppedItems\(/);
         assert.match(body('clearByStatus('), /_releaseClaimsOfDroppedItems\(/);
         assert.match(body('private async dispatchNextStageForSendingItem('), /item\.todoClaim = undefined/);
         assert.match(body('async resendLastPrompt('), /reclaimForResend\(/);

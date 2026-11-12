@@ -1708,7 +1708,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             // It has started: the slot it came from is cleared unless it keeps its text.
             this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
             const result = await trackChatSend(
-                { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel' },
+                { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel', run: this._chatRun('anthropic') },
                 () => runInProcessPosition(runContext, () => AnthropicHandler.instance.sendMessage({
                     userText: text,
                     profile,

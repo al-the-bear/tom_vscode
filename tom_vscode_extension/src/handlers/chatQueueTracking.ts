@@ -27,6 +27,8 @@ export interface TrackedChatSend {
     session: string;
     /** Where the send came from: `panel`, `editor`, `todo panel`, … */
     source: string;
+    /** The process run it ran in (the queue editor shows it in that run's tab); unset: `default`. */
+    run?: string;
 }
 
 /** The error a chat send ends with when its item was removed while it ran. */

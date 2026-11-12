@@ -1,20 +1,21 @@
 /**
- * The Prompt Queue editor and process runs (vscimpb45; media/queueEditor, media/shared/queueEntryRenderFunctions.js).
+ * The Prompt Queue editor: one tab per process run, each its run's queue (vscimpb45, vscimpb60b; media/queueEditor,
+ * media/shared/queueEntryRenderFunctions.js).
  *
- *   QR-1 every item shows the run it belongs to: `[run <run>]` (its own `run`, else its Proceed's, else `default`,
- *        muted); a chat send shows none
- *   QR-2 the run filter offers All runs and every run (the quest's and any an item names, `default` first, the
- *        window's marked); a run shows only its items (chat sends only under All runs); the choice is kept in the
- *        view state
- *   QR-3 Group by run puts the items under a heading per run (`default` first, by name, chat sends last), each
- *        with its count, in their order inside a group
- *   QR-4 the add form's run picker: the quest's runs, the window's chosen by default; Add sends the run picked;
- *        the host passes it to enqueue (an unknown one refused) and puts the runs and the window's run into the state
- *   QR-5 one lane per run, always (vscimpb46, vscimpb60a): no Queue per run checkbox; the lane strip has a row per
- *        lane — sending / pending, `paused` — and Pause / Resume, which send the run's auto-send
- *   QR-6 the toolbar's settings are those of a run (vscimpb60a): the window's run under All runs, the filtered run
- *        otherwise (its label says which); the toggles show that run's values and send its name; changing the
- *        filter tells the host the run (`setSettingsRun`)
+ *   QR-1 the tabs: below the shared compaction row, one tab per run — the quest's runs and any run with items,
+ *        `default` first, the window's marked and selected first; each says whether its run sends, waits or is paused
+ *        and how many open items it has; a tab shows its run's items only, a chat send in the tab of the run it ran in,
+ *        else the default run's; every item keeps its run badge
+ *   QR-2 a tab switch: the list, the toolbar's counts and settings follow; the host is told the run
+ *        (`setSettingsRun`); the tab is kept in the view state over a reload, a tab that is gone falls back to the
+ *        window's run
+ *   QR-3 the tab's toolbar posts its run: Add, auto-send, Auto-Start / -Pause / -Continue, Restart, Stop, Interrupt,
+ *        Send all staged, Retry / Delete errors, Clear sent / all, the Copilot timeout and reminder, the default
+ *        session picker; Collapse / Expand act on the tab's items
+ *   QR-4 gone: the run filter, Group by run, the Queue per run checkbox, the lane strip, the add form's run picker;
+ *        the add form names the tab's run; the Copilot defaults row shows only while the run's default transport is
+ *        Copilot
+ *   QR-5 the host: every toolbar action passes the message's run to the manager (handler source)
  */
 
 import test, { describe } from 'node:test';
@@ -64,112 +65,113 @@ const ITEMS = [
     { ...base, id: 'd', originalText: 'd', expandedText: 'd', processRun: { quest: 'q', state: {}, run: 'chg2' } },
     { ...base, id: 'e', originalText: 'e', expandedText: 'e' },
     { ...base, id: 'f', status: 'chat', originalText: 'chat', expandedText: 'chat', session: 'chat' },
+    { ...base, id: 'g', status: 'chat-sent', originalText: 'chat2', expandedText: 'chat2', session: 'chat@chg2', run: 'chg2' },
 ];
-/** What the select's / checkbox's inline handler calls (JSDOM's outside-only scripts run no inline handlers). */
-const pick = (w: Win, id: string, value: string | boolean): void => {
-    const el = w.document.getElementById(id);
-    if (typeof value === 'boolean') { el.checked = value; w.setGroupByRun(el.checked); } else { el.value = value; w.setRunFilter(el.value); }
+const tabs = (w: Win): string[] => [...w.document.querySelectorAll('#runTabs .run-tab')].map((b: Win) => b.textContent.replace(/\s+/g, ' ').trim());
+const listedText = (w: Win): string => w.document.getElementById('queueList').textContent;
+const clickTab = (w: Win, run: string): void => { w.document.querySelector(`#runTabs .run-tab[data-run="${run}"]`).click(); };
+const SETTINGS = {
+    default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
+    chg1: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 30, defaultTransport: 'anthropic' },
+    chg2: { autoSend: false, autoStart: true, autoPause: false, autoContinue: true, responseTimeoutMinutes: 120, defaultTransport: 'copilot' },
 };
 
-describe('Prompt Queue editor — process runs', () => {
-    test('QR-1: the run badge', (t) => {
-        const { w } = setup(t, ITEMS);
-        const badges = [...w.document.querySelectorAll('#queueList .run-badge')].map((b: Win) => b.textContent);
-        assert.deepEqual(badges.sort(), ['[run chg1]', '[run chg2]', '[run chg2]', '[run default]', '[run default]'], 'every item but the chat send');
-        assert.ok([...w.document.querySelectorAll('#queueList .run-badge.default-run')].length === 2, 'default muted');
+describe('Prompt Queue editor — one tab per run', () => {
+    test('QR-1: the tabs', (t) => {
+        const items = [...ITEMS, { ...base, id: 'h', status: 'sending', originalText: 'h', expandedText: 'h', run: 'default' }];
+        const { w } = setup(t, items, {}, { runQueueSettings: SETTINGS });
+        const row = w.document.getElementById('runTabs');
+        const shared = w.document.getElementById('compactionPickers');
+        assert.ok(shared.compareDocumentPosition(row) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the shared models above the tabs');
+        assert.ok(w.document.querySelector('h2').compareDocumentPosition(shared) & w.Node.DOCUMENT_POSITION_FOLLOWING);
+        assert.ok(row.compareDocumentPosition(w.document.querySelector('.toolbar')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the toolbar is the tab\'s');
+        assert.ok(row.compareDocumentPosition(w.document.getElementById('queueDefaultPickerSlot')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'so is the defaults row');
+        assert.deepEqual(tabs(w), ['default 4', 'chg1 (this window) 1', 'chg2 2'], 'default first, the window\'s marked, open items counted (a running chat send too)');
+        const states = [...row.querySelectorAll('.run-tab')].map((b: Win) => [b.dataset.run, b.dataset.state, b.classList.contains('active')]);
+        assert.deepEqual(states, [['default', 'sending', false], ['chg1', 'waiting', true], ['chg2', 'paused', false]], 'the window\'s run selected first');
+        assert.match(row.querySelector('[data-run="chg2"]').title, /paused/);
+        assert.match(listedText(w), /\[run chg1\]/);
+        assert.doesNotMatch(listedText(w), /\[run chg2\]|\[run default\]/, 'only the tab\'s run');
+        clickTab(w, 'default');
+        assert.match(listedText(w), /CHAT/, 'a chat send without a run: the default run\'s tab');
+        assert.equal((listedText(w).match(/\[run default\]/g) ?? []).length, 3, 'b, e and the sending h');
+        clickTab(w, 'chg2');
+        assert.match(listedText(w), /CHAT SENT/, 'a chat send in the tab of the run it ran in');
+        assert.equal((listedText(w).match(/\[run chg2\]/g) ?? []).length, 2);
     });
 
-    test('QR-2: the run filter', (t) => {
-        const { w, state } = setup(t, ITEMS);
-        const filter = w.document.getElementById('runFilter');
-        assert.deepEqual([...filter.options].map((o: Win) => o.textContent), ['All runs', 'default', 'chg1 (this window\'s)', 'chg2']);
-        const count = (): number => w.document.querySelectorAll('#queueList .run-badge').length;
-        const chats = (): number => w.document.querySelectorAll('#queueList .chat-badge').length;
-        assert.deepEqual([count(), chats()], [5, 1], 'all runs: every item and the chat send');
-        assert.match(w.document.querySelector('[onchange="setRunFilter(this.value)"]').id, /runFilter/, 'the select calls it');
-        pick(w, 'runFilter', 'chg2');
-        assert.deepEqual([...w.document.querySelectorAll('#queueList .run-badge')].map((b: Win) => b.textContent), ['[run chg2]', '[run chg2]']);
-        assert.equal(chats(), 0, 'a chat send is outside the runs');
-        assert.equal(state().runFilter, 'chg2', 'kept in the view state');
-        pick(w, 'runFilter', 'default');
-        assert.equal(count(), 2, 'its own run and none');
-    });
-
-    test('QR-3: Group by run', (t) => {
-        const { w, state } = setup(t, ITEMS);
-        assert.equal(w.document.querySelector('[onchange="setGroupByRun(this.checked)"]').id, 'groupByRun', 'the checkbox calls it');
-        pick(w, 'groupByRun', true);
-        assert.equal(state().groupByRun, true);
-        const heads = [...w.document.querySelectorAll('#queueList .run-group-head')].map((h: Win) => h.textContent.replace(/\s+/g, ' ').trim());
-        assert.deepEqual(heads, ['Run default (2)', 'Run chg1 (this window\'s) (1)', 'Run chg2 (2)', 'Chat sends (1)']);
-        const order = [...w.document.querySelectorAll('#queueList .run-group-head, #queueList .run-badge, #queueList .chat-badge')]
-            .map((e: Win) => e.classList.contains('run-group-head') ? 'H' : e.textContent);
-        assert.deepEqual(order, ['H', '[run default]', '[run default]', 'H', '[run chg1]', 'H', '[run chg2]', '[run chg2]', 'H', 'CHAT']);
-    });
-
-    test('QR-4: the add form\'s run, and the host', (t) => {
-        const { w, posted } = setup(t, ITEMS);
-        const sel = w.document.getElementById('addRun');
-        assert.deepEqual([...sel.options].map((o: Win) => [o.value, o.selected]), [['default', false], ['chg1', true], ['chg2', false]], 'the window\'s run by default');
-        w.document.getElementById('addText').value = 'new prompt';
-        w.addPrompt();
-        assert.equal(posted.filter((m) => m.type === 'addPrompt').at(-1).run, 'chg1');
-        sel.value = 'chg2';
-        sel.dispatchEvent(new w.Event('change'));
-        w.document.getElementById('addText').value = 'another';
-        w.addPrompt();
-        assert.equal(posted.filter((m) => m.type === 'addPrompt').at(-1).run, 'chg2');
-        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
-        assert.match(host, /\.\.\.\(typeof msg\.run === 'string' && msg\.run \? \{ run: addFormRun\(msg\.run\) \} : \{\}\)/);
-        assert.match(host, /throw new Error\(`The quest has no run "\$\{run\}"/);
-        assert.match(host, /\.\.\.queueRunState\(\),/);
-    });
-
-    test('QR-5: the lane strip, one lane per run', (t) => {
-        const plain = setup(t, ITEMS);
-        assert.equal(plain.w.document.getElementById('queuePerRun'), null, 'no Queue per run checkbox');
-        const lanes = [
-            { run: 'default', sending: 0, pending: 2, held: false },
-            { run: 'chg1', sending: 1, pending: 0, held: false },
-            { run: 'chg2', sending: 0, pending: 2, held: true },
-        ];
-        const { w, posted } = setup(t, ITEMS, {}, { heldRuns: ['chg2'], lanes });
-        const rows = [...w.document.querySelectorAll('#laneStrip .lane')];
-        assert.deepEqual(rows.map((r: Win) => r.textContent.replace(/\s+/g, ' ').trim()), [
-            'default · 0 sending · 2 pending Pause',
-            'chg1 (this window\'s) · 1 sending · 0 pending Pause',
-            'chg2 · 0 sending · 2 pending · paused Resume',
-        ]);
-        assert.deepEqual(rows.map((r: Win) => r.className), ['lane lane-waiting', 'lane lane-sending', 'lane lane-held']);
-        rows[2].querySelector('button').click();
-        assert.deepEqual(posted.filter((m) => m.type === 'setRunHeld').at(-1), { type: 'setRunHeld', run: 'chg2', held: false });
-        rows[1].querySelector('button').click();
-        assert.deepEqual(posted.filter((m) => m.type === 'setRunHeld').at(-1), { type: 'setRunHeld', run: 'chg1', held: true });
-    });
-
-    test('QR-6: the toolbar\'s settings are a run\'s', (t) => {
-        const runQueueSettings = {
-            chg1: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
-            chg2: { autoSend: false, autoStart: true, autoPause: false, autoContinue: true, responseTimeoutMinutes: 120, defaultTransport: 'anthropic' },
-            default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
-        };
-        const { w, posted } = setup(t, ITEMS, {}, { runQueueSettings });
-        assert.match(w.document.getElementById('settingsRunLabel').textContent, /^Settings of run chg1 \(this window's\)$/, 'All runs: the window\'s run');
+    test('QR-2: a tab switch', (t) => {
+        const { w, posted, state } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS });
         assert.deepEqual(posted.filter((m) => m.type === 'setSettingsRun').at(-1), { type: 'setSettingsRun', run: 'chg1' });
         assert.match(w.document.getElementById('autoSendBtn').title, /ON/);
-        w.setRunFilter('chg2');
+        assert.match(w.document.getElementById('countLabel').textContent, /Pending: 1 /);
+        clickTab(w, 'chg2');
+        assert.equal(w.document.querySelector('#runTabs .run-tab.active').dataset.run, 'chg2');
         assert.deepEqual(posted.filter((m) => m.type === 'setSettingsRun').at(-1), { type: 'setSettingsRun', run: 'chg2' });
-        assert.equal(w.document.getElementById('settingsRunLabel').textContent, 'Settings of run chg2');
-        assert.match(w.document.getElementById('autoSendBtn').title, /OFF/);
+        assert.equal(state().queueTab, 'chg2', 'kept in the view state');
+        assert.match(w.document.getElementById('autoSendBtn').title, /OFF/, 'the run\'s own settings');
         assert.match(w.document.getElementById('autoStartBtn').title, /ON/);
         assert.equal(w.document.getElementById('responseTimeout').value, '120');
-        w.toggleAutoSend();
-        w.toggleAutoPause();
+        assert.match(w.document.getElementById('countLabel').textContent, /Pending: 2 /);
+        // A reload: the kept tab is selected again.
+        const again = setup(t, ITEMS, state(), { runQueueSettings: SETTINGS });
+        assert.equal(again.w.document.querySelector('#runTabs .run-tab.active').dataset.run, 'chg2');
+        // A tab that is gone: the window's run.
+        const gone = setup(t, ITEMS, { queueTab: 'removed' }, { runQueueSettings: SETTINGS });
+        assert.equal(gone.w.document.querySelector('#runTabs .run-tab.active').dataset.run, 'chg1');
+    });
+
+    test('QR-3: the tab\'s toolbar posts its run', (t) => {
+        const { w, posted } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS });
+        clickTab(w, 'chg2');
+        posted.length = 0;
+        for (const fn of ['toggleAutoSend', 'toggleAutoStart', 'toggleAutoPause', 'toggleAutoContinue', 'restartQueue', 'stopActiveItem',
+            'interruptActiveForContinuation', 'sendAllStaged', 'retryAllErrors', 'clearErrors', 'clearSent', 'clearAll']) { w[fn](); }
         w.setResponseTimeout('30');
-        assert.deepEqual(posted.slice(-3), [
-            { type: 'toggleAutoSend', run: 'chg2' },
-            { type: 'toggleAutoPause', run: 'chg2' },
-            { type: 'setResponseTimeout', minutes: 30, run: 'chg2' },
+        assert.deepEqual(posted.map((m) => [m.type, m.run]), [
+            ['toggleAutoSend', 'chg2'], ['toggleAutoStart', 'chg2'], ['toggleAutoPause', 'chg2'], ['toggleAutoContinue', 'chg2'],
+            ['restartQueue', 'chg2'], ['stopActiveItem', 'chg2'], ['interruptActiveForContinuation', 'chg2'], ['sendAllStaged', 'chg2'],
+            ['retryAllErrors', 'chg2'], ['clearErrors', 'chg2'], ['clearSent', 'chg2'], ['clearAll', 'chg2'], ['setResponseTimeout', 'chg2'],
         ]);
+        posted.length = 0;
+        w.document.getElementById('addText').value = 'new prompt';
+        w.addPrompt();
+        assert.equal(posted.find((m) => m.type === 'addPrompt').run, 'chg2', 'Add adds to the tab\'s run');
+        posted.length = 0;
+        w.collapseAll();
+        assert.deepEqual(posted.find((m) => m.type === 'setAllDetailsExpanded').ids.sort(), ['a', 'd', 'g'], 'Collapse acts on the tab\'s items');
+        // The context bar's Session link picks the tab's run's default session.
+        const sessionLink = w.document.querySelector('#contextSummary [data-pick="session"]');
+        assert.ok(sessionLink, 'the Session link');
+        posted.length = 0;
+        sessionLink.click();
+        assert.deepEqual(posted.at(-1), { type: 'pickQueueDefaultSession', run: 'chg2' });
+    });
+
+    test('QR-4: what is gone, and the add form', (t) => {
+        const { w } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS });
+        for (const id of ['runFilter', 'groupByRun', 'queuePerRun', 'laneStrip', 'addRun', 'settingsRunLabel']) {
+            assert.equal(w.document.getElementById(id), null, `no #${id}`);
+        }
+        assert.equal(w.document.querySelectorAll('.run-group-head').length, 0);
+        assert.equal(w.document.getElementById('addRunLabel').textContent, 'Run: chg1 (this window\'s)');
+        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, 'none', 'chg1 sends on Anthropic: no Copilot defaults');
+        clickTab(w, 'chg2');
+        assert.equal(w.document.getElementById('addRunLabel').textContent, 'Run: chg2');
+        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, '', 'chg2 on Copilot: its answer timeout and reminder');
+    });
+
+    test('QR-5: the host passes the run of every toolbar action', () => {
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        for (const call of [
+            /qm\.clearByStatus\('sent', tabRunOf\(msg\)\)/, /qm\.clearByStatus\('error', tabRunOf\(msg\)\)/, /qm\.clearAll\(tabRunOf\(msg\)\)/,
+            /qm\.sendAllStaged\(tabRunOf\(msg\)\)/, /qm\.retryAllErrors\(tabRunOf\(msg\)\)/, /qm\.restartQueue\(tabRunOf\(msg\)\)/,
+            /qm\.stopActiveItem\(typeof msg\.id === 'string' && msg\.id \? msg\.id : undefined, tabRunOf\(msg\)\)/,
+            /qm\.interruptActiveItemForContinuation\(msg\.type === 'interruptForContinuation' \? msg\.id : undefined, tabRunOf\(msg\)\)/,
+            /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\)/,
+            /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ responseTimeoutMinutes:/,
+            /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ defaultReminderTemplateId:/,
+            /\.\.\.\(typeof msg\.run === 'string' && msg\.run \? \{ run: addFormRun\(msg\.run\) \} : \{\}\)/,
+        ]) { assert.match(host, call); }
     });
 });

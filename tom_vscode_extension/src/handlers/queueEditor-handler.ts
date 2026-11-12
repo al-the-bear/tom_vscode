@@ -762,21 +762,22 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             reminderRepeat: msg.reminderRepeat,
           });
           break;
+        // The toolbar of a run's tab: every action acts on that run's items (`run`; none: the whole queue).
         case 'clearSent':
-            qm.clearByStatus('sent');
+            qm.clearByStatus('sent', tabRunOf(msg));
             break;
         case 'clearErrors':
-            qm.clearByStatus('error');
+            qm.clearByStatus('error', tabRunOf(msg));
             break;
         case 'clearAll':
-            qm.clearAll();
+            qm.clearAll(tabRunOf(msg));
             break;
         case 'sendAllStaged':
-            qm.sendAllStaged();
+            qm.sendAllStaged(tabRunOf(msg));
             break;
         case 'retryAllErrors':
             try {
-                const summary = await qm.retryAllErrors();
+                const summary = await qm.retryAllErrors(tabRunOf(msg));
                 if (summary.resent === 0 && summary.requeued === 0) {
                     vscode.window.showInformationMessage('No error-state items to retry.');
                 } else {
@@ -804,16 +805,12 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             sendState();        // explicit update in case onDidChange listener isn't wired
             break;
         }
-        case 'setRunHeld':
-            if (typeof msg.run === 'string' && msg.run) { qm.setRunHeld(msg.run, msg.held === true); }
-            sendState();
-            break;
         case 'restartQueue':
-            qm.restartQueue();
+            qm.restartQueue(tabRunOf(msg));
             sendState();
             break;
         case 'stopActiveItem': {
-            const stopped = qm.stopActiveItem(typeof msg.id === 'string' && msg.id ? msg.id : undefined);
+            const stopped = qm.stopActiveItem(typeof msg.id === 'string' && msg.id ? msg.id : undefined, tabRunOf(msg));
             if (!stopped) {
                 vscode.window.showInformationMessage('No prompt is currently running.');
             }
@@ -824,7 +821,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         // interrupt-for-continuation share one manager entry point.
         case 'interruptActiveForContinuation':
         case 'interruptForContinuation': {
-            const held = qm.interruptActiveItemForContinuation(msg.type === 'interruptForContinuation' ? msg.id : undefined);
+            const held = qm.interruptActiveItemForContinuation(msg.type === 'interruptForContinuation' ? msg.id : undefined, tabRunOf(msg));
             if (!held) {
                 vscode.window.showInformationMessage('No prompt is currently running.');
             }
@@ -1385,6 +1382,11 @@ function queueLaneState(): { heldRuns: string[]; lanes: LaneSummary[]; runQueueS
     } catch {
         return { heldRuns: [], lanes: [], runQueueSettings: {} };
     }
+}
+
+/** The run of the tab a toolbar action came from (`run`), undefined = the whole queue. */
+function tabRunOf(msg: { run?: unknown }): string | undefined {
+    return typeof msg.run === 'string' && msg.run.trim() ? msg.run.trim() : undefined;
 }
 
 /** The run the editor's toolbar settings are for (its Run filter, else the window's run), as the webview last said. */

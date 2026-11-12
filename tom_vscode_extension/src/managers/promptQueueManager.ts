@@ -1980,11 +1980,11 @@ export class PromptQueueManager {
     set autoPauseEnabled(v: boolean) { this.setRunQueueSettings(undefined, { autoPause: v }); }
 
     /** Restart the queue: reset stuck "sending" items to "pending" and restart processing. */
-    restartQueue(): void {
-        logQueue('Restarting queue processing');
+    restartQueue(run?: string): void {
+        logQueue(`Restarting queue processing${run !== undefined ? ` of run ${normalizeRun(run)}` : ''}`);
         let resetCount = 0;
         for (const item of this._items) {
-            if (item.status === 'sending') {
+            if (item.status === 'sending' && this._inRun(item, run)) {
                 item.status = 'pending';
                 resetCount++;
             }
@@ -3141,13 +3141,14 @@ export class PromptQueueManager {
      * Returns `true` if a sending item was found and/or an active
      * dispatch was cancelled; `false` if there was nothing to stop.
      */
-    stopActiveItem(id?: string): boolean {
+    stopActiveItem(id?: string, run?: string): boolean {
+        // Without an id: the sending item (of `run`, when given — a tab of the queue editor).
         const sending = id
             ? this._items.find(i => i.id === id && i.status === 'sending')
-            : this._items.find(i => i.status === 'sending');
+            : this._items.find(i => i.status === 'sending' && this._inRun(i, run));
         const hasActiveCts = sending
             ? this._activeAnthropicCts.has(sending.id) || this._activeAnthropicCts.has('')
-            : this._activeAnthropicCts.size > 0;
+            : run === undefined && this._activeAnthropicCts.size > 0;
 
         if (!sending && !hasActiveCts) {
             logQueue('stopActiveItem: no sending item and no active dispatch to stop');
@@ -3195,10 +3196,10 @@ export class PromptQueueManager {
      * currently `sending` item is taken (the toolbar button). Returns `true`
      * when an item was interrupted.
      */
-    interruptActiveItemForContinuation(id?: string): boolean {
+    interruptActiveItemForContinuation(id?: string, run?: string): boolean {
         const sending = id
             ? this._items.find(i => i.id === id && i.status === 'sending')
-            : this._items.find(i => i.status === 'sending');
+            : this._items.find(i => i.status === 'sending' && this._inRun(i, run));
         if (!sending) {
             logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
             return false;
@@ -3257,8 +3258,8 @@ export class PromptQueueManager {
         return true;
     }
 
-    sendAllStaged(): number {
-        const changed = convertStagedToPending(this._items);
+    sendAllStaged(run?: string): number {
+        const changed = convertStagedToPending(this._items.filter((i) => this._inRun(i, run)));
         if (changed === 0) { return 0; }
 
         this.persist();
@@ -3315,9 +3316,9 @@ export class PromptQueueManager {
      * window's older one, or one of a window that is gone) is settled first.
      * Answers the item's id for completeChatItem.
      */
-    addChatItem(opts: { text: string; profileId?: string; session: string; source: string }): string {
+    addChatItem(opts: { text: string; profileId?: string; session: string; source: string; run?: string }): string {
         const ownWindowId = getWindowStatusWindowId();
-        const chat = newChatItem({ id: randomUUID(), text: opts.text, profileId: opts.profileId, session: opts.session, source: opts.source, windowId: ownWindowId, now: new Date() });
+        const chat = newChatItem({ id: randomUUID(), text: opts.text, profileId: opts.profileId, session: opts.session, source: opts.source, windowId: ownWindowId, now: new Date(), run: opts.run });
         const item: QueuedPrompt = {
             ...(chat as unknown as QueuedPrompt),
             reminderTemplateId: '__none__',
@@ -3429,9 +3430,9 @@ export class PromptQueueManager {
         return this.enqueue({ ...opts, initialStatus: 'pending', position: nextQueuePosition(this._items) });
     }
 
-    clearByStatus(status: QueuedPromptStatus): void {
-        // "Clear sent" also clears the finished chat sends shown in the queue.
-        const matches = (i: QueuedPrompt): boolean => i.status === status || (status === 'sent' && i.status === CHAT_SENT_STATUS);
+    clearByStatus(status: QueuedPromptStatus, run?: string): void {
+        // "Clear sent" also clears the finished chat sends shown in the queue; `run`: only that run's items.
+        const matches = (i: QueuedPrompt): boolean => (i.status === status || (status === 'sent' && i.status === CHAT_SENT_STATUS)) && this._inRun(i, run);
         this._releaseClaimsOfDroppedItems(this._items.filter(matches), 'cleared');
         this._items = this._items.filter(i => !matches(i));
         this.trimSentHistory();
@@ -3439,10 +3440,11 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
-    /** Clear entire queue (all statuses). */
-    clearAll(): void {
-        this._releaseClaimsOfDroppedItems(this._items, 'queue cleared');
-        this._items = [];
+    /** Clear entire queue (all statuses); `run`: only that run's items. */
+    clearAll(run?: string): void {
+        const dropped = this._items.filter((i) => this._inRun(i, run));
+        this._releaseClaimsOfDroppedItems(dropped, 'queue cleared');
+        this._items = this._items.filter((i) => !this._inRun(i, run));
         this.persist();
         this._onDidChange.fire();
     }
@@ -4388,11 +4390,14 @@ export class PromptQueueManager {
      * error item was re-dispatched, 0 otherwise; `requeued` counts
      * the remaining error items that were flipped to `pending`.
      */
-    async retryAllErrors(): Promise<{ resent: number; requeued: number }> {
-        if (this._items.some(i => i.status === 'sending')) {
-            throw new Error('Another queue item is currently sending; wait for it to finish before retrying errors');
+    async retryAllErrors(run?: string): Promise<{ resent: number; requeued: number }> {
+        // `run`: only that run's errors, and only its own lane must be free.
+        if (this._items.some(i => i.status === 'sending' && this._inRun(i, run))) {
+            throw new Error(run !== undefined
+                ? `Run ${normalizeRun(run)} is sending an item; wait for it to finish before retrying its errors`
+                : 'Another queue item is currently sending; wait for it to finish before retrying errors');
         }
-        const errorItems = this._items.filter(i => i.status === 'error');
+        const errorItems = this._items.filter(i => i.status === 'error' && this._inRun(i, run));
         if (errorItems.length === 0) {
             return { resent: 0, requeued: 0 };
         }
@@ -5713,6 +5718,11 @@ export class PromptQueueManager {
     private _settingsOf(run: string | undefined): RunQueueSettings {
         const name = normalizeRun(run ?? this._windowRun());
         return this._runSettings.get(name) ?? this._runStart;
+    }
+
+    /** Whether `item` belongs to `run` (every item when `run` is undefined; a chat send to the run it ran in, else `default`). */
+    private _inRun(item: QueuedPrompt, run: string | undefined): boolean {
+        return run === undefined || itemRun(item) === normalizeRun(run);
     }
 
     /** The settings of the run `item` belongs to. */

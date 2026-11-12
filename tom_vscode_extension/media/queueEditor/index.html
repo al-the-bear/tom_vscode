@@ -28,6 +28,19 @@
 </head>
 <body>
 <h2>Prompt Queue</h2>
+<!-- The compaction and memory-extraction models: the same keys and choices as
+     the Status Page's History Compaction dropdowns (compactionPickerState).
+     Shared by every run: above the tabs. -->
+<div class="context-bar" id="compactionPickers" style="gap:6px;">
+  <label for="compactionModelPick" style="font-size:0.85em;opacity:0.85;">Compaction model:</label>
+  <select id="compactionModelPick" title="The model that compacts the history (compaction.compactionModel; also on the Status Page, History Compaction)"></select>
+  <label for="memoryModelPick" style="font-size:0.85em;opacity:0.85;">Memory extraction model:</label>
+  <select id="memoryModelPick" title="The model that extracts memory (compaction.memoryExtractionModel; also on the Status Page, History Compaction)"></select>
+</div>
+<!-- One tab per process run (vscimpb60b): the quest's runs and any run that has
+     items. Each tab is that run's queue — its items, its toolbar, its defaults row;
+     the tab shows whether the run sends, waits or is paused. Rendered by main.js. -->
+<div class="run-tabs" id="runTabs" role="tablist" aria-label="The process runs' queues"></div>
 <div class="context-bar">
   <span id="contextSummary" class="context-summary"></span>
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
@@ -40,28 +53,8 @@
      inherit this at dispatch. Per-item / per-stage overrides still win.
      Picker markup is rendered host-side and injected here by main.js. -->
 <div class="context-bar" id="queueDefaultPickerSlot" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;"></div>
-<!-- The compaction and memory-extraction models: the same keys and choices as
-     the Status Page's History Compaction dropdowns (compactionPickerState). -->
-<div class="context-bar" id="compactionPickers" style="gap:6px;">
-  <label for="compactionModelPick" style="font-size:0.85em;opacity:0.85;">Compaction model:</label>
-  <select id="compactionModelPick" title="The model that compacts the history (compaction.compactionModel; also on the Status Page, History Compaction)"></select>
-  <label for="memoryModelPick" style="font-size:0.85em;opacity:0.85;">Memory extraction model:</label>
-  <select id="memoryModelPick" title="The model that extracts memory (compaction.memoryExtractionModel; also on the Status Page, History Compaction)"></select>
-</div>
-<div class="toolbar">
-  <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
-  <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
-  <button class="ctx-btn-icon" id="autoStartBtn" onclick="toggleAutoStart()" title="Auto-Start (enable auto-send on extension load)"><span class="codicon codicon-rocket"></span></button>
-  <button class="ctx-btn-icon" id="autoPauseBtn" onclick="toggleAutoPause()" title="Auto-Pause (pause when queue empties)"><span class="codicon codicon-debug-pause"></span></button>
-  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
-  <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
-  <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
-  <button class="ctx-btn-icon" id="interruptForContinuationBtn" onclick="interruptActiveForContinuation()" title="Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)"><span class="codicon codicon-debug-disconnect"></span></button>
-  <button onclick="sendAllStaged()">Send All Staged</button>
-  <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
-  <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
-  <button onclick="clearSent()">Clear Sent</button>
-  <button onclick="clearAll()">Clear All</button>
+<!-- The run's Copilot answer timeout and reminder template: only while its default transport is Copilot. -->
+<div class="context-bar" id="copilotDefaultsRow">
   <span id="copilotQueueSettings" class="copilot-only">
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
   <select id="responseTimeout" onchange="setResponseTimeout(this.value)">
@@ -80,16 +73,25 @@
   <button class="ctx-btn-icon" onclick="editReminderTemplate()" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
   <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
   </span>
+</div>
+<div class="toolbar">
+  <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
+  <button class="ctx-btn-icon" id="autoSendBtn" onclick="toggleAutoSend()" title="Auto-Send"><span class="codicon codicon-play"></span></button>
+  <button class="ctx-btn-icon" id="autoStartBtn" onclick="toggleAutoStart()" title="Auto-Start (enable auto-send on extension load)"><span class="codicon codicon-rocket"></span></button>
+  <button class="ctx-btn-icon" id="autoPauseBtn" onclick="toggleAutoPause()" title="Auto-Pause (pause when queue empties)"><span class="codicon codicon-debug-pause"></span></button>
+  <button class="ctx-btn-icon" id="autoContinueBtn" onclick="toggleAutoContinue()" title="Auto-Continue (resume repetitions after reload)"><span class="codicon codicon-sync"></span></button>
+  <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
+  <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
+  <button class="ctx-btn-icon" id="interruptForContinuationBtn" onclick="interruptActiveForContinuation()" title="Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)"><span class="codicon codicon-debug-disconnect"></span></button>
+  <button onclick="sendAllStaged()">Send All Staged</button>
+  <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
+  <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
+  <button onclick="clearSent()">Clear Sent</button>
+  <button onclick="clearAll()">Clear All</button>
   <button onclick="collapseAll()">Collapse All</button>
   <button onclick="expandAll()">Expand All</button>
-  <label style="font-size:0.85em;opacity:0.85;" for="runFilter" title="The process run of the quest the items belong to">Run:</label>
-  <select id="runFilter" onchange="setRunFilter(this.value)" title="Show the items of one process run (chat sends are outside the runs: shown under all)"></select>
-  <label style="font-size:0.85em;opacity:0.85;" title="The items per process run, under a heading each"><input type="checkbox" id="groupByRun" onchange="setGroupByRun(this.checked)"> Group by run</label>
-  <span id="settingsRunLabel" style="font-size:0.85em;opacity:0.85;"></span>
   <span id="countLabel" style="margin-left:auto; font-size:0.85em; opacity:0.7;"></span>
 </div>
-<!-- One row per lane (run): what it sends and holds, Pause / Resume (the run's auto-send). -->
-<div class="lane-strip" id="laneStrip" style="display:none;"></div>
 
 <div class="add-form" id="addForm">
   <label>Prompt</label>
@@ -120,8 +122,7 @@
     </select>
   </div>
   <div class="add-options">
-    <label style="margin-right:6px;" for="addRun">Run:</label>
-    <select id="addRun" title="The process run the item belongs to (its sessions are the run's, `<session>@<run>`); default the window's run"></select>
+    <span id="addRunLabel" title="The item belongs to the selected tab's run (its sessions are the run's, `<session>@<run>`)"></span>
   </div>
   <div class="add-options">
     <label style="margin-right:6px;">Queue Repeats:</label>

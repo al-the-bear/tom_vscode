@@ -88,7 +88,7 @@ describe('chat sends in the prompt queue', () => {
         assert.match(qm, /addChatItem\(/);
         assert.match(qm, /completeChatItem\(/);
         assert.match(qm, /settleRunningChatItems\(this\._items, \{ ownWindowId/, 'startup and a new chat send settle stale chat items');
-        assert.match(qm, /clearByStatus\(status: QueuedPromptStatus\)[\s\S]{0,400}CHAT_SENT_STATUS/, 'Clear sent also clears chat-sent');
+        assert.match(qm, /clearByStatus\(status: QueuedPromptStatus, run\?: string\)[\s\S]{0,400}CHAT_SENT_STATUS/, 'Clear sent also clears chat-sent');
         assert.match(src('storage', 'queueFileStorage.ts'), /'chat' \| 'chat-sent'/);
         assert.match(src('storage', 'queueFileStorage.ts'), /status === 'sent' \|\| e\.doc\.meta\.status === 'chat-sent'/);
         assert.match(src('tools', 'prompt-queue-tools.ts'), /includeSent \|\| \(i\.status !== 'sent' && i\.status !== 'chat-sent'\)/);

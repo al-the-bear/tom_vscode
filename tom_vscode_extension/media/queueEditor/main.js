@@ -103,14 +103,14 @@ let currentItems = __INITIAL__.items || [];
 let processRuns = Array.isArray(__INITIAL__.processRuns) ? __INITIAL__.processRuns : ['default'];
 let currentRun = __INITIAL__.currentRun || 'default';
 const __runViewState = (typeof vscode !== 'undefined' && vscode && typeof vscode.getState === 'function' && vscode.getState()) || {};
-let runFilter = typeof __runViewState.runFilter === 'string' ? __runViewState.runFilter : 'all';
-let groupByRun = __runViewState.groupByRun === true;
+// One tab per run (vscimpb60b): the selected tab is kept in the view state over a reload; the window's run first.
+let selectedRun = typeof __runViewState.queueTab === 'string' && __runViewState.queueTab ? __runViewState.queueTab : currentRun;
 // The lanes, one per run (each says whether its run is paused), and the queue settings of each run (from the host).
 let lanes = Array.isArray(__INITIAL__.lanes) ? __INITIAL__.lanes : [];
 let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQueueSettings === 'object') ? __INITIAL__.runQueueSettings : {};
 
-/** The run the toolbar's settings are for: the run the Run filter shows, else the window's run. */
-function settingsRun() { return runFilter !== 'all' ? runFilter : currentRun; }
+/** The run of the selected tab: its items, its toolbar and its settings. */
+function settingsRun() { return selectedRun || currentRun; }
 
 /** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults, Copilot timeout and reminder). */
 function applyRunSettings() {
@@ -238,6 +238,9 @@ if (__afSlot) { __afSlot.addEventListener('change', function () { syncCopilotOnl
 function syncCopilotOnlyFields() {
   var bar = document.getElementById('copilotQueueSettings');
   if (bar) { bar.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
+  // The defaults row holding them goes with them.
+  var row = document.getElementById('copilotDefaultsRow');
+  if (row) { row.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
   var addRow = document.getElementById('addReminderRow');
   var addT = document.querySelector('#addTransportRow select[id$="-transport-t"]');
   var addTransport = addT && addT.value ? addT.value : queueDefaultTransport;
@@ -422,14 +425,17 @@ function render() {
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
 
-  const staged = currentItems.filter(i => i.status === 'staged').length;
-  const pending = currentItems.filter(i => i.status === 'pending').length;
-  const sending = currentItems.filter(i => i.status === 'sending').length;
-  const sent = currentItems.filter(i => i.status === 'sent').length;
-  const blocked = currentItems.filter(i => i.status === 'decision-needed').length;
-  const interrupted = currentItems.filter(i => i.status === 'interrupted').length;
+  renderRunTabs();
+  // The selected tab is its run's queue: its items only, counted for its toolbar.
+  const runItems = currentItems.filter(function(i) { return tabRunOf(i) === settingsRun(); });
+  const staged = runItems.filter(i => i.status === 'staged').length;
+  const pending = runItems.filter(i => i.status === 'pending').length;
+  const sending = runItems.filter(i => i.status === 'sending').length;
+  const sent = runItems.filter(i => i.status === 'sent').length;
+  const blocked = runItems.filter(i => i.status === 'decision-needed').length;
+  const interrupted = runItems.filter(i => i.status === 'interrupted').length;
   // A chat send shown in the queue while it runs (never sent by the queue).
-  const chatRunning = currentItems.filter(i => i.status === 'chat').length;
+  const chatRunning = runItems.filter(i => i.status === 'chat').length;
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
@@ -460,16 +466,10 @@ function render() {
     + (chatRunning > 0 ? '  |  Chat: running' : '')
     + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
 
-  renderRunControls();
+  renderAddRun();
   const list = document.getElementById('queueList');
-  if (currentItems.length === 0) {
-    list.innerHTML = '<div class="empty">Queue is empty</div>';
-    return;
-  }
-
-  const runItems = runFilter === 'all' ? currentItems : currentItems.filter(function(i) { return queueItemRun(i) === runFilter; });
   if (runItems.length === 0) {
-    list.innerHTML = '<div class="empty">No item of the run ' + escapeHtml(runFilter) + '</div>';
+    list.innerHTML = '<div class="empty">The queue of run ' + escapeHtml(settingsRun()) + ' is empty</div>';
     return;
   }
   const sortedItems = [...runItems]
@@ -484,7 +484,7 @@ function render() {
       return a.idx - b.idx;
     })
     .map(function(x) { return x.item; });
-  const displayItems = groupByRun ? groupItemsByRun(sortedItems) : sortedItems;
+  const displayItems = sortedItems;
 
   // A prompt being edited survives the redraw a state push causes: its
   // focus, caret and scroll position are put back.
@@ -492,19 +492,7 @@ function render() {
   const editFocus = active && active.classList && active.classList.contains('qe-text-edit')
     ? { id: active.id, start: active.selectionStart, end: active.selectionEnd, scroll: active.scrollTop }
     : null;
-  let lastGroup = null;
-  list.innerHTML = displayItems.map(function(item, idx) {
-    let head = '';
-    if (groupByRun) {
-      const g = queueItemRun(item);
-      if (g !== lastGroup) {
-        const n = displayItems.filter(function(i) { return queueItemRun(i) === g; }).length;
-        head = '<div class="run-group-head" data-run="' + escapeHtml(g) + '">' + (g ? '<span class="codicon codicon-run-all"></span> Run ' + escapeHtml(g) + (g === currentRun ? ' <span class="muted">(this window\'s)</span>' : '') : '<span class="codicon codicon-comment-discussion"></span> Chat sends') + ' <span class="muted">(' + n + ')</span></div>';
-        lastGroup = g;
-      }
-    }
-    return head + renderEntry(item, idx);
-  }).join('');
+  list.innerHTML = displayItems.map(function(item, idx) { return renderEntry(item, idx); }).join('');
   if (editFocus) {
     const ta = document.getElementById(editFocus.id);
     if (ta) {
@@ -515,96 +503,87 @@ function render() {
   }
 }
 
-/* ---- Process runs (vscimpb45) ---------------------------------------------- */
+/* ---- Process runs: one tab per run (vscimpb45, vscimpb60b) ------------------- */
 
-/** The run an item belongs to: its own, else its Proceed's, else `default`; '' for a chat send (outside the runs). */
-function queueItemRun(item) {
-  if (!item || item.status === 'chat' || item.status === 'chat-sent') { return ''; }
+/** The tab an item shows in: its run (its own, else its Proceed's); a chat send the run it ran in; else `default`. */
+function tabRunOf(item) {
+  if (!item) { return 'default'; }
   return item.run || (item.processRun && item.processRun.run) || 'default';
 }
 
-/** The runs to choose from: the quest's, and any an item still names; `default` first. */
+/** The tabs: the quest's runs and any run that has items; `default` first. */
 function knownRuns() {
   const set = {};
   processRuns.forEach(function(r) { set[r] = true; });
-  currentItems.forEach(function(i) { const r = queueItemRun(i); if (r) { set[r] = true; } });
+  currentItems.forEach(function(i) { set[tabRunOf(i)] = true; });
   return Object.keys(set).sort(function(a, b) { return a === 'default' ? -1 : b === 'default' ? 1 : a < b ? -1 : a > b ? 1 : 0; });
 }
 
-/** The items grouped per run (`default` first, then by name, chat sends last), each group in its order. */
-function groupItemsByRun(items) {
-  const order = knownRuns().concat(['']);
-  return items.map(function(item, i) { return { item: item, i: i, g: order.indexOf(queueItemRun(item)) }; })
-    .sort(function(a, b) { return (a.g - b.g) || (a.i - b.i); })
-    .map(function(x) { return x.item; });
+/** Whether a run sends, waits or is paused (its tab shows it): sending / paused / waiting / idle. */
+function runTabState(run) {
+  const items = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'chat' && i.status !== 'chat-sent'; });
+  if (items.some(function(i) { return i.status === 'sending'; })) { return 'sending'; }
+  const settings = runQueueSettings[run];
+  if (settings && settings.autoSend === false) { return 'paused'; }
+  if (items.some(function(i) { return i.status === 'pending'; })) { return 'waiting'; }
+  return 'idle';
 }
 
-/** The toolbar's run filter, Group by run, and the add form's run picker. */
-function renderRunControls() {
+/** A run tab's state: its icon and word (a function, so the first render — before this point of the script — can use it). */
+function runTabStateView(state) {
+  return {
+    sending: { icon: 'codicon-sync', label: 'sending' },
+    waiting: { icon: 'codicon-clock', label: 'waiting' },
+    paused: { icon: 'codicon-debug-pause', label: 'paused' },
+    idle: { icon: 'codicon-circle-outline', label: 'idle' },
+  }[state];
+}
+
+/** The tab row: one tab per run, the selected one marked; a click switches to that run's queue. */
+function renderRunTabs() {
   const runs = knownRuns();
-  if (runFilter !== 'all' && runs.indexOf(runFilter) < 0) { runFilter = 'all'; }
-  const filter = document.getElementById('runFilter');
-  if (filter) {
-    filter.innerHTML = ['<option value="all"' + (runFilter === 'all' ? ' selected' : '') + '>All runs</option>'].concat(runs.map(function(r) {
-      return '<option value="' + escapeHtml(r) + '"' + (r === runFilter ? ' selected' : '') + '>' + escapeHtml(r) + (r === currentRun ? ' (this window\'s)' : '') + '</option>';
-    })).join('');
-  }
-  const group = document.getElementById('groupByRun');
-  if (group) { group.checked = groupByRun; }
-  const label = document.getElementById('settingsRunLabel');
-  if (label) {
-    label.textContent = 'Settings of run ' + settingsRun() + (settingsRun() === currentRun ? ' (this window\'s)' : '');
-    label.title = 'The auto-send, Auto-Start / -Pause / -Continue, the defaults and the Copilot answer timeout and reminder template here are those of this run; pick another run in Run: to change its settings.';
-  }
-  renderLaneStrip();
-  const add = document.getElementById('addRun');
-  if (add) {
-    const chosen = add.dataset.touched === '1' && processRuns.indexOf(add.value) >= 0 ? add.value : currentRun;
-    add.innerHTML = processRuns.map(function(r) {
-      return '<option value="' + escapeHtml(r) + '"' + (r === chosen ? ' selected' : '') + '>' + escapeHtml(r) + (r === currentRun ? ' (this window\'s)' : '') + '</option>';
-    }).join('');
-    add.onchange = function() { add.dataset.touched = '1'; };
-  }
+  if (runs.indexOf(selectedRun) < 0) { selectedRun = runs.indexOf(currentRun) >= 0 ? currentRun : runs[0]; }
+  const row = document.getElementById('runTabs');
+  if (!row) { return; }
+  row.innerHTML = runs.map(function(run) {
+    const state = runTabState(run);
+    const n = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'sent' && i.status !== 'chat-sent'; }).length;
+    const active = run === selectedRun;
+    return '<button class="run-tab run-tab-' + state + (active ? ' active' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '"'
+      + ' data-run="' + escapeHtml(run) + '" data-state="' + state + '"'
+      + ' title="Run ' + escapeHtml(run) + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + '">'
+      + '<span class="codicon ' + runTabStateView(state).icon + '"></span> ' + escapeHtml(run)
+      + (run === currentRun ? ' <span class="muted">(this window)</span>' : '')
+      + (n ? ' <span class="run-tab-count">' + n + '</span>' : '')
+      + '</button>';
+  }).join('');
+  row.querySelectorAll('.run-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() { selectRunTab(btn.dataset.run); });
+  });
+}
+
+/** The add form adds to the selected tab's run (shown, not chosen). */
+function renderAddRun() {
+  const label = document.getElementById('addRunLabel');
+  if (label) { label.textContent = 'Run: ' + settingsRun() + (settingsRun() === currentRun ? ' (this window\'s)' : ''); }
 }
 
 function saveRunViewState() {
   if (typeof vscode !== 'undefined' && vscode && typeof vscode.setState === 'function') {
     const prev = (typeof vscode.getState === 'function' && vscode.getState()) || {};
-    vscode.setState(Object.assign({}, prev, { runFilter: runFilter, groupByRun: groupByRun }));
+    vscode.setState(Object.assign({}, prev, { queueTab: selectedRun }));
   }
 }
-/* A row per lane (run) — sending / pending, and Pause / Resume: the run's auto-send. */
-function renderLaneStrip() {
-  const strip = document.getElementById('laneStrip');
-  if (!strip) { return; }
-  if (lanes.length === 0) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
-  strip.style.display = '';
-  strip.innerHTML = lanes.map(function(l) {
-    const state = l.held ? 'held' : (l.sending > 0 ? 'sending' : (l.pending > 0 ? 'waiting' : 'idle'));
-    const action = l.held
-      ? '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="0" title="Resume this run: its auto-send comes on and its lane sends again">Resume</button>'
-      : '<button class="lane-btn" data-run="' + escapeHtml(l.run) + '" data-held="1" title="Pause this run: its auto-send goes off; its lane starts nothing and its sending item stops before its next prompt">Pause</button>';
-    return '<span class="lane lane-' + state + '" data-lane="' + escapeHtml(l.run) + '">'
-      + '<b>' + escapeHtml(l.run) + '</b>' + (l.run === currentRun ? ' (this window\'s)' : '')
-      + ' · ' + l.sending + ' sending · ' + l.pending + ' pending'
-      + (l.held ? ' · <i>paused</i>' : '') + ' ' + action + '</span>';
-  }).join('');
-  strip.querySelectorAll('.lane-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() { setRunHeld(btn.dataset.run, btn.dataset.held === '1'); });
-  });
-}
-function setRunHeld(run, held) { vscode.postMessage({ type: 'setRunHeld', run: run, held: !!held }); }
 
-function setRunFilter(value) {
-  runFilter = value || 'all';
+/** Switch to a run's tab: its items, its toolbar, its settings. */
+function selectRunTab(run) {
+  selectedRun = run || currentRun;
   saveRunViewState();
-  // The toolbar's settings follow the run shown.
   postSettingsRun();
   applyRunSettings();
   render();
   if (typeof populateAddForm === 'function') { populateAddForm(); }
 }
-function setGroupByRun(on) { groupByRun = !!on; saveRunViewState(); render(); }
 
 /* Editing a pending item's prompt: the draft lives here, the host holds the queue. */
 function startTextEdit(id) {
@@ -637,15 +616,20 @@ function toggleDetails(id) {
   render();
 }
 
+/** The items of the selected tab (Collapse / Expand act on them). */
+function tabItems() { return currentItems.filter(function(i) { return tabRunOf(i) === settingsRun(); }); }
+
 function collapseAll() {
-  currentItems.forEach(function(item) { detailsExpanded[item.id] = false; });
-  vscode.postMessage({ type: 'setAllDetailsExpanded', ids: currentItems.map(function(item) { return item.id; }), expanded: false });
+  const items = tabItems();
+  items.forEach(function(item) { detailsExpanded[item.id] = false; });
+  vscode.postMessage({ type: 'setAllDetailsExpanded', ids: items.map(function(item) { return item.id; }), expanded: false });
   render();
 }
 
 function expandAll() {
-  currentItems.forEach(function(item) { detailsExpanded[item.id] = true; });
-  vscode.postMessage({ type: 'setAllDetailsExpanded', ids: currentItems.map(function(item) { return item.id; }), expanded: true });
+  const items = tabItems();
+  items.forEach(function(item) { detailsExpanded[item.id] = true; });
+  vscode.postMessage({ type: 'setAllDetailsExpanded', ids: items.map(function(item) { return item.id; }), expanded: true });
   render();
 }
 
@@ -653,10 +637,10 @@ function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend', run: se
 function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart', run: settingsRun() }); }
 function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause', run: settingsRun() }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue', run: settingsRun() }); }
-function restartQueue() { vscode.postMessage({ type: 'restartQueue' }); }
-function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem' }); }
-function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation' }); }
-function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged' }); }
+function restartQueue() { vscode.postMessage({ type: 'restartQueue', run: settingsRun() }); }
+function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem', run: settingsRun() }); }
+function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation', run: settingsRun() }); }
+function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged', run: settingsRun() }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60, run: settingsRun() }); }
 function setDefaultReminderTemplate(templateId) {
   const normalizedTemplateId = templateId || '';
@@ -668,10 +652,10 @@ function setDefaultReminderTemplate(templateId) {
   vscode.postMessage({ type: 'setDefaultReminderTemplate', templateId: normalizedTemplateId, run: settingsRun() });
 }
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
-function clearSent() { vscode.postMessage({ type: 'clearSent' }); }
-function clearAll() { vscode.postMessage({ type: 'clearAll' }); }
-function retryAllErrors() { vscode.postMessage({ type: 'retryAllErrors' }); }
-function clearErrors() { vscode.postMessage({ type: 'clearErrors' }); }
+function clearSent() { vscode.postMessage({ type: 'clearSent', run: settingsRun() }); }
+function clearAll() { vscode.postMessage({ type: 'clearAll', run: settingsRun() }); }
+function retryAllErrors() { vscode.postMessage({ type: 'retryAllErrors', run: settingsRun() }); }
+function clearErrors() { vscode.postMessage({ type: 'clearErrors', run: settingsRun() }); }
 function remove(id) { vscode.postMessage({ type: 'remove', id }); }
 function moveUp(id) { vscode.postMessage({ type: 'moveUp', id }); }
 function moveDown(id) { vscode.postMessage({ type: 'moveDown', id }); }
@@ -764,9 +748,8 @@ function addPrompt() {
     var tplC = document.getElementById('addForm-transport-tpl-copilot');
     if (tplC && tplC.value) { msg.messageTemplateId = tplC.value; }
   }
-  // The process run the item belongs to (default the window's).
-  var runSel = document.getElementById('addRun');
-  if (runSel && runSel.value) { msg.run = runSel.value; }
+  // The selected tab's run: the item belongs to it.
+  msg.run = settingsRun();
   vscode.postMessage(msg);
   ta.value = '';
 }
