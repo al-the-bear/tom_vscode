@@ -164,7 +164,10 @@ export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
  *     `set autoSendEnabled(true)` knows where to resume. (b) The
  *     todo the item's `prefix*` walk would take next is an unanswered
  *     `decision-needed` todo: the gate has already moved the item to `'decision-needed'`
- *     and switched auto-send off before returning.
+ *     and switched auto-send off before returning. (c) The frame must not
+ *     dispatch at all (vscimpb53): its item is no longer `sending` (sent,
+ *     removed, error), or another dispatch frame took the item over — the
+ *     frame stands down, and leaving the item alone is what its caller does.
  *
  * Both reasons share one outcome deliberately. Every caller of this
  * method reacts to `'paused'` by logging and leaving the item alone,
@@ -718,6 +721,16 @@ export class PromptQueueManager {
      */
     private _itemEpochs = new Map<string, number>();
     private _globalEpoch = 0;
+
+    /**
+     * The dispatch frame that owns each item (vscimpb53): one frame per item
+     * runs its stages — `sendItem`, a resume, a resend, an answer's advance,
+     * Continue. A frame takes the item over when it starts; an older frame
+     * still running for it (its stage was in flight) stops at its next stage
+     * instead of dispatching beside the new one. While an item has an owner,
+     * a stage of it is in flight: it is not "paused", whatever auto-send says.
+     */
+    private _frameOwners = new Map<string, symbol>();
 
     /**
      * Queue per run (vscimpb46, src/utils/queueLanes.ts): one lane per process
@@ -1523,7 +1536,7 @@ export class PromptQueueManager {
             if (elapsedMs >= waitMs) {
                 logQueue(`Answer-wait timer expired for ${sending.id}: ${sending.answerWaitMinutes}min elapsed — auto-advancing`);
                 try {
-                    const outcome = await this.dispatchNextStageForSendingItem(sending);
+                    const outcome = await this._runDispatchFrame(sending);
                     if (outcome === 'paused') {
                         logQueue(`Answer-wait advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
                         return;
@@ -1740,7 +1753,7 @@ export class PromptQueueManager {
         debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
 
         try {
-            const outcome = await this.dispatchNextStageForSendingItem(sending);
+            const outcome = await this._runDispatchFrame(sending);
             if (outcome === 'paused') {
                 logQueue(`Answer-file advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
                 this.persist();
@@ -1900,22 +1913,25 @@ export class PromptQueueManager {
         // through this setter (auto-start, a manually-sent item completing).
         if (this._resumeInterruptedItem()) { return; }
 
-        // Re-enabling auto-send. Resume an item that was paused
-        // mid-flight (status === 'sending' with prior progress)
-        // before falling through to `sendNext` for the next pending
-        // item. The in-flight dispatch — if any — already finished
-        // and returned 'paused', so calling
-        // `dispatchNextStageForSendingItem` again here advances to
-        // the next un-dispatched repetition.
+        // Re-enabling auto-send. Resume an item the pause gate holds
+        // (sending, with prior progress, no stage in flight) before
+        // falling through to `sendNext`. An item whose stage is still in
+        // flight — paused and resumed before it ended — is NOT resumed:
+        // its running frame goes on past the gate by itself, and a second
+        // frame beside it would send the walk twice and mark it sent
+        // under the first (vscimpb53).
         if (this._queuePerRun) {
             // Every lane resumes its paused item (a held run's stays); free lanes take their next item.
             this._resumePausedLanes();
             void this.sendNext();
             return;
         }
-        const resuming = this._items.find(i =>
-            i.status === 'sending' && this._itemHasInFlightProgress(i),
-        );
+        const stillRunning = this._items.find(i => i.status === 'sending' && this._itemHasInFlightProgress(i) && !this._isPausedAtGate(i));
+        if (stillRunning) {
+            logQueue(`Auto-send re-enabled: item ${stillRunning.id} still has a stage in flight — it goes on by itself, nothing is resumed`);
+            return;
+        }
+        const resuming = this._items.find(i => this._isPausedAtGate(i));
         if (resuming) {
             logQueue(`Auto-send re-enabled: resuming paused item ${resuming.id} (mp.idx=${resuming.repeatIndex ?? 0}, fu.idx=${resuming.followUpIndex ?? 0})`);
             void this._resumePausedSendingItem(resuming);
@@ -1970,7 +1986,7 @@ export class PromptQueueManager {
     private async _resumePausedSendingItem(item: QueuedPrompt): Promise<void> {
         const epoch = this._epochOf(item);
         try {
-            const outcome = await this.dispatchNextStageForSendingItem(item);
+            const outcome = await this._runDispatchFrame(item);
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`_resumePausedSendingItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
@@ -2990,7 +3006,7 @@ export class PromptQueueManager {
         // answer lives in an answer file — so they are left untouched.
         await this._captureLastAnswerForSendingItem(sending);
 
-        const outcome = await this.dispatchNextStageForSendingItem(sending);
+        const outcome = await this._runDispatchFrame(sending);
         if (outcome === 'paused') {
             logQueue(`advanceSendingItemWithoutAnswer paused for ${sending.id} (${reason}): auto-send off, item kept in 'sending' for resume`);
             this.persist();
@@ -3556,7 +3572,7 @@ export class PromptQueueManager {
     private _resumePausedLanes(run?: string): void {
         const opts = this._laneOptions();
         for (const item of this._items) {
-            if (item.status !== 'sending' || !this._itemHasInFlightProgress(item) || item.awaitingAnswer) { continue; }
+            if (!this._isPausedAtGate(item)) { continue; }
             if (isLaneHeld(item, opts) || (run !== undefined && laneOf(item, true) !== run)) { continue; }
             logQueue(`Resuming paused item ${item.id} of run ${laneOf(item, true)}`);
             void this._resumePausedSendingItem(item);
@@ -3804,7 +3820,7 @@ export class PromptQueueManager {
         const epoch = this._epochOf(item);
 
         try {
-            const outcome = await this.dispatchNextStageForSendingItem(item);
+            const outcome = await this._runDispatchFrame(item);
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`sendItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
@@ -3940,6 +3956,8 @@ export class PromptQueueManager {
         };
 
         const epoch = this._epochOf(item);
+        // The resend is the item's frame from its replayed stage on: an older frame stops at its next stage.
+        const frame = this._claimFrame(item);
         try {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
@@ -3972,7 +3990,7 @@ export class PromptQueueManager {
                 // Anthropic — counters for the resent stage were already
                 // incremented by the original send, so the next dispatch
                 // advances to the *next* stage. Mirrors the tail of sendItem.
-                const outcome = await this.dispatchNextStageForSendingItem(item);
+                const outcome = await this._runDispatchFrame(item, frame);
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 if (outcome === 'done') {
                     liveItem.status = 'sent';
@@ -4004,6 +4022,8 @@ export class PromptQueueManager {
             }
             const liveItem = this._items.find(i => i.id === item.id) ?? item;
             this._markItemError(liveItem, err, `resendLastPrompt(${item.id})`, readInterruptionFromError(err));
+        } finally {
+            this._releaseFrame(item, frame);
         }
     }
 
@@ -5067,7 +5087,57 @@ export class PromptQueueManager {
      * break the resume semantics — keep them in sync with this
      * comment and `_itemHasInFlightProgress`.
      */
-    private async dispatchNextStageForSendingItem(item: QueuedPrompt): Promise<DispatchOutcome> {
+    /** Take item `item` over for a new dispatch frame (an older one stops at its next stage). */
+    private _claimFrame(item: QueuedPrompt): symbol {
+        const frame = Symbol(item.id);
+        this._frameOwners.set(item.id, frame);
+        return frame;
+    }
+
+    /** The frame is done: the item has no owner any more, unless another frame took it over meanwhile. */
+    private _releaseFrame(item: QueuedPrompt, frame: symbol): void {
+        if (this._frameOwners.get(item.id) === frame) { this._frameOwners.delete(item.id); }
+    }
+
+    /** Whether a dispatch frame is running for item `id` (a stage of it is in flight). */
+    private _frameActive(id: string): boolean {
+        return this._frameOwners.has(id);
+    }
+
+    /** Run the item's next stages as one frame that owns the item (see `_frameOwners`). */
+    private async _runDispatchFrame(item: QueuedPrompt, frame: symbol = this._claimFrame(item)): Promise<DispatchOutcome> {
+        try {
+            return await this.dispatchNextStageForSendingItem(item, frame);
+        } finally {
+            this._releaseFrame(item, frame);
+        }
+    }
+
+    /**
+     * Whether `item` is held at the pause gate and so may be resumed: it is
+     * `sending` with progress, no dispatch frame runs for it and no prompt of
+     * it awaits its answer. An item whose stage is still in flight is not —
+     * switching auto-send on lets its running frame go on past the gate by
+     * itself; a second frame beside it would dispatch the same walk twice.
+     */
+    private _isPausedAtGate(item: QueuedPrompt): boolean {
+        return item.status === 'sending' && this._itemHasInFlightProgress(item)
+            && !this._frameActive(item.id) && item.awaitingAnswer !== true;
+    }
+
+    private async dispatchNextStageForSendingItem(item: QueuedPrompt, frame?: symbol): Promise<DispatchOutcome> {
+        // A frame dispatches only for an item that is still sending and still its own (vscimpb53):
+        // a stage that ended after the item was sent, removed or failed, or after another
+        // frame took the item over, must not send the next one.
+        const live = this._items.find(i => i.id === item.id);
+        if (!live || live.status !== 'sending') {
+            logQueue(`dispatchNext: item ${item.id} is ${live ? `'${live.status}'` : 'gone'} — this frame stops, nothing more is dispatched`);
+            return 'paused';
+        }
+        if (frame && this._frameOwners.get(item.id) !== frame) {
+            logQueue(`dispatchNext: item ${item.id} was taken over by another dispatch frame — this one stops`);
+            return 'paused';
+        }
         // Re-entering the dispatcher means the previous dispatch concluded
         // (its answer arrived, or the user advanced past it), so a todo claim
         // it made is settled: the todo keeps whatever status it now has, and
@@ -5168,7 +5238,7 @@ export class PromptQueueManager {
                     // first thing, so pause-mid-flight propagates up.
                     this.persist();
                     this._onDidChange.fire();
-                    return await this.dispatchNextStageForSendingItem(item);
+                    return await this.dispatchNextStageForSendingItem(item, frame);
                 }
                 return 'dispatched';
             }
@@ -5344,7 +5414,7 @@ export class PromptQueueManager {
             if (dispatchResult.mode === 'direct') {
                 this.persist();
                 this._onDidChange.fire();
-                return await this.dispatchNextStageForSendingItem(item);
+                return await this.dispatchNextStageForSendingItem(item, frame);
             }
             return 'dispatched';
         }
@@ -5424,7 +5494,7 @@ export class PromptQueueManager {
                 if (dispatchResult.mode === 'direct') {
                     this.persist();
                     this._onDidChange.fire();
-                    return await this.dispatchNextStageForSendingItem(item);
+                    return await this.dispatchNextStageForSendingItem(item, frame);
                 }
                 return 'dispatched';
             }
@@ -5432,7 +5502,7 @@ export class PromptQueueManager {
             // The recursive call hits the pause gate first, so pause
             // between follow-ups behaves like pause between reps.
             item.followUpIndex = currentFuIndex + 1;
-            return this.dispatchNextStageForSendingItem(item);
+            return this.dispatchNextStageForSendingItem(item, frame);
         }
 
         // No more stages left.
