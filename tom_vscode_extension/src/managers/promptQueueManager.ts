@@ -7,7 +7,7 @@
  */
 
 import { normalizeRun } from '../utils/processRuns';
-import { runSessionName } from '../utils/runSessions';
+import { runQueueSession, runSessionName } from '../utils/runSessions';
 import { isLaneHeld, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -4707,7 +4707,8 @@ export class PromptQueueManager {
         item: QueuedPrompt,
         stage?: { transport?: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string },
     ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {
-        const session = item.session ?? this._defaultAgentSdkSession;
+        // A run's item without its own session runs in the run's queue session (default@<run>), never in another run's.
+        const session = item.session ?? runQueueSession(this._defaultAgentSdkSession, item.run);
         const processRun = item.processRun;
         // The profile: the stage's, else the item's, else the session's, else the queue default.
         const sessionProfile = this.sessionProfileOf(session, session === item.session ? item.sessionCreate : undefined);

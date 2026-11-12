@@ -24,6 +24,22 @@ export function runSessionName(name: string, run: string | undefined): string {
     return `${name}${RUN_SESSION_SEPARATOR}${r}`;
 }
 
+/**
+ * The session a queue item of run `run` runs in when it names none: the
+ * queue's default session (`queueDefault`, else `default`) in that run —
+ * `default@collab` — so the runs never share, or wait for, one queue
+ * conversation. The `default` run keeps the queue default as it is
+ * (undefined: the `default` session); `chat`, temporary sessions and a name
+ * that already names its run are kept.
+ */
+export function runQueueSession(queueDefault: string | undefined, run: string | undefined): string | undefined {
+    const r = normalizeRun(run);
+    if (r === DEFAULT_RUN) { return queueDefault; }
+    const base = queueDefault || 'default';
+    if (base.includes(RUN_SESSION_SEPARATOR) || base === 'chat' || base.startsWith('tmp-')) { return base; }
+    return `${base}${RUN_SESSION_SEPARATOR}${r}`;
+}
+
 /** The run a session belongs to: the part after `@`, else `default`. */
 export function sessionRun(name: string): string {
     const at = name.indexOf(RUN_SESSION_SEPARATOR);

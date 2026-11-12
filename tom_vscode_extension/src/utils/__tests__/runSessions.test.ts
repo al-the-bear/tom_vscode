@@ -14,7 +14,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runSessionName, sessionBaseName, sessionRun, sessionsOfRuns } from '../runSessions.js';
+import { runQueueSession, runSessionName, sessionBaseName, sessionRun, sessionsOfRuns } from '../runSessions.js';
 import { isValidSessionName } from '../agentSdkSessions.js';
 import { effectiveSession, parseProcessYaml, selectProcess, validateProcessDefinition } from '../processDefinition.js';
 import { actionSession } from '../processActionPrompt.js';
@@ -57,5 +57,16 @@ describe('run sessions', () => {
         assert.deepEqual(effectiveSession(DEF, at('s3'), 'chg1'), { name: 'notes@chg1', basedOn: 'prepared' }, 'a prepared context stays shared');
         assert.equal(actionSession(DEF, at('s1'), undefined, null, 'chg1').name, 'work@chg1');
         assert.equal(actionSession(DEF, at('s1'), 'picked', null, 'chg1').name, 'picked', 'an override as given');
+    });
+
+    test('RS-4: the queue session of a run\'s item without its own (qrun1)', () => {
+        assert.equal(runQueueSession(undefined, 'collab'), 'default@collab', 'the queue\'s default session in the run');
+        assert.equal(runQueueSession('work', 'collab'), 'work@collab', 'a named queue default too');
+        assert.equal(runQueueSession(undefined, 'default'), undefined, 'the default run keeps the queue default');
+        assert.equal(runQueueSession(undefined, undefined), undefined);
+        assert.equal(runQueueSession('work', 'default'), 'work');
+        assert.equal(runQueueSession('chat', 'collab'), 'chat', 'the panel\'s session stays shared');
+        assert.equal(runQueueSession('tmp-x', 'collab'), 'tmp-x');
+        assert.equal(runQueueSession('work@other', 'collab'), 'work@other', 'a name that names its run is kept');
     });
 });
