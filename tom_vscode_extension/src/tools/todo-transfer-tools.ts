@@ -151,15 +151,16 @@ export async function renameTodoPrefixImpl(deps: RenameTodoPrefixDeps, input: Re
 
 export const RENAME_TODO_PREFIX_DESCRIPTION =
     'Rename a todo group\'s prefix in one step: every live todo of quest `questId` whose id prefix (everything before its '
-    + 'number; a leading number belongs to the prefix: `001_cleanup2` is todo 2 of `001_cleanup`) is `from` becomes `<to><the rest of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file '
-    + 'it is. Every `blocked_by` / `dependencies` entry naming it follows — plain and `<quest>/<id>` in the quest, '
-    + '`<quest>/<id>` in other quests; each old id keeps a cancelled stub naming the new id in the `-deleted` sibling of its '
-    + 'file, so the `_ai` commit guard (an id may not vanish) accepts the change. Archived and deleted todos of the group '
-    + 'stay as they are. Answers `{ok, dryRun, renames: [{from, to}], references, stubs, keptArchived, documents: [{file, '
-    + 'count}]}` — `documents` are the quest\'s Markdown / YAML files still naming `<from><number>`, which are not rewritten. '
-    + 'Refused, nothing written: a `to` that is no prefix (empty, holding a digit after its leading number, a space or a path character), the same '
-    + 'prefix, a group without live todos, new ids the quest already has (archived and deleted included; `collisions` '
-    + 'lists them). `dryRun: true` answers the plan and writes nothing.';
+    + 'number; a leading number belongs to it: `001_cleanup2` is todo 2 of `001_cleanup`) is `from` becomes `<to><the rest '
+    + 'of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file it is. Every `blocked_by` / `dependencies` '
+    + 'entry naming it follows (`<quest>/<id>` in other quests too); each old id committed at HEAD keeps a cancelled stub '
+    + 'naming the new id in the `-deleted` sibling of its file, for the `_ai` commit guard (an id may not vanish). Archived '
+    + 'and deleted todos of the group stay. Answers `{ok, dryRun, renames: [{from, to}], references, stubs, keptArchived, '
+    + 'documents: [{file, count}]}` — `documents`: the quest\'s Markdown / YAML files still naming `<from><number>`, not '
+    + 'rewritten. Refused, nothing written: a `to` that is no prefix (empty, a digit after its leading number, a space or '
+    + 'a path character), the same prefix, a group without live todos, new ids the todo schema\'s id pattern refuses (the '
+    + 'rule named), new ids the quest already has (archived and deleted included; `collisions`). `dryRun: true` runs the '
+    + 'same steps and answers the same renames, references and stubs, writing nothing.';
 
 export const RENAME_TODO_PREFIX_TOOL: SharedToolDefinition<RenameTodoPrefixInput> = {
     name: 'tomAi_renameTodoPrefix',
@@ -221,11 +222,11 @@ export async function renameQuestTodoImpl(deps: RenameQuestTodoDeps, input: Rena
 export const RENAME_QUEST_TODO_DESCRIPTION =
     'Rename one todo of quest `questId`: `todoId` becomes `newId`, in its live todo file, with every field kept and '
     + '`[renamed from <old>]` added to its notes. Every `blocked_by` / `dependencies` entry naming it follows — plain and '
-    + '`<quest>/<id>` in the quest, `<quest>/<id>` in other quests; the old id keeps a cancelled stub naming the new id in the '
+    + '`<quest>/<id>` in the quest, `<quest>/<id>` in other quests; the old id, when committed at HEAD, keeps a cancelled stub naming the new id in the '
     + '`-deleted` sibling of its file, so the `_ai` commit guard (an id may not vanish) accepts the change. `group` (a prefix) '
     + 'also moves it to the end of that id group, before the group\'s finalizers. Answers `{ok, dryRun, from, to, file, '
     + 'references, stubFile}`. Refused, nothing written: an unknown todo, a `newId` that is empty or holds a space or a / \\ : '
-    + '* ? " < > | # character, an id the quest already has (archived and deleted included), its own id without `group`, a '
+    + '* ? " < > | # character or that the todo schema\'s id pattern refuses (the rule named), an id the quest already has (archived and deleted included), its own id without `group`, a '
     + '`group` that is no prefix. `dryRun: true` checks the same and counts the references, writing nothing. A whole group: '
     + 'tomAi_renameTodoPrefix.';
 

@@ -16,6 +16,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 'yaml';
 import { WsPaths } from '../utils/workspacePaths';
 import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
@@ -27,6 +28,7 @@ import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
+import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
 
@@ -167,6 +169,56 @@ export interface QuestTodoFile {
 
 function getWorkspaceRoot(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+}
+
+/** Why `id` is no todo id by the workspace's todo schema (utils/todoIdRule), or undefined. */
+export function todoIdRefusal(id: string): string | undefined {
+    return todoIdRuleError(id, getWorkspaceRoot());
+}
+
+/** {@link todoIdRefusal} for several ids, each refused one named. */
+export function todoIdsRefusal(ids: Iterable<string>): string | undefined {
+    return todoIdsRuleError(ids, getWorkspaceRoot());
+}
+
+/**
+ * The todo ids committed at HEAD in the repository holding `dir` (every
+ * `*.todo.yaml` of it, so an id moved to another quest's file counts), or
+ * undefined when that cannot be read (no git, no repository, no HEAD). Cached
+ * per repository and HEAD commit: the group rename's input box dry-runs on
+ * every keystroke.
+ */
+const committedIdsCache = new Map<string, Set<string>>();
+export function committedTodoIds(dir: string): Set<string> | undefined {
+    const run = (args: string[]): { status: number | null; stdout: string } => {
+        const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        return { status: r.error ? null : r.status, stdout: r.stdout ?? '' };
+    };
+    const head = run(['rev-parse', '--show-toplevel', 'HEAD']);
+    if (head.status !== 0) { return undefined; }
+    const key = head.stdout.trim();
+    const cached = committedIdsCache.get(key);
+    if (cached) { return cached; }
+    const grep = run(['grep', '-h', '-I', '-E', '^[[:space:]]*-?[[:space:]]*id:[[:space:]]', 'HEAD', '--', ':(top,glob)**/*.todo.yaml']);
+    if (grep.status !== 0 && grep.status !== 1) { return undefined; }
+    const ids = new Set<string>();
+    for (const line of grep.stdout.split('\n')) {
+        const m = /id:\s*['"]?([^\s'"#]+)/.exec(line);
+        if (m) { ids.add(m[1]); }
+    }
+    committedIdsCache.set(key, ids);
+    return ids;
+}
+
+/**
+ * Whether renaming todo `oldId` of quest `questId` leaves a stub under it: only
+ * an id the `_ai` commit guard would miss — one committed at HEAD (`committed`,
+ * from {@link committedTodoIds}; unknown counts as committed). An id that never
+ * was committed vanishes unnoticed, and one the schema refuses never was.
+ */
+function renameNeedsStub(oldId: string, committed: ReadonlySet<string> | undefined): boolean {
+    if (todoIdRefusal(oldId)) { return false; }
+    return committed === undefined || committed.has(oldId);
 }
 
 function questFolder(questId: string): string {
@@ -703,6 +755,8 @@ export function createTodoInFile(
     todo: Omit<QuestTodoItem, '_sourceFile'>,
     header?: Record<string, unknown>,
 ): QuestTodoItem {
+    const refused = todoIdRefusal(String(todo.id ?? ''));
+    if (refused) { throw new Error(refused); }
     ensureTodoFile(filePath, header);
     const doc = loadDocument(filePath);
 
@@ -1132,6 +1186,8 @@ export function createTodo(
     todo: Omit<QuestTodoItem, '_sourceFile'>,
     targetFile?: string,
 ): QuestTodoItem {
+    const refused = todoIdRefusal(String(todo.id ?? ''));
+    if (refused) { throw new Error(refused); }
     const folder = questFolder(questId);
     if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
 
@@ -1416,6 +1472,8 @@ export function moveTodoToDestination(
         return { ok: false, reason: `${todoId} is not in ${path.basename(sourcePath)}.` };
     }
     const newId = renames?.get(todoId) ?? todoId;
+    const refused = newId !== todoId ? todoIdRefusal(newId) : undefined;
+    if (refused) { return { ok: false, reason: refused }; }
     if (findTodoByIdInFile(targetPath, newId)) {
         return { ok: false, reason: `${path.basename(targetPath)} already holds a todo ${newId}.` };
     }
@@ -1487,7 +1545,7 @@ export type TodoRenameResult =
         file: string;
         /** `blocked_by` / `dependencies` entries rewritten (on a dry run: that would be). */
         references: number;
-        /** The `-deleted` file holding (or that would hold) the stub under the old id; absent when the id stays. */
+        /** The `-deleted` file holding (or that would hold) the stub under the old id; absent when the id stays or was never committed. */
         stubFile?: string;
     }
     | { ok: false; reason: string };
@@ -1503,7 +1561,10 @@ const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies'] as const;
  * as does every `<quest>/<old>` in the other quests' live todo files. The old
  * id stays in the corpus as a cancelled stub naming the new id, in the
  * `-deleted` sibling of the file the todo was in: the `_ai` commit guard
- * (todo_schema_guard.py, invariant 5) refuses an id that vanishes.
+ * (todo_schema_guard.py, invariant 5) refuses an id that vanishes. An id
+ * that was never committed (not at HEAD; {@link committedTodoIds}) needs no
+ * stub and gets none. The new id must match the todo schema's id pattern
+ * ({@link todoIdRefusal}).
  * With `group`, it moves to the end of that id group, before the group's
  * finalizers: into `targetFile` when given (a live todo file of the quest), else
  * within its own file. Refused, nothing written: an unknown todo, an id that is
@@ -1516,10 +1577,10 @@ export function renameQuestTodo(
     questId: string,
     oldId: string,
     newId: string,
-    opts: { group?: string; targetFile?: string; dryRun?: boolean } = {},
+    opts: { group?: string; targetFile?: string; dryRun?: boolean; committed?: ReadonlySet<string> } = {},
 ): TodoRenameResult {
     const id = newId.trim();
-    const shape = todoIdInputError(id, oldId, new Set());
+    const shape = todoIdInputError(id, oldId, new Set()) ?? (id !== oldId ? todoIdRefusal(id) : undefined);
     if (shape) { return { ok: false, reason: shape }; }
     if (opts.group !== undefined) {
         const group = validateTodoPrefix(opts.group);
@@ -1535,7 +1596,8 @@ export function renameQuestTodo(
     if (!files.some((f) => path.resolve(f) === path.resolve(target))) {
         return { ok: false, reason: `${path.basename(target)} is not a live todo file of quest ${questId}.` };
     }
-    const stubFile = id !== oldId ? deletedTodoFileName(path.basename(source)) : undefined;
+    const committed = 'committed' in opts ? opts.committed : committedTodoIds(questFolder(questId));
+    const stubFile = id !== oldId && renameNeedsStub(oldId, committed) ? deletedTodoFileName(path.basename(source)) : undefined;
     const others = (): string[] => listQuestIds().filter((q) => q !== questId)
         .flatMap((q) => listTodoFiles(q).map((f) => path.join(questFolder(q), f)));
     const renames = (): Array<[string[], Map<string, string>]> => [
@@ -1578,7 +1640,7 @@ export function renameQuestTodo(
     let references = 0;
     if (id !== oldId) {
         for (const [f, named] of renames()) { references += rewriteTodoReferences(f, named); }
-        writeRenameStub(questId, source, oldId, id);
+        if (stubFile) { writeRenameStub(questId, source, oldId, id); }
     }
     return { ok: true, dryRun: false, file: path.basename(target), references, ...(stubFile ? { stubFile } : {}) };
 }
@@ -1650,9 +1712,9 @@ export type TodoPrefixRenameResult =
         dryRun: boolean;
         /** The live todos of the group, old and new id, in file order. */
         renames: Array<{ from: string; to: string }>;
-        /** References rewritten (0 on a dry run). */
+        /** References rewritten (on a dry run: that would be). */
         references: number;
-        /** Stubs written under the old ids (0 on a dry run). */
+        /** Stubs written under the old ids (on a dry run: that would be); a never committed id gets none. */
         stubs: number;
         /** Archived or deleted todos of the group, left as they are. */
         keptArchived: number;
@@ -1692,8 +1754,10 @@ function documentsNamingPrefix(questId: string, prefix: string): Array<{ file: s
  * id prefix ({@link todoIdPrefix}: everything before its number, a leading
  * number included, as in `001_cleanup`) is `from` becomes
  * `<to><rest of its id>`, through {@link renameQuestTodo} — so every reference
- * in the quest and in other quests follows and each old id keeps a stub in the
- * `-deleted` sibling. Archived and deleted todos of the group stay as they
+ * in the quest and in other quests follows and each committed old id keeps a
+ * stub in the `-deleted` sibling. A dry run goes through the same steps, so it
+ * answers the references and stubs the real run writes. Every new id must match
+ * the todo schema's id pattern. Archived and deleted todos of the group stay as they
  * are. Answers the renames and the quest's documents that still name
  * `<from><number>` (they are not rewritten). Refused, nothing written: a
  * target that is no prefix (empty, a digit after its leading number, a space
@@ -1709,6 +1773,8 @@ export function renameTodoPrefix(questId: string, from: string, to: string, opts
     const live = readAllTodos(questId).filter((t) => todoIdPrefix(t.id) === from && !!from);
     if (live.length === 0) { return { ok: false, reason: `Quest ${questId} has no live todo in group ${from || '(none)'}.` }; }
     const renames = live.map((t) => ({ from: t.id, to: `${target}${t.id.slice(from.length)}` }));
+    const invalid = todoIdsRefusal(renames.map((r) => r.to));
+    if (invalid) { return { ok: false, reason: invalid }; }
     const all = readAllTodos(questId, ALL_TODO_FILES);
     const existing = new Set(all.map((t) => t.id));
     const collisions = renames.map((r) => r.to).filter((id) => existing.has(id));
@@ -1717,16 +1783,17 @@ export function renameTodoPrefix(questId: string, from: string, to: string, opts
     }
     const keptArchived = all.filter((t) => todoIdPrefix(t.id) === from).length - live.length;
     const documents = documentsNamingPrefix(questId, from);
-    if (opts.dryRun) { return { ok: true, dryRun: true, renames, references: 0, stubs: 0, keptArchived, documents }; }
+    // The dry run is the real run's own steps, each dry: the same references and stubs.
+    const committed = committedTodoIds(questFolder(questId));
     let references = 0;
     let stubs = 0;
     for (const r of renames) {
-        const done = renameQuestTodo(questId, r.from, r.to);
-        if (!done.ok) { return { ok: false, reason: `${r.from}: ${done.reason} (the todos before it are renamed)` }; }
+        const done = renameQuestTodo(questId, r.from, r.to, { dryRun: opts.dryRun, committed });
+        if (!done.ok) { return { ok: false, reason: `${r.from}: ${done.reason}${opts.dryRun ? '' : ' (the todos before it are renamed)'}` }; }
         references += done.references;
-        stubs++;
+        if (done.stubFile) { stubs++; }
     }
-    return { ok: true, dryRun: false, renames, references, stubs, keptArchived, documents };
+    return { ok: true, dryRun: !!opts.dryRun, renames, references, stubs, keptArchived, documents };
 }
 
 /**

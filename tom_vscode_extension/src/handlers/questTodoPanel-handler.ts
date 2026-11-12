@@ -1072,7 +1072,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 title: `Rename todo ${oldId}`,
                 prompt: `The new id. blocked_by / dependencies entries naming it in quest ${questId} follow; a prompt already queued keeps the old id in its text.`,
                 value: oldId,
-                validateInput: (value) => todoIdInputError(value, oldId, taken),
+                // In place: the shape, a taken id, and the todo schema's id pattern (utils/todoIdRule).
+                validateInput: (value) => todoIdInputError(value, oldId, taken) ?? (value.trim() !== oldId ? questTodo.todoIdRefusal(value.trim()) : undefined),
             });
             if (typed === undefined || typed.trim() === oldId) { return true; }
             const r = questTodo.renameQuestTodo(questId, oldId, typed.trim());
@@ -1095,7 +1096,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (!from || isSessionMode || isWorkspaceFileMode) { return true; }
             const typed = await vscode.window.showInputBox({
                 title: `Rename group ${from} of quest ${questId}`,
-                prompt: 'The new prefix. Every live todo of the group keeps the rest of its id; blocked_by / dependencies follow, in this quest and others; each old id keeps a stub in the -deleted sibling.',
+                prompt: 'The new prefix. Every live todo of the group keeps the rest of its id; blocked_by / dependencies follow, in this quest and others; each committed old id keeps a stub in the -deleted sibling. The new ids must match the todo schema\'s id pattern.',
                 value: from,
                 validateInput: (value) => {
                     if (value.trim() === from) { return undefined; }
@@ -1177,7 +1178,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                         prompt: 'Each todo gets the prefix and the next free number, keeping the rest of its id.',
                         placeHolder: 'e.g. qrm',
                         validateInput: (value) => {
-                            const error = validateTodoPrefix(value);
+                            const error = validateTodoPrefix(value) ?? questTodo.todoIdsRefusal(todoRenames(movingIds, targetIds, value.trim()).values());
                             if (error) { return error; }
                             return { message: todoPrefixPreview(movingIds, targetIds, value.trim()), severity: vscode.InputBoxValidationSeverity.Info };
                         },
@@ -1186,6 +1187,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     prefix = typed.trim();
                 }
                 renames = todoRenames(movingIds, targetIds, prefix);
+                const refused = questTodo.todoIdsRefusal(renames.values());
+                if (refused) {
+                    vscode.window.showErrorMessage(`Could not move: ${refused}`);
+                    return true;
+                }
             }
             const moved: string[] = [];
             const failed: string[] = [];
@@ -2128,7 +2134,7 @@ async function _moveTodosToGroup(questId: string, found: readonly MoveSource[], 
             prompt: 'Each todo gets the prefix and the next free number below 999, keeping the rest of its id.',
             placeHolder: 'e.g. qrm',
             validateInput: (value) => {
-                const error = validateTodoPrefix(value);
+                const error = validateTodoPrefix(value) ?? questTodo.todoIdsRefusal(todoRenames(movingIds, otherIds, value.trim()).values());
                 if (error) { return error; }
                 return { message: todoPrefixPreview(movingIds, otherIds, value.trim()), severity: vscode.InputBoxValidationSeverity.Info };
             },
@@ -2138,6 +2144,11 @@ async function _moveTodosToGroup(questId: string, found: readonly MoveSource[], 
     }
     if (!prefix) { return; }
     const renames = todoRenames(movingIds, otherIds, prefix);
+    const refused = questTodo.todoIdsRefusal(renames.values());
+    if (refused) {
+        vscode.window.showErrorMessage(`Could not move to group ${prefix}: ${refused}`);
+        return;
+    }
     if (renamesReachFinalizer(renames, prefix)) {
         vscode.window.showErrorMessage(`Group ${prefix} has no free number below its finalizers (999) for ${count}.`);
         return;

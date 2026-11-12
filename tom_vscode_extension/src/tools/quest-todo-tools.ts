@@ -607,7 +607,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
 }
 
 export const CREATE_QUEST_TODO_DESCRIPTION =
-    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
+    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an id the todo schema\'s id pattern refuses (named in the error) or an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',

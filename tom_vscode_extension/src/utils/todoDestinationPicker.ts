@@ -196,8 +196,10 @@ export function todoRenames(movingIds: readonly string[], targetIds: readonly st
     const taken = new Set(targetIds);
     let next = Math.max(0, ...targetIds.map((id) => numberIn(id, prefix) ?? 0).filter((n) => n < FINALIZER_INDEX)) + 1;
     for (const id of movingIds) {
-        const digits = /[0-9]+/.exec(id);
-        const tail = digits ? id.slice(digits.index + digits[0].length) : `-${id}`;
+        // The tail after the id's number (its group's number: a leading number belongs to the group, todoIdPrefix).
+        const group = todoIdPrefix(id);
+        const digits = group ? /^[0-9]+/.exec(id.slice(group.length)) : null;
+        const tail = digits ? id.slice(group.length + digits[0].length) : `-${id}`;
         let candidate = `${prefix}${next}${tail}`;
         while (taken.has(candidate) || [...taken].some((t) => numberIn(t, prefix) === next)) {
             next++;
