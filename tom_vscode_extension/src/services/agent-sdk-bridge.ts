@@ -37,7 +37,6 @@ import { toRawShape } from '../utils/jsonSchemaToZod';
 import {
     QueryInputChannel,
     describeInputChannelEvent,
-    outputFileSize,
     SESSION_STATE_EVENTS_ENV,
 } from './agent-sdk-input-channel';
 
@@ -301,7 +300,6 @@ export class AgentSdkBridge {
         if (!bidirectional) { return prompt; }
         const log = this.deps.log;
         const channel = new QueryInputChannel(prompt, {
-            progressOf: outputFileSize,
             onEvent: (event) => log?.(`[agent-sdk-bridge] ${describeInputChannelEvent(event)} (stream ${streamId})`),
             onClose: (reason) => log?.(`[agent-sdk-bridge] input closed (${reason}) for stream ${streamId}`),
         });

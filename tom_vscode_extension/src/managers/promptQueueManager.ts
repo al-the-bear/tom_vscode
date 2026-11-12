@@ -72,6 +72,7 @@ import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
+import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitState } from '../utils/backgroundWait';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
@@ -325,6 +326,18 @@ export interface QueuedPrompt {
     templateRepeatCount?: number | string; // Repeat the entire template this many times
     templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
     answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
+    /**
+     * The longest a turn of this item waits for its own background work
+     * before it ends with a hint naming what still runs; wins over the
+     * profile's (utils/backgroundWait.ts). Unset: the profile's, else 6 h; 0: no wait.
+     */
+    backgroundWaitLimitMinutes?: number;
+    /**
+     * While a turn of the sending item waits for its background work: what it
+     * waits for, since when and the limit. Persisted, so a reload shows it;
+     * cleared when the wait ends.
+     */
+    backgroundWait?: BackgroundWaitState;
     /**
      * "Pause after this": when set, the queue stops once this item has
      * finished its **last** stage / repetition — the item itself always runs
@@ -2163,6 +2176,8 @@ export class PromptQueueManager {
         templateRepeatCount?: number | string;
         templateRepeatIndex?: number;
         answerWaitMinutes?: number;
+        /** The background-wait limit in minutes (0 = no wait); unset: the profile's. */
+        backgroundWaitLimitMinutes?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
         // Multi-transport pin-through (spec §4.1).
@@ -2279,6 +2294,7 @@ export class PromptQueueManager {
             templateRepeatCount: opts.templateRepeatCount,
             templateRepeatIndex: Math.max(0, Math.round(opts.templateRepeatIndex || 0)),
             answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
+            ...(validLimit(opts.backgroundWaitLimitMinutes) !== undefined ? { backgroundWaitLimitMinutes: validLimit(opts.backgroundWaitLimitMinutes) } : {}),
             transport: opts.transport,
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
@@ -2679,6 +2695,8 @@ export class PromptQueueManager {
         repeatSuffix?: string;
         templateRepeatCount?: number | string;
         answerWaitMinutes?: number;
+        /** The background-wait limit in minutes; a negative number clears it (the profile's applies). */
+        backgroundWaitLimitMinutes?: number;
     }): boolean {
         assertValidRepeatCount(patch.repeatCount);
         assertValidRepeatCount(patch.templateRepeatCount);
@@ -2693,6 +2711,9 @@ export class PromptQueueManager {
         if (patch.templateRepeatCount !== undefined) { item.templateRepeatCount = patch.templateRepeatCount; }
         if (patch.answerWaitMinutes !== undefined) {
             item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
+        }
+        if (patch.backgroundWaitLimitMinutes !== undefined) {
+            item.backgroundWaitLimitMinutes = validLimit(patch.backgroundWaitLimitMinutes);
         }
         this.recheckEmptyIteration(item);
         this.persist();
@@ -4793,6 +4814,9 @@ export class PromptQueueManager {
                 // The queue iteration (a per-iteration session keeps one conversation per key).
                 ...(resolved.iterationKey ? { iterationKey: resolved.iterationKey } : {}),
                 onRetryWait: (wait) => this._showSendWait(waitItem, wait),
+                // The turn waits for its own background work, at most the item's (else the profile's) limit.
+                ...(waitItem?.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: waitItem.backgroundWaitLimitMinutes } : {}),
+                onBackgroundWait: (state) => this._showBackgroundWait(waitItem, state),
             })));
             if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
                 logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
@@ -4816,6 +4840,7 @@ export class PromptQueueManager {
             return { mode: 'direct', answerText: result.text };
         } finally {
             this._showSendWait(waitItem, null);
+            this._showBackgroundWait(waitItem, undefined);
             if (this._activeAnthropicCts.get(ctsKey) === cts) {
                 this._activeAnthropicCts.delete(ctsKey);
             }
@@ -4852,6 +4877,32 @@ export class PromptQueueManager {
         }
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Show (or clear, `undefined`) what a turn of the item waits for in the
+     * background: persisted, so the editor shows it after a reload too.
+     */
+    private _showBackgroundWait(item: QueuedPrompt | undefined, state: BackgroundWaitState | undefined): void {
+        if (!item) { return; }
+        const live = this._items.find(i => i.id === item.id) ?? item;
+        if (state === undefined) {
+            if (live.backgroundWait === undefined) { return; }
+            delete live.backgroundWait;
+            logQueue(`Item ${live.id}: the background wait is over`);
+        } else {
+            const changed = JSON.stringify(live.backgroundWait) !== JSON.stringify(state);
+            if (!changed) { return; }
+            live.backgroundWait = state;
+            logQueue(`Item ${live.id}: waiting for ${state.items.length} background item(s) since ${state.since}, limit ${state.limitMinutes} min`);
+        }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /** What a turn of item `id` waits for in the background, while it waits. */
+    backgroundWaitOf(id: string): BackgroundWaitState | undefined {
+        return this._items.find(i => i.id === id)?.backgroundWait;
     }
 
     /** Add one stage's usage to the item's run sum (`sendUsage`), so the queue editor shows it while the item runs. */
@@ -6179,6 +6230,8 @@ export class PromptQueueManager {
                 templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
                 templateRepeatIndex: main['template-repeat-index'] ? Math.max(0, Math.round(Number(main['template-repeat-index']))) : undefined,
                 answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
+                ...(validLimit(main['background-wait-limit-minutes']) !== undefined ? { backgroundWaitLimitMinutes: validLimit(main['background-wait-limit-minutes']) } : {}),
+                ...(backgroundWaitFromYaml(main['background-wait']) ? { backgroundWait: backgroundWaitFromYaml(main['background-wait']) } : {}),
                 // Multi-transport — absence means "inherit queue default"
                 // at dispatch time; existing YAMLs without these fields
                 // continue to resolve to 'copilot' so the round-trip is
@@ -6330,6 +6383,8 @@ export class PromptQueueManager {
             'template-repeat-count': item.templateRepeatCount,
             'template-repeat-index': item.templateRepeatIndex,
             'answer-wait-minutes': item.answerWaitMinutes,
+            ...(item.backgroundWaitLimitMinutes !== undefined ? { 'background-wait-limit-minutes': item.backgroundWaitLimitMinutes } : {}),
+            ...(item.backgroundWait ? { 'background-wait': backgroundWaitToYaml(item.backgroundWait) } : {}),
             // Multi-transport round-trip (spec §4.14). Omit fields when
             // they're falsy so the YAML stays clean for Copilot items.
             ...(item.transport ? { transport: item.transport } : {}),

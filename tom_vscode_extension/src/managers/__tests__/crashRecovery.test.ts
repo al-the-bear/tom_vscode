@@ -118,6 +118,13 @@ describe('applyCrashRecovery', () => {
         assert.equal(items[0].status, 'pending');
     });
 
+    test('clears a turn\'s background wait: the turn and its CLI did not survive', () => {
+        const items: any[] = [{ id: 'a', status: 'sending', backgroundWait: { since: 'x', limitMinutes: 360, items: [] } }];
+        applyCrashRecovery(items);
+        assert.equal(items[0].backgroundWait, undefined);
+        assert.equal(items[0].status, 'pending');
+    });
+
     test('returns 0 on an empty items array', () => {
         const items: any[] = [];
         assert.equal(applyCrashRecovery(items), 0);

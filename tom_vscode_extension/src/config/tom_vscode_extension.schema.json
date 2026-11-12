@@ -541,12 +541,6 @@
                             "type": "integer",
                             "minimum": 1,
                             "description": "Turn cap for the agent loop. When omitted, the configuration's maxRounds is used."
-                        },
-                        "maxBackgroundWaitMinutes": {
-                            "type": "number",
-                            "minimum": 0,
-                            "default": 30,
-                            "description": "How long a query waits for background tasks (a run_in_background Bash) still running when the model ends its turn, before checking their progress. A task still producing output or progress extends the wait by the same amount; one showing none is abandoned. 0 = do not wait (the task's result is then never delivered)."
                         }
                     },
                     "additionalProperties": false
@@ -592,6 +586,12 @@
                 "toolSearch": { "type": "boolean", "description": "Direct transport: defer the tools outside the core set and add the server-side tool search (default true). false sends every tool in full." },
                 "maxRounds": { "type": "integer", "minimum": 1 },
                 "historyMode": { "type": ["string", "null"] },
+                "backgroundWaitLimitMinutes": {
+                    "type": "number",
+                    "minimum": 0,
+                    "default": 360,
+                    "description": "The longest a prompt-queue turn waits for its own background work before it ends with a hint naming what still runs, in minutes: the Agent SDK's background tasks (alive while the CLI lists them) and, on the direct API and Local LLM, the tomAi_runCommandStream handles it started (alive while their process group exists). 0 = do not wait. A queue item's own backgroundWaitLimitMinutes wins."
+                },
                 "thinking": {
                     "type": "string",
                     "enum": ["adaptive", "off"],

@@ -410,6 +410,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? ''), help: 'Override <code>configuration.maxRounds</code> for this profile. Leave empty to inherit.' },
                 { name: 'maxTokens', label: 'Max Tokens', type: 'number', value: String((profile as { maxTokens?: number }).maxTokens ?? ''), help: 'Override <code>configuration.maxTokens</code> for this profile. Leave empty to inherit.' },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
+                { name: 'backgroundWaitLimitMinutes', label: 'Background Wait Limit (min)', type: 'number', value: String((profile as { backgroundWaitLimitMinutes?: number }).backgroundWaitLimitMinutes ?? ''), help: 'The longest a prompt-queue turn waits for its own background work (Agent SDK background tasks; direct API / Local LLM command streams) before it ends with a hint naming what still runs. Blank = 360 (6 hours); 0 = do not wait. A queue item can set its own.' },
                 { name: 'retryMaxTotalWaitMinutes', label: 'Retry Budget (min)', type: 'number', value: String((profile as { retryMaxTotalWaitMinutes?: number }).retryMaxTotalWaitMinutes ?? ''), help: 'Maximum total minutes the retry-on-busy loop is allowed to wait after the first transient error (HTTP 429 / 503 / 529 / rate-limit / overloaded). Applies uniformly to Anthropic, Ollama, and vLLM. Defaults to 10. Use 240 (4h) to survive Claude session-limit resets.' },
                 { name: 'outOfBudgetFallbackProfileId', label: 'Out of Budget: Continue On', type: 'select', value: outOfBudget?.fallbackProfileId ?? '', options: outOfBudgetOptions, help: 'When a queued prompt on this profile stops because the API credit balance is too low, continue on this profile: the stopped stage is sent there with a note naming this profile, the session it ran in and that session\'s live trail. "(ask)" leaves the item stopped; the queue editor then offers a profile picker (preset to this choice), <strong>Continue on profile</strong> and <strong>Resend</strong>.' },
                 { name: 'outOfBudgetAutoSwitch', label: 'Out of Budget: Switch Automatically', type: 'checkbox', value: String(outOfBudget?.autoSwitch === true), disabledWhen: { field: 'outOfBudgetFallbackProfileId', equals: '' }, help: 'Continue on the profile above without asking, so an unattended walk is not interrupted. Off: the item stops and waits for you, with the picker preset to the profile above.' },
@@ -718,6 +719,10 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 historyMode: values.historyMode || null,
                 retryMaxTotalWaitMinutes: values.retryMaxTotalWaitMinutes
                     ? parseInt(values.retryMaxTotalWaitMinutes, 10)
+                    : undefined,
+                backgroundWaitLimitMinutes: values.backgroundWaitLimitMinutes !== undefined && values.backgroundWaitLimitMinutes.trim() !== ''
+                    && Number.isFinite(Number(values.backgroundWaitLimitMinutes)) && Number(values.backgroundWaitLimitMinutes) >= 0
+                    ? Math.round(Number(values.backgroundWaitLimitMinutes))
                     : undefined,
                 isDefault: values.isDefault === 'true',
             };

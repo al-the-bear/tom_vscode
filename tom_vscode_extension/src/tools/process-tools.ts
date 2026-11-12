@@ -39,6 +39,7 @@ import * as path from 'path';
 import { spawn, ChildProcess, SpawnOptions } from 'child_process';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace } from './file-primitives';
+import { currentCommandOwner } from '../services/commandOwners';
 
 // ---------------------------------------------------------------------------
 // Shared dep type
@@ -65,6 +66,8 @@ interface TrackedProcess {
     startedAt: number;
     endedAt: number | null;
     maxBufferLines: number;
+    /** The send whose tool call started it (services/commandOwners.ts). */
+    owner?: string;
 }
 
 const PROCESS_REGISTRY = new Map<string, TrackedProcess>();
@@ -106,6 +109,7 @@ function trackProcess(command: string, cwd: string, child: ChildProcess, maxBuff
         startedAt: Date.now(),
         endedAt: null,
         maxBufferLines,
+        ...(currentCommandOwner() ? { owner: currentCommandOwner() } : {}),
     };
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
@@ -141,6 +145,46 @@ function killTree(child: ChildProcess, signal: NodeJS.Signals): boolean {
     } catch {
         try { return child.kill(signal); } catch { return false; }
     }
+}
+
+/**
+ * Whether a command's process group still has a process: the shell may have
+ * exited while something it started (`sleep 600 &`, a server) runs on in the
+ * group. Signal 0 tests without signalling; EPERM means it exists.
+ */
+function processGroupAlive(pid: number | undefined): boolean {
+    if (!pid) { return false; }
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch (err) {
+        return (err as NodeJS.ErrnoException).code === 'EPERM';
+    }
+}
+
+/** A command stream as the background wait sees it. */
+export interface OwnedCommand {
+    handle: string;
+    command: string;
+    startedAt: number;
+    /** Alive: the shell has not exited, or its process group still has a process. */
+    running: boolean;
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+}
+
+/** The command streams `owner`'s tool calls started, oldest first (alive per process group). */
+export function commandsOfOwner(owner: string): OwnedCommand[] {
+    return [...PROCESS_REGISTRY.values()]
+        .filter((p) => p.owner === owner)
+        .map((p) => ({
+            handle: p.id,
+            command: p.command,
+            startedAt: p.startedAt,
+            running: p.endedAt === null || processGroupAlive(p.child.pid),
+            exitCode: p.exitCode,
+            signal: p.signal,
+        }));
 }
 
 // ---------------------------------------------------------------------------

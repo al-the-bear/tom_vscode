@@ -145,7 +145,7 @@ describe('stored tool results: retention', () => {
         assert.deepEqual(configuredToolResultRetention(), DEFAULT_TOOL_RESULT_RETENTION, 'not configured: the defaults');
         const src = (...p: string[]): string => fs.readFileSync(path.join(EXT, ...p), 'utf8');
         const handler = src('src', 'handlers', 'anthropic-handler.ts');
-        assert.match(handler, /return await runAsAskOwner\(\(\) => this\.sendMessageOwned\(options\)\);\n\s+\} finally \{[\s\S]{0,300}scheduleToolResultRetention\(\);/, 'after each send');
+        assert.match(handler, /return await runAsAskOwner\(\(\) => runAsCommandOwner\(randomUUID\(\), \(\) => this\.sendMessageOwned\(options\)\)\);\n\s+\} finally \{[\s\S]{0,300}scheduleToolResultRetention\(\);/, 'after each send');
         assert.match(handler, /store\.pruneQuestToolResults\(undefined\)/);
         const page = src('src', 'handlers', 'statusPage-handler.ts');
         assert.match(page, /id="sp-trailToolResultsMaxAgeDays"/);

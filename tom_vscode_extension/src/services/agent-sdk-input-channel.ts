@@ -27,10 +27,12 @@
  * never saw it, and a follow-up it promised ("commit once the suites pass")
  * silently never happened. So an `idle` while non-ambient background tasks are
  * live (`background_tasks_changed`) waits instead. When they finish, the CLI
- * runs the follow-up turn itself, and the `idle` after it closes. The wait is
- * capped (`backgroundWaitMs`); at the cap a task that still shows progress (a
- * `task_progress` message, or an output file that grew) extends it by another
- * cap, and one that shows none is abandoned and named.
+ * runs the follow-up turn itself, and the `idle` after it closes. A task is
+ * alive while the CLI lists it — a silent waiter loop as much as a chatty
+ * build. The wait is bounded by a hard limit (`backgroundLimitMs`, the queue
+ * item's or the profile's, default 6 hours: utils/backgroundWait.ts); at the
+ * limit the channel closes and names what was still running
+ * (`stillRunningAtClose`), which the transport puts into the turn's answer.
  *
  * More user messages can go in while the query runs (push: an "update" to the
  * running prompt, the SDK's streaming input). The stream then stays open until
@@ -48,7 +50,7 @@
 // The SDK's message fields are its snake_case wire format and cannot be renamed.
 /* eslint-disable @typescript-eslint/naming-convention */
 import { randomUUID } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { DEFAULT_BACKGROUND_WAIT_LIMIT_MINUTES, formatLimit } from '../utils/backgroundWait';
 
 /**
  * Makes the CLI emit `session_state_changed`, whose `idle` the channel closes
@@ -56,16 +58,6 @@ import { statSync } from 'node:fs';
  * on top of whatever environment the subprocess would otherwise get.
  */
 export const SESSION_STATE_EVENTS_ENV = 'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS';
-
-/** `progressOf` for real use: a background Bash progresses as its output file grows. */
-export function outputFileSize(task: BackgroundTaskInfo): number | undefined {
-    if (!task.outputFile) { return undefined; }
-    try {
-        return statSync(task.outputFile).size;
-    } catch {
-        return undefined;
-    }
-}
 
 /** The user message the SDK's streaming-input mode expects. */
 export interface SdkPromptMessage {
@@ -81,7 +73,7 @@ export type InputCloseReason =
     | 'idle-unanswered-timeout'
     | 'result-without-session-state'
     | 'background-done'
-    | 'background-wait-capped'
+    | 'background-wait-limit'
     | (string & {});
 
 /** A live, non-ambient background task the CLI reported. */
@@ -91,17 +83,29 @@ export interface BackgroundTaskInfo {
     description: string;
     /** Where a background Bash writes its output, from its tool result. */
     outputFile?: string;
+    /** The background Bash's command, from its tool call. */
+    command?: string;
+}
+
+/** What the channel waits for, while it waits. */
+export interface BackgroundWaitSnapshot {
+    /** Epoch ms the wait began. */
+    since: number;
+    limitMs: number;
+    tasks: BackgroundTaskInfo[];
 }
 
 /** What the channel reports about background work, for logging. */
 export type InputChannelEvent =
-    /** The CLI went idle with these tasks still running; waiting for them. */
-    | { kind: 'waiting'; tasks: BackgroundTaskInfo[]; capMs: number }
-    /** The cap was reached, but these tasks progressed; waiting one more cap. */
-    | { kind: 'extended'; tasks: BackgroundTaskInfo[]; progressed: BackgroundTaskInfo[]; capMs: number }
-    /** The cap was reached with no progress; closing despite these tasks. */
-    | { kind: 'capped'; tasks: BackgroundTaskInfo[] }
-    /** Background waiting is off (cap 0); closing despite these tasks. */
+    /** The CLI went idle with these tasks still running; waiting for them (at most `limitMs`). */
+    | { kind: 'waiting'; tasks: BackgroundTaskInfo[]; limitMs: number }
+    /** While waiting, the set of running tasks changed. */
+    | { kind: 'changed'; tasks: BackgroundTaskInfo[] }
+    /** Every task the wait was for has ended. */
+    | { kind: 'done' }
+    /** The limit was reached; closing despite these tasks. */
+    | { kind: 'limit'; tasks: BackgroundTaskInfo[]; limitMs: number }
+    /** Background waiting is off (limit 0); closing despite these tasks. */
     | { kind: 'abandoned'; tasks: BackgroundTaskInfo[] };
 
 export interface QueryInputChannelOptions {
@@ -110,15 +114,10 @@ export interface QueryInputChannelOptions {
     /** Wait after an unanswered `idle` before closing anyway. Default 10 s. */
     graceMs?: number;
     /**
-     * How long to wait for background tasks that outlive the turn before
-     * checking their progress. Default 30 min; 0 = do not wait.
+     * The longest the channel waits for background tasks that outlive the
+     * turn (alive while the CLI lists them). Default 6 hours; 0 = do not wait.
      */
-    backgroundWaitMs?: number;
-    /**
-     * A progress marker for a task, compared between cap checks (the transport
-     * passes the output file's size). `undefined` = no marker.
-     */
-    progressOf?: (task: BackgroundTaskInfo) => number | undefined;
+    backgroundLimitMs?: number;
     /** Called once, when the channel closes. */
     onClose?: (reason: InputCloseReason) => void;
     /** Called on each background-wait event. */
@@ -133,23 +132,19 @@ export interface PushedMessage {
     /** The text of the result that answers it; rejected when the stream closes first. */
     answer: Promise<string>;
 }
-export const DEFAULT_BACKGROUND_WAIT_MS = 30 * 60_000;
+export const DEFAULT_BACKGROUND_WAIT_MS = DEFAULT_BACKGROUND_WAIT_LIMIT_MINUTES * 60_000;
 
 /** The Bash tool's result for a command it moved to the background. */
 // The path ends the sentence, so its full stop is not part of it.
 const BACKGROUND_BASH_RESULT = /running in background with ID: (\S+?)\. Output is being written to: (\S+?)\.?(?=\s|$)/;
 
-interface TrackedTask extends BackgroundTaskInfo {
-    /** `task_progress` messages seen for this task. */
-    progressCount: number;
-}
+type TrackedTask = BackgroundTaskInfo;
 
 export class QueryInputChannel {
     readonly uuid: string;
     private readonly text: string;
     private readonly graceMs: number;
-    private readonly backgroundWaitMs: number;
-    private readonly progressOf?: (task: BackgroundTaskInfo) => number | undefined;
+    private readonly backgroundLimitMs: number;
     private readonly onClose?: (reason: InputCloseReason) => void;
     private readonly onEvent?: (event: InputChannelEvent) => void;
     /** Messages without their answering result yet: the first, then each pushed one. */
@@ -167,9 +162,14 @@ export class QueryInputChannel {
     private liveTasks = new Map<string, TrackedTask>();
     /** Output files by task id, from Bash tool results; outlives the task set. */
     private readonly outputFiles = new Map<string, string>();
+    /** Background Bash commands by tool_use id, then by task id once its result names the task. */
+    private readonly commandsByToolUse = new Map<string, string>();
+    private readonly commands = new Map<string, string>();
     private backgroundTimer: ReturnType<typeof setTimeout> | undefined;
-    /** Each live task's progress marker at the previous cap check. */
-    private progressSnapshot = new Map<string, string>();
+    /** Epoch ms the current background wait began. */
+    private waitingSince: number | undefined;
+    /** The tasks still running when the channel closed at the limit (or with waiting off). */
+    private stillRunning: BackgroundTaskInfo[] = [];
     private reason: InputCloseReason | undefined;
     private resolveClosed!: () => void;
     private readonly closedPromise: Promise<void>;
@@ -178,8 +178,7 @@ export class QueryInputChannel {
         this.text = text;
         this.uuid = options.uuid ?? randomUUID();
         this.graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
-        this.backgroundWaitMs = options.backgroundWaitMs ?? DEFAULT_BACKGROUND_WAIT_MS;
-        this.progressOf = options.progressOf;
+        this.backgroundLimitMs = options.backgroundLimitMs ?? DEFAULT_BACKGROUND_WAIT_MS;
         this.onClose = options.onClose;
         this.onEvent = options.onEvent;
         this.closedPromise = new Promise<void>((resolve) => { this.resolveClosed = resolve; });
@@ -213,6 +212,18 @@ export class QueryInputChannel {
     liveBackgroundTasks(): BackgroundTaskInfo[] {
         return [...this.liveTasks.values()].map((t) => this.info(t));
     }
+
+    /** What the channel waits for now, or undefined when it is not waiting. */
+    backgroundWait(): BackgroundWaitSnapshot | undefined {
+        if (this.waitingSince === undefined || this.closed) { return undefined; }
+        return { since: this.waitingSince, limitMs: this.backgroundLimitMs, tasks: this.liveBackgroundTasks() };
+    }
+
+    /** The tasks still running when the channel closed at the limit (or with waiting off); empty otherwise. */
+    get stillRunningAtClose(): BackgroundTaskInfo[] { return this.stillRunning.slice(); }
+
+    /** The limit the channel waits at most, in ms. */
+    get backgroundLimit(): number { return this.backgroundLimitMs; }
 
     /** The prompt stream: our message, each pushed one as it comes, open until {@link close}. */
     async *messages(): AsyncGenerator<SdkPromptMessage, void, unknown> {
@@ -250,9 +261,8 @@ export class QueryInputChannel {
             this.onTasksChanged((msg as { tasks?: unknown }).tasks);
             return;
         }
-        if (m.type === 'system' && m.subtype === 'task_progress') {
-            const task = this.liveTasks.get(String((msg as { task_id?: unknown }).task_id));
-            if (task) { task.progressCount++; }
+        if (m.type === 'assistant') {
+            this.recordBackgroundCommands(msg);
             return;
         }
         if (m.type === 'user') {
@@ -289,15 +299,17 @@ export class QueryInputChannel {
             this.close('idle-after-answer');
             return;
         }
-        if (this.backgroundWaitMs <= 0) {
-            this.emit({ kind: 'abandoned', tasks: this.liveBackgroundTasks() });
+        if (this.backgroundLimitMs <= 0) {
+            this.stillRunning = this.liveBackgroundTasks();
+            this.emit({ kind: 'abandoned', tasks: this.stillRunning });
             this.close('idle-after-answer');
             return;
         }
         if (this.backgroundTimer === undefined) {
-            this.progressSnapshot = this.progressMarkers();
-            this.emit({ kind: 'waiting', tasks: this.liveBackgroundTasks(), capMs: this.backgroundWaitMs });
-            this.backgroundTimer = setTimeout(() => this.onBackgroundCap(), this.backgroundWaitMs);
+            // One limit for the whole wait: a follow-up turn while other tasks still run does not restart it.
+            this.waitingSince = Date.now();
+            this.emit({ kind: 'waiting', tasks: this.liveBackgroundTasks(), limitMs: this.backgroundLimitMs });
+            this.backgroundTimer = setTimeout(() => this.onBackgroundLimit(), this.backgroundLimitMs);
         }
     }
 
@@ -306,16 +318,18 @@ export class QueryInputChannel {
         for (const t of Array.isArray(raw) ? raw : []) {
             const task = t as { task_id?: unknown; task_type?: unknown; description?: unknown; ambient?: unknown };
             if (task.ambient === true || typeof task.task_id !== 'string') { continue; }
-            const known = this.liveTasks.get(task.task_id);
             next.set(task.task_id, {
                 taskId: task.task_id,
                 taskType: typeof task.task_type === 'string' ? task.task_type : '',
                 description: typeof task.description === 'string' ? task.description : '',
-                progressCount: known?.progressCount ?? 0,
             });
         }
         this.liveTasks = next;
-        if (next.size > 0) { return; }
+        if (next.size > 0) {
+            if (this.waitingSince !== undefined) { this.emit({ kind: 'changed', tasks: this.liveBackgroundTasks() }); }
+            return;
+        }
+        if (this.waitingSince !== undefined) { this.emit({ kind: 'done' }); }
         this.clearBackgroundWait();
         // The CLI normally runs a follow-up turn on the completion notification
         // ('running' cancels this) and the idle after it closes. If none comes,
@@ -325,38 +339,32 @@ export class QueryInputChannel {
         }
     }
 
-    private onBackgroundCap(): void {
+    private onBackgroundLimit(): void {
         this.backgroundTimer = undefined;
         if (this.closed || this.liveTasks.size === 0) { return; }
-        const now = this.progressMarkers();
-        const progressed = [...this.liveTasks.values()]
-            .filter((t) => now.get(t.taskId) !== this.progressSnapshot.get(t.taskId))
-            .map((t) => this.info(t));
-        if (progressed.length === 0) {
-            this.emit({ kind: 'capped', tasks: this.liveBackgroundTasks() });
-            this.close('background-wait-capped');
-            return;
-        }
-        this.progressSnapshot = now;
-        this.emit({ kind: 'extended', tasks: this.liveBackgroundTasks(), progressed, capMs: this.backgroundWaitMs });
-        this.backgroundTimer = setTimeout(() => this.onBackgroundCap(), this.backgroundWaitMs);
+        this.stillRunning = this.liveBackgroundTasks();
+        this.emit({ kind: 'limit', tasks: this.stillRunning, limitMs: this.backgroundLimitMs });
+        this.close('background-wait-limit');
     }
 
-    private progressMarkers(): Map<string, string> {
-        const markers = new Map<string, string>();
-        for (const t of this.liveTasks.values()) {
-            let size: number | undefined;
-            try { size = this.progressOf?.(this.info(t)); } catch { size = undefined; }
-            markers.set(t.taskId, `${t.progressCount}:${size ?? ''}`);
+    /** A Bash call with run_in_background: its command, by tool_use id (named by its task once the result comes). */
+    private recordBackgroundCommands(msg: unknown): void {
+        const content = (msg as { message?: { content?: unknown } }).message?.content;
+        if (!Array.isArray(content)) { return; }
+        for (const block of content) {
+            const b = block as { type?: unknown; id?: unknown; name?: unknown; input?: { command?: unknown; run_in_background?: unknown } };
+            if (b?.type === 'tool_use' && b.name === 'Bash' && b.input?.run_in_background === true
+                && typeof b.id === 'string' && typeof b.input.command === 'string') {
+                this.commandsByToolUse.set(b.id, b.input.command);
+            }
         }
-        return markers;
     }
 
     private recordOutputFiles(msg: unknown): void {
         const content = (msg as { message?: { content?: unknown } }).message?.content;
         if (!Array.isArray(content)) { return; }
         for (const block of content) {
-            const b = block as { type?: unknown; content?: unknown };
+            const b = block as { type?: unknown; content?: unknown; tool_use_id?: unknown };
             if (b?.type !== 'tool_result') { continue; }
             const text = typeof b.content === 'string'
                 ? b.content
@@ -364,17 +372,23 @@ export class QueryInputChannel {
                     ? b.content.map((p) => (typeof (p as { text?: unknown })?.text === 'string' ? (p as { text: string }).text : '')).join('')
                     : '';
             const match = BACKGROUND_BASH_RESULT.exec(text);
-            if (match) { this.outputFiles.set(match[1], match[2]); }
+            if (match) {
+                this.outputFiles.set(match[1], match[2]);
+                const command = typeof b.tool_use_id === 'string' ? this.commandsByToolUse.get(b.tool_use_id) : undefined;
+                if (command) { this.commands.set(match[1], command); }
+            }
         }
     }
 
     private info(t: TrackedTask): BackgroundTaskInfo {
         const outputFile = this.outputFiles.get(t.taskId);
+        const command = this.commands.get(t.taskId);
         return {
             taskId: t.taskId,
             taskType: t.taskType,
             description: t.description,
             ...(outputFile ? { outputFile } : {}),
+            ...(command ? { command } : {}),
         };
     }
 
@@ -387,6 +401,7 @@ export class QueryInputChannel {
             clearTimeout(this.backgroundTimer);
             this.backgroundTimer = undefined;
         }
+        this.waitingSince = undefined;
     }
 
     /**
@@ -426,7 +441,7 @@ export class QueryInputChannel {
 
 function formatMinutes(ms: number): string {
     const min = ms / 60_000;
-    return `${Number.isInteger(min) ? min : min.toFixed(1)} min`;
+    return min >= 1 && Number.isInteger(min) ? formatLimit(min) : `${Number.isInteger(min) ? min : min.toFixed(1)} min`;
 }
 
 function listTasks(tasks: BackgroundTaskInfo[]): string {
@@ -442,14 +457,16 @@ export function describeInputChannelEvent(event: InputChannelEvent): string {
     switch (event.kind) {
         case 'waiting':
             return `Waiting for ${countTasks(event.tasks.length)} still running after the turn ended: ${listTasks(event.tasks)}. `
-                + `Progress is checked after ${formatMinutes(event.capMs)}.`;
-        case 'extended':
-            return `Background work still progressing (${listTasks(event.progressed)}); waiting another ${formatMinutes(event.capMs)}.`;
-        case 'capped':
-            return `Stopped waiting: no progress from ${countTasks(event.tasks.length)} (${listTasks(event.tasks)}). `
+                + `They count as running while the CLI lists them; the wait ends at the latest after ${formatMinutes(event.limitMs)}.`;
+        case 'changed':
+            return `Still waiting for ${countTasks(event.tasks.length)}: ${listTasks(event.tasks)}.`;
+        case 'done':
+            return 'The background work has ended; the turn goes on with its result.';
+        case 'limit':
+            return `Stopped waiting after ${formatMinutes(event.limitMs)} (the background-wait limit): ${countTasks(event.tasks.length)} still running (${listTasks(event.tasks)}). `
                 + 'Their results will not be delivered to this turn.';
         case 'abandoned':
-            return `Not waiting for ${countTasks(event.tasks.length)} still running (maxBackgroundWaitMinutes is 0): ${listTasks(event.tasks)}. `
+            return `Not waiting for ${countTasks(event.tasks.length)} still running (the background-wait limit is 0): ${listTasks(event.tasks)}. `
                 + 'Their results will not be delivered to this turn.';
     }
 }

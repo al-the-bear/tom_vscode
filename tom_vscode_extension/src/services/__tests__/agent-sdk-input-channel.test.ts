@@ -40,21 +40,23 @@
  *
  * Background tasks that outlive the model's turn (BG-*): a background Bash
  * does not hold the turn open, so the CLI goes idle while it runs; closing
- * there dropped its result. The channel now waits, up to a cap, and at the
- * cap keeps waiting only while a task still shows progress.
+ * there dropped its result. The channel waits while the CLI lists the task —
+ * silent or not — at most the background-wait limit (vscimpb56).
  *   BG-1  idle after the answer with a live task waits; it closes at the idle
- *         after the follow-up turn, and reports the wait once.
+ *         after the follow-up turn; the wait is reported, and its end.
  *   BG-2  ambient tasks (watchers) do not hold the channel open.
  *   BG-3  tasks finishing while idle with no follow-up turn → closes after grace.
- *   BG-4  the cap with no progress closes and names the abandoned task.
- *   BG-5  task_progress since the last check extends the wait by one cap.
- *   BG-6  a grown output file (path parsed from the Bash tool result) extends it.
- *   BG-7  backgroundWaitMs 0 keeps the old rule and reports what it abandons.
+ *   BG-4  a silent task (a waiter loop: no output, no progress) is waited for until the
+ *         CLI stops listing it — no progress rule abandons it.
+ *   BG-5  the limit closes the channel (`background-wait-limit`) and names what still runs.
+ *   BG-6  the waiting state: since, the limit and the tasks with their command (from the
+ *         Bash call) and output file; a shrinking set is reported; none once it ends.
+ *   BG-7  limit 0: no wait; what it leaves running is reported and kept for the answer.
  *   BG-8  background_tasks_changed replaces the set; it is not merged.
- *   BG-9  describeInputChannelEvent says what is waited for, for how long,
- *         and that an abandoned task's result will not arrive.
- *   BG-10 the transport passes the configured cap, an output-size probe and
- *         the event reporter to the channel, and asks for no-op when unset.
+ *   BG-9  describeInputChannelEvent says what is waited for, the limit, the end, and that
+ *         a task left running delivers nothing to the turn.
+ *   BG-10 the transport passes the limit and the waiting state, ends the answer with the
+ *         still-running hint, and guards queue runs (utils/agentSdkQueueRun.ts).
  *
  * Pure module — no `vscode`, no SDK — so it runs directly under `node --test`.
  */
@@ -63,15 +65,13 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import {
     QueryInputChannel,
     isChannelDeadToolResult,
     describeInputChannelEvent,
-    outputFileSize,
     SESSION_STATE_EVENTS_ENV,
 } from '../agent-sdk-input-channel';
 
@@ -316,30 +316,32 @@ describe('QueryInputChannel — background tasks outliving the turn (BG-*)', () 
         subtype: 'background_tasks_changed',
         tasks: tasks.map((t) => ({ task_type: 'local_bash', description: `task ${t.task_id}`, ...t })),
     });
-    const bashStarted = (taskId: string, path: string) => ({
+    const bashCall = (toolUseId: string, command: string) => ({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Bash', input: { command, run_in_background: true } }] },
+    });
+    const bashStarted = (taskId: string, path: string, toolUseId = 'tu') => ({
         type: 'user',
-        message: { content: [{ type: 'tool_result', tool_use_id: 'tu', // The Bash tool's wording, verbatim, sentence-final period included
+        message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, // The Bash tool's wording, verbatim, sentence-final period included
         // (SDK 0.3.282): the path must not take that period with it.
         content: `Command running in background with ID: ${taskId}. Output is being written to: ${path}.` }] },
     });
-    const progress = (taskId: string, toolUses: number) => ({
-        type: 'system', subtype: 'task_progress', task_id: taskId, description: 'd', usage: { total_tokens: 1, tool_uses: toolUses, duration_ms: 1 },
-    });
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    type Ev = { kind: string; tasks?: { taskId: string; outputFile?: string }[] };
+    type Ev = { kind: string; tasks?: { taskId: string; outputFile?: string; command?: string }[]; limitMs?: number };
 
     /** Our turn: running, a background Bash started, our result, idle. */
-    function turnWithBackgroundBash(ch: QueryInputChannel, taskId = 'b1', path = '/tmp/tasks/b1.output') {
+    function turnWithBackgroundBash(ch: QueryInputChannel, taskId = 'b1', path = '/tmp/tasks/b1.output', command = 'until [ -f done ]; do sleep 5; done') {
         ch.observe(running);
+        ch.observe(bashCall(`tu-${taskId}`, command));
         ch.observe(bgChanged([{ task_id: taskId }]));
-        ch.observe(bashStarted(taskId, path));
+        ch.observe(bashStarted(taskId, path, `tu-${taskId}`));
         ch.observe(resultFor([UUID]));
         ch.observe(idle);
     }
 
     test('BG-1: waits at idle while a task is live, closes after the follow-up turn', () => {
         const events: Ev[] = [];
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 60_000, onEvent: (e) => events.push(e) });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 60_000, onEvent: (e) => events.push(e) });
         turnWithBackgroundBash(ch);
         assert.equal(ch.closed, false, 'a live background task must keep stdin open');
         ch.observe(bgChanged([]));
@@ -348,12 +350,13 @@ describe('QueryInputChannel — background tasks outliving the turn (BG-*)', () 
         ch.observe(idle);
         assert.equal(ch.closed, true);
         assert.equal(ch.closeReason, 'idle-after-answer');
-        assert.deepEqual(events.map((e) => e.kind), ['waiting']);
+        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'done']);
         assert.deepEqual(events[0].tasks?.map((t) => [t.taskId, t.outputFile]), [['b1', '/tmp/tasks/b1.output']]);
+        assert.deepEqual(ch.stillRunningAtClose, [], 'nothing was left running');
     });
 
     test('BG-2: ambient tasks do not hold the channel open', () => {
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 60_000 });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 60_000 });
         ch.observe(running);
         ch.observe(bgChanged([{ task_id: 'w1', task_type: 'monitor', ambient: true }]));
         ch.observe(resultFor([UUID]));
@@ -362,7 +365,7 @@ describe('QueryInputChannel — background tasks outliving the turn (BG-*)', () 
     });
 
     test('BG-3: tasks finishing while idle with no follow-up turn close after the grace period', async () => {
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 60_000, graceMs: 20 });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 60_000, graceMs: 20 });
         turnWithBackgroundBash(ch);
         ch.observe(bgChanged([]));
         assert.equal(ch.closed, false);
@@ -370,56 +373,71 @@ describe('QueryInputChannel — background tasks outliving the turn (BG-*)', () 
         assert.equal(ch.closeReason, 'background-done');
     });
 
-    test('BG-4: the cap with no progress closes and names the abandoned task', async () => {
+    test('BG-4: a silent task is waited for until the CLI stops listing it', async () => {
+        // The d4rt case (2026-11-11): a waiter loop printed nothing for hours and was dropped by the
+        // progress rule while the run it waited for went on. Alive is "listed", not "printing".
         const events: Ev[] = [];
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 30, onEvent: (e) => events.push(e) });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 5_000, onEvent: (e) => events.push(e) });
         turnWithBackgroundBash(ch);
-        await wait(80);
-        assert.equal(ch.closeReason, 'background-wait-capped');
-        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'capped']);
-        assert.deepEqual(events[1].tasks?.map((t) => t.taskId), ['b1']);
+        await wait(120);
+        assert.equal(ch.closed, false, 'no output, no progress: still waited for');
+        assert.deepEqual(events.map((e) => e.kind), ['waiting']);
+        ch.observe(bgChanged([]));
+        ch.observe(running);
+        ch.observe(resultFor());
+        ch.observe(idle);
+        assert.equal(ch.closeReason, 'idle-after-answer');
     });
 
-    test('BG-5: task_progress since the last check extends the wait by one cap', async () => {
+    test('BG-5: the limit closes the channel and names what still runs', async () => {
         const events: Ev[] = [];
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 40, onEvent: (e) => events.push(e) });
-        turnWithBackgroundBash(ch, 'a1');
-        ch.observe(progress('a1', 3));
-        await wait(55); // first cap: progress seen → extended
-        assert.equal(ch.closed, false);
-        await wait(60); // second cap: nothing new → capped
-        assert.equal(ch.closeReason, 'background-wait-capped');
-        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'extended', 'capped']);
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 40, onEvent: (e) => events.push(e) });
+        turnWithBackgroundBash(ch);
+        await wait(100);
+        assert.equal(ch.closeReason, 'background-wait-limit');
+        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'limit']);
+        assert.equal(events[1].limitMs, 40);
+        assert.deepEqual(ch.stillRunningAtClose.map((t) => [t.taskId, t.command]), [['b1', 'until [ -f done ]; do sleep 5; done']]);
+        assert.equal(ch.backgroundLimit, 40);
     });
 
-    test('BG-6: a grown output file extends the wait', async () => {
-        const sizes = new Map<string, number>([['/tmp/tasks/b1.output', 10]]);
+    test('BG-6: the waiting state', () => {
         const events: Ev[] = [];
-        const ch = new QueryInputChannel('p', {
-            uuid: UUID,
-            backgroundWaitMs: 40,
-            progressOf: (t) => (t.outputFile ? sizes.get(t.outputFile) : undefined),
-            onEvent: (e) => events.push(e),
-        });
-        turnWithBackgroundBash(ch);
-        sizes.set('/tmp/tasks/b1.output', 250); // the command printed more
-        await wait(55);
-        assert.equal(ch.closed, false);
-        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'extended']);
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 60_000, onEvent: (e) => events.push(e) });
+        assert.equal(ch.backgroundWait(), undefined, 'not waiting yet');
+        ch.observe(running);
+        ch.observe(bashCall('tu-1', 'npm test'));
+        ch.observe(bashCall('tu-2', 'sleep 600'));
+        ch.observe(bgChanged([{ task_id: 'b1' }, { task_id: 'b2' }]));
+        ch.observe(bashStarted('b1', '/tmp/b1.out', 'tu-1'));
+        ch.observe(bashStarted('b2', '/tmp/b2.out', 'tu-2'));
+        ch.observe(resultFor([UUID]));
+        const before = Date.now();
+        ch.observe(idle);
+        const state = ch.backgroundWait();
+        assert.ok(state && state.since >= before - 5, 'since when');
+        assert.equal(state?.limitMs, 60_000);
+        assert.deepEqual(state?.tasks.map((t) => [t.taskId, t.command, t.outputFile]), [['b1', 'npm test', '/tmp/b1.out'], ['b2', 'sleep 600', '/tmp/b2.out']]);
+        ch.observe(bgChanged([{ task_id: 'b2' }]));
+        assert.deepEqual(events.map((e) => e.kind), ['waiting', 'changed']);
+        assert.deepEqual(events[1].tasks?.map((t) => t.taskId), ['b2']);
+        ch.observe(bgChanged([]));
+        assert.equal(ch.backgroundWait(), undefined, 'the wait is over');
         ch.close('test');
     });
 
-    test('BG-7: backgroundWaitMs 0 keeps the old rule and reports what it abandons', () => {
+    test('BG-7: limit 0 does not wait and keeps what it left running for the answer', () => {
         const events: Ev[] = [];
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 0, onEvent: (e) => events.push(e) });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 0, onEvent: (e) => events.push(e) });
         turnWithBackgroundBash(ch);
         assert.equal(ch.closeReason, 'idle-after-answer');
         assert.deepEqual(events.map((e) => e.kind), ['abandoned']);
         assert.deepEqual(events[0].tasks?.map((t) => t.taskId), ['b1']);
+        assert.deepEqual(ch.stillRunningAtClose.map((t) => t.taskId), ['b1']);
     });
 
     test('BG-8: background_tasks_changed replaces the set', () => {
-        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundWaitMs: 60_000 });
+        const ch = new QueryInputChannel('p', { uuid: UUID, backgroundLimitMs: 60_000 });
         ch.observe(running);
         ch.observe(bgChanged([{ task_id: 'b1' }, { task_id: 'b2' }]));
         ch.observe(bgChanged([{ task_id: 'b2' }]));
@@ -429,46 +447,51 @@ describe('QueryInputChannel — background tasks outliving the turn (BG-*)', () 
         ch.observe(idle);
         assert.equal(ch.closed, true);
     });
+
+    test('the default limit is 6 hours', () => {
+        const ch = new QueryInputChannel('p', { uuid: UUID });
+        assert.equal(ch.backgroundLimit, 6 * 60 * 60_000);
+        ch.close('test');
+    });
 });
 
 describe('describeInputChannelEvent (BG-9)', () => {
     const task = { taskId: 'b1', taskType: 'local_bash', description: 'run the suites' };
-    test('waiting names the tasks and the cap', () => {
-        const text = describeInputChannelEvent({ kind: 'waiting', tasks: [task], capMs: 30 * 60_000 });
+    test('waiting names the tasks and the limit', () => {
+        const text = describeInputChannelEvent({ kind: 'waiting', tasks: [task], limitMs: 6 * 60 * 60_000 });
         assert.match(text, /Waiting for 1 background task/);
         assert.match(text, /run the suites \[b1\]/);
-        assert.match(text, /30 min/);
+        assert.match(text, /while the CLI lists them/);
+        assert.match(text, /after 6 h/);
     });
-    test('extended names what progressed', () => {
-        const text = describeInputChannelEvent({ kind: 'extended', tasks: [task], progressed: [task], capMs: 5 * 60_000 });
-        assert.match(text, /still progressing/);
-        assert.match(text, /another 5 min/);
+    test('changed and done', () => {
+        assert.match(describeInputChannelEvent({ kind: 'changed', tasks: [task] }), /Still waiting for 1 background task: run the suites/);
+        assert.match(describeInputChannelEvent({ kind: 'done' }), /has ended/);
     });
-    test('capped and abandoned say the result will not be delivered', () => {
-        assert.match(describeInputChannelEvent({ kind: 'capped', tasks: [task] }), /no progress.*will not be delivered/s);
-        assert.match(describeInputChannelEvent({ kind: 'abandoned', tasks: [task, { ...task, taskId: 'b2' }] }), /2 background tasks.*will not be delivered/s);
+    test('limit and abandoned say the result will not be delivered', () => {
+        assert.match(describeInputChannelEvent({ kind: 'limit', tasks: [task], limitMs: 90 * 60_000 }), /after 1 h 30 min \(the background-wait limit\).*will not be delivered/s);
+        assert.match(describeInputChannelEvent({ kind: 'abandoned', tasks: [task, { ...task, taskId: 'b2' }] }), /2 background tasks.*limit is 0.*will not be delivered/s);
     });
 });
 
 describe('agent-sdk-transport background-wait wiring (BG-10)', () => {
     const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'agent-sdk-transport.ts'), 'utf-8');
-    test('the configured cap is passed in milliseconds', () => {
-        assert.match(src, /maxBackgroundWaitMinutes/);
-        assert.match(src, /backgroundWaitMs:/);
+    const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'anthropic-handler.ts'), 'utf-8');
+    test('the limit reaches the channel; the handler resolves it (item, profile, 6 h)', () => {
+        assert.match(src, /backgroundLimitMs: params\.backgroundLimitMs/);
+        assert.match(handler, /backgroundLimitMs: resolveBackgroundWaitLimitMinutes\(options\.backgroundWaitLimitMinutes, profile\.backgroundWaitLimitMinutes\) \* 60_000/);
+        assert.doesNotMatch(src, /maxBackgroundWaitMinutes|progressOf/);
     });
-    test('progress is probed through the output file size', () => {
-        assert.match(src, /progressOf:\s*outputFileSize/);
-        const dir = mkdtempSync(join(tmpdir(), 'qr9-probe-'));
-        const file = join(dir, 'b1.output');
-        writeFileSync(file, 'tick 1\n');
-        const task = { taskId: 'b1', taskType: 'local_bash', description: 'd', outputFile: file };
-        assert.equal(outputFileSize(task), 7);
-        assert.equal(outputFileSize({ ...task, outputFile: join(dir, 'missing') }), undefined);
-        assert.equal(outputFileSize({ ...task, outputFile: undefined }), undefined);
-    });
-    test('each event reaches the tool log and the live trail', () => {
-        assert.match(src, /onEvent:/);
+    test('each event reaches the tool log, the live trail and the waiting state; the answer gets the hint', () => {
         assert.match(src, /describeInputChannelEvent\(/);
         assert.match(src, /appendNotice\(/);
+        assert.match(src, /onBackgroundWait\?\.\(backgroundWaitStateOf\(input\.backgroundWait\(\)\)\)/);
+        assert.match(src, /lastText \+= stillRunningHint\(stillRunning\.map\(taskWorkItem\)/);
+    });
+    test('a queue run is guarded: detach hook, Monitor disallowed, no command streams', () => {
+        assert.match(handler, /queueRun: options\.source === 'queue'/);
+        assert.match(src, /params\.queueRun === true \? queueRunTools\(tools\) : tools/);
+        assert.match(src, /hooks: withDetachGuard\(/);
+        assert.match(src, /disallowedTools: \[\.\.\.QUEUE_RUN_DISALLOWED_BUILT_INS\]/);
     });
 });

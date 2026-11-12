@@ -152,7 +152,6 @@ export interface SendToChatConfig {
                 permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
                 settingSources?: Array<'user' | 'project' | 'local'>;
                 maxTurns?: number;
-                maxBackgroundWaitMinutes?: number;
             };
             /**
              * VS Code LM options; applies when `transport === 'vscodeLm'`.
@@ -210,6 +209,12 @@ export interface SendToChatConfig {
             toolSearch?: boolean;
             maxRounds?: number;
             historyMode?: string | null;
+            /**
+             * The longest a queue turn waits for its own background work (Agent SDK background
+             * tasks; direct API / Local LLM command streams), in minutes; 0 = no wait. Default 360.
+             * A queue item's own limit wins (src/utils/backgroundWait.ts).
+             */
+            backgroundWaitLimitMinutes?: number;
             /** 'adaptive' | 'off'; absent = the model's default (src/utils/thinkingAndEffort.ts). */
             thinking?: 'adaptive' | 'off';
             /** `output_config.effort`; absent = the model's default. */

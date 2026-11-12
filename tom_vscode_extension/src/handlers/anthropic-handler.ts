@@ -11,6 +11,11 @@
  */
 
 import { runAsAskOwner } from '../services/askOwners';
+import { randomUUID } from 'crypto';
+import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwners';
+import { commandsFinishedMessage, waitForOwnedCommands } from '../services/backgroundCommandWait';
+import { commandsOfOwner } from '../tools/process-tools';
+import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitState } from '../utils/backgroundWait';
 import { whileWaitingForUser } from '../services/userWaits';
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
@@ -124,13 +129,6 @@ export interface AnthropicAgentSdkOptions {
     settingSources?: Array<'user' | 'project' | 'local'>;
     /** Turn cap; when omitted, the configuration's `maxRounds` is used. */
     maxTurns?: number;
-    /**
-     * How long a query waits for background tasks (a `run_in_background`
-     * Bash) still running when the model ends its turn, before checking their
-     * progress; a task still progressing extends the wait by the same amount.
-     * Default 30; 0 = do not wait (the result of such a task is then lost).
-     */
-    maxBackgroundWaitMinutes?: number;
 }
 
 export interface AnthropicConfiguration {
@@ -242,6 +240,14 @@ export interface AnthropicProfile {
      * on profiles you expect to survive Claude session-limit resets.
      */
     retryMaxTotalWaitMinutes?: number;
+    /**
+     * The longest a queue turn waits for its own background work (the Agent
+     * SDK's background tasks; the direct API's and Local LLM's command
+     * streams) before it ends with a hint naming what still runs. Default
+     * 360 (6 hours); 0 = no wait. A queue item's own limit wins
+     * (utils/backgroundWait.ts).
+     */
+    backgroundWaitLimitMinutes?: number;
     isDefault?: boolean;
     /**
      * Thinking: 'adaptive' or 'off'; absent = the model's default. Sent as
@@ -399,6 +405,10 @@ export interface AnthropicSendOptions {
      * the status line through it (CC-11).
      */
     onToolCall?: (toolName: string) => void;
+    /** The queue item's background-wait limit in minutes; wins over the profile's (utils/backgroundWait.ts). */
+    backgroundWaitLimitMinutes?: number;
+    /** While the turn waits for its background work: the state; `undefined` once the wait is over. */
+    onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -1845,6 +1855,47 @@ export class AnthropicHandler {
      * their own listener on `onApprovalNeeded` (or only invoke tools with
      * `requiresApproval: false`) to avoid hanging.
      */
+    /**
+     * The direct API's and Local LLM's background wait (utils/backgroundWait.ts):
+     * a queue turn that ends while command streams it started still run waits
+     * for them — alive while their process group exists, at most the limit.
+     * Answers the message to go on with once they ended (only when a round is
+     * left), or the hint the answer ends with when the limit was reached.
+     */
+    private async awaitBackgroundCommands(
+        options: AnthropicSendOptions,
+        liveTrail: { appendNotice(message: string): void } | null | undefined,
+        roundLeft: boolean,
+    ): Promise<{ continueWith?: string; hint?: string }> {
+        const owner = currentCommandOwner();
+        if (options.source !== 'queue' || !owner || !roundLeft) { return {}; }
+        const limit = resolveBackgroundWaitLimitMinutes(options.backgroundWaitLimitMinutes, options.profile.backgroundWaitLimitMinutes);
+        let announced = false;
+        const outcome = await waitForOwnedCommands(limit, {
+            list: () => commandsOfOwner(owner),
+            now: () => Date.now(),
+            sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            isCancelled: () => options.cancellationToken?.isCancellationRequested === true,
+            onState: (state) => {
+                if (state && !announced) {
+                    announced = true;
+                    liveTrail?.appendNotice(`Waiting for ${state.items.length} background command${state.items.length === 1 ? '' : 's'} still running after the turn ended: ${listBackgroundWork(state.items)}. The wait ends at the latest after ${formatLimit(state.limitMinutes)}.`);
+                }
+                try { options.onBackgroundWait?.(state); } catch { /* display only */ }
+            },
+        });
+        switch (outcome.kind) {
+            case 'finished':
+                liveTrail?.appendNotice('The background commands have ended; the turn goes on with their result.');
+                return { continueWith: commandsFinishedMessage(outcome.commands) };
+            case 'limit':
+                liveTrail?.appendNotice(`Stopped waiting (the background-wait limit): still running ${listBackgroundWork(outcome.running)}.`);
+                return { hint: stillRunningHint(outcome.running, limit) };
+            default:
+                return {};
+        }
+    }
+
     private awaitApproval(req: AnthropicToolApprovalRequest): Promise<boolean> {
         // Open as a wait for the user until the approval is answered (the queue editor shows the item waiting).
         return whileWaitingForUser('approval', () => new Promise<boolean>((resolve) => {
@@ -2036,7 +2087,8 @@ export class AnthropicHandler {
      */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
         try {
-            return await runAsAskOwner(() => this.sendMessageOwned(options));
+            // The send owns the questions its tools ask and the command streams they start.
+            return await runAsAskOwner(() => runAsCommandOwner(randomUUID(), () => this.sendMessageOwned(options)));
         } finally {
             // After each send: the stored tool results are pruned to their retention (vscimpb49) —
             // the trigger needs no scheduler. Off the send's path, so the answer is not held up.
@@ -2505,6 +2557,10 @@ export class AnthropicHandler {
                     claudeHooks: this.claudeHooks(),
                     onStatus: (text: string): void => this._onStatusUpdate.fire(text),
                     onToolUse: options.onToolCall,
+                    // A queue run waits for its background tasks (at most the limit) and starts none it could not wait for.
+                    queueRun: options.source === 'queue',
+                    backgroundLimitMs: resolveBackgroundWaitLimitMinutes(options.backgroundWaitLimitMinutes, profile.backgroundWaitLimitMinutes) * 60_000,
+                    ...(options.onBackgroundWait ? { onBackgroundWait: options.onBackgroundWait } : {}),
                     context: {
                         requestApproval: (req) => this.awaitApproval(req),
                         sessionApprovals: this.sessionApprovals,
@@ -2846,6 +2902,14 @@ export class AnthropicHandler {
                         messages.push({ role: 'user', content: goOn });
                         continue;
                     }
+                    // A queue turn waits for the command streams it started, then goes on with their end.
+                    const background = await this.awaitBackgroundCommands(options, liveTrail, turn + 1 < configuration.maxRounds);
+                    if (background.continueWith !== undefined) {
+                        messages.push({ role: 'assistant', content: response.content });
+                        messages.push({ role: 'user', content: background.continueWith });
+                        continue;
+                    }
+                    if (background.hint) { lastText += background.hint; }
                     this.takeHookStop(requestId);
                     const usage = finishUsage();
                     return withUsage(this.finalize(userContent, lastText, turn + 1, totalToolCalls, lastStopReason, windowId, requestId, quest, configuration, options.isolated === true, effectiveUserText, liveTrail), usage);
@@ -3430,6 +3494,14 @@ export class AnthropicHandler {
                         messages.push({ role: 'user', content: goOn });
                         continue;
                     }
+                    // A queue turn waits for the command streams it started, then goes on with their end.
+                    const background = await this.awaitBackgroundCommands(options, liveTrail, turn + 1 < configuration.maxRounds);
+                    if (background.continueWith !== undefined) {
+                        messages.push({ role: 'assistant', content: result.text ?? '' });
+                        messages.push({ role: 'user', content: background.continueWith });
+                        continue;
+                    }
+                    if (background.hint) { lastText += background.hint; }
                     this.takeHookStop(requestId);
                     lastStopReason = 'end_turn';
                     writeLocalUsage();

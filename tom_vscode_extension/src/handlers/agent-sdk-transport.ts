@@ -315,9 +315,29 @@ import {
     QueryInputChannel,
     isChannelDeadToolResult,
     describeInputChannelEvent,
-    outputFileSize,
     SESSION_STATE_EVENTS_ENV,
+    type BackgroundTaskInfo,
+    type BackgroundWaitSnapshot,
 } from '../services/agent-sdk-input-channel';
+import { QUEUE_RUN_DISALLOWED_BUILT_INS, queueRunTools, withDetachGuard } from '../utils/agentSdkQueueRun';
+import { stillRunningHint, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
+
+/** A CLI background task as the background wait names it. */
+function taskWorkItem(t: BackgroundTaskInfo): BackgroundWorkItem {
+    return {
+        id: t.taskId,
+        kind: 'task',
+        description: t.description || t.taskType,
+        ...(t.command ? { command: t.command } : {}),
+        ...(t.outputFile ? { outputFile: t.outputFile } : {}),
+    };
+}
+
+/** The channel's wait as the queue item keeps it, or undefined when it is not waiting. */
+function backgroundWaitStateOf(snapshot: BackgroundWaitSnapshot | undefined): BackgroundWaitState | undefined {
+    if (!snapshot) { return undefined; }
+    return { since: new Date(snapshot.since).toISOString(), limitMinutes: snapshot.limitMs / 60_000, items: snapshot.tasks.map(taskWorkItem) };
+}
 
 // Re-export the pure retry-decision API so existing consumers
 // (`anthropic-handler.ts`) can keep importing it from this transport module.
@@ -396,6 +416,16 @@ export interface AgentSdkSendParams {
     onStatus?: (text: string) => void;
     /** Every top-level tool call, by name, as the model makes it. */
     onToolUse?: (toolName: string) => void;
+    /**
+     * A prompt-queue run: detaching Bash commands are refused, and
+     * `tomAi_runCommandStream` / `Monitor` are not offered (utils/agentSdkQueueRun.ts),
+     * so all its background work is the CLI's, which the turn waits for.
+     */
+    queueRun?: boolean;
+    /** The longest the turn waits for its background tasks, in ms (utils/backgroundWait.ts). Default 6 hours; 0 = no wait. */
+    backgroundLimitMs?: number;
+    /** The background wait's state while the turn waits, `undefined` when it ends. */
+    onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
     /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
     thinkingOptions?: AgentSdkThinkingOptions;
     /**
@@ -990,26 +1020,25 @@ async function runAgentSdkAttempt(
     const { userText } = attempt;
 
     const sdk = await loadSdk();
-    const mcpServer = buildMcpServer(sdk, tools, context);
+    // A queue run offers no tool whose work would run on outside the CLI's background tasks.
+    const offeredTools = params.queueRun === true ? queueRunTools(tools) : tools;
+    const mcpServer = buildMcpServer(sdk, offeredTools, context);
     const approvalMode = params.toolApprovalMode ?? 'always';
-    const canUseToolFn = makeCanUseTool(tools, context, approvalMode, params.interactiveQuestions);
+    const canUseToolFn = makeCanUseTool(offeredTools, context, approvalMode, params.interactiveQuestions);
 
     // The prompt goes in as a stream that stays open until the CLI is really
     // done — see agent-sdk-input-channel.ts for why a string prompt killed
     // every tomAi_* call made after the query's first result.
-    const bgWaitMinutes = configuration.agentSdk?.maxBackgroundWaitMinutes;
-    const input = new QueryInputChannel(userText, {
-        // Background tasks still running when the model ends its turn: wait
-        // this long, then keep waiting only while they show progress.
-        backgroundWaitMs: typeof bgWaitMinutes === 'number' && bgWaitMinutes >= 0
-            ? bgWaitMinutes * 60_000
-            : undefined,
-        // A background Bash's progress is its output file growing.
-        progressOf: outputFileSize,
+    const input: QueryInputChannel = new QueryInputChannel(userText, {
+        // Background tasks still running when the model ends its turn: the turn
+        // waits while the CLI lists them, at most this long.
+        ...(params.backgroundLimitMs !== undefined ? { backgroundLimitMs: params.backgroundLimitMs } : {}),
         onEvent: (event) => {
             const message = describeInputChannelEvent(event);
             toolLog(`[agent-sdk] ${message} (request ${context.requestId})`);
             params.liveTrail?.appendNotice(message);
+            // The waiting state for the queue item (shown, and kept over a reload).
+            try { params.onBackgroundWait?.(backgroundWaitStateOf(input.backgroundWait())); } catch { /* display only */ }
         },
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
@@ -1138,7 +1167,10 @@ async function runAgentSdkAttempt(
             mcpServers: { [MCP_SERVER_NAME]: mcpServer },
             tools: toolsOption,
             ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
-            ...(Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {}),
+            // A queue run refuses detaching Bash commands (a hook: canUseTool is not asked in bypass mode).
+            ...(params.queueRun === true
+                ? { hooks: withDetachGuard(sdkHooks as Parameters<typeof withDetachGuard>[0]), disallowedTools: [...QUEUE_RUN_DISALLOWED_BUILT_INS] }
+                : (Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {})),
             // The installed Anthropic provider's Claude CLI for this platform.
             ...cliOption(),
             // Makes the CLI report `session_state_changed`, whose `idle` is the
@@ -1442,6 +1474,13 @@ async function runAgentSdkAttempt(
         unregisterLive?.();
         cancelSub?.dispose();
         stopPlanFollow?.();
+        try { params.onBackgroundWait?.(undefined); } catch { /* display only */ }
+    }
+
+    // The wait ended at its limit (or was off) with work still running: the answer says what.
+    const stillRunning = input.stillRunningAtClose;
+    if (stillRunning.length > 0) {
+        lastText += stillRunningHint(stillRunning.map(taskWorkItem), input.backgroundLimit / 60_000);
     }
 
     // Clean exit — write the final text (with an informative placeholder

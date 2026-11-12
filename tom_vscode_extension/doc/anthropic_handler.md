@@ -76,13 +76,12 @@ To switch, edit the JSON config:
   "agentSdk": {
     "permissionMode": "default",
     "settingSources": [],
-    "maxTurns": 40,
-    "maxBackgroundWaitMinutes": 30
+    "maxTurns": 40
   }
 }
 ```
 
-`maxBackgroundWaitMinutes` matters when the model starts a command in the background (`run_in_background`) and ends its turn while it runs, for example "WAITING for the suites". The prompt stays open until the command finishes, and the model then continues with its result. After this many minutes (default 30) the wait is checked. A command still producing output, or a background agent still reporting progress, earns another period of the same length. One showing nothing is abandoned, and the live trail says so in a `⏳ notice`. `0` turns waiting off, and such a command's result is then never delivered.
+When the model starts a command in the background (`run_in_background`) and ends its turn while it runs, for example "WAITING for the suites", the prompt stays open until the command finishes, and the model then continues with its result. A background task counts as running while the CLI lists it, whether it prints anything or not. The wait is bounded by the profile's `backgroundWaitLimitMinutes` (a queue item's own limit wins; default 360, 6 hours; `0` = no wait); at the limit the turn ends, the live trail says so in a `⏳ notice`, and the answer ends with a hint naming what was still running. A queue run also refuses Bash commands that detach from their call (`cmd &`, `nohup`, …) and offers no `tomAi_runCommandStream` or `Monitor` (llm_configuration.md § 6, *Background work of a queue turn*).
 
 **The profile's system prompt and setting sources on the `agentSdk` path:** `systemPromptMode` — `replace` (the default) sends the profile's prompt instead of Claude Code's own, `append` keeps Claude Code's default prompt and appends the profile's (the SDK's `claude_code` preset); `settingSources` on the profile win over the configuration's `agentSdk.settingSources` (`src/utils/agentSdkSystemPrompt.ts`).
 

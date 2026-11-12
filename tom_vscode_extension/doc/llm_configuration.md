@@ -443,6 +443,17 @@ An Anthropic configuration inherits every one of these unless it sets its own. T
 | `memoryToolsEnabled` | Expose memory read/write tools to the model. |
 | `maxRounds`, `maxTokens` | Standard agent loop knobs. |
 
+### Background work of a queue turn (`backgroundWaitLimitMinutes`)
+
+A queue turn is not over while background work it started still runs: an agent that starts a long command and answers "I'm waiting to get notified" would otherwise lose its result to the next item. So a queue turn waits for its own background work (`src/utils/backgroundWait.ts`):
+
+- **Agent SDK**: the CLI's background tasks (`run_in_background` Bash, background agents). A task counts as running while the CLI lists it (`background_tasks_changed`), silent or not. When they end, the CLI runs the follow-up turn with their result.
+- **Direct API and Local LLM**: the `tomAi_runCommandStream` handles the turn started. A handle counts as running while its process group exists — also after its shell exited, while something it started runs on. When they end, the turn goes on with a message naming each command and its exit code (read the output with `tomAi_readCommandOutput`). Chat sends on these transports do not wait.
+
+The wait is bounded by a hard limit: the queue item's `backgroundWaitLimitMinutes` (`tomAi_addQueueItem` / `tomAi_updateQueueItem`), else the profile's (profile editor: *Background Wait Limit*), else **360 minutes (6 hours)**; `0` means do not wait. When the limit is reached the turn ends and its answer ends with a hint naming what was still running; the queue goes on with the next item. While a turn waits, the queue item carries the state — since when, the limit, and each task or command — as `background-wait` in its queue file, so the editor can show it after a reload; it is cleared when the wait ends (and when a window reload ends the turn).
+
+An **Agent SDK queue run** starts nothing it could not wait for: a `PreToolUse` hook refuses Bash commands that detach from their call — a lone `&`, `nohup`, `setsid`, `disown`, `daemonize`, `screen -d…`, `tmux new … -d` — answering *start it with run_in_background instead — the queue waits for it* (`src/utils/detachingCommand.ts`; lists and redirections such as `a && b`, `cmd 2>&1`, `[ -f x ] && y` pass). A hook rather than `canUseTool`, because the SDK does not ask `canUseTool` in `bypassPermissions`. `tomAi_runCommandStream` is not offered and Claude Code's `Monitor` is disallowed in a queue run (`src/utils/agentSdkQueueRun.ts`); chat sends keep all three.
+
 **`anthropic.modelPrices`** (on the section, not a configuration) is the price table of the direct-API models, in USD per million tokens, for the cost in the live trail's usage block and the Status Page's usage totals:
 
 ```json

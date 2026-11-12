@@ -199,6 +199,7 @@ export interface EnqueueInput {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
+    backgroundWaitLimitMinutes?: number;
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
@@ -254,6 +255,7 @@ export interface PromptQueueAccess {
         repeatSuffix?: string;
         templateRepeatCount?: number | string;
         answerWaitMinutes?: number;
+        backgroundWaitLimitMinutes?: number;
     }): void;
     updateItemTransport(id: string, opts: {
         transport?: QueueTransport;
@@ -440,6 +442,7 @@ export interface AddQueueItemInput {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
+    backgroundWaitLimitMinutes?: number;
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
@@ -486,6 +489,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             repeatSuffix: input.repeatSuffix,
             templateRepeatCount: input.templateRepeatCount,
             answerWaitMinutes: input.answerWaitMinutes,
+            ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
             reminderTemplateId: input.reminderTemplateId,
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
@@ -550,6 +554,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
             answerWaitMinutes: { type: 'number' },
+            backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h)." },
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
@@ -809,6 +814,7 @@ export interface UpdateQueueItemInput {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
+    backgroundWaitLimitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -849,13 +855,14 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         }
         if (input.repeatCount !== undefined || input.repeatPrefix !== undefined ||
             input.repeatSuffix !== undefined || input.templateRepeatCount !== undefined ||
-            input.answerWaitMinutes !== undefined) {
+            input.answerWaitMinutes !== undefined || input.backgroundWaitLimitMinutes !== undefined) {
             access.updateItemRepetition(input.queueItemId, {
                 repeatCount: input.repeatCount,
                 repeatPrefix: input.repeatPrefix,
                 repeatSuffix: input.repeatSuffix,
                 templateRepeatCount: input.templateRepeatCount,
                 answerWaitMinutes: input.answerWaitMinutes,
+                ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
             });
         }
         if (input.transport !== undefined || input.anthropicProfileId !== undefined ||
@@ -932,6 +939,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
             answerWaitMinutes: { type: 'number' },
+            backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h). A negative number clears it." },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
