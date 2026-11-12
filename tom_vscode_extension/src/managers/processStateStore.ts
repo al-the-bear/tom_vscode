@@ -542,6 +542,31 @@ export class ProcessStateStore {
         return currentRole(v.def, v.state);
     }
 
+    /**
+     * Where `run` of the active quest is, read from its state file — no swap,
+     * no reload, no change event (the queue editor reads every run's while it
+     * builds its state): the process, the position as text, the role its step
+     * names, its process chat variables and its state file. A run the quest
+     * does not have reads as the empty state.
+     */
+    runOverview(run: string): { run: string; process: string; position: string; role: string; variables: Record<string, string>; stateFile: string } {
+        const name = normalizeRun(run);
+        const repo = this.repo();
+        const levels = repo && this.quest ? repo.readStateStack(this.quest, name).levels : [{ ...EMPTY_PROCESS_STATE }];
+        const raw = topLevel(levels);
+        const e = this.entry(raw.process);
+        const def = e?.definition ?? null;
+        const state = def ? normalizeState(raw, def) : raw;
+        return {
+            run: name,
+            process: state.process,
+            position: state.process ? (def ? positionText(def, state) : [state.phase, state.step].filter(Boolean).join(' › ')) : '',
+            role: currentRole(def, state),
+            variables: { ...processVariableValues(def, state, e?.description ?? '', name), ...ioVariables(state), ...originVariables(state), run: name },
+            stateFile: repo && this.quest ? repo.stateFile(this.quest, name) : '',
+        };
+    }
+
     /** The current process's Markdown description; `''` when none. */
     processDescription(): string {
         return this.entry(this.rawState.process)?.description ?? '';

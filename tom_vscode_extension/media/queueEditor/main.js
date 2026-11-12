@@ -164,6 +164,8 @@ let sessionInfo = __INITIAL__.sessionInfo || {};
 let queueDefaultAnthropicProfileId = __INITIAL__.queueDefaultAnthropicProfileId || '';
 let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId || '';
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
+// Each run's context for its tab's links: position, role, chat variables (vscimpb60c; from the host).
+let runContexts = (__INITIAL__.runContexts && typeof __INITIAL__.runContexts === 'object') ? __INITIAL__.runContexts : {};
 // Whether a Quest Refresh dispatch is in flight — drives the orange banner
 // between the queue header and the first item.
 let questRefreshActive = __INITIAL__.questRefreshActive === true;
@@ -216,14 +218,19 @@ function showFatalError(context, err) {
 /* ---- Inject transport-picker fragments (rendered host-side, spec §4.15) ---- */
 var __qdSlot = document.getElementById('queueDefaultPickerSlot');
 if (__qdSlot && __INIT.queueDefaultPickerHtml) { __qdSlot.innerHTML = __INIT.queueDefaultPickerHtml; }
-// Role and Session in the context bar open VS Code pickers on the host.
+// The context bar's links act on the tab's run: Role and Session open VS Code pickers on the host, Position
+// opens the run's process state file, Variables the Chat Variables editor for the run (vscimpb60c).
 var __ctxSummary = document.getElementById('contextSummary');
 if (__ctxSummary) {
   __ctxSummary.addEventListener('click', function(e) {
     var link = e.target && e.target.closest ? e.target.closest('.ctx-link') : null;
     if (!link) { return; }
     e.preventDefault();
-    vscode.postMessage(link.dataset.pick === 'role' ? { type: 'pickRole' } : { type: 'pickQueueDefaultSession', run: settingsRun() });
+    var pick = link.dataset.pick;
+    vscode.postMessage(pick === 'role' ? { type: 'pickRole' }
+      : pick === 'position' ? { type: 'openRunStateFile', run: settingsRun() }
+      : pick === 'variables' ? { type: 'openChatVariablesEditor', run: settingsRun() }
+      : { type: 'pickQueueDefaultSession', run: settingsRun() });
   });
 }
 var __afSlot = document.getElementById('addTransportRow');
@@ -312,6 +319,7 @@ window.addEventListener('message', e => {
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
       queueDefaultMessageTemplateId = msg.queueDefaultMessageTemplateId || '';
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
+      runContexts = (msg.runContexts && typeof msg.runContexts === 'object') ? msg.runContexts : {};
       applyRunSettings();
       questRefreshActive = msg.questRefreshActive === true;
       renderCompactionPickers(msg.compactionPickers);
@@ -365,15 +373,39 @@ function updateContextSummary() {
     a.textContent = text;
     return a;
   };
+  // The tab's run's context (vscimpb60c): its position, role and chat variables.
+  const run = settingsRun();
+  const ctx = runContexts[run] || {};
+  el.dataset.run = run;
   if (currentContext.quest) { el.appendChild(document.createTextNode('Quest: ' + currentContext.quest)); sep(); }
+  el.appendChild(document.createTextNode('Run: ' + run + (run === currentRun ? ' (this window\'s)' : '')));
+  sep();
+  el.appendChild(document.createTextNode('Position: '));
+  el.appendChild(link('position', ctx.position || '(no process)',
+    'The process position of run ' + run + (ctx.process ? ' (' + ctx.process + ')' : '') + ' — click to open its state file'));
+  sep();
   el.appendChild(document.createTextNode('Role: '));
-  el.appendChild(link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'));
+  if (run === currentRun) {
+    el.appendChild(link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'));
+  } else {
+    const roleText = document.createElement('span');
+    roleText.className = 'ctx-run-role';
+    roleText.textContent = ctx.role || '(none)';
+    roleText.title = 'The role run ' + run + '\'s step names (its Proceed prompts run in it)';
+    el.appendChild(roleText);
+  }
   sep();
   el.appendChild(document.createTextNode('Session: '));
   const sessionName = queueDefaultSessionLabel || 'default';
   const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
   el.appendChild(link('session', sessionName + session.based,
     session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'));
+  sep();
+  const vars = ctx.variables || {};
+  const names = Object.keys(vars);
+  el.appendChild(document.createTextNode('Variables: '));
+  el.appendChild(link('variables', String(names.length),
+    'The chat variables of run ' + run + (names.length ? ': ' + names.map(function(k) { return k + '=' + vars[k]; }).join(', ') : ' (none of its own)') + ' — click to open them'));
   if (currentContext.activeProjects && currentContext.activeProjects.length) {
     sep();
     el.appendChild(document.createTextNode('Projects: ' + currentContext.activeProjects.join(', ')));
@@ -381,11 +413,11 @@ function updateContextSummary() {
 }
 
 function openContextSettings() {
-  vscode.postMessage({ type: 'openContextSettings' });
+  vscode.postMessage({ type: 'openContextSettings', run: settingsRun() });
 }
 
 function openChatVariables() {
-  vscode.postMessage({ type: 'openChatVariablesEditor' });
+  vscode.postMessage({ type: 'openChatVariablesEditor', run: settingsRun() });
 }
 
 function updateQuestRefreshBanner() {
@@ -582,6 +614,7 @@ function selectRunTab(run) {
   postSettingsRun();
   applyRunSettings();
   render();
+  updateContextSummary();
   if (typeof populateAddForm === 'function') { populateAddForm(); }
 }
 

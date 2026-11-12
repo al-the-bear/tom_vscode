@@ -6,6 +6,8 @@
  *         a long description is shortened; without a process they read "—"
  *   CV-2  hovering a shortened value opens a scrollable popup with the whole text; it stays open while
  *         the pointer is on the value or the popup, and closes shortly after it left both
+ *   CV-3  the run shown (vscimpb60c): a run line names it (and says when it is the window's); the process
+ *         heading names it; its custom variables are the ones listed
  */
 
 import test, { describe } from 'node:test';
@@ -77,5 +79,20 @@ describe('Chat Variables view', () => {
         over(short);
         await sleep(250);
         assert.ok(!popup().classList.contains('visible'), 'a value shown whole needs no popup');
+    });
+    test('CV-3: the run shown', () => {
+        const w = setup();
+        w.dispatchEvent(new w.MessageEvent('message', {
+            data: { type: 'state', run: 'r2', windowRun: 'default', quest: 'q1', role: '', roles: [], activeProjects: [], todo: '', todoFile: 'all', custom: { mode: 'careful' }, changeLog: [], process: { step: 'build' } },
+        }));
+        const line = w.document.getElementById('run-line');
+        assert.equal(line.dataset.run, 'r2');
+        assert.match(line.textContent, /^Run: r2 — the custom variables and the process position below are this run's/);
+        assert.match([...w.document.querySelectorAll('.var-section')].map((e: Win) => e.textContent).join(' '), /the position of run r2/);
+        assert.equal(w.document.querySelector('input[data-var="custom.mode"]').value, 'careful', 'the run\'s custom variables');
+        w.dispatchEvent(new w.MessageEvent('message', {
+            data: { type: 'state', run: 'default', windowRun: 'default', quest: 'q1', role: '', roles: [], activeProjects: [], todo: '', todoFile: 'all', custom: {}, changeLog: [], process: {} },
+        }));
+        assert.match(line.textContent, /^Run: default \(this window's run\)/);
     });
 });

@@ -8,6 +8,16 @@
 var vscode = acquireVsCodeApi();
 var stateData = {};
 
+// ── The run shown (vscimpb60c) ──
+function renderRunLine(s) {
+    var el = document.getElementById('run-line');
+    if (!el) { return; }
+    var run = s.run || 'default';
+    el.dataset.run = run;
+    el.textContent = 'Run: ' + run + (run === s.windowRun ? ' (this window\'s run)' : '')
+        + ' — the custom variables and the process position below are this run\'s; quest, role, projects and todo are the window\'s.';
+}
+
 // ── Render variable table ──
 function renderTable(s) {
     stateData = s;
@@ -42,7 +52,7 @@ function renderTable(s) {
     var procKeys = ['process', 'phase', 'step', 'substep', 'phase-iteration', 'step-iteration', 'substep-iteration',
         'process-description', 'phase-description', 'step-description', 'substep-description',
         'phase-prompt', 'step-prompt', 'substep-prompt', 'session'];
-    rows += '<tr><td colspan="3" class="var-section">Process <span class="var-note">(read-only — the quest\'s position, set in the PROCESS view)</span></td></tr>';
+    rows += '<tr><td colspan="3" class="var-section">Process <span class="var-note">(read-only — the position of run ' + esc(s.run || 'default') + ', set in the PROCESS view)</span></td></tr>';
     procKeys.forEach(function(k) { rows += readonlyRow(k, proc[k] || ''); });
 
     // New variable input row (hidden by default)
@@ -232,6 +242,7 @@ document.getElementById('btn-file').addEventListener('click', function() {
 window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'state') {
+        renderRunLine(msg);
         renderTable(msg);
         renderLog(msg.changeLog);
     }

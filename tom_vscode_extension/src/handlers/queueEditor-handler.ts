@@ -261,12 +261,23 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
                 await showMarkdownHtmlPreview(_ctx, { title: String(msg.title || 'Answer'), markdown: String(msg.markdown || '') });
             }
             return;
+        // The context links of a run's tab open that run's data, and the editors say which run (vscimpb60c).
         case 'openContextSettings':
-            await vscode.commands.executeCommand('tomAi.editor.contextSettings');
+            await vscode.commands.executeCommand('tomAi.editor.contextSettings', tabRunOf(msg));
             return;
         case 'openChatVariablesEditor':
-            await vscode.commands.executeCommand('tomAi.editor.chatVariables');
+            await vscode.commands.executeCommand('tomAi.editor.chatVariables', tabRunOf(msg));
             return;
+        case 'openRunStateFile': {
+            // The tab's run's process position: its state file (`process-state.<quest>[.<run>].yaml`).
+            const file = runContextOf(tabRunOf(msg) ?? 'default').stateFile;
+            if (file && fs.existsSync(file)) {
+                await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: true });
+            } else {
+                vscode.window.showInformationMessage(`Run ${tabRunOf(msg) ?? 'default'} has no process position yet.`);
+            }
+            return;
+        }
         case 'showFile': {
           const { getQueueFolder, readAllEntries } = await import('../storage/queueFileStorage.js');
           const fs = await import('fs');
@@ -1342,6 +1353,8 @@ function buildState(): Record<string, unknown> {
         sessionInfo,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
+        // Each run's context for its tab's links: position, role, chat variables (vscimpb60c).
+        runContexts: runContextsFor(items),
         // Drives the webview's orange "Quest refresh is running…" banner
         // between the queue header and the first item.
         questRefreshActive,
@@ -1353,6 +1366,45 @@ function buildState(): Record<string, unknown> {
 }
 
 /** The quest's process runs and the window's current run, for the run filter and the add form. */
+/** A run's context as its tab's links show it: the process position, the role its step names, its chat variables. */
+export interface QueueRunContext {
+    run: string;
+    process: string;
+    position: string;
+    role: string;
+    /** Its custom chat variables (its run parameters). */
+    variables: Record<string, string>;
+    /** Its process state file, absolute; `''` without a quest. */
+    stateFile: string;
+}
+
+/** The context of `run`, read without moving anything (ProcessStateStore.runOverview, ChatVariablesStore.withRun). */
+export function runContextOf(run: string): QueueRunContext {
+    const out: QueueRunContext = { run, process: '', position: '', role: '', variables: {}, stateFile: '' };
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        if (store) {
+            const o = store.runOverview(run);
+            Object.assign(out, { process: o.process, position: o.position, role: o.role, stateFile: o.stateFile });
+        }
+    } catch { /* the process store is not there */ }
+    try {
+        const chat = ChatVariablesStore.instance;
+        out.variables = chat.withRun(run, () => ({ ...chat.custom }));
+    } catch { /* the chat variables are not there */ }
+    return out;
+}
+
+/** The context of every tab's run: the quest's runs and any an item belongs to. */
+function runContextsFor(items: readonly QueuedPrompt[]): Record<string, QueueRunContext> {
+    const runs = new Set<string>(['default', ...queueRunState().processRuns]);
+    for (const i of items) { runs.add(i.processRun?.run ?? i.run ?? 'default'); }
+    const out: Record<string, QueueRunContext> = {};
+    for (const run of runs) { out[run] = runContextOf(run); }
+    return out;
+}
+
 function queueRunState(): { processRuns: string[]; currentRun: string } {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports

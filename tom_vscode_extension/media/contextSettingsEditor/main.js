@@ -116,9 +116,20 @@ document.getElementById('btn-cancel').addEventListener('click', function() {
 });
 
 // ── Message listener ──
+/** The run it was opened for (vscimpb60c): these settings are the window's, shared by every run. */
+function renderRunLine(msg) {
+    var el = document.getElementById('run-line');
+    if (!el) { return; }
+    var run = msg.run || 'default';
+    el.dataset.run = run;
+    el.textContent = 'Run: ' + run + (run === msg.windowRun ? ' (this window\'s run)' : '')
+        + ' — the quest, role, projects, todo and reminder settings here are the window\'s, shared by every run; the run\'s own chat variables and position are in the Chat Variables editor.';
+}
+
 window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'contextData') {
+        renderRunLine(msg);
         populateContextForm(msg);
     } else if (msg.type === 'contextTodoFiles') {
         var todoFileSel = document.getElementById('ctx-todoFile');

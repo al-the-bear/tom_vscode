@@ -16,6 +16,10 @@
  *        the add form names the tab's run; the Copilot defaults row shows only while the run's default transport is
  *        Copilot
  *   QR-5 the host: every toolbar action passes the message's run to the manager (handler source)
+ *   QR-6 the context bar shows the tab's run (vscimpb60c): its name, position, role and chat variables, which change
+ *        with the tab; Position, Variables, the Chat Variables and Context & Settings buttons post the tab's run;
+ *        the role of another run than the window's is its step's, shown, not picked
+ *   QR-7 the Context & Settings view's run line names the run it was opened for
  */
 
 import test, { describe } from 'node:test';
@@ -173,5 +177,47 @@ describe('Prompt Queue editor — one tab per run', () => {
             /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ defaultReminderTemplateId:/,
             /\.\.\.\(typeof msg\.run === 'string' && msg\.run \? \{ run: addFormRun\(msg\.run\) \} : \{\}\)/,
         ]) { assert.match(host, call); }
+    });
+    test('QR-6: the context bar shows the tab\'s run', (t) => {
+        const runContexts = {
+            default: { run: 'default', process: 'design', position: 'Phase One › Plan', role: 'planner', variables: { mode: 'fast' }, stateFile: '/ws/ps.yaml' },
+            chg1: { run: 'chg1', process: 'design', position: 'Phase One › Build', role: 'builder', variables: { mode: 'careful', limit: '7' }, stateFile: '/ws/ps.chg1.yaml' },
+            chg2: { run: 'chg2', process: '', position: '', role: '', variables: {}, stateFile: '/ws/ps.chg2.yaml' },
+        };
+        const { w, posted } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS, runContexts, context: { quest: 'q1', role: 'builder', activeProjects: [] } });
+        const bar = (): string => w.document.getElementById('contextSummary').textContent.replace(/\s+/g, ' ');
+        const linkOf = (pick: string): Win => w.document.querySelector(`#contextSummary [data-pick="${pick}"]`);
+        assert.match(bar(), /Run: chg1 \(this window's\) \| Position: Phase One › Build \| Role: builder \|/);
+        assert.equal(linkOf('variables').textContent, '2');
+        assert.match(linkOf('variables').title, /mode=careful, limit=7/);
+        assert.ok(linkOf('role'), 'the window\'s run: the role is picked');
+        clickTab(w, 'default');
+        assert.match(bar(), /Run: default \| Position: Phase One › Plan \| Role: planner \|/, 'the links follow the tab');
+        assert.equal(linkOf('role'), null, 'another run\'s role is its step\'s: shown, not picked');
+        assert.equal(linkOf('variables').textContent, '1');
+        clickTab(w, 'chg2');
+        assert.match(bar(), /Position: \(no process\)/);
+        posted.length = 0;
+        linkOf('position').click();
+        linkOf('variables').click();
+        w.openChatVariables();
+        w.openContextSettings();
+        assert.deepEqual(posted, [
+            { type: 'openRunStateFile', run: 'chg2' }, { type: 'openChatVariablesEditor', run: 'chg2' },
+            { type: 'openChatVariablesEditor', run: 'chg2' }, { type: 'openContextSettings', run: 'chg2' },
+        ]);
+    });
+
+    test('QR-7: the Context & Settings view names its run', () => {
+        const html = readMedia('contextSettingsEditor', 'index.html');
+        const body = html.split('<body>')[1].split('<script')[0].replace(/\{\{[a-zA-Z]+\}\}/g, '');
+        const w = new JSDOM(`<!DOCTYPE html><body>${body}</body>`, { runScripts: 'outside-only' }).window as Win;
+        w.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
+        w.eval(readMedia('contextSettingsEditor', 'main.js'));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'contextData', quests: [], roles: [], projects: [], todoFiles: [], todos: [], activeProjects: [], reminderTemplates: [], run: 'chg2', windowRun: 'chg1' } }));
+        const line = w.document.getElementById('run-line');
+        assert.equal(line.dataset.run, 'chg2');
+        assert.match(line.textContent, /^Run: chg2 — the quest, role, projects, todo and reminder settings here are the window's/);
+        w.close();
     });
 });

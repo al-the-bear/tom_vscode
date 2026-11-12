@@ -22,12 +22,30 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 let _panel: vscode.WebviewPanel | undefined;
 let _context: vscode.ExtensionContext | undefined;
+/** The run it was opened for (a Prompt Queue tab's, vscimpb60c); undefined: the window's run. */
+let _run: string | undefined;
+
+/** The editor's title: it names the run it was opened for. */
+export function contextSettingsEditorTitle(run: string): string {
+    return `Context & Settings — run ${run}`;
+}
+
+/** The window's run (the process store's), for the title when no run was named. */
+function windowRunName(): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance?.currentRun ?? 'default';
+    } catch {
+        return 'default';
+    }
+}
 
 export function registerContextSettingsEditorCommand(ctx: vscode.ExtensionContext): void {
     _context = ctx;
     ctx.subscriptions.push(
-        vscode.commands.registerCommand('tomAi.editor.contextSettings', () => {
-            openContextSettingsEditor(ctx);
+        // An argument names the run it is opened for (a Prompt Queue tab's); none: the window's run.
+        vscode.commands.registerCommand('tomAi.editor.contextSettings', (run?: unknown) => {
+            openContextSettingsEditor(ctx, typeof run === 'string' ? run : undefined);
         }),
     );
     // Restore the panel after a window reload. Singleton that reloads all
@@ -46,16 +64,18 @@ export function registerContextSettingsEditorCommand(ctx: vscode.ExtensionContex
     );
 }
 
-export function openContextSettingsEditor(context: vscode.ExtensionContext): void {
+export function openContextSettingsEditor(context: vscode.ExtensionContext, run?: string): void {
+    _run = typeof run === 'string' && run.trim() ? run.trim() : undefined;
     if (_panel) {
         _panel.reveal();
+        _panel.title = contextSettingsEditorTitle(_run ?? windowRunName());
         _sendContextData();
         return;
     }
 
     const panel = vscode.window.createWebviewPanel(
         'tomAi.contextSettingsEditor',
-        'Context & Settings',
+        contextSettingsEditorTitle(_run ?? windowRunName()),
         vscode.ViewColumn.Active,
         {
             ...getContextSettingsEditorWebviewOptions(context),
@@ -146,7 +166,8 @@ async function _handleMessage(msg: any): Promise<void> {
             await _deleteReminderTemplate(msg.id);
             break;
         case 'openChatVariablesEditor':
-            await vscode.commands.executeCommand('tomAi.editor.chatVariables');
+            // For the run this editor was opened for.
+            await vscode.commands.executeCommand('tomAi.editor.chatVariables', _run);
             break;
         case 'close':
             _panel?.dispose();
@@ -311,6 +332,9 @@ async function _sendContextData(): Promise<void> {
         currentTodoFile, currentTodo,
         reminderEnabled, reminderTimeout, reminderTemplates,
         autoHideDelay,
+        // The run it was opened for (vscimpb60c): named in the run line.
+        run: _run ?? windowRunName(),
+        windowRun: windowRunName(),
     });
 }
 

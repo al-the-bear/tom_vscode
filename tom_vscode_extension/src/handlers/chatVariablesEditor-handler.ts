@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { scanWorkspaceProjects } from '../managers/questTodoManager';
@@ -21,16 +22,37 @@ import { listRoleNames } from '../utils/roleNames';
 // ============================================================================
 
 let _panel: vscode.WebviewPanel | undefined;
+/**
+ * The run the editor shows (vscimpb60c): its custom chat variables (the run's
+ * parameters) and its process position. Undefined: the window's run. Opened
+ * from a Prompt Queue tab, the editor shows that tab's run.
+ */
+let _run: string | undefined;
 
-export function openChatVariablesEditor(context: vscode.ExtensionContext): void {
+/** The run the editor shows now. */
+function shownRun(store: ChatVariablesStore): string {
+    return _run ?? store.windowRun;
+}
+
+/** The editor's title: it names the run. */
+export function chatVariablesEditorTitle(run: string): string {
+    return `Chat Variables — run ${run}`;
+}
+
+export function openChatVariablesEditor(context: vscode.ExtensionContext, run?: string): void {
+    _run = typeof run === 'string' && run.trim() ? run.trim() : undefined;
     if (_panel) {
         _panel.reveal();
+        try { _panel.title = chatVariablesEditorTitle(shownRun(ChatVariablesStore.instance)); } catch { /* store not initialised */ }
+        sendState(_panel);
         return;
     }
 
+    let title = 'Chat Variables';
+    try { title = chatVariablesEditorTitle(shownRun(ChatVariablesStore.instance)); } catch { /* store not initialised */ }
     const panel = vscode.window.createWebviewPanel(
         'chatVariablesEditor',
-        'Chat Variables',
+        title,
         vscode.ViewColumn.Active,
         {
             ...getChatVariablesEditorWebviewOptions(context),
@@ -113,11 +135,12 @@ async function handleMessage(msg: any): Promise<void> {
         case 'setTodoFile':
             store.set('todoFile', msg.value, 'user');
             break;
+        // The custom variables are the shown run's.
         case 'setCustom':
-            store.set(msg.key, msg.value, 'user');
+            store.withRun(shownRun(store), () => store.set(msg.key, msg.value, 'user'));
             break;
         case 'deleteCustom':
-            store.set(msg.key, '', 'user');
+            store.withRun(shownRun(store), () => store.set(msg.key, '', 'user'));
             break;
         case 'getState':
             if (_panel) { sendState(_panel); }
@@ -125,9 +148,21 @@ async function handleMessage(msg: any): Promise<void> {
         case 'pickProjects':
             await _pickProjects();
             break;
-        case 'showFile':
-            openPanelFile('chatvars');
+        case 'showFile': {
+            // The shown run's file: the window's chat variables for `default`, else the run's own file.
+            const run = shownRun(store);
+            if (run === 'default') {
+                openPanelFile('chatvars');
+            } else {
+                const file = store.runFilePath(run);
+                if (fs.existsSync(file)) {
+                    void vscode.window.showTextDocument(vscode.Uri.file(file), { preview: true });
+                } else {
+                    vscode.window.showInformationMessage(`Run ${run} has no chat variables of its own yet (${path.basename(file)}).`);
+                }
+            }
             break;
+        }
     }
 }
 
@@ -138,19 +173,36 @@ function sendState(panel: vscode.WebviewPanel): void {
     // Scan available roles
     const roles = _scanRoles();
 
+    const run = shownRun(store);
+    const windowRun = store.windowRun;
+    panel.title = chatVariablesEditorTitle(run);
     panel.webview.postMessage({
         type: 'state',
+        // The run shown (vscimpb60c): its custom variables and its process position; the others are the window's.
+        run,
+        windowRun,
         quest: store.quest,
         role: store.role,
         roles: roles,
         activeProjects: store.activeProjects,
         todo: store.todo,
         todoFile: store.todoFile,
-        custom: store.custom,
+        custom: store.withRun(run, () => ({ ...store.custom })),
         changeLog: store.changeLog,
-        // The quest's process variables (derived, read-only here).
-        process: store.derivedValues(),
+        // The run's process variables (derived, read-only here).
+        process: run === windowRun ? store.derivedValues() : processVariablesOfRun(run),
     });
+}
+
+/** The process chat variables of another run than the window's, read from its state file. */
+function processVariablesOfRun(run: string): Record<string, string> {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        return store ? store.runOverview(run).variables : {};
+    } catch {
+        return {};
+    }
 }
 
 // ============================================================================
@@ -222,8 +274,9 @@ function _scanRoles(): string[] {
 
 export function registerChatVariablesEditorCommand(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand('tomAi.editor.chatVariables', () => {
-            openChatVariablesEditor(context);
+        // An argument names the run to show (a Prompt Queue tab's); none: the window's run.
+        vscode.commands.registerCommand('tomAi.editor.chatVariables', (run?: unknown) => {
+            openChatVariablesEditor(context, typeof run === 'string' ? run : undefined);
         }),
     );
     // Restore the panel after a window reload. Singleton that reloads all

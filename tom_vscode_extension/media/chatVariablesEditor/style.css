@@ -62,3 +62,6 @@ td { padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border); vert
     box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
 }
 .var-popup.visible { display: block; }
+
+/* The run shown (vscimpb60c). */
+.run-line { margin: 0 0 8px; font-size: 0.9em; opacity: 0.85; }

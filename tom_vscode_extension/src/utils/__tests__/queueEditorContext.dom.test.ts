@@ -3,7 +3,8 @@
  * the queue's default Agent SDK session in one line, Role and Session
  * clickable — each opens a VS Code picker on the host.
  *
- *   QC-1 the bar reads `Quest: … | Role: … | Session: …` (then Projects); Role and Session are links;
+ *   QC-1 the bar reads `Quest: … | Run: … | Position: … | Role: … | Session: … | Variables: …` (then Projects) — the
+ *        tab's run's (vscimpb60c); Position, Role, Session and Variables are links;
  *        without a role the Role link offers to set one; there is no separate session row
  *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession` with the settings run; a state update
  *        refreshes the session shown
@@ -50,12 +51,12 @@ describe('Prompt Queue editor — the context bar', () => {
     test('QC-1: Quest, Role and Session in one line', (t) => {
         const { window } = setup(t, { context: { quest: 'tom_uam', role: 'spec_author', activeProjects: ['tom_uam'] }, queueDefaultSession: 'p2s3r1ss1' });
         const bar = window.document.getElementById('contextSummary');
-        assert.equal(bar.textContent, 'Quest: tom_uam  |  Role: spec_author  |  Session: p2s3r1ss1  |  Projects: tom_uam');
+        assert.equal(bar.textContent, 'Quest: tom_uam  |  Run: default (this window\'s)  |  Position: (no process)  |  Role: spec_author  |  Session: p2s3r1ss1  |  Variables: 0  |  Projects: tom_uam');
         const links = [...bar.querySelectorAll('.ctx-link')];
-        assert.deepEqual(links.map((l: Win) => [l.dataset.pick, l.textContent]), [['role', 'spec_author'], ['session', 'p2s3r1ss1']]);
+        assert.deepEqual(links.map((l: Win) => [l.dataset.pick, l.textContent]), [['position', '(no process)'], ['role', 'spec_author'], ['session', 'p2s3r1ss1'], ['variables', '0']]);
         assert.equal(window.document.getElementById('queueDefaultSessionRow'), null, 'the session moved into the bar');
         const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document.getElementById('contextSummary');
-        assert.equal(none.textContent, 'Quest: q  |  Role: (none)  |  Session: default');
+        assert.equal(none.textContent, 'Quest: q  |  Run: default (this window\'s)  |  Position: (no process)  |  Role: (none)  |  Session: default  |  Variables: 0');
     });
 
     test('QC-2: the links open the pickers', (t) => {
