@@ -639,6 +639,10 @@ function toggleSendBetween(id) { vscode.postMessage({ type: 'toggleSendBetween',
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
+// eslint-disable-next-line no-unused-vars -- called by a running item's resend button (queueEntryRenderFunctions.js)
+function resendSendingStage(id) { vscode.postMessage({ type: 'resendSendingStage', id }); }
+// eslint-disable-next-line no-unused-vars -- called by the Open question button of an item waiting for an answer
+function openPendingQuestion(id) { vscode.postMessage({ type: 'openPendingQuestion', id }); }
 function continueOnProfile(id, profileId) { vscode.postMessage({ type: 'continueOnProfile', id, profileId }); }
 // The out-of-budget panel's buttons (renderOutOfBudget): one delegated listener.
 document.addEventListener('click', function(ev) {

@@ -108,6 +108,8 @@
   /* The running prompt waits for the user's reply (a question or an approval is open). */
   .queue-item.waiting-for-user { border-left: 3px solid #d18616; background: rgba(209, 134, 22, 0.14); }
   .waiting-user-badge { background: #d18616; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+  .open-question-btn { background: #d18616; color: #fff; border: none; padding: 1px 7px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+  .open-question-btn:hover { filter: brightness(1.15); }
   .warning-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
     padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600;
     background: rgba(233, 167, 0, 0.15); color: var(--vscode-inputValidation-warningBorder, #e9a700);

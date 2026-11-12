@@ -209,7 +209,7 @@ describe('pause and resume during a running stage', () => {
         assert.equal(statusOf(item), 'sending', 'the item is the newer frame\'s now');
         (queue() as Json)._releaseFrame(live, newer);
         const src = fs.readFileSync(path.join(EXT_ROOT, 'src', 'managers', 'promptQueueManager.ts'), 'utf8');
-        assert.match(src, /const frame = this\._claimFrame\(item\);\n\s+try \{\n\s+if \(last\.transport === 'copilot'\)/, 'resend claims the item before its stage');
+        assert.match(src, /const frame = takeover \?\? this\._claimFrame\(item\);\n\s+try \{\n\s+if \(last\.transport === 'copilot'\)/, 'resend claims the item before its stage (a running stage resent: claimed before its turn is cancelled)');
         reset();
     });
 });

@@ -70,6 +70,8 @@ import {
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
+import { AskUserRegistry } from '../services/askUserRegistry';
+import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
@@ -1045,6 +1047,9 @@ export class PromptQueueManager {
         // A prompt starts or stops waiting for the user: the editor shows it on the item.
         const stopWaits = onUserWaitsChanged(() => m._onDidChange.fire());
         ctx.subscriptions?.push({ dispose: stopWaits });
+        // A question opens or closes: the editor shows it (and its Open question button) on the item.
+        const stopQuestions = AskUserRegistry.instance.onDidChange(() => m._onDidChange.fire());
+        ctx.subscriptions?.push({ dispose: stopQuestions });
         // Items other quests' windows sent while this window was not running, and from now on as they arrive.
         m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
         void m.takeInbox();
@@ -2981,6 +2986,11 @@ export class PromptQueueManager {
         // cancelled frame, whenever its turn ends, finds the item taken over (vscimpb54).
         const frame = this._claimFrame(sending);
         this._cancelActiveDispatch(sending);
+        // A question the turn waits in is closed with it, answered so (vscimpb55): the
+        // user chose to skip it, and a question left open would block the next ask.
+        if (AskUserRegistry.instance.cancelForQueueItem(sending.id, QUESTION_CLOSED_BY_SKIP)) {
+            logQueue(`continueSending(${sending.id}): closed the question the turn waited in`);
+        }
 
         // Baseline epoch *after* our own cancel: this advance frame now
         // owns the item. If a *further* explicit action (a second
@@ -3251,6 +3261,9 @@ export class PromptQueueManager {
         // status — the CTS is the authoritative signal that the handler
         // is actually executing.
         this._cancelActiveDispatch(sending);
+        if (sending && AskUserRegistry.instance.cancelForQueueItem(sending.id, QUESTION_CLOSED_BY_STOP)) {
+            logQueue(`stopActiveItem(${sending.id}): closed the question the turn waited in`);
+        }
 
         if (!sending) {
             // The handler was mid-flight but the item's status had
@@ -3453,6 +3466,30 @@ export class PromptQueueManager {
     /** What item `id`'s running dispatch waits for the user for (a question, an approval); none when it waits for nothing. */
     waitingForUserOf(id: string): Array<'question' | 'approval'> {
         return queueItemsWaitingForUser().get(id) ?? [];
+    }
+
+    /** The tomAi_askUser question item `id`'s turn waits in: its request id and when it was asked. */
+    pendingQuestionOf(id: string): { requestId: string; askedAt: number; title?: string } | undefined {
+        const pending = AskUserRegistry.instance.pendingForQueueItem(id);
+        return pending ? { requestId: pending.requestId, askedAt: pending.createdAt, ...(pending.title ? { title: pending.title } : {}) } : undefined;
+    }
+
+    /**
+     * Resend the stage a sending item runs now (vscimpb55): its turn is ended, the
+     * question it waits in closed, and the same stage dispatched again with a note
+     * that the turn was interrupted, so the agent picks up from its trail. The
+     * counters stay as they are; the walk goes on from the resent stage.
+     */
+    async resendSendingStage(id: string): Promise<void> {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') {
+            throw new Error(`Queue item ${id} is not sending`);
+        }
+        if (!item.lastDispatched) {
+            throw new Error(`Queue item ${id} has not dispatched a stage yet`);
+        }
+        logQueue(`resendSendingStage(${item.id}): resending the running ${item.lastDispatched.kind} stage`);
+        await this.resendLastPrompt(id, undefined, { interruptRunning: true });
     }
 
     sessionHolder(session: string, exceptId?: string): SessionHolder | undefined {
@@ -3904,7 +3941,11 @@ export class PromptQueueManager {
      * recorded `lastDispatched` (never sent) or when another item is
      * currently `sending` (serialisation invariant — see sendNext).
      */
-    async resendLastPrompt(id: string, override?: { text: string; anthropicProfileId: string; session: string }): Promise<void> {
+    async resendLastPrompt(
+        id: string,
+        override?: { text: string; anthropicProfileId: string; session: string },
+        opts?: { interruptRunning?: boolean },
+    ): Promise<void> {
         const item = this._items.find(i => i.id === id);
         if (!item) {
             throw new Error(`Queue item ${id} not found`);
@@ -3913,16 +3954,28 @@ export class PromptQueueManager {
         if (!last) {
             throw new Error(`Queue item ${id} has no previously-dispatched prompt to resend`);
         }
+        // Resending a running stage (resendSendingStage): the item itself is sending, and is not in its own way.
+        const interruptRunning = opts?.interruptRunning === true && item.status === 'sending';
+        const others = this._items.filter(i => i.status === 'sending' && !(interruptRunning && i.id === item.id));
         const busy = this._queuePerRun
-            ? laneConflict(item, this._items.filter(i => i.status === 'sending'), this._laneOptions(), (i) => this._laneTarget(i))
-            : (this._items.some(i => i.status === 'sending') ? 'another item is sending' : undefined);
+            ? laneConflict(item, others, this._laneOptions(), (i) => this._laneTarget(i))
+            : (others.length > 0 ? 'another item is sending' : undefined);
         if (busy) {
             throw new Error(this._queuePerRun
                 ? `Cannot resend now: ${busy}; wait for it to finish before resending`
                 : 'Another queue item is currently sending; wait for it to finish before resending');
         }
 
-        logQueue(`Resending last ${last.kind} prompt for item ${item.id} via ${last.transport}`);
+        logQueue(`Resending last ${last.kind} prompt for item ${item.id} via ${last.transport}${interruptRunning ? ' (its running turn is ended)' : ''}`);
+        // The running turn's frame loses the item before its turn is cancelled, so however the
+        // cancelled turn ends, it does not go on (vscimpb54); its question is closed with it.
+        const takeover = interruptRunning ? this._claimFrame(item) : undefined;
+        if (interruptRunning) {
+            this._cancelActiveDispatch(item);
+            if (AskUserRegistry.instance.cancelForQueueItem(item.id, QUESTION_CLOSED_BY_RESEND)) {
+                logQueue(`resendLastPrompt(${item.id}): closed the question the running turn waited in`);
+            }
+        }
 
         // Clear prior failure markers so the UI reflects the in-flight resend.
         item.error = undefined;
@@ -3965,7 +4018,7 @@ export class PromptQueueManager {
 
         const epoch = this._epochOf(item);
         // The resend is the item's frame from its replayed stage on: an older frame stops at its next stage.
-        const frame = this._claimFrame(item);
+        const frame = takeover ?? this._claimFrame(item);
         try {
             if (last.transport === 'copilot') {
                 this.clearExpectedAnswerFiles(item.expectedRequestId);
@@ -3975,7 +4028,9 @@ export class PromptQueueManager {
             // queue invites, and replaying the snapshot there sent the very
             // text the user had just cancelled. See `resolveResendText`.
             const resendText = override?.text ?? resolveResendText(last, item.expandedText);
-            const dispatchResult = await this.dispatchStage(resendText, resolved, container);
+            // A running turn resent: the agent is told its turn was interrupted (not recorded as the stage's text).
+            const sentText = interruptRunning ? `${RESEND_INTERRUPTED_NOTE}\n\n${resendText}` : resendText;
+            const dispatchResult = await this.dispatchStage(sentText, resolved, container);
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;

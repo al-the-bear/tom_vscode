@@ -300,7 +300,13 @@ function renderEntry(item, idx) {
   }
   /* Process position: the step the item belongs to (a Proceed prompt, what it
    * queued, or the process-move marker that moves the process on after them). */
-  var userWaitBadge = waitingForUser
+  // A tomAi_askUser question the turn waits in: since when, and a button that opens it
+  // (the question stays pending when its tab is closed).
+  var pendingQuestionBadge = item.pendingQuestionSince
+    ? '  <span class="waiting-user-badge" title="The running prompt waits for your answer to a question. Open question shows it again, also when its tab was closed.">[\u23f3 waiting for your answer ' + escapeHtml(String(item.pendingQuestionSince)) + ']</span>'
+      + ' <button class="open-question-btn" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="Open the question this item\'s turn waits for">Open question</button>'
+    : '';
+  var userWaitBadge = pendingQuestionBadge ? pendingQuestionBadge : waitingForUser
     ? '  <span class="waiting-user-badge" title="The running prompt waits for your reply: answer the open ' + (item.waitingForUser.indexOf('approval') !== -1 && item.waitingForUser.indexOf('question') === -1 ? 'tool approval' : 'question') + ' (@CHAT panel, MD Browser or Telegram)">[\u23f3 waiting for your ' + (item.waitingForUser.indexOf('question') !== -1 ? 'reply' : 'approval') + ']</span>'
     : '';
   var processBadge = userWaitBadge + (item.sendBetween
@@ -345,7 +351,9 @@ function renderEntry(item, idx) {
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
           // A sent item can be sent again: the whole item runs once more from its first prompt.
           (isSent ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now again (runs the whole item once more from its first prompt)"></span>' : '') +
-          (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\'' + safeId + '\')" title="Continue"></span>' : '') +
+          (isSending ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="continueSending(\'' + safeId + '\')" title="Continue (asks first: answer the question, resend this stage, or skip)"></span>' : '') +
+          // Resend the running stage: its turn is ended and the same prompt sent again (the agent is told).
+          (isSending && item.lastDispatched ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendSendingStage(\'' + safeId + '\')" title="Resend this stage (end the running turn and send the same prompt again)"></span>' : '') +
           // Error items get a "Set to Pending" button instead of a
           // resend control. The error transition flipped auto-send
           // off, so the user has explicitly opted out of further

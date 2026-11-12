@@ -38,6 +38,7 @@ import { positionText } from '../utils/processActionPrompt';
 import { runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
+import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
 import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
 import { questTrailFolder } from '../utils/questPaths';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
@@ -632,7 +633,14 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             await qm.sendNow(msg.id);
             break;
         case 'continueSending':
-          await qm.continueSending(msg.id);
+          // Continue asks first: Answer now / Resend this stage / Skip (vscimpb55).
+          await continueWithChoice(qm, msg.id);
+          break;
+        case 'resendSendingStage':
+          await resendRunningStage(qm, msg.id);
+          break;
+        case 'openPendingQuestion':
+          await vscode.commands.executeCommand('tomAi.showPendingQuestion');
           break;
         case 'resendLastPrompt':
           try {
@@ -1057,6 +1065,58 @@ function waitingForUserOf(item: QueuedPrompt): Array<'question' | 'approval'> | 
     } catch { return undefined; }
 }
 
+/** The question a sending item's turn waits in: when it was asked, as a label. */
+function pendingQuestionLabelOf(item: QueuedPrompt): string | undefined {
+    if (item.status !== 'sending') { return undefined; }
+    try {
+        const q = PromptQueueManager.instance.pendingQuestionOf(item.id);
+        return q ? waitingSinceLabel(q.askedAt, Date.now()) : undefined;
+    } catch { return undefined; }
+}
+
+/**
+ * Continue on a sending item: never blindly. The user picks Answer now (only
+ * while its turn waits for an answer), Resend this stage or Skip; dismissing
+ * the dialog does nothing.
+ */
+export async function continueWithChoice(qm: PromptQueueManager, id: string): Promise<void> {
+    const item = qm.getById(id);
+    if (!item || item.status !== 'sending') { return; }
+    const question = qm.pendingQuestionOf(id);
+    const walk = walkPrefixOf(item) !== undefined;
+    const options = continueOptions({ waitingForAnswer: question !== undefined, canResend: item.lastDispatched !== undefined, walk });
+    const text = continuePrompt({ waitingSince: question ? waitingSinceLabel(question.askedAt, Date.now()) : undefined, walk });
+    const picked = await vscode.window.showWarningMessage(text.message, { modal: true, detail: text.detail }, ...options.map((o) => o.label));
+    const action: ContinueAction | undefined = options.find((o) => o.label === picked)?.action;
+    if (!action) { return; }
+    if (action === 'answer') {
+        await vscode.commands.executeCommand('tomAi.showPendingQuestion');
+        return;
+    }
+    if (action === 'resend') {
+        await resendRunningStage(qm, id, true);
+        return;
+    }
+    await qm.continueSending(id);
+}
+
+/** Resend the stage a sending item runs; a question its turn waits in is closed, so ask first then. */
+async function resendRunningStage(qm: PromptQueueManager, id: string, confirmed = false): Promise<void> {
+    if (!confirmed && qm.pendingQuestionOf(id)) {
+        const ok = await vscode.window.showWarningMessage(
+            'The turn is waiting for your answer. Resending closes the question unanswered and sends the same prompt again.',
+            { modal: true },
+            'Resend this stage',
+        );
+        if (ok !== 'Resend this stage') { return; }
+    }
+    try {
+        await qm.resendSendingStage(id);
+    } catch (err) {
+        vscode.window.showWarningMessage(`Resend failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
 /** Whether a `chat` item's send still runs (it holds its session). */
 function chatSendAlive(item: QueuedPrompt): boolean {
     try { return PromptQueueManager.instance.sessionHolder(item.session ?? 'chat')?.id === item.id; } catch { return false; }
@@ -1210,6 +1270,8 @@ function buildState(): Record<string, unknown> {
                 ...(item.status === 'chat' && chatSendAlive(item) ? { chatActive: true } : {}),
                 // Its running prompt waits for the user: a question or an approval is open.
                 ...(waitingForUserOf(item) ? { waitingForUser: waitingForUserOf(item) } : {}),
+                // Its turn waits in a tomAi_askUser question: since when (and the Open question button).
+                ...(pendingQuestionLabelOf(item) ? { pendingQuestionSince: pendingQuestionLabelOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };

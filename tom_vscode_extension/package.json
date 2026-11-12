@@ -224,6 +224,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.showPendingQuestion",
+        "title": "@T: Show Pending Question",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.commandline.add",
         "title": "@T: Add Commandline",
         "category": "@Tom"

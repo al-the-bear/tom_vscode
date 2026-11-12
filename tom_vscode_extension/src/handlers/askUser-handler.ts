@@ -13,7 +13,10 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getExtensionPath, bridgeLog } from './handler_shared';
+import { getExtensionPath, bridgeLog, reportException } from './handler_shared';
+import { debugLog } from '../utils/debugLogger';
+import { instrumentWebviewMessages } from '../utils/webviewMessageInstrumentation';
+import { waitingSinceLabel } from '../utils/pendingQuestion';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
 import { appendQuestionLogEntry } from '../services/questionsLog';
@@ -83,6 +86,13 @@ function openAskPanel(pending: PendingAsk): void {
         },
     );
 
+    // In the debug log like the views: its submit / choice / answers messages, so a lost
+    // answer can be told from no answer afterwards.
+    instrumentWebviewMessages(panel.webview, {
+        source: 'tomAiAskUser',
+        log: (line) => debugLog(`webview message: ${line}`, 'INFO', 'webview.message'),
+        report: (where, error, details) => reportException(`webview:${where}`, error, details),
+    });
     const isPending = (): boolean => AskUserRegistry.instance.getPending()?.requestId === pending.requestId;
     panel.webview.onDidReceiveMessage(async (msg: { type?: string; requestId?: string; text?: string; choiceId?: string; answers?: unknown }) => {
         if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice' && msg.type !== 'answers')) { return; }
@@ -123,8 +133,10 @@ function openAskPanel(pending: PendingAsk): void {
 
     panel.onDidDispose(() => {
         // Manual close: forget the panel but leave the ask pending so the user
-        // can still answer from Telegram / let the timeout fire.
+        // can still answer from Telegram, or reopen it (Open question, @T: Show
+        // Pending Question, the status-bar entry).
         if (askPanels.get(pending.requestId) === panel) { askPanels.delete(pending.requestId); }
+        debugLog(`askUser panel closed for ${pending.requestId}${isPending() ? ' (the question stays pending)' : ''}`, 'INFO', 'askUser');
     });
 
     try {
@@ -283,6 +295,55 @@ export const ASK_USER_LIVE_TOOL: SharedToolDefinition<AskUserInput> = {
     ...ASK_USER_DEF,
     execute: (input) => askUserImpl(liveAskUserDeps, input),
 };
+
+/**
+ * Show the pending question: its panel to the front, or a new panel for it when
+ * its tab was closed (the ask itself stays pending until answered). Answers
+ * false, with a note to the user, when no question is pending.
+ */
+export function showPendingQuestion(): boolean {
+    const pending = AskUserRegistry.instance.getPending();
+    if (!pending) {
+        void vscode.window.showInformationMessage('No question is waiting for your answer.');
+        return false;
+    }
+    const panel = askPanels.get(pending.requestId);
+    if (panel) {
+        panel.reveal(vscode.ViewColumn.Active, false);
+    } else {
+        openAskPanel(pending);
+    }
+    return true;
+}
+
+/** The command that shows the pending question. */
+export const SHOW_PENDING_QUESTION_COMMAND = 'tomAi.showPendingQuestion';
+
+/**
+ * At activation: `@T: Show Pending Question`, and a status-bar entry while a
+ * question waits for the user's answer (it opens the question).
+ */
+export function initPendingQuestionUi(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(vscode.commands.registerCommand(SHOW_PENDING_QUESTION_COMMAND, () => showPendingQuestion()));
+    const item = vscode.window.createStatusBarItem('tomAi.pendingQuestion', vscode.StatusBarAlignment.Left, 51);
+    item.name = 'Tom AI: question waiting for your answer';
+    item.command = SHOW_PENDING_QUESTION_COMMAND;
+    context.subscriptions.push(item);
+    const update = (): void => {
+        const pending = AskUserRegistry.instance.getPending();
+        if (!pending) { item.hide(); return; }
+        const since = waitingSinceLabel(pending.createdAt, Date.now());
+        item.text = '$(comment-discussion) Question waiting';
+        item.tooltip = `${pending.title ? `${pending.title}\n` : ''}A question waits for your answer ${since}. Click to open it.`;
+        item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        item.show();
+    };
+    const unsubscribe = AskUserRegistry.instance.onDidChange(update);
+    // The tooltip's waiting time follows the clock.
+    const timer = setInterval(() => { if (AskUserRegistry.instance.hasPending()) { update(); } }, 60_000);
+    context.subscriptions.push({ dispose: () => { unsubscribe(); clearInterval(timer); } });
+    update();
+}
 
 /**
  * Cancel any pending ask (e.g. on queue Stop / window dispose) so the awaiting

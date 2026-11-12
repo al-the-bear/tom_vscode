@@ -9,6 +9,9 @@
  *        and the queue runs its Anthropic dispatch as the item, re-firing its change event when a wait changes
  *   UW-3 the queue editor: a sending item that waits gets its own colour (waiting-for-user) and a badge naming
  *        a reply or an approval
+ *   UW-4 a sending item whose turn waits in a tomAi_askUser question: the badge says since when, Open question posts
+ *        `openPendingQuestion`, Continue posts `continueSending` (the extension asks first), Resend of the running
+ *        stage posts `resendSendingStage`; no Resend before anything was dispatched
  *   RP-1 the repetition key: the walked todo's id, else the repetition number, else the template repetition
  *        number; none for an item that does not repeat
  *   RP-2 recording: one answer per repetition, a repetition answered again replaces its entry in place, empty
@@ -35,10 +38,10 @@ const count = (raw: number | string | undefined): number => (typeof raw === 'num
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Win = any;
 
-function queueEditor(items: unknown[]): Win {
+function queueEditor(items: unknown[], posted?: unknown[]): Win {
     const html = media('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
     const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
-    w.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
+    w.acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { posted?.push(m); }, setState: () => undefined, getState: () => undefined });
     w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
     w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
     return w;
@@ -98,6 +101,36 @@ describe('queue: waits for the user', () => {
             assert.match(el('prompt-approval').querySelector('.waiting-user-badge').textContent, /waiting for your approval/);
             assert.equal(el('prompt-free').classList.contains('waiting-for-user'), false);
             assert.match(media('shared', 'queueEntryStyles.css'), /\.queue-item\.waiting-for-user \{[^}]*background/);
+        } finally {
+            w.close();
+        }
+    });
+
+    test('UW-4: Open question, Continue and Resend on a waiting item', () => {
+        const posted: unknown[] = [];
+        const w = queueEditor([
+            { ...base, id: 'q1', status: 'sending', originalText: 'prompt-asks', waitingForUser: ['question'], pendingQuestionSince: 'since 20:31 (9 h 25 min)', lastDispatched: { kind: 'main', transport: 'anthropic', expandedText: 'x', dispatchedAt: new Date().toISOString() } },
+            { ...base, id: 'q2', status: 'sending', originalText: 'prompt-fresh' },
+        ], posted);
+        try {
+            posted.length = 0;
+            const el = (text: string): Win => [...w.document.querySelectorAll('.queue-item')].find((e: Win) => e.textContent.includes(text));
+            const asks = el('prompt-asks');
+            assert.match(asks.querySelector('.waiting-user-badge').textContent, /waiting for your answer since 20:31 \(9 h 25 min\)/);
+            // Inline handlers do not run in this DOM: run each button's onclick as the webview would.
+            const click = (b: Win): void => { w.eval(String(b.getAttribute('onclick')).replace('event.stopPropagation();', '')); };
+            click(asks.querySelector('.open-question-btn'));
+            click(asks.querySelector('.codicon-play[title^="Continue"]'));
+            click(asks.querySelector('.codicon-refresh[title^="Resend this stage"]'));
+            assert.deepEqual(JSON.parse(JSON.stringify(posted)), [
+                { type: 'openPendingQuestion', id: 'q1' },
+                { type: 'continueSending', id: 'q1' },
+                { type: 'resendSendingStage', id: 'q1' },
+            ]);
+            const fresh = el('prompt-fresh');
+            assert.equal(fresh.querySelector('.open-question-btn'), null, 'no question, no button');
+            assert.equal(fresh.querySelector('.codicon-refresh[title^="Resend this stage"]'), null, 'nothing dispatched yet: no Resend');
+            assert.match(media('shared', 'queueEntryStyles.css'), /\.open-question-btn \{/);
         } finally {
             w.close();
         }

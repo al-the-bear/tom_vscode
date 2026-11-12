@@ -18,6 +18,7 @@ import {
     type PendingAsk,
     type BeginAskParams,
 } from '../askUserRegistry.js';
+import { runAsQueueItem } from '../userWaits.js';
 
 // ---------------------------------------------------------------------------
 // Controllable harness
@@ -263,5 +264,49 @@ describe('AskUserRegistry — waiting indefinitely', () => {
         assert.equal(h.registry.hasPending(), true, 'the next ask opens');
         h.registry.cancel('done');
         assert.equal(await next.promise, 'done');
+    });
+    // vscimpb55: the question a queue item's turn waits in can be found again and closed by that item.
+    test('a question asked in a queue item\'s dispatch names the item; one asked outside names none', async () => {
+        const h = makeHarness();
+        let inside: { promise: Promise<string> } | undefined;
+        await runAsQueueItem('item-7', async () => { inside = beginWith(h, { timeoutMs: undefined }); });
+        assert.equal(h.registry.getPending()!.queueItemId, 'item-7');
+        assert.equal(h.registry.pendingForQueueItem('item-7')?.requestId, 'id-1');
+        assert.equal(h.registry.pendingForQueueItem('item-8'), undefined, 'another item has no question');
+        h.registry.cancel('x');
+        await inside!.promise;
+        beginWith(h, { timeoutMs: undefined });
+        assert.equal(h.registry.getPending()!.queueItemId, undefined);
+        h.registry.cancel('y');
+    });
+
+    test('change listeners hear an ask open and resolve, by every source', async () => {
+        const h = makeHarness();
+        let calls = 0;
+        const off = h.registry.onDidChange(() => { calls++; });
+        const first = beginWith(h, { timeoutMs: undefined });
+        assert.equal(calls, 1, 'opened');
+        assert.equal(h.registry.submit('id-1', 'a', 'vscode'), true);
+        await first.promise;
+        assert.equal(calls, 2, 'answered');
+        beginWith(h, { timeoutMs: 1_000 });
+        h.fireLatestTimer();
+        assert.equal(calls, 4, 'opened and timed out');
+        off();
+        beginWith(h, { timeoutMs: undefined });
+        h.registry.cancel('z');
+        assert.equal(calls, 4, 'unsubscribed');
+    });
+
+    test('cancelForQueueItem closes only the asking item\'s question, answering the note', async () => {
+        const h = makeHarness();
+        let ask: { promise: Promise<string>; captured: Captured } | undefined;
+        await runAsQueueItem('item-7', async () => { ask = beginWith(h, { timeoutMs: undefined }); });
+        assert.equal(h.registry.cancelForQueueItem('item-8', 'not yours'), false);
+        assert.equal(h.registry.hasPending(), true, 'another item leaves it open');
+        assert.equal(h.registry.cancelForQueueItem('item-7', 'The user skipped.'), true);
+        assert.equal(await ask!.promise, 'The user skipped.', 'the tool gets the note as its answer');
+        assert.equal(ask!.captured.resolves[0].source, 'cancel');
+        assert.equal(h.registry.cancelForQueueItem('item-7', 'again'), false, 'nothing left to close');
     });
 });

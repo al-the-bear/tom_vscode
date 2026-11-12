@@ -95,6 +95,7 @@ import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
 import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
 import { initDartBinariesHelp, showWithDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
+import { initPendingQuestionUi } from './handlers/askUser-handler';
 import { initAgentSdkCliHelp } from './handlers/agentSdkCliHelp-handler';
 import { initProviderSdks } from './handlers/providerSdks-handler';
 import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/dartScriptGuard';
@@ -430,6 +431,8 @@ export async function activate(context: vscode.ExtensionContext) {
         return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: getWorkspaceRoot(), bridgeExecutable };
     });
     initDartBinariesHelp(context);
+    // A question waiting for the user's answer: @T: Show Pending Question and its status-bar entry.
+    initPendingQuestionUi(context);
     // The page the Agent SDK transport points to when the Anthropic provider's
     // SDK or its Claude CLI for this platform is not installed.
     initAgentSdkCliHelp(context);

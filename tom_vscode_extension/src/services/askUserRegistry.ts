@@ -40,7 +40,7 @@
 
 import { registerAskCancel } from './askOwners';
 
-import { whileWaitingForUser } from './userWaits';
+import { currentQueueItemId, whileWaitingForUser } from './userWaits';
 import { layoutChoices, type AskChoice, type QuestionLayout } from '../utils/askChoices';
 
 /** The answer of a question whose prompt ended before the user answered. */
@@ -67,6 +67,8 @@ export interface PendingAsk {
     choices: AskChoice[];
     /** Where each question shows its choices: at a marker or under it. */
     layout: QuestionLayout[];
+    /** The queue item whose turn asked (services/userWaits.ts), when a queue item's turn asked. */
+    queueItemId?: string;
 }
 
 /** Parameters for {@link AskUserRegistry.begin}. */
@@ -125,6 +127,7 @@ export class AskUserRegistry {
     private readonly now: NonNullable<AskUserRegistryOptions['now']>;
 
     private active: ActiveAsk | undefined;
+    private readonly listeners = new Set<() => void>();
 
     constructor(opts: AskUserRegistryOptions = {}) {
         this.setTimer = opts.setTimer ?? ((ms, cb) => setTimeout(cb, ms));
@@ -141,6 +144,27 @@ export class AskUserRegistry {
     /** Snapshot of the pending ask, or `undefined` when nothing is pending. */
     getPending(): PendingAsk | undefined {
         return this.active?.pending;
+    }
+
+    /** The pending ask queue item `queueItemId`'s turn asked, if that is the pending one. */
+    pendingForQueueItem(queueItemId: string): PendingAsk | undefined {
+        const pending = this.active?.pending;
+        return pending?.queueItemId === queueItemId ? pending : undefined;
+    }
+
+    /**
+     * Be told when an ask opens or resolves (the status-bar entry, the queue
+     * editor's waiting item); answers the unsubscribe.
+     */
+    onDidChange(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => { this.listeners.delete(listener); };
+    }
+
+    private changed(): void {
+        for (const listener of [...this.listeners]) {
+            try { listener(); } catch { /* a listener must not break the ask */ }
+        }
     }
 
     /**
@@ -173,6 +197,7 @@ export class AskUserRegistry {
             layout: layoutChoices(params.questions, params.choices ?? []),
             createdAt,
             timeoutAt: timeoutMs === undefined ? undefined : createdAt + timeoutMs,
+            ...(currentQueueItemId() ? { queueItemId: currentQueueItemId() } : {}),
         };
         return new Promise<string>((resolve) => {
             const timer = timeoutMs === undefined ? undefined : this.setTimer(timeoutMs, () => {
@@ -199,6 +224,7 @@ export class AskUserRegistry {
                 this.active = undefined;
                 throw err;
             }
+            this.changed();
         });
     }
 
@@ -230,6 +256,17 @@ export class AskUserRegistry {
         if (this.active?.pending.requestId === requestId) { this.finish('cancel', note); }
     }
 
+    /**
+     * Close the question queue item `queueItemId`'s turn waits in, answering it
+     * `note` (the user resent or skipped the stage); answers whether one was open.
+     */
+    cancelForQueueItem(queueItemId: string, note: string): boolean {
+        const pending = this.pendingForQueueItem(queueItemId);
+        if (!pending) { return false; }
+        this.finish('cancel', note);
+        return true;
+    }
+
     /** Single-shot terminal transition shared by all resolution sources. */
     private finish(source: AskAnswerSource, answer: string): void {
         const active = this.active;
@@ -243,6 +280,7 @@ export class AskUserRegistry {
             active.onResolve(active.pending, source, answer);
         } finally {
             active.resolve(answer);
+            this.changed();
         }
     }
 }

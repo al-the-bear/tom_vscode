@@ -110,6 +110,7 @@
   placeholder panels of a folder without `.tom/` and at the top of the Status
   Page)
 - `tomAi.showDartBinariesHelp` — the Missing Dart Binaries page (DartScript / CodeSpecs validation on this platform; also the status-bar item *Dart binaries missing* and the Status Page's **Dart binaries** section)
+- `tomAi.showPendingQuestion` — @T: Show Pending Question: the question a prompt waits for your answer to (`tomAi_askUser`), also after its tab was closed; also the status-bar item *Question waiting* and the queue item's **Open question** button
 - `tomAi.showAgentSdkCliHelp` — the Missing Agent SDK page (the Anthropic provider's SDK or its Claude CLI not installed)
 - `tomAi.providerSdks` — the Provider SDKs page: install, update or remove the model providers' SDKs (not in the VSIX; also the Status Page's **Provider SDKs** button; opens at start while none is installed)
 - `tomAi.showQuickReference`
