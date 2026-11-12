@@ -62,6 +62,7 @@
   <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
   <button onclick="clearSent()">Clear Sent</button>
   <button onclick="clearAll()">Clear All</button>
+  <span id="copilotQueueSettings" class="copilot-only">
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
   <select id="responseTimeout" onchange="setResponseTimeout(this.value)">
     <option value="5">5 Minutes</option>
@@ -78,6 +79,7 @@
   <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
   <button class="ctx-btn-icon" onclick="editReminderTemplate()" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
   <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
+  </span>
   <button onclick="collapseAll()">Collapse All</button>
   <button onclick="expandAll()">Expand All</button>
   <label style="font-size:0.85em;opacity:0.85;" for="runFilter" title="The process run of the quest the items belong to">Run:</label>
@@ -93,13 +95,13 @@
   <label>Prompt</label>
   <textarea id="addText" data-completion="on" placeholder="Type a prompt to add to the queue..." rows="3"></textarea>
   <div class="add-options">
-    <label>Template:</label>
-    <select id="addTemplate"><option value="">(None)</option></select>
+    <label title="The prompt template that wraps the prompt (the template store the ANTHROPIC/LLM panel's User Prompt uses). The Copilot answer wrapper is applied separately, always.">Prompt template:</label>
+    <select id="addTemplate" title="The prompt template that wraps the prompt; the Copilot answer wrapper is applied separately, always."><option value="">(None)</option></select>
     <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Template"><span class="codicon codicon-add"></span></button>
     <button class="ctx-btn-icon" onclick="editPromptTemplate()" title="Edit Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deletePromptTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
   </div>
-  <div class="add-options">
+  <div class="add-options copilot-only" id="addReminderRow">
     <label style="margin-right:6px;">Reminder:</label>
     <select id="addReminderTemplate"><option value="">Global Default</option><option value="__none__">No reminder</option></select>
     <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>

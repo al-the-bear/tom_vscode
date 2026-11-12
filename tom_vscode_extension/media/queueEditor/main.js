@@ -206,6 +206,21 @@ if (__ctxSummary) {
 }
 var __afSlot = document.getElementById('addTransportRow');
 if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormPickerHtml; }
+if (__afSlot) { __afSlot.addEventListener('change', function () { syncCopilotOnlyFields(); }); }
+
+/**
+ * Copilot-only settings (the answer timeout, the reminder template, the add
+ * form's reminder): shown only where the transport is Copilot — the toolbar's
+ * when the queue's default transport is, the add form's when its picker is.
+ */
+function syncCopilotOnlyFields() {
+  var bar = document.getElementById('copilotQueueSettings');
+  if (bar) { bar.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
+  var addRow = document.getElementById('addReminderRow');
+  var addT = document.querySelector('#addTransportRow select[id$="-transport-t"]');
+  var addTransport = addT && addT.value ? addT.value : queueDefaultTransport;
+  if (addRow) { addRow.style.display = addTransport === 'copilot' ? '' : 'none'; }
+}
 
 /* The compaction / memory-extraction model pickers post their choice to the host. */
 [['compactionModelPick', 'compaction'], ['memoryModelPick', 'memory']].forEach(function (pair) {
@@ -376,6 +391,8 @@ function render() {
     apBtn.style.opacity = autoPause ? '1' : '0.5';
   }
 
+  // The answer timeout and reminder template act on Copilot answer files only: shown when the queue sends on Copilot.
+  syncCopilotOnlyFields();
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 

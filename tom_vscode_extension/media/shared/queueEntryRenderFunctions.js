@@ -252,26 +252,32 @@ function renderEntry(item, idx) {
         }).join('');
     var showTemplateSelect = editorMode !== 'template';
     var templateSelectHtml = showTemplateSelect
-      ? ('<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
-         '<select onchange="updateItemTemplate(\'' + safeId + '\', this.value)">' +
+      ? ('<label style="font-size:0.85em;font-weight:600;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</label>' +
+         '<select onchange="updateItemTemplate(\'' + safeId + '\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
            '<option value="">(None)</option>' +
            mpTplOptions +
          '</select>')
       : '';
+    // The reminder and the answer wait act on Copilot answer files only: shown for a Copilot item.
+    var itemIsCopilot = stageTransportOf(item) === 'copilot';
     templateRow = '<div class="template-row">' +
       templateSelectHtml +
-      '<label style="font-size:0.85em;font-weight:600;margin-left:' + (showTemplateSelect ? '0' : '0') + ';">Reminder:</label>' +
-      '<select onchange="updateItemReminder(\'' + safeId + '\', \'template\', this.value)">' +
-        '<option value=""' + (!noReminderSelected && !item.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
-        '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
-        reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-      '</select>' +
-      '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-      '<select onchange="updateItemReminder(\'' + safeId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
+      (itemIsCopilot
+        ? '<label class="copilot-only" style="font-size:0.85em;font-weight:600;margin-left:0;">Reminder:</label>' +
+          '<select class="copilot-only" onchange="updateItemReminder(\'' + safeId + '\', \'template\', this.value)">' +
+            '<option value=""' + (!noReminderSelected && !item.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
+            '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
+            reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
+          '</select>' +
+          '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
+          '<select class="copilot-only" onchange="updateItemReminder(\'' + safeId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
+        : '') +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
       '<input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:50px" placeholder="1 or var" title="Number or variable name (e.g. batchCount)" onchange="updateItemRepeat(\'' + safeId + '\', { repeatCount: this.value })">' +
-      '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
-      '<input type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:33px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\'' + safeId + '\', { answerWaitMinutes: this.value })">' +
+      (itemIsCopilot
+        ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
+          '<input class="copilot-only" type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:33px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\'' + safeId + '\', { answerWaitMinutes: this.value })">'
+        : '') +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>' +
@@ -636,6 +642,15 @@ function toggleBackgroundTasks(id) {
   if (typeof render === 'function') { render(); }
 }
 
+/** The transport a stage runs on: its own, else the item's, else the queue default. */
+function stageTransportOf(item, stage) {
+  var queueDefault = typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot';
+  return (stage && stage.transport) || item.transport || queueDefault;
+}
+
+/** The title of the Prompt template dropdowns. */
+var PROMPT_TEMPLATE_TITLE = 'The prompt template that wraps this prompt (the template store the ANTHROPIC/LLM panel\'s User Prompt uses). The Copilot answer wrapper is applied separately, always.';
+
 function renderAnswerBlock(item, safeId) {
   var answerBlock = '';
   var reps = Array.isArray(item.repetitionAnswers) ? item.repetitionAnswers.filter(function(r) { return r && typeof r.text === 'string'; }) : [];
@@ -807,8 +822,8 @@ function renderPrePrompts(item, status) {
         ? (function() {
             var ppShowTpl = editorMode !== 'template';
             var ppTplHtml = ppShowTpl
-              ? ('<label style="font-size:0.85em;font-weight:600;">Template:</label>' +
-                 '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'template\', this.value)">' +
+              ? ('<label style="font-size:0.85em;font-weight:600;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</label>' +
+                 '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'template\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
                    '<option value="">(None)</option>' +
                    ((pp.transport || item.transport) === 'anthropic'
                      ? (anthropicUserMessageTemplates || []).map(function(t) {
@@ -822,17 +837,21 @@ function renderPrePrompts(item, status) {
             return '<textarea onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'text\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
           '<div class="template-row">' +
             ppTplHtml +
-            '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTemplateId\', this.value)">' +
-              '<option value=""' + (!ppNoReminderSelected && !pp.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
-              '<option value="__none__"' + (ppNoReminderSelected ? ' selected' : '') + '>No reminder</option>' +
-              reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (pp.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-            '</select>' +
-            '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-            '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTimeoutMinutes\', this.value)">' + reminderTimeoutOptions(pp.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
+            (stageTransportOf(item, pp) === 'copilot'
+              ? '<select class="copilot-only" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTemplateId\', this.value)">' +
+                  '<option value=""' + (!ppNoReminderSelected && !pp.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
+                  '<option value="__none__"' + (ppNoReminderSelected ? ' selected' : '') + '>No reminder</option>' +
+                  reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (pp.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
+                '</select>' +
+                '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
+                '<select class="copilot-only" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTimeoutMinutes\', this.value)">' + reminderTimeoutOptions(pp.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
+              : '') +
             '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
             '<input type="text" value="' + escapeHtml(ppRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'repeatCount\', this.value)">' +
-            '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
-            '<input type="number" min="0" step="1" value="' + ppAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'answerWaitMinutes\', this.value)">' +
+            (stageTransportOf(item, pp) === 'copilot'
+              ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
+                '<input class="copilot-only" type="number" min="0" step="1" value="' + ppAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'answerWaitMinutes\', this.value)">'
+              : '') +
           '</div>';
           })()
         : '<div class="preprompt-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
@@ -888,8 +907,8 @@ function renderFollowUps(item, status) {
         ? (function() {
             var fuShowTpl = editorMode !== 'template';
             var fuTplHtml = fuShowTpl
-              ? ('<span style="font-size:0.8em;opacity:0.85;">Template:</span>' +
-                 '<select onchange="updateFollowUpTemplate(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', this.value)">' +
+              ? ('<span style="font-size:0.8em;opacity:0.85;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</span>' +
+                 '<select onchange="updateFollowUpTemplate(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
                    '<option value="">(None)</option>' +
                    ((f.transport || item.transport) === 'anthropic'
                      ? (anthropicUserMessageTemplates || []).map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + ((f.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
@@ -900,17 +919,21 @@ function renderFollowUps(item, status) {
           '<div class="followup-actions">' +
             '<div class="followup-row">' +
               fuTplHtml +
-              '<select onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'template\', this.value)">' +
+              (stageTransportOf(item, f) === 'copilot'
+                ? '<select class="copilot-only" onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'template\', this.value)">' +
                 '<option value=""' + (!noReminderSelected && !f.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
                 '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
                 reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (f.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
               '</select>' +
-              '<span style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-              '<select onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>' +
+              '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
+              '<select class="copilot-only" onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
+                : '') +
               '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
               '<input type="text" value="' + escapeHtml(fuRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'repeatCount\', this.value)">' +
-              '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
-              '<input type="number" min="0" step="1" value="' + fuAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'answerWaitMinutes\', this.value)">' +
+              (stageTransportOf(item, f) === 'copilot'
+                ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
+              '<input class="copilot-only" type="number" min="0" step="1" value="' + fuAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'answerWaitMinutes\', this.value)">'
+                : '') +
             '</div>' +
           '</div>';
           })()
