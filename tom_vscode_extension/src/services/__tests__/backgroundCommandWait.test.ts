@@ -117,7 +117,8 @@ describe('waiting for a send\'s command streams', () => {
         assert.equal(unlimited.kind, 'finished', 'waited past the limit');
         assert.equal(d2.states.find((s) => s?.unlimited)?.unlimited, true, 'the state says no limit');
         // Keep waiting: the limit again from now.
-        await start('send-7c', 'sleep 0.7');
+        // The command outlasts the restarted limit by far, so a loaded machine cannot let it finish first.
+        await start('send-7c', 'sleep 3');
         let keep: import('../../utils/backgroundWait.js').BackgroundWaitControl | undefined;
         const d3 = deps('send-7c', { onControl: (c) => { keep = c; } });
         setTimeout(() => keep?.keepWaiting(), 250);
