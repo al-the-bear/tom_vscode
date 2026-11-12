@@ -1689,13 +1689,15 @@ function documentsNamingPrefix(questId: string, prefix: string): Array<{ file: s
 
 /**
  * Rename the id group `from` of quest `questId` to `to`: every live todo whose
- * id prefix (everything before its first digit) is `from` becomes
+ * id prefix ({@link todoIdPrefix}: everything before its number, a leading
+ * number included, as in `001_cleanup`) is `from` becomes
  * `<to><rest of its id>`, through {@link renameQuestTodo} — so every reference
  * in the quest and in other quests follows and each old id keeps a stub in the
  * `-deleted` sibling. Archived and deleted todos of the group stay as they
  * are. Answers the renames and the quest's documents that still name
  * `<from><number>` (they are not rewritten). Refused, nothing written: a
- * target that is no prefix (empty, a digit, a space or path character), the
+ * target that is no prefix (empty, a digit after its leading number, a space
+ * or path character), the
  * same prefix, a group without live todos, new ids some todo of the quest
  * already has (archived and deleted ones included).
  */

@@ -53,7 +53,7 @@
 
 ## Quest TODO Panel — prefix groups
 
-- Group key = todo id up to its first digit (`qr3-2026…` → `qr`); no digit, or a leading digit → the **Unprefixed** group, always rendered last
+- Group key = todo id up to its number (`qr3-2026…` → `qr`); a leading number belongs to the key (`001_cleanup2` → `001_cleanup`, todo 2); no number after the key, or digits only → the **Unprefixed** group, always rendered last
 - Prefixes are verbatim: case-sensitive, separators kept (`qr` and `qr-` are different groups)
 - Separator line per group: chevron + prefix + count in brackets; click to expand/collapse
 - Groups sorted alphabetically by prefix (Unprefixed last), whatever the sort; the filter still decides which todos show

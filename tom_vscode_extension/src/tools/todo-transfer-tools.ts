@@ -122,7 +122,7 @@ export const TRANSFER_TODOS_TOOL: SharedToolDefinition<TransferTodosInput> = {
 
 export interface RenameTodoPrefixInput {
     questId: string;
-    /** The group's prefix: everything before the first digit of its ids. */
+    /** The group's prefix: everything before its ids' number (a leading number included, as in `001_cleanup`). */
     from: string;
     /** The new prefix. */
     to: string;
@@ -142,7 +142,7 @@ export async function renameTodoPrefixImpl(deps: RenameTodoPrefixDeps, input: Re
     const from = typeof input.from === 'string' ? input.from.trim() : '';
     const to = typeof input.to === 'string' ? input.to : '';
     if (!questId) { return fail('`questId` names the quest.'); }
-    if (!from) { return fail('`from` names the group\'s prefix (everything before the first digit of its ids).'); }
+    if (!from) { return fail('`from` names the group\'s prefix (everything before its ids\' number, e.g. `ww` or `001_cleanup`).'); }
     if (!deps.questExists(questId)) { return fail(`No quest "${questId}" (no _ai/quests/${questId}/ folder). tomAi_listQuests lists them.`); }
     const r = deps.renameTodoPrefix(questId, from, to, { dryRun: input.dryRun === true });
     if (r.ok && !r.dryRun) { deps.onMutate?.(); }
@@ -151,13 +151,13 @@ export async function renameTodoPrefixImpl(deps: RenameTodoPrefixDeps, input: Re
 
 export const RENAME_TODO_PREFIX_DESCRIPTION =
     'Rename a todo group\'s prefix in one step: every live todo of quest `questId` whose id prefix (everything before its '
-    + 'first digit) is `from` becomes `<to><the rest of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file '
+    + 'number; a leading number belongs to the prefix: `001_cleanup2` is todo 2 of `001_cleanup`) is `from` becomes `<to><the rest of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file '
     + 'it is. Every `blocked_by` / `dependencies` entry naming it follows — plain and `<quest>/<id>` in the quest, '
     + '`<quest>/<id>` in other quests; each old id keeps a cancelled stub naming the new id in the `-deleted` sibling of its '
     + 'file, so the `_ai` commit guard (an id may not vanish) accepts the change. Archived and deleted todos of the group '
     + 'stay as they are. Answers `{ok, dryRun, renames: [{from, to}], references, stubs, keptArchived, documents: [{file, '
     + 'count}]}` — `documents` are the quest\'s Markdown / YAML files still naming `<from><number>`, which are not rewritten. '
-    + 'Refused, nothing written: a `to` that is no prefix (empty, holding a digit, a space or a path character), the same '
+    + 'Refused, nothing written: a `to` that is no prefix (empty, holding a digit after its leading number, a space or a path character), the same '
     + 'prefix, a group without live todos, new ids the quest already has (archived and deleted included; `collisions` '
     + 'lists them). `dryRun: true` answers the plan and writes nothing.';
 

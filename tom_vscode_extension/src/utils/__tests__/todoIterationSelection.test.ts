@@ -76,6 +76,13 @@ describe('collectPrefixTodos', () => {
         );
     });
 
+    test('a group named with a leading number: `001_cleanup*` walks 1, 2 (vscimpb59)', () => {
+        const todos = [t('001_cleanup2_akkj-b'), t('002_other1'), t('001_cleanup1_akkj-a'), t('cleanup3')];
+        assert.deepEqual(collectPrefixTodos('001_cleanup', todos).map(e => [e.id, e.index]), [['001_cleanup1_akkj-a', 1], ['001_cleanup2_akkj-b', 2]]);
+        assert.equal(todoPrefixPatternError('001_cleanup*'), undefined);
+        assert.equal(pickNextTodoForIteration('001_cleanup*', todos)?.id, '001_cleanup1_akkj-a');
+    });
+
     test('takes the leading digit run and tolerates a trailing remainder', () => {
         const todos = [t('dsa15b'), t('dsa7-review'), t('dsa2x9')];  // dsa2x9 is 2, not 29 or 9
         assert.deepEqual(

@@ -12,6 +12,7 @@
  *        group stay as they are; the quest's documents still naming the old prefix are reported; every id the
  *        files held before is still in the corpus (the guard's rule)
  *   PR-3 a dry run answers the renames and the documents and writes nothing
+ *   PR-5 a group named with a leading number (`001_cleanup`) is renamed like any other, its numbers kept
  *   PR-4 refused, nothing written: a target prefix with a digit (so one ending in a digit), the same prefix, a
  *        group with no live todo, a target whose ids collide with existing todos (archived and deleted count)
  */
@@ -128,6 +129,17 @@ describe('renames the commit guard accepts', () => {
         assert.deepEqual(r.documents, [{ file: `overview.${Q}.md`, count: 1 }]);
         assert.equal(fs.readFileSync(main, 'utf8'), text);
         assert.equal(fs.existsSync(deleted), false);
+    });
+
+    test('PR-5: a group named with a leading number', () => {
+        add(main, '001_cleanup1_x-a');
+        add(main, '001_cleanup2_x-b', { blocked_by: ['001_cleanup1_x-a'] });
+        add(main, '002_other1_x-c');
+        const r = renameTodoPrefix(Q, '001_cleanup', '003_tidy');
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(ids(main).sort(), ['002_other1_x-c', '003_tidy1_x-a', '003_tidy2_x-b']);
+        assert.deepEqual(todo(main, '003_tidy2_x-b')?.blocked_by, ['003_tidy1_x-a']);
+        assert.deepEqual(ids(deleted).sort(), ['001_cleanup1_x-a', '001_cleanup2_x-b']);
     });
 
     test('PR-4: refusals', () => {

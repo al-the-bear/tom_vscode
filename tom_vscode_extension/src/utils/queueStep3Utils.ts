@@ -273,7 +273,8 @@ export function parseTodoPrefixPattern(value: unknown): string | undefined {
 /**
  * Why a `prefix*` value cannot be iterated, or undefined when it can (or is no
  * prefix pattern at all). A prefix may hold digits (`p2s2ss3-*`), but must not
- * END in one: the number of a todo is the first digit run after the prefix, so
+ * END in one (`001_cleanup*` is a group named with a leading number and fine):
+ * the number of a todo is the first digit run after the prefix, so
  * after `p2s2ss3` the id `p2s2ss31` could be todo 1 of `p2s2ss3` or belong to
  * `p2s2ss31`. Such a value is refused where it is set, never queued.
  */

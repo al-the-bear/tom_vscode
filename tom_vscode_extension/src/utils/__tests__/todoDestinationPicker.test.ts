@@ -7,14 +7,15 @@
  *   DP-4  a workspace todo: another quest only
  *   DP-5  todos of several quests: the workspace and another quest, no single "quest todos"
  *   DP-6  a workspace-relative path tells its quest and file
- *   DP-7  the prefix of an id is the panel's group key: everything before the first digit
+ *   DP-7  the prefix of an id is the panel's group key: everything before its number, a leading number included
+ *         (`001_cleanup1` → `001_cleanup`)
  *   DP-8  the prefix choices for a target quest: its groups (alphabetically) with their next free number,
  *         then a prefix of your own, then "keep the ids"; a quest without groups offers those two
  *   DP-9  renaming: the moved todos get the chosen prefix and consecutive numbers after the group's
  *         highest, each keeping the tail after its number; an id without a number keeps itself as tail;
  *         a number the target already has is skipped; "keep" renames nothing
  *   DP-10 the id choice is asked only when a moved todo enters a quest it is not in
- *   DP-11 a prefix of your own: not empty, no digit (the group key ends at the first digit), no
+ *   DP-11 a prefix of your own: not empty, no digit after a leading number (the todo's number follows it), no
  *         whitespace or path characters; the ids it gives, as a preview
  *   DP-12 finalizers: `<prefix>999` and higher do not count for the next number — the moved todos are numbered
  *         after the highest below 999 (choices and renames); a rename into the finalizer range is detected
@@ -80,6 +81,9 @@ describe('todo destination picker', () => {
         assert.equal(todoIdPrefix('qr-4'), 'qr-');
         assert.equal(todoIdPrefix('nonumber'), '');
         assert.equal(todoIdPrefix('7up'), '');
+        assert.equal(todoIdPrefix('001_cleanup2_akkj-x'), '001_cleanup');
+        assert.equal(todoIdPrefix('001_cleanup'), '');
+        assert.equal(todoIdPrefix('42'), '');
     });
 
     test('DP-8: the prefix choices of a target quest', () => {
@@ -123,6 +127,9 @@ describe('todo destination picker', () => {
         assert.match(validateTodoPrefix('') ?? '', /Enter/);
         assert.match(validateTodoPrefix('   ') ?? '', /Enter/);
         assert.match(validateTodoPrefix('q2r') ?? '', /digit/);
+        assert.equal(validateTodoPrefix('001_cleanup'), undefined, 'a leading number names the group');
+        assert.match(validateTodoPrefix('001') ?? '', /digit/, 'digits only');
+        assert.match(validateTodoPrefix('001_c2') ?? '', /digit/);
         assert.match(validateTodoPrefix('q r') ?? '', /space/);
         assert.match(validateTodoPrefix('q/r') ?? '', /character/);
         assert.equal(todoPrefixPreview(['vscannot3_ajtf-tools', 'qrd2'], ['qrm4_x'], 'qrm'), 'vscannot3_ajtf-tools → qrm5_ajtf-tools, qrd2 → qrm6');

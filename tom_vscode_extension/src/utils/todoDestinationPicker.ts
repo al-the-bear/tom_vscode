@@ -80,12 +80,17 @@ export function todoOriginOfRelativePath(relPath: string): TodoMoveOrigin {
 
 /**
  * The prefix of a todo id — the todo panel's group key (media/questTodoPanel/
- * grouping.js `qtTodoPrefix`): everything before the first digit; `''` when the
- * id starts with a digit or has none.
+ * grouping.js `qtTodoPrefix`, tom_todo_model `tomTodoGroupOf`): a leading
+ * number is part of the group's name and only sorts the groups
+ * (`001_cleanup1` → `001_cleanup`); after it, everything up to the first
+ * digit, which starts the todo's number. `''` when no number follows
+ * (`aaa_cleanup`, `001_cleanup`).
  */
 export function todoIdPrefix(id: string): string {
-    const m = /[0-9]/.exec(id);
-    return m ? id.slice(0, m.index) : '';
+    const m = /^([0-9]*)([^0-9]*)[0-9]/.exec(id);
+    // A leading number names a group only together with the text after it.
+    if (!m || (m[1] && !m[2])) { return ''; }
+    return m[1] + m[2];
 }
 
 /**
@@ -95,7 +100,7 @@ export function todoIdPrefix(id: string): string {
  */
 export const FINALIZER_INDEX = 999;
 
-/** The number after `prefix` in `id` (its first digit run), or undefined when `id` is not in that group. */
+/** The number after `prefix` in `id` (the digit run right after it), or undefined when `id` is not in that group. */
 export function numberIn(id: string, prefix: string): number | undefined {
     if (todoIdPrefix(id) !== prefix || !prefix) { return undefined; }
     const m = /^[0-9]+/.exec(id.slice(prefix.length));
@@ -156,13 +161,15 @@ export function todoPrefixChoices(targetIds: readonly string[], liveIds: readonl
 
 /**
  * Why `input` cannot be a todo prefix, or undefined when it can. The prefix is
- * the group key — everything before an id's first digit — so it holds no
- * digit; it is part of an id, so no whitespace or path characters either.
+ * the group key ({@link todoIdPrefix}) — a leading number may open it
+ * (`001_cleanup`), after that it holds no digit, since the todo's number
+ * follows it; it is part of an id, so no whitespace or path characters either.
  */
 export function validateTodoPrefix(input: string): string | undefined {
     const prefix = input.trim();
     if (!prefix) { return 'Enter a prefix, e.g. qrm.'; }
-    if (/[0-9]/.test(prefix)) { return 'A prefix holds no digit: the number follows it.'; }
+    // A leading number is part of a group's name (`001_cleanup`); after it, no digit: the todo's number follows the prefix.
+    if (!/^[0-9]*[^0-9]+$/.test(prefix)) { return 'A prefix holds no digit after its leading number (as in 001_cleanup): the number follows it.'; }
     if (/\s/.test(prefix)) { return 'A prefix holds no space.'; }
     if (/[/\\:*?"<>|#]/.test(prefix)) { return 'A prefix holds no / \\ : * ? " < > | # character.'; }
     return undefined;

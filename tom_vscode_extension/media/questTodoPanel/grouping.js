@@ -15,22 +15,25 @@ var QT_UNPREFIXED_LABEL = 'Unprefixed';
  */
 
 /**
- * Grouping key of a todo id: everything before the id's FIRST digit.
+ * Grouping key of a todo id (tom_todo_model `tomTodoGroupOf`): a leading
+ * number is part of the group's name and only sorts the groups
+ * (`001_cleanup1` → `001_cleanup`); after it, everything up to the first
+ * digit, which starts the todo's number.
  *
- * Returns `''` — meaning "no prefix" — when the id starts with a digit or
- * contains no digit at all. Separators are kept verbatim (`qr-4` → `qr-`):
- * the rule is the literal leading run of non-digits, not a normalised key, so
- * ids the author spelled differently stay in different groups.
+ * Returns `''` — meaning "no prefix" — when no number follows the prefix
+ * (`aaa_cleanup`, `001_cleanup`). Separators are kept verbatim (`qr-4` →
+ * `qr-`): the rule is the literal text, not a normalised key, so ids the
+ * author spelled differently stay in different groups.
  *
  * @param {unknown} id
  * @returns {string}
  */
 function qtTodoPrefix(id) {
     if (id === null || id === undefined) { return ''; }
-    var text = String(id);
-    var firstDigit = /[0-9]/.exec(text);
-    if (!firstDigit) { return ''; }
-    return text.substring(0, firstDigit.index);
+    var m = /^([0-9]*)([^0-9]*)[0-9]/.exec(String(id));
+    // A leading number names a group only together with the text after it.
+    if (!m || (m[1] && !m[2])) { return ''; }
+    return m[1] + m[2];
 }
 
 /**
@@ -68,7 +71,7 @@ function qtCompareTodoIds(a, b) {
 /**
  * Split a todo list into prefix groups for the list pane.
  *
- * The groups are **sorted alphabetically by prefix**, the `Unprefixed`
+ * The groups are **sorted naturally by prefix** (`001_cleanup` before `002_x` before `qr`), the `Unprefixed`
  * catch-all last — whatever the list's sort and filter, so every group is
  * always in the same place. Inside a group the todos keep the incoming order:
  * the list's sort (by id in natural order when none is chosen). The filter

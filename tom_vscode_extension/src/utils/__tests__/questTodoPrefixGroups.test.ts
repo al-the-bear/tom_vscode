@@ -75,9 +75,16 @@ describe('qtTodoPrefix', () => {
         assert.equal(api.qtTodoPrefix('tra02'), 'tra');
     });
 
-    test('ids starting with a digit have no prefix', () => {
-        assert.equal(api.qtTodoPrefix('1abc'), '');
+    test('a leading number belongs to the prefix (vscimpb59)', () => {
+        assert.equal(api.qtTodoPrefix('001_cleanup1'), '001_cleanup');
+        assert.equal(api.qtTodoPrefix('001_cleanup2_akkj-tidy'), '001_cleanup');
+        assert.equal(api.qtTodoPrefix('12ab3'), '12ab');
+    });
+
+    test('a leading number without text after it, or no number after the prefix: no prefix', () => {
         assert.equal(api.qtTodoPrefix('42'), '');
+        assert.equal(api.qtTodoPrefix('1abc'), '', 'no number after "1abc"');
+        assert.equal(api.qtTodoPrefix('001_cleanup'), '');
     });
 
     test('ids without any digit have no prefix', () => {
@@ -102,6 +109,16 @@ describe('qtTodoPrefix', () => {
 
 describe('qtGroupTodosByPrefix', () => {
     const api = loadGrouping();
+
+    test('a group named with a leading number sorts by its number (vscimpb59)', () => {
+        const groups = api.qtGroupTodosByPrefix([
+            { id: 'qr1' }, { id: '010_last1' }, { id: '001_cleanup2' }, { id: '002_next1' }, { id: '001_cleanup1' }, { id: 'loose' },
+        ]);
+        assert.deepEqual(labels(groups).slice(0, 4), ['001_cleanup', '002_next', '010_last', 'qr']);
+        assert.equal(labels(groups)[4], api.QT_UNPREFIXED_LABEL);
+        const sorted = Array.from(groups[0].todos).sort((a, b) => api.qtCompareTodoIds(a, b));
+        assert.deepEqual(Array.from(sorted, (t) => t.id), ['001_cleanup1', '001_cleanup2']);
+    });
 
     test('groups consecutive and non-consecutive todos under one prefix', () => {
         const groups = api.qtGroupTodosByPrefix([
