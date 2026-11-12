@@ -177,6 +177,9 @@ export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
  */
 export type DispatchOutcome = 'dispatched' | 'done' | 'paused';
 
+/** Appended to the answer of a stage the user moved past with Continue while its turn still ran. */
+export const CONTINUE_ANSWER_MARK = '\n\n_(Ended by Continue: the turn was still running; this is its last text.)_';
+
 /**
  * Snapshot of the last prompt dispatched on a queue item — pre-prompt,
  * main, or follow-up. Written **right before** every `dispatchStage` call
@@ -2974,6 +2977,9 @@ export class PromptQueueManager {
         // The CTS lifecycle guard in dispatchStage (`if (this._activeAnthropicCts === cts)`)
         // ensures the cancelled handler's `finally` will not clobber the freshly-set
         // CTS for the next stage's dispatch.
+        // The advance is the item's frame from now on — claimed before the cancel, so the
+        // cancelled frame, whenever its turn ends, finds the item taken over (vscimpb54).
+        const frame = this._claimFrame(sending);
         this._cancelActiveDispatch(sending);
 
         // Baseline epoch *after* our own cancel: this advance frame now
@@ -2983,7 +2989,7 @@ export class PromptQueueManager {
         // item's next state.
         const epoch = this._epochOf(sending);
         try {
-            return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue');
+            return await this.advanceSendingItemWithoutAnswer(sending, 'manual-continue', frame);
         } catch (err) {
             if (dispatchWasSuperseded(epoch, this._epochOf(sending))) {
                 logQueue(`continueSending(${sending.id}): superseded by a later explicit action — error suppressed`);
@@ -2994,7 +3000,7 @@ export class PromptQueueManager {
         }
     }
 
-    private async advanceSendingItemWithoutAnswer(sending: QueuedPrompt, reason: string): Promise<boolean> {
+    private async advanceSendingItemWithoutAnswer(sending: QueuedPrompt, reason: string, frame?: symbol): Promise<boolean> {
         // Capture the most-recent LLM answer as the completing stage's
         // answer. The user clicks Continue precisely when the model
         // produced an answer that the queue didn't auto-detect as final
@@ -3004,9 +3010,9 @@ export class PromptQueueManager {
         // is persisted (and ${answer} placeholders resolve) before we
         // advance. Copilot stages have no such handler-side text — their
         // answer lives in an answer file — so they are left untouched.
-        await this._captureLastAnswerForSendingItem(sending);
+        await this._captureLastAnswerForSendingItem(sending, reason === 'manual-continue');
 
-        const outcome = await this._runDispatchFrame(sending);
+        const outcome = await this._runDispatchFrame(sending, frame);
         if (outcome === 'paused') {
             logQueue(`advanceSendingItemWithoutAnswer paused for ${sending.id} (${reason}): auto-send off, item kept in 'sending' for resume`);
             this.persist();
@@ -3061,7 +3067,7 @@ export class PromptQueueManager {
      * that already has an `answerText` (the normal direct-completion
      * path already recorded the real answer).
      */
-    private async _captureLastAnswerForSendingItem(sending: QueuedPrompt): Promise<void> {
+    private async _captureLastAnswerForSendingItem(sending: QueuedPrompt, byContinue = false): Promise<void> {
         const last = sending.lastDispatched;
         if (!last || last.transport !== 'anthropic') {
             return;
@@ -3074,8 +3080,10 @@ export class PromptQueueManager {
             const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
             const answer = AnthropicHandler.instance.lastAssistantText;
             if (answer && answer.length > 0) {
-                container.answerText = answer;
-                if (container === sending) { recordRepetitionAnswer(sending, answer, resolveRepeatCount); }
+                // The turn's last text, marked: the stage did not finish, the user moved past it.
+                const kept = byContinue ? `${answer}${CONTINUE_ANSWER_MARK}` : answer;
+                container.answerText = kept;
+                if (container === sending) { recordRepetitionAnswer(sending, kept, resolveRepeatCount); }
                 logQueue(`Captured most-recent LLM answer (${answer.length} chars) for ${sending.id} stage=${last.kind}`);
             }
         } catch (err) {
@@ -4656,7 +4664,7 @@ export class PromptQueueManager {
         // Quest Refresh dispatch, whose maintenance answer must not drive
         // downstream chat-variable / TODO side-effects.
         propagateAnswer = true,
-    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
+    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
         if (resolved.transport === 'copilot') {
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: unescapePlaceholders(expandedText) });
             this._clearRetryOnDispatchSuccess();
@@ -4709,6 +4717,10 @@ export class PromptQueueManager {
         // a stale token never lingers across dispatches.
         const cts = new vscode.CancellationTokenSource();
         const ctsKey = waitItem?.id ?? '';
+        // A Continue / Stop / Resend while the turn runs bumps the item's epoch. The turn may still end
+        // normally (the Agent SDK ends a turn whose tool call was cancelled): its result is then not the
+        // stage's answer, and the frame that sent it must not go on (vscimpb54).
+        const sendEpoch = this._epochOf(waitItem);
         this._activeAnthropicCts.set(ctsKey, cts);
         try {
             // The prompt runs as the process position it belongs to (processRunContext).
@@ -4727,6 +4739,11 @@ export class PromptQueueManager {
                 ...(resolved.iterationKey ? { iterationKey: resolved.iterationKey } : {}),
                 onRetryWait: (wait) => this._showSendWait(waitItem, wait),
             })));
+            if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
+                logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
+                if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
+                return { mode: 'direct', answerText: result.text, superseded: true };
+            }
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
                 if (waitItem && stageForAnswer === waitItem) { recordRepetitionAnswer(waitItem, result.text, resolveRepeatCount); }
@@ -4817,7 +4834,7 @@ export class PromptQueueManager {
     private async _dispatchMainStageWithRefresh(
         item: QueuedPrompt,
         resolved: ReturnType<typeof this.resolveStageTransport>,
-    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string }> {
+    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
         if (resolved.transport !== 'anthropic') {
             return this.dispatchStage(item.expandedText, resolved, item, true);
         }
@@ -5099,6 +5116,26 @@ export class PromptQueueManager {
         if (this._frameOwners.get(item.id) === frame) { this._frameOwners.delete(item.id); }
     }
 
+    /**
+     * Right after a stage's dispatch returned: whether this frame must stop
+     * instead of going on (vscimpb54) — the turn ended after an explicit
+     * Continue / Stop / Resend (`superseded`: the Agent SDK ends a cancelled
+     * turn normally), another frame took the item over, or the item is no
+     * longer `sending`. Whatever the transport reported.
+     */
+    private _frameLostAfterDispatch(item: QueuedPrompt, frame: symbol | undefined, result: { mode: string; superseded?: true }): boolean {
+        const why = result.superseded
+            ? 'its turn ended after an explicit Continue / Stop / Resend'
+            : frame && this._frameOwners.get(item.id) !== frame
+                ? 'another dispatch frame took the item over'
+                : this._items.find(i => i.id === item.id)?.status !== 'sending'
+                    ? 'the item is no longer sending'
+                    : '';
+        if (!why) { return false; }
+        logQueue(`dispatchNext: ${item.id} — ${why}; this frame stops without going on`);
+        return true;
+    }
+
     /** Whether a dispatch frame is running for item `id` (a stage of it is in flight). */
     private _frameActive(id: string): boolean {
         return this._frameOwners.has(id);
@@ -5228,6 +5265,7 @@ export class PromptQueueManager {
                     dispatchedAt: new Date().toISOString(),
                 };
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
+                if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount}) via ${resolved.transport}`);
@@ -5406,6 +5444,7 @@ export class PromptQueueManager {
             // as an explicit sequential pre-step here, not via a re-entrant
             // `sendMessage` hook, so a failing refresh can't drop this prompt.
             const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
+            if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
             this._onPromptSent.fire(item);
             this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(iterationTodo
@@ -5488,6 +5527,7 @@ export class PromptQueueManager {
                     dispatchedAt: new Date().toISOString(),
                 };
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
+                if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
                 this._onPromptSent.fire(item);
                 this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount}) via ${resolved.transport}`);
