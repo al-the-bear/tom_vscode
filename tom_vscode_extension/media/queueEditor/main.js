@@ -116,10 +116,6 @@ let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : fa
 let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
 let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
-// Deferred queue-start target (ISO). When set, the queue holds all sends until
-// this instant passes; once fired the manager clears it, so the header dropdown
-// snaps back to "No start time" on the next state.
-let queueStartAt = __INITIAL__.queueStartAt || '';
 let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
 let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
@@ -261,7 +257,6 @@ window.addEventListener('message', e => {
       autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
       autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
-      queueStartAt = msg.queueStartAt || '';
       defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
       reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
@@ -384,11 +379,6 @@ function render() {
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
-  // Deferred-start dropdown is a one-shot: the manager clears queueStartAt once
-  // it fires, so snap the picker back to "No start time" whenever nothing is
-  // armed. While a start is armed we leave the user's chosen value in place.
-  const startSel = document.getElementById('queueStartDelay');
-  if (startSel && !queueStartAt) startSel.value = '0';
 
   const staged = currentItems.filter(i => i.status === 'staged').length;
   const pending = currentItems.filter(i => i.status === 'pending').length;
@@ -667,7 +657,6 @@ function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id })
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
 function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', id }); }
 function stopRetrying(id) { vscode.postMessage({ type: 'stopRetrying', id }); }
-function setQueueStartDelay(minutes) { vscode.postMessage({ type: 'setQueueStartDelay', minutes: parseInt(String(minutes), 10) || 0 }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 function setPauseAfter(id, pauseAfter) { vscode.postMessage({ type: 'setPauseAfter', id, pauseAfter }); }
 function updateDoneNotification(id, prompt) { vscode.postMessage({ type: 'updateDoneNotification', id, prompt: String(prompt || '') }); }

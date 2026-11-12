@@ -690,12 +690,6 @@ export class PromptQueueManager {
     private _walkContinuations = DEFAULT_WALK_CONTINUATIONS;
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
-    /**
-     * Deferred queue start: ISO instant before which all sends are held. Set
-     * by the header "Start in N minutes" dropdown; cleared (and auto-send
-     * re-enabled) by the health-check once it passes. undefined = no deferral.
-     */
-    private _queueStartAt: string | undefined;
     private _defaultReminderTemplateId: string | undefined;
     // Queue-level default transport (spec §4.10). New items that don't
     // pin a transport inherit this at enqueue-time.
@@ -1307,40 +1301,18 @@ export class PromptQueueManager {
             }
         }
 
-        // Deferred queue start: while the armed start instant is still in the
-        // future, hold every send. When it passes, enable auto-send, clear the
-        // deferral (the header dropdown resets to "No start time"), and let the
-        // drain below fire. Survives a reload because the instant is persisted.
-        let queueStartArmed = false;
-        let queueStartJustFired = false;
-        if (this._queueStartAt) {
-            const startMs = new Date(this._queueStartAt).getTime();
-            if (!Number.isNaN(startMs) && nowMs < startMs) {
-                queueStartArmed = true;
-            } else {
-                queueStartJustFired = true;
-                this._queueStartAt = undefined;
-                if (!this._autoSendEnabled) {
-                    this._autoSendEnabled = true;
-                }
-                logQueue('Queue start delay elapsed; enabling auto-send and draining the queue');
-            }
-        }
-
-        if (resumedWaiting || resumedRetry || queueStartJustFired) {
+        if (resumedWaiting || resumedRetry) {
             this.persistSettings();
             this.persist();
             this._onDidChange.fire();
         }
 
         // While any item is still parked in `waiting` (rate-limit reset not yet
-        // due) or `retry` (backoff countdown not yet due), or a deferred queue
-        // start has not yet arrived, hold every send: the parked item keeps its
-        // queue position at the top and the queue stays visibly stopped rather
-        // than draining past the stuck prompt. The health-check above resumes
-        // the parked item / clears the deferral when its instant arrives.
-        const hasBlockingWaiting = queueStartArmed
-            || this._items.some(i => i.status === 'waiting' || i.status === 'retry');
+        // due) or `retry` (backoff countdown not yet due), hold every send: the
+        // parked item keeps its queue position at the top and the queue stays
+        // visibly stopped rather than draining past the stuck prompt. The
+        // health-check above resumes the parked item when its instant arrives.
+        const hasBlockingWaiting = this._items.some(i => i.status === 'waiting' || i.status === 'retry');
 
         const pendingCount = this._items.filter(i => i.status === 'pending').length;
         const interruptedCount = this._items.filter(i => i.status === 'interrupted').length;
@@ -1375,15 +1347,13 @@ export class PromptQueueManager {
         }
 
         if (hasBlockingWaiting) {
-            logQueue(queueStartArmed
-                ? 'Health check holding all sends: deferred queue start not yet reached'
-                : 'Health check holding all sends: an item is waiting for its rate-limit reset or retry backoff');
+            logQueue('Health check holding all sends: an item is waiting for its rate-limit reset or retry backoff');
         } else if (decisions.shouldTriggerSendNext) {
             logQueue('Health check detected pending prompts without active sending; triggering sendNext');
             await this.sendNext();
-        } else if ((resumedWaiting || resumedRetry || queueStartJustFired) && (sendingCount === 0 || this._queuePerRun)) {
-            // A parked item (waiting reset OR retry backoff) just became due, or
-            // a deferred queue start just elapsed, but auto-send may be off (the
+        } else if ((resumedWaiting || resumedRetry) && (sendingCount === 0 || this._queuePerRun)) {
+            // A parked item (waiting reset OR retry backoff) just became due,
+            // but auto-send may be off (the
             // queue could have been paused independently). Drive the drain
             // directly so it resumes regardless of the auto-send flag.
             logQueue('Health check resuming after a parked window (rate-limit reset, retry backoff, or deferred start)');
@@ -2092,35 +2062,6 @@ export class PromptQueueManager {
     set autoPauseEnabled(v: boolean) {
         this._autoPauseEnabled = v;
         logQueue(`Auto-pause toggled: ${v ? 'on' : 'off'}`);
-        this.persistSettings();
-        this._onDidChange.fire();
-    }
-
-    /**
-     * ISO instant before which the queue holds every send (deferred start), or
-     * undefined when no start delay is armed. Surfaced to the header dropdown
-     * so it can render the pending delay; cleared by the health-check once due.
-     */
-    get queueStartAt(): string | undefined { return this._queueStartAt; }
-
-    /**
-     * Arm (or clear) a deferred queue start from the header "Start in N
-     * minutes" dropdown. `minutes <= 0` (or NaN) clears the deferral and lets
-     * the queue drain immediately. Otherwise the queue holds all sends until
-     * `now + minutes`; the health-check enables auto-send, drains, and clears
-     * the deferral once that instant passes. Persisted so it survives a reload.
-     */
-    setQueueStartDelay(minutes: number): void {
-        const mins = Math.floor(minutes);
-        if (!Number.isFinite(mins) || mins <= 0) {
-            if (this._queueStartAt !== undefined) {
-                this._queueStartAt = undefined;
-                logQueue('Queue start delay cleared');
-            }
-        } else {
-            this._queueStartAt = new Date(Date.now() + mins * 60_000).toISOString();
-            logQueue(`Queue start delayed by ${mins} min → holding sends until ${this._queueStartAt}`);
-        }
         this.persistSettings();
         this._onDidChange.fire();
     }
@@ -3743,14 +3684,6 @@ export class PromptQueueManager {
     }
 
     async sendNext(): Promise<void> {
-        // Deferred queue start: hold the automatic drain until the armed start
-        // instant passes. The health-check clears the deferral and re-drives
-        // sendNext when due. (Explicit per-item "send now" bypasses this — it
-        // calls sendItem directly — so the delay only gates the auto-drain.)
-        if (this._isQueueStartDeferred()) {
-            logQueue(`sendNext: held — deferred queue start until ${this._queueStartAt}`);
-            return;
-        }
         this._releaseResolvedDecisionItems();
         // Interrupt-for-continuation: the held item goes first — ahead of the
         // backlog, and before the "no pending items" auto-pause below could
@@ -3782,18 +3715,6 @@ export class PromptQueueManager {
         }
         logQueue(`sendNext: sending item ${next.id}`);
         await this.sendItem(next);
-    }
-
-    /**
-     * True while a deferred queue start is armed and its instant has not yet
-     * passed. A missing/unparseable `_queueStartAt` is treated as not deferred
-     * (never strand the queue). The health-check owns clearing the deferral.
-     */
-    private _isQueueStartDeferred(): boolean {
-        if (!this._queueStartAt) { return false; }
-        const startMs = new Date(this._queueStartAt).getTime();
-        if (Number.isNaN(startMs)) { return false; }
-        return Date.now() < startMs;
     }
 
     // ----- process-move markers (src/utils/processMoveMarker.ts) ------------
@@ -5913,7 +5834,6 @@ export class PromptQueueManager {
             'default-anthropic-config-id': this._defaultAnthropicConfigId,
             'default-agent-sdk-session': this._defaultAgentSdkSession,
             'default-message-template-id': this._defaultMessageTemplateId,
-            'queue-start-at': this._queueStartAt,
             // Written once the user touched them, so a queue that never used lanes keeps its file as it was.
             // eslint-disable-next-line @typescript-eslint/naming-convention -- the settings file's keys
             ...(this._laneSettingsStored ? { 'queue-per-run': this._queuePerRun, 'held-runs': [...this._heldRuns] } : {}),
@@ -5967,9 +5887,6 @@ export class PromptQueueManager {
             if (Array.isArray(settings['held-runs'])) {
                 this._heldRuns = settings['held-runs'].filter((r): r is string => typeof r === 'string' && r.length > 0).map(normalizeRun);
                 this._laneSettingsStored = true;
-            }
-            if (typeof settings['queue-start-at'] === 'string') {
-                this._queueStartAt = settings['queue-start-at'] || undefined;
             }
             console.log('[PromptQueueManager] restoreSettings:', {
                 timeout: this._responseFileTimeoutMinutes,

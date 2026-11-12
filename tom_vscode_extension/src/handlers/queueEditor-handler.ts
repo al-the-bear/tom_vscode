@@ -712,16 +712,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             );
           }
           break;
-        case 'setQueueStartDelay':
-          // Header dropdown: defer the queue start by N minutes (0 = clear).
-          try {
-            qm.setQueueStartDelay(typeof msg.minutes === 'number' ? msg.minutes : 0);
-          } catch (err) {
-            vscode.window.showWarningMessage(
-              `Set start delay failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-          break;
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
@@ -1214,7 +1204,6 @@ function buildState(): Record<string, unknown> {
     let queueDefaultSession = '';
     // Base and lifetime of every session of the quest, for the context bar and the item chips.
     let sessionInfo: Record<string, { basedOn?: string; mode: string }> = {};
-    let queueStartAt: string | undefined;
     // Per item not yet sent: the stages a missing API key would make fail.
     const apiKeyWarnings = new Map<string, string[]>();
 
@@ -1238,7 +1227,6 @@ function buildState(): Record<string, unknown> {
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
         queueDefaultSession = qm.defaultAgentSdkSession || '';
         sessionInfo = sessionInfoOf(listSessions(sessionsFolder(WsPaths.getWorkspaceQuestId())));
-        queueStartAt = qm.queueStartAt;
         console.log('[QueueEditor] buildState: items count =', items.length);
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
@@ -1358,9 +1346,6 @@ function buildState(): Record<string, unknown> {
         queueDefaultMessageTemplateId,
         queueDefaultSession,
         sessionInfo,
-        // Deferred queue start: ISO instant (or undefined) the header
-        // "Start in N minutes" dropdown reflects.
-        queueStartAt,
         collapsedIds: Array.from(_collapsedItemIds),
         context: { quest, role, activeProjects },
         // Drives the webview's orange "Quest refresh is running…" banner

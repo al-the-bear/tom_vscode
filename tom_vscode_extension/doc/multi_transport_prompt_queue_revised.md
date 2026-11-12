@@ -828,12 +828,6 @@ logic is pure and unit-tested in
   bookkeeping but leaves the snapshot, because a polled Copilot send that
   returned is still unanswered and its advance is not yet final.
 
-- **Deferred queue start.** A header **"Start in N minutes"** dropdown
-  (`setQueueStartDelay` / `queueStartAt`; No start time / 15/30/60/90/180/270/
-  360/420) holds every send in `sendNext` + the health check until the target
-  instant passes, then clears itself and re-enables auto-send. `queueStartAt`
-  persists across reload via `queue-settings.yaml`.
-
 - **Idle-amber header.** A transient `awaitingAnswer` flag (set at all three
   dispatch points, cleared at the pause gate, the done path, and
   `_markItemError`) lets the webview tell a genuinely in-flight iteration from an

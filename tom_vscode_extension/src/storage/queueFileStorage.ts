@@ -343,14 +343,6 @@ export interface QueueSettings {
      * is dispatched into the queue.
      */
     'default-message-template-id'?: string;
-    /**
-     * Deferred queue start: ISO instant before which the queue holds every
-     * send. Set from the header "Start in N minutes" dropdown. When the
-     * instant passes, the health-check enables auto-send, drains the queue,
-     * and clears this key (the dropdown resets to "No start time"). Absent =
-     * no deferral. Persisted so the delay survives a window reload.
-     */
-    'queue-start-at'?: string;
 }
 
 export function getQueueSettingsScopeKey(questId?: string): string {
