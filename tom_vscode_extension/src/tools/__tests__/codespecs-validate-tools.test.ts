@@ -16,7 +16,9 @@
  *   CV-7  the bundled CodeSpecs vocabulary equals tom_code_specs' and is passed by default, so
  *         checks 40 and 41 run; a vocabulary given explicitly is used instead
  *   CV-8  the bundled binary is built from tom_specs_clitool's source as it is now (its build stamp,
- *         scripts/codespecs-binary-stamp.cjs); when ai_build is not checked out, not measured
+ *         scripts/codespecs-binary-stamp.cjs); when ai_build is not checked out, not measured; when the
+ *         source has uncommitted edits (another session's work in progress), skipped, naming them — a red
+ *         CV-8 means something this checkout's install fixes (`npm run codespecs:check` stays strict)
  *   SC-1  a step's context: its areas' extracts exactly, its entries, its project
  *   SC-2  every step's areas have extracts and contract entries
  *   SC-3  input errors, a missing extract, §2 in full
@@ -248,10 +250,14 @@ describe('CodeSpecs step context', () => {
     test('CV-8: the bundled binary is built from the current source', (t) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { checkFreshness } = require(path.join(EXT_ROOT, 'scripts', 'codespecs-binary-stamp.cjs')) as {
-            checkFreshness(o: { extRoot: string; aiBuild: string }): { state: string; message: string };
+            checkFreshness(o: { extRoot: string; aiBuild: string }): { state: string; message: string; uncommitted?: string[] };
         };
         const r = checkFreshness({ extRoot: EXT_ROOT, aiBuild: AI_BUILD });
         if (r.state === 'noSource') { t.skip(r.message); return; }
+        if (r.state === 'stale' && (r.uncommitted ?? []).length > 0) {
+            t.skip(`not measured: tom_specs_clitool has uncommitted edits (${r.uncommitted!.join(', ')}); the binary is compared once they are committed`);
+            return;
+        }
         assert.equal(r.state, 'fresh', r.message);
     });
 

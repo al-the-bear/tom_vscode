@@ -135,6 +135,34 @@ function gitInfo(aiBuild = aiBuildCheckout()) {
     }
 }
 
+/**
+ * The feed files (paths relative to ai_build) with uncommitted changes: modified,
+ * staged or new. [] when the source matches its commit, or outside a git
+ * checkout. Lets CV-8 tell a stale binary an install fixes from one another
+ * session's work in progress made stale (quest_refresh10, decision b).
+ */
+function uncommittedFeedFiles(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) {
+    const files = feedFiles(aiBuild, name);
+    if (files.length === 0) { return []; }
+    try {
+        // Porcelain paths are relative to the repository root: strip ai_build's prefix in it.
+        const prefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: aiBuild, encoding: 'utf8' }).trim();
+        const out = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...files], { cwd: aiBuild, encoding: 'utf8' });
+        const changed = new Set();
+        for (const line of out.split('\n')) {
+            if (line.length < 4) { continue; }
+            let rel = line.slice(3).trim();
+            if (rel.includes(' -> ')) { rel = rel.split(' -> ').pop(); }
+            rel = rel.replace(/^"|"$/g, '');
+            if (prefix && rel.startsWith(prefix)) { rel = rel.slice(prefix.length); }
+            if (files.includes(rel)) { changed.add(rel); }
+        }
+        return Array.from(changed).sort();
+    } catch {
+        return [];
+    }
+}
+
 /** Write the stamp for the binary just built. */
 function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), now = new Date(), name = DEFAULT_NAME } = {}) {
     const { hash, files } = sourceHash(aiBuild, name);
@@ -177,18 +205,22 @@ function checkFreshness({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platf
     const built = stamp.clitool && stamp.clitool.head ? ` (clitool ${String(stamp.clitool.head).slice(0, 8)}${stamp.clitool.dirty ? ', dirty' : ''})` : '';
     const now = gitInfo(aiBuild);
     const nowAt = now.head ? ` (now ${now.head.slice(0, 8)}${now.dirty ? ', dirty' : ''})` : '';
+    const uncommitted = uncommittedFeedFiles(aiBuild, name);
+    const pending = uncommitted.length ? ` Its source has uncommitted edits (uncommitted: ${uncommitted.join(', ')}).` : '';
     return {
         state: 'stale',
         stamp,
         current,
-        message: `${name} was built ${stamp.builtAt}${built}; tom_specs_clitool or a path-resolved sibling changed since${nowAt}. ${fix}`,
+        uncommitted,
+        message: `${name} was built ${stamp.builtAt}${built}; tom_specs_clitool or a path-resolved sibling changed since${nowAt}.${pending} ${fix}`,
     };
 }
 
 module.exports = {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- exported constants keep their names
     STAMP_FORMAT, STAMP_FORMAT_VERSION, CLITOOL_BINARIES,
     aiBuildCheckout, hostPlatform, binaryName, binaryPath, stampName, stampPath,
-    feedFiles, sourceHash, gitInfo, writeStamp, checkFreshness,
+    feedFiles, sourceHash, gitInfo, uncommittedFeedFiles, writeStamp, checkFreshness,
 };
 
 if (require.main === module) {

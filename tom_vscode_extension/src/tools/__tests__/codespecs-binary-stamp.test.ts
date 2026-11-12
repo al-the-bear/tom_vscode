@@ -9,6 +9,9 @@
  *        path-resolved sibling makes it stale, naming `npm run codespecs:build`; a rebuild (new stamp) is fresh
  *        again; an edit elsewhere (the clitool's tests) changes nothing
  *   BS-3 no clitool source: not measured
+ *   BS-4 in a git checkout, a stale result names the feed files with uncommitted edits (modified or new, in the
+ *        clitool or a path-resolved sibling; not tests): CV-8 skips on them; a committed change leaves the list
+ *        empty, so a stale binary is a failure again
  */
 
 import test, { describe } from 'node:test';
@@ -16,13 +19,14 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const stamp = require(path.join(EXT_ROOT, 'scripts', 'codespecs-binary-stamp.cjs')) as {
     feedFiles(aiBuild: string): string[];
     writeStamp(o: { extRoot: string; aiBuild: string; platform: string }): { sourceHash: string; sourceFiles: number; clitool: { head: string | null } };
-    checkFreshness(o: { extRoot: string; aiBuild: string; platform: string }): { state: string; message: string };
+    checkFreshness(o: { extRoot: string; aiBuild: string; platform: string }): { state: string; message: string; uncommitted?: string[] };
     stampPath(extRoot: string, platform: string): string;
 };
 
@@ -103,5 +107,35 @@ describe('the validate_codespecs build stamp', () => {
         fs.mkdirSync(path.join(extRoot, 'bin', PLATFORM), { recursive: true });
         fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'validate_codespecs'), 'binary');
         assert.equal(stamp.checkFreshness({ extRoot, aiBuild: path.join(extRoot, 'nowhere'), platform: PLATFORM }).state, 'noSource');
+    });
+
+    test('BS-4: uncommitted edits named on a stale result', () => {
+        const { aiBuild, extRoot, put } = fixture();
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- environment variables
+        const git = (...args: string[]): string => execFileSync('git', args, { cwd: aiBuild, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x.invalid' } });
+        git('init', '-q');
+        git('add', '-A');
+        git('commit', '-q', '-m', 'seed');
+        const o = { extRoot, aiBuild, platform: PLATFORM };
+        fs.mkdirSync(path.join(extRoot, 'bin', PLATFORM), { recursive: true });
+        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'validate_codespecs'), 'binary');
+        stamp.writeStamp(o);
+        const fresh = stamp.checkFreshness(o);
+        assert.equal(fresh.state, 'fresh');
+        assert.equal(fresh.uncommitted, undefined, 'only a stale result names them');
+
+        put('tom_specs_clitool/lib/src/a.dart', 'void a() { /* uncommitted */ }');
+        put('sib/lib/new.dart', 'void n() {}');
+        put('tom_specs_clitool/test/a_test.dart', 'void main() { /* not fed */ }');
+        const dirty = stamp.checkFreshness(o);
+        assert.equal(dirty.state, 'stale');
+        assert.deepEqual(dirty.uncommitted, ['sib/lib/new.dart', 'tom_specs_clitool/lib/src/a.dart']);
+        assert.match(dirty.message, /uncommitted: sib\/lib\/new\.dart, tom_specs_clitool\/lib\/src\/a\.dart/);
+
+        git('add', '-A');
+        git('commit', '-q', '-m', 'edits');
+        const committed = stamp.checkFreshness(o);
+        assert.equal(committed.state, 'stale', 'a committed change still needs a rebuild');
+        assert.deepEqual(committed.uncommitted, []);
     });
 });
