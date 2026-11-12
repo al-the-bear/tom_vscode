@@ -200,6 +200,7 @@ export interface EnqueueInput {
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
+    walkContinuations?: number;
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
@@ -256,6 +257,7 @@ export interface PromptQueueAccess {
         templateRepeatCount?: number | string;
         answerWaitMinutes?: number;
         backgroundWaitLimitMinutes?: number;
+        walkContinuations?: number;
     }): void;
     updateItemTransport(id: string, opts: {
         transport?: QueueTransport;
@@ -443,6 +445,7 @@ export interface AddQueueItemInput {
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
+    walkContinuations?: number;
     reminderTemplateId?: string;
     reminderTimeoutMinutes?: number;
     reminderRepeat?: boolean;
@@ -490,6 +493,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             templateRepeatCount: input.templateRepeatCount,
             answerWaitMinutes: input.answerWaitMinutes,
             ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
+            ...(input.walkContinuations !== undefined ? { walkContinuations: input.walkContinuations } : {}),
             reminderTemplateId: input.reminderTemplateId,
             reminderTimeoutMinutes: input.reminderTimeoutMinutes,
             reminderRepeat: input.reminderRepeat,
@@ -555,6 +559,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
             answerWaitMinutes: { type: 'number' },
             backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h)." },
+            walkContinuations: { type: 'number', description: "Continuations a `<prefix>*` walk iteration gets when its todo is not completed after the turn (sent into the same session; then the item stops as needs attention). Unset: the queue's walk-continuations, default 2; 0 = none." },
             reminderTemplateId: { type: 'string' },
             reminderTimeoutMinutes: { type: 'number' },
             reminderRepeat: { type: 'boolean' },
@@ -815,6 +820,7 @@ export interface UpdateQueueItemInput {
     templateRepeatCount?: number | string;
     answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
+    walkContinuations?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -855,7 +861,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         }
         if (input.repeatCount !== undefined || input.repeatPrefix !== undefined ||
             input.repeatSuffix !== undefined || input.templateRepeatCount !== undefined ||
-            input.answerWaitMinutes !== undefined || input.backgroundWaitLimitMinutes !== undefined) {
+            input.answerWaitMinutes !== undefined || input.backgroundWaitLimitMinutes !== undefined || input.walkContinuations !== undefined) {
             access.updateItemRepetition(input.queueItemId, {
                 repeatCount: input.repeatCount,
                 repeatPrefix: input.repeatPrefix,
@@ -863,6 +869,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 templateRepeatCount: input.templateRepeatCount,
                 answerWaitMinutes: input.answerWaitMinutes,
                 ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
+                ...(input.walkContinuations !== undefined ? { walkContinuations: input.walkContinuations } : {}),
             });
         }
         if (input.transport !== undefined || input.anthropicProfileId !== undefined ||
@@ -940,6 +947,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
             answerWaitMinutes: { type: 'number' },
             backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h). A negative number clears it." },
+            walkContinuations: { type: 'number', description: "Continuations a `<prefix>*` walk iteration gets when its todo is not completed after the turn (sent into the same session; then the item stops as needs attention). Unset: the queue's walk-continuations, default 2; 0 = none." },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },

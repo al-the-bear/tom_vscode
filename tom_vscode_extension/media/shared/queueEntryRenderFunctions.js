@@ -309,7 +309,11 @@ function renderEntry(item, idx) {
   var userWaitBadge = pendingQuestionBadge ? pendingQuestionBadge : waitingForUser
     ? '  <span class="waiting-user-badge" title="The running prompt waits for your reply: answer the open ' + (item.waitingForUser.indexOf('approval') !== -1 && item.waitingForUser.indexOf('question') === -1 ? 'tool approval' : 'question') + ' (@CHAT panel, MD Browser or Telegram)">[\u23f3 waiting for your ' + (item.waitingForUser.indexOf('question') !== -1 ? 'reply' : 'approval') + ']</span>'
     : '';
-  var processBadge = userWaitBadge + (item.sendBetween
+  // A walk iteration still unfinished after its continuations: the item stopped (auto-send off).
+  var attentionBadge = item.needsAttention
+    ? '  <span class="needs-attention-badge" title="' + escapeHtml(String(item.needsAttention)) + '">[\u26a0 needs attention]</span>'
+    : '';
+  var processBadge = userWaitBadge + attentionBadge + (item.sendBetween
     ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
     : '');
   // A chat send runs in the session this item runs in: it waits and goes once that send ended.
@@ -554,8 +558,11 @@ function renderRepetitionChips(item, reps, shownKey) {
       return '<button type="button" class="rep-answer-chip' + (active ? ' active' : '') + (r.backgroundLeft ? ' bg-left' : '') + '"' +
         ' data-qid="' + escapeHtml(String(item.id)) + '" data-rep-key="' + escapeHtml(String(r.key)) + '"' +
         ' title="' + escapeHtml('The answer of ' + (/^[0-9]+$/.test(String(r.key)) ? 'repetition ' : 'todo ') + r.key + (r.at ? ' (' + new Date(r.at).toLocaleString() + ')' : '')
-          + (r.backgroundLeft ? ' \u2014 it ended with background work still running; the answer names it' : '')) + '">' +
-        escapeHtml(String(r.key)) + '</button>';
+          + (r.backgroundLeft ? ' \u2014 it ended with background work still running; the answer names it' : '')
+          + (r.continuations ? ' \u2014 ' + continuationMark(r.continuations) + ': the todo was not completed after the turn' : '')) + '">' +
+        escapeHtml(String(r.key)) +
+        (r.continuations ? '<span class="rep-cont-mark">' + escapeHtml(continuationMark(r.continuations)) + '</span>' : '') +
+        '</button>';
     }).join('') +
   '</div>';
 }
@@ -605,6 +612,22 @@ function renderBackgroundWait(item, safeId) {
     + '</div>';
 }
 
+/** `1 continuation`, `2 continuations` (utils/walkCompletionCheck.ts continuationMark). */
+function continuationMark(n) {
+  return n + ' continuation' + (n === 1 ? '' : 's');
+}
+
+/** The answers of a continued iteration's earlier turns, folded: they ended before the work was done. */
+function renderEarlierAnswers(rep) {
+  if (!rep || !Array.isArray(rep.earlier) || !rep.earlier.length) { return ''; }
+  return '<details class="earlier-answers"><summary>' + escapeHtml(rep.earlier.length === 1 ? 'Earlier answer' : rep.earlier.length + ' earlier answers') +
+    ' \u2014 ended before its work was done</summary>' +
+    rep.earlier.map(function(t, i) {
+      return '<div class="earlier-answer"><div class="earlier-answer-head">Turn ' + (i + 1) + '</div><div style="white-space:pre-wrap;">' + escapeHtml(String(t)) + '</div></div>';
+    }).join('') +
+  '</details>';
+}
+
 /** Open or close the ? list of an item's running tasks. */
 // eslint-disable-next-line no-unused-vars -- called by the ? button's onclick (renderBackgroundWait)
 function toggleBackgroundTasks(id) {
@@ -650,6 +673,8 @@ function renderAnswerBlock(item, safeId) {
       '<div id="' + ansId + '" data-full="' + escapeHtml(fullText) + '" data-truncated="' + escapeHtml(truncated) + '" data-expanded="false" style="white-space:pre-wrap;max-height:200px;overflow:auto;">' +
         escapeHtml(truncated) +
       '</div>' +
+      // The turns before the last of a continued iteration: folded under its final answer.
+      renderEarlierAnswers(shownRep) +
       renderRepetitionChips(item, reps, shownKey) +
     '</div>';
   }

@@ -18,6 +18,9 @@
  *        that does not wait (and nothing for a non-sending item, also after a reload's stale state)
  *   UW-6 a repetition whose turn ended with background work still running: its chip red, and the answer shown red
  *        with a note; an item without repetitions: the answer red from answerBackgroundLeft
+ *   UW-7 a continued walk iteration (vscimpb58): its chip marked `1 continuation`, the final answer shown with the
+ *        earlier one folded below ('ended before its work was done'); an item that stopped shows [⚠ needs attention]
+ *        with the reason as its title
  *   RP-1 the repetition key: the walked todo's id, else the repetition number, else the template repetition
  *        number; none for an item that does not repeat
  *   RP-2 recording: one answer per repetition, a repetition answered again replaces its entry in place, empty
@@ -179,6 +182,34 @@ describe('queue: waits for the user', () => {
             assert.match(shown.textContent, /background work still running/);
             assert.ok(el('prompt-single').querySelector('.answer-preview').classList.contains('bg-left'));
             assert.match(media('shared', 'queueEntryStyles.css'), /\.rep-answer-chip\.bg-left \{/);
+        } finally {
+            w.close();
+        }
+    });
+
+    test('UW-7: a continued iteration and needs attention', () => {
+        const w = queueEditor([
+            { ...base, id: 'k1', status: 'sending', originalText: 'prompt-continued', repeatCount: 'ww*', answerText: 'Finished green.',
+                needsAttention: 'The todo ww2_x is still in-progress after 2 continuations; the walk stopped instead of going on.',
+                repetitionAnswers: [
+                    { key: 'ww1_x', text: 'Finished green.', at: '2026-11-12T18:00:00Z', continuations: 1, earlier: ['Started; waiting to get notified.'] },
+                ] },
+        ]);
+        try {
+            const el = [...w.document.querySelectorAll('.queue-item')].find((e: Win) => e.textContent.includes('prompt-continued'));
+            const chip = el.querySelector('.rep-answer-chip');
+            assert.equal(chip.querySelector('.rep-cont-mark').textContent, '1 continuation');
+            assert.match(chip.title, /1 continuation: the todo was not completed after the turn/);
+            const answer = el.querySelector('.answer-preview');
+            assert.match(answer.textContent, /Finished green\./);
+            const earlier = answer.querySelector('details.earlier-answers');
+            assert.ok(earlier, 'the earlier answer folded');
+            assert.equal(earlier.open, false);
+            assert.match(earlier.querySelector('summary').textContent, /Earlier answer — ended before its work was done/);
+            assert.match(earlier.textContent, /Started; waiting to get notified\./);
+            const badge = el.querySelector('.needs-attention-badge');
+            assert.match(badge.textContent, /needs attention/);
+            assert.match(badge.title, /still in-progress after 2 continuations/);
         } finally {
             w.close();
         }

@@ -73,6 +73,7 @@ import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '..
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
+import { DEFAULT_WALK_CONTINUATIONS, completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
@@ -340,6 +341,14 @@ export interface QueuedPrompt {
     backgroundWait?: BackgroundWaitState;
     /** The latest main answer's turn ended with background work still running (its answer carries the hint): shown red. */
     answerBackgroundLeft?: true;
+    /** Continuations a walk iteration of this item gets while its todo is not completed; unset: the queue's (default 2). */
+    walkContinuations?: number;
+    /**
+     * Why the item stopped as needs attention: a walk iteration whose todo was
+     * still not completed after its continuations. Auto-send was switched off;
+     * cleared when the item sends its next main prompt.
+     */
+    needsAttention?: string;
     /**
      * "Pause after this": when set, the queue stops once this item has
      * finished its **last** stage / repetition — the item itself always runs
@@ -677,6 +686,8 @@ export class PromptQueueManager {
     private _autoSendDelayMs = 2000;
     private _autoStartEnabled = false;
     private _autoPauseEnabled = true;
+    /** Continuations a walk iteration gets while its todo is not completed (queue setting `walk-continuations`). */
+    private _walkContinuations = DEFAULT_WALK_CONTINUATIONS;
     private _autoContinueEnabled = false;
     private _responseFileTimeoutMinutes = 60;
     /**
@@ -2182,6 +2193,8 @@ export class PromptQueueManager {
         answerWaitMinutes?: number;
         /** The background-wait limit in minutes (0 = no wait); unset: the profile's. */
         backgroundWaitLimitMinutes?: number;
+        /** Continuations a walk iteration gets while its todo is not completed; unset: the queue's. */
+        walkContinuations?: number;
         initialStatus?: 'staged' | 'pending';
         deferSend?: boolean;
         // Multi-transport pin-through (spec §4.1).
@@ -2299,6 +2312,7 @@ export class PromptQueueManager {
             templateRepeatIndex: Math.max(0, Math.round(opts.templateRepeatIndex || 0)),
             answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
             ...(validLimit(opts.backgroundWaitLimitMinutes) !== undefined ? { backgroundWaitLimitMinutes: validLimit(opts.backgroundWaitLimitMinutes) } : {}),
+            ...(validContinuations(opts.walkContinuations) !== undefined ? { walkContinuations: validContinuations(opts.walkContinuations) } : {}),
             transport: opts.transport,
             anthropicProfileId: opts.anthropicProfileId,
             anthropicConfigId: opts.anthropicConfigId,
@@ -2701,6 +2715,8 @@ export class PromptQueueManager {
         answerWaitMinutes?: number;
         /** The background-wait limit in minutes; a negative number clears it (the profile's applies). */
         backgroundWaitLimitMinutes?: number;
+        /** Continuations a walk iteration gets; a negative number clears it (the queue's applies). */
+        walkContinuations?: number;
     }): boolean {
         assertValidRepeatCount(patch.repeatCount);
         assertValidRepeatCount(patch.templateRepeatCount);
@@ -2718,6 +2734,9 @@ export class PromptQueueManager {
         }
         if (patch.backgroundWaitLimitMinutes !== undefined) {
             item.backgroundWaitLimitMinutes = validLimit(patch.backgroundWaitLimitMinutes);
+        }
+        if (patch.walkContinuations !== undefined) {
+            item.walkContinuations = validContinuations(patch.walkContinuations);
         }
         this.recheckEmptyIteration(item);
         this.persist();
@@ -5319,6 +5338,72 @@ export class PromptQueueManager {
             && !this._frameActive(item.id) && item.awaitingAnswer !== true;
     }
 
+    /** Continuations a walk iteration of `item` gets: its own, else the queue's. */
+    walkContinuationsOf(item: QueuedPrompt): number {
+        return item.walkContinuations ?? this._walkContinuations;
+    }
+
+    /** The queue's default for walk continuations (queue setting `walk-continuations`). */
+    get walkContinuations(): number { return this._walkContinuations; }
+    set walkContinuations(n: number) {
+        const valid = validContinuations(n);
+        if (valid === undefined || valid === this._walkContinuations) { return; }
+        this._walkContinuations = valid;
+        this.persistSettings();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * A walk iteration's todo is not completed after its main prompt answered
+     * (utils/walkCompletionCheck.ts): unless the todo says why — blocked,
+     * decision-needed, an open decision — or a question waits, send the
+     * continuation into the iteration's own session, up to the item's (or the
+     * queue's) number of continuations. The iteration's answer is the last
+     * turn's; the earlier ones go on its repetition answer, folded. Still not
+     * completed: the item stops as needs attention — auto-send off, the reason
+     * on the item — and is held before the next todo. 'stop': this frame ends here.
+     */
+    private async _continueUnfinishedIteration(
+        item: QueuedPrompt,
+        frame: symbol | undefined,
+        todoId: string,
+        resolved: Parameters<PromptQueueManager['dispatchStage']>[1],
+    ): Promise<'ok' | 'stop'> {
+        const questId = this.activeQuestId();
+        if (!questId) { return 'ok'; }
+        const max = this.walkContinuationsOf(item);
+        const earlier: string[] = [];
+        for (let n = 0; ; n++) {
+            const verdict = completionVerdict(readQuestTodo(questId, todoId), AskUserRegistry.instance.pendingForQueueItem(item.id) !== undefined);
+            if (verdict.kind !== 'continue') {
+                if (verdict.kind === 'reason') { logQueue(`Walk ${item.id}: todo ${todoId} not completed, but ${verdict.why} — no continuation`); }
+                return 'ok';
+            }
+            if (n >= max) {
+                item.needsAttention = needsAttentionReason(todoId, verdict.status, n);
+                this._autoSendEnabled = false;
+                this.persistSettings();
+                this.persist();
+                this._onDidChange.fire();
+                logQueue(`Walk ${item.id}: todo ${todoId} still ${verdict.status} after ${n} continuation(s) — needs attention, auto-send off`);
+                // Settle the iteration (its answer onto the todo) and hold before the next todo.
+                return 'ok';
+            }
+            earlier.push(item.answerText ?? '');
+            logQueue(`Walk ${item.id}: todo ${todoId} is ${verdict.status} after its turn — continuation ${n + 1} of ${max} in the same session`);
+            const result = await this.dispatchStage(continuationPrompt(todoId), resolved, item);
+            if (this._frameLostAfterDispatch(item, frame, result)) { return 'stop'; }
+            // The iteration's answer is this last turn's; its chip says how many continuations it took.
+            const entry = item.repetitionAnswers?.find((a) => a.key === todoId);
+            if (entry) {
+                entry.continuations = n + 1;
+                entry.earlier = earlier.filter((t) => t.trim() !== '');
+            }
+            this.persist();
+            this._onDidChange.fire();
+        }
+    }
+
     private async dispatchNextStageForSendingItem(item: QueuedPrompt, frame?: symbol): Promise<DispatchOutcome> {
         // A frame dispatches only for an item that is still sending and still its own (vscimpb53):
         // a stage that ended after the item was sent, removed or failed, or after another
@@ -5580,6 +5665,8 @@ export class PromptQueueManager {
             item.awaitingAnswer = true; // in flight — a prompt is being processed
             item.reminderSentCount = 0;
             item.lastReminderAt = undefined;
+            // The walk goes on: a needs-attention stop is over.
+            delete item.needsAttention;
             this.persist();
             this._onDidChange.fire();
 
@@ -5610,6 +5697,10 @@ export class PromptQueueManager {
             if (dispatchResult.mode === 'direct') {
                 this.persist();
                 this._onDidChange.fire();
+                // A walk iteration whose todo is not completed gets continuations in its own session first.
+                if (iterationTodo && await this._continueUnfinishedIteration(item, frame, iterationTodo.id, resolved) === 'stop') {
+                    return 'paused';
+                }
                 return await this.dispatchNextStageForSendingItem(item, frame);
             }
             return 'dispatched';
@@ -5814,6 +5905,7 @@ export class PromptQueueManager {
             'auto-start-enabled': this._autoStartEnabled,
             'auto-pause-enabled': this._autoPauseEnabled,
             'auto-continue-enabled': this._autoContinueEnabled,
+            'walk-continuations': this._walkContinuations,
             // Queue-level default transport (spec §4.10).
             'default-transport': this._defaultTransport,
             'default-anthropic-profile-id': this._defaultAnthropicProfileId,
@@ -5845,6 +5937,9 @@ export class PromptQueueManager {
             }
             if (typeof settings['auto-pause-enabled'] === 'boolean') {
                 this._autoPauseEnabled = settings['auto-pause-enabled'];
+            }
+            if (validContinuations(settings['walk-continuations']) !== undefined) {
+                this._walkContinuations = validContinuations(settings['walk-continuations'])!;
             }
             if (typeof settings['auto-continue-enabled'] === 'boolean') {
                 this._autoContinueEnabled = settings['auto-continue-enabled'];
@@ -6306,6 +6401,8 @@ export class PromptQueueManager {
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
                 ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
                 ...(main['answer-background-left'] === true ? { answerBackgroundLeft: true } : {}),
+                ...(validContinuations(main['walk-continuations']) !== undefined ? { walkContinuations: validContinuations(main['walk-continuations']) } : {}),
+                ...(typeof main['needs-attention'] === 'string' && main['needs-attention'] ? { needsAttention: main['needs-attention'] } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
 
@@ -6451,8 +6548,14 @@ export class PromptQueueManager {
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
-            ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({ key: a.key, text: a.text, at: a.at, ...(a.backgroundLeft ? { 'background-left': true } : {}) })) } : {}),
+            ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({
+                key: a.key, text: a.text, at: a.at,
+                ...(a.backgroundLeft ? { 'background-left': true } : {}),
+                ...(a.continuations ? { continuations: a.continuations, ...(a.earlier?.length ? { earlier: a.earlier } : {}) } : {}),
+            })) } : {}),
             ...(item.answerBackgroundLeft ? { 'answer-background-left': true } : {}),
+            ...(item.walkContinuations !== undefined ? { 'walk-continuations': item.walkContinuations } : {}),
+            ...(item.needsAttention ? { 'needs-attention': item.needsAttention } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
@@ -6728,6 +6831,18 @@ function writeQuestTodoStatus(questId: string, todoId: string, status: string): 
     } catch (err) {
         logQueueError(`Failed to set todo '${todoId}' to '${status}'`, err);
         return false;
+    }
+}
+
+/** Read a quest todo (live files) as the walk's completion check needs it, `undefined` when unknown. */
+function readQuestTodo(questId: string, todoId: string): WalkedTodo | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { findTodoById } = require('../managers/questTodoManager');
+        return findTodoById(questId, todoId) as WalkedTodo | undefined;
+    } catch (err) {
+        logQueueError(`Failed to read todo '${todoId}'`, err);
+        return undefined;
     }
 }
 

@@ -60,6 +60,7 @@ import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
+import { updateTodo } from '../../managers/questTodoManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
@@ -108,6 +109,12 @@ after(() => {
 });
 
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
+/** The stub agent finishes its todo when its turn ends normally (vscimpb58: the queue reads it after the turn). */
+function completeTodoIn(text: string): void {
+    const id = /(\w+\d_x)/.exec(text)?.[1];
+    if (id) { updateTodo(QUEST, id, { status: 'completed' } as never); }
+}
+
 const registry = (): AskUserRegistry => AskUserRegistry.instance;
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -138,9 +145,9 @@ handler.sendMessage = (opts: Json) => new Promise((resolve) => {
     if (asks.delete(todo)) {
         // tomAi_askUser: asked from inside the item's dispatch, waiting for the answer.
         void registry().begin({ questions: ['Which order?'], fallbackPrompt: 'fallback', onOpen: () => undefined, onResolve: () => undefined })
-            .then((answer) => { toolAnswers.push(answer); end(`answered: ${answer}`); });
+            .then((answer) => { toolAnswers.push(answer); completeTodoIn(text); end(`answered: ${answer}`); });
     } else {
-        running.push(() => end(`done: ${todo}`));
+        running.push(() => { completeTodoIn(text); end(`done: ${todo}`); });
     }
 });
 async function finishTurn(): Promise<void> {

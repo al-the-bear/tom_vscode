@@ -61,6 +61,7 @@ import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { CONTINUE_ANSWER_MARK, PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
+import { updateTodo } from '../../managers/questTodoManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
@@ -102,6 +103,12 @@ after(() => {
 });
 
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
+/** The stub agent finishes its todo when its turn ends normally (vscimpb58: the queue reads it after the turn). */
+function completeTodoIn(text: string): void {
+    const id = /(\w+\d_x)/.exec(text)?.[1];
+    if (id) { updateTodo(QUEST, id, { status: 'completed' } as never); }
+}
+
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const ASKING = 'I need your decision on the next step.';
 
@@ -136,7 +143,7 @@ handler.sendMessage = (opts: Json) => new Promise((resolve) => {
         stopCounting();
         if (cancelEndsAfterMs === 0) { end(ASKING); } else { setTimeout(() => end(ASKING), cancelEndsAfterMs); }
     });
-    running.push(() => end(`done: ${String(opts.userText).slice(0, 40)}`));
+    running.push(() => { completeTodoIn(String(opts.userText)); end(`done: ${String(opts.userText).slice(0, 40)}`); });
 });
 async function answer(): Promise<void> {
     const next = running.shift();

@@ -51,6 +51,7 @@ import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
+import { updateTodo } from '../../managers/questTodoManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 
@@ -87,6 +88,12 @@ after(() => {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
+/** The stub agent finishes its todo when its turn ends normally (vscimpb58: the queue reads it after the turn). */
+function completeTodoIn(text: string): void {
+    const id = /(\w+\d_x)/.exec(text)?.[1];
+    if (id) { updateTodo(QUEST, id, { status: 'completed' } as never); }
+}
+
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** The stages sent (their text), how many are in flight now and the most at once; `finish()` ends the oldest. */
@@ -101,6 +108,7 @@ function gateDispatch(): void {
         maxInFlight = Math.max(maxInFlight, inFlight);
         open.push(() => {
             inFlight--;
+            completeTodoIn(text);
             if (stage) { stage.answerText = 'done'; }
             resolve({ mode: 'direct', answerText: 'done' });
         });

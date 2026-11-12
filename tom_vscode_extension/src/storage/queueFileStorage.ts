@@ -196,6 +196,10 @@ export interface QueuePromptYaml {
     'repetition-answers'?: Array<{ key: string; text: string; at: string; 'background-left'?: boolean }>;
     /** The main answer's turn ended with background work still running (a red answer). */
     'answer-background-left'?: boolean;
+    /** Continuations a walk iteration of the item gets; overrides the queue's `walk-continuations`. */
+    'walk-continuations'?: number;
+    /** Why the item stopped as needs attention (a walk iteration still unfinished after its continuations). */
+    'needs-attention'?: string;
     /** The longest a turn of the item waits for its own background work, in minutes (0: no wait). */
     'background-wait-limit-minutes'?: number;
     /** While a turn waits for its background work: since, the limit and what still runs (utils/backgroundWait.ts). */
@@ -320,6 +324,8 @@ export interface QueueSettings {
     'auto-start-enabled'?: boolean;
     'auto-pause-enabled'?: boolean;
     'auto-continue-enabled'?: boolean;
+    /** Continuations a walk iteration gets while its todo is not completed (utils/walkCompletionCheck.ts; default 2). */
+    'walk-continuations'?: number;
     'reload-prompt-by-scope'?: Record<string, QueueReloadAfterReloadSetting>;
     // Queue-level default transport for newly-staged items
     // (multi_transport_prompt_queue_revised.md §4.10). Per-item and per-

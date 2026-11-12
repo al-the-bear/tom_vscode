@@ -21,6 +21,10 @@ export interface RepetitionAnswer {
     at: string;
     /** The repetition's turn ended with background work still running (its answer carries the hint): a red chip. */
     backgroundLeft?: true;
+    /** Continuations the queue sent because the walked todo was not completed (utils/walkCompletionCheck.ts). */
+    continuations?: number;
+    /** The answers of the turns before the last, oldest first: they ended before the work was done. */
+    earlier?: string[];
 }
 
 /** What this module reads and writes of a queue item. */
@@ -78,7 +82,14 @@ export function repetitionAnswersFromYaml(raw: unknown): RepetitionAnswer[] | un
     const list = raw
         .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
         .filter((a) => (typeof a.key === 'string' || typeof a.key === 'number') && typeof a.text === 'string')
-        .map((a) => ({ key: String(a.key), text: String(a.text), at: typeof a.at === 'string' ? a.at : '', ...(a['background-left'] === true ? { backgroundLeft: true as const } : {}) }));
+        .map((a) => ({
+            key: String(a.key),
+            text: String(a.text),
+            at: typeof a.at === 'string' ? a.at : '',
+            ...(a['background-left'] === true ? { backgroundLeft: true as const } : {}),
+            ...(typeof a.continuations === 'number' && a.continuations > 0 ? { continuations: a.continuations } : {}),
+            ...(Array.isArray(a.earlier) && a.earlier.length ? { earlier: a.earlier.map((t) => String(t)) } : {}),
+        }));
     return list.length ? list : undefined;
 }
 
