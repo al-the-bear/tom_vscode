@@ -4,12 +4,14 @@
  * `_ai/processes/_prompts/`, the shared roles under `_ai/roles/`. Skipped when
  * the workspace around the extension is not there.
  *
- *   PD-1 the definition passes tomAi_validateProcess: three phases Intent, Design, Generation with light gates
- *        (checklists, onFail inside the phase); question rounds and the design iteration repeatable; the reviews
+ *   PD-1 the definition passes tomAi_validateProcess: three repeatable phases Intent, Design, Generation with light
+ *        gates (checklists, onFail inside the phase); 00 Start first (new, revise, resume); question rounds and the
+ *        design iteration repeatable; the generation shows its documents for the review; the reviews
  *        are user actions; the roles are the three idea_to_todos uses
  *   PD-2 shared with idea_to_todos: both processes include the same question-round and review prompts, and the
  *        shared files are not taken for processes
- *   PD-3 the Proceed prompts: the question round includes the shared prompt; the initial design asks for every
+ *   PD-3 the Proceed prompts: the question round includes the design context and the shared prompt (answers in
+ *        the document taken in first); the initial design asks for every
  *        part of a definition and drafts new roles; the design's result validates a draft with the drafted roles;
  *        the generation writes the roles first, then validates and writes the process with tomAi_writeProcess
  *   PD-4 the description: the design document, the round folders, new roles, the escaped include
@@ -54,6 +56,10 @@ describe('the process_design process', { skip: present ? false : 'no _ai/process
             assert.ok(phaseSteps(phase).some((e) => e.step.id === phase.gate.onFail), `${phase.id}: onFail inside the phase`);
         }
         const step = (p: string, s: string) => def!.phases.find((x) => x.id === p)!.steps.find((x) => x.id === s)!;
+        for (const phase of def!.phases) { assert.equal(phase.repeatable, true, `${phase.id} is repeatable`); }
+        assert.deepEqual(def!.phases[0].steps.map((s) => s.id), ['start', 'questions'], '00 Start first');
+        assert.match(step('intent', 'start').prompt!, /tomAi_askUser[\s\S]*tomAi_writeChatVariable: `design`[\s\S]*`design-input-mode`[\s\S]*Resume a design[\s\S]*tomAi_setProcessState/, '00 Start: new, revise or resume, settled with the user');
+        assert.match(step('generation', 'generate').prompt!, /Under review are several documents[\s\S]*\$\{finish-review-round\}/, 'the generation shows its documents for the review');
         assert.equal(step('intent', 'questions').repeatable, true);
         assert.equal(step('design', 'iteration').repeatable, true);
         for (const [p, s] of [['design', 'review-initial'], ['generation', 'review']]) { assert.equal(step(p, s).userAction, true, `${p}/${s}`); }
@@ -82,7 +88,8 @@ describe('the process_design process', { skip: present ? false : 'no _ai/process
             return unescapePlaceholders(buildProcessActionPrompt(store as never, move, ''));
         };
         const questions = prompt(at('intent', 'questions'));
-        assert.match(questions, /tomAi_writeChatVariable \(`design` = the id/, 'the round sets `design` (and, since the revise mode, `design-mode`)');
+        assert.match(questions, /The design and its documents \(shared by the steps of process_design[\s\S]*`design-input-mode`/, 'the design context, included');
+        assert.match(questions, /First take in what the user answered in the document[\s\S]*\*\*repeats this step\*\*/, 'answers in the document first; repeat while questions are open');
         assert.match(questions, /How a question round goes \(shared by idea_to_todos and process_design[\s\S]*tomAi_askUser/);
         const initial = prompt(at('design', 'initial'));
         for (const part of ['steps in order', 'repeatable', 'sub-steps', '`userAction`', 'session', 'prompt written out', 'checklist items', '`onFail`', 'post-gate step', '<!--[role-<name>]-->']) {
