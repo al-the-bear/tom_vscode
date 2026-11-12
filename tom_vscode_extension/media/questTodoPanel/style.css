@@ -215,3 +215,10 @@
 /* A decision-needed todo (open questions for the user): a yellow chip on its row, ❓ with the count on its group. */
 .qt-decision-chip { flex-shrink: 0; font-size: 0.75em; padding: 0 5px; border-radius: 8px; border: 1px solid var(--vscode-editorWarning-foreground, #cca700); color: var(--vscode-editorWarning-foreground, #cca700); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 14%, transparent); cursor: default; white-space: nowrap; }
 .qt-group-header .qt-group-decisions { margin-left: 6px; font-size: 0.8em; }
+
+/* The panel's session and run (vscimpb60d). */
+.qt-run-session { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
+.qt-session-btn { display: inline-flex; align-items: center; gap: 3px; width: auto; padding: 0 6px; }
+.qt-session-btn .qt-session-name { font-size: 0.9em; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-run-select { font-size: 0.9em; }
+.qt-run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }

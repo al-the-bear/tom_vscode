@@ -112,6 +112,6 @@ describe('todo detail: agent answer and guide me', () => {
         assert.match(guide, /const use = msg\.type === 'qtGuideUserAction' \? 'userAction' : todoButtonTemplateUse\(todo\)/, 'Guide me: the user-action template setting');
         const run = host.slice(host.indexOf('async function _runTodoButton('));
         assert.match(run, /template: tpl\.id,\s*transport: 'anthropic',\s*deferSend: true/, 'queued staged on Anthropic');
-        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}` \}\)/, 'sent in the chat with the template');
+        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}`, session: sel\.effectiveSession, run: sel\.run \}\)/, 'sent with the template, in the panel\'s session and run (vscimpb60d)');
     });
 });

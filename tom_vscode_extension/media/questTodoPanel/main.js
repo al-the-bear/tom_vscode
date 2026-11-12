@@ -426,6 +426,9 @@ function qtNavPush(todoId) {
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
     vscode.postMessage({ type: 'qtGetTemplates' });
+    // The panel's session and run (vscimpb60d): the host answers qtRunSession, and again on every change.
+    vscode.postMessage({ type: 'qtGetRunSession' });
+    qtRenderRunSessionControls();
     if (qtViewConfig.mode === 'session') {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
@@ -2572,15 +2575,61 @@ document.addEventListener('change', function(e) {
 function qtUserActionRow(checked, withGuide) {
     var guide = withGuide
         ? '<span class="qt-guide-btns">' +
-            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="chat" title="Guide me through this todo in the chat (ANTHROPIC/LLM panel, the Todo buttons template for user-action todos)">' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="chat" title="Guide me through this todo in the chat — the panel\'s session and run, the ANTHROPIC/LLM panel\'s profile, the Todo buttons template for user-action todos">' +
                 '<span class="codicon codicon-comment-discussion"></span></button>' +
-            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="queue" title="Add this todo to the prompt queue with the Todo buttons template for user-action todos (staged)">' +
+            '<button class="icon-btn qt-guide-btn" type="button" data-qt-guide="queue" title="Add this todo to the prompt queue in the panel\'s session and run, with the Todo buttons template for user-action todos (staged)">' +
                 '<span class="codicon codicon-list-ordered"></span></button>' +
           '</span>'
         : '';
     return qtFormRow('Your to do', '<div class="qt-user-action-line"><label title="A prefix* queue walk passes this todo and goes on with the next one">' +
         '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>' + guide + '</div>');
 }
+
+/* ── The panel's session and run (vscimpb60d) ──────────────────────────────
+ * One selection for the top bar and the detail panel (and for both quest todo
+ * views): the session the panel's sends run in and the run they belong to.
+ * Kept per window and quest by the host; a run deleted elsewhere is default. */
+var qtRunSessionState;
+
+/** What the panel is on: the host's last answer, else the defaults (the init code runs before this file's end). */
+function qtRunSessionNow() {
+    return qtRunSessionState || { session: 'chat', effectiveSession: 'chat', run: 'default', windowRun: 'default', runs: [{ run: 'default', label: 'default' }] };
+}
+
+/** The session button (speech bubble + name) and the Run select, as the @CHAT panel has them. */
+function qtRunSessionControlsHtml() {
+    var st = qtRunSessionNow();
+    var options = st.runs.map(function(o) {
+        return '<option value="' + qtEsc(o.run) + '"' + (o.run === st.run ? ' selected' : '') + '>' + qtEsc(o.label) + '</option>';
+    }).join('');
+    return '<button class="icon-btn qt-session-btn" type="button" data-qt-pick-session="1" title="The session the panel\'s todos are sent in and queued for (' + qtEsc(st.effectiveSession) + ') — click to pick another or create one">'
+        + '<span class="codicon codicon-comment-discussion"></span><span class="qt-session-name">' + qtEsc(st.effectiveSession) + '</span></button>'
+        + '<select class="qt-run-select' + (st.run !== st.windowRun ? ' run-other' : '') + '" title="The process run the panel\'s todos are sent and queued for: its chat variables, its process position, its own sessions">' + options + '</select>';
+}
+
+/** Fill every place that shows the controls: the top bar and the detail's Run row. */
+function qtRenderRunSessionControls() {
+    var html = qtRunSessionControlsHtml();
+    var run = qtRunSessionNow().run;
+    document.querySelectorAll('.qt-run-session').forEach(function(el) { el.innerHTML = html; el.dataset.run = run; });
+}
+
+function qtHandleRunSessionClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-session-btn') : null;
+    if (!btn) { return; }
+    e.preventDefault();
+    vscode.postMessage({ type: 'qtPickSession' });
+}
+document.addEventListener('click', qtHandleRunSessionClick);
+
+function qtHandleRunSelectChange(e) {
+    var sel = e.target && e.target.classList && e.target.classList.contains('qt-run-select') ? e.target : null;
+    if (!sel) { return; }
+    qtRunSessionState = Object.assign({}, qtRunSessionNow(), { run: sel.value });
+    qtRenderRunSessionControls();
+    vscode.postMessage({ type: 'qtSetRun', run: sel.value });
+}
+document.addEventListener('change', qtHandleRunSelectChange);
 
 /**
  * The Send and Queue buttons of a saved todo (qtTodoButton): Send runs the todo
@@ -2592,9 +2641,10 @@ function qtUserActionRow(checked, withGuide) {
 function qtTodoButtonsRow(todo) {
     var which = todo && todo.user_action === true ? 'user-action' : 'other';
     return qtFormRow('Run', '<div class="qt-todo-buttons">' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in the ANTHROPIC/LLM panel (its profile and session), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        '<span class="qt-run-session" data-run="' + qtEsc(qtRunSessionNow().run) + '">' + qtRunSessionControlsHtml() + '</span>' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in the panel\'s session and run (the session and Run beside it), with the ANTHROPIC/LLM panel\'s profile and the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-send"></span> Send</button>' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to the prompt queue (staged, Anthropic), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to the prompt queue (staged, Anthropic) in the panel\'s session and run, with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-list-ordered"></span> Queue</button>' +
         '</div>');
 }
@@ -2964,6 +3014,16 @@ function qtHandleMessage(msg) {
                     });
                 }
             }
+            break;
+        case 'qtRunSession':
+            qtRunSessionState = {
+                session: msg.session || 'chat',
+                effectiveSession: msg.effectiveSession || msg.session || 'chat',
+                run: msg.run || 'default',
+                windowRun: msg.windowRun || 'default',
+                runs: Array.isArray(msg.runs) && msg.runs.length ? msg.runs : [{ run: 'default', label: 'default' }],
+            };
+            qtRenderRunSessionControls();
             break;
         case 'qtTemplates': {
             var templateSel = document.getElementById('qt-template-select');

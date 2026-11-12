@@ -105,9 +105,9 @@ describe('chat sends in the prompt queue', () => {
         assert.doesNotMatch(send.slice(0, 4000), /chatSessionFor\(/, 'no session picker: always chat');
         assert.match(send.slice(0, 4000), /let targetSession = opts\?\.session \|\| ANTHROPIC_CHAT_SESSION_KEY;/, 'chat unless the caller names a session');
         assert.match(send, /const sessionKey = targetSession;/, '(or a free session chosen when it was busy)');
-        // The one caller that names one: the assist run's temporary session.
+        // The callers that name one: the assist run's temporary session, and the todo panel's own session (vscimpb60d).
         const callers = ['services/assistLiveDeps.ts', 'handlers/markdownBrowser-handler.ts', 'handlers/questTodoPanel-handler.ts', 'handlers/telegram-cmd-handlers.ts', 'handlers/sendToChatRouter.ts']
             .filter((f) => /runAnthropicSend\(\w+, [^)]*\{[^}]*\bsession\b/.test(src(...f.split('/'))));
-        assert.deepEqual(callers, ['services/assistLiveDeps.ts'], 'the assist runs (questions, decisions) share the one send');
+        assert.deepEqual(callers, ['services/assistLiveDeps.ts', 'handlers/questTodoPanel-handler.ts'], 'the assist runs share the one send; the todo panel sends in its own session');
     });
 });

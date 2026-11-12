@@ -25,6 +25,7 @@ import { todoListItem } from '../utils/todoListItem';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
@@ -197,6 +198,53 @@ export function setQuestTodoContext(ctx: vscode.ExtensionContext): void {
     _extensionContext = ctx;
 }
 
+// ---- The panel's session and run (vscimpb60d, utils/todoPanelRunSession.ts) ----
+
+/** The views showing the session and run controls (both quest todo views; one selection for all). */
+const _runSessionViews = new Set<vscode.Webview>();
+let _runSessionRunsListener: { dispose(): void } | undefined;
+
+/** The active quest's runs and the window's run; `default` alone without a process store. */
+function _todoPanelRuns(): { runs: string[]; windowRun: string } {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        if (store) { return { runs: store.runs().map((r) => r.run), windowRun: store.currentRun }; }
+    } catch { /* no process store */ }
+    return { runs: ['default'], windowRun: 'default' };
+}
+
+/** The panel's session and run in the active quest (a run deleted elsewhere: `default`, and forgotten). */
+export function todoPanelSelectionNow(): TodoPanelSelection {
+    const quest = WsPaths.getWorkspaceQuestId();
+    const state = _extensionContext?.workspaceState;
+    const sel = todoPanelSelection(state?.get<string>(todoPanelSessionKey(quest)), state?.get<string>(todoPanelRunKey(quest)), _todoPanelRuns().runs);
+    if (sel.runFellBack) { void state?.update(todoPanelRunKey(quest), undefined); }
+    return sel;
+}
+
+/** Tell every view showing the controls what the panel is on now. */
+function _postRunSession(): void {
+    const { runs, windowRun } = _todoPanelRuns();
+    const message = todoPanelRunSessionMessage(todoPanelSelectionNow(), runs, windowRun);
+    for (const view of [..._runSessionViews]) {
+        try { void view.postMessage(message); } catch { _runSessionViews.delete(view); }
+    }
+}
+
+/** Show the controls in `view`; the runs listener keeps them current when a run is added or deleted. */
+function _watchRunSession(view: vscode.Webview): void {
+    _runSessionViews.add(view);
+    if (!_runSessionRunsListener) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+            if (store) { _runSessionRunsListener = store.onDidChange(() => _postRunSession()); }
+        } catch { /* no process store */ }
+    }
+    _postRunSession();
+}
+
 // ---- Global provider references for cross-module access ----
 let _sessionTodosProvider: QuestTodoEmbeddedViewProvider | undefined;
 
@@ -333,6 +381,34 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtInitConfig':
             _webviewConfigs.set(webview, msg.config || {});
             return true;
+        // The panel's session and run (vscimpb60d): one selection for the bar, the detail and both views.
+        case 'qtGetRunSession':
+            _watchRunSession(webview);
+            return true;
+        case 'qtPickSession': {
+            const quest = WsPaths.getWorkspaceQuestId();
+            const sel = todoPanelSelectionNow();
+            const { pickAgentSdkSession } = await import('./sessionPicker.js');
+            const picked = await pickAgentSdkSession({
+                questId: quest,
+                current: sel.session,
+                title: `Session of the todo panel's sends${sel.run !== 'default' ? ` (run ${sel.run}: its own sessions, <session>@${sel.run})` : ''}`,
+                defaultLabel: 'The chat panel\'s session name (chat)',
+            });
+            if (picked !== undefined) {
+                await _extensionContext?.workspaceState.update(todoPanelSessionKey(quest), picked || undefined);
+            }
+            _postRunSession();
+            return true;
+        }
+        case 'qtSetRun': {
+            const quest = WsPaths.getWorkspaceQuestId();
+            const runs = _todoPanelRuns().runs;
+            const run = typeof msg.run === 'string' && runs.includes(msg.run) ? msg.run : 'default';
+            await _extensionContext?.workspaceState.update(todoPanelRunKey(quest), run === 'default' ? undefined : run);
+            _postRunSession();
+            return true;
+        }
         case 'qtSaveState':
             if (msg.state) {
                 await _savePanelState(msg.state as QtPanelState);
@@ -1521,11 +1597,15 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             try {
                 const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
                 const queue = PromptQueueManager.instance;
+                const sel = todoPanelSelectionNow();
                 await queue.enqueue({
                     originalText: wrappedText,
                     todoIdPattern: todo.id,
                     template: selectedTemplate,
                     deferSend: true,
+                    // The panel's session and run (vscimpb60d).
+                    session: sel.session,
+                    run: sel.run,
                 });
                 vscode.window.showInformationMessage(`Added todo ${todoId} to prompt queue`);
             } catch {
@@ -1584,12 +1664,16 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             try {
                 const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
                 const queue = PromptQueueManager.instance;
+                const sel = todoPanelSelectionNow();
                 for (const { text: originalText, todoId } of prepared) {
                     await queue.enqueue({
                         originalText,
                         todoIdPattern: todoId,
                         template: selectedTemplate,
                         deferSend: true,
+                        // The panel's session and run (vscimpb60d).
+                        session: sel.session,
+                        run: sel.run,
                     });
                 }
                 const suffix = missing.length ? ` (skipped missing: ${missing.join(', ')})` : '';
@@ -2278,7 +2362,9 @@ async function _runTodoButton(
     }
     const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, sourceFile)]);
     const { runAnthropicSend } = await import('./sendToChatRouter.js');
-    const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}` });
+    // In the panel's session, as its run (vscimpb60d).
+    const sel = todoPanelSelectionNow();
+    const outcome = await runAnthropicSend(ctx, todoPrompt, { userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session: sel.effectiveSession, run: sel.run });
     if (outcome.rejected) {
         vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
     } else if (!outcome.ok && outcome.error) {
@@ -2292,12 +2378,16 @@ async function _runTodoButton(
 async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }): Promise<void> {
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        // The panel's session and run (vscimpb60d): the item names the session and belongs to the run.
+        const sel = todoPanelSelectionNow();
         await PromptQueueManager.instance.enqueue({
             originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
             todoIdPattern: todo.id,
             template: tpl.id,
             transport: 'anthropic',
             deferSend: true,
+            session: sel.session,
+            run: sel.run,
         });
         vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
     } catch {
@@ -2366,9 +2456,11 @@ async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templ
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
         const qm = PromptQueueManager.instance;
+        // The queue defaults of the panel's run (queue settings per run, vscimpb60a / vscimpb60d).
+        const defaults = qm.runQueueSettings(todoPanelSelectionNow().run);
         return {
-            transport: qm.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
-            templateId: qm.defaultMessageTemplateId || undefined,
+            transport: defaults.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
+            templateId: defaults.defaultMessageTemplateId || undefined,
         };
     } catch {
         return { transport: 'copilot' };
@@ -2395,7 +2487,9 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
             ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
             : undefined;
         const { runAnthropicSend } = await import('./sendToChatRouter.js');
-        const outcome = await runAnthropicSend(ctx, todoPrompt, { source: 'todo panel', ...(tplBody ? { userMessageTemplate: tplBody } : {}) });
+        // In the panel's session, as its run (vscimpb60d).
+        const sel = todoPanelSelectionNow();
+        const outcome = await runAnthropicSend(ctx, todoPrompt, { source: 'todo panel', session: sel.effectiveSession, run: sel.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}) });
         if (outcome.rejected) {
             vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
         } else if (!outcome.ok && outcome.error) {

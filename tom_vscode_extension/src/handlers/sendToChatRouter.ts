@@ -38,6 +38,8 @@ import {
     endAnthropicSend,
 } from './sendToChatState';
 import { trackChatSend } from './chatQueueTracking';
+import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
+import { needsRunContext } from '../utils/chatPanelRuns';
 
 export type SendToChatTarget = 'anthropic' | 'copilot';
 
@@ -92,6 +94,25 @@ function defaultUserMessageTemplate(): string | undefined {
  *   that let the user pick a specific template (e.g. the Quest TODO panel's
  *   send button) pass the chosen template here.
  */
+/**
+ * The process position a send runs as when it names a run other than the
+ * window's: that run's state (its chat variables and process variables then
+ * read as the run's). None for the window's run or without a process store.
+ */
+export function processRunFor(run: string | undefined): ProcessRun | undefined {
+    if (!run) { return undefined; }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
+        if (!store || !needsRunContext(run, store.currentRun)) { return undefined; }
+        const read = store.withRun(run, () => ({ state: store.state }));
+        if (!('state' in read)) { return undefined; }
+        return { quest: store.activeQuest, state: read.state, ...(run !== 'default' ? { run } : {}) };
+    } catch {
+        return undefined;
+    }
+}
+
 export async function runAnthropicSend(
     context: vscode.ExtensionContext,
     prompt: string,
@@ -101,6 +122,11 @@ export async function runAnthropicSend(
         source?: string;
         /** The session the turn runs in; default the panel's chat session (a temporary assist session, for one). */
         session?: string;
+        /**
+         * The process run the turn runs as (the todo panel's run, vscimpb60d): its chat variables and
+         * process position; recorded on its queue entry. Default: the window's run.
+         */
+        run?: string;
     },
 ): Promise<SendToChatOutcome> {
     if (!prompt || !prompt.trim()) {
@@ -167,13 +193,13 @@ export async function runAnthropicSend(
             profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
         );
 
-        // No session picker on this path (the editor's Send to Anthropic/LLM, a todo's Send and
-        // Guide me, Telegram): the chat session, unless the caller names one (an assist prompt's
-        // temporary session). The send is shown in the prompt queue.
+        // No session picker on this path (the editor's Send to Anthropic/LLM, Telegram): the chat
+        // session, unless the caller names one — an assist prompt's temporary session, the todo
+        // panel's own session (and run, vscimpb60d). The send is shown in the prompt queue.
         const sessionKey = targetSession;
         const result = await trackChatSend(
-            { text: prompt, profileId: profile.id, session: sessionKey, source: opts?.source ?? 'send to chat' },
-            () => AnthropicHandler.instance.sendMessage({
+            { text: prompt, profileId: profile.id, session: sessionKey, source: opts?.source ?? 'send to chat', ...(opts?.run ? { run: opts.run } : {}) },
+            () => runInProcessPosition(processRunFor(opts?.run), () => AnthropicHandler.instance.sendMessage({
                 userText: prompt,
                 profile,
                 configuration,
@@ -181,7 +207,7 @@ export async function runAnthropicSend(
                 sessionKey,
                 cancellationToken,
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
-            }),
+            })),
             // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
             { cancel: () => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
         );
