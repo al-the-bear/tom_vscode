@@ -56,6 +56,8 @@ export interface SendToChatOutcome {
     error?: string;
     /** The session was busy and the prompt was queued instead (what was done). */
     queued?: string;
+    /** The prompt queue entry the Anthropic send is shown as (`chat` / `chat-sent`). */
+    chatItemId?: string;
 }
 
 /** The target a script names (`sendToChatVce`'s `target`): `copilot` when it says so, else the ANTHROPIC/LLM panel. */
@@ -198,6 +200,7 @@ export async function runAnthropicSend(
         // session, unless the caller names one — an assist prompt's temporary session, the todo
         // panel's own session (and run, vscimpb60d). The send is shown in the prompt queue.
         const sessionKey = targetSession;
+        let chatItemId: string | undefined;
         const result = await trackChatSend(
             { text: prompt, profileId: profile.id, session: sessionKey, source: opts?.source ?? 'send to chat', ...(opts?.run ? { run: opts.run } : {}) },
             () => runInProcessPosition(processRunFor(opts?.run), () => AnthropicHandler.instance.sendMessage({
@@ -210,7 +213,10 @@ export async function runAnthropicSend(
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             })),
             // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
-            { cancel: (chatItemId) => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); } },
+            {
+                cancel: (itemId) => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === itemId); },
+                onChatItem: (itemId) => { chatItemId = itemId; },
+            },
         );
 
         // Mirror into the panel UI when it is open, so a Send-to-Chat / script
@@ -222,7 +228,7 @@ export async function runAnthropicSend(
             ...(result.usage ? { usage: result.usage } : {}),
         });
 
-        return { target: 'anthropic', ok: true, answer: result.text };
+        return { target: 'anthropic', ok: true, answer: result.text, ...(chatItemId ? { chatItemId } : {}) };
     } catch (e) {
         return {
             target: 'anthropic',

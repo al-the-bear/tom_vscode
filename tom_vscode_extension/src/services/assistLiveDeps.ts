@@ -50,7 +50,7 @@ export function liveAssistDeps(context: vscode.ExtensionContext): AssistLiveDeps
         send: async (prompt, session, source) => {
             const { runAnthropicSend } = require('../handlers/sendToChatRouter.js') as typeof import('../handlers/sendToChatRouter');
             const outcome = await runAnthropicSend(context, prompt, { session, source });
-            return { ok: outcome.ok, error: outcome.error, rejected: outcome.rejected };
+            return { ok: outcome.ok, error: outcome.error, rejected: outcome.rejected, ...(outcome.chatItemId ? { chatItemId: outcome.chatItemId } : {}) };
         },
     };
 }

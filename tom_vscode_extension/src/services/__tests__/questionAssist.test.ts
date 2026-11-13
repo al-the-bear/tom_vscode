@@ -17,6 +17,11 @@
  *        the proposal first when there is one, each option with the recommended one marked, Leave it open — and a
  *        typed reply; the pick is written (an option as its letter, the proposal accepted, a typed text as is);
  *        Leave it open, a timeout and an answered question write nothing; a refused write is reported
+ *   QA-6 the user is told how the question ended (vscimpb63): the proposal accepted — a notice naming what was
+ *        written, the question, the file and the line of its Answer as the file has it after the write, also put
+ *        under the turn's answer in its queue entry (the send's chat item); answered by the turn itself, left
+ *        open, a refused write (a warning) each have their notice; no notice when the turn failed; the live wiring
+ *        (notify with Open file, noteChatItem, only a failed run warned by the panel)
  */
 
 import * as fs from 'fs';
@@ -28,10 +33,11 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 installVscodeStub({});
 
 import {
-    closingAnswerAsk, explanationFileFor, findQuestion, interpretClosingReply, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type AnswerPick, type QuestionAssistDeps,
+    closingAnswerAsk, closingNotice, explanationFileFor, findQuestion, interpretClosingReply, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type AnswerPick, type QuestionAssistDeps,
 } from '../questionAssist.js';
 import { choiceAnswer, composeChoiceAnswers } from '../../utils/askChoices.js';
 import { proposeMdAnswer, readMdQuestions, settleProposedAnswer } from '../../utils/mdQuestions.js';
+import type { AssistNotice } from '../questionAssist.js';
 import { ASSIST_PROMPT_INFO, ensureDefaultAssistPrompts, type AssistPromptsSection } from '../../utils/assistPrompts.js';
 
 const EXT = path.join(__dirname, '..', '..', '..');
@@ -206,5 +212,62 @@ describe('Grill me / Explain in detail', () => {
         assert.match(src, /askAnswer: async \(input\) => \(await import\('\.\/askUser-handler\.js'\)\)\.askUserWithChoices\(input\)/);
         assert.match(src, /liveMdAnswerWriter\.acceptProposal\(\{ \.\.\.target, \.\.\.\(pick\.text && question\.proposed \? \{ text: `\$\{question\.proposed\.text\}\\n\$\{pick\.text\}` \} : \{\}\) \}\)/);
         assert.match(src, /option: pick\.letter, \.\.\.\(pick\.text \? \{ answer: pick\.text \} : \{\}\)/, 'an option with the user\'s words: (b) words');
+    });
+
+    test('QA-6: the user is told how the question ended', async () => {
+        const choiceOf = (label: string, q = 'PR-1') => choiceAnswer(closingAnswerAsk(findQuestion(readMdQuestions(FIXTURE), q)!, 'specs/review.md').choices.find((c) => c.label === label)!);
+        const run = async (reply: string, over: Partial<QuestionAssistDeps> = {}, questionId = 'PR-1') => {
+            let text = FIXTURE;
+            const notices: AssistNotice[] = [];
+            const notes: Array<[string, string]> = [];
+            const f = fake({
+                readText: () => text,
+                send: async () => ({ ok: true, chatItemId: 'chat-150e' }),
+                askAnswer: async () => reply,
+                writeAnswer: async (_file, q, pick) => { if (pick.kind === 'proposal') { text = settleProposedAnswer(text, q.id, 'accept').text; } return ''; },
+                notify: (n) => { notices.push(n); },
+                noteChatItem: (id, note) => { notes.push([id, note]); },
+                fallbackPrompt: () => 'No answer came.',
+                ...over,
+            });
+            const outcome = await runQuestionAssist(f.deps, { use: 'grillMe', filePath: FILE, questionId });
+            return { outcome, notices, notes, text: () => text };
+        };
+        // The proposal accepted: written, and the notice names the file, the question and the Answer line after the write.
+        const accepted = await run(choiceOf('Accept the proposed answer'));
+        const answerLine = readMdQuestions(accepted.text()).find((q) => q.id === 'PR-1')!.answerLine!;
+        assert.equal(readMdQuestions(accepted.text()).find((q) => q.id === 'PR-1')!.open, false, 'the answer is written');
+        assert.deepEqual(accepted.notices, [{ kind: 'info', message: `Grill me: the proposed answer to PR-1 is written into specs/review.md, line ${answerLine}.`, filePath: FILE, line: answerLine }]);
+        assert.deepEqual(accepted.notes, [['chat-150e', accepted.notices[0].message]], 'under the turn\'s answer in its queue entry');
+        assert.equal(accepted.outcome.ok && accepted.outcome.chatItemId, 'chat-150e');
+        // An option, left open, a refused write.
+        const option = await run(choiceOf('(b) the browser first (recommended)', 'CC-2'), {}, 'CC-2');
+        assert.match(option.notices[0].message, /^Grill me: option \(b\) to CC-2 is written into specs\/review\.md, line \d+\.$/);
+        const open = await run(choiceOf('Leave it open'));
+        assert.deepEqual(open.notices.map((n) => [n.kind, n.message]), [['info', 'Grill me: PR-1 is left open in specs/review.md.']]);
+        assert.equal(open.notes.length, 1);
+        const timedOut = await run('No answer came.');
+        assert.match(timedOut.notices[0].message, /left open/);
+        const refused = await run(choiceOf('Accept the proposed answer'), { writeAnswer: async () => 'the file is dirty in an editor' });
+        assert.equal(refused.notices[0].kind, 'warning');
+        assert.match(refused.notices[0].message, /^Grill me: the answer to PR-1 could not be written: the file is dirty in an editor$/);
+        // Answered by the turn itself (the agent wrote it): no panel, a notice where it is.
+        const answeredText = settleProposedAnswer(FIXTURE, 'PR-1', 'accept').text;
+        let reads = 0;
+        const inTurn = await run('x', { readText: () => (reads++ === 0 ? FIXTURE : answeredText), askAnswer: async () => { throw new Error('no panel'); } });
+        assert.match(inTurn.notices[0].message, /^Grill me: PR-1 is answered in specs\/review\.md, line \d+\.$/);
+        // A failed turn: no notice from the assist (the panel's handler warns).
+        const failed = await run('x', { send: async () => ({ ok: false, error: 'boom', chatItemId: 'c' }) });
+        assert.equal(failed.outcome.ok, false);
+        assert.deepEqual(failed.notices, []);
+        assert.equal(closingNotice('explainInDetail', {}, FILE), undefined, 'nothing settled, nothing said');
+        assert.match(closingNotice('explainInDetail', { answered: { kind: 'text', text: 't' }, at: { file: 'a.md', id: 'X-1', line: 4 } }, FILE)!.message, /^Explain in detail: your answer to X-1 is written into a\.md, line 4\.$/);
+        const handler = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
+        assert.match(handler, /notify: \(notice\) => \{ void showAssistNotice\(notice\); \}/);
+        assert.match(handler, /PromptQueueManager\.instance\.noteChatItem\(chatItemId, note\)/);
+        assert.match(handler, /show\(notice\.message, 'Open file'\)/);
+        assert.match(handler, /if \(!outcome\.ok\) \{ void vscode\.window\.showWarningMessage/);
+        const live = fs.readFileSync(path.join(EXT, 'src', 'services', 'assistLiveDeps.ts'), 'utf8');
+        assert.match(live, /chatItemId: outcome\.chatItemId/);
     });
 });

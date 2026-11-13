@@ -74,7 +74,7 @@ import {
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
-import { runQuestionAssist, type QuestionAssistDeps } from '../services/questionAssist.js';
+import { runQuestionAssist, type AssistNotice, type QuestionAssistDeps } from '../services/questionAssist.js';
 import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
 import { liveAssistDeps } from '../services/assistLiveDeps.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
@@ -691,8 +691,8 @@ class MdBrowserPanel {
                         use, filePath: current.filePath, questionId: String(msg.questionId || ''),
                         ...(Number.isInteger(msg.answerLine) ? { answerLine: msg.answerLine } : {}),
                     }).then((outcome) => {
-                        const error = outcome.ok ? outcome.answerError : outcome.error;
-                        if (error) { void vscode.window.showWarningMessage(`${use === 'grillMe' ? 'Grill me' : 'Explain in detail'}: ${error}`); }
+                        // How the question ended is told by the assist itself (notify); here only a run that did not start or failed.
+                        if (!outcome.ok) { void vscode.window.showWarningMessage(`${use === 'grillMe' ? 'Grill me' : 'Explain in detail'}: ${outcome.error}`); }
                     });
                     break;
                 }
@@ -1336,7 +1336,25 @@ function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssis
                     : { ...target, answer: pick.text });
             try { const r = JSON.parse(raw) as { ok?: boolean; error?: string }; return r.ok ? '' : (r.error ?? 'refused'); } catch { return raw; }
         },
+        // Where the answer went (vscimpb63): under the turn's answer in its queue entry, and a notification that opens the file there.
+        noteChatItem: (chatItemId, note) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance.noteChatItem(chatItemId, note);
+            } catch { /* no queue in this window */ }
+        },
+        notify: (notice) => { void showAssistNotice(notice); },
     };
+}
+
+/** A Grill me / Explain in detail notice; **Open file** opens the document at the question's Answer line. */
+async function showAssistNotice(notice: AssistNotice): Promise<void> {
+    const show = notice.kind === 'warning' ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+    const pick = notice.filePath ? await show(notice.message, 'Open file') : await show(notice.message);
+    if (pick !== 'Open file' || !notice.filePath) { return; }
+    const doc = await vscode.workspace.openTextDocument(notice.filePath);
+    const line = Math.max(0, (notice.line ?? 1) - 1);
+    await vscode.window.showTextDocument(doc, { selection: new vscode.Range(line, 0, line, 0) });
 }
 
 function processActions(): typeof import('../services/processActionService') {

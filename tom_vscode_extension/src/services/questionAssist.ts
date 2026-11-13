@@ -7,7 +7,11 @@
  * turn ends. When the question is still open then, the question panel offers
  * the question's own choices — its options (the recommended one marked), the
  * proposed answer when the turn left one, Leave it open — and takes a typed
- * answer too; the choice is written into the Answer line.
+ * answer too; the choice is written into the Answer line. Then the user is told
+ * where it went (vscimpb63): a notification naming the file, the question and
+ * the line of its Answer, and the same words under the turn's answer in its
+ * prompt queue entry — also when the turn answered the question itself, when
+ * the question is left open, or when the write failed.
  *
  * vscode-free: the file, the config, the sessions and the send come in as
  * {@link QuestionAssistDeps}.
@@ -41,7 +45,11 @@ export interface QuestionAssistDeps {
     createSession(folder: string, name: string, opts: { basedOn?: string }): { ok: boolean; error?: string };
     deleteSession(folder: string, name: string): void;
     /** Run the prompt in the ANTHROPIC panel, in `session`. */
-    send(prompt: string, session: string, source: string): Promise<{ ok: boolean; error?: string; rejected?: boolean }>;
+    send(prompt: string, session: string, source: string): Promise<{ ok: boolean; error?: string; rejected?: boolean; chatItemId?: string }>;
+    /** Add a note under the answer of the turn's prompt queue entry (and the Tom Prompt Queue channel). */
+    noteChatItem?(chatItemId: string, note: string): void;
+    /** Tell the user how the question ended: a notification; `line` (1-based) is the Answer line, for opening the file there. */
+    notify?(n: AssistNotice): void;
     /** The question panel (tomAi_askUser with choices); answers the user's reply as the tool answers it. */
     /** The question panel's timeout answer, which is no answer. */
     fallbackPrompt?(): string | undefined;
@@ -52,8 +60,30 @@ export interface QuestionAssistDeps {
 }
 
 export type QuestionAssistOutcome =
-    | { ok: true; session: string; basedOn: string | null; prompt: string; answered?: AnswerPick; answerError?: string }
+    | ({ ok: true; session: string; basedOn: string | null; prompt: string; chatItemId?: string; notice?: AssistNotice } & ClosingResult)
     | { ok: false; error: string; session?: string };
+
+/** How the question ended after the turn. */
+export interface ClosingResult {
+    /** The answer the closing step wrote. */
+    answered?: AnswerPick;
+    answerError?: string;
+    /** The turn answered the question itself (no closing step was needed). */
+    answeredInTurn?: boolean;
+    /** The closing step was shown and nothing was chosen. */
+    leftOpen?: boolean;
+    /** Where the question is: the workspace-relative file, its id, the 1-based line of its Answer marker. */
+    at?: { file: string; id: string; line?: number };
+}
+
+/** What the user is told at the end. */
+export interface AssistNotice {
+    kind: 'info' | 'warning';
+    message: string;
+    /** Absolute file and 1-based line to open. */
+    filePath?: string;
+    line?: number;
+}
 
 const SOURCE: Record<QuestionAssistUse, string> = { grillMe: 'Grill me', explainInDetail: 'Explain in detail' };
 
@@ -107,8 +137,10 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
     const made = createTemporarySession(deps, deps.baseSession(), req.use === 'grillMe' ? 'grill-me' : 'explain', deps.now?.() ?? new Date());
     if (!made.ok) { return { ok: false, error: made.error }; }
     const { session, basedOn } = made;
+    let sentChatItem: string | undefined;
     try {
         const sent = await deps.send(prompt, session, `${SOURCE[req.use]} (${req.questionId})`);
+        sentChatItem = sent.chatItemId;
         if (!sent.ok) {
             return { ok: false, session, error: sent.rejected ? 'the ANTHROPIC panel is busy with another request — try again when it is done' : (sent.error ?? 'the send failed') };
         }
@@ -116,7 +148,28 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
         try { deps.deleteSession(folder, session); } catch { /* gone already */ }
     }
     const closing = await closingAnswer(deps, req);
-    return { ok: true, session, basedOn, prompt, ...closing };
+    const notice = closingNotice(req.use, closing, req.filePath);
+    if (notice) {
+        try { deps.notify?.(notice); } catch { /* the answer is written either way */ }
+        if (sentChatItem) { try { deps.noteChatItem?.(sentChatItem, notice.message); } catch { /* entry gone */ } }
+    }
+    return { ok: true, session, basedOn, prompt, ...(sentChatItem ? { chatItemId: sentChatItem } : {}), ...closing, ...(notice ? { notice } : {}) };
+}
+
+/** The words the user gets once the question is settled for this round (none when the step could not run). */
+export function closingNotice(use: QuestionAssistUse, c: ClosingResult, filePath: string): AssistNotice | undefined {
+    const who = SOURCE[use];
+    const where = c.at ? `${c.at.file}${c.at.line ? `, line ${c.at.line}` : ''}` : '';
+    const open = { filePath, ...(c.at?.line ? { line: c.at.line } : {}) };
+    if (c.answerError) { return { kind: 'warning', message: `${who}: ${c.answerError}`, ...open }; }
+    if (!c.at) { return undefined; }
+    if (c.answered) {
+        const what = c.answered.kind === 'proposal' ? 'the proposed answer' : c.answered.kind === 'option' ? `option (${c.answered.letter})` : 'your answer';
+        return { kind: 'info', message: `${who}: ${what} to ${c.at.id} is written into ${where}.`, ...open };
+    }
+    if (c.answeredInTurn) { return { kind: 'info', message: `${who}: ${c.at.id} is answered in ${where}.`, ...open }; }
+    if (c.leftOpen) { return { kind: 'info', message: `${who}: ${c.at.id} is left open in ${c.at.file}.`, ...open }; }
+    return undefined;
 }
 
 /** What the closing answer step chose: an option, the proposal, a typed answer, or nothing. */
@@ -172,16 +225,25 @@ export function interpretClosingReply(reply: string, question: MdQuestion, fallb
     return own ? { kind: 'text', text: own } : undefined;
 }
 
-/** After the turn: the question still open, the user picks or types its answer and it is written. */
-async function closingAnswer(deps: QuestionAssistDeps, req: QuestionAssistRequest): Promise<{ answered?: AnswerPick; answerError?: string }> {
+/** The question as the file holds it now (by id, near its old Answer line), or undefined. */
+function readQuestionNow(deps: QuestionAssistDeps, req: QuestionAssistRequest, answerLine?: number): MdQuestion | undefined {
+    try { return findQuestion(readMdQuestions(deps.readText(req.filePath)), req.questionId, answerLine); } catch { return undefined; }
+}
+
+/** After the turn: the question still open, the user picks or types its answer and it is written; where it is, read back. */
+async function closingAnswer(deps: QuestionAssistDeps, req: QuestionAssistRequest): Promise<ClosingResult> {
     if (!deps.askAnswer || !deps.writeAnswer) { return {}; }
-    let question: MdQuestion | undefined;
-    try { question = findQuestion(readMdQuestions(deps.readText(req.filePath)), req.questionId, req.answerLine); } catch { return {}; }
-    if (!question?.open) { return {}; }
     const rel = path.relative(deps.workspaceRoot, req.filePath).split(path.sep).join('/');
+    const question = readQuestionNow(deps, req, req.answerLine);
+    if (!question) { return {}; }
+    const at = (q: MdQuestion | undefined): ClosingResult['at'] => ({ file: rel, id: req.questionId, ...(q?.answerLine ? { line: q.answerLine } : {}) });
+    if (!question.open) { return { answeredInTurn: true, at: at(question) }; }
     const reply = await deps.askAnswer(closingAnswerAsk(question, rel));
     const pick = interpretClosingReply(reply, question, deps.fallbackPrompt?.());
-    if (!pick) { return {}; }
+    if (!pick) { return { leftOpen: true, at: at(question) }; }
     const error = await deps.writeAnswer(req.filePath, question, pick);
-    return error ? { answerError: `the answer to ${question.id} could not be written: ${error}` } : { answered: pick };
+    if (error) { return { answerError: `the answer to ${question.id} could not be written: ${error}`, at: at(question) }; }
+    // Read back where the answer is now (the write may have moved the Answer line, e.g. a removed proposal).
+    const after = readQuestionNow(deps, req, typeof question.answerLine === 'number' ? question.answerLine - 1 : undefined);
+    return { answered: pick, at: at(after ?? question) };
 }

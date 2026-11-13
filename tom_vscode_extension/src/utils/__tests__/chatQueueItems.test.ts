@@ -15,6 +15,9 @@
  *        a session — only the assist runs do (Grill me / Explain on questions and decisions, their temporary
  *        session, through services/assistLiveDeps.ts); the panel's Send uses the
  *        session picked in the panel
+ *   CQ-6 a note after the turn (an assist's closing answer, vscimpb63): it goes under the item's answer behind a
+ *        rule, is the answer when there was none, an empty note changes nothing; runAnthropicSend answers the
+ *        item's id, the manager's noteChatItem adds it to a chat item only and logs it to the queue channel
  */
 
 import test, { describe } from 'node:test';
@@ -23,7 +26,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-    CHAT_NOT_FINISHED_ERROR, CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems,
+    CHAT_NOT_FINISHED_ERROR, CHAT_SENT_STATUS, CHAT_STATUS, appendChatItemNote, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems,
 } from '../chatQueueItems.js';
 
 const ROOT = join(__dirname, '..', '..', '..');
@@ -109,5 +112,24 @@ describe('chat sends in the prompt queue', () => {
         const callers = ['services/assistLiveDeps.ts', 'handlers/markdownBrowser-handler.ts', 'handlers/questTodoPanel-handler.ts', 'handlers/telegram-cmd-handlers.ts', 'handlers/sendToChatRouter.ts']
             .filter((f) => /runAnthropicSend\(\w+, [^)]*\{[^}]*\bsession\b/.test(src(...f.split('/'))));
         assert.deepEqual(callers, ['services/assistLiveDeps.ts', 'handlers/questTodoPanel-handler.ts'], 'the assist runs share the one send; the todo panel sends in its own session');
+    });
+
+    test('CQ-6: a note after the turn', () => {
+        const item = newChatItem({ id: 'c6', text: 'grill', session: 'tmp-1', source: 'Grill me (DP-19)', windowId: 'w', now: NOW });
+        finishChatItem(item, { answerText: 'Proposal written under DP-19.' });
+        appendChatItemNote(item, '  ');
+        assert.equal(item.answerText, 'Proposal written under DP-19.', 'an empty note changes nothing');
+        appendChatItemNote(item, 'Grill me: the proposed answer to DP-19 is written into a.md, line 12.');
+        assert.equal(item.answerText, 'Proposal written under DP-19.\n\n---\n\nGrill me: the proposed answer to DP-19 is written into a.md, line 12.');
+        assert.equal(item.status, CHAT_SENT_STATUS);
+        const bare = newChatItem({ id: 'c7', text: 'x', session: 's', source: 'x', windowId: 'w', now: NOW });
+        finishChatItem(bare, {});
+        appendChatItemNote(bare, 'left open');
+        assert.equal(bare.answerText, 'left open');
+        assert.match(src('handlers', 'sendToChatRouter.ts'), /onChatItem: \(itemId\) => \{ chatItemId = itemId; \}/);
+        assert.match(src('handlers', 'sendToChatRouter.ts'), /ok: true, answer: result\.text, \.\.\.\(chatItemId \? \{ chatItemId \} : \{\}\)/);
+        assert.match(src('handlers', 'chatQueueTracking.ts'), /id = queue\.addChatItem\(send\);\s*opts\?\.onChatItem\?\.\(id\);/);
+        const manager = src('managers', 'promptQueueManager.ts');
+        assert.match(manager, /noteChatItem\(id: string, note: string\): boolean \{[\s\S]*?logQueue\(`Chat send \$\{id\}:[\s\S]*?if \(!item \|\| !isChatStatus\(item\.status\)\) \{ return false; \}[\s\S]*?appendChatItemNote/);
     });
 });

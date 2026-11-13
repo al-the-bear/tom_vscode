@@ -82,7 +82,7 @@ import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswe
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
 import { queueMoveTarget } from '../utils/queueMove';
-import { CHAT_SENT_STATUS, CHAT_STATUS, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
+import { CHAT_SENT_STATUS, CHAT_STATUS, appendChatItemNote, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
 import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
 import { TrailService } from '../services/trailService';
@@ -3430,6 +3430,20 @@ export class PromptQueueManager {
         if (this._anyRunMayStart() && this._mayDrain()) {
             void this.sendNext();
         }
+    }
+
+    /**
+     * Add what followed an ended chat send to its entry (an assist's closing answer, vscimpb63): the note goes
+     * under its answer and into the Tom Prompt Queue channel. Answers whether the entry was there.
+     */
+    noteChatItem(id: string, note: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        logQueue(`Chat send ${id}: ${note.replace(/\s+/g, ' ').trim()}`);
+        if (!item || !isChatStatus(item.status)) { return false; }
+        appendChatItemNote(item as unknown as ChatQueueItem, note);
+        this.persist();
+        this._onDidChange.fire();
+        return true;
     }
 
     // ----- busy sessions (src/utils/sessionBusy.ts) --------------------------

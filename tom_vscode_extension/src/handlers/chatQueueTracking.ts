@@ -75,6 +75,8 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
         cancel?: (chatItemId?: string) => void;
         /** Instead of the queue's response timeout (tests). */
         timeoutMs?: number;
+        /** The chat item the send is shown as, once made (an assist notes its closing answer on it). */
+        onChatItem?: (id: string) => void;
     },
 ): Promise<T> {
     let queue: ChatQueue | undefined;
@@ -82,6 +84,7 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     try {
         queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance as unknown as ChatQueue;
         id = queue.addChatItem(send);
+        opts?.onChatItem?.(id);
     } catch {
         queue = undefined;
     }

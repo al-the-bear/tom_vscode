@@ -85,6 +85,17 @@ export function finishChatItem(item: ChatQueueItem, result: { answerText?: strin
 }
 
 /**
+ * Add what happened after the turn to an ended chat item's answer (an assist's
+ * closing answer step, vscimpb63): the note follows the answer under a rule, so
+ * the queue entry shows the whole round, the answer written included.
+ */
+export function appendChatItemNote(item: ChatQueueItem, note: string): void {
+    const text = note.trim();
+    if (!text) { return; }
+    item.answerText = item.answerText && item.answerText.trim() ? `${item.answerText.trimEnd()}\n\n---\n\n${text}` : text;
+}
+
+/**
  * Settle running chat items that can no longer report back as `chat-sent` with
  * CHAT_NOT_FINISHED_ERROR: those of this window other than `keepId` whose send
  * no longer runs (`isActive`: a window can run a send and updates to running
