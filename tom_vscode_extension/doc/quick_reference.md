@@ -166,6 +166,8 @@
 | Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
 | Logs | `codicon-output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 
+The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.
+
 #### Copilot Action Bar Fields
 
 | Field | Width | Description |

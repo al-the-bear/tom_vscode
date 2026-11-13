@@ -59,7 +59,7 @@ describe('Copilot auto-hide', () => {
         const s = setup(t);
         const select = s.$('copilot-autohide');
         assert.ok(select, 'rendered');
-        assert.equal(select.closest('#copilot-context-overlay'), null, 'not in the overlay');
+        assert.equal(select.closest('#extension-tools-overlay'), null, 'not in the overlay');
         const toolbar = select.closest('.copilot-compact-toolbar');
         assert.ok(toolbar, 'in the Copilot toolbar');
         assert.ok(toolbar.querySelector('#copilot-keep-content') && toolbar.querySelector('#copilot-wrap'), 'beside Keep and Wrap');

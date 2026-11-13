@@ -325,7 +325,7 @@ function getSectionContent(id) {
             secondarySelectorHtml:
                 '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>',
             prefixButtons:
-                '<button class="icon-btn" data-action="openContextPopup" data-id="copilot" title="Context & Settings"><span class="codicon codicon-tools"></span></button>',
+                '<button class="icon-btn" data-action="openExtensionTools" data-id="copilot" title="Extension Tools"><span class="codicon codicon-tools"></span></button>',
             manageButtons:
                 '<button class="icon-btn" data-action="addTemplate" data-id="copilot" title="Add Template"><span class="codicon codicon-add"></span></button>' +
                 '<button class="icon-btn" data-action="editTemplate" data-id="copilot" title="Edit Template"><span class="codicon codicon-edit"></span></button>' +
@@ -374,7 +374,7 @@ function getSectionContent(id) {
             selectorLabel: 'Profile',
             selectorOptions: '<option value="">(None)</option>',
             prefixButtons:
-                '<button class="icon-btn" data-action="openContextPopup" data-id="anthropic" title="Context & Settings"><span class="codicon codicon-tools"></span></button>',
+                '<button class="icon-btn" data-action="openExtensionTools" data-id="anthropic" title="Extension Tools"><span class="codicon codicon-tools"></span></button>',
             secondarySelectorHtml:
                 // Edit-profile icon sits immediately after the Profile
                 // dropdown — opens the Global Template Editor on the
@@ -428,26 +428,26 @@ function getSectionContent(id) {
                 '<span class="codicon codicon-checklist"></span><span class="plan-mode-label">Plan mode: read and plan only</span>' +
                 '<button data-action="leavePlanMode" title="Leave plan mode: write tools run again">Leave plan mode</button>' +
                 '</div>' +
-                '<div id="anthropic-plan-overlay" class="context-overlay" style="display:none;">' +
-                '<div class="context-popup plan-popup">' +
-                '<div class="context-popup-header"><span>The agent proposes a plan</span></div>' +
-                '<div class="context-popup-body">' +
+                '<div id="anthropic-plan-overlay" class="modal-overlay" style="display:none;">' +
+                '<div class="modal-popup plan-popup">' +
+                '<div class="modal-popup-header"><span>The agent proposes a plan</span></div>' +
+                '<div class="modal-popup-body">' +
                 '<div id="anthropic-plan-body" class="plan-body markdown-body"></div>' +
                 '<textarea id="anthropic-plan-feedback" class="plan-feedback" rows="2" placeholder="Optional: what to change (sent with Keep planning)"></textarea>' +
                 '</div>' +
-                '<div class="context-popup-footer">' +
+                '<div class="modal-popup-footer">' +
                 '<button class="primary" data-action="planAccept">Accept and leave plan mode</button>' +
                 '<button data-action="planKeep">Keep planning</button>' +
                 '</div>' +
                 '</div>' +
                 '</div>' +
-                '<div id="anthropic-approval-overlay" class="context-overlay" style="display:none;">' +
-                '<div id="anthropic-approval-popup" class="context-popup">' +
-                '<div class="context-popup-header"><span>Tool Approval Required</span></div>' +
-                '<div class="context-popup-body">' +
+                '<div id="anthropic-approval-overlay" class="modal-overlay" style="display:none;">' +
+                '<div id="anthropic-approval-popup" class="modal-popup">' +
+                '<div class="modal-popup-header"><span>Tool Approval Required</span></div>' +
+                '<div class="modal-popup-body">' +
                 '<div id="anthropic-approval-body" style="padding:8px;font-family:var(--vscode-editor-font-family);white-space:pre-wrap;max-height:40vh;overflow:auto;"></div>' +
                 '</div>' +
-                '<div class="context-popup-footer">' +
+                '<div class="modal-popup-footer">' +
                 '<button class="primary" data-action="anthropicApprovalApprove">Approve</button>' +
                 '<button data-action="anthropicApprovalApproveAll">Allow All (session)</button>' +
                 '<button data-action="anthropicApprovalDeny">Deny</button>' +
@@ -514,36 +514,9 @@ function render() {
             html += '<div class="header-collapsed" data-toggle="' + sec.id + '"><span class="arrow"><span class="codicon codicon-chevron-down"></span></span><span class="icon">' + sec.icon + '</span><span class="title">' + sec.title + '</span></div>';
             html += '<div class="section-content">' + getSectionContent(sec.id) + '</div></div>';
         });
-        // Shared Context & Settings overlay — rendered at container level
-        // (not inside any accordion section) so collapsing or switching
-        // sections never hides the popup. Same id as before so existing
-        // openContextPopup()/closeContextPopup() wiring still works.
-        html += '<div id="copilot-context-overlay" class="context-overlay" style="display:none;">' +
-            '<div id="copilot-context-popup" class="context-popup">' +
-            '<div class="context-popup-header"><span>Context & Settings</span><button class="icon-btn" data-action="closeContextPopup" title="Close"><span class="codicon codicon-close"></span></button></div>' +
-            '<div class="context-popup-body">' +
-            '<fieldset class="context-group"><legend>Context</legend>' +
-            '<div class="context-row"><label>Quest:</label><select id="ctx-quest"></select></div>' +
-            '<div class="context-row"><label>Role:</label><select id="ctx-role"></select></div>' +
-            '<div class="context-row"><label>Projects:</label><select id="ctx-projects" multiple size="3"></select></div>' +
-            '<div class="context-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>' +
-            '<div class="context-row"><label>Todo:</label><select id="ctx-todo"></select></div>' +
-            '</fieldset>' +
-            '<fieldset class="context-group"><legend>Quick Links</legend>' +
-            '<div class="context-links">' +
-            '<button class="link-btn" data-action="openStatusPage" title="Extension Status"><span class="codicon codicon-dashboard"></span> Status Page</button>' +
-            '<button class="link-btn" data-action="openGlobalTemplateEditor" title="Prompt Template Editor"><span class="codicon codicon-file-code"></span> Template Editor</button>' +
-            '<button class="link-btn" data-action="openReusablePromptEditor" title="Reusable Prompt Editor"><span class="codicon codicon-note"></span> Reusable Prompts</button>' +
-            '<button class="link-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span> Chat Variables</button>' +
-            '<button class="link-btn" data-action="openProcessEditor" title="Process Editor"><span class="codicon codicon-type-hierarchy"></span> Process Editor</button>' +
-            '<button class="link-btn" data-action="openTrailRawFiles" data-id="copilot" title="Raw Trail Files Viewer"><span class="codicon codicon-history"></span> Raw Trail Files Viewer</button>' +
-            '<button class="link-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Trail Summary Viewer"><span class="codicon codicon-list-flat"></span> Trail Summary Viewer</button>' +
-            '</div>' +
-            '</fieldset>' +
-            '</div>' +
-            '<div class="context-popup-footer"><button class="primary" data-action="applyContext">Apply</button><button data-action="closeContextPopup">Cancel</button></div>' +
-            '</div>' +
-            '</div>';
+        // The Extension Tools overlay, shared by both subpanels' tools button:
+        // rendered at container level so collapsing a section never hides it.
+        html += extensionToolsOverlayHtml();
         container.innerHTML = html;
         _rendered = true;
         attachEventListeners();
@@ -784,9 +757,12 @@ function handleAction(action, id, slot) {
         case 'extractAnswer': vscode.postMessage({ type: 'extractAnswer' }); break;
         case 'openPromptsFile': vscode.postMessage({ type: 'openPromptsFile' }); break;
         case 'openAnswersFile': vscode.postMessage({ type: 'openAnswersFile' }); break;
-        case 'openContextPopup': openContextPopup(); break;
-        case 'closeContextPopup': closeContextPopup(); break;
-        case 'applyContext': applyContextPopup(); break;
+        case 'openExtensionTools': openExtensionTools(); break;
+        case 'closeExtensionTools': closeExtensionTools(); break;
+        case 'openExtensionTool':
+            vscode.postMessage({ type: 'openExtensionTool', toolId: id || '' });
+            closeExtensionTools();
+            break;
         case 'cancel': vscode.postMessage({ type: 'cancel', section: id || '' }); break;
         case 'addToQueue':
             if (id === 'anthropic') { addAnthropicToQueue(false); }
@@ -809,8 +785,6 @@ function handleAction(action, id, slot) {
         case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
         case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;
-        case 'openGlobalTemplateEditor': vscode.postMessage({ type: 'openGlobalTemplateEditor' }); break;
-        case 'openReusablePromptEditor': vscode.postMessage({ type: 'openReusablePromptEditor' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
         case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         // The host asks which sessions to clear and answers with anthropicHistoryCleared.
@@ -1459,27 +1433,6 @@ window.addEventListener('message', function(e) {
             setSlotText('copilot', ensureSlotState('copilot').activeSlot, '');
             saveDrafts();
         }
-    } else if (msg.type === 'contextData') {
-        populateContextPopup(msg);
-    } else if (msg.type === 'contextTodoFiles') {
-        // Update todoFile and todo dropdowns when quest changes in popup
-        var todoFileSel = document.getElementById('ctx-todoFile');
-        if (todoFileSel) {
-            todoFileSel.innerHTML = '<option value="">(None)</option>' + (msg.todoFiles || []).map(function(f) {
-                return '<option value="' + f + '">' + f + '</option>';
-            }).join('');
-        }
-        var todoSel = document.getElementById('ctx-todo');
-        if (todoSel) {todoSel.innerHTML = '<option value="">(None)</option>';}
-    } else if (msg.type === 'contextTodosUpdate') {
-        // Partial update: only refresh the todo dropdown, leave everything else untouched
-        var todoSelPartial = document.getElementById('ctx-todo');
-        if (todoSelPartial) {
-            todoSelPartial.innerHTML = '<option value="">(None)</option>' + (msg.todos || []).map(function(t) {
-                var icon = t.status === 'completed' ? '\u2705' : t.status === 'in-progress' ? '\uD83D\uDD04' : t.status === 'blocked' ? '\u26D4' : '\u2B1C';
-                return '<option value="' + t.id + '">' + icon + ' ' + t.id + ': ' + (t.title || t.description || '').substring(0, 40) + '</option>';
-            }).join('');
-        }
     } else if (msg.type === 'contextSummary') {
         var summaryEl = document.getElementById('copilot-context-summary');
         if (summaryEl) {summaryEl.textContent = msg.text || '';}
@@ -1621,83 +1574,50 @@ function addAnthropicToQueue(usePanelTarget, next) {
     if (repeatEl) { repeatEl.value = '1'; }
 }
 
-function openContextPopup() {
-    var overlay = document.getElementById('copilot-context-overlay');
-    if (overlay) {
-        overlay.style.display = 'flex';
-        vscode.postMessage({ type: 'getContextData' });
-    }
+/* The Extension Tools overlay: every editor and page of the extension, in the
+ * catalogue's groups (src/utils/extensionToolsCatalog.ts, passed in
+ * __INIT__.extensionTools without commands). A button posts
+ * `openExtensionTool` with the entry's id; the host runs its command. */
+function extensionToolsEsc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function closeContextPopup() {
-    var overlay = document.getElementById('copilot-context-overlay');
-    if (overlay) {overlay.style.display = 'none';}
+function extensionToolsOverlayHtml() {
+    var catalogue = (window.__INIT__ && window.__INIT__.extensionTools) || { groups: [], tools: [] };
+    var groups = (catalogue.groups || []).map(function(g) {
+        var buttons = (catalogue.tools || []).filter(function(t) { return t.group === g.id; }).map(function(t) {
+            var title = t.purpose + (t.whenAvailable ? ' (' + t.whenAvailable + ')' : '') + (t.statusPageSection ? ' — opens the Status Page at this section' : '');
+            return '<button class="extension-tool-btn" data-action="openExtensionTool" data-id="' + extensionToolsEsc(t.id) + '" title="' + extensionToolsEsc(title) + '">' +
+                '<span class="codicon codicon-' + extensionToolsEsc(t.icon) + '"></span><span class="extension-tool-label">' + extensionToolsEsc(t.label) + '</span></button>';
+        }).join('');
+        return '<section class="extension-tools-group" data-group="' + extensionToolsEsc(g.id) + '">' +
+            '<div class="extension-tools-group-title">' + extensionToolsEsc(g.icon) + ' ' + extensionToolsEsc(g.label) + '</div>' + buttons + '</section>';
+    }).join('');
+    return '<div id="extension-tools-overlay" class="modal-overlay extension-tools-overlay" style="display:none;">' +
+        '<div id="extension-tools-popup" class="modal-popup extension-tools-popup" role="dialog" aria-label="Extension Tools">' +
+        '<div class="modal-popup-header"><span>Extension Tools</span><button class="icon-btn" data-action="closeExtensionTools" title="Close"><span class="codicon codicon-close"></span></button></div>' +
+        '<div class="modal-popup-body extension-tools-grid">' + groups + '</div>' +
+        '</div></div>';
 }
 
-function populateContextPopup(data) {
-    // Quest picker
-    var questSel = document.getElementById('ctx-quest');
-    if (questSel) {
-        questSel.innerHTML = '<option value="">(None)</option>' + (data.quests || []).map(function(q) {
-            return '<option value="' + q + '"' + (q === data.currentQuest ? ' selected' : '') + '>' + q + '</option>';
-        }).join('');
-    }
-    // Role selector
-    var roleSel = document.getElementById('ctx-role');
-    if (roleSel) {
-        roleSel.innerHTML = '<option value="">(None)</option>' + (data.roles || []).map(function(r) {
-            return '<option value="' + r + '"' + (r === data.currentRole ? ' selected' : '') + '>' + r + '</option>';
-        }).join('');
-    }
-    // Project multi-select
-    var projSel = document.getElementById('ctx-projects');
-    if (projSel) {
-        var activeProjects = data.activeProjects || [];
-        projSel.innerHTML = (data.projects || []).map(function(p) {
-            return '<option value="' + p + '"' + (activeProjects.includes(p) ? ' selected' : '') + '>' + p + '</option>';
-        }).join('');
-    }
-    // Todo file picker
-    var todoFileSel = document.getElementById('ctx-todoFile');
-    if (todoFileSel) {
-        todoFileSel.innerHTML = '<option value="">(None)</option>' + (data.todoFiles || []).map(function(f) {
-            return '<option value="' + f + '"' + (f === data.currentTodoFile ? ' selected' : '') + '>' + f + '</option>';
-        }).join('');
-    }
-    // Todo selector
-    var todoSel = document.getElementById('ctx-todo');
-    if (todoSel) {
-        todoSel.innerHTML = '<option value="">(None)</option>' + (data.todos || []).map(function(t) {
-            var icon = t.status === 'completed' ? '\u2705' : t.status === 'in-progress' ? '\uD83D\uDD04' : t.status === 'blocked' ? '\u26D4' : '\u2B1C';
-            return '<option value="' + t.id + '"' + (t.id === data.currentTodo ? ' selected' : '') + '>' + icon + ' ' + t.id + ': ' + (t.title || t.description || '').substring(0, 40) + '</option>';
-        }).join('');
-    }
+function openExtensionTools() {
+    var overlay = document.getElementById('extension-tools-overlay');
+    if (overlay) { overlay.style.display = 'flex'; }
 }
 
-function applyContextPopup() {
-    var questSel = document.getElementById('ctx-quest');
-    var roleSel = document.getElementById('ctx-role');
-    var projSel = document.getElementById('ctx-projects');
-    var todoFileSel = document.getElementById('ctx-todoFile');
-    var todoSel = document.getElementById('ctx-todo');
-
-    var selectedProjects = [];
-    if (projSel) {
-        for (var i = 0; i < projSel.options.length; i++) {
-            if (projSel.options[i].selected) {selectedProjects.push(projSel.options[i].value);}
-        }
-    }
-
-    vscode.postMessage({
-        type: 'applyContext',
-        quest: questSel ? questSel.value : '',
-        role: roleSel ? roleSel.value : '',
-        activeProjects: selectedProjects,
-        todoFile: todoFileSel ? todoFileSel.value : '',
-        todo: todoSel ? todoSel.value : ''
-    });
-    closeContextPopup();
+function closeExtensionTools() {
+    var overlay = document.getElementById('extension-tools-overlay');
+    if (overlay) { overlay.style.display = 'none'; }
 }
+
+// A click beside the popup or Escape closes the overlay.
+document.addEventListener('click', function(event) {
+    if (event.target && event.target.id === 'extension-tools-overlay') { closeExtensionTools(); }
+});
+document.addEventListener('keydown', function(event) {
+    var overlay = document.getElementById('extension-tools-overlay');
+    if (event.key === 'Escape' && overlay && overlay.style.display !== 'none') { closeExtensionTools(); }
+});
 
 function initCopilotSection() {
     var autohideSelect = document.getElementById('copilot-autohide');
@@ -1710,20 +1630,6 @@ function initCopilotSection() {
     if (keepContentCb) {
         keepContentCb.addEventListener('change', function() {
             vscode.postMessage({ type: 'setKeepContent', value: this.checked });
-        });
-    }
-    // When popup todo file changes, request todos for that file
-    var todoFileSel = document.getElementById('ctx-todoFile');
-    if (todoFileSel) {
-        todoFileSel.addEventListener('change', function() {
-            vscode.postMessage({ type: 'getTodosForFile', file: this.value });
-        });
-    }
-    // When popup quest changes, re-fetch todoFiles and todos for new quest
-    var questSel = document.getElementById('ctx-quest');
-    if (questSel) {
-        questSel.addEventListener('change', function() {
-            vscode.postMessage({ type: 'getContextDataForQuest', quest: this.value });
         });
     }
 }

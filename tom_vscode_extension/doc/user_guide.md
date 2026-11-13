@@ -340,6 +340,8 @@ Every send of a todo from the panel — Send, Save to Queue, single or stacked �
 
 ## 3) Sending prompts
 
+**Extension Tools.** The tools button (🛠, `codicon-tools`) on the ANTHROPIC/LLM and Copilot subpanels opens the **Extension Tools** overlay: every editor, page and viewer of the extension, one button each, in the same four groups as the Status Page's Editors and pages overview (Prompts & templates, Queue & automation, Quest & process, Trails, logs & setup). It covers about 90% of the panel's width and lays the groups out in up to four columns as the width allows; a button's tooltip says what it is for. A button opens its editor or page (Telegram, Reminders, MCP server and Usage open the Status Page at that section) and closes the overlay; **Close**, Escape or a click beside it close it too. The window's quest, role, projects and todo are chat variables, set in the Chat Variables Editor.
+
 ### Anthropic
 
 The ANTHROPIC/LLM subpanel in `@CHAT` is the primary AI chat surface. Every turn picks a **profile** that bundles model + transport + history mode + user-message template.

@@ -106,6 +106,7 @@ import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { assistProgress } from '../services/assistProgress';
 import { AUTO_HIDE_STATE_KEY, normalizeAutoHideDelay } from '../utils/copilotAutoHide';
+import { extensionToolsForWebview, openExtensionTool } from '../utils/extensionToolsCatalog';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
 // windowStatusPanel) import from this module today. Keeps their
@@ -456,6 +457,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 init: {
                     codiconsUri: codiconsUri.toString(),
                     placeholderHelp: PLACEHOLDER_HELP,
+                    // The Extension Tools overlay's groups and entries (no commands).
+                    extensionTools: extensionToolsForWebview(),
                     // The Logs section (questLogs-handler.ts): its HTML and the viewer's config.
                     questLogs: { html: getQuestLogsHtmlFragment(), config: getQuestLogsClientConfig(['logs']) },
                 }
@@ -477,6 +480,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
         // The run pickers follow the quest's runs and the window's run (created, deleted, selected).
         this._watchRuns(webviewView);
+        this._watchContextSummary(webviewView);
         // A queue item waiting for its background work: shown here too, with the same choices.
 
         // Handle messages from the webview
@@ -669,14 +673,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openAnswersFile':
                         await this._openAnswersFile();
                         break;
-                    case 'getContextData':
-                        await this._sendContextData();
-                        break;
                     case 'getContextSummary':
                         this._sendContextSummary();
                         break;
-                    case 'applyContext':
-                        await this._applyContext(message);
+                    // The Extension Tools overlay: an entry of the catalogue by id (the webview never names a command).
+                    case 'openExtensionTool':
+                        if (!await openExtensionTool(String(message.toolId ?? ''), (command, ...args) => vscode.commands.executeCommand(command, ...args))) {
+                            vscode.window.showWarningMessage(`Extension Tools: no such entry "${String(message.toolId ?? '')}"`);
+                        }
                         break;
                     case 'addToQueue':
                         if (this._queueAddGuard.isDuplicate({
@@ -808,12 +812,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openSharedMemoryInMdBrowser':
                         await this._openMemoryMarkdown('shared');
                         break;
-                    case 'openGlobalTemplateEditor':
-                        await vscode.commands.executeCommand('tomAi.editor.promptTemplates');
-                        break;
-                    case 'openReusablePromptEditor':
-                        await vscode.commands.executeCommand('tomAi.editor.reusablePrompts');
-                        break;
                     case 'saveAsTimedRequest':
                         await this._saveAsTimedRequest(message.text, message.template);
                         break;
@@ -825,12 +823,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'showPanelsFile':
                         await this._showPanelsFile();
-                        break;
-                    case 'getTodosForFile':
-                        await this._sendTodosForFile(message.file);
-                        break;
-                    case 'getContextDataForQuest':
-                        await this._sendTodoFilesForQuest(message.quest);
                         break;
                 }
             },
@@ -936,6 +928,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _runsListener?: { dispose(): void };
+    private _summaryListener?: { dispose(): void };
+
+    /** The Copilot status line's context summary (Q: quest | R: role) follows the chat variables while the view lives. */
+    private _watchContextSummary(view: vscode.WebviewView): void {
+        try {
+            this._summaryListener?.dispose();
+            this._summaryListener = ChatVariablesStore.instance.onDidChange((e) => {
+                if (this._view === view && (e.key === 'quest' || e.key === 'role')) { this._sendContextSummary(); }
+            });
+            view.onDidDispose(() => { this._summaryListener?.dispose(); this._summaryListener = undefined; });
+        } catch { /* the store is not initialised */ }
+    }
 
     /** Follow the runs: a run created, deleted or selected in the PROCESS view updates the pickers (a deleted one falls back). */
     private _watchRuns(view: vscode.WebviewView): void {
@@ -2131,119 +2135,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ========================================================================
-    // §3.1 Context & Settings Popup + Queue Integration
+    // The Copilot status line's context summary + queue integration
     // ========================================================================
-
-    private async _sendContextData(): Promise<void> {
-        const wsRoot = getWorkspaceRoot();
-        let quests: string[] = [];
-        let roles: string[] = [];
-        let projects: string[] = [];
-        let todoFiles: string[] = [];
-        let todos: { id: string; title?: string; description?: string; status?: string }[] = [];
-
-        // Scan quests from _ai/quests/
-        if (wsRoot) {
-            const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
-            if (fs.existsSync(questsDir)) {
-                try {
-                    const entries = fs.readdirSync(questsDir, { withFileTypes: true });
-                    quests = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-                } catch { /* ignore */ }
-            }
-        }
-
-        // Scan roles from _ai/roles/
-        if (wsRoot) {
-            const rolesDir = WsPaths.ai('roles') || path.join(wsRoot, '_ai', 'roles');
-            if (fs.existsSync(rolesDir)) {
-                try {
-                    const entries = fs.readdirSync(rolesDir, { withFileTypes: true });
-                    roles = entries.filter(e => e.isDirectory() || e.name.endsWith('.md') || e.name.endsWith('.yaml'))
-                        .map(e => e.isDirectory() ? e.name : e.name.replace(/\.(md|yaml)$/, ''))
-                        .sort();
-                } catch { /* ignore */ }
-            }
-        }
-
-        // Get projects via scanWorkspaceProjects (scans for pubspec.yaml/package.json)
-        try {
-            const { scanWorkspaceProjects } = await import('../managers/questTodoManager.js');
-            const scanned = scanWorkspaceProjects();
-            projects = scanned.map(p => p.name);
-        } catch { /* ignore */ }
-
-        // Fallback: buildkit's listing when the scanner found none
-        if (projects.length === 0 && wsRoot) {
-            try {
-                const { listWorkspaceProjects } = await import('../services/workspaceProjects.js');
-                const listing = await listWorkspaceProjects(wsRoot);
-                if (listing.ok) { projects = [...new Set(listing.projects.map(p => p.name))].sort(); }
-            } catch { /* no listing: keep the empty list */ }
-        }
-
-        // Get current values from ChatVariablesStore (if available)
-        let currentQuest = '';
-        let currentRole = '';
-        let activeProjects: string[] = [];
-        let currentTodoFile = '';
-        let currentTodo = '';
-
-        try {
-            const { ChatVariablesStore } = await import('../managers/chatVariablesStore.js');
-            const store = ChatVariablesStore.instance;
-            currentQuest = store.quest || '';
-            currentRole = store.role || '';
-            activeProjects = store.activeProjects || [];
-            currentTodo = store.todo || '';
-            currentTodoFile = store.todoFile || '';
-        } catch { /* ChatVariablesStore may not be available */ }
-
-        // Get todo files for current quest
-        if (currentQuest && wsRoot) {
-            const questDir = WsPaths.ai('quests', currentQuest) || path.join(wsRoot, '_ai', 'quests', currentQuest);
-            if (fs.existsSync(questDir)) {
-                try {
-                    const files = fs.readdirSync(questDir);
-                    todoFiles = files.filter(f => f.endsWith('.yaml') && f.includes('todo')).sort();
-                } catch { /* ignore */ }
-            }
-        }
-
-        // Get todos from current todo file
-        if (currentQuest && currentTodoFile && wsRoot) {
-            const todoPath = WsPaths.ai('quests', currentQuest, currentTodoFile) || path.join(wsRoot, '_ai', 'quests', currentQuest, currentTodoFile);
-            if (fs.existsSync(todoPath)) {
-                try {
-                    const yaml = await import('yaml');
-                    const content = fs.readFileSync(todoPath, 'utf-8');
-                    const parsed = yaml.parse(content);
-                    if (parsed?.todos && Array.isArray(parsed.todos)) {
-                        todos = parsed.todos.map((t: any) => ({
-                            id: t.id || '',
-                            title: t.title || '',
-                            description: t.description || '',
-                            status: t.status || 'not-started'
-                        }));
-                    }
-                } catch { /* ignore */ }
-            }
-        }
-
-        this._view?.webview.postMessage({
-            type: 'contextData',
-            quests,
-            roles,
-            projects,
-            todoFiles,
-            todos,
-            currentQuest,
-            currentRole,
-            activeProjects,
-            currentTodoFile,
-            currentTodo
-        });
-    }
 
     private _sendContextSummary(): void {
         let parts: string[] = [];
@@ -2256,23 +2149,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             type: 'contextSummary',
             text: parts.length > 0 ? parts.join(' | ') : ''
         });
-    }
-
-    private async _applyContext(msg: any): Promise<void> {
-        try {
-            const { ChatVariablesStore } = await import('../managers/chatVariablesStore.js');
-            const store = ChatVariablesStore.instance;
-            
-            if (msg.quest !== undefined) store.set('quest', msg.quest, 'user');
-            if (msg.role !== undefined) store.set('role', msg.role, 'user');
-            if (msg.activeProjects !== undefined) store.setActiveProjects(msg.activeProjects || [], 'user');
-            if (msg.todoFile !== undefined) store.set('todoFile', msg.todoFile, 'user');
-            if (msg.todo !== undefined) store.set('todo', msg.todo, 'user');
-        } catch { /* ignore */ }
-
-        // Update context summary
-        this._sendContextSummary();
-        void this._sendReusablePrompts();
     }
 
     private async _handleAddToQueue(
@@ -2340,51 +2216,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             debugLog(`[ChatPanel] addToQueue failed: ${msg}\n${err instanceof Error ? err.stack ?? '' : ''}`, 'ERROR', 'queue');
             vscode.window.showErrorMessage(`Failed to add prompt to queue: ${msg}`);
         }
-    }
-
-    private async _sendTodosForFile(file: string): Promise<void> {
-        const wsRoot = getWorkspaceRoot();
-        const currentQuest = WsPaths.getWorkspaceQuestId();
-
-        if (currentQuest === 'default' || !file || !wsRoot) {
-            this._view?.webview.postMessage({ type: 'contextData', todos: [] });
-            return;
-        }
-
-        const todoPath = WsPaths.ai('quests', currentQuest, file) || path.join(wsRoot, '_ai', 'quests', currentQuest, file);
-        let todos: any[] = [];
-        if (fs.existsSync(todoPath)) {
-            try {
-                const yaml = await import('yaml');
-                const content = fs.readFileSync(todoPath, 'utf-8');
-                const parsed = yaml.parse(content);
-                if (parsed?.todos && Array.isArray(parsed.todos)) {
-                    todos = parsed.todos.map((t: any) => ({
-                        id: t.id || '',
-                        title: t.title || '',
-                        description: t.description || '',
-                        status: t.status || 'not-started'
-                    }));
-                }
-            } catch { /* ignore */ }
-        }
-        // Send partial update — only the todo dropdown, not the full context form
-        this._view?.webview.postMessage({ type: 'contextTodosUpdate', todos });
-    }
-
-    private async _sendTodoFilesForQuest(quest: string): Promise<void> {
-        const wsRoot = getWorkspaceRoot();
-        let todoFiles: string[] = [];
-        if (quest && wsRoot) {
-            const questDir = WsPaths.ai('quests', quest) || path.join(wsRoot, '_ai', 'quests', quest);
-            if (fs.existsSync(questDir)) {
-                try {
-                    const files = fs.readdirSync(questDir);
-                    todoFiles = files.filter(f => f.endsWith('.yaml') && f.includes('todo')).sort();
-                } catch { /* ignore */ }
-            }
-        }
-        this._view?.webview.postMessage({ type: 'contextTodoFiles', todoFiles });
     }
 
     private async _saveAsTimedRequest(text: string, template?: string): Promise<void> {

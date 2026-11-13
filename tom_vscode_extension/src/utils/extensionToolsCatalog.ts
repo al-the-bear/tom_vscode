@@ -132,6 +132,45 @@ export function toolById(id: string): ToolEntry | undefined {
     return EXTENSION_TOOLS.find((t) => t.id === id);
 }
 
+/** An entry as a webview gets it: no command (the webview opens by id; the host looks the command up). */
+export interface WebviewToolEntry {
+    id: string;
+    label: string;
+    group: ToolGroupId;
+    purpose: string;
+    icon: string;
+    whenAvailable?: string;
+    /** It opens a section of the Status Page. */
+    statusPageSection?: boolean;
+}
+
+/**
+ * The catalogue for a webview (the chat panels' Extension Tools overlay):
+ * the groups in order and every entry, without the commands.
+ */
+export function extensionToolsForWebview(): { groups: ToolGroup[]; tools: WebviewToolEntry[] } {
+    return {
+        groups: TOOL_GROUPS.map((g) => ({ ...g })),
+        tools: EXTENSION_TOOLS.map((t) => ({
+            id: t.id, label: t.label, group: t.group, purpose: t.purpose, icon: t.icon,
+            ...(t.whenAvailable ? { whenAvailable: t.whenAvailable } : {}),
+            ...(t.statusSection ? { statusPageSection: true } : {}),
+        })),
+    };
+}
+
+/**
+ * Open a catalogue entry by id: its command, or the Status Page at its
+ * section. `run` executes a command (vscode.commands.executeCommand in the
+ * extension). Answers whether the id was known.
+ */
+export async function openExtensionTool(id: string, run: (command: string, ...args: unknown[]) => Thenable<unknown> | Promise<unknown>): Promise<boolean> {
+    const tool = toolById(id);
+    if (!tool) { return false; }
+    if (tool.command) { await run(tool.command); } else if (tool.statusSection) { await run('tomAi.statusPage', tool.statusSection); }
+    return true;
+}
+
 function escapeHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
