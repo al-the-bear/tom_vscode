@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { withTiming } from './_timing.js';
 import {
     ADD_QUEUE_ITEM_TOOL,
+    UPDATE_QUEUE_ITEM_TOOL,
     addQueueFollowUpImpl,
     addQueueItemImpl,
     addQueuePrePromptImpl,
@@ -852,5 +853,64 @@ describe('projectQueueItem', () => {
         access.items = () => [projectQueueItem(real)];
         const listed = JSON.parse(await listQueueImpl(access, {}));
         assert.equal(listed.items[0].session, 'vsd4-prep');
+    });
+});
+
+// ===========================================================================
+// Where the done notification goes (vscimpb71)
+// ===========================================================================
+
+describe('the done notification\'s quest and run', () => {
+    function withTargets(): { access: FakeAccess; enqueued: Array<Record<string, unknown>>; patches: Array<Record<string, unknown>> } {
+        const access = makeAccess();
+        const enqueued: Array<Record<string, unknown>> = [];
+        const patches: Array<Record<string, unknown>> = [];
+        const enqueue = access.enqueue.bind(access);
+        access.enqueue = async (input) => { enqueued.push(input as unknown as Record<string, unknown>); return enqueue(input); };
+        access.currentQuest = () => 'q1';
+        access.runs = () => ['default', 'r1', 'r2'];
+        access.questExists = (q) => ['q1', 'q2'].includes(q);
+        access.questRunExists = (q, r) => r === 'default' || (q === 'q2' && r === 'rx');
+        access.updateItemDoneNotification = (_id, patch) => { patches.push(patch); return true; };
+        return { access, enqueued, patches };
+    }
+
+    test('QD-1: tomAi_addQueueItem sets them, refuses what does not exist', async () => {
+        const t = withTargets();
+        const ok = JSON.parse(await addQueueItemImpl(t.access, { text: 'p', doneNotificationPrompt: 'n', doneNotificationQuest: 'q2', doneNotificationRun: 'rx' }));
+        assert.equal(ok.ok, true, JSON.stringify(ok));
+        assert.equal(t.enqueued[0].doneNotificationQuest, 'q2');
+        assert.equal(t.enqueued[0].doneNotificationRun, 'rx');
+        assert.equal(JSON.parse(await addQueueItemImpl(t.access, { text: 'p', doneNotificationRun: 'r2' })).ok, true, 'a run of this quest');
+        assert.equal(t.enqueued[1].doneNotificationQuest, undefined);
+        assert.equal(JSON.parse(await addQueueItemImpl(t.access, { text: 'p', doneNotificationQuest: 'q1', doneNotificationRun: 'r1' })).ok, true, 'this quest named');
+        const refusals: Array<[Record<string, unknown>, RegExp]> = [
+            [{ doneNotificationQuest: 'q9' }, /no quest "q9" for the done notification/],
+            [{ doneNotificationQuest: 'q2', doneNotificationRun: 'r1' }, /"q2" has no process run "r1"/],
+            [{ doneNotificationRun: 'rx' }, /no run "rx" for the done notification; its runs: default, r1, r2/],
+        ];
+        for (const [input, message] of refusals) {
+            const before = t.enqueued.length;
+            const r = JSON.parse(await addQueueItemImpl(t.access, { text: 'p', ...input } as never));
+            assert.equal(r.ok, false, JSON.stringify(input));
+            assert.match(r.error, message);
+            assert.equal(t.enqueued.length, before, 'nothing queued');
+        }
+    });
+
+    test('QD-2: tomAi_updateQueueItem changes them; \'\' resets', async () => {
+        const t = withTargets();
+        const id = JSON.parse(await addQueueItemImpl(t.access, { text: 'p' })).id;
+        assert.equal(JSON.parse(await updateQueueItemImpl(t.access, { queueItemId: id, doneNotificationQuest: 'q2', doneNotificationRun: 'rx' })).ok, true);
+        assert.deepEqual(t.patches[0], { quest: 'q2', run: 'rx' });
+        assert.equal(JSON.parse(await updateQueueItemImpl(t.access, { queueItemId: id, doneNotificationQuest: '', doneNotificationRun: '' })).ok, true);
+        assert.deepEqual(t.patches[1], { quest: '', run: '' }, 'reset to the default');
+        const bad = JSON.parse(await updateQueueItemImpl(t.access, { queueItemId: id, doneNotificationRun: 'nope' }));
+        assert.match(bad.error, /no run "nope"/);
+        assert.equal(t.patches.length, 2, 'nothing changed');
+        for (const tool of [ADD_QUEUE_ITEM_TOOL, UPDATE_QUEUE_ITEM_TOOL]) {
+            const props = (tool.inputSchema as { properties: Record<string, unknown> }).properties;
+            assert.ok(props.doneNotificationQuest && props.doneNotificationRun, tool.name);
+        }
     });
 });

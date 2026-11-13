@@ -631,6 +631,18 @@ or a rate limit is not such an error, so nothing is queued then.
   while it is running.
 - It is queued once per run: a failed item retried by hand that then succeeds
   does not notify twice; Send Now on a sent item starts a new run.
+- **Posted to** under the prompt says where it goes: *this queue* (the
+  default), another **run** of this quest (it is queued in that run's lane and
+  runs in that run's session, `<session>@<run>`), or another **quest** and a
+  run there. The button opens a quest picker — this quest, then the quests
+  with a window running, then the others — and a run picker of the chosen
+  quest. For another quest the notification goes into that quest's inbox and
+  is queued there with that queue's defaults; the item's *pause after this*
+  stays with the item. With no window of that quest running it waits in the
+  inbox until one starts: the item says so in its header (`notification waits
+  in <quest>`) and under the prompt.
+- `${senderQuest}` and `${senderRun}` in it read the quest and run it comes
+  from.
 
 ### Items from other quests
 
@@ -642,8 +654,11 @@ starts — and queues it with its own defaults; the item shows **from
 of the target quest, or a new session based on one (without a name, a
 temporary session deleted when the item and its notification are done; the
 SESSIONS view lists it last, tagged *temporary*), and a
-done-notification prompt, typically one that sends a message back. In those
-prompts `${senderQuest}` is the sending quest.
+done-notification prompt, typically one that sends a message back, and where
+that notification is queued (back in the sender's quest and run, so it hears
+back directly). The item can go into a process run of the target quest. In
+those prompts `${senderQuest}` and `${senderRun}` are the sending quest and
+run.
 
 ### Interrupt for continuation
 

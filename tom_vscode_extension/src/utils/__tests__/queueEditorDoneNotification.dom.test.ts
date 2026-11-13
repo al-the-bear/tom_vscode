@@ -6,6 +6,9 @@
  *   QN-2 an item without a prompt has the section collapsed (to add one); a sent item shows its prompt read-only,
  *        and nothing when it had none
  *   QN-3 an item sent by another quest shows `from <quest>`; a notification item names the item it reports on
+ *   QN-4 where it goes (vscimpb71): `this queue`, `run <r> of this quest`, `quest <q>, run <r>`; the button posts
+ *        `pickDoneNotificationTarget`; a notification posted to another quest says whether it waits there, and a
+ *        waiting one puts a chip in the item's header; a sent item shows the target without a button
  */
 
 import test, { describe } from 'node:test';
@@ -91,5 +94,30 @@ describe('Prompt Queue editor — done notification', () => {
         ]);
         const chips = [...window.document.querySelectorAll('.queue-from-chip:not(.queue-run-chip)')].map((c: Win) => c.textContent.trim());
         assert.deepEqual(chips, ['from tom_uam', 'notification of abcdef12']);
+    });
+
+    test('QN-4: where it goes', (t) => {
+        const { window, posted } = setup(t, [
+            // In the default run: the editor shows one run tab at a time, the window's run (default) here.
+            { ...base, id: 'own', doneNotificationPrompt: 'x' },
+            { ...base, id: 'run2', doneNotificationPrompt: 'x', doneNotificationRun: 'r2' },
+            { ...base, id: 'other', doneNotificationPrompt: 'x', doneNotificationQuest: 'tom_uam' },
+            { ...base, id: 'waits', status: 'sent', doneNotificationPrompt: 'x', doneNotificationQuest: 'tom_uam', doneNotificationRun: 'rx',
+                doneNotificationPosted: { quest: 'tom_uam', run: 'rx', file: 'f.inbox.queue.yaml', waiting: true, at: '2026-11-13T20:00:00.000Z' } },
+        ]);
+        // The entries in queue order (a queue entry carries no id attribute).
+        const rows: Win[] = [...window.document.querySelectorAll('.queue-item .done-notification-target')];
+        assert.equal(rows.length, 4);
+        const ids = ['own', 'run2', 'other', 'waits'];
+        const row = (id: string): Win => rows[ids.indexOf(id)];
+        const texts = ids.map((id) => row(id)?.textContent.replace(/\s+/g, ' ').trim());
+        assert.deepEqual(texts.slice(0, 3), ['Posted to: this queue', 'Posted to: run r2 of this quest', 'Posted to: quest tom_uam, run default'], JSON.stringify(texts));
+        assert.match(texts[3] ?? '', /^Posted to: quest tom_uam, run rx posted to tom_uam \/ rx: no window of that quest is running, it waits in its inbox$/);
+        assert.equal(row('waits').querySelector('button'), null, 'a sent item: no button');
+        const button = mark(row('other').querySelector('button'), 'pick');
+        fire(window, button, 'onclick');
+        assert.deepEqual(posted.filter((m) => m.type === 'pickDoneNotificationTarget'), [{ type: 'pickDoneNotificationTarget', id: 'other' }]);
+        const chips = [...window.document.querySelectorAll('.queue-from-chip')].map((c: Win) => c.textContent.trim());
+        assert.ok(chips.includes('notification waits in tom_uam'), chips.join(' | '));
     });
 });

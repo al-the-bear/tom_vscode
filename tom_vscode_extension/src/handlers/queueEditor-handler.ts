@@ -38,6 +38,8 @@ import { positionText } from '../utils/processActionPrompt';
 import { isLoopItem, runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
+import { questPicks, runPicks } from '../utils/doneNotificationTargets';
+import { ProcessRepository } from '../utils/processRepository';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
 import { backgroundWaitLine, formatLimit, listBackgroundWork } from '../utils/backgroundWait';
 import type { UserWaitKind } from '../services/userWaits';
@@ -777,6 +779,36 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'setDoneNotificationDisabled':
             qm.updateItemDoneNotification(String(msg.id), { disabled: !!msg.disabled });
             break;
+        case 'pickDoneNotificationTarget': {
+            // Where the done notification goes (vscimpb71): a quest, then one of its runs.
+            const id = String(msg.id ?? '');
+            const item = qm.getById(id);
+            if (!item || item.status === 'sent') { break; }
+            const ownQuest = WsPaths.getWorkspaceQuestId() || 'default';
+            const questsDir = WsPaths.ai('quests');
+            const allQuests = questsDir && fs.existsSync(questsDir)
+                ? fs.readdirSync(questsDir).filter((q) => !q.startsWith('.') && fs.statSync(`${questsDir}/${q}`).isDirectory())
+                : [];
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { liveQuestSendAccess } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
+            const live = new Set(allQuests.filter((q) => q !== ownQuest && liveQuestSendAccess.liveWindows(q).length > 0));
+            const quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live), {
+                title: 'Post the done notification to the quest', placeHolder: `Now: ${item.doneNotificationQuest ?? ownQuest}`,
+            });
+            if (!quest) { break; }
+            const targetQuest = quest.value || ownQuest;
+            const processes = WsPaths.ai('processes');
+            const runs = processes && questsDir
+                ? new ProcessRepository(processes, questsDir).listRuns(targetQuest).map((r) => r.run)
+                : ['default'];
+            const run = await vscode.window.showQuickPick(runPicks(runs, targetQuest === ownQuest, item.run ?? 'default'), {
+                title: `The run of ${targetQuest} it is queued in`, placeHolder: 'Its lane and its sessions (<session>@<run>)',
+            });
+            if (!run) { break; }
+            qm.updateItemDoneNotification(id, { quest: quest.value, run: run.value });
+            sendState();
+            break;
+        }
         case 'setItemStatus':
           if (msg.status === 'staged' || msg.status === 'pending') {
             qm.setStatus(msg.id, msg.status);

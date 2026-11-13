@@ -7,6 +7,9 @@
  *   SQ-2 delivered: the inbox item holds what the sender said and who sent it; `targetRunning` and the windows follow
  *        the live heartbeats; the file goes to a running window's workspace, else the quest's own
  *   SQ-3 the tool is a write tool with the inputs the todo names
+ *   SQ-4 runs (vscimpb71): `run` queues the item in that run of the target, `doneNotificationQuest` /
+ *        `doneNotificationRun` say where its notification goes; an unknown run or quest is refused; the sender's run
+ *        travels with it
  */
 
 import test, { describe } from 'node:test';
@@ -21,6 +24,8 @@ function fakeAccess(opts: { windows?: TargetWindow[]; sessions?: SessionRecord[]
     const delivered: Array<{ workspace: string; item: InboxItem }> = [];
     const access: QuestSendAccess = {
         currentQuest: () => 'vscode_extension',
+        currentRun: () => 'collab',
+        runExists: (q, run) => run === 'default' || (q === 'tom_uam' && run === 'review') || (q === 'vscode_extension' && run === 'collab'),
         questExists: (q) => ['vscode_extension', 'tom_uam'].includes(q),
         profileExists: (id) => ['opus-direct', 'haiku-sdk'].includes(id),
         listSessions: () => opts.sessions ?? [{ name: 'prep', mode: 'continue' }, { name: 'walk', mode: 'per-prompt' }],
@@ -86,7 +91,7 @@ describe('tomAi_sendItemToQuest', () => {
                 doneNotificationPrompt: 'back: ${itemOutcome}',
                 pauseAfter: true,
                 newSession: { basedOn: 'prep', lifetime: 'per-iteration', profile: 'haiku-sdk' },
-                from: { quest: 'vscode_extension', windowId: 'me_1234', host: 'mbp', sentAt: '2026-10-27T12:00:00.000Z' },
+                from: { quest: 'vscode_extension', run: 'collab', windowId: 'me_1234', host: 'mbp', sentAt: '2026-10-27T12:00:00.000Z' },
             },
         }]);
         const running = fakeAccess({ windows: [{ windowId: 'w9', workspace: 'tom_uam_ws' }] });
@@ -101,6 +106,34 @@ describe('tomAi_sendItemToQuest', () => {
         assert.equal(SEND_ITEM_TO_QUEST_TOOL.name, 'tomAi_sendItemToQuest');
         assert.equal(SEND_ITEM_TO_QUEST_TOOL.readOnly, false, 'a write tool: the MCP read-only floor does not serve it');
         const props = Object.keys((SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: object }).properties);
-        assert.deepEqual(props.sort(), ['anthropicProfileId', 'doneNotificationPrompt', 'newSession', 'pauseAfter', 'quest', 'session', 'template', 'text']);
+        assert.deepEqual(props.sort(), ['anthropicProfileId', 'doneNotificationPrompt', 'doneNotificationQuest', 'doneNotificationRun',
+            'newSession', 'pauseAfter', 'quest', 'run', 'session', 'template', 'text']);
+    });
+
+    test('SQ-4: runs and the notification\'s target', async () => {
+        const f = fakeAccess();
+        const r = await call(f.access, {
+            quest: 'tom_uam', text: 'Review it', run: 'review',
+            doneNotificationPrompt: 'done ${itemOutcome}', doneNotificationQuest: 'vscode_extension', doneNotificationRun: 'collab',
+        });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        const item = f.delivered[0].item;
+        assert.equal(item.run, 'review');
+        assert.equal(item.doneNotificationQuest, 'vscode_extension', 'back to the sender');
+        assert.equal(item.doneNotificationRun, 'collab');
+        assert.equal(item.from.run, 'collab', 'the sender\'s run');
+
+        const refused = async (input: Record<string, unknown>, code: string, message: RegExp): Promise<void> => {
+            const g = fakeAccess();
+            const answer = await call(g.access, { quest: 'tom_uam', text: 'x', ...input });
+            assert.equal(answer.ok, false, JSON.stringify(input));
+            assert.equal(answer.code, code);
+            assert.match(String(answer.error), message);
+            assert.equal(g.delivered.length, 0, 'nothing delivered');
+        };
+        await refused({ run: 'nope' }, 'unknownRun', /has no process run "nope"/);
+        await refused({ doneNotificationQuest: 'missing' }, 'unknownQuest', /no quest "missing" for the done notification/);
+        await refused({ doneNotificationRun: 'collab' }, 'unknownRun', /"tom_uam" has no process run "collab" for the done notification/);
+        await refused({ doneNotificationQuest: 'vscode_extension', doneNotificationRun: 'review' }, 'unknownRun', /"vscode_extension" has no process run "review"/);
     });
 });

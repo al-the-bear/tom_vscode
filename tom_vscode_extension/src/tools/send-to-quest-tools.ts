@@ -24,9 +24,15 @@ export interface SendItemToQuestInput {
     template?: string;
     anthropicProfileId?: string;
     doneNotificationPrompt?: string;
+    /** The quest the item's done notification is posted to; unset: the target quest. */
+    doneNotificationQuest?: string;
+    /** The process run its done notification is queued in. */
+    doneNotificationRun?: string;
     pauseAfter?: boolean;
     session?: string;
     newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
+    /** The target quest's process run the item is queued in; unset: `default`. */
+    run?: string;
 }
 
 /** A window of the target quest, as its state file says. */
@@ -39,6 +45,10 @@ export interface TargetWindow {
 export interface QuestSendAccess {
     /** The quest of this window ('' or undefined: none). */
     currentQuest(): string | undefined;
+    /** This window's process run. */
+    currentRun(): string;
+    /** Whether `quest` has the process run `run` (`default` always). */
+    runExists(quest: string, run: string): boolean;
     /** `_ai/quests/<quest>/` exists. */
     questExists(quest: string): boolean;
     profileExists(id: string): boolean;
@@ -107,6 +117,18 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
                 ...(n.profile ? { profile: n.profile } : {}),
             };
         }
+        const run = input.run?.trim() || undefined;
+        if (run && !access.runExists(quest, run)) {
+            return err(`The quest "${quest}" has no process run "${run}".`, { code: 'unknownRun' });
+        }
+        const dnQuest = input.doneNotificationQuest?.trim() || undefined;
+        if (dnQuest && (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(dnQuest) || !access.questExists(dnQuest))) {
+            return err(`There is no quest "${dnQuest}" for the done notification.`, { code: 'unknownQuest' });
+        }
+        const dnRun = input.doneNotificationRun?.trim() || undefined;
+        if (dnRun && !access.runExists(dnQuest ?? quest, dnRun)) {
+            return err(`The quest "${dnQuest ?? quest}" has no process run "${dnRun}" for the done notification.`, { code: 'unknownRun' });
+        }
         const me = access.sender();
         const item: InboxItem = {
             text: input.text,
@@ -116,26 +138,42 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             ...(input.pauseAfter ? { pauseAfter: true } : {}),
             ...(input.session ? { session: input.session } : {}),
             ...(newSession ? { newSession } : {}),
-            from: { quest: access.currentQuest() || 'default', windowId: me.windowId, host: me.host, sentAt: access.now().toISOString() },
+            ...(run ? { run } : {}),
+            ...(dnQuest ? { doneNotificationQuest: dnQuest } : {}),
+            ...(dnRun ? { doneNotificationRun: dnRun } : {}),
+            from: {
+                quest: access.currentQuest() || 'default', run: access.currentRun(),
+                windowId: me.windowId, host: me.host, sentAt: access.now().toISOString(),
+            },
         };
-        const windows = access.liveWindows(quest);
-        // A running window's workspace is where it reads its inbox; with none, the quest's own workspace.
-        const workspace = windows[0]?.workspace || quest;
-        const delivered = access.deliver(workspace, item);
+        const posted = postInboxItem(access, quest, item);
         return JSON.stringify({
             ok: true,
-            delivered,
-            targetRunning: windows.length > 0,
-            targetWindows: windows,
-            ...(windows.length === 0 ? { note: `No window of "${quest}" is running; the item is queued when one starts.` } : {}),
+            delivered: posted.delivered,
+            targetRunning: posted.targetRunning,
+            targetWindows: posted.windows,
+            ...(posted.targetRunning ? {} : { note: `No window of "${quest}" is running; the item is queued when one starts.` }),
         });
     } catch (e) {
         return err((e as Error).message);
     }
 }
 
+/**
+ * Write `item` into the inbox of `quest`'s windows on this machine: the
+ * workspace a running window reads, else the quest's own. Also how a queue
+ * item's done notification reaches another quest (promptQueueManager).
+ */
+export function postInboxItem(access: Pick<QuestSendAccess, 'liveWindows' | 'deliver'>, quest: string, item: InboxItem):
+    { delivered: string; file: string; targetRunning: boolean; windows: TargetWindow[] } {
+    const windows = access.liveWindows(quest);
+    const workspace = windows[0]?.workspace || quest;
+    const delivered = access.deliver(workspace, item);
+    return { delivered, file: delivered.split(/[\\/]/).pop() ?? delivered, targetRunning: windows.length > 0, windows };
+}
+
 export const SEND_ITEM_TO_QUEST_DESCRIPTION =
-    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `doneNotificationPrompt` is queued in the target after the item (`${itemOutcome}`, `${senderQuest}`); `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
+    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`). `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
 
 export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
     name: 'tomAi_sendItemToQuest',
@@ -151,7 +189,10 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
             text: { type: 'string', description: 'The prompt.' },
             template: { type: 'string', description: 'A message template of the target queue.' },
             anthropicProfileId: { type: 'string', description: 'Anthropic profile the item runs with (transport anthropic).' },
-            doneNotificationPrompt: { type: 'string', description: 'Queued after the item in the target queue when it is done or fails for good.' },
+            doneNotificationPrompt: { type: 'string', description: 'Queued when the item is done or fails for good: in the target queue, or in `doneNotificationQuest`.' },
+            doneNotificationQuest: { type: 'string', description: 'The quest the done notification is posted to (e.g. your own, to hear back). Default: the target quest.' },
+            doneNotificationRun: { type: 'string', description: 'The process run the done notification is queued in. Default: the item\'s run in the target quest, `default` in another.' },
+            run: { type: 'string', description: 'The target quest\'s process run the item is queued in (tomAi_listProcessRuns there). Default: `default`.' },
             pauseAfter: { type: 'boolean' },
             session: { type: 'string', description: 'An existing session of the target quest.' },
             newSession: {

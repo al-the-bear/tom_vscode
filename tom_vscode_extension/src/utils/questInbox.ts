@@ -5,7 +5,9 @@
  * The sender writes `<host>_<workspace>_<yymmdd_hhmmss>-<token>.inbox.queue.yaml`
  * into the shared queue folder, atomically (a dot-named temporary file renamed
  * into place), holding only what the sender says: the text and the optional
- * template, profile, done-notification prompt, pause-after flag and session.
+ * template, profile, done-notification prompt (and the quest and run it is
+ * posted to), pause-after flag, session and process run. A queue item's done
+ * notification for another quest travels the same way.
  * The target window takes it up on its folder watcher, in the health check and
  * at start:
  *
@@ -34,10 +36,14 @@ const REJECTED_SUFFIX = '.rejected';
 export const STALE_CLAIM_MS = 2 * 60_000;
 /** The placeholder a sent prompt (and its done-notification prompt) can name its sender's quest with. */
 export const SENDER_QUEST_PLACEHOLDER = '${senderQuest}';
+/** ... and its sender's process run. */
+export const SENDER_RUN_PLACEHOLDER = '${senderRun}';
 
 /** Who sent an inbox item. */
 export interface InboxSender {
     quest: string;
+    /** The sender's process run; unset: `default`. */
+    run?: string;
     windowId: string;
     host: string;
     sentAt: string;
@@ -59,10 +65,18 @@ export interface InboxItem {
     template?: string;
     anthropicProfileId?: string;
     doneNotificationPrompt?: string;
+    /** The quest the item's done notification is posted to; unset: the target quest itself. */
+    doneNotificationQuest?: string;
+    /** The process run the done notification is queued in. */
+    doneNotificationRun?: string;
     pauseAfter?: boolean;
     /** An existing session of the target quest. */
     session?: string;
     newSession?: InboxNewSession;
+    /** The target quest's process run the item is queued in; unset: `default`. */
+    run?: string;
+    /** The item is a done notification of an item in the sender's quest (its id there). */
+    notificationOf?: string;
     from: InboxSender;
 }
 
@@ -108,9 +122,16 @@ function yaml(): typeof import('yaml') {
 export function serializeInboxItem(item: InboxItem): string {
     const doc: Record<string, unknown> = {
         inbox: 1,
-        from: { quest: item.from.quest, 'window-id': item.from.windowId, host: item.from.host, 'sent-at': item.from.sentAt },
+        from: {
+            quest: item.from.quest, ...(item.from.run ? { run: item.from.run } : {}),
+            'window-id': item.from.windowId, host: item.from.host, 'sent-at': item.from.sentAt,
+        },
         text: item.text,
     };
+    if (item.run) { doc.run = item.run; }
+    if (item.notificationOf) { doc['notification-of'] = item.notificationOf; }
+    if (item.doneNotificationQuest) { doc['done-notification-quest'] = item.doneNotificationQuest; }
+    if (item.doneNotificationRun) { doc['done-notification-run'] = item.doneNotificationRun; }
     if (item.template) { doc.template = item.template; }
     if (item.anthropicProfileId) { doc['anthropic-profile-id'] = item.anthropicProfileId; }
     if (item.doneNotificationPrompt) { doc['done-notification-prompt'] = item.doneNotificationPrompt; }
@@ -145,8 +166,12 @@ export function parseInboxItem(content: string): ParsedInboxItem {
     if (!quest) { return { ok: false, error: 'the item names no sender quest' }; }
     const item: InboxItem = {
         text,
-        from: { quest, windowId: str(f['window-id']) ?? '', host: str(f.host) ?? '', sentAt: str(f['sent-at']) ?? '' },
+        from: { quest, ...(str(f.run) ? { run: str(f.run) } : {}), windowId: str(f['window-id']) ?? '', host: str(f.host) ?? '', sentAt: str(f['sent-at']) ?? '' },
     };
+    if (str(r.run)) { item.run = str(r.run); }
+    if (str(r['notification-of'])) { item.notificationOf = str(r['notification-of']); }
+    if (str(r['done-notification-quest'])) { item.doneNotificationQuest = str(r['done-notification-quest']); }
+    if (str(r['done-notification-run'])) { item.doneNotificationRun = str(r['done-notification-run']); }
     if (str(r.template)) { item.template = str(r.template); }
     if (str(r['anthropic-profile-id'])) { item.anthropicProfileId = str(r['anthropic-profile-id']); }
     if (str(r['done-notification-prompt'])) { item.doneNotificationPrompt = str(r['done-notification-prompt']); }
@@ -247,6 +272,8 @@ export interface InboxConversionContext {
     now: Date;
     /** Makes a temporary session's name unique. */
     token: string;
+    /** Whether this quest has the process run (`default` always); unset: every run is taken as there. */
+    runExists?(run: string): boolean;
 }
 
 /** How the target window creates the item's new session before queuing it. */
@@ -269,6 +296,11 @@ export interface InboxConversion {
         session?: string;
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
+        doneNotificationQuest?: string;
+        doneNotificationRun?: string;
+        /** The process run the item is queued in. */
+        run?: string;
+        notificationOf?: string;
         from: InboxSender;
         temporarySession?: boolean;
     };
@@ -277,27 +309,38 @@ export interface InboxConversion {
     error?: string;
 }
 
-function fillSender(text: string | undefined, quest: string): string | undefined {
-    return text === undefined ? undefined : text.split(SENDER_QUEST_PLACEHOLDER).join(quest);
+function fillSender(text: string | undefined, from: InboxSender): string | undefined {
+    return text === undefined ? undefined
+        : text.split(SENDER_QUEST_PLACEHOLDER).join(from.quest).split(SENDER_RUN_PLACEHOLDER).join(from.run || 'default');
 }
 
 /**
  * The queue item an inbox item becomes in the target window. What the sender
  * did not say is left unset, so the target's queue defaults apply exactly as
- * for an item added there. `${senderQuest}` in the text and the
- * done-notification prompt becomes the sender's quest. A profile or session
+ * for an item added there. `${senderQuest}` / `${senderRun}` in the text and
+ * the done-notification prompt become the sender's quest and run. The item
+ * goes into its `run` (a run this quest does not have makes it an error). A profile or session
  * the target does not have makes the item an error (queued, so its
  * done-notification still reaches the sender).
  */
 export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext): InboxConversion {
     const enqueue: InboxConversion['enqueue'] = {
-        originalText: fillSender(item.text, item.from.quest) ?? '',
+        originalText: fillSender(item.text, item.from) ?? '',
         ...(item.template ? { template: item.template } : {}),
         ...(item.anthropicProfileId ? { transport: 'anthropic' as const, anthropicProfileId: item.anthropicProfileId } : {}),
         ...(item.pauseAfter ? { pauseAfter: true } : {}),
-        ...(item.doneNotificationPrompt ? { doneNotificationPrompt: fillSender(item.doneNotificationPrompt, item.from.quest) } : {}),
+        ...(item.doneNotificationPrompt ? { doneNotificationPrompt: fillSender(item.doneNotificationPrompt, item.from) } : {}),
+        ...(item.doneNotificationQuest ? { doneNotificationQuest: item.doneNotificationQuest } : {}),
+        ...(item.doneNotificationRun ? { doneNotificationRun: item.doneNotificationRun } : {}),
+        ...(item.run ? { run: item.run } : {}),
+        ...(item.notificationOf ? { notificationOf: item.notificationOf } : {}),
         from: item.from,
     };
+    if (item.run && ctx.runExists && !ctx.runExists(item.run)) {
+        // Queued in `default` as an error, so the sender still hears of it.
+        const { run: _run, ...inDefault } = enqueue;
+        return { enqueue: inDefault, error: `This quest has no process run "${item.run}".` };
+    }
     if (item.anthropicProfileId && !ctx.profileExists(item.anthropicProfileId)) {
         return { enqueue, error: `There is no Anthropic profile "${item.anthropicProfileId}" in this workspace.` };
     }
