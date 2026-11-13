@@ -511,7 +511,7 @@ The queue uses RequestId-based answer file matching:
 
 ### Automation Settings
 
-Every process run has its own queue settings: the ones below, the defaults new items take (transport, profile, session, prompt template), the walk continuations, and the Copilot answer timeout and reminder template. Each run's tab (see *Process runs* below) shows and sets that run's settings. Only the compaction and memory-extraction models are shared by all runs (above the tabs). The settings are kept in `queue-settings.yaml` under `runs:`; a file in the old shape (one set of keys for the whole queue) is read as the `default` run's settings and as the start values of a run that has none of its own yet.
+Every process run has its own queue settings: the ones below, the defaults new items take (transport, profile, session, prompt template), the walk continuations, and the Copilot answer timeout and reminder template. Each run's tab (see *Process runs* below) shows and sets that run's settings. Only the compaction and memory-extraction models are shared by all runs (above the tabs). The settings are kept in `queue-settings.yaml` under `runs:`. The file's top-level keys (one set for the whole queue, also the old shape of the file) are the start values: the settings of a run that has none of its own yet. **Make default** (the pin button in a tab's toolbar, *Make these settings the default for new runs*) writes the tab's settings there: runs without settings of their own and runs created later start from them, runs with their own keep them. The status bar says what changed; the button is disabled while the tab's settings already are the default. The walk continuations are not copied.
 
 | Setting | Default | Description |
 | --- | --- | --- |

@@ -7,10 +7,13 @@
  * (utils/queueLanes.ts): a run whose auto-send is off starts nothing.
  *
  * In the settings file (`queue-settings.yaml`) they are kept under
- * `runs: { <run>: { <key>: value } }`, with the keys the file always had.
- * The old top-level keys (one set for the whole queue) are read as the
- * `default` run's settings and as the start values of a run that has none of
- * its own yet; they are never written back.
+ * `runs: { <run>: { <key>: value } }`, with the keys the file always had;
+ * each entry is complete (an unset optional value is written as `""`), so a
+ * run with settings of its own never takes a top-level value. The top-level
+ * keys (one set for the whole queue, the file's old shape) are read as the
+ * `default` run's settings when it has no entry and as the start values of a
+ * run that has none of its own yet. Only "Make default" in the queue editor
+ * writes them (vscimpb60g): {@link DEFAULT_SETTING_FIELDS} from one run.
  *
  * Pure.
  */
@@ -67,6 +70,9 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     defaultMessageTemplateId: 'default-message-template-id',
 });
 
+/** Every setting, in the file's key order. */
+const ALL_FIELDS = Object.keys(RUN_QUEUE_SETTING_KEYS) as Array<keyof RunQueueSettings>;
+
 const OPTIONAL_TEXT: ReadonlyArray<keyof RunQueueSettings> = [
     'defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId',
 ];
@@ -86,19 +92,46 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
     if (r[k.defaultTransport] === 'copilot' || r[k.defaultTransport] === 'anthropic') { out.defaultTransport = r[k.defaultTransport] as RunQueueTransport; }
     for (const key of OPTIONAL_TEXT) {
         const v = r[k[key]];
-        if (typeof v === 'string') { (out as unknown as Record<string, unknown>)[key] = v || undefined; }
+        if (typeof v === 'string') {
+            if (v) { (out as unknown as Record<string, unknown>)[key] = v; } else { delete out[key]; }
+        }
     }
     return out;
 }
 
-/** A run's settings as the file keys them (unset optional values left out). */
-export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>): Record<string, unknown> {
+/** A run's settings as the file keys them, complete: an unset optional value is `""` (read back as unset). */
+export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: ReadonlyArray<keyof RunQueueSettings> = ALL_FIELDS): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const [field, key] of Object.entries(RUN_QUEUE_SETTING_KEYS) as Array<[keyof RunQueueSettings, string]>) {
+    for (const field of fields) {
         const v = s[field];
-        if (v !== undefined) { out[key] = v; }
+        out[RUN_QUEUE_SETTING_KEYS[field]] = v === undefined ? '' : v;
     }
     return out;
+}
+
+/**
+ * The settings "Make default" copies from a run into the top-level keys: every
+ * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
+ * / -Continue, the default transport, profile, configuration, session and
+ * prompt template, the Copilot answer timeout and reminder template. The walk
+ * continuations (not shown in a tab) keep their top-level value.
+ */
+export const DEFAULT_SETTING_FIELDS: ReadonlyArray<keyof RunQueueSettings> = Object.freeze(
+    ALL_FIELDS.filter((f) => f !== 'walkContinuations'),
+);
+
+/** The start values once "Make default" took `from`'s shown settings: `start` with {@link DEFAULT_SETTING_FIELDS} of `from`. */
+export function startWithDefaultsFrom(start: Readonly<RunQueueSettings>, from: Readonly<RunQueueSettings>): RunQueueSettings {
+    const out: RunQueueSettings = { ...start };
+    for (const f of DEFAULT_SETTING_FIELDS) {
+        if (from[f] === undefined) { delete out[f]; } else { (out as unknown as Record<string, unknown>)[f] = from[f]; }
+    }
+    return out;
+}
+
+/** The fields of {@link DEFAULT_SETTING_FIELDS} in which `a` and `b` differ (an unset optional value equals `""`). */
+export function defaultSettingsDiff(a: Readonly<RunQueueSettings>, b: Readonly<RunQueueSettings>): Array<keyof RunQueueSettings> {
+    return DEFAULT_SETTING_FIELDS.filter((f) => (a[f] ?? '') !== (b[f] ?? ''));
 }
 
 /** What a settings file says about runs. */

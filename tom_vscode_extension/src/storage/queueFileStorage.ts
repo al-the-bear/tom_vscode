@@ -322,9 +322,10 @@ const QUEUE_SCOPE_WORKSPACE = '__workspace__';
 export interface QueueSettings {
     /**
      * The queue settings of each process run (utils/runQueueSettings.ts), keyed
-     * like the old top-level keys below. Those top-level keys are the settings
-     * file's old shape: read as the `default` run's settings and as the start
-     * values of a run without settings of its own, never written.
+     * like the top-level keys below. Those top-level keys (also the file's old
+     * shape) are the start values of a run without settings of its own and the
+     * `default` run's when it has no entry; only Make default writes them
+     * (PromptQueueManager.setDefaultQueueSettings).
      */
     runs?: Record<string, Record<string, unknown>>;
     /** Old shape (Queue per run is always on now); ignored. */

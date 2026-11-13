@@ -108,6 +108,34 @@ let selectedRun = typeof __runViewState.queueTab === 'string' && __runViewState.
 // The lanes, one per run (each says whether its run is paused), and the queue settings of each run (from the host).
 let lanes = Array.isArray(__INITIAL__.lanes) ? __INITIAL__.lanes : [];
 let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQueueSettings === 'object') ? __INITIAL__.runQueueSettings : {};
+// The start values (queue-settings.yaml's top-level keys): what a run without settings of its own starts from (vscimpb60g).
+let startQueueSettings = (__INITIAL__.startQueueSettings && typeof __INITIAL__.startQueueSettings === 'object') ? __INITIAL__.startQueueSettings : null;
+/* The settings Make default copies (utils/runQueueSettings.ts DEFAULT_SETTING_FIELDS): every per-run setting a tab shows. */
+const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'responseTimeoutMinutes', 'defaultReminderTemplateId',
+  'defaultTransport', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId'];
+
+/** The shown settings in which the tab's run differs from the start values ([] = Make default has nothing to write). */
+function defaultSettingsDiff() {
+  const s = runQueueSettings[settingsRun()];
+  if (!s || !startQueueSettings) { return []; }
+  return DEFAULT_SETTING_FIELDS.filter(function(f) {
+    const a = s[f] === undefined || s[f] === null ? '' : s[f];
+    const b = startQueueSettings[f] === undefined || startQueueSettings[f] === null ? '' : startQueueSettings[f];
+    return a !== b;
+  });
+}
+
+/** The Make default button: enabled only while the tab's settings differ from the start values. */
+function renderMakeDefault() {
+  const btn = document.getElementById('makeDefaultBtn');
+  if (!btn) { return; }
+  const diff = defaultSettingsDiff();
+  btn.disabled = diff.length === 0;
+  btn.style.opacity = diff.length ? '1' : '0.4';
+  btn.title = diff.length
+    ? 'Make these settings the default for new runs (run ' + settingsRun() + ' differs in: ' + diff.join(', ') + ')'
+    : 'Make these settings the default for new runs (they already are)';
+}
 
 /** The run of the selected tab: its items, its toolbar and its settings. */
 function settingsRun() { return selectedRun || currentRun; }
@@ -296,6 +324,7 @@ window.addEventListener('message', e => {
       if (typeof msg.currentRun === 'string') { currentRun = msg.currentRun; }
       lanes = Array.isArray(msg.lanes) ? msg.lanes : [];
       runQueueSettings = (msg.runQueueSettings && typeof msg.runQueueSettings === 'object') ? msg.runQueueSettings : {};
+      startQueueSettings = (msg.startQueueSettings && typeof msg.startQueueSettings === 'object') ? msg.startQueueSettings : null;
       // An open edit of an item that is no longer pending has nothing to save into.
       Object.keys(queueTextEdits).forEach(function(id) {
         var it = currentItems.find(function(i) { return i.id === id; });
@@ -432,6 +461,8 @@ function render() {
   btn.innerHTML = autoSend ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>';
   btn.title = autoSend ? 'Auto-Send ON (click to pause)' : 'Auto-Send OFF (click to resume)';
   btn.style.opacity = autoSend ? '1' : '0.5';
+
+  renderMakeDefault();
 
   const acBtn = document.getElementById('autoContinueBtn');
   if (acBtn) {
@@ -676,6 +707,10 @@ function toggleAutoSend() { vscode.postMessage({ type: 'toggleAutoSend', run: se
 function toggleAutoStart() { vscode.postMessage({ type: 'toggleAutoStart', run: settingsRun() }); }
 function toggleAutoPause() { vscode.postMessage({ type: 'toggleAutoPause', run: settingsRun() }); }
 function toggleAutoContinue() { vscode.postMessage({ type: 'toggleAutoContinue', run: settingsRun() }); }
+function makeRunSettingsDefault() {
+  if (!defaultSettingsDiff().length) { return; }
+  vscode.postMessage({ type: 'makeRunSettingsDefault', run: settingsRun() });
+}
 function restartQueue() { vscode.postMessage({ type: 'restartQueue', run: settingsRun() }); }
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem', run: settingsRun() }); }
 function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation', run: settingsRun() }); }

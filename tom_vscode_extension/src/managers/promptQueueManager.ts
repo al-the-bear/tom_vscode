@@ -7,7 +7,7 @@
  */
 
 import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
-import { BUILTIN_RUN_QUEUE_SETTINGS, readRunQueueSettings, runQueueSettingsToFile, type RunQueueSettings } from '../utils/runQueueSettings';
+import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, defaultSettingsDiff, readRunQueueSettings, runQueueSettingsToFile, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import * as vscode from 'vscode';
@@ -714,7 +714,7 @@ export class PromptQueueManager {
      * none of its own reads {@link _runStart}.
      */
     private _runSettings = new Map<string, RunQueueSettings>([[DEFAULT_RUN, { ...BUILTIN_RUN_QUEUE_SETTINGS }]]);
-    /** The start values of a run without settings of its own: the settings file's old top-level keys over the built-in ones. */
+    /** The start values of a run without settings of its own: the settings file's top-level keys over the built-in ones (Make default writes them). */
     private _runStart: RunQueueSettings = { ...BUILTIN_RUN_QUEUE_SETTINGS };
     /** Auto-Continue's start, by run. */
     private _autoContinueTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -5885,9 +5885,9 @@ export class PromptQueueManager {
     }
 
     /**
-     * Persist the run settings (`runs:` of queue-settings.yaml). The file's old
+     * Persist the run settings (`runs:` of queue-settings.yaml). The file's
      * top-level keys stay as they are — read as the start values of a new run —
-     * and are never written.
+     * and are written only by {@link setDefaultQueueSettings}.
      */
     private persistSettings(): void {
         // Auto-send toggling changes whether this window drives the queue, so
@@ -5982,6 +5982,36 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         // Auto-send set on (also when it already was: the run's lane is started, as switching it on always did).
         if (patch.autoSend === true) { this._onRunResumed(name); }
+    }
+
+    /** The start values: what a run without settings of its own (and a run created later) has; the file's top-level keys. */
+    startQueueSettings(): RunQueueSettings {
+        return { ...this._runStart };
+    }
+
+    /** The shown settings in which `run` (default: the window's run) differs from the start values; none = Make default has nothing to write. */
+    defaultQueueSettingsDiff(run?: string): Array<keyof RunQueueSettings> {
+        return defaultSettingsDiff(this._settingsOf(run), this._runStart);
+    }
+
+    /**
+     * Make default (vscimpb60g): write the shown settings of `run` (default: the
+     * window's run; utils/runQueueSettings.ts DEFAULT_SETTING_FIELDS) as the
+     * top-level keys of queue-settings.yaml — the start values. A run with
+     * settings of its own (`run` included) keeps them; runs without, and runs
+     * created later, take the new values. `runs:` and the file's other keys stay
+     * as they are. Answers the fields that changed.
+     */
+    setDefaultQueueSettings(run?: string): Array<keyof RunQueueSettings> {
+        const name = normalizeRun(run ?? this._windowRun());
+        const from = this._settingsOf(name);
+        const changed = defaultSettingsDiff(from, this._runStart);
+        this._runStart = startWithDefaultsFrom(this._runStart, from);
+        logQueue(`Make default from run ${name}: ${changed.length ? changed.join(', ') : 'nothing changed'}`);
+        this._refreshQueueWindowStatus();
+        writeQueueSettings({ ...runQueueSettingsToKeys(this._runStart, DEFAULT_SETTING_FIELDS), runs: runQueueSettingsToFile(this._runSettings) });
+        this._onDidChange.fire();
+        return changed;
     }
 
     /** Switch the auto-send of `run` on or off (default: the window's run). */

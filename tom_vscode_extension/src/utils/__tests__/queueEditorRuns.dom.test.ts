@@ -23,6 +23,10 @@
  *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
  *        and posts `moveItemToRun` with the item; on a sending item or an item of a Proceed run it is not; the host
  *        picks among the quest's other runs and calls the manager's moveItemToRun
+ *   QR-9 Make default (vscimpb60g): a codicon button in the tab's toolbar; enabled only while the tab's run differs
+ *        from the start values (the state's `startQueueSettings`; unset equals ""), its tooltip naming what differs;
+ *        a click posts `makeRunSettingsDefault` with the tab's run; the host calls the manager's
+ *        setDefaultQueueSettings and confirms in the status bar
  */
 
 import test, { describe } from 'node:test';
@@ -249,5 +253,32 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.match(handler, /queueRunState\(\)/, 'the quest\'s runs');
         assert.match(handler, /filter\(\(r\) => r !== current\)/, 'not its own');
         assert.match(handler, /qm\.moveItemToRun\(id, picked\.label\)/);
+    });
+
+    test('QR-9: Make default', (t) => {
+        const start = { ...SETTINGS.default, defaultMessageTemplateId: '' };
+        const { w, posted } = setup(t, ITEMS, { queueTab: 'default' }, { runQueueSettings: SETTINGS, startQueueSettings: start });
+        const btn = w.document.getElementById('makeDefaultBtn');
+        assert.ok(btn, 'the button');
+        assert.ok(btn.querySelector('.codicon'), 'a codicon');
+        assert.equal(btn.disabled, true, 'default equals the start values (unset equals "")');
+        assert.match(btn.title, /Make these settings the default for new runs/);
+        posted.length = 0;
+        w.makeRunSettingsDefault();
+        assert.equal(posted.filter((m) => m.type === 'makeRunSettingsDefault').length, 0, 'nothing to write, nothing posted');
+        clickTab(w, 'chg2');
+        assert.equal(btn.disabled, false, 'chg2 differs');
+        assert.match(btn.title, /autoSend, autoStart, autoPause, autoContinue, responseTimeoutMinutes/);
+        assert.match(btn.getAttribute('onclick'), /^makeRunSettingsDefault\(\)$/);
+        posted.length = 0;
+        w.makeRunSettingsDefault();
+        assert.deepEqual(posted.filter((m) => m.type === 'makeRunSettingsDefault'), [{ type: 'makeRunSettingsDefault', run: 'chg2' }]);
+        // The host's answer: chg2's settings are the start values now.
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: ITEMS, autoSend: false, processRuns: ['default', 'chg1', 'chg2'], currentRun: 'chg1', runQueueSettings: SETTINGS, startQueueSettings: SETTINGS.chg2 } }));
+        assert.equal(w.document.getElementById('makeDefaultBtn').disabled, true, 'disabled once nothing differs');
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        assert.match(host, /case 'makeRunSettingsDefault': \{\s*const run = settingsRunOf\(msg\) \?\? qm\.windowRun;\s*const changed = qm\.setDefaultQueueSettings\(run\);/);
+        assert.match(host, /setStatusBarMessage\(/);
+        assert.match(host, /startQueueSettings: \{ \.\.\.qm\.startQueueSettings\(\) \}/);
     });
 });

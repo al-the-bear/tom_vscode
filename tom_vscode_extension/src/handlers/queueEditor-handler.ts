@@ -855,6 +855,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             sendState();        // explicit update in case onDidChange listener isn't wired
             break;
         }
+        // Make default (vscimpb60g): the tab's shown settings become the top-level keys (the start values of new runs).
+        case 'makeRunSettingsDefault': {
+            const run = settingsRunOf(msg) ?? qm.windowRun;
+            const changed = qm.setDefaultQueueSettings(run);
+            vscode.window.setStatusBarMessage(changed.length
+                ? `Prompt Queue: run ${run}'s settings are the default for new runs now (${changed.length} changed: ${changed.join(', ')})`
+                : `Prompt Queue: run ${run}'s settings already are the default for new runs`, 8000);
+            sendState();
+            break;
+        }
         case 'restartQueue':
             qm.restartQueue(tabRunOf(msg));
             sendState();
@@ -1510,7 +1520,7 @@ function queueRunState(): { processRuns: string[]; currentRun: string } {
  * paused, and the queue settings of each run (vscimpb60a): the editor shows
  * those of its settings run.
  */
-function queueLaneState(): { heldRuns: string[]; lanes: LaneSummary[]; runQueueSettings: Record<string, unknown> } {
+function queueLaneState(): { heldRuns: string[]; lanes: LaneSummary[]; runQueueSettings: Record<string, unknown>; startQueueSettings?: Record<string, unknown> } {
     try {
         const qm = PromptQueueManager.instance;
         const { processRuns } = queueRunState();
@@ -1518,7 +1528,8 @@ function queueLaneState(): { heldRuns: string[]; lanes: LaneSummary[]; runQueueS
         for (const run of new Set(['default', ...processRuns, ...qm.allRunQueueSettings().map((r) => r.run)])) {
             runQueueSettings[run] = qm.runQueueSettings(run);
         }
-        return { heldRuns: [...qm.heldRuns], lanes: qm.laneSummaries(processRuns), runQueueSettings };
+        // The start values (the file's top-level keys): Make default is disabled while a tab's settings equal them.
+        return { heldRuns: [...qm.heldRuns], lanes: qm.laneSummaries(processRuns), runQueueSettings, startQueueSettings: { ...qm.startQueueSettings() } };
     } catch {
         return { heldRuns: [], lanes: [], runQueueSettings: {} };
     }

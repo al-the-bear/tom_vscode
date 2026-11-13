@@ -20,6 +20,10 @@
  *        starts from the start values
  *   QM-10 a settings file in the old shape (top-level keys) loads into the default run and gives a new run its
  *        start values; writing keeps the old keys as they were and adds `runs:`
+ *   QM-13 Make default (vscimpb60g): a run's shown settings become the file's top-level keys (the start values);
+ *        `runs:` and the file's other keys stay as they are; runs with settings of their own (the source run
+ *        included) keep them, a run created later starts from the new values, also after the file is read again;
+ *        the walk continuations keep their top-level value; nothing differs = nothing changed
  *   QM-11 the queue editor's tab actions act on their run only (vscimpb60b): Send all staged, Restart, Stop, Retry
  *        errors (not refused while another run sends), Delete errors, Clear sent, Clear all; a chat send records the
  *        run it ran in
@@ -342,6 +346,54 @@ describe('lanes and settings per run', () => {
         // A file with `runs:` reads each run's own settings over the start values.
         (queue() as Json).restoreSettings();
         assert.equal(queue().runQueueSettings('r1').autoPause, true);
+        fs.writeFileSync(file, keep);
+        (queue() as Json).restoreSettings();
+    });
+
+    test('QM-13: Make default writes the top-level keys from a run', () => {
+        const file = path.join(getQueueFolder()!, 'queue-settings.yaml');
+        const keep = fs.readFileSync(file, 'utf8');
+        fs.writeFileSync(file, [
+            'auto-pause-enabled: true', 'walk-continuations: 3', 'default-transport: copilot', 'default-message-template-id: tOld',
+            'compaction-model: keep-me', 'runs:', '  default:', '    auto-send-enabled: false', '  other:', '    default-transport: anthropic', '',
+        ].join('\n'));
+        (queue() as Json).restoreSettings();
+        queue().setRunQueueSettings('src', {
+            autoPause: false, autoContinue: true, defaultTransport: 'anthropic', defaultAnthropicProfileId: 'pNew',
+            defaultAgentSdkSession: 'sNew', defaultMessageTemplateId: undefined, responseTimeoutMinutes: 15, walkContinuations: 1,
+        });
+        const before = readQueueSettings() as Json;
+        const otherBefore = queue().runQueueSettings('other');
+        const defaultBefore = queue().runQueueSettings('default');
+        assert.ok(queue().defaultQueueSettingsDiff('src').length > 0, 'src differs from the start values');
+        const changed = queue().setDefaultQueueSettings('src');
+        assert.deepEqual(changed.sort(), ['autoContinue', 'autoPause', 'defaultAgentSdkSession', 'defaultAnthropicProfileId', 'defaultMessageTemplateId', 'defaultTransport', 'responseTimeoutMinutes']);
+        const written = readQueueSettings() as Json;
+        assert.equal(written['auto-pause-enabled'], false);
+        assert.equal(written['auto-continue-enabled'], true);
+        assert.equal(written['default-transport'], 'anthropic');
+        assert.equal(written['default-anthropic-profile-id'], 'pNew');
+        assert.equal(written['default-agent-sdk-session'], 'sNew');
+        assert.equal(written['response-timeout-minutes'], 15);
+        assert.equal(written['default-message-template-id'], '', 'an unset template is written unset');
+        assert.equal(written['walk-continuations'], 3, 'the walk continuations are not a tab setting');
+        assert.equal(written['compaction-model'], 'keep-me', 'other keys stay');
+        assert.deepEqual(written.runs, before.runs, '`runs:` unchanged');
+        assert.deepEqual(queue().defaultQueueSettingsDiff('src'), [], 'nothing differs now');
+        assert.deepEqual(queue().setDefaultQueueSettings('src'), [], 'a second click changes nothing');
+        // Runs with settings of their own keep them, now and after the file is read again.
+        for (const reread of [false, true]) {
+            if (reread) { (queue() as Json).restoreSettings(); }
+            assert.deepEqual(queue().runQueueSettings('other'), otherBefore, `other keeps its settings${reread ? ' (read again)' : ''}`);
+            assert.deepEqual(queue().runQueueSettings('default'), defaultBefore, `default keeps its entry${reread ? ' (read again)' : ''}`);
+            assert.equal(queue().runQueueSettings('src').walkContinuations, 1, 'src keeps its own');
+            const fresh = queue().runQueueSettings('created-later');
+            assert.deepEqual(
+                [fresh.autoPause, fresh.autoContinue, fresh.defaultTransport, fresh.defaultAnthropicProfileId, fresh.defaultAgentSdkSession, fresh.defaultMessageTemplateId, fresh.responseTimeoutMinutes, fresh.walkContinuations],
+                [false, true, 'anthropic', 'pNew', 'sNew', undefined, 15, 3],
+                `a run created later starts from the new values${reread ? ' (read again)' : ''}`,
+            );
+        }
         fs.writeFileSync(file, keep);
         (queue() as Json).restoreSettings();
     });

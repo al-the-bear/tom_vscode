@@ -4,13 +4,16 @@
  *   RS-1 an empty or missing file: the built-in settings, the `default` run only
  *   RS-2 the old shape (top-level keys): the `default` run's settings and the start values; ill-typed values ignored
  *   RS-3 `runs:` over the start values, per run; `default` always there; run names normalised
- *   RS-4 written back: `runs:` with the file keys, `default` first, unset optional values left out
+ *   RS-4 written back: `runs:` with the file keys, `default` first, each entry complete (an unset optional value is
+ *        `""`), so a later top-level value does not reach a run with settings of its own
+ *   RS-5 Make default (vscimpb60g): the shown settings (every per-run setting but the walk continuations) of a run
+ *        over the start values; the fields that differ (unset equals `""`)
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BUILTIN_RUN_QUEUE_SETTINGS, readRunQueueSettings, runQueueSettingsToFile } from '../runQueueSettings.js';
+import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, defaultSettingsDiff, readRunQueueSettings, runQueueSettingsToFile, runQueueSettingsToKeys, startWithDefaultsFrom } from '../runQueueSettings.js';
 
 describe('queue settings per run', () => {
     test('RS-1: nothing stored', () => {
@@ -55,7 +58,29 @@ describe('queue settings per run', () => {
         const file = runQueueSettingsToFile(r.runs);
         assert.deepEqual(Object.keys(file), ['default', 'alpha', 'zeta']);
         assert.equal(file.zeta['auto-pause-enabled'], false);
-        assert.equal('default-anthropic-profile-id' in file.default, false, 'unset optional values left out');
+        assert.equal(file.default['default-anthropic-profile-id'], '', 'an unset optional value is written as ""');
         assert.deepEqual(readRunQueueSettings({ runs: file }).runs.get('zeta'), r.runs.get('zeta'), 'read back the same');
+        const later = readRunQueueSettings({ 'default-anthropic-profile-id': 'pTop', runs: file });
+        assert.equal(later.runs.get('zeta')!.defaultAnthropicProfileId, undefined, 'a later top-level value does not reach a run with its own entry');
+        assert.equal(later.start.defaultAnthropicProfileId, 'pTop');
+    });
+
+    test('RS-5: Make default', () => {
+        assert.deepEqual([...DEFAULT_SETTING_FIELDS].sort(), [
+            'autoContinue', 'autoPause', 'autoSend', 'autoStart', 'defaultAgentSdkSession', 'defaultAnthropicConfigId', 'defaultAnthropicProfileId',
+            'defaultMessageTemplateId', 'defaultReminderTemplateId', 'defaultTransport', 'responseTimeoutMinutes',
+        ], 'every per-run setting a tab shows, not the walk continuations');
+        const start = { ...BUILTIN_RUN_QUEUE_SETTINGS, defaultMessageTemplateId: 'tOld', walkContinuations: 3 };
+        const from = { ...BUILTIN_RUN_QUEUE_SETTINGS, autoSend: false, defaultTransport: 'anthropic' as const, defaultAnthropicProfileId: 'p', walkContinuations: 0 };
+        assert.deepEqual(defaultSettingsDiff(from, start).sort(), ['autoSend', 'defaultAnthropicProfileId', 'defaultMessageTemplateId', 'defaultTransport']);
+        const next = startWithDefaultsFrom(start, from);
+        assert.equal(next.walkContinuations, 3, 'the walk continuations stay');
+        assert.equal(next.defaultMessageTemplateId, undefined, 'an unset template is taken unset');
+        assert.deepEqual(defaultSettingsDiff(from, next), []);
+        assert.deepEqual(defaultSettingsDiff({ ...from, defaultAnthropicConfigId: '' }, next), [], 'unset equals ""');
+        const keys = runQueueSettingsToKeys(next, DEFAULT_SETTING_FIELDS);
+        assert.equal('walk-continuations' in keys, false);
+        assert.equal(keys['default-message-template-id'], '');
+        assert.deepEqual(readRunQueueSettings(keys).start, { ...next, walkContinuations: BUILTIN_RUN_QUEUE_SETTINGS.walkContinuations }, 'read back as the start values');
     });
 });
