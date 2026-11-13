@@ -267,7 +267,10 @@ export async function decideInDialog(context?: vscode.ExtensionContext): Promise
     const labels = decide.options.map((o) => o.label);
     const buttons = context ? decisionDialogButtons(labels) : labels;
     const detail = context ? `${decide.detail} Grill me and Explain a decision give advice in a note; the decision stays yours and opens again.` : decide.detail;
-    const picked = await vscode.window.showInformationMessage(decide.message, { modal: true, detail }, ...buttons);
+    // It decides for the run the PROCESS view works on (store.currentRun): named, so with several runs at a
+    // decision the user sees whose it is (vscimpb81).
+    const message = store.currentRun && store.currentRun !== 'default' ? `Run ${store.currentRun}: ${decide.message}` : decide.message;
+    const picked = await vscode.window.showInformationMessage(message, { modal: true, detail }, ...buttons);
     const pick = interpretDecisionPick(picked, decide.options);
     if (pick.kind === 'helper' && context) {
         void runDecisionHelper(liveDecisionHelperDeps(context), pick.use).then((outcome) => {

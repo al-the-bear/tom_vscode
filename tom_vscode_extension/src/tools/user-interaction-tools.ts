@@ -50,7 +50,8 @@
  *     owns it.
  */
 
-import { whileWaitingForUser } from '../services/userWaits';
+import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
+import { userInteractions } from '../services/userInteractions';
 import { registerAskCancel } from '../services/askOwners';
 import * as vscode from 'vscode';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -264,7 +265,7 @@ export async function askUserPickerImpl(
 export const ASK_USER_PICKER_DESCRIPTION =
     'Show a QuickPick and let the user choose one or more `items` (strings or `{label, description?, detail?, value?}`). '
     + `An "${OTHER_OPTION_LABEL}" entry is added automatically`
-    + ' (do not add one): `selected.value` may be free text that is none of your items. BLOCKING, by default without a deadline (`timeoutMinutes` to give up, only with a sensible default). Answers `{dismissed, timedOut, selected}`: `{label, value}`, or an array with `canPickMany`; dismissed (the user declined) and timed out (nobody there) are different. Logged to the quest questions journal.';
+    + ' (do not add one): `selected.value` may be free text that is none of your items. BLOCKING, by default without a deadline (`timeoutMinutes` to give up, only with a sensible default). Answers `{dismissed, timedOut, selected}`: `{label, value}`, or an array with `canPickMany`; dismissed (the user declined) and timed out (nobody there) are different. One picker per process run at a time; while another run\'s picker is on screen it is answered in the user-input panel. Logged to the quest questions journal.';
 
 // (Picker tool def lives at the bottom, after the live bridge.)
 
@@ -400,30 +401,104 @@ function cancellationSource(): { token: vscode.CancellationToken; cancel: () => 
     };
 }
 
+/**
+ * A picker shown in the user-input panel instead of a QuickPick (vscimpb81):
+ * VS Code shows one QuickPick at a time, so a picker of another run than the
+ * one whose QuickPick is showing is answered there, on its run's tab. Answers
+ * what the QuickPick answers: the item(s), the typed text as an item, undefined
+ * when dismissed, or {@link QUICK_PICK_TIMED_OUT}.
+ */
+export function panelQuickPick(items: PickerItem[], opts: QuickPickOpts, run: string): Promise<QuickPickResult> {
+    return new Promise<QuickPickResult>((resolve) => {
+        const id = `pick_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        let done = false;
+        let remove: () => void = () => undefined;
+        const finish = (result: QuickPickResult): void => {
+            if (done) { return; }
+            done = true;
+            if (timer !== undefined) { clearTimeout(timer); }
+            unregister();
+            remove();
+            resolve(result);
+        };
+        const unregister = registerAskCancel(() => finish(undefined));
+        const timer = opts.timeoutMs !== undefined && opts.timeoutMs > 0 ? setTimeout(() => finish(QUICK_PICK_TIMED_OUT), opts.timeoutMs) : undefined;
+        const queueItemId = currentQueueItemId();
+        remove = userInteractions.add({
+            id,
+            kind: 'picker',
+            run,
+            ...(queueItemId ? { queueItemId } : {}),
+            createdAt: Date.now(),
+            title: opts.title ?? 'Pick',
+            data: {
+                title: opts.title,
+                prompt: opts.placeHolder,
+                items: items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}) })),
+                canPickMany: opts.canPickMany === true,
+            },
+            respond: (r) => {
+                if (r.dismissed === true) { finish(undefined); return; }
+                const picked = (Array.isArray(r.selected) ? r.selected : []).map(Number).filter((n) => items[n] !== undefined).map((n) => items[n]);
+                const other = typeof r.other === 'string' ? r.other.trim() : '';
+                if (other) { picked.push({ label: other, value: other }); }
+                finish(opts.canPickMany === true ? picked : picked[0]);
+            },
+        });
+    });
+}
+
 /** Build a prompter over a window; {@link liveUserPrompter} is the one over `vscode.window`. */
 export function createLiveUserPrompter(win: LiveWindow): UserPrompter {
+    // The run whose QuickPick / input box VS Code shows now (one at a time), and each run's last picker:
+    // a run's next picker waits for its previous one, another run's is answered in the user-input panel.
+    let showingRun: string | undefined;
+    const lastOfRun = new Map<string, Promise<unknown>>();
+    function inTurn<T>(run: string, fn: () => Promise<T>): Promise<T> {
+        // Without an earlier picker of the run it is shown at once (synchronously, as before).
+        const previous = lastOfRun.get(run);
+        const next = previous ? previous.catch(() => undefined).then(fn) : fn();
+        lastOfRun.set(run, next);
+        void next.finally(() => { if (lastOfRun.get(run) === next) { lastOfRun.delete(run); } }).catch(() => undefined);
+        return next;
+    }
+    function onScreen<T>(run: string, show: () => Promise<T>): Promise<T> {
+        showingRun = run;
+        return show().finally(() => { if (showingRun === run) { showingRun = undefined; } });
+    }
     return {
         showQuickPick(items, opts) {
-            return whileWaitingForUser('question', () => showLiveQuickPick(win, items, opts));
+            const run = currentInteractionRun();
+            return inTurn(run, () => whileWaitingForUser('question', () => (showingRun === undefined
+                ? onScreen(run, () => showLiveQuickPick(win, items, opts))
+                : panelQuickPick(items, opts, run))));
         },
         async showInputBox(opts) {
-            return whileWaitingForUser('question', async () => {
-                // Ended with the prompt that asked, like the QuickPick: the box closes, the answer is undefined.
-                const cancel = cancellationSource();
-                const unregister = registerAskCancel(cancel.cancel);
-                try {
-                    return await win.showInputBox({
-                        prompt: opts.prompt,
-                        placeHolder: opts.placeHolder,
-                        value: opts.value,
-                        password: opts.password,
-                        title: opts.title,
-                        ignoreFocusOut: opts.ignoreFocusOut,
-                    }, cancel.token);
-                } finally {
-                    unregister();
+            const run = currentInteractionRun();
+            return inTurn(run, () => whileWaitingForUser('question', async () => {
+                if (showingRun !== undefined) {
+                    // Another run's picker is on screen: the text is typed in the user-input panel.
+                    const answer = await panelQuickPick([], { title: opts.title ?? opts.prompt, placeHolder: opts.placeHolder ?? opts.prompt }, run);
+                    return answer === undefined || answer === QUICK_PICK_TIMED_OUT ? undefined : (answer as PickerItem).value;
                 }
-            });
+                return onScreen(run, async () => {
+                    // Ended with the prompt that asked, like the QuickPick: the box closes, the answer is undefined.
+                    const cancel = cancellationSource();
+                    const unregister = registerAskCancel(cancel.cancel);
+                    try {
+                        return await win.showInputBox({
+                            prompt: opts.prompt,
+                            placeHolder: opts.placeHolder,
+                            value: opts.value,
+                            password: opts.password,
+                            title: opts.title,
+                            ignoreFocusOut: opts.ignoreFocusOut,
+                        }, cancel.token);
+                    } finally {
+                        unregister();
+                    }
+                });
+            }));
         },
     };
 }

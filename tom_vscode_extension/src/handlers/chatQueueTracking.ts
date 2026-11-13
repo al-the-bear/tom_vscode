@@ -20,6 +20,7 @@
  */
 
 import type { LiveTrailTokenCounts } from '../services/live-trail';
+import { runAsQueueItem } from '../services/userWaits';
 
 export interface TrackedChatSend {
     text: string;
@@ -29,6 +30,11 @@ export interface TrackedChatSend {
     source: string;
     /** The process run it ran in (the queue editor shows it in that run's tab); unset: `default`. */
     run?: string;
+}
+
+/** Whether chat item `id`'s send is running in this window (its approvals belong to it). */
+export function isRunningChatItem(id: string | undefined): boolean {
+    return !!id && running.has(id);
 }
 
 /** The error a chat send ends with when its item was removed while it ran. */
@@ -65,8 +71,8 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     send: TrackedChatSend,
     run: () => Promise<T>,
     opts?: {
-        /** Cancel the send (the panel's Stop): called when it is ended by timeout or removal. */
-        cancel?: () => void;
+        /** Cancel the send (the panel's Stop): called when it is ended by timeout or removal, with its chat item id. */
+        cancel?: (chatItemId?: string) => void;
         /** Instead of the queue's response timeout (tests). */
         timeoutMs?: number;
     },
@@ -85,7 +91,7 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     // Ended from outside: by the timeout or by removing the entry.
     const ended = new Promise<never>((_, reject) => {
         const end = (error: string): void => {
-            try { opts?.cancel?.(); } catch { /* the send is abandoned either way */ }
+            try { opts?.cancel?.(id); } catch { /* the send is abandoned either way */ }
             reject(new Error(error));
         };
         timer = setTimeout(() => end(chatTimeoutError(opts?.timeoutMs !== undefined ? Math.max(1, Math.round(timeoutMs / 60_000)) : minutes)), timeoutMs);
@@ -93,7 +99,9 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     });
     ended.catch(() => undefined);
     try {
-        const result = await Promise.race([run(), ended]);
+        // The send runs as its chat item, in its run: a question or approval it waits for shows on the item and
+        // is keyed by the run (vscimpb81).
+        const result = await Promise.race([runAsQueueItem(id, run, send.run || 'default'), ended]);
         if (queue && id) { queue.completeChatItem(id, { answerText: result.text, usage: result.usage }); }
         return result;
     } catch (e) {

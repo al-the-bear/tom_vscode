@@ -5,7 +5,7 @@
  * button is clicked.
  *
  * It behaves like `tomAi_askUser`: the round awaits the answer, so the prompt
- * queue is held while it waits; one such ask is open at a time; there is no
+ * queue is held while it waits; one such ask is open per process run; there is no
  * deadline unless the model asks for one (`timeoutMinutes`) or the user's
  * standing ceiling (`maxWaitMinutes`) sets one. The answer is
  * `{button, keepFile, ...}`; when the box is unchecked as the flow goes on —
@@ -16,7 +16,8 @@
  * the live wiring is in `handlers/markdownBrowser-handler.ts`.
  */
 
-import { whileWaitingForUser } from '../services/userWaits';
+import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
+import { userInteractions } from '../services/userInteractions';
 import { registerAskCancel } from '../services/askOwners';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -63,6 +64,8 @@ export interface AskInMdBrowserDeps {
     exists(absPath: string): boolean;
     /** Open (or reveal) a panel on the file and show the bar; answers its panel id. */
     openWithBar(absPath: string, bar: AskMdBar): string | undefined;
+    /** Bring panel `panelId` to the front (the user-input panel's Show it, a waiting item's indicator). */
+    revealPanel?(panelId: string): void;
     /** Take the bar off the panel, leaving `note` in its place. */
     clearBar(panelId: string, requestId: string, note: string): void;
     closePanel(panelId: string): void;
@@ -110,6 +113,10 @@ interface OpenAsk {
     decisionTaken?: string;
     /** Unregisters the cancel from the send that asked (services/askOwners.ts). */
     unregisterOwner?: () => void;
+    /** The process run the asking turn works in (vscimpb81): one open ask per run. */
+    run?: string;
+    /** Takes it out of the user-input panel's list (services/userInteractions.ts). */
+    removeInteraction?: () => void;
     resolve(answer: string): void;
 }
 
@@ -118,77 +125,89 @@ interface OpenAsk {
  * panel's close come in here by request id; a stale id is ignored.
  */
 export class MdBrowserAskSlot {
-    private open: OpenAsk | undefined;
+    /** The open ask of each process run (vscimpb81). */
+    private readonly asks = new Map<string, OpenAsk>();
 
-    hasOpen(): boolean { return this.open !== undefined; }
+    /** Whether run `run` has an open ask (any run when omitted). */
+    hasOpen(run?: string): boolean { return run === undefined ? this.asks.size > 0 : this.asks.has(run); }
 
-    /** The open ask's request id and panel, for the panel to tell whether it carries it. */
-    current(): { requestId: string; panelId: string } | undefined {
-        return this.open ? { requestId: this.open.bar.requestId, panelId: this.open.panelId } : undefined;
+    /** The open ask of run `run` (the first open one when omitted). */
+    current(run?: string): { requestId: string; panelId: string } | undefined {
+        const ask = run === undefined ? [...this.asks.values()][0] : this.asks.get(run);
+        return ask ? { requestId: ask.bar.requestId, panelId: ask.panelId } : undefined;
     }
 
-    /** @internal Used by {@link askInMdBrowserImpl}. */
+    /** Whether panel `panelId` holds an open ask's bar (another run's ask then opens a panel of its own). */
+    hasPanel(panelId: string): boolean {
+        return [...this.asks.values()].some((a) => a.panelId === panelId);
+    }
+
+    private byRequest(requestId: string): OpenAsk | undefined {
+        return [...this.asks.values()].find((a) => a.bar.requestId === requestId);
+    }
+
+    private release(ask: OpenAsk): void {
+        const run = ask.run ?? 'default';
+        if (this.asks.get(run) === ask) { this.asks.delete(run); }
+        ask.unregisterOwner?.();
+        ask.removeInteraction?.();
+    }
+
     begin(ask: OpenAsk): void {
-        this.open = ask;
+        this.asks.set(ask.run ?? 'default', ask);
         // The prompt that asks owns the question: when it ends unanswered, the ask is cancelled.
-        ask.unregisterOwner = registerAskCancel(() => { if (this.open === ask) { this.finish('cancel'); } });
+        ask.unregisterOwner = registerAskCancel(() => { if (this.asks.get(ask.run ?? 'default') === ask) { this.finish('cancel', undefined, ask); } });
     }
 
-    /** @internal Free the slot without answering (the panel did not open). */
-    abandon(): void {
-        if (this.open?.timer !== undefined) { (this.open.deps.clearTimer ?? clearTimeout)(this.open.timer); }
-        this.open?.unregisterOwner?.();
-        this.open = undefined;
+    /** Drop an ask that could not open (its panel did not); the only open one when `ask` is omitted. */
+    abandon(ask: OpenAsk | undefined = [...this.asks.values()][0]): void {
+        if (!ask) { return; }
+        if (ask.timer !== undefined) { (ask.deps.clearTimer ?? clearTimeout)(ask.timer); }
+        this.release(ask);
     }
 
-    /** The checkbox changed. */
     setKeepFile(requestId: string, keepFile: boolean): boolean {
-        if (!this.open || this.open.bar.requestId !== requestId) { return false; }
-        this.open.keepFile = keepFile;
+        const ask = this.byRequest(requestId);
+        if (!ask) { return false; }
+        ask.keepFile = keepFile;
         return true;
     }
 
-    /** A button was clicked. Unknown button ids are refused. */
     click(requestId: string, buttonId: string, keepFile: boolean): boolean {
-        if (!this.open || this.open.bar.requestId !== requestId) { return false; }
-        const button = this.open.bar.buttons.find((b) => b.id === buttonId);
+        const open = this.byRequest(requestId);
+        if (!open) { return false; }
+        const button = open.bar.buttons.find((b) => b.id === buttonId);
         if (!button) { return false; }
-        this.open.keepFile = keepFile;
-        if (button.id === FINISH_REVIEW_BUTTON.id && this.open.finishReview) {
-            this.finishReviewClick(this.open, button);
+        open.keepFile = keepFile;
+        if (button.id === FINISH_REVIEW_BUTTON.id && open.finishReview) {
+            this.finishReviewClick(open, button);
             return true;
         }
-        const option = this.open.decisionOptions?.get(button.id);
-        if (option !== undefined && this.open.takeDecision) {
+        const option = open.decisionOptions?.get(button.id);
+        if (option !== undefined && open.takeDecision) {
             // One of the decision's own choices: taken here, as the Decide… dialog takes it.
-            const take = this.open.takeDecision;
-            this.open.decisionTaken = option;
+            const take = open.takeDecision;
+            open.decisionTaken = option;
             markDecisionReopened();
-            this.finish('click', button);
+            this.finish('click', button, open);
             void take(option).catch(() => undefined);
             return true;
         }
-        if (button.id === REOPEN_DECISION_BUTTON.id && this.open.reopenDecision) {
+        if (button.id === REOPEN_DECISION_BUTTON.id && open.reopenDecision) {
             // The advice note stays open beside the dialog; the decision is the user's again.
-            const reopen = this.open.reopenDecision;
-            this.open.decisionReopened = true;
+            const reopen = open.reopenDecision;
+            open.decisionReopened = true;
             markDecisionReopened();
-            this.finish('click', button);
+            this.finish('click', button, open);
             void reopen().catch(() => undefined);
             return true;
         }
-        this.finish('click', button);
+        this.finish('click', button, open);
         return true;
     }
 
-    /**
-     * Finish review round: the panel clicked closes (only that one; an
-     * unchecked file goes with it), then the review is confirmed and the
-     * process moved on; the answer reports what happened.
-     */
     private finishReviewClick(ask: OpenAsk, button: AskMdButton): void {
-        this.open = undefined;
-        ask.unregisterOwner?.();
+        this.release(ask);
         const deps = ask.deps;
         if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
         let fileDeleted = false;
@@ -210,20 +229,20 @@ export class MdBrowserAskSlot {
 
     /** The panel carrying the ask was closed. */
     panelClosed(panelId: string): void {
-        if (this.open && this.open.panelId === panelId) { this.finish('closed'); }
+        for (const ask of [...this.asks.values()]) {
+            if (ask.panelId === panelId) { this.finish('closed', undefined, ask); }
+        }
     }
 
     /** Queue stop / window dispose: the ask ends unanswered. */
     cancel(): void {
-        if (this.open) { this.finish('cancel'); }
+        for (const ask of [...this.asks.values()]) { this.finish('cancel', undefined, ask); }
     }
 
     /** @internal */
-    finish(source: AskMdSource, button?: AskMdButton): void {
-        const ask = this.open;
-        if (!ask) { return; }
-        this.open = undefined;
-        ask.unregisterOwner?.();
+    finish(source: AskMdSource, button?: AskMdButton, ask: OpenAsk | undefined = [...this.asks.values()][0]): void {
+        if (!ask || this.asks.get(ask.run ?? 'default') !== ask) { return; }
+        this.release(ask);
         const deps = ask.deps;
         if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
         // The flow goes on: an unchecked file goes, and its panel with it.
@@ -285,6 +304,7 @@ function journal(ask: OpenAsk, source: AskMdSource, button?: AskMdButton): void 
             source: source === 'click' ? 'vscode' : source === 'closed' ? 'cancel' : source,
             askedAt: ask.askedAt,
             answeredAt: (ask.deps.now ?? Date.now)(),
+            run: ask.run ?? 'default',
         });
     } catch {
         // Diagnostics only — never cost the user their answer.
@@ -351,8 +371,10 @@ export async function askInMdBrowserImpl(
     if (buttons.some((b) => !b.id || !b.label)) { return err('Every button needs a non-empty `id` and `label`.'); }
     if (new Set(buttons.map((b) => b.id)).size !== buttons.length) { return err('Button ids must be unique.'); }
 
-    if (slot.hasOpen()) {
-        return err('An askInMdBrowser request is already open — one at a time; wait for its answer before asking again.');
+    // One open ask per process run (vscimpb81): another run's ask does not stand in the way.
+    const run = currentInteractionRun();
+    if (slot.hasOpen(run)) {
+        return err(`An askInMdBrowser request of run "${run}" is already open — one per process run; wait for its answer before asking again.`);
     }
 
     const now = deps.now ?? Date.now;
@@ -369,9 +391,9 @@ export async function askInMdBrowserImpl(
     };
 
     // Open as a wait for the user until a button (or the timeout) answers it.
-    return whileWaitingForUser('question', () => new Promise<string>((resolve) => {
+    return whileWaitingForUser('mdBrowser', () => new Promise<string>((resolve) => {
         const ask: OpenAsk = {
-            bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve,
+            bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve, run,
             ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
             ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run() } : {}),
             ...(decisionOptions.size && deps.reopenDecision?.take ? { decisionOptions, takeDecision: (label: string) => deps.reopenDecision!.take!(label) } : {}),
@@ -382,18 +404,30 @@ export async function askInMdBrowserImpl(
         try {
             panelId = deps.openWithBar(abs, bar);
         } catch (e) {
-            slot.abandon();
+            slot.abandon(ask);
             resolve(err(`Could not open the MD Browser on ${abs}: ${(e as Error).message}`));
             return;
         }
         if (!panelId) {
-            slot.abandon();
+            slot.abandon(ask);
             resolve(err(`Could not open the MD Browser on ${abs}.`));
             return;
         }
         ask.panelId = panelId;
+        // Listed in the user-input panel on its run's tab, with a button that brings its MD Browser forward.
+        const queueItemId = currentQueueItemId();
+        ask.removeInteraction = userInteractions.add({
+            id: bar.requestId,
+            kind: 'mdBrowser',
+            run,
+            ...(queueItemId ? { queueItemId } : {}),
+            createdAt: askedAt,
+            title: bar.title ?? file,
+            data: { file, title: bar.title, panelId },
+            respond: () => { try { deps.revealPanel?.(panelId); } catch { /* the panel is gone */ } },
+        });
         if (timeoutMs) {
-            ask.timer = (deps.setTimer ?? ((ms, cb) => setTimeout(cb, ms)))(timeoutMs, () => slot.finish('timeout'));
+            ask.timer = (deps.setTimer ?? ((ms, cb) => setTimeout(cb, ms)))(timeoutMs, () => slot.finish('timeout', undefined, ask));
         }
     }));
 }
@@ -402,7 +436,7 @@ export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'Ask the user through a document: `filePath` (a .md file in the workspace) opens in the MD Browser with ' +
     '`buttons` (`[{id, label}]`, up to 8) and a *Keep this file* checkbox (`keepFile`, default on) in its top ' +
     'area. For questionnaires, choices, confirmations, reviews: write the document first, then ask. BLOCKING ' +
-    'like tomAi_askUser (the queue holds); one such ask at a time; no deadline unless `timeoutMinutes`. ' +
+    'like tomAi_askUser (the queue holds); one open ask per process run (asks of other runs stay open beside it); no deadline unless `timeoutMinutes`. ' +
     'Answers `{button, label, keepFile, fileDeleted, file, panelId}` (`button` null with `timedOut`, `closed` ' +
     'or `cancelled`). `finishReviewRound: true` adds Finish review round (id `finish`; only at a review, or ' +
     'when the running step leads to one): its click closes that panel, confirms the review, moves the process ' +

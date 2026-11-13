@@ -1285,12 +1285,14 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
         const onFile = mdBrowserRegistry.entries()
             .filter((e) => !e.dormant && !e.liveMode && e.filePath !== '' && path.resolve(e.filePath) === absPath)
             .map((e) => panelById(e.panelId))
-            .find((p): p is MdBrowserPanel => p !== undefined);
+            // A panel already holding another run's open ask keeps it: this ask gets a panel of its own (vscimpb81).
+            .find((p): p is MdBrowserPanel => p !== undefined && !mdBrowserAskSlot.hasPanel(p.panelId));
         if (onFile) {
             onFile.revealAndRefresh({});
             onFile.showAskBar(bar);
             return onFile.panelId;
         }
+        // A static panel is always a fresh one.
         const panelId = openMarkdownBrowser(mdBrowserContext, absPath, { liveMode: false });
         const panel = panelId ? panelById(panelId) : undefined;
         panel?.showAskBar(bar);
@@ -1298,6 +1300,7 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     },
     clearBar(panelId, requestId, note) { panelById(panelId)?.clearAskBar(requestId, note); },
     closePanel(panelId) { panelById(panelId)?.close(); },
+    revealPanel(panelId) { panelById(panelId)?.reveal(); },
     deleteFile(absPath) { fs.unlinkSync(absPath); },
     ceilingMinutes: () => readChatQuestionsConfig().maxWaitMinutes,
     log: (entry) => appendQuestionLogEntry(entry),

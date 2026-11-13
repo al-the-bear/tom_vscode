@@ -30,6 +30,7 @@ import * as vscode from 'vscode';
 import { z } from 'zod';
 import { toRawShape } from '../utils/jsonSchemaToZod';
 import { builtInApprovalSummary, effectivePermissionMode, permissionModeOverride, toolNeedsApproval, type ToolApprovalMode } from '../utils/agentSdkPermissionMode';
+import { currentInteractionRun } from '../services/userWaits';
 import { exitPlanModeImpl, isPlanModeActive, onPlanModeChanged, planModeRefusalFor } from '../tools/planning-tools';
 
 // The Agent SDK ships as ESM-only (`sdk.mjs`), while the VS Code extension
@@ -1257,7 +1258,10 @@ async function runAgentSdkAttempt(
             options: queryOptions as Parameters<typeof sdk.query>[0]['options'],
         });
         // Plan mode entered or left while the query runs: the SDK's mode follows.
-        stopPlanFollow = onPlanModeChanged((active) => {
+        // This send's run only (vscimpb81): another run entering plan mode does not change this query's mode.
+        const sendRun = currentInteractionRun();
+        stopPlanFollow = onPlanModeChanged((active, run) => {
+            if (run !== sendRun) { return; }
             const setMode = (stream as { setPermissionMode?: (m: PermissionMode) => Promise<void> }).setPermissionMode;
             if (typeof setMode === 'function') {
                 void setMode.call(stream, active ? 'plan' : baseMode).catch(() => { /* the query may have ended */ });

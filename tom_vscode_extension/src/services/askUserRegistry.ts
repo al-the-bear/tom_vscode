@@ -15,14 +15,15 @@
  * "I asked, nobody saw it, and I proceeded on a guess". A timeout is therefore
  * something the model opts into per call, or the user configures as a ceiling.
  *
- * ## Singleton by construction
+ * ## One open ask per process run (vscimpb81)
  *
- * Only one ask can ever be in flight: the round loop is blocked on it, so a
- * second `begin()` while one is pending is a programming error (rejected). This
- * lets Telegram routing stay trivial — the next free-text reply simply belongs
- * to the one pending ask; no requestId routing is required on the Telegram side.
- * The `requestId` exists only to let the webview correlate its submit and to
- * reject stale answers that arrive after the slot already resolved.
+ * A quest window has several process runs, and sessions working in different
+ * runs ask through the same window. The slot is per RUN (the run the calling
+ * turn works in, `currentInteractionRun`; `default` outside any run): asks of
+ * different runs are open side by side, a second `begin()` in a run whose ask
+ * is still pending is rejected. Answers are routed by `requestId`; Telegram
+ * answers the one pending ask, or the run a reply names (`<run>: …`) when
+ * several are open.
  *
  * ## Resolution race (first wins, single-shot)
  *
@@ -40,7 +41,7 @@
 
 import { registerAskCancel } from './askOwners';
 
-import { currentQueueItemId, whileWaitingForUser } from './userWaits';
+import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from './userWaits';
 import { layoutChoices, type AskChoice, type QuestionLayout } from '../utils/askChoices';
 
 /** The answer of a question whose prompt ended before the user answered. */
@@ -69,6 +70,8 @@ export interface PendingAsk {
     layout: QuestionLayout[];
     /** The queue item whose turn asked (services/userWaits.ts), when a queue item's turn asked. */
     queueItemId?: string;
+    /** The process run the asking turn works in (`default` outside any run). */
+    run: string;
 }
 
 /** Parameters for {@link AskUserRegistry.begin}. */
@@ -126,7 +129,8 @@ export class AskUserRegistry {
     private readonly genId: NonNullable<AskUserRegistryOptions['genId']>;
     private readonly now: NonNullable<AskUserRegistryOptions['now']>;
 
-    private active: ActiveAsk | undefined;
+    /** The open ask of each run. */
+    private readonly active = new Map<string, ActiveAsk>();
     private readonly listeners = new Set<() => void>();
 
     constructor(opts: AskUserRegistryOptions = {}) {
@@ -136,20 +140,35 @@ export class AskUserRegistry {
         this.now = opts.now ?? (() => Date.now());
     }
 
-    /** Whether an ask is currently waiting for an answer. */
+    /** Whether an ask is currently waiting for an answer (in any run). */
     hasPending(): boolean {
-        return this.active !== undefined;
+        return this.active.size > 0;
     }
 
-    /** Snapshot of the pending ask, or `undefined` when nothing is pending. */
+    /** The newest pending ask, or `undefined` when nothing is pending. */
     getPending(): PendingAsk | undefined {
-        return this.active?.pending;
+        const all = this.getAllPending();
+        return all[all.length - 1];
     }
 
-    /** The pending ask queue item `queueItemId`'s turn asked, if that is the pending one. */
+    /** Every pending ask, oldest first (one per run). */
+    getAllPending(): PendingAsk[] {
+        return [...this.active.values()].map((a) => a.pending).sort((a, b) => a.createdAt - b.createdAt);
+    }
+
+    /** The pending ask of run `run`, if one is open. */
+    pendingForRun(run: string): PendingAsk | undefined {
+        return this.active.get(run)?.pending;
+    }
+
+    /** The pending ask `requestId`, if it is open. */
+    pendingById(requestId: string): PendingAsk | undefined {
+        return this.getAllPending().find((p) => p.requestId === requestId);
+    }
+
+    /** The pending ask queue item `queueItemId`'s turn asked, if one is open. */
     pendingForQueueItem(queueItemId: string): PendingAsk | undefined {
-        const pending = this.active?.pending;
-        return pending?.queueItemId === queueItemId ? pending : undefined;
+        return this.getAllPending().find((p) => p.queueItemId === queueItemId);
     }
 
     /**
@@ -171,8 +190,9 @@ export class AskUserRegistry {
      * Open a new ask and return a Promise that resolves to the answer text
      * (verbatim from VS Code or Telegram) or the timeout fallback prompt.
      *
-     * Rejects when an ask is already pending — the caller (tool impl) turns that
-     * into an error reply so the model knows it must not call again concurrently.
+     * Rejects when the calling run's ask is still pending — the caller (tool
+     * impl) turns that into an error reply so the model knows it must not call
+     * again concurrently. Another run's open ask does not stand in the way.
      */
     begin(params: BeginAskParams): Promise<string> {
         // Open as a wait for the user while the question stands (the queue editor shows the item waiting).
@@ -180,8 +200,9 @@ export class AskUserRegistry {
     }
 
     private beginAsk(params: BeginAskParams): Promise<string> {
-        if (this.active) {
-            return Promise.reject(new Error('An askUser request is already pending — only one may be in flight at a time.'));
+        const run = currentInteractionRun();
+        if (this.active.has(run)) {
+            return Promise.reject(new Error(`An askUser request of run "${run}" is already pending — one open question per process run.`));
         }
         const createdAt = this.now();
         // A missing / non-positive timeout is the "wait indefinitely" default,
@@ -198,12 +219,13 @@ export class AskUserRegistry {
             createdAt,
             timeoutAt: timeoutMs === undefined ? undefined : createdAt + timeoutMs,
             ...(currentQueueItemId() ? { queueItemId: currentQueueItemId() } : {}),
+            run,
         };
         return new Promise<string>((resolve) => {
             const timer = timeoutMs === undefined ? undefined : this.setTimer(timeoutMs, () => {
-                this.finish('timeout', params.fallbackPrompt);
+                this.finish(pending.requestId, 'timeout', params.fallbackPrompt);
             });
-            this.active = {
+            this.active.set(run, {
                 pending,
                 resolve,
                 onResolve: params.onResolve,
@@ -211,7 +233,7 @@ export class AskUserRegistry {
                 fallbackPrompt: params.fallbackPrompt,
                 // The prompt that asks owns the question: when it ends, the question ends with it.
                 unregisterOwner: registerAskCancel(() => this.cancelRequest(pending.requestId, ASK_OWNER_ENDED_NOTE)),
-            };
+            });
             // Surface UI + Telegram synchronously after state is in place so an
             // immediate submit (fast Telegram reply) always finds the slot.
             try {
@@ -220,8 +242,8 @@ export class AskUserRegistry {
                 // Nobody can see this ask, so nobody can answer it: free the slot
                 // (and its timer) instead of refusing every later ask as pending.
                 if (timer !== undefined) { this.clearTimer(timer); }
-                this.active?.unregisterOwner();
-                this.active = undefined;
+                this.active.get(run)?.unregisterOwner();
+                this.active.delete(run);
                 throw err;
             }
             this.changed();
@@ -234,10 +256,8 @@ export class AskUserRegistry {
      * `requestId` is stale (e.g. an answer that raced in after the timeout).
      */
     submit(requestId: string, answer: string, source: 'vscode' | 'telegram'): boolean {
-        if (!this.active || this.active.pending.requestId !== requestId) {
-            return false;
-        }
-        this.finish(source, answer);
+        if (!this.pendingById(requestId)) { return false; }
+        this.finish(requestId, source, answer);
         return true;
     }
 
@@ -247,13 +267,12 @@ export class AskUserRegistry {
      * usually being torn down by its own cancellation token at the same time.
      */
     cancel(note = 'The pending question was cancelled before the user answered.'): void {
-        if (!this.active) { return; }
-        this.finish('cancel', note);
+        for (const pending of this.getAllPending()) { this.finish(pending.requestId, 'cancel', note); }
     }
 
-    /** Cancel the ask `requestId` if it is still the pending one (a later ask is left alone). */
+    /** Cancel the ask `requestId` if it is still pending (a later ask is left alone). */
     cancelRequest(requestId: string, note: string): void {
-        if (this.active?.pending.requestId === requestId) { this.finish('cancel', note); }
+        if (this.pendingById(requestId)) { this.finish(requestId, 'cancel', note); }
     }
 
     /**
@@ -263,15 +282,16 @@ export class AskUserRegistry {
     cancelForQueueItem(queueItemId: string, note: string): boolean {
         const pending = this.pendingForQueueItem(queueItemId);
         if (!pending) { return false; }
-        this.finish('cancel', note);
+        this.finish(pending.requestId, 'cancel', note);
         return true;
     }
 
     /** Single-shot terminal transition shared by all resolution sources. */
-    private finish(source: AskAnswerSource, answer: string): void {
-        const active = this.active;
-        if (!active) { return; }
-        this.active = undefined;            // clear first → guards re-entrancy
+    private finish(requestId: string, source: AskAnswerSource, answer: string): void {
+        const entry = [...this.active.entries()].find(([, a]) => a.pending.requestId === requestId);
+        if (!entry) { return; }
+        const [run, active] = entry;
+        this.active.delete(run);            // clear first → guards re-entrancy
         active.unregisterOwner();
         if (active.timer !== undefined) {
             this.clearTimer(active.timer);

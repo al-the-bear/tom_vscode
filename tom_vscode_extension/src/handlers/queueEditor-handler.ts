@@ -40,6 +40,7 @@ import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
 import { backgroundWaitLine, formatLimit, listBackgroundWork } from '../utils/backgroundWait';
+import type { UserWaitKind } from '../services/userWaits';
 import { clockLabel, waitForLine, waitForUntilLabel } from '../utils/waitFor';
 import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
 import { questTrailFolder } from '../utils/questPaths';
@@ -692,7 +693,8 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           await resendRunningStage(qm, msg.id);
           break;
         case 'openPendingQuestion':
-          await vscode.commands.executeCommand('tomAi.showPendingQuestion');
+          // What the item waits for (vscimpb81): the user-input panel on its run's tab, or its MD Browser.
+          await vscode.commands.executeCommand('tomAi.showUserInteraction', { itemId: String(msg.id ?? '') });
           break;
         case 'backgroundWaitAction':
           // The waiting item's buttons: Wait without limit / Keep waiting / Stop waiting.
@@ -1094,8 +1096,9 @@ function waitingForSessionOf(item: QueuedPrompt): string | undefined {
 }
 
 /** What a sending item's prompt waits for the user for, or undefined. */
-function waitingForUserOf(item: QueuedPrompt): Array<'question' | 'approval'> | undefined {
-    if (item.status !== 'sending') { return undefined; }
+function waitingForUserOf(item: QueuedPrompt): UserWaitKind[] | undefined {
+    // A running chat send waits like a queue item (vscimpb81): it shows the same indicator.
+    if (item.status !== 'sending' && item.status !== 'chat') { return undefined; }
     try {
         const kinds = PromptQueueManager.instance.waitingForUserOf(item.id);
         return kinds.length ? kinds : undefined;
@@ -1155,7 +1158,7 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     const action: ContinueAction | undefined = options.find((o) => o.label === picked)?.action;
     if (!action) { return; }
     if (action === 'answer') {
-        await vscode.commands.executeCommand('tomAi.showPendingQuestion');
+        await vscode.commands.executeCommand('tomAi.showUserInteraction', { itemId: id });
         return;
     }
     if (action === 'waitWithoutLimit') { qm.waitWithoutLimit(id); return; }

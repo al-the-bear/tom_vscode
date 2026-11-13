@@ -8,6 +8,7 @@
  * Configuration is the quest's Telegram settings, read through telegram-config.ts.
  */
 
+import { routeReply } from '../utils/askReplyRouting';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { bridgeLog, getWorkspaceRoot } from './handler_shared';
@@ -347,18 +348,26 @@ export async function telegramToggleHandler(): Promise<void> {
  * Handle commands received via standalone Telegram polling.
  * Dispatches to the command registry for rich command handling.
  */
+/** Telegram MarkdownV2: escape the special characters of a run name. */
+function escapeMd(text: string): string {
+    return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, (c) => `\\${c}`);
+}
+
 function handleStandaloneCommand(cmd: TelegramCommand): void {
     bridgeLog(`[Telegram] Standalone command: ${cmd.type} raw="${cmd.text}" from @${cmd.username}`);
 
-    // Route free text to a pending `tomAi_askUser` ask FIRST. Only one ask is
-    // ever in flight (the prompt queue is blocked on it), so the next free-text
-    // reply belongs to it — no requestId routing is needed on the Telegram side.
-    // This must precede the conversation sink + command registry so the answer
+    // Route free text to a pending `tomAi_askUser` ask FIRST: one question open per process run
+    // (vscimpb81) — with one open the reply is its answer, with several the reply names the run
+    // (`<run>: answer`). This must precede the conversation sink + command registry so the answer
     // isn't swallowed as an `info`/`unknown` command.
     if ((cmd.type === 'info' || cmd.type === 'unknown') && AskUserRegistry.instance.hasPending()) {
-        const pending = AskUserRegistry.instance.getPending();
-        if (pending && AskUserRegistry.instance.submit(pending.requestId, cmd.text, 'telegram')) {
-            standaloneTelegram?.sendMessage('✅ Answer received\\. The assistant will continue\\.');
+        const route = routeReply(cmd.text, AskUserRegistry.instance.getAllPending());
+        if (route.kind === 'answer' && AskUserRegistry.instance.submit(route.requestId, route.text, 'telegram')) {
+            standaloneTelegram?.sendMessage(route.run === 'default' ? '✅ Answer received\\. The assistant will continue\\.' : `✅ Answer received for run ${escapeMd(route.run)}\\. The assistant will continue\\.`);
+            return;
+        }
+        if (route.kind === 'ambiguous') {
+            standaloneTelegram?.sendMessage(`Questions are open in several runs: ${route.runs.map(escapeMd).join(', ')}\\. Reply with \\<run\\>: your answer\\.`);
             return;
         }
     }

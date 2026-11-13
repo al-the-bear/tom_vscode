@@ -32,6 +32,8 @@ export interface QuestionLogEntry {
     readonly askedAt: number;
     /** Epoch ms it resolved. */
     readonly answeredAt: number;
+    /** The process run the asking turn worked in (vscimpb81); `default` when absent. */
+    readonly run?: string;
 }
 
 /** `2m 24s` — how long the prompt sat blocked. Clamped at zero. */
@@ -78,6 +80,7 @@ export function formatQuestionLogEntry(e: QuestionLogEntry): string {
         `## ${stamp(e.askedAt)} — ${heading}`,
         '',
         `- **Tool:** \`${e.tool}\``,
+        `- **Run:** ${e.run ?? 'default'}`,
         `- **Answered:** ${stamp(e.answeredAt)} via ${e.source}, after ${formatWaited(e.answeredAt - e.askedAt)}`,
         '',
     ];

@@ -16,7 +16,8 @@ import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwner
 import { commandsFinishedMessage, waitForOwnedCommands } from '../services/backgroundCommandWait';
 import { commandsOfOwner } from '../tools/process-tools';
 import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
-import { whileWaitingForUser } from '../services/userWaits';
+import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
+import { userInteractions } from '../services/userInteractions';
 import { logToolCall } from '../utils/toolCallLog';
 import { directApiKeyEnvVar } from '../utils/anthropicApiKeyCheck';
 import { KeyedClientCache } from '../utils/anthropicClientCache';
@@ -539,6 +540,8 @@ export interface AnthropicToolApprovalRequest {
     toolUseId: string;
     toolName: string;
     inputSummary: string;
+    /** The process run the turn works in (vscimpb81); set when the request is raised. */
+    run?: string;
 }
 
 // ============================================================================
@@ -617,7 +620,7 @@ export class AnthropicHandler {
     private readonly toolTrails = new Map<string, ToolTrail>();
     private roundCounter = 0;
     private sessionApprovals = new Set<string>();
-    private readonly pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; toolName: string }>();
+    private readonly pendingApprovals = new Map<string, { resolve: (approved: boolean) => void; toolName: string; run: string; queueItemId?: string }>();
     /**
      * Session history is split into three parallel stores:
      *
@@ -1834,13 +1837,14 @@ export class AnthropicHandler {
      *
      * Idempotent — safe to call when no approvals are in flight.
      */
-    abortPendingApprovals(): number {
+    abortPendingApprovals(match?: (approval: { run: string; queueItemId?: string }) => boolean): number {
         if (this.pendingApprovals.size === 0) {
             return 0;
         }
-        const ids = Array.from(this.pendingApprovals.keys());
-        const entries = Array.from(this.pendingApprovals.values());
-        this.pendingApprovals.clear();
+        // Only the stopped turn's approvals (vscimpb81): another run's approval stays open for the user.
+        const ids = Array.from(this.pendingApprovals.keys()).filter((id) => !match || match(this.pendingApprovals.get(id)!));
+        const entries = ids.map((id) => this.pendingApprovals.get(id)!);
+        for (const id of ids) { this.pendingApprovals.delete(id); }
         for (const id of ids) { this._onApprovalSettled.fire(id); }
         for (const entry of entries) {
             try {
@@ -1903,9 +1907,23 @@ export class AnthropicHandler {
 
     private awaitApproval(req: AnthropicToolApprovalRequest): Promise<boolean> {
         // Open as a wait for the user until the approval is answered (the queue editor shows the item waiting).
+        // Keyed by the run the turn works in (vscimpb81): the user-input panel shows it on that run's tab, beside
+        // other runs' approvals and questions, and a Stop of another run's turn leaves it open.
+        const run = currentInteractionRun();
+        const queueItemId = currentQueueItemId();
         return whileWaitingForUser('approval', () => new Promise<boolean>((resolve) => {
-            this.pendingApprovals.set(req.toolUseId, { resolve, toolName: req.toolName });
-            this._onApprovalNeeded.fire(req);
+            const remove = userInteractions.add({
+                id: req.toolUseId,
+                kind: 'approval',
+                run,
+                ...(queueItemId ? { queueItemId } : {}),
+                createdAt: Date.now(),
+                title: `Tool approval: ${req.toolName}`,
+                data: { toolName: req.toolName, inputSummary: req.inputSummary },
+                respond: (r) => this.handleApprovalResponse(req.toolUseId, r.approved === true, r.approveAll === true),
+            });
+            this.pendingApprovals.set(req.toolUseId, { resolve: (approved) => { remove(); resolve(approved); }, toolName: req.toolName, run, ...(queueItemId ? { queueItemId } : {}) });
+            this._onApprovalNeeded.fire({ ...req, run });
         }));
     }
 

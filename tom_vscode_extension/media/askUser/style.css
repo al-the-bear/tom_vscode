@@ -135,3 +135,15 @@ button.primary:disabled {
     border-radius: 2px;
 }
 .ask-note:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+
+/* The user-input panel: one tab per run (vscimpb81), the run's interactions as cards. */
+.run-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid var(--vscode-panel-border, #444); }
+.run-tab { background: transparent; color: var(--vscode-foreground); border: 1px solid transparent; border-bottom: none; padding: 4px 10px; cursor: pointer; border-radius: 3px 3px 0 0; }
+.run-tab.active { border-color: var(--vscode-panel-border, #444); background: var(--vscode-editor-background); font-weight: 600; }
+.run-tab-count { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 0.85em; text-align: center; }
+.ui-card { border: 1px solid var(--vscode-panel-border, #444); border-radius: 4px; padding: 12px 14px; margin: 0 0 12px; }
+.ui-run-line { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 0 0 8px; }
+.ui-pre { white-space: pre-wrap; word-break: break-word; background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 3px; max-height: 320px; overflow: auto; }
+.ui-picker-item { display: block; margin: 3px 0; }
+.ui-picker-other { width: 100%; box-sizing: border-box; margin: 6px 0; }
+button.danger { border-color: var(--vscode-errorForeground, #e5534b); }

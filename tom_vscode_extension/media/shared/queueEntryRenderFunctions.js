@@ -312,9 +312,7 @@ function renderEntry(item, idx) {
     ? '  <span class="waiting-user-badge" title="The running prompt waits for your answer to a question. Open question shows it again, also when its tab was closed.">[\u23f3 waiting for your answer ' + escapeHtml(String(item.pendingQuestionSince)) + ']</span>'
       + ' <button class="open-question-btn" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="Open the question this item\'s turn waits for">Open question</button>'
     : '';
-  var userWaitBadge = pendingQuestionBadge ? pendingQuestionBadge : waitingForUser
-    ? '  <span class="waiting-user-badge" title="The running prompt waits for your reply: answer the open ' + (item.waitingForUser.indexOf('approval') !== -1 && item.waitingForUser.indexOf('question') === -1 ? 'tool approval' : 'question') + ' (@CHAT panel, MD Browser or Telegram)">[\u23f3 waiting for your ' + (item.waitingForUser.indexOf('question') !== -1 ? 'reply' : 'approval') + ']</span>'
-    : '';
+  var userWaitBadge = pendingQuestionBadge ? pendingQuestionBadge : waitingForUser ? waitingForUserBadge(item, safeId) : '';
   // A walk iteration still unfinished after its continuations: the item stopped (auto-send off).
   var attentionBadge = item.needsAttention
     ? '  <span class="needs-attention-badge" title="' + escapeHtml(String(item.needsAttention)) + '">[\u26a0 needs attention]</span>'
@@ -761,6 +759,22 @@ function renderAnswerBlock(item, safeId) {
 }
 
 /**
+ * What a running item (or chat send) waits for the user for (vscimpb81): a
+ * clickable badge — the user-input panel opens on the item's run tab, or its
+ * MD Browser comes to the front.
+ */
+function waitingForUserBadge(item, safeId) {
+  var kinds = Array.isArray(item.waitingForUser) ? item.waitingForUser : [];
+  if (!kinds.length) { return ''; }
+  var what = kinds.indexOf('question') !== -1 ? 'your reply'
+    : kinds.indexOf('approval') !== -1 ? 'your approval'
+      : kinds.indexOf('plan') !== -1 ? 'your decision on a plan'
+        : kinds.indexOf('mdBrowser') !== -1 ? 'your answer in the MD Browser' : 'you';
+  var where = kinds.length === 1 && kinds[0] === 'mdBrowser' ? 'Click to bring its MD Browser to the front' : 'Click to open it in the user-input panel (on this item\'s run tab)';
+  return '  <span class="waiting-user-badge clickable" style="cursor:pointer;" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="The running prompt waits for ' + what + '. ' + where + '.">[\u23f3 waiting for ' + what + ']</span>';
+}
+
+/**
  * A chat send shown in the queue (status `chat` while it runs, `chat-sent`
  * once it ended; src/utils/chatQueueItems.ts): read-only. The queue never
  * sends it, so it has none of the queue's controls, only Remove. Like a
@@ -779,6 +793,8 @@ function renderChatEntry(item, idx) {
   var header = '<div class="item-header chat-item-header">' +
       '<span class="status-badge chat-badge' + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + (running ? 'CHAT' : 'CHAT SENT') + '</span>' +
       '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
+      // A running chat send waiting for the user shows it like a queue item (vscimpb81).
+      (running ? waitingForUserBadge(item, safeId) : '') +
       '<span class="chat-item-spacer"></span>' +
       // Always removable: a send still running is stopped with its entry; a stale one is only removed.
       '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="' + (running && item.chatActive ? 'Stop this chat send and remove it from the list' : 'Remove from the list') + '"><span class="codicon codicon-trash"></span></button>' +

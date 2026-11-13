@@ -29,7 +29,9 @@ import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
 import { expandTemplate, PLACEHOLDER_HELP } from './promptTemplate';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { trackChatSend } from './chatQueueTracking';
+import { isRunningChatItem, trackChatSend } from './chatQueueTracking';
+import { currentInteractionRun, currentQueueItemId } from '../services/userWaits';
+import { userInteractions } from '../services/userInteractions';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { WsPaths } from '../utils/workspacePaths';
 import { sanitizeQuestSegment } from '../utils/questPaths';
@@ -145,7 +147,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         post: (message) => { void this._view?.webview.postMessage(message); },
     });
     /** Plans proposed with tomAi_exitPlanMode, waiting for the user's decision: id → plan and resolver. */
-    private readonly _planProposals = new Map<string, { plan: string; resolve: (d: PlanDecision) => void }>();
+    private readonly _planProposals = new Map<string, { plan: string; run: string; resolve: (d: PlanDecision) => void }>();
     private _planProposalSeq = 0;
 
     constructor(context: vscode.ExtensionContext) {
@@ -153,11 +155,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // Plan mode (CC-3, CC-27): the badge follows the flag, and a proposed
         // plan is shown here for the user to accept or keep planning.
         registerPlanDecider((plan) => this._decidePlan(plan));
-        const stopPlanFollow = onPlanModeChanged((active) => {
+        const stopPlanFollow = onPlanModeChanged((active, run) => {
             this._postPlanMode();
-            // Left with the badge while a plan was shown: plan mode has ended,
-            // so the proposals waiting are settled as accepted.
-            if (!active) { this._settlePlanProposals({ accepted: true }); }
+            // Left with the badge while a plan was shown: plan mode has ended in that run,
+            // so that run's proposals waiting are settled as accepted.
+            if (!active) { this._settlePlanProposals({ accepted: true }, run); }
         });
         context.subscriptions.push({ dispose: () => { stopPlanFollow(); registerPlanDecider(undefined); } });
         this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
@@ -171,7 +173,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /** The plan-mode badge's state, to the webview. */
     private _postPlanMode(): void {
-        void this._view?.webview.postMessage({ type: 'planMode', active: isPlanModeActive() });
+        // The panel's run (vscimpb81): plan mode is per process run.
+        void this._view?.webview.postMessage({ type: 'planMode', active: isPlanModeActive(this._chatRun('anthropic')) });
     }
 
     /** Show the waiting plan proposals (again, after the webview restarted). */
@@ -181,11 +184,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _settlePlanProposals(decision: PlanDecision): void {
-        for (const [id, p] of [...this._planProposals]) {
-            this._planProposals.delete(id);
-            p.resolve(decision);
-            void this._view?.webview.postMessage({ type: 'planProposalSettled', id });
+    /** Settle the waiting plan proposals (of run `run` when given; plan mode is per run, vscimpb81). */
+    private _settlePlanProposals(decision: PlanDecision, run?: string): void {
+        for (const [, p] of [...this._planProposals]) {
+            if (run === undefined || p.run === run) { p.resolve(decision); }
         }
     }
 
@@ -194,17 +196,44 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * subpanel when the panel is up, else as a modal dialog (a queued prompt
      * can propose a plan before the panel was ever opened).
      */
+    /**
+     * A plan proposed with tomAi_exitPlanMode: shown in the user-input panel on
+     * its run's tab (vscimpb81) and, while the @CHAT view runs, as its overlay;
+     * either answers it, the other drops it.
+     */
     private async _decidePlan(plan: string): Promise<PlanDecision> {
-        if (!this._view || !this._approvalUiReady) {
-            const accept = 'Accept and leave plan mode';
-            const answer = await vscode.window.showInformationMessage('The agent proposes a plan', { modal: true, detail: plan }, accept, 'Keep planning');
-            return { accepted: answer === accept };
-        }
         const id = `plan-${++this._planProposalSeq}`;
+        const run = currentInteractionRun();
+        const queueItemId = currentQueueItemId();
         return new Promise<PlanDecision>((resolve) => {
-            this._planProposals.set(id, { plan, resolve });
-            this._view?.show(true);
-            this._postPlanProposals();
+            let settled = false;
+            let remove: () => void = () => undefined;
+            const settle = (decision: PlanDecision): void => {
+                if (settled) { return; }
+                settled = true;
+                this._planProposals.delete(id);
+                remove();
+                void this._view?.webview.postMessage({ type: 'planProposalSettled', id });
+                resolve(decision);
+            };
+            this._planProposals.set(id, { plan, run, resolve: settle });
+            remove = userInteractions.add({
+                id,
+                kind: 'plan',
+                run,
+                ...(queueItemId ? { queueItemId } : {}),
+                createdAt: Date.now(),
+                title: 'The agent proposes a plan',
+                data: { plan },
+                respond: (r) => {
+                    const feedback = typeof r.feedback === 'string' && r.feedback.trim() ? r.feedback.trim() : undefined;
+                    settle({ accepted: r.accepted === true, ...(feedback ? { feedback } : {}) });
+                },
+            });
+            if (this._view && this._approvalUiReady) {
+                this._view.show(true);
+                this._postPlanProposals();
+            }
         });
     }
 
@@ -253,7 +282,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 const cts = this._activeCts.get('anthropic');
                 const hadInFlight = !!cts;
                 cts?.cancel();
-                const rejected = AnthropicHandler.instance.abortPendingApprovals();
+                // The panel's chat send only: another run's (or a queue item's) approval stays open (vscimpb81).
+                const rejected = AnthropicHandler.instance.abortPendingApprovals((a) => isRunningChatItem(a.queueItemId) && a.run === this._chatRun('anthropic'));
                 const reason = hadInFlight
                     ? (rejected > 0
                         ? `Cancelled by user (${rejected} pending approval${rejected === 1 ? '' : 's'} rejected)`
@@ -501,15 +531,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'leavePlanMode':
                         // The user leaves plan mode with the badge (CC-27).
-                        leavePlanModeByUser();
+                        leavePlanModeByUser(this._chatRun('anthropic'));
                         break;
                     case 'planDecision': {
                         const pending = this._planProposals.get(String(message.id || ''));
                         if (pending) {
-                            this._planProposals.delete(String(message.id));
                             const feedback = typeof message.feedback === 'string' && message.feedback.trim() ? message.feedback.trim() : undefined;
                             pending.resolve({ accepted: !!message.accepted, ...(feedback ? { feedback } : {}) });
-                            void this._view?.webview.postMessage({ type: 'planProposalSettled', id: String(message.id) });
                         }
                         break;
                     }
@@ -1643,7 +1671,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // claimed above; `setAnthropicSendCancel` attaches to that claim.
         setAnthropicSendCancel(() => {
             cts.cancel();
-            AnthropicHandler.instance.abortPendingApprovals();
+            AnthropicHandler.instance.abortPendingApprovals((a) => isRunningChatItem(a.queueItemId) && a.run === this._chatRun('anthropic'));
         });
 
         // Light the window-status panel's `anthropic` dot (orange) for
@@ -1684,7 +1712,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
                 })),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.
-                { cancel: () => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
+                { cancel: (chatItemId) => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); } },
             );
             this._updateAnthropicWindowStatus('answer-received');
             this._view?.webview.postMessage({

@@ -41,11 +41,16 @@ function entry(overrides: Partial<QuestionLogEntry> = {}): QuestionLogEntry {
 }
 
 describe('formatQuestionLogEntry', () => {
+    test('names the run the asking turn worked in (vscimpb81)', () => {
+        assert.match(formatQuestionLogEntry(entry({ run: 'collab' })), /^- \*\*Run:\*\* collab$/m);
+    });
+
     test('renders a complete exchange', () => {
         assert.equal(formatQuestionLogEntry(entry()), [
             '## 2026-08-03T12:22:07.000Z — Migration plan',
             '',
             '- **Tool:** `tomAi_askUser`',
+            '- **Run:** default',
             '- **Answered:** 2026-08-03T12:24:31.000Z via vscode, after 2m 24s',
             '',
             '### Questions',

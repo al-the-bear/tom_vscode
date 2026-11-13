@@ -8,7 +8,8 @@
  *   AM-2 keepFile: unchecked (from the start or by the checkbox) the file is deleted and its panel closed when
  *        the flow goes on — on a click, on a timeout, when the panel is closed
  *   AM-3 timeout: none by default; `timeoutMinutes` (capped by the user's ceiling) answers `timedOut: true`
- *   AM-4 one at a time: a second ask while one is open is refused, and the first still answers; a stale request
+ *   AM-4 one per process run (vscimpb81): a second ask of the same run while one is open is refused, and the first
+ *        still answers; an ask of another run opens beside it and each answer reaches its asker; a stale request
  *        id or an unknown button is ignored; the panel closed answers `closed: true`; cancel answers `cancelled`
  *   AM-5 input: a .md file in the workspace that exists, 1–8 buttons with unique non-empty ids and labels;
  *        a panel that does not open frees the slot
@@ -31,6 +32,7 @@ import {
     type AskInMdBrowserDeps, type AskMdBar,
 } from '../ask-in-md-browser-tool.js';
 import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
+import { runAsQueueItem } from '../../services/userWaits.js';
 
 const ROOT = '/ws';
 
@@ -150,15 +152,24 @@ describe('tomAi_askInMdBrowser', () => {
         assert.equal(g.timers[0].cleared, true);
     });
 
-    test('AM-4: one ask at a time', async () => {
+    test('AM-4: one ask per process run', async () => {
         const f = fake();
         const slot = new MdBrowserAskSlot();
         const first = askInMdBrowserImpl(f.deps, { filePath: 'notes/ask.md', buttons: BUTTONS }, slot);
         await tick();
         const second = JSON.parse(await withTiming('tomAi_askInMdBrowser:refused-while-open', () =>
             askInMdBrowserImpl(f.deps, { filePath: 'notes/ask.md', buttons: BUTTONS }, slot)));
-        assert.match(second.error, /already open — one at a time/);
+        assert.match(second.error, /of run "default" is already open — one per process run/);
         assert.equal(f.bars.length, 1, 'no second bar');
+        // Another run asks at the same time: its bar opens beside the first.
+        const otherRun = runAsQueueItem('item-r2', () => askInMdBrowserImpl(f.deps, { filePath: 'notes/ask.md', buttons: BUTTONS }, slot), 'r2');
+        await tick();
+        assert.equal(f.bars.length, 2, 'the other run\'s bar opens');
+        assert.equal(slot.hasOpen('default'), true);
+        assert.equal(slot.hasOpen('r2'), true);
+        assert.equal(slot.click(f.bars[1].bar.requestId, 'continue', true), true, 'answered in any order: the second first');
+        assert.equal(JSON.parse(await otherRun).button, 'continue');
+        assert.equal(slot.hasOpen('r2'), false);
         assert.equal(slot.click('stale', 'continue', true), false, 'a stale request id');
         assert.equal(slot.click('req1', 'nope', true), false, 'an unknown button');
         assert.equal(slot.setKeepFile('stale', false), false);

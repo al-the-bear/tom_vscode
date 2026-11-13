@@ -129,6 +129,8 @@ import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
 import { openProcessBranchingEditor } from '../../handlers/processBranching-handler.js';
 import { SUGGEST_SUBPROCESS_TOOL } from '../process-stack-tools.js';
 import { ASK_USER_LIVE_TOOL } from '../../handlers/askUser-handler.js';
+import { AskUserRegistry } from '../../services/askUserRegistry.js';
+import { showUserInteractions } from '../../handlers/userInteractionPanel.js';
 import { onSuggestionsDue } from '../../services/processActionService.js';
 import { actionSession } from '../../utils/processActionPrompt.js';
 import { JSDOM } from 'jsdom';
@@ -561,10 +563,12 @@ describe('nested processes', () => {
         const ask = async (choice: Json, before?: () => void): Promise<string> => {
             const call = ASK_USER_LIVE_TOOL.execute({ questions: ['Start it? {{choice:c}}'], choices: [{ id: 'c', ...choice }] });
             await tick();
+            // The question is in the user-input panel (vscimpb81): its click goes there.
+            showUserInteractions();
             const panel = panels()[panels().length - 1];
-            const init = JSON.parse(/window\.__INIT__ = (\{.*?\});/s.exec(panel.webview.html)?.[1] ?? 'null');
+            const requestId = AskUserRegistry.instance.getPending()!.requestId;
             before?.();
-            panel.webview.__receive({ type: 'choice', requestId: init.requestId, choiceId: 'c' });
+            panel.webview.__receive({ type: 'choice', requestId, choiceId: 'c' });
             return call;
         };
         try {

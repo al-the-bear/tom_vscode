@@ -88,9 +88,9 @@ describe('queue: waits for the user', () => {
         registry.submit('ask-1', 'that one', 'vscode');
         assert.equal(await answer, 'that one');
         assert.equal(hasUserWaits(), false, 'answered: closed');
-        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', \(\) => showLiveQuickPick/);
-        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', async \(\) => \{[\s\S]{0,500}?await win\.showInputBox\(/);
-        assert.match(src('tools', 'ask-in-md-browser-tool.ts'), /return whileWaitingForUser\('question', \(\) => new Promise<string>/);
+        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', \(\) => \(showingRun === undefined\s*\? onScreen\(run, \(\) => showLiveQuickPick/);
+        assert.match(src('tools', 'user-interaction-tools.ts'), /whileWaitingForUser\('question', async \(\) => \{[\s\S]{0,1200}?await win\.showInputBox\(/);
+        assert.match(src('tools', 'ask-in-md-browser-tool.ts'), /return whileWaitingForUser\('mdBrowser', \(\) => new Promise<string>/);
         assert.match(src('handlers', 'anthropic-handler.ts'), /return whileWaitingForUser\('approval', \(\) => new Promise<boolean>/);
         const queue = src('managers', 'promptQueueManager.ts');
         assert.match(queue, /runAsQueueItem\(waitItem\?\.id, \(\) => runInProcessPosition/);

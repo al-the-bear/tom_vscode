@@ -14,6 +14,8 @@ export interface ApprovalRequestLike {
     toolUseId: string;
     toolName: string;
     inputSummary: string;
+    /** The process run the turn works in (vscimpb81): named in the dialog unless `default`. */
+    run?: string;
 }
 
 export interface ApprovalRelayHost {
@@ -55,5 +57,6 @@ export class ApprovalRelay {
 }
 
 function approvalMessage(req: ApprovalRequestLike): Record<string, unknown> {
-    return { type: 'anthropicToolApproval', toolId: req.toolUseId, toolName: req.toolName, inputSummary: req.inputSummary };
+    const inputSummary = req.run && req.run !== 'default' ? `[run ${req.run}]\n${req.inputSummary}` : req.inputSummary;
+    return { type: 'anthropicToolApproval', toolId: req.toolUseId, toolName: req.toolName, inputSummary };
 }

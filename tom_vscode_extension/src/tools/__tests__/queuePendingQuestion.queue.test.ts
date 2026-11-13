@@ -6,17 +6,18 @@
  * Measured in the d4rt window: a walk's question waited 9 h 25 min with its tab closed, nothing showed it, and
  * Continue dropped it ('Answered via cancel').
  *
- *   QW-0 @T: Show Pending Question is registered, and its status-bar entry shows while a question waits (it runs
- *        the command) and hides once it is answered
- *   QW-1 the item knows its question (since when); the question can be opened again after its tab was closed (its
- *        panel instrumented for the debug log; shown again, the open panel comes to the front), and
+ *   QW-0 @T: Show Pending Question and tomAi.showUserInteraction are registered, and the status-bar entry shows
+ *        while a question waits (naming its run; it runs the command) and hides once it is answered
+ *   QW-1 the item knows its question (since when); the question is in the user-input panel (vscimpb81), which can
+ *        be opened again after its tab was closed (instrumented for the debug log; shown again, the open panel
+ *        comes to the front), and
  *        the answer given there reaches the turn, which goes on — the walk then finishes, each todo once
  *   QW-2 Continue's Skip closes the question with a note the turn receives, and sends exactly the next todo
  *   QW-3 Resend of a stage waiting in a question: the question is closed with a note, the same todo is sent again
  *        with the interruption note (not recorded as its text), the old turn's end sends nothing, one live turn
  *   QW-4 Resend of a running stage without a question: the same, and the walk finishes
  *   QW-5 Stop closes the question with a note
- *   QW-6 the Continue dialog: Answer now only while waiting (it opens the question), Resend and Skip always,
+ *   QW-6 the Continue dialog: Answer now only while waiting (it opens the item's interaction), Resend and Skip always,
  *        Cancel does nothing
  */
 
@@ -65,7 +66,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 import { AskUserRegistry } from '../../services/askUserRegistry.js';
-import { initPendingQuestionUi, openAskPanelIds, showPendingQuestion, SHOW_PENDING_QUESTION_COMMAND } from '../../handlers/askUser-handler.js';
+import { initPendingQuestionUi, openQuestionIds, showPendingQuestion, SHOW_PENDING_QUESTION_COMMAND } from '../../handlers/askUser-handler.js';
 import { continueWithChoice } from '../../handlers/queueEditor-handler.js';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../../utils/pendingQuestion.js';
 
@@ -203,13 +204,13 @@ describe('a queue item waiting for an answer', () => {
             win.createStatusBarItem = createItem;
             cmds.registerCommand = register;
         }
-        assert.deepEqual(registered, [SHOW_PENDING_QUESTION_COMMAND]);
+        assert.deepEqual(registered, [SHOW_PENDING_QUESTION_COMMAND, 'tomAi.showUserInteraction']);
         const status = items[0];
         assert.equal(status.command, SHOW_PENDING_QUESTION_COMMAND);
         assert.equal(status.visible, false, 'nothing waits');
         const item = await startWalk('qz', ['qz1_x']);
         assert.equal(status.visible, true, 'a question waits');
-        assert.match(String(status.tooltip), /waits for your answer since \d\d:\d\d/);
+        assert.match(String(status.tooltip), /run default: 1/);
         assert.equal(registry().submit(registry().getPending()!.requestId, 'ok', 'vscode'), true);
         await wait(150);
         assert.equal(status.visible, false, 'answered');
@@ -225,8 +226,8 @@ describe('a queue item waiting for an answer', () => {
         assert.equal(typeof question.askedAt, 'number');
         assert.deepEqual(queue().waitingForUserOf(item.id), ['question']);
         assert.equal(registry().getPending()?.queueItemId, item.id);
-        // No panel is open (the stub turn opened none, as after a closed tab): showing it opens one.
-        assert.deepEqual(openAskPanelIds(), []);
+        // The question is in the user-input panel's list (the panel itself may be closed, as after a closed tab).
+        assert.deepEqual(openQuestionIds(), [question.requestId]);
         const panels: Json[] = [];
         const createPanel = win.createWebviewPanel;
         win.createWebviewPanel = (...args: unknown[]) => { const p = createPanel(...args); panels.push(p); return p; };
@@ -235,7 +236,7 @@ describe('a queue item waiting for an answer', () => {
         } finally {
             win.createWebviewPanel = createPanel;
         }
-        assert.deepEqual(openAskPanelIds(), [question.requestId], 'a panel for the pending question');
+        assert.equal(panels.length, 1, 'the user-input panel opened');
         assert.equal(panels[0]?.webview?.[Symbol.for('tomAi.webviewMessagesInstrumented')], true, 'its messages go to the debug log');
         assert.equal(showPendingQuestion(), true, 'shown again: the open panel comes to the front');
         assert.equal(panels.length, 1, 'no second panel');
@@ -334,7 +335,7 @@ describe('a queue item waiting for an answer', () => {
         // Answer now: opens the question, the turn keeps waiting.
         pick = 'Answer now';
         await continueWithChoice(queue(), item.id);
-        assert.deepEqual(commands, ['tomAi.showPendingQuestion']);
+        assert.deepEqual(commands, ['tomAi.showUserInteraction']);
         assert.ok(registry().hasPending());
         assert.equal(sent.length, 1);
         // Skip: closes the question and goes on.

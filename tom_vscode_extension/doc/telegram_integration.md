@@ -134,6 +134,12 @@ channel stays disabled. This keeps secrets out of the git-tracked `_ai` clone.
 
 ### Who sends with these settings
 
+**Answering a question from Telegram.** A free-text reply answers the open
+`tomAi_askUser` question. Questions of several process runs can be open at
+once (one per run); then the notification names the run and the reply names
+it too — `collab: yes, go on` — and a reply without a run is answered with
+the list of runs that wait (`utils/askReplyRouting.ts`).
+
 Every Telegram consumer reads the settings through `telegram-config.ts`: the
 poller, the Status Page, `Configure Telegram`, `tomAi_askUser` and
 `tomAi_notifyUser`. The two tools send to `defaultChatId` with the token from

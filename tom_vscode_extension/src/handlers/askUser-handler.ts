@@ -1,23 +1,19 @@
 /**
  * Live bridge for `tomAi_askUser` — wires the vscode-free tool impl
- * (`ask-user-tool.ts`) and registry (`askUserRegistry.ts`) into the editor: a
- * webview panel for answering in VS Code, plus a Telegram notification so the
- * user can answer from their phone. Either channel resolves the one pending ask.
- *
- * One panel per question (the registry allows only one ask in flight), kept by
- * request id: when the ask resolves by *any* source (vscode submit, Telegram
- * reply, timeout, cancel — also the cancel when the prompt that asked ends,
- * services/askOwners.ts) the registry calls {@link onResolve}, which dismisses
- * its panel and any stale one; a stale panel that posts an answer closes too.
+ * (`ask-user-tool.ts`) and registry (`askUserRegistry.ts`) into the editor:
+ * the question in the user-input panel on its run's tab (userInteractionPanel.ts,
+ * one open question per process run, vscimpb81), plus a Telegram notification
+ * so the user can answer from their phone. When the ask resolves by *any*
+ * source (vscode submit, Telegram reply, timeout, cancel — also the cancel
+ * when the prompt that asked ends, services/askOwners.ts) the registry calls
+ * {@link onResolve}, which takes it out of the panel.
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { getExtensionPath, bridgeLog, reportException } from './handler_shared';
+import { bridgeLog } from './handler_shared';
 import { debugLog } from '../utils/debugLogger';
-import { instrumentWebviewMessages } from '../utils/webviewMessageInstrumentation';
-import { waitingSinceLabel } from '../utils/pendingQuestion';
-import { loadWebviewHtml } from '../utils/webviewLoader';
+import { userInteractions } from '../services/userInteractions';
+import { initUserInteractionPanel, SHOW_PENDING_QUESTION_COMMAND, showUserInteractions } from './userInteractionPanel';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
 import { appendQuestionLogEntry } from '../services/questionsLog';
 import { readChatQuestionsConfig } from './chatQuestions-config';
@@ -35,149 +31,93 @@ import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinit
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 
 // ===========================================================================
-// Singleton webview panel
+// The question in the user-input panel
 // ===========================================================================
 
+/** The questions shown in the user-input panel (tests, diagnostics). */
+export function openQuestionIds(): string[] {
+    return userInteractions.list().filter((i) => i.kind === 'question').map((i) => i.id);
+}
+
+/** Whether question `requestId` is still open. */
+function isOpen(requestId: string): boolean {
+    return AskUserRegistry.instance.pendingById(requestId) !== undefined;
+}
+
 /**
- * The question panels by request id. Normally one (the registry allows one ask
- * at a time); a panel whose question is no longer the pending one is stale and
- * is closed whenever it is found — when a question resolves, when a new one
- * opens, when a stale panel posts its answer.
+ * The panel's answer to question `pending`: its text (Submit), its answers
+ * (Send answers: every question's selected answer choice and own words), or a
+ * choice button (a move / branch / subprocess is carried out here, then it
+ * answers; one that throws still answers, with the error).
  */
-const askPanels = new Map<string, vscode.WebviewPanel>();
-
-/** The open question panels' request ids (tests, diagnostics). */
-export function openAskPanelIds(): string[] {
-    return [...askPanels.keys()];
-}
-
-function disposePanel(requestId: string): void {
-    const panel = askPanels.get(requestId);
-    askPanels.delete(requestId);
-    if (panel) {
-        try { panel.dispose(); } catch { /* already gone */ }
+async function answerFromPanel(pending: PendingAsk, msg: Record<string, unknown>): Promise<void> {
+    if (!isOpen(pending.requestId)) { return; }
+    if (msg.type === 'submit') {
+        AskUserRegistry.instance.submit(pending.requestId, typeof msg.text === 'string' ? msg.text : '', 'vscode');
+        return;
     }
-}
-
-/** Close every panel whose question is not the pending one (`keep`, when given, stays). */
-function disposeStalePanels(keep?: string): void {
-    const pending = AskUserRegistry.instance.getPending()?.requestId;
-    for (const id of [...askPanels.keys()]) {
-        if (id !== keep && id !== pending) { disposePanel(id); }
+    if (msg.type === 'answers') {
+        const answers = Array.isArray(msg.answers) ? (msg.answers as QuestionAnswer[]) : [];
+        AskUserRegistry.instance.submit(
+            pending.requestId,
+            composeChoiceAnswers(pending.questions, pending.choices, answers, typeof msg.text === 'string' ? msg.text : ''),
+            'vscode',
+        );
+        return;
     }
-}
-
-/** Open the ask panel for a pending ask (stale panels go first). */
-function openAskPanel(pending: PendingAsk): void {
-    disposeStalePanels(pending.requestId);
-    disposePanel(pending.requestId);
-
-    const extPath = getExtensionPath();
-    const localRoots = extPath ? [vscode.Uri.file(path.join(extPath, 'media'))] : undefined;
-
-    const panel = vscode.window.createWebviewPanel(
-        'tomAiAskUser',
-        'Tom AI — Questions',
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-            localResourceRoots: localRoots,
-        },
-    );
-
-    // In the debug log like the views: its submit / choice / answers messages, so a lost
-    // answer can be told from no answer afterwards.
-    instrumentWebviewMessages(panel.webview, {
-        source: 'tomAiAskUser',
-        log: (line) => debugLog(`webview message: ${line}`, 'INFO', 'webview.message'),
-        report: (where, error, details) => reportException(`webview:${where}`, error, details),
-    });
-    const isPending = (): boolean => AskUserRegistry.instance.getPending()?.requestId === pending.requestId;
-    panel.webview.onDidReceiveMessage(async (msg: { type?: string; requestId?: string; text?: string; choiceId?: string; answers?: unknown }) => {
-        if (msg?.requestId !== pending.requestId || (msg.type !== 'submit' && msg.type !== 'choice' && msg.type !== 'answers')) { return; }
-        if (!isPending()) {
-            // An answer to a question that is no longer open (answered elsewhere, timed out,
-            // cancelled with its prompt): the panel goes instead of waiting forever.
-            disposePanel(pending.requestId);
-            void vscode.window.showInformationMessage('That question was already closed; your answer was not sent.');
-            return;
-        }
-        if (msg.type === 'submit') {
-            AskUserRegistry.instance.submit(pending.requestId, typeof msg.text === 'string' ? msg.text : '', 'vscode');
-            return;
-        }
-        if (msg.type === 'answers') {
-            // Send answers: every question's selected answer choice and own words, numbered (vscimpb35).
-            const answers = Array.isArray(msg.answers) ? (msg.answers as QuestionAnswer[]) : [];
-            AskUserRegistry.instance.submit(
-                pending.requestId,
-                composeChoiceAnswers(pending.questions, pending.choices, answers, typeof msg.text === 'string' ? msg.text : ''),
-                'vscode',
-            );
-            return;
-        }
-        // A choice button: what it does (a move, a branch or subprocess started) is done here, then
-        // it answers. One that throws still answers (with the error), so the panel never stays with its
-        // buttons locked.
-        let answer: string | undefined;
-        try {
-            answer = await choiceClickAnswerAsync(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
-        } catch (err) {
-            answer = `The choice could not be carried out: ${(err as Error).message}`;
-        }
-        // The question may have closed meanwhile (its prompt ended while the user chose a follow-up).
-        if (!isPending()) { disposePanel(pending.requestId); return; }
-        AskUserRegistry.instance.submit(pending.requestId, answer ?? `Unknown choice "${String(msg.choiceId ?? '')}".`, 'vscode');
-    });
-
-    panel.onDidDispose(() => {
-        // Manual close: forget the panel but leave the ask pending so the user
-        // can still answer from Telegram, or reopen it (Open question, @T: Show
-        // Pending Question, the status-bar entry).
-        if (askPanels.get(pending.requestId) === panel) { askPanels.delete(pending.requestId); }
-        debugLog(`askUser panel closed for ${pending.requestId}${isPending() ? ' (the question stays pending)' : ''}`, 'INFO', 'askUser');
-    });
-
+    let answer: string | undefined;
     try {
-        panel.webview.html = loadWebviewHtml(panel.webview, 'askUser', {
-            init: {
-                requestId: pending.requestId,
-                questions: pending.questions,
-                title: pending.title,
-                timeoutAt: pending.timeoutAt,
-                choices: pending.choices,
-                layout: pending.layout,
-            },
-        });
+        answer = await choiceClickAnswerAsync(liveAskUserDeps, pending, String(msg.choiceId ?? ''));
     } catch (err) {
-        bridgeLog(`[askUser] Failed to render panel: ${(err as Error).message}`, 'ERROR');
+        answer = `The choice could not be carried out: ${(err as Error).message}`;
     }
-
-    askPanels.set(pending.requestId, panel);
+    // The question may have closed meanwhile (its prompt ended while the user chose a follow-up).
+    if (!isOpen(pending.requestId)) { return; }
+    AskUserRegistry.instance.submit(pending.requestId, answer ?? `Unknown choice "${String(msg.choiceId ?? '')}".`, 'vscode');
 }
 
-/** Dismiss the question's panel once the ask resolves by any source, and any stale one with it. */
-function closeAskPanel(pending: PendingAsk, source: AskAnswerSource): void {
-    const panel = askPanels.get(pending.requestId);
-    // Let the webview reflect a non-vscode resolution before it goes away.
-    if (panel && source !== 'vscode') {
-        try {
-            panel.webview.postMessage({ type: 'resolved', note: resolvedNote(source) });
-        } catch { /* panel may already be disposing */ }
-    }
-    disposePanel(pending.requestId);
-    disposeStalePanels();
+/** Show question `pending` in the user-input panel, on its run's tab (vscimpb81). */
+function openQuestion(pending: PendingAsk): void {
+    userInteractions.add({
+        id: pending.requestId,
+        kind: 'question',
+        run: pending.run,
+        ...(pending.queueItemId ? { queueItemId: pending.queueItemId } : {}),
+        createdAt: pending.createdAt,
+        title: pending.title ?? 'The assistant has some questions',
+        data: {
+            requestId: pending.requestId,
+            questions: pending.questions,
+            title: pending.title,
+            timeoutAt: pending.timeoutAt,
+            choices: pending.choices,
+            layout: pending.layout,
+        },
+        respond: (msg) => { void answerFromPanel(pending, msg); },
+    });
 }
 
-function resolvedNote(source: AskAnswerSource): string {
-    switch (source) {
-        case 'telegram': return 'Answered from Telegram.';
-        case 'timeout': return 'Timed out — the assistant will continue on its own.';
-        case 'cancel': return 'The question was cancelled.';
-        default: return 'Answered.';
+/** The question was answered, timed out or cancelled: it leaves the panel. */
+function closeQuestion(pending: PendingAsk, source: AskAnswerSource): void {
+    userInteractions.remove(pending.requestId);
+    debugLog(`askUser ${pending.requestId} (run ${pending.run}) settled: ${source}`, 'INFO', 'askUser');
+}
+
+/**
+ * The panel's questions follow the registry, whoever asked through it: every
+ * pending question is shown, every resolved one leaves.
+ */
+function syncQuestions(): void {
+    const pending = AskUserRegistry.instance.getAllPending();
+    const ids = new Set(pending.map((p) => p.requestId));
+    for (const p of pending) {
+        if (!userInteractions.get(p.requestId)) { openQuestion(p); }
+    }
+    for (const i of userInteractions.list()) {
+        if (i.kind === 'question' && !ids.has(i.id)) { userInteractions.remove(i.id); }
     }
 }
+AskUserRegistry.instance.onDidChange(syncQuestions);
 
 // ===========================================================================
 // Telegram notification
@@ -196,7 +136,12 @@ function sendAskTelegram(pending: PendingAsk): void {
     if (pending.choices.length) {
         lines.push('', `Choices (buttons in VS Code; a move is made there on the click): ${pending.choices.map((c) => c.label).join(' · ')}`);
     }
-    lines.push('', 'Reply with your answer (you can address the questions by number).');
+    // Several runs may ask at once (vscimpb81): a question of another run than `default` names it, and the
+    // reply names the run when more than one question is open.
+    if (pending.run !== 'default') { lines.splice(1, 0, `(run ${pending.run})`); }
+    lines.push('', AskUserRegistry.instance.getAllPending().length > 1
+        ? `Reply with "${pending.run}: <your answer>" — questions of several runs are open.`
+        : 'Reply with your answer (you can address the questions by number).');
     const text = lines.join('\n');
 
     void (async () => {
@@ -269,11 +214,11 @@ const liveAskUserDeps: AskUserDeps = {
     registry: AskUserRegistry.instance,
     loadConfig: () => readChatQuestionsConfig(),
     onOpen: (pending) => {
-        openAskPanel(pending);
+        openQuestion(pending);
         sendAskTelegram(pending);
     },
     onResolve: (pending, source) => {
-        closeAskPanel(pending, source);
+        closeQuestion(pending, source);
     },
     log: (entry) => appendQuestionLogEntry(entry),
     processContext: liveProcessContext,
@@ -297,9 +242,8 @@ export const ASK_USER_LIVE_TOOL: SharedToolDefinition<AskUserInput> = {
 };
 
 /**
- * Show the pending question: its panel to the front, or a new panel for it when
- * its tab was closed (the ask itself stays pending until answered). Answers
- * false, with a note to the user, when no question is pending.
+ * Show the newest pending question in the user-input panel, on its run's tab.
+ * Answers false, with a note to the user, when no question is pending.
  */
 export function showPendingQuestion(): boolean {
     const pending = AskUserRegistry.instance.getPending();
@@ -307,42 +251,15 @@ export function showPendingQuestion(): boolean {
         void vscode.window.showInformationMessage('No question is waiting for your answer.');
         return false;
     }
-    const panel = askPanels.get(pending.requestId);
-    if (panel) {
-        panel.reveal(vscode.ViewColumn.Active, false);
-    } else {
-        openAskPanel(pending);
-    }
+    showUserInteractions({ run: pending.run, focusId: pending.requestId });
     return true;
 }
 
-/** The command that shows the pending question. */
-export const SHOW_PENDING_QUESTION_COMMAND = 'tomAi.showPendingQuestion';
+export { SHOW_PENDING_QUESTION_COMMAND };
 
-/**
- * At activation: `@T: Show Pending Question`, and a status-bar entry while a
- * question waits for the user's answer (it opens the question).
- */
+/** At activation: the user-input panel, its commands and status-bar entry (userInteractionPanel.ts). */
 export function initPendingQuestionUi(context: vscode.ExtensionContext): void {
-    context.subscriptions.push(vscode.commands.registerCommand(SHOW_PENDING_QUESTION_COMMAND, () => showPendingQuestion()));
-    const item = vscode.window.createStatusBarItem('tomAi.pendingQuestion', vscode.StatusBarAlignment.Left, 51);
-    item.name = 'Tom AI: question waiting for your answer';
-    item.command = SHOW_PENDING_QUESTION_COMMAND;
-    context.subscriptions.push(item);
-    const update = (): void => {
-        const pending = AskUserRegistry.instance.getPending();
-        if (!pending) { item.hide(); return; }
-        const since = waitingSinceLabel(pending.createdAt, Date.now());
-        item.text = '$(comment-discussion) Question waiting';
-        item.tooltip = `${pending.title ? `${pending.title}\n` : ''}A question waits for your answer ${since}. Click to open it.`;
-        item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-        item.show();
-    };
-    const unsubscribe = AskUserRegistry.instance.onDidChange(update);
-    // The tooltip's waiting time follows the clock.
-    const timer = setInterval(() => { if (AskUserRegistry.instance.hasPending()) { update(); } }, 60_000);
-    context.subscriptions.push({ dispose: () => { unsubscribe(); clearInterval(timer); } });
-    update();
+    initUserInteractionPanel(context);
 }
 
 /**

@@ -35,6 +35,7 @@
  *     error string.
  */
 
+import { currentInteractionRun } from '../services/userWaits';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { builtInToolNeedsApproval } from '../utils/agentSdkPermissionMode';
 
@@ -48,7 +49,7 @@ function err(message: string, extra: Record<string, unknown> = {}): string {
 }
 
 // ===========================================================================
-// Plan-mode state (process-global advisory flag)
+// Plan-mode state: one per process run (vscimpb81)
 // ===========================================================================
 
 interface PlanModeState {
@@ -57,10 +58,20 @@ interface PlanModeState {
     reason?: string;
 }
 
-const planMode: PlanModeState = { active: false, enteredAt: null, reason: undefined };
+/**
+ * Plan mode per process run: a turn of one run that enters it does not hold
+ * another run's writes. The run is the calling turn's (`currentInteractionRun`).
+ */
+const planModes = new Map<string, PlanModeState>();
 
-/** Public read of the plan-mode flag for host handlers. */
-export function isPlanModeActive(): boolean { return planMode.active; }
+function stateOf(run: string = currentInteractionRun()): PlanModeState {
+    let state = planModes.get(run);
+    if (!state) { state = { active: false, enteredAt: null, reason: undefined }; planModes.set(run, state); }
+    return state;
+}
+
+/** Whether plan mode is on in run `run` (default: the calling turn's run). */
+export function isPlanModeActive(run?: string): boolean { return stateOf(run).active; }
 
 /** What a write tool answers while plan mode is on, on every transport. */
 export const PLAN_MODE_REFUSAL = 'plan mode: read and plan only — present your plan and call tomAi_exitPlanMode';
@@ -82,12 +93,12 @@ export const PLAN_MODE_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
  * writer / reader lists; a built-in neither knows counts as a writer).
  */
 export function planModeRefusalFor(toolName: string, def: { readOnly?: boolean } | undefined): string | undefined {
-    if (!planMode.active || PLAN_MODE_ALLOWED_TOOLS.has(toolName)) { return undefined; }
+    if (!stateOf().active || PLAN_MODE_ALLOWED_TOOLS.has(toolName)) { return undefined; }
     if (def) { return def.readOnly ? undefined : PLAN_MODE_REFUSAL; }
     return builtInToolNeedsApproval(toolName) ? PLAN_MODE_REFUSAL : undefined;
 }
 
-type PlanModeListener = (active: boolean) => void;
+type PlanModeListener = (active: boolean, run: string) => void;
 const listeners = new Set<PlanModeListener>();
 
 /** Be told when plan mode goes on or off (the chat panel's badge, a running Agent SDK query). Answers the unsubscribe. */
@@ -96,9 +107,9 @@ export function onPlanModeChanged(listener: PlanModeListener): () => void {
     return () => { listeners.delete(listener); };
 }
 
-function notifyPlanMode(): void {
+function notifyPlanMode(run: string = currentInteractionRun()): void {
     for (const l of [...listeners]) {
-        try { l(planMode.active); } catch { /* a listener's failure is its own */ }
+        try { l(stateOf(run).active, run); } catch { /* a listener's failure is its own */ }
     }
 }
 
@@ -118,7 +129,8 @@ export function registerPlanDecider(decider: PlanDecider | undefined): void {
     planDecider = decider;
 }
 
-function clearPlanMode(): number | null {
+function clearPlanMode(run?: string): number | null {
+    const planMode = stateOf(run);
     const durationMs = planMode.enteredAt ? Date.now() - planMode.enteredAt : null;
     planMode.active = false;
     planMode.enteredAt = null;
@@ -127,13 +139,15 @@ function clearPlanMode(): number | null {
 }
 
 /** The user leaves plan mode (the panel's badge, or accepting a plan). Answers whether it was on. */
-export function leavePlanModeByUser(): boolean {
-    if (!planMode.active) { return false; }
-    clearPlanMode();
-    notifyPlanMode();
+export function leavePlanModeByUser(run?: string): boolean {
+    const target = run ?? currentInteractionRun();
+    if (!stateOf(target).active) { return false; }
+    clearPlanMode(target);
+    notifyPlanMode(target);
     return true;
 }
-export function getPlanModeState(): { active: boolean; enteredAt: number | null; reason?: string } {
+export function getPlanModeState(run?: string): { active: boolean; enteredAt: number | null; reason?: string } {
+    const planMode = stateOf(run);
     return { active: planMode.active, enteredAt: planMode.enteredAt, reason: planMode.reason };
 }
 
@@ -143,9 +157,7 @@ export function getPlanModeState(): { active: boolean; enteredAt: number | null;
  * the same singleton so production callers must not invoke it.
  */
 export function resetPlanModeForTests(): void {
-    planMode.active = false;
-    planMode.enteredAt = null;
-    planMode.reason = undefined;
+    planModes.clear();
     planDecider = undefined;
     listeners.clear();
 }
@@ -164,6 +176,8 @@ export interface PlanModeClock { now(): number }
 const realClock: PlanModeClock = { now: () => Date.now() };
 
 export async function enterPlanModeImpl(input: EnterPlanModeInput, clock: PlanModeClock = realClock): Promise<string> {
+    // The calling turn's run (vscimpb81): plan mode is per process run.
+    const planMode = stateOf();
     if (planMode.active) {
         // Nested entry: report it explicitly, preserve the original
         // state.  The model can decide whether to ignore (it was
@@ -193,7 +207,7 @@ export async function enterPlanModeImpl(input: EnterPlanModeInput, clock: PlanMo
 }
 
 export const ENTER_PLAN_MODE_DESCRIPTION =
-    'Enter plan mode: until the user leaves it, every write tool — the ' +
+    'Enter plan mode for your process run (other runs are not affected): until the user leaves it, every write tool — the ' +
     '`tomAi_*` writers and Claude Code\'s writing built-ins (Bash, Write, ' +
     'Edit, …) — is refused with "' + PLAN_MODE_REFUSAL + '", on every ' +
     'transport; reading tools, tomAi_askUser / tomAi_askUserPicker / ' +
@@ -226,6 +240,8 @@ export const ENTER_PLAN_MODE_TOOL: SharedToolDefinition<EnterPlanModeInput> = {
 export interface ExitPlanModeInput { plan?: string }
 
 export async function exitPlanModeImpl(input: ExitPlanModeInput, clock: PlanModeClock = realClock): Promise<string> {
+    // The calling turn's run (vscimpb81): plan mode is per process run.
+    const planMode = stateOf();
     if (!planMode.active) {
         return ok({
             planMode: 'exited',
@@ -274,7 +290,7 @@ export async function exitPlanModeImpl(input: ExitPlanModeInput, clock: PlanMode
 
 export const EXIT_PLAN_MODE_DESCRIPTION =
     'Propose your plan to the user and ask to leave plan mode: `plan` ' +
-    '(required, markdown) is shown in the ANTHROPIC/LLM panel with ' +
+    '(required, markdown) is shown in the user-input panel on your run\'s tab and in the ANTHROPIC/LLM panel with ' +
     '"Accept and leave plan mode" / "Keep planning", and the call waits ' +
     'for the answer. Accepted: `{accepted: true, planMode: "exited"}` — ' +
     'write tools run again, carry out the plan. Keep planning: ' +

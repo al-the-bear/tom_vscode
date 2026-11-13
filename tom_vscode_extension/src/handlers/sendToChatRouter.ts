@@ -37,7 +37,7 @@ import {
     isAnthropicSendInFlight,
     endAnthropicSend,
 } from './sendToChatState';
-import { trackChatSend } from './chatQueueTracking';
+import { trackChatSend, isRunningChatItem } from './chatQueueTracking';
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { needsRunContext } from '../utils/chatPanelRuns';
 
@@ -167,7 +167,8 @@ export async function runAnthropicSend(
     // cancel the token and abort any pending tool-approval gate.
     if (!tryBeginAnthropicSend(() => {
         ownCts?.cancel();
-        AnthropicHandler.instance.abortPendingApprovals();
+        // Chat sends only (this router's send is one): a queue item's approval stays open (vscimpb81).
+        AnthropicHandler.instance.abortPendingApprovals((a) => isRunningChatItem(a.queueItemId));
     })) {
         ownCts?.dispose();
         return {
@@ -209,7 +210,7 @@ export async function runAnthropicSend(
                 ...(userMessageTemplate ? { userMessageTemplate } : {}),
             })),
             // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
-            { cancel: () => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals(); } },
+            { cancel: (chatItemId) => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); } },
         );
 
         // Mirror into the panel UI when it is open, so a Send-to-Chat / script

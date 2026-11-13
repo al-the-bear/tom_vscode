@@ -71,7 +71,7 @@ import {
 } from '../utils/queueStep4Utils';
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
-import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '../services/userWaits';
+import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem, type UserWaitKind } from '../services/userWaits';
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
@@ -3187,7 +3187,8 @@ export class PromptQueueManager {
         void (async () => {
             try {
                 const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
-                AnthropicHandler.instance.abortPendingApprovals();
+                // This item's approvals only: another run's turn keeps its open approval (vscimpb81).
+                AnthropicHandler.instance.abortPendingApprovals(item ? (a) => a.queueItemId === item.id : undefined);
             } catch (err) {
                 logQueue(`cancelActiveDispatch: abortPendingApprovals skipped: ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -3451,7 +3452,7 @@ export class PromptQueueManager {
      * in it (this or another window of the quest); undefined when it is free.
      */
     /** What item `id`'s running dispatch waits for the user for (a question, an approval); none when it waits for nothing. */
-    waitingForUserOf(id: string): Array<'question' | 'approval'> {
+    waitingForUserOf(id: string): UserWaitKind[] {
         return queueItemsWaitingForUser().get(id) ?? [];
     }
 
@@ -4738,7 +4739,7 @@ export class PromptQueueManager {
                     if (!waitItem) { return; }
                     if (control) { this._backgroundControls.set(waitItem.id, control); } else { this._backgroundControls.delete(waitItem.id); }
                 },
-            })));
+            })), waitItem ? itemRun(waitItem) : undefined);
             if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
                 logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
                 if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }

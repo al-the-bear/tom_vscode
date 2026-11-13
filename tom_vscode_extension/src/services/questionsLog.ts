@@ -15,6 +15,7 @@
  * could fail the prompt it was recording would be worse than no journal.
  */
 
+import { currentInteractionRun } from './userWaits';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -45,7 +46,8 @@ export function appendQuestionLogEntry(entry: QuestionLogEntry, questId?: string
         if (!file) { return; }
         FsUtils.ensureDir(path.dirname(file));
         const preamble = fs.existsSync(file) ? '' : questionsLogHeader(quest);
-        fs.appendFileSync(file, preamble + formatQuestionLogEntry(entry) + '\n', 'utf-8');
+        // The run the asking turn works in (vscimpb81), unless the entry names it (an answer that arrives outside the turn).
+        fs.appendFileSync(file, preamble + formatQuestionLogEntry({ ...entry, run: entry.run ?? currentInteractionRun() }) + '\n', 'utf-8');
     } catch {
         // Best-effort diagnostics — never fail the prompt over its own log file.
     }

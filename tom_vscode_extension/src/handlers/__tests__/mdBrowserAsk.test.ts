@@ -9,7 +9,7 @@
  *        the file stays
  *   MA-2 `askKeepFile` unchecked, then a click: the file is deleted and the panel closed
  *   MA-3 a panel already showing the file is reused and gets the bar at once; closing it answers `closed`
- *   MA-4 a second ask while one is open is refused
+ *   MA-4 a second ask of the same process run while one is open is refused (vscimpb81)
  *   MA-5 deactivation cancels an open ask (disposeMarkdownBrowser, which also stops the comments worker)
  */
 
@@ -133,12 +133,12 @@ describe('tomAi_askInMdBrowser in the MD Browser', () => {
         assert.ok(fs.existsSync(abs));
     });
 
-    test('MA-4: one at a time', async () => {
+    test('MA-4: one per process run', async () => {
         file('ask4.md');
         const first = ASK_IN_MD_BROWSER_TOOL.execute({ filePath: 'ask4.md', buttons: BUTTONS });
         await tick();
         const second = JSON.parse(await ASK_IN_MD_BROWSER_TOOL.execute({ filePath: 'ask4.md', buttons: BUTTONS }));
-        assert.match(second.error, /one at a time/);
+        assert.match(second.error, /of run "default" is already open — one per process run/);
         lastPanel().dispose();
         assert.equal(JSON.parse(await first).closed, true);
     });
