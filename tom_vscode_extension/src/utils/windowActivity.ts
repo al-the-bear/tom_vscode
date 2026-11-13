@@ -15,6 +15,8 @@ export interface SummaryItem {
     anthropicProfileId?: string;
     session?: string;
     lastDispatched?: { kind: string; transport?: string; anthropicProfileId?: string; dispatchedAt?: string };
+    /** Its turn waits in tomAi_waitFor. */
+    waitingFor?: { reason: string; until: string };
 }
 
 export interface SummaryQueue {
@@ -68,6 +70,7 @@ export function summarizeQueue(q: SummaryQueue): WindowQueueSummary {
                 ...(profileId ? { profileId } : {}),
                 ...(transport === 'anthropic' ? { session: sending.session ?? q.defaultSession ?? 'default' } : {}),
                 ...((ld?.dispatchedAt ?? sending.sentAt) ? { since: ld?.dispatchedAt ?? sending.sentAt } : {}),
+                ...(sending.waitingFor ? { waitingFor: { reason: sending.waitingFor.reason, until: sending.waitingFor.until } } : {}),
             },
         } : {}),
     };

@@ -1508,6 +1508,7 @@ import { TEST_TOOLS } from './test-tools';
 import { PAST_TOOL_ACCESS_TOOLS } from './past-tool-access-tools';
 import { PROMPT_HISTORY_TOOLS } from './prompt-history-tools';
 import { ID_PREFIX_TOOLS } from './id-prefix-tools';
+import { WAIT_FOR_TOOLS } from './wait-for-tool';
 import { SKILL_TOOLS } from './skill-tools';
 import { DESCRIBE_TOOL_TOOLS } from './describe-tool';
 import { OUTPUT_CHANNEL_TOOLS } from './output-channel-tools';
@@ -1603,6 +1604,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...OUTPUT_CHANNEL_TOOLS,      // readOutputChannel — this window's output channels, read from the files VS Code writes
     ...DESCRIBE_TOOL_TOOLS,       // describeTool — a tool's full description, arguments and doc/llm_tools.md section
     ...ID_PREFIX_TOOLS,           // generateIdPrefix — date-based letters-only code for collision-free hand-authored ids
+    ...WAIT_FOR_TOOLS,            // waitFor — a turn waits on something outside it, shown on its queue item (vscimpb82)
     ...SKILL_TOOLS,               // loadSkill — a .claude/skills SKILL.md and its files (direct, Local LLM, VS Code LM)
     ...QUEST_PROCESS_TOOLS,       // listProcesses, getProcess, getProcessState (read-only), setProcessState — the quest's process
     ...PROCESS_STACK_TOOLS,       // getProcessStack, listSubprocessCandidates, getSubprocessRuns (read-only), suggestSubprocess — nested processes

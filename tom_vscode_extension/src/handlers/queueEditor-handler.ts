@@ -40,6 +40,7 @@ import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
 import { backgroundWaitLine, formatLimit, listBackgroundWork } from '../utils/backgroundWait';
+import { clockLabel, waitForLine, waitForUntilLabel } from '../utils/waitFor';
 import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
 import { questTrailFolder } from '../utils/questPaths';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
@@ -679,6 +680,10 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'sendNow':
             await qm.sendNow(msg.id);
             break;
+        case 'interruptWaitFor':
+          // The waiting line's button: interrupt the turn's wait and move on (vscimpb82).
+          if (!qm.interruptWaitFor(String(msg.id ?? ''))) { vscode.window.showInformationMessage('The item no longer waits.'); }
+          break;
         case 'continueSending':
           // Continue asks first: Answer now / Resend this stage / Skip (vscimpb55).
           await continueWithChoice(qm, msg.id);
@@ -1129,6 +1134,7 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     const question = qm.pendingQuestionOf(id);
     const walk = walkPrefixOf(item) !== undefined;
     const background = qm.backgroundWaitOf(id);
+    const waitFor = qm.waitForOf(id);
     const options = continueOptions({
         waitingForAnswer: question !== undefined,
         canResend: item.lastDispatched !== undefined,
@@ -1137,11 +1143,13 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
         canLetNextGoFirst: isLoopItem(item) && !qm.letNextGoFirstUnavailable(id),
         yieldArmed: item.yieldAfterIteration === true,
         ...(background ? { backgroundLimit: formatLimit(background.limitMinutes) } : {}),
+        waitingFor: waitFor !== undefined,
     });
     const text = continuePrompt({
         waitingSince: question ? waitingSinceLabel(question.askedAt, Date.now()) : undefined,
         walk,
         ...(background ? { backgroundWait: backgroundWaitLine(background, Date.now()) } : {}),
+        ...(waitFor ? { waitingFor: waitForLine(waitFor, Date.now()) } : {}),
     });
     const picked = await vscode.window.showWarningMessage(text.message, { modal: true, detail: text.detail }, ...options.map((o) => o.label));
     const action: ContinueAction | undefined = options.find((o) => o.label === picked)?.action;
@@ -1153,6 +1161,11 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     if (action === 'waitWithoutLimit') { qm.waitWithoutLimit(id); return; }
     if (action === 'keepWaiting') { qm.keepWaitingForBackground(id); return; }
     if (action === 'stopWaiting') { qm.stopBackgroundWait(id); return; }
+    if (action === 'keepWaitingFor') { return; }
+    if (action === 'interruptWaitFor') {
+        if (!qm.interruptWaitFor(id)) { vscode.window.showInformationMessage('The item no longer waits.'); }
+        return;
+    }
     if (action === 'letNextGoFirst') {
         const r = qm.letNextGoFirst(id);
         if (!r.ok) { vscode.window.showInformationMessage(`Let the next item go first: ${r.reason}.`); }
@@ -1191,6 +1204,21 @@ export function backgroundWaitViewOf(item: QueuedPrompt, now = Date.now()): { li
         limit: formatLimit(state.limitMinutes),
         unlimited: state.unlimited === true,
         items: state.items.map((i) => ({ id: i.id, kind: i.kind, description: i.description, ...(i.command ? { command: i.command } : {}), ...(i.outputFile ? { outputFile: i.outputFile } : {}) })),
+    };
+}
+
+/** What the editor shows of a sending item's wait in tomAi_waitFor (vscimpb82), or undefined when it does not wait. */
+export function waitForViewOf(item: QueuedPrompt, now = Date.now()): { reason: string; details?: string; until: string; untilLabel: string; left: string; since: string } | undefined {
+    if (item.status !== 'sending' || !item.waitingFor) { return undefined; }
+    const w = item.waitingFor;
+    const until = Date.parse(w.until);
+    return {
+        reason: w.reason,
+        ...(w.details ? { details: w.details } : {}),
+        until: w.until,
+        untilLabel: Number.isFinite(until) ? clockLabel(until, now) : w.until,
+        left: waitForUntilLabel(w, now),
+        since: w.since,
     };
 }
 
@@ -1367,6 +1395,8 @@ function buildState(): Record<string, unknown> {
                 ...(pendingQuestionLabelOf(item) ? { pendingQuestionSince: pendingQuestionLabelOf(item) } : {}),
                 // Its turn waits for its background work: the line, the limit and the running tasks (the ? list).
                 ...(backgroundWaitViewOf(item) ? { backgroundWaitView: backgroundWaitViewOf(item) } : {}),
+                // Its turn waits in tomAi_waitFor: the reason, until when, how long is left (vscimpb82).
+                ...(waitForViewOf(item) ? { waitForView: waitForViewOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };

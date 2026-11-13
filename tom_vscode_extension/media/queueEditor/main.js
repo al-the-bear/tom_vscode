@@ -561,6 +561,12 @@ function runTabState(run) {
   return 'idle';
 }
 
+/** `; waiting: <reason> until 14:20` when the run's sending item waits in tomAi_waitFor (vscimpb82). */
+function runTabWaitNote(run) {
+  const waiting = currentItems.find(function(i) { return tabRunOf(i) === run && i.status === 'sending' && i.waitForView; });
+  return waiting ? '; waiting: ' + escapeHtml(String(waiting.waitForView.reason)) + ' until ' + escapeHtml(String(waiting.waitForView.untilLabel)) : '';
+}
+
 /** A run tab's state: its icon and word (a function, so the first render — before this point of the script — can use it). */
 function runTabStateView(state) {
   return {
@@ -583,7 +589,7 @@ function renderRunTabs() {
     const active = run === selectedRun;
     return '<button class="run-tab run-tab-' + state + (active ? ' active' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '"'
       + ' data-run="' + escapeHtml(run) + '" data-state="' + state + '"'
-      + ' title="Run ' + escapeHtml(run) + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + '">'
+      + ' title="Run ' + escapeHtml(run) + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + runTabWaitNote(run) + '">'
       + '<span class="codicon ' + runTabStateView(state).icon + '"></span> ' + escapeHtml(run)
       + (run === currentRun ? ' <span class="muted">(this window)</span>' : '')
       + (n ? ' <span class="run-tab-count">' + n + '</span>' : '')
@@ -706,6 +712,10 @@ function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', i
 function resendSendingStage(id) { vscode.postMessage({ type: 'resendSendingStage', id }); }
 // eslint-disable-next-line no-unused-vars -- called by a waiting item's background-wait buttons (queueEntryRenderFunctions.js)
 function backgroundWaitAction(id, action) { vscode.postMessage({ type: 'backgroundWaitAction', id, action }); }
+// eslint-disable-next-line no-unused-vars -- called by a waiting item's Interrupt button (renderWaitFor)
+function interruptWaitFor(id) { vscode.postMessage({ type: 'interruptWaitFor', id }); }
+// The waiting lines' time left (renderWaitFor) moves on without a redraw.
+setInterval(function() { if (typeof tickWaitForLines === 'function') { tickWaitForLines(document); } }, 30000);
 // eslint-disable-next-line no-unused-vars -- called by the Open question button of an item waiting for an answer
 function openPendingQuestion(id) { vscode.postMessage({ type: 'openPendingQuestion', id }); }
 function continueOnProfile(id, profileId) { vscode.postMessage({ type: 'continueOnProfile', id, profileId }); }

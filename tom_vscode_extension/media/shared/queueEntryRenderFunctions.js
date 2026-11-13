@@ -515,6 +515,7 @@ function renderEntry(item, idx) {
     headerHtml +
     // Waiting for its background work: always visible, with the ? list and the three choices.
     renderBackgroundWait(item, safeId) +
+    renderWaitFor(item, safeId) +
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
     // The chips come first, under the header: they say why the item will
     // not be sent, or why its last send did not complete — easy to miss below
@@ -608,6 +609,47 @@ document.addEventListener('click', function(e) {
   e.preventDefault();
   showRepetitionAnswer(chip.getAttribute('data-qid'), chip.getAttribute('data-rep-key'));
 });
+
+/**
+ * A sending item whose turn waits in tomAi_waitFor (waitForView, built by the
+ * host; vscimpb82): the reason, until when and how long is left (kept current
+ * by tickWaitForLines), and Interrupt the wait — the agent ends its turn with
+ * a note and the item steps back behind the next item of its run.
+ */
+function renderWaitFor(item, safeId) {
+  var view = item.waitForView;
+  if (!view || item.status !== 'sending') { return ''; }
+  var tip = 'The turn waits on something outside it (tomAi_waitFor) since ' + String(view.since) + (view.details ? ': ' + String(view.details) : '');
+  return '<div class="wait-for" data-qid="' + escapeHtml(String(item.id)) + '">'
+    + '<span class="wait-for-badge" title="' + escapeHtml(tip) + '">\u23f3 Waiting: ' + escapeHtml(String(view.reason)) + ' \u2014 '
+    + '<span class="wait-for-left" data-until="' + escapeHtml(String(view.until)) + '">' + escapeHtml(String(view.left)) + '</span></span>'
+    + ' <button type="button" class="wait-for-btn" onclick="event.stopPropagation();interruptWaitFor(\'' + safeId + '\')" title="The agent is told you moved on and ends its turn with a note of what is still to do; the item steps back behind the next item of its run and goes on from that note when it runs again">Interrupt the wait and move on</button>'
+    + '</div>';
+}
+
+/** `until 14:20 (1 h 5 min left)` for a wait ending at `untilIso`, as the host words it (utils/waitFor.ts). */
+function waitForLeftLabel(untilIso, now) {
+  var until = Date.parse(untilIso);
+  if (!isFinite(until)) { return ''; }
+  var d = new Date(until);
+  var t = new Date(now);
+  var two = function(n) { return n < 10 ? '0' + n : String(n); };
+  var clock = two(d.getHours()) + ':' + two(d.getMinutes());
+  if (d.toDateString() !== t.toDateString()) { clock = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + clock; }
+  var minutes = Math.floor(Math.max(0, until - now) / 60000);
+  var left = minutes < 1 ? 'under a minute' : minutes < 60 ? minutes + ' min'
+    : (minutes % 60 === 0 ? Math.floor(minutes / 60) + ' h' : Math.floor(minutes / 60) + ' h ' + (minutes % 60) + ' min');
+  return 'until ' + clock + ' (' + left + ' left)';
+}
+
+/** Keep every waiting line's time left current (called each 30 s by the editor). */
+// eslint-disable-next-line no-unused-vars -- called by media/queueEditor/main.js
+function tickWaitForLines(root, now) {
+  var spans = (root || document).querySelectorAll('.wait-for-left[data-until]');
+  for (var i = 0; i < spans.length; i++) {
+    spans[i].textContent = waitForLeftLabel(spans[i].getAttribute('data-until'), now === undefined ? Date.now() : now);
+  }
+}
 
 /**
  * A sending item whose turn waits for its background work (backgroundWaitView,

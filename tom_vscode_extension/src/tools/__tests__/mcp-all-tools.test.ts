@@ -305,6 +305,7 @@ function inputs(): Record<string, Input> {
         tomAi_askCopilot: { prompt: 'sandbox', waitForAnswer: false },
         tomAi_askBigBrother: { operation: 'list' },
         tomAi_notifyUser: { message: 'from the MCP test', channel: 'vscode' },
+        tomAi_waitFor: { reason: 'the MCP test waits a moment', minutes: 0.002 },
         tomAi_fetchWebpage: { url: 'https://example.invalid/' },
         tomAi_webSearch: { query: 'sandbox' },
         tomAi_spawnSubagent: { prompt: 'Summarise the sandbox.', maxRounds: 1 },

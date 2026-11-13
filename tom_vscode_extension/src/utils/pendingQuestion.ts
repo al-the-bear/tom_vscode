@@ -12,7 +12,7 @@
  */
 
 /** What Continue does on a running item. */
-export type ContinueAction = 'answer' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'letNextGoFirst' | 'resend' | 'skip';
+export type ContinueAction = 'answer' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'keepWaitingFor' | 'interruptWaitFor' | 'letNextGoFirst' | 'resend' | 'skip';
 
 export interface ContinueOption {
     action: ContinueAction;
@@ -41,8 +41,15 @@ export const QUESTION_CLOSED_BY_SKIP =
  * the item's turn waits for its background work (`backgroundLimit`: the
  * limit as text, e.g. `6 h`) it also offers the wait's three choices.
  */
-export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string; canLetNextGoFirst?: boolean; yieldArmed?: boolean }): ContinueOption[] {
+export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string; canLetNextGoFirst?: boolean; yieldArmed?: boolean; waitingFor?: boolean }): ContinueOption[] {
     const options: ContinueOption[] = [];
+    // The turn waits in tomAi_waitFor (vscimpb82): keep waiting, or interrupt the wait and move on.
+    if (o.waitingFor) {
+        options.push(
+            { action: 'keepWaitingFor', label: 'Keep waiting' },
+            { action: 'interruptWaitFor', label: 'Interrupt the wait and move on' },
+        );
+    }
     if (o.waitingForAnswer) { options.push({ action: 'answer', label: 'Answer now' }); }
     if (o.backgroundLimit !== undefined) {
         options.push(
@@ -63,8 +70,16 @@ export function continueOptions(o: { waitingForAnswer: boolean; canResend: boole
 }
 
 /** The dialog's message and detail. */
-export function continuePrompt(o: { waitingSince?: string; walk: boolean; backgroundWait?: string }): { message: string; detail: string } {
+export function continuePrompt(o: { waitingSince?: string; walk: boolean; backgroundWait?: string; waitingFor?: string }): { message: string; detail: string } {
     const skip = o.walk ? 'Skip ends the turn and goes on with the next todo' : 'Skip ends the turn and goes on with the next stage';
+    if (o.waitingFor) {
+        return {
+            message: `This item's turn is waiting: ${o.waitingFor}.`,
+            detail: 'Keep waiting leaves it as it is. Interrupt the wait and move on: the agent is told you moved on, ends its turn '
+                + 'with a note of what is still to do, and the item steps back behind the next item of its run; when it runs again, '
+                + `it goes on from that note. Resend ends the turn and sends the same prompt again. ${skip}.`,
+        };
+    }
     if (o.backgroundWait && !o.waitingSince) {
         return {
             message: `This item's turn is waiting for its background work (${o.backgroundWait}).`,

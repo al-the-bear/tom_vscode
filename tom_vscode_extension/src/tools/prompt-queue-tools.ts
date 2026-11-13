@@ -149,6 +149,8 @@ export interface QueueItemSnapshot {
     notificationOf?: string;
     /** On an item another quest's window sent: its sender. */
     from?: { quest: string; windowId: string; host: string; sentAt: string };
+    /** While its turn waits in tomAi_waitFor (utils/waitFor.ts): reason, details, since, until. */
+    waitingFor?: { reason: string; details?: string; since: string; until: string };
 }
 
 /**
@@ -164,7 +166,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
-    'yieldAfterIteration',
+    'yieldAfterIteration', 'waitingFor',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -423,6 +425,8 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         ...(i.doneNotificationPrompt ? { doneNotificationPrompt: i.doneNotificationPrompt, doneNotificationDisabled: !!i.doneNotificationDisabled } : {}),
         ...(i.notificationOf ? { notificationOf: i.notificationOf } : {}),
         ...(i.from ? { from: i.from } : {}),
+        // Its turn waits in tomAi_waitFor (vscimpb82): reason, since, until.
+        ...(i.status === 'sending' && i.waitingFor ? { waitingFor: { reason: i.waitingFor.reason, since: i.waitingFor.since, until: i.waitingFor.until, ...(i.waitingFor.details ? { details: i.waitingFor.details } : {}) } } : {}),
     };
 }
 

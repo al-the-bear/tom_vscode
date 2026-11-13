@@ -189,3 +189,8 @@
 .run-tab-sending .codicon { color: var(--vscode-charts-green, #3fb950); }
 .run-tab-waiting .codicon { color: var(--vscode-charts-blue, #3794ff); }
 .run-tab-paused .codicon { color: var(--vscode-charts-yellow, #d29922); }
+
+/* A turn waiting in tomAi_waitFor (renderWaitFor). */
+.wait-for { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #3794ff; background: rgba(55,148,255,0.08); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.wait-for-badge { font-weight: 600; }
+.wait-for-btn { font-size: 10px; padding: 1px 7px; border-radius: 3px; border: 1px solid #3794ff; background: transparent; color: var(--vscode-foreground); cursor: pointer; }

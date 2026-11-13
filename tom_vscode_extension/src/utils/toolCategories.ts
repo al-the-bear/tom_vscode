@@ -302,6 +302,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_askUserPicker',
         'tomAi_askInMdBrowser',
         'tomAi_notifyUser',
+        'tomAi_waitFor',
     ],
     'VS Code Commands': [
         'tomAi_listCommands',

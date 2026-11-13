@@ -204,6 +204,8 @@ export interface QueuePromptYaml {
     'background-wait-limit-minutes'?: number;
     /** While a turn waits for its background work: since, the limit and what still runs (utils/backgroundWait.ts). */
     'background-wait'?: unknown;
+    /** What a turn of the sending item waits for in tomAi_waitFor (src/utils/waitFor.ts): reason, details, since, until. */
+    'waiting-for'?: unknown;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */
@@ -221,6 +223,8 @@ export interface QueueMetaYaml {
     'send-between'?: boolean;
     /** "Let the next item go first": yields after its running iteration (queueYield.ts). */
     'yield-after-iteration'?: boolean;
+    /** The user interrupted the item's wait (tomAi_waitFor): when it runs again, its last stage is sent again with a note. */
+    'resume-after-wait'?: boolean;
     /** The item's kind when not a plain prompt: `timed` (queued by a timed request) or `reminder`. */
     type?: 'timed' | 'reminder';
     /** On an item a timed request queued: the id of that timed request (TimerEngine). */

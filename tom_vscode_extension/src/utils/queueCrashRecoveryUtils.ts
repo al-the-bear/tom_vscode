@@ -36,6 +36,7 @@ export type CrashRecoveryItem = {
     inFlightRepetition?: unknown;
     /** A turn's background wait: the turn (and the CLI it waited in) did not survive the crash. */
     backgroundWait?: unknown;
+    waitingFor?: unknown;
     // Fields intentionally *not* listed here are preserved as-is
     // (including lastDispatched and warning).
 };
@@ -56,6 +57,7 @@ export function applyCrashRecovery(items: CrashRecoveryItem[]): number {
         item.lastReminderAt = undefined;
         item.inFlightRepetition = undefined;
         item.backgroundWait = undefined;
+        item.waitingFor = undefined;
         count++;
     }
     return count;

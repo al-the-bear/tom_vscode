@@ -75,6 +75,8 @@ import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem } from '..
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
+import { WAIT_RESUME_NOTE, waitForFromYaml, waitForToYaml, type WaitForState } from '../utils/waitFor';
+import { WaitForRegistry } from '../services/waitForRegistry';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
@@ -343,6 +345,18 @@ export interface QueuedPrompt {
     backgroundWait?: BackgroundWaitState;
     /** The latest main answer's turn ended with background work still running (its answer carries the hint): shown red. */
     answerBackgroundLeft?: true;
+    /**
+     * While a turn of the sending item waits in `tomAi_waitFor` (utils/waitFor.ts):
+     * the reason, since when and until when. Persisted, so the editor shows it after a
+     * merge reload; cleared when the wait ends and by crash recovery.
+     */
+    waitingFor?: WaitForState;
+    /**
+     * The user interrupted the item's wait and moved on: the item stepped back to
+     * pending (or staged) and, when it runs again, sends its last stage again with
+     * WAIT_RESUME_NOTE instead of starting afresh.
+     */
+    resumeAfterWait?: boolean;
     /** Continuations a walk iteration of this item gets while its todo is not completed; unset: the queue's (default 2). */
     walkContinuations?: number;
     /**
@@ -752,6 +766,8 @@ export class PromptQueueManager {
     private _frameOwners = new Map<string, symbol>();
     /** The controls of each sending item's background wait (Wait without limit, Keep waiting, Stop waiting), while its send runs. */
     private readonly _backgroundControls = new Map<string, BackgroundWaitControl>();
+    /** The sending items whose wait (tomAi_waitFor) the user interrupted: they step back when their turn ends. */
+    private readonly _waitInterrupted = new Set<string>();
 
 
     /** Maps QueuedPrompt.id → entry filename on disk. */
@@ -1057,6 +1073,9 @@ export class PromptQueueManager {
         // A question opens or closes: the editor shows it (and its Open question button) on the item.
         const stopQuestions = AskUserRegistry.instance.onDidChange(() => m._onDidChange.fire());
         ctx.subscriptions?.push({ dispose: stopQuestions });
+        // A turn starts or stops waiting in tomAi_waitFor: the item shows it (vscimpb82).
+        const stopWaitFor = WaitForRegistry.instance.onChange((wait, phase, outcome) => m._onWaitForChange(wait.queueItemId, phase === 'begin' ? wait.state : undefined, outcome));
+        ctx.subscriptions?.push({ dispose: stopWaitFor });
         // Items other quests' windows sent while this window was not running, and from now on as they arrive.
         m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
         void m.takeInbox();
@@ -3144,6 +3163,11 @@ export class PromptQueueManager {
         // The item's dispatch (and one of no item); without an item, every dispatch.
         if (item) {
             this._itemEpochs.set(item.id, (this._itemEpochs.get(item.id) ?? 0) + 1);
+            // A wait its turn is in (tomAi_waitFor) ends with it.
+            if (WaitForRegistry.instance.cancelForQueueItem(item.id)) {
+                logQueue(`Item ${item.id}: its wait (tomAi_waitFor) was cancelled with the dispatch`);
+            }
+            this._waitInterrupted.delete(item.id);
         } else {
             this._globalEpoch++;
         }
@@ -3739,6 +3763,19 @@ export class PromptQueueManager {
             await this._runProcessMoveMarker(item);
             return;
         }
+        // Its wait was interrupted (vscimpb82): the stage it waited in is sent again, with a note.
+        if (item.resumeAfterWait) {
+            item.resumeAfterWait = undefined;
+            if (item.lastDispatched) {
+                logQueue(`sendItem: item ${item.id} resumes after its interrupted wait — its last stage is sent again`);
+                try {
+                    await this.resendLastPrompt(item.id, undefined, { note: WAIT_RESUME_NOTE });
+                } catch (err) {
+                    this._markItemError(item, err, `sendItem(${item.id}) after an interrupted wait`, readInterruptionFromError(err));
+                }
+                return;
+            }
+        }
 
         // **Resume vs fresh-start gate.** Items that carry prior
         // dispatch counters (paused mid-flight, reset from error
@@ -3854,7 +3891,7 @@ export class PromptQueueManager {
     async resendLastPrompt(
         id: string,
         override?: { text: string; anthropicProfileId: string; session: string },
-        opts?: { interruptRunning?: boolean },
+        opts?: { interruptRunning?: boolean; note?: string },
     ): Promise<void> {
         const item = this._items.find(i => i.id === id);
         if (!item) {
@@ -3935,7 +3972,9 @@ export class PromptQueueManager {
             // text the user had just cancelled. See `resolveResendText`.
             const resendText = override?.text ?? resolveResendText(last, item.expandedText);
             // A running turn resent: the agent is told its turn was interrupted (not recorded as the stage's text).
-            const sentText = interruptRunning ? `${RESEND_INTERRUPTED_NOTE}\n\n${resendText}` : resendText;
+            // A stage sent again after an interrupted wait carries its own note (vscimpb82).
+            const note = interruptRunning ? RESEND_INTERRUPTED_NOTE : opts?.note;
+            const sentText = note ? `${note}\n\n${resendText}` : resendText;
             const dispatchResult = await this.dispatchStage(sentText, resolved, container);
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
@@ -4705,6 +4744,13 @@ export class PromptQueueManager {
                 if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
                 return { mode: 'direct', answerText: result.text, superseded: true };
             }
+            // The user interrupted the turn's wait and moved on (vscimpb82): the turn ended with its note, and
+            // the item steps back behind the next item of its lane instead of going on with its next stage.
+            if (waitItem && this._waitInterrupted.delete(waitItem.id)) {
+                this._addItemSendUsage(waitItem, result.usage);
+                this._stepBackAfterWaitInterrupt(waitItem);
+                return { mode: 'direct', answerText: result.text, superseded: true };
+            }
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
                 if (waitItem && stageForAnswer === waitItem) {
@@ -4827,6 +4873,80 @@ export class PromptQueueManager {
         logQueue(`Item ${id}: stop waiting for its background work (the user's choice)`);
         control.stop();
         return true;
+    }
+
+    // ----- tomAi_waitFor (vscimpb82; src/utils/waitFor.ts) -------------------
+
+    /**
+     * A turn of item `id` starts (`state`) or stops (undefined) waiting in
+     * tomAi_waitFor: the item shows it; an interrupted wait marks the item to
+     * step back when its turn ends.
+     */
+    private _onWaitForChange(id: string | undefined, state: WaitForState | undefined, outcome?: string): void {
+        if (!id) { this._onDidChange.fire(); return; }
+        const live = this._items.find(i => i.id === id);
+        if (!live) { return; }
+        if (state) {
+            live.waitingFor = state;
+            logQueue(`Item ${id}: its turn waits until ${state.until} — ${state.reason}`);
+        } else {
+            if (live.waitingFor === undefined) { return; }
+            delete live.waitingFor;
+            logQueue(`Item ${id}: its wait ended (${outcome ?? 'ended'})`);
+        }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /** What a turn of item `id` waits for in tomAi_waitFor, while it waits. */
+    waitForOf(id: string): WaitForState | undefined {
+        const item = this._items.find(i => i.id === id);
+        return item?.status === 'sending' ? item.waitingFor : undefined;
+    }
+
+    /**
+     * Interrupt the wait of the sending item `id` and move on (decision (a)):
+     * the tool answers that the user interrupted it, the agent ends its turn
+     * with a note of what is still to do, and the item then steps back behind
+     * the next item of its lane. Answers whether it waited.
+     */
+    interruptWaitFor(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') { return false; }
+        this._waitInterrupted.add(id);
+        if (!WaitForRegistry.instance.interrupt(id)) {
+            this._waitInterrupted.delete(id);
+            return false;
+        }
+        logQueue(`Item ${id}: the user interrupted its wait and moved on — it steps back when its turn ends`);
+        return true;
+    }
+
+    /**
+     * After the turn whose wait the user interrupted: the item goes back to
+     * pending behind the next pending item of its lane (staged when none
+     * follows, so it does not run again at once), its counters, run id and
+     * answers kept; when it runs again its last stage is sent again with
+     * WAIT_RESUME_NOTE (`resumeAfterWait`). The lane goes on.
+     */
+    private _stepBackAfterWaitInterrupt(item: QueuedPrompt): void {
+        const live = this._items.find(i => i.id === item.id) ?? item;
+        // This frame's dispatch is over; a frame still holding the item stands down.
+        this._itemEpochs.set(live.id, (this._itemEpochs.get(live.id) ?? 0) + 1);
+        const target = yieldTarget(this._laneItemsOf(live), live);
+        if (target) { this._items = orderForYield(this._items, live, target); }
+        live.status = target ? 'pending' : 'staged';
+        live.resumeAfterWait = true;
+        live.awaitingAnswer = false;
+        live.inFlightRepetition = undefined;
+        live.yieldAfterIteration = undefined;
+        delete live.waitingFor;
+        logQueue(target
+            ? `Item ${live.id}: after its interrupted wait it steps back behind ${target.id}; it resumes after it`
+            : `Item ${live.id}: after its interrupted wait nothing follows in its lane — held as staged until sent again`);
+        this.persist();
+        this._onDidChange.fire();
+        setTimeout(() => { void this.sendNext(); }, 0);
     }
 
     /** Add one stage's usage to the item's run sum (`sendUsage`), so the queue editor shows it while the item runs. */
@@ -6284,6 +6404,7 @@ export class PromptQueueManager {
                 pauseAfter: meta['pause-after'] === true ? true : undefined,
                 sendBetween: meta['send-between'] === true ? true : undefined,
                 yieldAfterIteration: meta['yield-after-iteration'] === true ? true : undefined,
+                resumeAfterWait: meta['resume-after-wait'] === true ? true : undefined,
                 type: kind.type,
                 ...(kind.timedEntryId ? { timedEntryId: kind.timedEntryId } : {}),
                 createdAt: (meta.created as string) || new Date().toISOString(),
@@ -6310,6 +6431,7 @@ export class PromptQueueManager {
                 answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
                 ...(validLimit(main['background-wait-limit-minutes']) !== undefined ? { backgroundWaitLimitMinutes: validLimit(main['background-wait-limit-minutes']) } : {}),
                 ...(backgroundWaitFromYaml(main['background-wait']) ? { backgroundWait: backgroundWaitFromYaml(main['background-wait']) } : {}),
+                ...(waitForFromYaml(main['waiting-for']) ? { waitingFor: waitForFromYaml(main['waiting-for']) } : {}),
                 // Multi-transport — absence means "inherit queue default"
                 // at dispatch time; existing YAMLs without these fields
                 // continue to resolve to 'copilot' so the round-trip is
@@ -6466,6 +6588,7 @@ export class PromptQueueManager {
             'answer-wait-minutes': item.answerWaitMinutes,
             ...(item.backgroundWaitLimitMinutes !== undefined ? { 'background-wait-limit-minutes': item.backgroundWaitLimitMinutes } : {}),
             ...(item.backgroundWait ? { 'background-wait': backgroundWaitToYaml(item.backgroundWait) } : {}),
+            ...(item.waitingFor ? { 'waiting-for': waitForToYaml(item.waitingFor) } : {}),
             // Multi-transport round-trip (spec §4.14). Omit fields when
             // they're falsy so the YAML stays clean for Copilot items.
             ...(item.transport ? { transport: item.transport } : {}),
@@ -6649,6 +6772,7 @@ export class PromptQueueManager {
                 ...(item.pauseAfter ? { 'pause-after': true } : {}),
                 ...(item.sendBetween ? { 'send-between': true } : {}),
                 ...(item.yieldAfterIteration ? { 'yield-after-iteration': true } : {}),
+                ...(item.resumeAfterWait ? { 'resume-after-wait': true } : {}),
                 ...(item.type === 'timed' || item.type === 'reminder' ? { type: item.type } : {}),
                 // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
                 ...(item.timedEntryId ? { 'timed-entry-id': item.timedEntryId } : {}),

@@ -56,6 +56,8 @@ export interface WindowSendingItem {
     session?: string;
     /** ISO time the send started. */
     since?: string;
+    /** Its turn waits in tomAi_waitFor (vscimpb82): what for and until when. */
+    waitingFor?: { reason: string; until: string };
 }
 
 /** The queue of a window, summed up. */

@@ -172,6 +172,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_deleteSessionTodo',
     // Notification
     'tomAi_notifyUser',
+    // Waiting on something outside the turn (vscimpb82)
+    'tomAi_waitFor',
     // Issues (bottom-panel WS tab — issue tracker)
     'tomAi_listIssueRepos',
     'tomAi_listIssues',
