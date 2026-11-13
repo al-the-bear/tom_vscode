@@ -51,7 +51,10 @@
  * ends up in the extension. The script lists such edits before it packs, and
  * `--from-head` packs ai_build's committed HEAD instead (exported with
  * `git archive` into <workspace>/ztmp/som-pack-head/), so the extension gets
- * only what was committed.
+ * only what was committed. `TOM_SOM_FROM_HEAD=1` in the environment does the
+ * same, which is how an install (`TOM_SOM_FROM_HEAD=1 ./compile_and_install.sh`,
+ * the .ps1 scripts alike) packs the committed state while a release is in
+ * flight in ai_build.
  *
  * Exit codes: 0 built, 1 a step failed (the message names it).
  */
@@ -168,7 +171,7 @@ function main(aiBuild) {
     }
     const dirty = uncommitted(aiBuild);
     if (dirty.length > 0) {
-        console.warn(`⚠️  ai_build has uncommitted changes in the packed paths; they will be in the extension:\n${dirty.map((l) => `     ${l}`).join('\n')}\n   Use --from-head to pack only what is committed.`);
+        console.warn(`⚠️  ai_build has uncommitted changes in the packed paths; they will be in the extension:\n${dirty.map((l) => `     ${l}`).join('\n')}\n   Use --from-head (an install: TOM_SOM_FROM_HEAD=1) to pack only what is committed.`);
     }
     // Both versions before anything is built: a mismatch stops here, with
     // node_modules and the lockfile still as they were.
@@ -242,7 +245,8 @@ function main(aiBuild) {
 }
 
 if (require.main === module) {
-    const source = process.argv.includes('--from-head') ? exportHead(AI_BUILD_CHECKOUT) : AI_BUILD_CHECKOUT;
+    const fromHead = process.argv.includes('--from-head') || process.env.TOM_SOM_FROM_HEAD === '1';
+    const source = fromHead ? exportHead(AI_BUILD_CHECKOUT) : AI_BUILD_CHECKOUT;
     if (process.argv.includes('--catalog-only')) {
         copyCodeSpecsCatalog(source);
     } else {
