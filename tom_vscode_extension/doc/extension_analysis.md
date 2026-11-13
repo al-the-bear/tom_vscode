@@ -188,7 +188,6 @@ flowchart TD
 | `reusablePromptEditor-handler.ts` | 950 | Reusable prompt .md editor |
 | `commandline-handler.ts` | 929 | Custom CLI commandlines |
 | `copilotTemplates-handler.ts` | 799 | Template-based send-to-chat |
-| `contextSettingsEditor-handler.ts` | 742 | Context & settings webview editor |
 | `windowStatusPanel-handler.ts` | 693 | Window status sidebar panel |
 
 ### Manager Files
@@ -268,7 +267,6 @@ Handler: `wsPanel-handler.ts`
 | Prompt Template Editor | `tomAi.promptTemplateEditor` | `tomAi.editor.promptTemplates` | `promptTemplateEditor-handler.ts` |
 | Global Template Editor | `tomAi.globalTemplateEditor` | `tomAi.editor.globalTemplates` | `globalTemplateEditor-handler.ts` |
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` | `reusablePromptEditor-handler.ts` |
-| Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` | `contextSettingsEditor-handler.ts` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` | `chatVariablesEditor-handler.ts` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` | `processEditor-handler.ts` |
 | Quest TODO Pop-out | `tomAi.questTodoEditor` | Pop-out from sidebar | `questTodoPanel-handler.ts` |

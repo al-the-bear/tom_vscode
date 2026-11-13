@@ -58,12 +58,12 @@ describe('the overview of editors and pages', () => {
         for (const g of TOOL_GROUPS) { assert.ok(toolsOfGroup(g.id).length > 0, `${g.label} has entries`); }
         assert.deepEqual(toolsOfGroup('prompts').map((t) => t.id),
             ['promptTemplates', 'queueTemplates', 'reusablePrompts', 'groupPrompts', 'processTemplates', 'assistPrompts']);
-        assert.deepEqual(toolsOfGroup('queue').map((t) => t.id), ['promptQueue', 'timedRequests', 'providerSdks', 'telegram', 'mcpServer']);
+        assert.deepEqual(toolsOfGroup('queue').map((t) => t.id), ['promptQueue', 'timedRequests', 'providerSdks', 'telegram', 'reminders', 'mcpServer']);
         assert.ok(['process', 'processBranching', 'chatVariables', 'memory', 'createQuest', 'setupWorkspaceFolder']
             .every((id) => toolById(id)?.group === 'quest'));
         assert.ok(['rawTrailViewer', 'summaryTrailViewer', 'mdBrowser', 'openConfig', 'openSettings', 'quickReference', 'help', 'dartBinariesHelp', 'statusPage']
             .every((id) => toolById(id)?.group === 'trails'));
-        const pageSource = read('src', 'handlers', 'statusPage-handler.ts') + read('src', 'utils', 'mcpServerCard.ts') + read('src', 'utils', 'usageSection.ts');
+        const pageSource = read('src', 'handlers', 'statusPage-handler.ts') + read('src', 'utils', 'mcpServerCard.ts') + read('src', 'utils', 'usageSection.ts') + read('src', 'utils', 'reminderSettingsSection.ts');
         for (const t of EXTENSION_TOOLS) {
             assert.ok(!!t.command !== !!t.statusSection, `${t.id}: a command or a section`);
             assert.ok(t.purpose && !t.purpose.includes('\n'), `${t.id}: one line`);

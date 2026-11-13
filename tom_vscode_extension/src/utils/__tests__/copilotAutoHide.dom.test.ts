@@ -7,14 +7,14 @@
  *   AH-2 the webview: the dropdown sits in the Copilot action bar beside Keep and Wrap with the five options; the
  *        panel asks for the stored delay at start (`getAutoHideDelay`) and shows the answer (`autoHideDelay`), so
  *        the choice survives a reload; a change posts `setAutoHideDelay` with the delay in ms
- *   AH-3 the other two places are gone: the chat panels' overlay and the Context & Settings editor carry no
- *        auto-hide field and send none; the handler keeps the delay per window (workspaceState) normalized, and
+ *   AH-3 the other two places are gone: the chat panels' overlay carries no auto-hide field and the Context &
+ *        Settings editor is retired; the handler keeps the delay per window (workspaceState) normalized, and
  *        closes the auxiliary bar that long after a Copilot send
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 
@@ -81,9 +81,8 @@ describe('Copilot auto-hide', () => {
         const chat = read('media', 'chatPanel', 'main.js');
         assert.doesNotMatch(chat, /<legend>Auto-Hide<\/legend>/);
         assert.equal((chat.match(/id="copilot-autohide"/g) ?? []).length, 1, 'one dropdown');
-        assert.doesNotMatch(read('media', 'contextSettingsEditor', 'index.html'), /autohide|Auto-hide/i);
-        assert.doesNotMatch(read('media', 'contextSettingsEditor', 'main.js'), /autohide|autoHide/i);
-        assert.doesNotMatch(read('src', 'handlers', 'contextSettingsEditor-handler.ts'), /autoHide/);
+        assert.ok(!existsSync(join(ROOT, 'media', 'contextSettingsEditor')), 'the Context & Settings editor is retired');
+        assert.ok(!existsSync(join(ROOT, 'src', 'handlers', 'contextSettingsEditor-handler.ts')));
         const handler = read('src', 'handlers', 'chatPanel-handler.ts');
         assert.match(handler, /this\._autoHideDelay = normalizeAutoHideDelay\(context\.workspaceState\.get\(AUTO_HIDE_STATE_KEY, 0\)\);/);
         assert.match(handler, /case 'setAutoHideDelay':[\s\S]{0,200}this\._autoHideDelay = normalizeAutoHideDelay\(message\.value\);\s+await this\._context\.workspaceState\.update\(AUTO_HIDE_STATE_KEY, this\._autoHideDelay\);/);

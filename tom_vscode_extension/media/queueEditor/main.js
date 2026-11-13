@@ -441,8 +441,8 @@ function updateContextSummary() {
   }
 }
 
-function openContextSettings() {
-  vscode.postMessage({ type: 'openContextSettings', run: settingsRun() });
+function openReminderSettings() {
+  vscode.postMessage({ type: 'openReminderSettings' });
 }
 
 function openChatVariables() {

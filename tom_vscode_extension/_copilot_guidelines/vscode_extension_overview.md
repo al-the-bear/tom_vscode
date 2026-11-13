@@ -28,7 +28,7 @@ src/
     questTodoPanel-handler.ts     quest todo custom editor + panel
     questLogs-handler.ts          @CHAT Logs + @WS Documentation quest-document viewers
     trailViewer-handler.ts        *.prompts.md / *.answers.md viewer
-    [globalTemplateEditor, issuesPanel, memoryPanel, contextSettingsEditor,
+    [globalTemplateEditor, issuesPanel, memoryPanel,
      queueEditor, timedRequests-editor, sidebarNotes, etc.]
   managers/                     session state (queue, todos, reminders, variables)
   services/                     persistence

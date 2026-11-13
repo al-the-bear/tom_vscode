@@ -149,7 +149,6 @@
 | Timed Requests | `tomAi.timedRequestsEditor` | `tomAi.editor.timedRequests` |
 | Prompt Template Editor | `tomAi.globalTemplateEditor` | `tomAi.editor.promptTemplates` |
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` |
-| Context & Settings | `tomAi.contextSettingsEditor` | `tomAi.editor.contextSettings` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |

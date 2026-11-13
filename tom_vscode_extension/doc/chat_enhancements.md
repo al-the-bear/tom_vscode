@@ -6,7 +6,7 @@
 
 > **Note:** This is the original design spec. The editor's sends are now one command per target — **Send to Copilot** opens Copilot Chat, **Send to LLM** goes to the ANTHROPIC/LLM panel. See [copilot_chat_tools.md → Send to Copilot and Send to LLM](copilot_chat_tools.md#send-to-copilot-and-send-to-llm) for the current behaviour.
 >
-> Auto-hide is no longer in the Context & Settings popup: it is the **Auto-hide** dropdown in the Copilot subpanel's action bar (Off, 3s, 5s, 10s, 20s) — see [user_guide.md](user_guide.md).
+> The Context & Settings popup and editor described below no longer exist: the quest, role, projects and todo are chat variables (Chat Variables Editor), the reminder alive check and the default reminder template are on the Status Page (Queue & Timer, **Alive check**), the reminder templates are in the Prompt Template Editor (category Reminder), and auto-hide is the **Auto-hide** dropdown in the Copilot subpanel's action bar (Off, 3s, 5s, 10s, 20s) — see [user_guide.md](user_guide.md).
 
 ---
 

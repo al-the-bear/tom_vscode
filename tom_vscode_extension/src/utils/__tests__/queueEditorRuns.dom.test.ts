@@ -17,9 +17,9 @@
  *        Copilot
  *   QR-5 the host: every toolbar action passes the message's run to the manager (handler source)
  *   QR-6 the context bar shows the tab's run (vscimpb60c): its name, position, role and chat variables, which change
- *        with the tab; Position, Variables, the Chat Variables and Context & Settings buttons post the tab's run;
- *        the role of another run than the window's is its step's, shown, not picked
- *   QR-7 the Context & Settings view's run line names the run it was opened for
+ *        with the tab; Position, Variables and the Chat Variables button post the tab's run; the bell posts
+ *        `openReminderSettings` (the Status Page's reminder settings); the role of another run than the window's is
+ *        its step's, shown, not picked
  *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
  *        and posts `moveItemToRun` with the item; on a sending item or an item of a Proceed run it is not; the host
  *        picks among the quest's other runs and calls the manager's moveItemToRun
@@ -208,25 +208,13 @@ describe('Prompt Queue editor — one tab per run', () => {
         linkOf('position').click();
         linkOf('variables').click();
         w.openChatVariables();
-        w.openContextSettings();
+        w.openReminderSettings();
         assert.deepEqual(posted, [
             { type: 'openRunStateFile', run: 'chg2' }, { type: 'openChatVariablesEditor', run: 'chg2' },
-            { type: 'openChatVariablesEditor', run: 'chg2' }, { type: 'openContextSettings', run: 'chg2' },
+            { type: 'openChatVariablesEditor', run: 'chg2' }, { type: 'openReminderSettings' },
         ]);
     });
 
-    test('QR-7: the Context & Settings view names its run', () => {
-        const html = readMedia('contextSettingsEditor', 'index.html');
-        const body = html.split('<body>')[1].split('<script')[0].replace(/\{\{[a-zA-Z]+\}\}/g, '');
-        const w = new JSDOM(`<!DOCTYPE html><body>${body}</body>`, { runScripts: 'outside-only' }).window as Win;
-        w.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
-        w.eval(readMedia('contextSettingsEditor', 'main.js'));
-        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'contextData', quests: [], roles: [], projects: [], todoFiles: [], todos: [], activeProjects: [], reminderTemplates: [], run: 'chg2', windowRun: 'chg1' } }));
-        const line = w.document.getElementById('run-line');
-        assert.equal(line.dataset.run, 'chg2');
-        assert.match(line.textContent, /^Run: chg2 — the quest, role, projects, todo and reminder settings here are the window's/);
-        w.close();
-    });
 
     test('QR-8: the run chip', (t) => {
         const items = [

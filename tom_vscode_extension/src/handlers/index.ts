@@ -57,7 +57,6 @@ export { registerDsNotesViews } from './sidebarNotes-handler';
 export { registerChatPanel } from './chatPanel-handler';
 export { registerWsPanel } from './wsPanel-handler';
 export { registerChatVariablesEditorCommand } from './chatVariablesEditor-handler';
-export { registerContextSettingsEditorCommand } from './contextSettingsEditor-handler';
 export { registerQueueEditorCommand } from './queueEditor-handler';
 export { registerQueueTemplateEditorCommand } from './queueTemplateEditor-handler';
 export { registerTimedRequestsEditorCommand } from './timedRequestsEditor-handler';

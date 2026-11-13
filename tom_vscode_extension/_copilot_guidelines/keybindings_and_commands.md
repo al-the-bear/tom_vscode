@@ -32,7 +32,7 @@ Reference for the shortcut surface. Canonical tables (with descriptions) live in
 - **Send to Anthropic/LLM** — `tomAi.sendToLlm` (the selection), `tomAi.sendToLlm.standard` (the selection or the file, default template), `tomAi.sendToLlm.template` (picked template): the editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session (`src/handlers/sendToLlm-handler.ts`), in the editor context menu and the `Ctrl+Shift+L` chord menu. Profile, session and model selection live on the subpanel action bar (a Local LLM is used through an Anthropic profile on a Local LLM configuration).
 - **Markdown Browser** — `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (live-mode follow-tail for the live trail).
 - **Bridge + CLI + Telegram + Process Monitor** — lifecycle commands; fail-soft when subsystems aren't available.
-- **Editors** — queue, timed requests, prompt templates, reusable prompts, context settings, chat variables, raw / summary trail viewer.
+- **Editors** — queue, timed requests, prompt templates, reusable prompts, chat variables, raw / summary trail viewer. The window's quest, role, projects and todo are chat variables (Chat Variables Editor); the reminder alive check and the default reminder template are on the Status Page (Queue & Timer).
 - **Layout** — reset / maximize / toggle / window state flow.
 - **Notes + todos + status + config** — sidebar focus commands (`tomAi.tomSidebar.focus` opens @TOM, the quest's views; `tomAi.tomWsSidebar.focus` opens @TOM WS, the workspace's) and the status / settings pair.
 

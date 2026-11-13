@@ -709,9 +709,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openQueueTemplatesEditor':
                         await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
                         break;
-                    case 'openContextSettingsEditor':
-                        await vscode.commands.executeCommand('tomAi.editor.contextSettings');
-                        break;
                     case 'openChatVariablesEditor':
                         await vscode.commands.executeCommand('tomAi.editor.chatVariables');
                         break;

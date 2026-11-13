@@ -777,6 +777,8 @@ Use:
 
 The Status Page opens with **Editors and pages**: every editor, page and viewer of the extension in four groups — Prompts & templates, Queue & automation, Quest & process, Trails, logs & setup — each with what it is for and an **Open** button (**Go to** for the ones that are sections of the Status Page itself, such as Telegram, the MCP server and Usage).
 
+Its **Queue & Timer** section also holds the reminder settings: the **Alive check** (On / Off, and after how many minutes without an answer a queue item gets a reminder prompt) and the **Default reminder template** of this window's run (the one a new queue item takes; *none* means the reminder default). **Edit templates** opens the Prompt Template Editor on the reminder templates; **Save** stores the timeout and the template. The bell button of the Prompt Queue and Timed Requests editors opens this place.
+
 ### VS Code settings (`tomAi.*`)
 
 Most of the extension's configuration is in its config file (`@T: Open Config File`). The VS Code settings it contributes, each read by the extension:

@@ -266,8 +266,9 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             }
             return;
         // The context links of a run's tab open that run's data, and the editors say which run (vscimpb60c).
-        case 'openContextSettings':
-            await vscode.commands.executeCommand('tomAi.editor.contextSettings', tabRunOf(msg));
+        // The alive check and the window's default reminder template: the Status Page's reminder settings.
+        case 'openReminderSettings':
+            await vscode.commands.executeCommand('tomAi.statusPage', 'reminders');
             return;
         case 'openChatVariablesEditor':
             await vscode.commands.executeCommand('tomAi.editor.chatVariables', tabRunOf(msg));

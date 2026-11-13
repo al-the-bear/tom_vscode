@@ -163,6 +163,11 @@ function attachStatusPanelListeners(skipEditorInit) {
                 msgData.itemId = (document.getElementById('sp-assist-' + msgData.use) || {}).value || '';
             } else if (action === 'updateReviewMemberId') {
                 msgData.memberId = (document.getElementById('sp-review-memberId') || {}).value || '';
+            } else if (action === 'saveReminderSettings') {
+                msgData.timeoutMinutes = (document.getElementById('sp-reminder-timeout') || {}).value || '';
+                msgData.templateId = (document.getElementById('sp-reminder-template') || {}).value || '';
+            } else if (action === 'editReminderTemplates') {
+                msgData.itemId = (document.getElementById('sp-reminder-template') || {}).value || '';
             } else if (action === 'updateProcessNesting') {
                 msgData.maxDepth = (document.getElementById('sp-process-maxDepth') || {}).value || '';
             } else if (action === 'updateTodoButtonTemplates') {

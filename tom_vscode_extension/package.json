@@ -428,11 +428,6 @@
         "category": "@Tom"
       },
       {
-        "command": "tomAi.editor.contextSettings",
-        "title": "@T: Open Context & Settings Editor",
-        "category": "@Tom"
-      },
-      {
         "command": "tomAi.editor.promptTemplates",
         "title": "@T: Open Prompt Template Editor",
         "category": "@Tom"

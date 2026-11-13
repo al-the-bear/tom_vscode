@@ -8,9 +8,8 @@
  *   RC-2 the Chat Variables editor opened for a run: the title names it, its state has the run, that run's custom
  *        variables and process position; a variable set there goes to that run only; opened without a run it shows
  *        the window's run
- *   RC-3 the Context & Settings editor opened for a run: the title and the state name it
- *   RC-4 the queue editor host: the context links pass the tab's run (Chat Variables, Context & Settings, the state
- *        file of its position); its state carries each run's context
+ *   RC-4 the queue editor host: the context links pass the tab's run (Chat Variables, the state file of its
+ *        position); the reminder link opens the Status Page's reminder settings; its state carries each run's context
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -50,7 +49,6 @@ import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
 import { chatVariablesEditorTitle, openChatVariablesEditor } from '../chatVariablesEditor-handler.js';
-import { contextSettingsEditorTitle, openContextSettingsEditor } from '../contextSettingsEditor-handler.js';
 import { runContextOf } from '../queueEditor-handler.js';
 
 let context: never;
@@ -130,26 +128,14 @@ describe('the context of a Prompt Queue tab\'s run', () => {
         assert.deepEqual([state.run, state.custom.mode, state.process.step], ['default', 'fast', 'plan']);
     });
 
-    test('RC-3: the Context & Settings editor for a run', async () => {
-        openContextSettingsEditor(context, 'r2');
-        const panel = panels().find((p: Json) => p.viewType === 'tomAi.contextSettingsEditor');
-        assert.ok(panel);
-        assert.equal(panel.title, contextSettingsEditorTitle('r2'));
-        assert.equal(panel.title, 'Context & Settings — run r2');
-        for (let i = 0; i < 50 && !lastState(panel, 'contextData'); i++) { await new Promise((r) => setTimeout(r, 20)); }
-        const data = lastState(panel, 'contextData');
-        assert.deepEqual([data?.run, data?.windowRun], ['r2', 'default']);
-    });
 
     test('RC-4: the queue editor host', () => {
         const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'queueEditor-handler.ts'), 'utf8');
-        assert.match(host, /executeCommand\('tomAi\.editor\.contextSettings', tabRunOf\(msg\)\)/);
+        assert.match(host, /case 'openReminderSettings':\s+await vscode\.commands\.executeCommand\('tomAi\.statusPage', 'reminders'\);/);
         assert.match(host, /executeCommand\('tomAi\.editor\.chatVariables', tabRunOf\(msg\)\)/);
         assert.match(host, /case 'openRunStateFile': \{[\s\S]{0,300}runContextOf\(tabRunOf\(msg\) \?\? 'default'\)\.stateFile/);
         assert.match(host, /runContexts: runContextsFor\(items\),/);
         const chatHandler = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'chatVariablesEditor-handler.ts'), 'utf8');
         assert.match(chatHandler, /registerCommand\('tomAi\.editor\.chatVariables', \(run\?: unknown\) =>/);
-        const ctxHandler = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'contextSettingsEditor-handler.ts'), 'utf8');
-        assert.match(ctxHandler, /registerCommand\('tomAi\.editor\.contextSettings', \(run\?: unknown\) =>/);
     });
 });

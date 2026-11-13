@@ -203,8 +203,8 @@ function updateContextSummary() {
   el.textContent = parts.length > 0 ? parts.join('  |  ') : 'No context set';
 }
 
-function openContextSettings() {
-  vscode.postMessage({ type: 'openContextSettings' });
+function openReminderSettings() {
+  vscode.postMessage({ type: 'openReminderSettings' });
 }
 
 function openChatVariables() {

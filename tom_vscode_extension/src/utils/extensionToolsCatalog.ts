@@ -66,6 +66,8 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'Install, update and remove the Anthropic SDK and the Agent SDK with its Claude CLI.' },
     { id: 'telegram', label: 'Telegram', group: 'queue', icon: 'comment-discussion', statusSection: 'telegram',
         purpose: 'Remote control and notifications through the quest\'s Telegram bot (a Status Page section).' },
+    { id: 'reminders', label: 'Reminders', group: 'queue', icon: 'bell', statusSection: 'reminders',
+        purpose: 'The alive check (on / off, its timeout) and the default reminder template of the window\'s run (a Status Page setting).' },
     { id: 'mcpServer', label: 'MCP server', group: 'queue', icon: 'server', statusSection: 'mcpConfig',
         purpose: 'The standalone MCP server: start / stop, its port, key and tool selection (a Status Page section).' },
 
@@ -77,8 +79,6 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         whenAvailable: 'when the running step lists subprocesses or branches' },
     { id: 'chatVariables', label: 'Chat Variables Editor', group: 'quest', icon: 'symbol-variable', command: 'tomAi.editor.chatVariables',
         purpose: 'The chat variables of the window and of each process run (quest, role, custom keys).' },
-    { id: 'contextSettings', label: 'Context & Settings Editor', group: 'quest', icon: 'settings', command: 'tomAi.editor.contextSettings',
-        purpose: 'The window\'s quest, role, active projects and todo file, and the reminder settings.' },
     { id: 'memory', label: 'Memory Panel', group: 'quest', icon: 'database', command: 'tomAi.panel.memory',
         purpose: 'The quest\'s per-session memory and the shared memory files.' },
     { id: 'createQuest', label: 'Create New Quest', group: 'quest', icon: 'new-folder', command: 'tomAi.createQuest',

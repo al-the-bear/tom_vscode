@@ -147,8 +147,9 @@ async function handleMessage(msg: any): Promise<void> {
         case 'getState':
             sendState();
             return;
-        case 'openContextSettings':
-            await vscode.commands.executeCommand('tomAi.editor.contextSettings');
+        // The alive check and the default reminder template: the Status Page's reminder settings.
+        case 'openReminderSettings':
+            await vscode.commands.executeCommand('tomAi.statusPage', 'reminders');
             return;
         case 'openChatVariablesEditor':
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');

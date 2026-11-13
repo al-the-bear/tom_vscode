@@ -51,7 +51,6 @@ import {
     registerChatPanel,
     registerWsPanel,
     registerChatVariablesEditorCommand,
-    registerContextSettingsEditorCommand,
     registerQueueEditorCommand,
     registerTimedRequestsEditorCommand,
     registerGlobalTemplateEditorCommand,
@@ -530,11 +529,6 @@ export async function activate(context: vscode.ExtensionContext) {
     registerProcessTemplateEditor(context);
     registerGroupPromptEditor(context);
     timeStep('processViews', stepStart);
-
-    // Register Context & Settings Editor command
-    stepStart = performance.now();
-    registerContextSettingsEditorCommand(context);
-    timeStep('contextSettingsEditor', stepStart);
 
     // Register Global Template Editor command
     stepStart = performance.now();
