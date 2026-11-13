@@ -173,6 +173,7 @@
 | --- | --- | --- |
 | R | 24px | Repeat count (number of times to send prompt) |
 | W | 24px | Answer wait minutes (0 = wait for answer file, >0 = auto-advance after N minutes) |
+| Auto-hide | dropdown | Close the side bar Copilot Chat runs in after a send: Off, 3s, 5s, 10s, 20s (kept for this window) |
 
 #### Logs sub-tabs
 

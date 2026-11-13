@@ -105,6 +105,7 @@ import { runInProcessPosition, type ProcessRun } from '../services/processRunCon
 import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { assistProgress } from '../services/assistProgress';
+import { AUTO_HIDE_STATE_KEY, normalizeAutoHideDelay } from '../utils/copilotAutoHide';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
 // windowStatusPanel) import from this module today. Keeps their
@@ -171,7 +172,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             if (!active) { this._settlePlanProposals({ accepted: true }, run); }
         });
         context.subscriptions.push({ dispose: () => { stopPlanFollow(); registerPlanDecider(undefined); } });
-        this._autoHideDelay = context.workspaceState.get('tomAi.copilot.autoHideDelay', 0);
+        this._autoHideDelay = normalizeAutoHideDelay(context.workspaceState.get(AUTO_HIDE_STATE_KEY, 0));
         this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
         this._setupAnswerFileWatcher();
         this._registerChatProviders();
@@ -639,8 +640,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._handlePreview(message.section, message.text, message.profile || message.template, message.wrap === true);
                         break;
                     case 'setAutoHideDelay':
-                        this._autoHideDelay = message.value;
-                        this._context.workspaceState.update('tomAi.copilot.autoHideDelay', message.value);
+                        // The Copilot action bar's Auto-hide dropdown (vscimpb74), kept per window.
+                        this._autoHideDelay = normalizeAutoHideDelay(message.value);
+                        await this._context.workspaceState.update(AUTO_HIDE_STATE_KEY, this._autoHideDelay);
                         break;
                     case 'getAutoHideDelay':
                         this._view?.webview.postMessage({ type: 'autoHideDelay', value: this._autoHideDelay });

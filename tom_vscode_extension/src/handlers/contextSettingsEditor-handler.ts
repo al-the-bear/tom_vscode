@@ -320,15 +320,12 @@ async function _sendContextData(): Promise<void> {
         }
     } catch { /* */ }
 
-    const autoHideDelay = _context?.workspaceState.get('tomAi.copilot.autoHideDelay', 0) ?? 0;
-
     _panel?.webview.postMessage({
         type: 'contextData',
         quests, roles, projects, todoFiles, todos,
         currentQuest, currentRole, activeProjects,
         currentTodoFile, currentTodo,
         reminderEnabled, reminderTimeout, reminderTemplates,
-        autoHideDelay,
         // The run it was opened for (vscimpb60c): named in the run line.
         run: _run ?? windowRunName(),
         windowRun: windowRunName(),
@@ -354,11 +351,6 @@ async function _applyContext(msg: any): Promise<void> {
             reminder.updateConfig({ enabled: !!msg.reminderEnabled, defaultTimeoutMinutes: timeoutMinutes });
         }
     } catch { /* */ }
-
-    // Auto-hide delay
-    if (msg.autoHideDelay !== undefined && _context) {
-        _context.workspaceState.update('tomAi.copilot.autoHideDelay', msg.autoHideDelay);
-    }
 
     vscode.window.showInformationMessage('Context & Settings applied.');
     // Close the panel after apply

@@ -343,6 +343,7 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
                 '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
+                '<label class="checkbox-label compact-keep" title="Auto-hide: close the side bar Copilot Chat runs in this long after a send (Off: keep it open). Kept for this window."><span style="opacity:0.8;">Auto-hide</span><select id="copilot-autohide" class="compact-select"><option value="0">Off</option><option value="3000">3s</option><option value="5000">5s</option><option value="10000">10s</option><option value="20000">20s</option></select></label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
                 '<div class="toolbar answers-toolbar" id="copilot-answers-toolbar" style="display:none;">' +
@@ -527,9 +528,6 @@ function render() {
             '<div class="context-row"><label>Projects:</label><select id="ctx-projects" multiple size="3"></select></div>' +
             '<div class="context-row"><label>Todo File:</label><select id="ctx-todoFile"></select></div>' +
             '<div class="context-row"><label>Todo:</label><select id="ctx-todo"></select></div>' +
-            '</fieldset>' +
-            '<fieldset class="context-group"><legend>Auto-Hide</legend>' +
-            '<div class="context-row"><label>Auto-hide:</label><select id="copilot-autohide"><option value="0">Keep open</option><option value="1000">1s</option><option value="5000">5s</option><option value="10000">10s</option></select></div>' +
             '</fieldset>' +
             '<fieldset class="context-group"><legend>Quick Links</legend>' +
             '<div class="context-links">' +

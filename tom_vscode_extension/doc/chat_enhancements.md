@@ -5,6 +5,8 @@
 **Status:** Draft — awaiting review (historical design spec; implementation has since shipped and evolved)
 
 > **Note:** This is the original design spec. The editor's sends are now one command per target — **Send to Copilot** opens Copilot Chat, **Send to LLM** goes to the ANTHROPIC/LLM panel. See [copilot_chat_tools.md → Send to Copilot and Send to LLM](copilot_chat_tools.md#send-to-copilot-and-send-to-llm) for the current behaviour.
+>
+> Auto-hide is no longer in the Context & Settings popup: it is the **Auto-hide** dropdown in the Copilot subpanel's action bar (Off, 3s, 5s, 10s, 20s) — see [user_guide.md](user_guide.md).
 
 ---
 

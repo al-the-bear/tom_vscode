@@ -432,6 +432,7 @@ The Copilot section in `@CHAT` includes an action bar with:
 - **W** (Answer wait minutes): Minutes to wait before auto-advancing without an answer file. When set to 0, uses classic answer-file detection. When > 0, the queue auto-advances after the specified time (text input, 24px wide)
 - **Template picker**: Select a prompt template (the user-message templates)
 - **Wrap** (beside Send): send the prompt inside the Copilot Queue Wrapper, so Copilot writes an answer file
+- **Auto-hide** (beside Keep): close the side bar Copilot Chat runs in this long after a send — **Off** (keep it open), **3s**, **5s**, **10s** or **20s**. Kept for this window, across reloads (workspace state `tomAi.copilot.autoHideDelay`)
 - **Queue button**: Add the current prompt to the queue with the configured repeat count and wait time
 
 ### Local LLM (Ollama / OpenAI-compatible)

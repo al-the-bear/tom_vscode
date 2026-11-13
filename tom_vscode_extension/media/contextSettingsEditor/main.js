@@ -61,8 +61,6 @@ function populateContextForm(data) {
             return '<option value="' + t.id + '">' + t.name + '</option>';
         }).join('');
     }
-    var autohideSel = document.getElementById('ctx-autohide');
-    if (autohideSel) autohideSel.value = String(data.autoHideDelay || 0);
 }
 
 function updateProjectsDisplay() {
@@ -107,8 +105,7 @@ document.getElementById('btn-apply').addEventListener('click', function() {
         todoFile: document.getElementById('ctx-todoFile').value,
         todo: document.getElementById('ctx-todo').value,
         reminderEnabled: document.getElementById('ctx-reminder-enabled').checked,
-        reminderTimeout: parseInt(document.getElementById('ctx-reminder-timeout').value) || 600000,
-        autoHideDelay: parseInt(document.getElementById('ctx-autohide').value) || 0
+        reminderTimeout: parseInt(document.getElementById('ctx-reminder-timeout').value) || 600000
     });
 });
 document.getElementById('btn-cancel').addEventListener('click', function() {
