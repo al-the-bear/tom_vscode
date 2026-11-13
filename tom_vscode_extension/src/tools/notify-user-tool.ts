@@ -176,12 +176,19 @@ export async function notifyUserImpl(channels: NotificationChannels, input: Noti
     }
 }
 
+/**
+ * Show the toast. Only a modal dialog is awaited (its button is the answer):
+ * VS Code resolves a non-modal message only when it is closed, and a toast
+ * without buttons that has slid into the Notification Center stays open there
+ * until the user clears it — awaiting it held the agent's turn indefinitely.
+ */
 async function showByUrgency(channels: NotificationChannels, urgency: NotifyUrgency, text: string, modal: boolean): Promise<string | undefined> {
-    switch (urgency) {
-        case 'error': return channels.showError(text, { modal });
-        case 'warning': return channels.showWarning(text, { modal });
-        default: return channels.showInformation(text, { modal });
-    }
+    const shown = urgency === 'error' ? channels.showError(text, { modal })
+        : urgency === 'warning' ? channels.showWarning(text, { modal })
+            : channels.showInformation(text, { modal });
+    if (modal) { return shown; }
+    void Promise.resolve(shown).catch(() => { /* a toast that failed to show changes nothing */ });
+    return undefined;
 }
 
 // ===========================================================================

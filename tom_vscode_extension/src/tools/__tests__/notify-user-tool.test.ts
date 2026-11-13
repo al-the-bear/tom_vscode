@@ -151,6 +151,15 @@ describe('notifyUserImpl — modal / dismissal', () => {
         assert.equal(r.dismissedBy, 'OK');
     });
 
+    test('non-modal: returns while the toast is still open (its promise never resolves)', async () => {
+        const never = new Promise<string | undefined>(() => { /* a toast left in the Notification Center */ });
+        const stuck: NotificationChannels = { ...channels, showWarning: () => never, sendTelegram: () => null };
+        const r = JSON.parse(await notifyUserImpl(stuck, { message: 'installed — please reload', urgency: 'warning' }));
+        assert.equal(r.ok, true);
+        assert.equal(r.channel, 'vscode');
+        assert.equal(r.dismissedBy, null);
+    });
+
     test('dismissedBy: null when the toast times out (no button click)', async () => {
         channels.setVscodeDismissedBy(undefined);
         const r = JSON.parse(await notifyUserImpl(channels, { message: 'x' }));
