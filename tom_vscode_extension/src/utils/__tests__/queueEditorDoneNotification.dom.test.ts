@@ -89,7 +89,7 @@ describe('Prompt Queue editor — done notification', () => {
             { ...base, id: 'sent-in', from: { quest: 'tom_uam', windowId: 'w', host: 'mbp', sentAt: '2026-10-27T12:00:00.000Z' } },
             { ...base, id: 'note', notificationOf: 'abcdef1234567890' },
         ]);
-        const chips = [...window.document.querySelectorAll('.queue-from-chip')].map((c: Win) => c.textContent.trim());
+        const chips = [...window.document.querySelectorAll('.queue-from-chip:not(.queue-run-chip)')].map((c: Win) => c.textContent.trim());
         assert.deepEqual(chips, ['from tom_uam', 'notification of abcdef12']);
     });
 });

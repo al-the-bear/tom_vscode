@@ -709,6 +709,12 @@ after the pause gate, before a todo is claimed — the loop item steps back to
 pending with its counters kept, the marked item moves in front of it and is
 sent, and the loop resumes after it (`src/utils/queueSendBetween.ts`).
 
+**Moving an item to another run**: `moveItemToRun(id, run)` (the queue editor's run chip, message
+`moveItemToRun`, which picks among the quest's other runs) sets a staged or pending item's `run`, maps a
+named session to the new run (`runSessionName(sessionBaseName(session), run)`), drops `sendBetween` and
+`yieldAfterIteration` (both refer to the old lane) and puts the item at the end of the queue, behind the
+run's items. Refused for a sending item, an item of a Proceed run (`processRun`) and a process-move marker.
+
 **Let the next item go first** (`src/utils/queueYield.ts`) is the reverse: the
 iteration item yields. `letNextGoFirst(id)` on a pending iteration item moves
 it directly behind the next pending item of its lane (`orderForYield`); on a

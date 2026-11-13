@@ -330,9 +330,16 @@ function renderEntry(item, idx) {
   if (item.waitingForSession) {
     processBadge += '  <span class="waiting-session-badge" style="background:#3794ff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="A chat send runs in this session: the item goes once it has ended (two prompts never share a conversation)">[waiting for session ' + escapeHtml(String(item.waitingForSession)) + ']</span>';
   }
-  // The process run the item belongs to (vscimpb45): `default` muted, another run marked.
+  // The process run the item belongs to (vscimpb45): a chip like the todo chip beside it (runChip, in the header's
+  // right part). A staged or pending item's chip opens the run picker: the item moves into that run's queue.
   var itemRunName = item.run || (item.processRun && item.processRun.run) || 'default';
-  processBadge += '  <span class="run-badge' + (itemRunName === 'default' ? ' default-run' : '') + '" title="The process run of the quest this item belongs to' + (itemRunName === 'default' ? ' (the quest\'s own position)' : '') + '">[run ' + escapeHtml(itemRunName) + ']</span>';
+  var runMovable = (isStaged || isPending) && !item.processRun && !item.processMove;
+  var runChip = '<span class="queue-from-chip queue-run-chip' + (runMovable ? ' movable' : '') + '" data-run="' + escapeHtml(itemRunName) + '" data-qid="' + escapeHtml(String(item.id)) + '"'
+    + (runMovable ? ' onclick="event.stopPropagation();moveItemToRun(\'' + safeId + '\')"' : '')
+    + ' title="' + escapeHtml('The process run of the quest this item belongs to' + (itemRunName === 'default' ? ' (the quest\'s own position)' : '')
+      + (runMovable ? '. Click to move it into another run\'s queue.'
+        : (isStaged || isPending) ? '. It belongs to a Proceed run, so it stays in this run.' : '')) + '">'
+    + (runMovable ? '<span class="codicon codicon-arrow-swap"></span>' : '') + 'run ' + escapeHtml(itemRunName) + '</span>';
   if (item.processMove) {
     processBadge += '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
       escapeHtml(item.processPosition || '') + ' → ' + escapeHtml(item.processMove.to) + ').">[⏭ process move]</span>';
@@ -474,6 +481,7 @@ function renderEntry(item, idx) {
           (item.notificationOf
             ? '<span class="queue-from-chip" title="' + escapeHtml('The done-notification of item ' + item.notificationOf) + '"><span class="codicon codicon-bell"></span> notification of ' + escapeHtml(String(item.notificationOf).slice(0, 8)) + '</span>'
             : '') +
+          runChip +
           // The todos it runs (todoIdPattern): a todo id, a group walk prefix*, or several.
           (item.todoIdPattern
             ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'

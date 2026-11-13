@@ -23,6 +23,9 @@
  *   QM-11 the queue editor's tab actions act on their run only (vscimpb60b): Send all staged, Restart, Stop, Retry
  *        errors (not refused while another run sends), Delete errors, Clear sent, Clear all; a chat send records the
  *        run it ran in
+ *   QM-12 a staged or pending item moves into another run's queue (the editor's run chip): its run, its session
+ *        `<session>@<run>`, behind the run's items, a between-iterations mark dropped; it sends in the new lane; a
+ *        sending item and an item of a Proceed run are refused
  *   QM-5 the editor, the tool, Telegram, the Status Page and the window status take or show a run: the editor's
  *        toolbar settings are those of its tab's run (messages name it); tomAi_listQueue reports a run's settings and every run's auto-send; Telegram's pause / continue
  *        take a run (default the window's)
@@ -387,6 +390,37 @@ describe('lanes and settings per run', () => {
         assert.equal(queue().getById(chatId)?.run, 'r2');
         const plain = queue().addChatItem({ text: 'hi', session: 'chat', source: 'panel', run: 'default' });
         assert.equal(queue().getById(plain)?.run, undefined, 'default: no run written');
+        clean();
+    });
+
+    test('QM-12: a staged or pending item moves into another run\'s queue', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoSend: false });
+        queue().setRunQueueSettings('r2', { autoSend: false, autoPause: false });
+        const a = await add('a', 'r1', 'sa');
+        const s = await queue().enqueue({ originalText: 's', run: 'r1', transport: 'anthropic', deferSend: true, initialStatus: 'staged' } as never);
+        const b = await add('b', 'r2', 'sb');
+        assert.equal(queue().getById(a.id)?.session, 'sa@r1');
+        (queue().getById(a.id) as Json).sendBetween = true;
+        assert.deepEqual(queue().moveItemToRun(a.id, 'r2'), { ok: true, moved: true });
+        const moved = queue().getById(a.id)!;
+        assert.equal(moved.run, 'r2');
+        assert.equal(moved.session, 'sa@r2', 'its session is the new run\'s');
+        assert.equal(moved.sendBetween, undefined, 'the old lane\'s mark is dropped');
+        assert.deepEqual(queue().items.map((i) => i.id).slice(-2), [b.id, a.id], 'behind the run\'s items');
+        assert.deepEqual(queue().moveItemToRun(a.id, 'r2'), { ok: true, moved: false }, 'its own run: nothing changes');
+        assert.deepEqual(queue().moveItemToRun(s.id, 'default'), { ok: true, moved: true }, 'a staged item too');
+        assert.equal(queue().getById(s.id)?.run, 'default');
+        // It sends in its new run's lane: r2 on, r1 off.
+        queue().setRunAutoSend('r2', true);
+        await wait(60);
+        assert.deepEqual([statusOf(b), statusOf(a)], ['sending', 'pending'], 'r2\'s lane: b first, then a');
+        await finish(b);
+        assert.equal(statusOf(a), 'sending');
+        assert.match(String((queue().moveItemToRun(a.id, 'r1') as Json).reason), /staged or pending/, 'a sending item stays');
+        await finish(a);
+        const p = await queue().enqueue({ originalText: 'p', transport: 'anthropic', deferSend: true, initialStatus: 'pending', processRun: { quest: 'q', state: {}, run: 'r1' } } as never);
+        assert.match(String((queue().moveItemToRun(p.id, 'r2') as Json).reason), /Proceed run/);
         clean();
     });
 

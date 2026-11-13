@@ -5,7 +5,7 @@
  *   QR-1 the tabs: below the shared compaction row, one tab per run — the quest's runs and any run with items,
  *        `default` first, the window's marked and selected first; each says whether its run sends, waits or is paused
  *        and how many open items it has; a tab shows its run's items only, a chat send in the tab of the run it ran in,
- *        else the default run's; every item keeps its run badge
+ *        else the default run's; every item keeps its run chip
  *   QR-2 a tab switch: the list, the toolbar's counts and settings follow; the host is told the run
  *        (`setSettingsRun`); the tab is kept in the view state over a reload, a tab that is gone falls back to the
  *        window's run
@@ -20,6 +20,9 @@
  *        with the tab; Position, Variables, the Chat Variables and Context & Settings buttons post the tab's run;
  *        the role of another run than the window's is its step's, shown, not picked
  *   QR-7 the Context & Settings view's run line names the run it was opened for
+ *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
+ *        and posts `moveItemToRun` with the item; on a sending item or an item of a Proceed run it is not; the host
+ *        picks among the quest's other runs and calls the manager's moveItemToRun
  */
 
 import test, { describe } from 'node:test';
@@ -73,6 +76,7 @@ const ITEMS = [
 ];
 const tabs = (w: Win): string[] => [...w.document.querySelectorAll('#runTabs .run-tab')].map((b: Win) => b.textContent.replace(/\s+/g, ' ').trim());
 const listedText = (w: Win): string => w.document.getElementById('queueList').textContent;
+const runChips = (w: Win): string[] => [...w.document.querySelectorAll('#queueList .queue-run-chip')].map((c: Win) => c.dataset.run);
 const clickTab = (w: Win, run: string): void => { w.document.querySelector(`#runTabs .run-tab[data-run="${run}"]`).click(); };
 const SETTINGS = {
     default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
@@ -94,14 +98,13 @@ describe('Prompt Queue editor — one tab per run', () => {
         const states = [...row.querySelectorAll('.run-tab')].map((b: Win) => [b.dataset.run, b.dataset.state, b.classList.contains('active')]);
         assert.deepEqual(states, [['default', 'sending', false], ['chg1', 'waiting', true], ['chg2', 'paused', false]], 'the window\'s run selected first');
         assert.match(row.querySelector('[data-run="chg2"]').title, /paused/);
-        assert.match(listedText(w), /\[run chg1\]/);
-        assert.doesNotMatch(listedText(w), /\[run chg2\]|\[run default\]/, 'only the tab\'s run');
+        assert.deepEqual(runChips(w), ['chg1']);
         clickTab(w, 'default');
         assert.match(listedText(w), /CHAT/, 'a chat send without a run: the default run\'s tab');
-        assert.equal((listedText(w).match(/\[run default\]/g) ?? []).length, 3, 'b, e and the sending h');
+        assert.deepEqual(runChips(w), ['default', 'default', 'default'], 'b, e and the sending h');
         clickTab(w, 'chg2');
         assert.match(listedText(w), /CHAT SENT/, 'a chat send in the tab of the run it ran in');
-        assert.equal((listedText(w).match(/\[run chg2\]/g) ?? []).length, 2);
+        assert.deepEqual(runChips(w), ['chg2', 'chg2']);
     });
 
     test('QR-2: a tab switch', (t) => {
@@ -219,5 +222,32 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.equal(line.dataset.run, 'chg2');
         assert.match(line.textContent, /^Run: chg2 — the quest, role, projects, todo and reminder settings here are the window's/);
         w.close();
+    });
+
+    test('QR-8: the run chip', (t) => {
+        const items = [
+            { ...base, id: 'p', originalText: 'p', expandedText: 'p', run: 'chg1' },
+            { ...base, id: 's', status: 'staged', originalText: 's', expandedText: 's', run: 'chg1' },
+            { ...base, id: 'x', status: 'sending', originalText: 'x', expandedText: 'x', run: 'chg1' },
+            { ...base, id: 'q', originalText: 'q', expandedText: 'q', processRun: { quest: 'q', state: {}, run: 'chg1' } },
+        ];
+        const { w, posted } = setup(t, items);
+        const chip = (id: string): Win => w.document.querySelector(`#queueList .queue-run-chip[data-qid="${id}"]`);
+        for (const id of ['p', 's', 'x', 'q']) {
+            const c = chip(id);
+            assert.ok(c.classList.contains('queue-from-chip'), 'the todo chip\'s look');
+            assert.match(c.textContent, /^run chg1$/);
+        }
+        assert.deepEqual(['p', 's', 'x', 'q'].map((id) => chip(id).classList.contains('movable')), [true, true, false, false]);
+        assert.match(chip('q').title, /Proceed run/);
+        assert.match(chip('p').getAttribute('onclick'), /moveItemToRun\('p'\)/);
+        assert.equal(chip('x').getAttribute('onclick'), null, 'a sending item: no click');
+        w.moveItemToRun('p');
+        assert.deepEqual(posted.filter((m) => m.type === 'moveItemToRun'), [{ type: 'moveItemToRun', id: 'p' }]);
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        const handler = host.slice(host.indexOf("case 'moveItemToRun':"), host.indexOf("case 'letNextGoFirst':"));
+        assert.match(handler, /queueRunState\(\)/, 'the quest\'s runs');
+        assert.match(handler, /filter\(\(r\) => r !== current\)/, 'not its own');
+        assert.match(handler, /qm\.moveItemToRun\(id, picked\.label\)/);
     });
 });

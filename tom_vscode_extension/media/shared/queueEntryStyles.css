@@ -176,8 +176,9 @@
   .rep-answer-chip.active { background: #4a9eff; color: #fff; }
 
 /* The process run an item belongs to (vscimpb45): another run marked, `default` muted. */
-.run-badge { border: 1px solid #2f9e8f; color: var(--vscode-foreground); padding: 0 4px; border-radius: 3px; font-size: 10px; }
-.run-badge.default-run { border-color: var(--vscode-panel-border, #6a737d); opacity: 0.7; }
+/* The run chip (the todo chip's look); a staged or pending item's opens the run picker. */
+.queue-run-chip.movable { cursor: pointer; }
+.queue-run-chip.movable:hover { background: rgba(0, 0, 0, 0.28); }
 /* Group by run: a heading per run, chat sends last. */
 .run-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin: 6px 0 0; border-bottom: 1px solid var(--vscode-panel-border); }
 .run-tab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 0.9em; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: transparent; color: var(--vscode-foreground); cursor: pointer; opacity: 0.8; }

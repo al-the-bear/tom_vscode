@@ -8,7 +8,7 @@
 
 import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
 import { BUILTIN_RUN_QUEUE_SETTINGS, readRunQueueSettings, runQueueSettingsToFile, type RunQueueSettings } from '../utils/runQueueSettings';
-import { runQueueSession, runSessionName } from '../utils/runSessions';
+import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -5926,6 +5926,34 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
         return true;
+    }
+
+    /**
+     * Move a staged or pending item into the queue of another run (the queue
+     * editor's run tag): it takes `run`, its named session becomes that run's
+     * (`<session>@<run>`, src/utils/runSessions.ts), and it goes to the end of
+     * the queue, behind the items the run has. A *between iterations* or *let
+     * the next item go first* mark is dropped: both refer to the old run's
+     * lane. Refused for an item of a Proceed run (its process position and
+     * marker belong to that run) and for a process-move marker.
+     */
+    moveItemToRun(id: string, run: string): { ok: true; moved: boolean } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return { ok: false, reason: 'no such item' }; }
+        if (!this.canChangeSession(item.status)) { return { ok: false, reason: 'only a staged or pending item can move to another run' }; }
+        if (item.processMove) { return { ok: false, reason: 'a process-move marker stays with its Proceed run' }; }
+        if (item.processRun) { return { ok: false, reason: 'the item belongs to a Proceed run and runs as its process position' }; }
+        const to = normalizeRun(run);
+        if (itemRun(item) === to) { return { ok: true, moved: false }; }
+        item.run = to;
+        if (item.session) { item.session = runSessionName(sessionBaseName(item.session), to); }
+        item.sendBetween = undefined;
+        item.yieldAfterIteration = undefined;
+        this._items.splice(this._items.indexOf(item), 1);
+        this._items.push(item);
+        this.persist();
+        this._onDidChange.fire();
+        return { ok: true, moved: true };
     }
 
     /**

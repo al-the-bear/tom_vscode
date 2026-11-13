@@ -644,6 +644,28 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'toggleSendBetween':
             qm.toggleSendBetween(msg.id);
             break;
+        case 'moveItemToRun': {
+            // The run tag of a staged or pending item: pick another run of the quest, the item goes into its queue.
+            const id = String(msg.id ?? '');
+            const item = qm.getById(id);
+            if (!item) { break; }
+            const current = item.run ?? 'default';
+            const { processRuns, currentRun } = queueRunState();
+            const picks = processRuns.filter((r) => r !== current).map((r) => ({
+                label: r,
+                description: [r === currentRun ? 'this window\'s run' : '', r === 'default' ? 'the quest\'s own position' : ''].filter(Boolean).join(', ') || undefined,
+            }));
+            if (!picks.length) {
+                vscode.window.showInformationMessage('The quest has no other run to move the item to (create one in the PROCESS view).');
+                break;
+            }
+            const picked = await vscode.window.showQuickPick(picks, { title: `Move the item from run ${current} to`, placeHolder: 'The item goes to the end of that run\'s queue' });
+            if (!picked) { break; }
+            const r = qm.moveItemToRun(id, picked.label);
+            if (!r.ok) { vscode.window.showInformationMessage(`Move to another run: ${r.reason}.`); }
+            sendState();
+            break;
+        }
         case 'letNextGoFirst': {
             const r = qm.letNextGoFirst(String(msg.id ?? ''));
             if (!r.ok) {

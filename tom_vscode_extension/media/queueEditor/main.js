@@ -697,6 +697,8 @@ function toggleSendBetween(id) { vscode.postMessage({ type: 'toggleSendBetween',
 /** Let the next item go first (vscimpb60e); again while armed: keep iterating. */
 // eslint-disable-next-line no-unused-vars -- called by the item's step-over button (onclick, queueEntryRenderFunctions.js)
 function letNextGoFirst(id) { vscode.postMessage({ type: 'letNextGoFirst', id }); }
+/** The run chip of a staged or pending item: the host asks for the run it moves to. */
+function moveItemToRun(id) { vscode.postMessage({ type: 'moveItemToRun', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }
