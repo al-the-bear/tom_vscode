@@ -154,6 +154,9 @@
         "branches": {
           "$ref": "#/$defs/processList",
           "description": "The processes that may start from here as a branch: a level on the quest's process stack that hands nothing back. A closed list, like subprocesses."
+        },
+        "documents": {
+          "$ref": "#/$defs/documents"
         }
       }
     },
@@ -223,6 +226,9 @@
         "branches": {
           "$ref": "#/$defs/processList",
           "description": "The processes that may start from here as a branch: a level on the quest's process stack that hands nothing back. A closed list, like subprocesses."
+        },
+        "documents": {
+          "$ref": "#/$defs/documents"
         },
         "followUps": {
           "$ref": "#/$defs/followUps"
@@ -313,6 +319,9 @@
         "branches": {
           "$ref": "#/$defs/processList",
           "description": "The processes that may start from here as a branch: a level on the quest's process stack that hands nothing back. A closed list, like subprocesses."
+        },
+        "documents": {
+          "$ref": "#/$defs/documents"
         },
         "followUps": {
           "$ref": "#/$defs/followUps"
@@ -420,6 +429,26 @@
       "type": "string",
       "pattern": "^([A-Za-z0-9]|\\$\\{(phase|step|substep)-iteration\\})([A-Za-z0-9_-]|\\$\\{(phase|step|substep)-iteration\\})*$",
       "description": "A session name: letters, digits, \"_\" and \"-\"; ${phase-iteration}, ${step-iteration} and ${substep-iteration} are filled in, so every iteration gets its own session."
+    },
+    "documents": {
+      "type": "array",
+      "description": "The documents this position puts in front of the user (a review step's): the PROCESS view shows one link per document and the process tools name them. A sub-step without its own takes its step's.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Workspace-relative (or absolute) path; placeholders: ${<chat variable>} (e.g. ${idea-document}, ${quest}), ${input.<name>}, ${output.<name>}, ${dirname:<variable>} (the folder of a path a variable holds). A .md file opens in the MD Browser, a .process.yaml under _ai/processes/ in the process editor, any other file in its default editor."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the link says; default: the file name."
+          }
+        }
+      }
     },
     "processList": {
       "type": "array",

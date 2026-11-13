@@ -31,6 +31,7 @@ import {
 import type { ChangeSource } from '../managers/chatVariablesStore';
 import { unescapePlaceholders } from '../utils/placeholderEscape';
 import { getCurrentToolContext } from '../services/tool-execution-context';
+import { documentLinks, documentLookup, positionDocuments, type DocumentLink } from '../utils/processDocuments';
 
 /** What the tools need from the process store; faked in tests. */
 export interface ProcessToolDeps {
@@ -67,6 +68,8 @@ export interface ProcessToolDeps {
      * none runs).
      */
     leaveOut?(reason: string): ProcessChangeResult;
+    /** The documents a level's position puts in front of the user (its `documents:`, resolved; vscimpb64). */
+    documents?(state: ProcessState): DocumentLink[];
 }
 
 /** `fn` on `run` when one is named and the deps know runs; else on the window's run. */
@@ -198,13 +201,19 @@ export async function getProcessStateImpl(deps: ProcessToolDeps, input: { level?
         const index = resolveLevelIndex(levels.length, input.level);
         if (typeof index !== 'number') { return { ok: false, error: index.error }; }
         const top = index === levels.length - 1;
+        const level = top ? deps.state() : levels[index];
+        const documents = (deps.documents?.(level) ?? []).map((d) => ({
+            label: d.label, path: d.path, exists: d.exists, opensIn: d.opener, ...(d.unresolved.length ? { unresolved: d.unresolved } : {}),
+        }));
         return {
             ok: true,
             quest: deps.activeQuest(),
             ...(deps.currentRun ? { run: input.run || deps.currentRun() } : {}),
             level: index,
             levels: levels.length,
-            state: top ? deps.state() : levels[index],
+            state: level,
+            // The documents the position puts in front of the user (a review step's `documents:`, resolved).
+            ...(documents.length ? { documents } : {}),
             ...(top ? { role: deps.currentRole() } : { waiting: 'this level waits at its step for the level above it' }),
             // What the system prompt shows: a literal `$${…}` in a description reads as `${…}`.
             context: unescapePlaceholders(top ? deps.contextBlock() : deps.levelContextBlock?.(index) ?? ''),
@@ -225,6 +234,7 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number; run?
         '`completed` once the last step is done), the `role` ' +
         'the current step names, and `context` — the same Markdown block the system prompt carries ' +
         '(positions, the steps of the phase, the post-gate todos when in that step, the descriptions). ' +
+        'A position that declares `documents:` (a review step) adds `documents`: each `{label, path, exists, opensIn}` resolved from the run\'s chat variables (`unresolved` names a placeholder without a value); the PROCESS view links the same. ' +
         'With subprocesses or branches running, `level` reads another level of the quest\'s process stack ' +
         '(0 the quest\'s own process, -1 the running level and the default). ' +
         'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`; another run of the quest in `process-state.<quest>.<run>.yaml` — `run` reads that run (default: the window\'s current run, answered as `run`).',
@@ -329,6 +339,21 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         deleteRuns: (runs) => store().deleteRuns(runs),
         runSessions: (runs) => store().runSessions(runs),
         deleteRunSessions: (runs) => store().deleteRunSessions(runs),
+        documents: (state) => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const vscode = require('vscode') as typeof import('vscode');
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const fs = require('fs') as typeof import('fs');
+            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!root) { return []; }
+            let values: Record<string, string> = {};
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                values = (require('../managers/chatVariablesStore.js') as typeof import('../managers/chatVariablesStore')).ChatVariablesStore.instance.toTemplateValues();
+            } catch { /* not initialised: nothing resolves */ }
+            const def = store().entry(state.process)?.definition ?? null;
+            return documentLinks(positionDocuments(def, state), documentLookup(values, state), root, (abs) => fs.existsSync(abs));
+        },
         leaveOut: (reason) => {
             // Inside a Proceed run of this quest the move waits for the run's marker.
             // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -86,6 +86,23 @@ export interface ProcessSubstep {
      */
     subprocesses?: ProcessListEntry[];
     branches?: ProcessListEntry[];
+    /**
+     * The documents this position puts in front of the user — a review step's
+     * (vscimpb64): the PROCESS view shows a link per document, the process
+     * tools name them. A sub-step without its own takes its step's
+     * (src/utils/processDocuments.ts resolves them).
+     */
+    documents?: ProcessDocument[];
+}
+
+/**
+ * A document of a position: `path` workspace-relative (or absolute), with
+ * placeholders — `${<chat variable>}`, `${input.<name>}`, `${output.<name>}`,
+ * `${dirname:<variable>}` — and an optional `label` (default the file name).
+ */
+export interface ProcessDocument {
+    path: string;
+    label?: string;
 }
 
 /**
@@ -284,7 +301,7 @@ const IO_KEYS = ['name', 'kind', 'description', 'required'];
 const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
 const CONDITIONAL_KEYS = ['optional', 'when'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps', 'steps', 'gate', 'postGate'];
-const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches'];
+const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches', 'documents'];
 const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps'];
 const CONDITION_TESTS = ['equals', 'notEquals', 'in', 'set'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
@@ -372,12 +389,26 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
         checkRepeat(obj, path, what);
         if (obj.userAction !== undefined && typeof obj.userAction !== 'boolean') { err(`${path}.userAction`, 'true or false'); }
         for (const key of ['subprocesses', 'branches']) { checkProcessList(obj, key, path); }
+        checkDocuments(obj, path);
         if (obj.userAction === true) {
             for (const key of ['prompt', 'session']) {
                 if (obj[key] !== undefined) { err(`${path}.${key}`, 'a user action runs no prompt — say what the user does in its description'); }
             }
         }
         return id;
+    };
+    const checkDocuments = (obj: Raw, path: string): void => {
+        const list = obj.documents;
+        if (list === undefined) { return; }
+        const at = `${path}.documents`;
+        if (!Array.isArray(list)) { err(at, 'a list of {path, label}'); return; }
+        list.forEach((entry, i) => {
+            const entryAt = `${at}[${i}]`;
+            if (!isObject(entry)) { err(entryAt, 'an object {path, label}'); return; }
+            unknownKeys(entry, ['path', 'label'], entryAt);
+            if (typeof entry.path !== 'string' || !entry.path.trim()) { err(`${entryAt}.path`, 'a path (placeholders allowed)'); }
+            checkText(entry, 'label', entryAt);
+        });
     };
     const checkProcessList = (obj: Raw, key: string, path: string): void => {
         const list = obj[key];
@@ -636,6 +667,10 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
             if (Array.isArray(out[key])) { out[key] = (out[key] as ProcessListEntry[]).map(entry); }
         }
         if (Array.isArray(out.followUps)) { out.followUps = (out.followUps as ProcessFollowUp[]).map(followUp); }
+        // A document as {path, label}, the label left out when empty.
+        if (Array.isArray(out.documents)) {
+            out.documents = (out.documents as ProcessDocument[]).map((d) => ({ path: d.path, ...(d.label ? { label: d.label } : {}) }));
+        }
         return out;
     };
     const substep = (s: ProcessSubstep): Raw => lists(pick(s, SUBSTEP_KEYS));

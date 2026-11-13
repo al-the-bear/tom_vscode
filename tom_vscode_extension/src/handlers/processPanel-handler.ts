@@ -19,6 +19,10 @@
  * it by hand. Everything goes through ProcessStateStore, which keeps the
  * quest's state file.
  *
+ * A position that declares `documents:` (a review step's, vscimpb64) shows a
+ * link per document: a `.md` file opens in the MD Browser, a process
+ * definition in the process editor, any other file in its default editor.
+ *
  * View: `tomAi.process` (between VS CODE NOTES and QUEST NOTES).
  * Assets: `media/processPanel/`.
  */
@@ -40,6 +44,10 @@ import { PromptQueueManager } from '../managers/promptQueueManager';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
 import { openProcessEditor } from './processEditor-handler';
+import * as fs from 'fs';
+import { documentLinks, documentLookup, positionDocuments, type DocumentLink } from '../utils/processDocuments';
+import { openInMdBrowserImpl } from '../tools/md-browser-tools';
+import { mdBrowserController } from './markdownBrowser-handler';
 import { handleRunMessage, type RunActionResult, type RunStorePort, type RunUiPort } from '../services/processRunActions';
 
 export const PROCESS_VIEW_ID = 'tomAi.process';
@@ -128,6 +136,8 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     running: i === levels.length - 1,
                 };
             }),
+            // The documents the position puts in front of the user (vscimpb64): one link each.
+            documents: this.documents(),
             // What the running step lists to start (the Your turn box's button).
             startable: lists.subprocesses.length + lists.branches.length,
             processes: store.list().map((e) => ({ id: e.id, name: e.definition?.name || e.id, valid: !!e.definition })),
@@ -165,6 +175,36 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    /** The documents of the position this view shows, resolved from its run's chat variables and the level's inputs and outputs. */
+    private documents(): DocumentLink[] {
+        const store = ProcessStateStore.instance;
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!store || !root) { return []; }
+        const state = store.state;
+        const def = store.entry(state.process)?.definition ?? null;
+        let values: Record<string, string> = {};
+        try { values = ChatVariablesStore.instance.toTemplateValues(); } catch { /* not initialised: nothing resolves */ }
+        return documentLinks(positionDocuments(def, state), documentLookup(values, state), root, (abs) => fs.existsSync(abs));
+    }
+
+    /** Open the position's document `index`: the MD Browser (reusing a panel on it), the process editor, else the default editor. */
+    private async openDocument(index: number): Promise<void> {
+        const link = this.documents()[index];
+        if (!link) { return; }
+        if (link.unresolved.length) {
+            void vscode.window.showWarningMessage(`Process: ${link.label} has no path yet — ${link.unresolved.join(', ')} ${link.unresolved.length === 1 ? 'is' : 'are'} not set.`);
+            return;
+        }
+        if (!link.exists) { void vscode.window.showWarningMessage(`Process: ${link.label} does not exist yet: ${link.path}`); return; }
+        if (link.opener === 'processEditor' && link.processId) { openProcessEditor(this.context, link.processId); return; }
+        if (link.opener === 'mdBrowser') {
+            const answer = JSON.parse(await openInMdBrowserImpl(mdBrowserController, { filePath: link.absPath })) as { ok?: boolean; error?: string };
+            if (!answer.ok) { void vscode.window.showWarningMessage(`Process: ${answer.error ?? 'the MD Browser could not open ' + link.path}`); }
+            return;
+        }
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(link.absPath));
+    }
+
     /** A state set by hand ends a running step: its process-move marker goes. */
     private byHand<T extends { ok: boolean }>(quest: string, run: string, result: T): T {
         if (result.ok) { queueManager()?.dropProcessMoveMarkers(quest, 'state set in the PROCESS view', run); }
@@ -176,7 +216,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         this.send();
     }
 
-    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind; run?: string }): Promise<void> {
+    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind; run?: string; index?: number }): Promise<void> {
         const store = await ProcessStateStore.ready;
         // The run list: select, create (+), delete (trash).
         const runs = await handleRunMessage(msg, liveRunStore(store), LIVE_RUN_UI);
@@ -265,6 +305,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'openEditor':
                 openProcessEditor(this.context, msg.id || store.state.process || undefined);
+                break;
+            case 'openDocument':
+                await this.openDocument(Number(msg.index));
                 break;
             case 'openDescriptionFile': {
                 const entry = store.entry(msg.id || store.state.process);

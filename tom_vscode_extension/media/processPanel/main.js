@@ -64,11 +64,31 @@
         return step.userAction ? { level: 'step', node: step } : null;
     }
 
+    var OPENER_ICON = { mdBrowser: 'codicon-markdown', processEditor: 'codicon-type-hierarchy', editor: 'codicon-go-to-file' };
+    var OPENER_TITLE = { mdBrowser: 'Open in the MD Browser', processEditor: 'Open in the process editor', editor: 'Open in its editor' };
+
+    /**
+     * The documents the position puts in front of the user (vscimpb64): one link each; a click opens it (the host
+     * decides where). A document whose path is not set yet, or that does not exist yet, is shown and disabled.
+     */
+    function documentsBlock(docs) {
+        if (!docs || !docs.length) { return ''; }
+        return '<div class="documents"><div class="doc-head"><span class="codicon codicon-files"></span> Documents</div>'
+            + docs.map(function (d, i) {
+                var off = d.unresolved && d.unresolved.length ? 'Not set yet: ' + d.unresolved.join(', ')
+                    : !d.exists ? 'Does not exist yet: ' + d.path : '';
+                return '<button class="doc-link" data-doc="' + i + '"' + (off ? ' disabled' : '') + ' title="' + esc(off || (OPENER_TITLE[d.opener] || 'Open') + ': ' + d.path) + '">'
+                    + '<span class="codicon ' + (OPENER_ICON[d.opener] || 'codicon-file') + '"></span> ' + esc(d.label)
+                    + (d.path ? ' <span class="muted">' + esc(d.path) + '</span>' : '') + '</button>';
+            }).join('') + '</div>';
+    }
+
     function userActionBanner(action, confirmed) {
         return '<div class="user-action">'
             + '<div class="ua-head"><span class="codicon codicon-person"></span> Your turn — user action</div>'
             + '<div class="ua-name">' + esc(action.node.name || action.node.id) + '</div>'
             + (action.node.description ? '<div class="ua-desc">' + md(action.node.description) + '</div>' : '')
+            + documentsBlock(current && current.documents)
             + '<div class="ua-hint">' + (confirmed
                 ? 'Confirmed as done — decide how the process goes on.'
                 : 'This ' + action.level + ' is done by you, not by an agent. Do it, then click Proceed to confirm it is done.') + '</div>'
@@ -322,6 +342,8 @@
         if (c.stepRun) { html += stepRunBanner(c.stepRun); }
         else if (decision) { html += decisionBanner(decision); }
         else if (action) { html += userActionBanner(action, false); }
+        // Documents outside the Your turn box: a position that names them without being the user's, or while it runs.
+        if (!(action && !c.stepRun && !decision)) { html += documentsBlock(c.documents); }
         if (c.state.suggestions && c.state.suggestions.length) { html += suggestionsBanner(c); }
         if (c.state.completed) { html += '<div class="done"><span class="codicon codicon-check-all"></span> The process is finished.</div>'; }
         var procOptions = [{ value: '', label: '— none —' }].concat(c.processes.map(function (p) {
@@ -432,6 +454,8 @@
             post({ type: 'abortNested' });
         } else if (btn.dataset.branching) {
             post({ type: 'openBranching' });
+        } else if (btn.dataset.doc !== undefined) {
+            post({ type: 'openDocument', index: Number(btn.dataset.doc) });
         } else if (btn.dataset.dismissSuggestions) {
             post({ type: 'dismissSuggestions' });
         }

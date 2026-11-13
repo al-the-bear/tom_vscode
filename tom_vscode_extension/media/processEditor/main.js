@@ -236,6 +236,30 @@
     }
 
     /**
+     * The documents a position puts in front of the user (`documents:`, vscimpb64): a review step's. Each a
+     * path with placeholders (${<chat variable>}, ${input.<name>}, ${output.<name>}, ${dirname:<variable>}) and
+     * an optional label; the PROCESS view links each. A sub-step without its own takes its step's.
+     */
+    function documentsBlock(path, step) {
+        var list = step.documents || [];
+        var rows = list.map(function (d, k) {
+            var dp = path + '.documents.' + k;
+            return '<div class="proc-entry doc-entry">'
+                + text(dp + '.path', d.path, 'path, e.g. ${idea-document} or ${dirname:idea-document}/${idea}.todos.md', 'doc-path')
+                + text(dp + '.label', d.label, 'label (default: the file name)', 'doc-label')
+                + '<button class="icon" data-op="remove" data-path="' + dp + '" title="Remove"><span class="codicon codicon-trash"></span></button>'
+                + '</div>';
+        }).join('');
+        return '<details class="proc-lists documents"' + (list.length ? ' open' : '') + '><summary>Documents</summary>'
+            + '<div class="proc-list"><div class="note">The documents this ' + (path.indexOf('.substeps.') >= 0 ? 'sub-step' : 'step')
+            + ' puts in front of the user (a review): the PROCESS view shows a link to each — a .md file opens in the MD Browser, a process definition in the process editor, any other file in its editor. '
+            + 'Placeholders: ${&lt;chat variable&gt;}, ${input.&lt;name&gt;}, ${output.&lt;name&gt;}, ${dirname:&lt;variable&gt;}.'
+            + (path.indexOf('.substeps.') >= 0 ? ' Without documents of its own, the sub-step takes its step\'s.' : '') + '</div>'
+            + rows
+            + '<button class="add" data-op="add-document" data-path="' + path + '"><span class="codicon codicon-add"></span> document</button></div></details>';
+    }
+
+    /**
      * Follow-up processes (`followUps:`, vscimpb47) of the process, a phase or
      * a step: where the quest may continue when that level ends — a process,
      * its phase and step (the first ones when not named), what to carry and
@@ -303,6 +327,7 @@
             + (kind === 'step' || kind === 'post-gate' ? conditionFields(path, step, 'step') : '')
             + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '')
             + processListsBlock(path, step)
+            + documentsBlock(path, step)
             + (kind !== 'substep' ? followUpsBlock(path, step, 'step') : '');
         if (kind !== 'substep') {
             var subs = step.substeps || [];
@@ -483,6 +508,10 @@
                 def[key2].push({ name: base + n });
                 break;
             }
+            case 'add-document':
+                node.documents = node.documents || [];
+                node.documents.push({ path: '' });
+                break;
             case 'add-todo':
                 node.todos = node.todos || [];
                 node.todos.push({ title: '' });
@@ -493,7 +522,7 @@
                 // An empty sub-step or todo list is dropped: a step with sub-steps has at least one.
                 var owner = getAt(path.slice(0, -2));
                 var key = path[path.length - 2];
-                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs' || key === 'subprocesses' || key === 'branches' || key === 'followUps') && owner) { delete owner[key]; }
+                if (list.length === 0 && (key === 'substeps' || key === 'todos' || key === 'inputs' || key === 'outputs' || key === 'subprocesses' || key === 'branches' || key === 'followUps' || key === 'documents') && owner) { delete owner[key]; }
                 break;
             }
             case 'up':

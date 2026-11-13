@@ -177,3 +177,15 @@ details.level > summary { cursor: pointer; }
 .left-out { margin: 6px 0 2px; font-size: 0.92em; }
 .left-out summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 .left-out ul { margin: 2px 0 0 0; padding-left: 18px; }
+
+/* The position's documents (vscimpb64): one link each. */
+.documents { margin: 6px 0; }
+.documents .doc-head { font-weight: 600; margin-bottom: 2px; }
+.documents .doc-link {
+    display: flex; align-items: center; gap: 4px; width: 100%; text-align: left;
+    background: none; border: none; padding: 2px 4px; cursor: pointer;
+    color: var(--vscode-textLink-foreground);
+}
+.documents .doc-link:hover:not([disabled]) { text-decoration: underline; background: var(--vscode-list-hoverBackground); }
+.documents .doc-link[disabled] { color: var(--vscode-disabledForeground); cursor: default; }
+.documents .doc-link .muted { margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
