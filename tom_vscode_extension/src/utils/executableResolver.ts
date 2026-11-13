@@ -234,16 +234,21 @@ export function expandHomePath(filePath: string): string {
  *   1. Exact platform match (e.g., darwin-arm64)
  *   2. Wildcard arch match (e.g., darwin-*)
  *   3. Universal wildcard (*)
- *   4. Fallback: <workspaceRoot>/tom_binaries/tom/<platform>/ (if workspace provided)
- *   5. Final fallback: $HOME/.tom/bin/<platform>/
+ *   4. Fallback: <workspaceRoot>/tom_binaries/tom/<platform>/ (if workspace provided and present)
+ *   5. `$TOM_BINARY_PATH/<platform>/` (the binaries layer as the shell names it)
+ *   6. The layer's path (or a relative one without a workspace), even if missing.
+ * `~/.tom/bin` is never used: no binary is installed there, and an old copy
+ * left there must not be picked up (build_tom build_cleanup1002).
  *
  * @param binaryPathConfig Platform-specific binary path config (same shape as ExecutableConfig)
  * @param workspaceRoot Optional workspace root for the default fallback path
+ * @param env The environment `TOM_BINARY_PATH` is read from (default: this process's)
  * @returns The resolved binary path directory (always ends with path separator)
  */
 export function resolveBinaryPath(
     binaryPathConfig: ExecutableConfig | undefined,
     workspaceRoot?: string,
+    env: NodeJS.ProcessEnv = process.env,
 ): string {
     // Try platform-specific resolution from config
     let resolved = resolveExecutablePath(binaryPathConfig);
@@ -255,18 +260,20 @@ export function resolveBinaryPath(
     }
 
     const platform = getCurrentPlatform();
+    const layer = path.join(workspaceRoot ?? '', 'tom_binaries', 'tom', platform);
 
     // Fallback: <workspaceRoot>/tom_binaries/tom/<platform>/
-    if (workspaceRoot) {
-        const wsFallback = path.join(workspaceRoot, 'tom_binaries', 'tom', platform);
-        if (fs.existsSync(wsFallback)) {
-            return wsFallback + path.sep;
-        }
+    if (workspaceRoot && fs.existsSync(layer)) {
+        return layer + path.sep;
     }
 
-    // Final fallback: $HOME/.tom/bin/<platform>/
-    const fallback = path.join(os.homedir(), '.tom', 'bin', platform);
-    return fallback + path.sep;
+    // Then: $TOM_BINARY_PATH/<platform>/
+    if (env.TOM_BINARY_PATH) {
+        return path.join(expandHomePath(env.TOM_BINARY_PATH), platform) + path.sep;
+    }
+
+    // Last: the layer's path, where `tom_pull_binaries` puts the binaries.
+    return layer + path.sep;
 }
 
 // ============================================================================

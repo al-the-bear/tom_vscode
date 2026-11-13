@@ -2720,7 +2720,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
         <div class="sp-collapse-content sp-collapsed" id="sp-executables-content">
             <!-- Binary Path sub-section -->
             <div style="margin-bottom:10px;padding:8px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:var(--vscode-editor-background)">
-                <div style="font-weight:600;font-size:11px;margin-bottom:6px">📂 Binary Path <span style="color:var(--vscode-descriptionForeground);font-weight:normal">(\${binaryPath} — fallback: ~/.tom/bin/&lt;platform&gt;/)</span></div>
+                <div style="font-weight:600;font-size:11px;margin-bottom:6px">📂 Binary Path <span style="color:var(--vscode-descriptionForeground);font-weight:normal">(\${binaryPath} — fallback: tom_binaries/tom/&lt;platform&gt;/, then \$TOM_BINARY_PATH/&lt;platform&gt;/)</span></div>
                 <textarea id="sp-binarypath-init" style="display:none">${escapeHtmlContent(JSON.stringify(status.binaryPath || {}))}</textarea>
                 <div id="sp-binarypath-list"></div>
                 <div class="sp-settings-row">

@@ -17,7 +17,7 @@
  *      environment variable this process does not have (`${env:TOM_BINARY_PATH}`
  *      in a VS Code started from the Dock), which is noted and passed;
  *   3. the workspace's binaries layer `<workspace>/tom_binaries/tom/<platform>/`;
- *   4. `~/.tom/bin/<platform>/`;
+ *   4. `$TOM_BINARY_PATH/<platform>/` (`~/.tom/bin` is never looked at);
  *   5. `buildkit` on PATH.
  *
  * Without a buildkit, or when it cannot list (exits non-zero, e.g. a build
@@ -34,7 +34,6 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { listProjectsJs } from './projectListingJs';
 import {
@@ -147,7 +146,6 @@ export function resolveBuildkitBinary(
     config: DartBinariesConfig = {},
     env: NodeJS.ProcessEnv = process.env,
     platform: string = getCurrentPlatform(),
-    homeDir: string = os.homedir(),
 ): { binary?: string; searched: string[] } {
     const searched: string[] = [];
     const name = exeName('buildkit', platform);
@@ -183,13 +181,17 @@ export function resolveBuildkitBinary(
         }
     }
 
-    // 3. the workspace's binaries layer, 4. ~/.tom/bin/<platform>/
-    for (const [dir, note] of [
-        [path.join(workspaceRoot, 'tom_binaries', 'tom', platform), 'the workspace\'s binaries layer'],
-        [path.join(homeDir, '.tom', 'bin', platform), '~/.tom/bin/<platform>'],
-    ] as const) {
-        const hit = tryFile(path.join(dir, name), note);
+    // 3. the workspace's binaries layer
+    const inLayer = tryFile(path.join(workspaceRoot, 'tom_binaries', 'tom', platform, name), 'the workspace\'s binaries layer');
+    if (inLayer) { return { binary: inLayer, searched }; }
+
+    // 4. $TOM_BINARY_PATH/<platform>/ - the binaries layer as the shell names it. ~/.tom/bin is not looked at:
+    // binaries are not installed there, and an old copy left there must not run (build_tom build_cleanup1002).
+    if (env.TOM_BINARY_PATH) {
+        const hit = tryFile(path.join(expandHomePath(env.TOM_BINARY_PATH), platform, name), '$TOM_BINARY_PATH/<platform>');
         if (hit) { return { binary: hit, searched }; }
+    } else {
+        searched.push(`${path.join('$TOM_BINARY_PATH', platform, name)} (TOM_BINARY_PATH not set in this process)`);
     }
 
     // 5. PATH
@@ -215,8 +217,8 @@ export function fallbackHint(kind: ListingFallback['kind'], searched: readonly s
             + '(VS Code started from the Dock or Finder does not read your shell profile): set it for GUI apps '
             + `(macOS: \`launchctl setenv ${unset[0]} <path>\`, then restart VS Code) or start VS Code from a shell. `
         : '';
-    return `${envHint}Or install the tom binaries into the workspace's binaries layer (tom_binaries/tom/<platform>/) or `
-        + '~/.tom/bin/<platform>/, or set `bridge.executables.buildkit` in .tom/tom_vscode_extension.json to the file. '
+    return `${envHint}Or pull the tom binaries into the workspace's binaries layer (tom_binaries/tom/<platform>/, also `
+        + 'found through TOM_BINARY_PATH), or set `bridge.executables.buildkit` in .tom/tom_vscode_extension.json to the file. '
         + 'Until then the extension lists the projects with its own JavaScript port of the same rules.';
 }
 
@@ -323,7 +325,6 @@ export function listWorkspaceProjects(
         runner?: BuildkitRunner;
         now?: () => number;
         env?: NodeJS.ProcessEnv;
-        homeDir?: string;
         jsLister?: JsLister;
     } = {},
 ): Promise<ProjectListing> {
@@ -339,10 +340,10 @@ export function listWorkspaceProjects(
 
 async function runListing(
     workspaceRoot: string,
-    options: { config?: DartBinariesConfig; runner?: BuildkitRunner; env?: NodeJS.ProcessEnv; homeDir?: string; jsLister?: JsLister },
+    options: { config?: DartBinariesConfig; runner?: BuildkitRunner; env?: NodeJS.ProcessEnv; jsLister?: JsLister },
 ): Promise<ProjectListing> {
     const config = options.config ?? currentDartBinariesConfig();
-    const { binary, searched } = resolveBuildkitBinary(workspaceRoot, config, options.env, undefined, options.homeDir);
+    const { binary, searched } = resolveBuildkitBinary(workspaceRoot, config, options.env);
     if (!binary) {
         return fallBack(workspaceRoot, options.jsLister, {
             kind: 'notFound',
