@@ -311,3 +311,7 @@ tom_vscode_extension_original/
 # These live in a `testlog/` folder next to each project's `doc/` folder.
 # The `doc/` folder itself is fully tracked (no test artifacts written there).
 **/testlog/
+
+# Retired build state (build_tom build_cleanup7): the build number lives in
+# version.versioner.dart; an old buildkit that still writes this file is ignored.
+tom_build_state.json
