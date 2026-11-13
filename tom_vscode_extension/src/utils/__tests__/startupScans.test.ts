@@ -15,6 +15,9 @@
  *        the TTL a finished walk is reused; `fresh` walks again
  *   SS-6 TtlPromiseCache: a failed load is forgotten; after the TTL the next
  *        caller loads again
+ *   SS-8 the shipped tom_workspace detector marks the directory holding
+ *        buildkit_master.yaml (with _ai/ and _copilot_guidelines/); the retired
+ *        tom_workspace.yaml / tom.code-workspace mark nothing
  *   SS-7 promptScopes: every `prompt/` folder (not descending into one, ztmp
  *        skipped) as scan scopes, each detected project's `prompt/` as a project
  *        scope; the walk is shared within the TTL
@@ -183,5 +186,23 @@ describe('TtlPromiseCache', () => {
         assert.equal(await cache.get('k', async () => ++loads), 2, 'within the TTL');
         clock = 1000;
         assert.equal(await cache.get('k', async () => ++loads), 3, 'after the TTL');
+    });
+});
+
+describe('tom_workspace detector', () => {
+    test('SS-8: buildkit_master.yaml marks the workspace; the retired markers do not', () => {
+        const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ss8-'));
+        try {
+            fs.mkdirSync(path.join(ws, '_ai'));
+            fs.mkdirSync(path.join(ws, '_copilot_guidelines'));
+            fs.writeFileSync(path.join(ws, 'tom_workspace.yaml'), '');
+            fs.writeFileSync(path.join(ws, 'tom.code-workspace'), '{}');
+            assert.ok(!detectProjectAttributes(ws).detectorNames.includes('tom_workspace'),
+                'the retired markers alone are no workspace');
+            fs.writeFileSync(path.join(ws, 'buildkit_master.yaml'), '');
+            assert.ok(detectProjectAttributes(ws).detectorNames.includes('tom_workspace'));
+        } finally {
+            fs.rmSync(ws, { recursive: true, force: true });
+        }
     });
 });

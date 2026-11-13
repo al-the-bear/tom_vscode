@@ -4,12 +4,12 @@
       {
         "name": "tom_workspace",
         "detection": {
-          "hasFile": ["tom_workspace.yaml", "tom.code-workspace"],
-          "hasFolder": ["_ai", "_copilot_guidelines", ".tom_metadata"]
+          "hasFile": ["buildkit_master.yaml"],
+          "hasFolder": ["_ai", "_copilot_guidelines"]
         },
         "attributes": {
           "types": "tom,workspace,tom_workspace",
-          "flags": "hasAiFolder,hasGuidelines,hasMetadata"
+          "flags": "hasAiFolder,hasGuidelines"
         }
       },
       {
