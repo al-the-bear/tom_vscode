@@ -7,7 +7,7 @@
  *   - `tomAi_listQuests`      — enumerates quest folders under
  *                               `_ai/quests/`.
  *   - `tomAi_listProjects`    — the workspace's projects as buildkit
- *                               sees them (`buildkit :projects --json`).
+ *                               sees them (`buildkit :projects --all --json`).
  *   - `tomAi_listDocuments`   — walks a workspace document category
  *                               folder (prompts / answers / notes /
  *                               roles / guidelines).
@@ -261,12 +261,12 @@ export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListP
 
 export const LIST_PROJECTS_DESCRIPTION =
     'List the workspace\'s projects as the build tools see them, from ' +
-    '`buildkit :projects --json` run in the workspace root: every Dart, ' +
+    '`buildkit :projects --all --json` run in the workspace root: every Dart, ' +
     'Flutter, TypeScript, JavaScript, Python, Java, Go, Rust, C and C++ ' +
-    'project a buildkit project command visits (skip markers and the ' +
-    '`navigation:` defaults of `buildkit_master.yaml` apply; projects nested ' +
-    'inside another project, e.g. test fixtures, and `zom_` test projects are ' +
-    'not listed). Each entry: `{id, name, path, absolutePath, language, type, ' +
+    'project of the tree (also those the `navigation:` excludes of ' +
+    '`buildkit_master.yaml` keep from the build commands; folders under a ' +
+    'skip marker, projects nested inside another project, e.g. samples and ' +
+    'test fixtures, and `zom_` test projects are not listed). Each entry: `{id, name, path, absolutePath, language, type, ' +
     'natures, version?, description?}` — `id` and `name` from the project\'s ' +
     '`buildkit.yaml` (`project_id`, `name`), else the project file\'s name; ' +
     '`path` workspace-relative with `/`; `type` the primary nature (e.g. ' +

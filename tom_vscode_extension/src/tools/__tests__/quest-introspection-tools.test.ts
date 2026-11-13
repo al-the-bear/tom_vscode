@@ -262,7 +262,7 @@ describe('listProjectsImpl', () => {
             listProjectsImpl(projectSource, {}));
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
-        assert.equal(r.discoveredFrom, 'buildkit :projects --json');
+        assert.equal(r.discoveredFrom, 'buildkit :projects --all --json');
         assert.equal(r.binary, w('fake-bin/buildkit'));
         assert.equal(r.count, 3);
         assert.deepEqual(
@@ -279,14 +279,14 @@ describe('listProjectsImpl', () => {
         assert.equal('version' in kernel, false, 'absent fields stay absent');
     });
 
-    test('the command run: -R <root> :projects --json in the workspace root', async () => {
+    test('the command run: -R <root> :projects --all --json in the workspace root', async () => {
         const calls: Array<{ args: string[]; cwd: string }> = [];
         const src = projectSourceFor(async (_b, args, cwd) => {
             calls.push({ args, cwd });
             return { exitCode: 0, stdout: JSON.stringify(PROJECTS_DOC), stderr: '' };
         });
         await listProjectsImpl(src, {});
-        assert.deepEqual(calls, [{ args: ['-R', w('.'), ':projects', '--json'], cwd: w('.') }]);
+        assert.deepEqual(calls, [{ args: ['-R', w('.'), ':projects', '--all', '--json'], cwd: w('.') }]);
     });
 
     test('no buildkit → ok: false naming where it looked', async () => {

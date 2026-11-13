@@ -1,6 +1,8 @@
 /**
- * The workspace's projects, as buildkit sees them: `buildkit :projects --json`
- * (tom_build_base's `listProjects`), run in the workspace root.
+ * The workspace's projects, as buildkit sees them: `buildkit :projects --all --json`
+ * (tom_build_base's `listProjects`), run in the workspace root. `--all`: every
+ * project of the tree, past the `navigation:` excludes of `buildkit_master.yaml`
+ * that keep whole subtrees (e.g. `ai_build/**`) from the build commands.
  *
  * One discovery implementation for the build tools and the extension: the
  * same traversal, the same `buildkit_master.yaml` navigation defaults, the
@@ -54,7 +56,7 @@ export type ProjectListing =
     | { ok: false; error: string; binary?: string; searched?: string[] };
 
 /** How the listing is described in tool answers. */
-export const PROJECTS_SOURCE = 'buildkit :projects --json';
+export const PROJECTS_SOURCE = 'buildkit :projects --all --json';
 
 /** The `formatVersion` this reader understands. */
 export const PROJECTS_FORMAT_VERSION = 1;
@@ -148,7 +150,7 @@ export function clearProjectListingCache(): void {
 
 /**
  * The projects of the workspace at [workspaceRoot], from
- * `buildkit :projects --json` run there.
+ * `buildkit :projects --all --json` run there.
  */
 export function listWorkspaceProjects(
     workspaceRoot: string,
@@ -179,14 +181,14 @@ async function runListing(
     if (!binary) {
         return {
             ok: false,
-            error: 'buildkit not found: the project list comes from `buildkit :projects --json`. '
+            error: 'buildkit not found: the project list comes from `buildkit :projects --all --json`. '
                 + 'Install the tom binaries (the binaries layer, tom_binaries/tom/<platform>/) or set '
                 + '`bridge.executables.buildkit` in .tom/tom_vscode_extension.json.',
             searched,
         };
     }
     try {
-        const run = await (options.runner ?? defaultRunner)(binary, ['-R', workspaceRoot, ':projects', '--json'], workspaceRoot);
+        const run = await (options.runner ?? defaultRunner)(binary, ['-R', workspaceRoot, ':projects', '--all', '--json'], workspaceRoot);
         if (run.exitCode !== 0) {
             return { ok: false, binary, error: `buildkit :projects exited with ${run.exitCode}: ${(run.stderr || run.stdout).trim().slice(0, 2000)}` };
         }

@@ -30,7 +30,7 @@
                         },
                         "buildkit": {
                             "type": "object",
-                            "description": "The buildkit binary the project list comes from (tomAi_listProjects, tomAi_getWorkspaceInfo, the project pickers: `buildkit :projects --json`). Not bundled; without this entry it is taken from the binaries layer (binaryPath, else <workspace>/tom_binaries/tom/<platform>/) or PATH.",
+                            "description": "The buildkit binary the project list comes from (tomAi_listProjects, tomAi_getWorkspaceInfo, the project pickers: `buildkit :projects --all --json`). Not bundled; without this entry it is taken from the binaries layer (binaryPath, else <workspace>/tom_binaries/tom/<platform>/) or PATH.",
                             "additionalProperties": { "type": "string" }
                         },
                         "spec_checks": {

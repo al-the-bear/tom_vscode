@@ -188,7 +188,7 @@ export const GET_WORKSPACE_INFO_DESCRIPTION =
     'Return workspace context as JSON: `workspaceName`, `workspaceFile` ' +
     '(`.code-workspace` path if any), `workspaceFolders` (each with index/name/path), ' +
     '`quest` (active quest id, empty string when none), `projects` ' +
-    '(the projects as tomAi_listProjects lists them, from `buildkit :projects --json`; ' +
+    '(the projects as tomAi_listProjects lists them, from `buildkit :projects --all --json`; ' +
     'null with `projectsError` when there is no buildkit), ' +
     '`projectsSource` (the command and binary the projects came from, or null), ' +
     'and `git` (`{branch, commit, dirty, remote}`; null when not a git repo), ' +

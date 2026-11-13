@@ -396,7 +396,7 @@ shows, else `default`.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --json` (buildkit configured as `bridge.executables.buildkit`, from the binaries layer, or on PATH): `{id, name, path, absolutePath, language, type, natures, version?, description?}`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree (buildkit configured as `bridge.executables.buildkit`, from the binaries layer, or on PATH): `{id, name, path, absolutePath, language, type, natures, version?, description?}`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)

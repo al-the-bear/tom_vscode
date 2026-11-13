@@ -2560,7 +2560,7 @@
         ],
         "displayName": "List Projects",
         "userDescription": "List all workspace projects",
-        "modelDescription": "List the workspace's projects as the build tools see them (buildkit :projects --json): id, name, path, language, type, natures.",
+        "modelDescription": "List the workspace's projects as the build tools see them (buildkit :projects --all --json): id, name, path, language, type, natures.",
         "canBeReferencedInPrompt": true,
         "inputSchema": {
           "type": "object",
