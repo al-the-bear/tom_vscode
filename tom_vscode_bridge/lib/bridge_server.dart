@@ -257,13 +257,9 @@ import 'package:tom_core_kernel/tom_core_kernel.dart';
 
 import 'package:tom_core_server/tom_core_server.dart';
 
-import 'package:tom_build/tom_build.dart';
-
 import 'package:tom_vscode_scripting_api/script_globals.dart';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
-
-import 'package:tom_build_cli/tom_cli_api.dart';
 
 void main() {}
 ''';
