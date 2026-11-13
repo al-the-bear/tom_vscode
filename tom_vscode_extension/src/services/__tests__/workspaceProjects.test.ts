@@ -3,9 +3,16 @@
  * The workspace's projects from `buildkit :projects --json`
  * (services/workspaceProjects.ts, build_tom build_cleanup8).
  *
- *   WP-1 buildkit is found configured first, then in the binaries layer, then on PATH; none: the places looked at
+ *   WP-1 buildkit is looked for in turn (qrfix14): bridge.executables.buildkit, bridge.binaryPath, the workspace's
+ *        binaries layer, ~/.tom/bin/<platform>/, PATH — the first that has it wins; none: every place looked at
  *   WP-2 the JSON document is read after any lines printed before it; a foreign formatVersion is refused
  *   WP-3 a listing is reused for 30 s per root, `fresh` runs again, a failed listing is not kept
+ *   WP-4 a binaryPath naming an unset variable (`${env:TOM_BINARY_PATH}` in a VS Code started from the Dock) is
+ *        passed with a note, and buildkit is still found in the workspace's binaries layer (and in ~/.tom/bin)
+ *   WP-5 no buildkit, or one that cannot list: the JavaScript port lists the projects (`source: 'javascript'`) with
+ *        the diagnostic `fallback` {kind, reason, searched, binary?, buildkitError?, hint}; the hint names the unset
+ *        variable and launchctl, or tom_build_kit 1.18.0; a buildkit that lists: `source: 'buildkit'`
+ *   WP-6 the notifier is told once per reason and window; the notice's line and details (searched, answer, hint)
  */
 
 import test, { describe } from 'node:test';
@@ -19,8 +26,14 @@ import {
     clearProjectListingCache,
     listWorkspaceProjects,
     parseProjectsJson,
+    projectListingNoticeLine,
+    projectListingNoticeMarkdown,
+    projectsSourceOf,
+    resetProjectListingNotices,
     resolveBuildkitBinary,
+    setProjectListingNotifier,
     type BuildkitRunner,
+    type ListingFallback,
 } from '../workspaceProjects.js';
 import { getCurrentPlatform } from '../../utils/executableResolver.js';
 
@@ -37,23 +50,115 @@ function file(rel: string): string {
 const doc = (projects: unknown[]) => JSON.stringify({ formatVersion: 1, tool: 'buildkit', root: '/ws', count: projects.length, projects });
 
 describe('workspaceProjects', () => {
-    test('WP-1: configured, then the binaries layer, then PATH', () => {
+    test('WP-1: every place in turn, the first that has it', () => {
         const ws = path.join(tmp, 'ws1');
+        const home = path.join(tmp, 'home1');
         const configured = file('cfg/buildkit');
+        const binDir = file('bindir/buildkit');
         const layer = file(`ws1/tom_binaries/tom/${platform}/buildkit`);
+        const inHome = file(`home1/.tom/bin/${platform}/buildkit`);
         const onPath = file('pathdir/buildkit');
         const env = { PATH: path.join(tmp, 'pathdir') };
+        const find = (config: object): string | undefined => resolveBuildkitBinary(ws, config, env, platform, home).binary;
 
-        assert.equal(resolveBuildkitBinary(ws, { executables: { buildkit: { '*': configured } } }, env, platform).binary, configured);
-        assert.equal(resolveBuildkitBinary(ws, {}, env, platform).binary, layer);
+        assert.equal(find({ executables: { buildkit: { '*': configured } }, binaryPath: { '*': path.dirname(binDir) } }), configured);
+        assert.equal(find({ binaryPath: { '*': path.dirname(binDir) } }), binDir, 'bridge.binaryPath');
+        // A configured place without the file is passed over: the next place is tried.
+        assert.equal(find({ executables: { buildkit: { '*': path.join(tmp, 'gone') } }, binaryPath: { '*': path.join(tmp, 'empty-dir') } }), layer);
         fs.rmSync(layer);
-        assert.equal(resolveBuildkitBinary(ws, {}, env, platform).binary, onPath);
-        // A configured file that does not exist is passed over.
-        assert.equal(resolveBuildkitBinary(ws, { executables: { buildkit: { '*': path.join(tmp, 'gone') } } }, env, platform).binary, onPath);
+        assert.equal(find({}), inHome, '~/.tom/bin/<platform>');
+        fs.rmSync(inHome);
+        assert.equal(find({}), onPath, 'PATH');
 
-        const none = resolveBuildkitBinary(path.join(tmp, 'ws-none'), { binaryPath: { '*': path.join(tmp, 'no-layer') } }, { PATH: path.join(tmp, 'empty') }, platform);
+        const none = resolveBuildkitBinary(path.join(tmp, 'ws-none'), { binaryPath: { '*': path.join(tmp, 'no-layer') } }, { PATH: path.join(tmp, 'empty') }, platform, path.join(tmp, 'no-home'));
         assert.equal(none.binary, undefined);
-        assert.deepEqual(none.searched, [path.join(tmp, 'no-layer', 'buildkit'), 'buildkit on PATH']);
+        assert.deepEqual(none.searched, [
+            `${path.join(tmp, 'no-layer', 'buildkit')} (bridge.binaryPath)`,
+            `${path.join(tmp, 'ws-none', 'tom_binaries', 'tom', platform, 'buildkit')} (the workspace's binaries layer)`,
+            `${path.join(tmp, 'no-home', '.tom', 'bin', platform, 'buildkit')} (~/.tom/bin/<platform>)`,
+            'buildkit on PATH',
+        ]);
+    });
+
+    test('WP-4: a binaryPath whose variable is unset still finds buildkit in the workspace layer', () => {
+        const ws = path.join(tmp, 'ws4');
+        const layer = file(`ws4/tom_binaries/tom/${platform}/buildkit`);
+        const unexpanded = '${env:TOM_BINARY_PATH}/' + platform + '/';
+        const config = { binaryPath: { [platform]: unexpanded } };
+        const r = resolveBuildkitBinary(ws, config, { PATH: '' }, platform, path.join(tmp, 'no-home4'));
+        assert.equal(r.binary, layer);
+        assert.equal(r.searched[0], `${path.join(unexpanded, 'buildkit')} (bridge.binaryPath: \${env:TOM_BINARY_PATH} not set in this process)`);
+        // Set, the configured folder is used.
+        const own = file(`tbp/${platform}/buildkit`);
+        assert.equal(resolveBuildkitBinary(ws, config, { PATH: '', TOM_BINARY_PATH: path.join(tmp, 'tbp') }, platform, path.join(tmp, 'no-home4')).binary, own);
+        // Unset, and no layer: ~/.tom/bin/<platform>.
+        fs.rmSync(layer);
+        const inHome = file(`home4/.tom/bin/${platform}/buildkit`);
+        assert.equal(resolveBuildkitBinary(ws, config, { PATH: '' }, platform, path.join(tmp, 'home4')).binary, inHome);
+    });
+
+    test('WP-5: the JavaScript port when buildkit is missing or cannot list', async () => {
+        const told: ListingFallback[] = [];
+        setProjectListingNotifier((f) => told.push(f));
+        resetProjectListingNotices();
+        try {
+            const project = { id: 'x', name: 'x', path: 'x', absolutePath: '/r/x', language: 'dart', type: 'dart', natures: ['dart'] };
+            const jsLister = (): { projects: Array<typeof project> } => ({ projects: [project] });
+            const root = path.join(tmp, 'ws5');
+            const missing = await listWorkspaceProjects(root, {
+                fresh: true, jsLister, homeDir: path.join(tmp, 'no-home5'), env: { PATH: '' },
+                config: { binaryPath: { [platform]: '${env:TOM_BINARY_PATH}/' + platform + '/' } },
+            });
+            assert.ok(missing.ok && missing.source === 'javascript');
+            assert.deepEqual(missing.projects, [project]);
+            assert.equal(missing.fallback.kind, 'notFound');
+            assert.match(missing.fallback.hint, /\$\{env:TOM_BINARY_PATH\}.*launchctl setenv TOM_BINARY_PATH/);
+            assert.match(projectsSourceOf(missing) ?? '', /JavaScript port/);
+
+            const binary = file('ws5bin/buildkit');
+            const config = { executables: { buildkit: { '*': binary } } };
+            const failed = await listWorkspaceProjects(root, {
+                fresh: true, jsLister, config,
+                runner: async () => ({ exitCode: 64, stdout: '', stderr: 'Unknown command: :projects\nError: Unknown command: projects' }),
+            });
+            assert.ok(failed.ok && failed.source === 'javascript');
+            assert.equal(failed.fallback.kind, 'failed');
+            assert.equal(failed.fallback.binary, binary);
+            assert.match(failed.fallback.reason, /could not list the projects: exit 64: Unknown command: :projects$/);
+            assert.match(failed.fallback.buildkitError ?? '', /Error: Unknown command: projects/);
+            assert.match(failed.fallback.hint, /tom_build_kit 1\.18\.0/);
+
+            const listed = await listWorkspaceProjects(root, { fresh: true, config, runner: async () => ({ exitCode: 0, stdout: doc([project]), stderr: '' }) });
+            assert.ok(listed.ok && listed.source === 'buildkit');
+            assert.equal(projectsSourceOf(listed), `buildkit :projects --all --json (${binary})`);
+            assert.deepEqual(told.map((f) => f.kind), ['notFound', 'failed'], 'buildkit listing: nothing told');
+        } finally {
+            setProjectListingNotifier(undefined);
+            clearProjectListingCache();
+        }
+    });
+
+    test('WP-6: told once per reason; the notice', async () => {
+        const told: ListingFallback[] = [];
+        setProjectListingNotifier((f) => told.push(f));
+        resetProjectListingNotices();
+        try {
+            const opts = { fresh: true, jsLister: () => ({ projects: [] }), homeDir: path.join(tmp, 'no-home6'), env: { PATH: '' }, config: { binaryPath: { '*': path.join(tmp, 'nothing6') } } };
+            await listWorkspaceProjects(path.join(tmp, 'ws6'), opts);
+            await listWorkspaceProjects(path.join(tmp, 'ws6'), opts);
+            assert.equal(told.length, 1, 'once per reason and window');
+            const f = told[0];
+            assert.equal(projectListingNoticeLine(f), 'Tom AI: buildkit was not found — the project list comes from the extension\'s JavaScript port for now.');
+            const md = projectListingNoticeMarkdown({ ...f, buildkitError: 'exit 64: Unknown command' }, '/ws');
+            assert.match(md, /^# Project list: buildkit not available/);
+            assert.ok(f.searched.every((s) => md.includes(`- \`${s}\``)), 'every place looked at');
+            assert.match(md, /## What buildkit answered\n\n```text\nexit 64: Unknown command\n```/);
+            assert.match(md, /## How to fix it\n\n/);
+            assert.match(md, /Workspace: `\/ws`/);
+        } finally {
+            setProjectListingNotifier(undefined);
+            clearProjectListingCache();
+        }
     });
 
     test('WP-2: the document after other lines; a foreign formatVersion is refused', () => {
@@ -92,11 +197,11 @@ describe('workspaceProjects', () => {
         assert.equal(runs, 3, 'fresh runs again');
 
         fail = true;
-        const failed = await listWorkspaceProjects(root, { config, runner, now, fresh: true });
-        assert.equal(failed.ok, false);
+        const failed = await listWorkspaceProjects(root, { config, runner, now, fresh: true, jsLister: () => { throw new Error('no listing'); } });
+        assert.equal(failed.ok, false, 'buildkit and the JavaScript port both failed');
         fail = false;
         const again = await listWorkspaceProjects(root, { config, runner, now });
-        assert.equal(again.ok, true, 'the failure was not cached');
+        assert.ok(again.ok && again.source === 'buildkit', 'the failure was not cached');
         assert.equal(runs, 5);
         clearProjectListingCache();
     });

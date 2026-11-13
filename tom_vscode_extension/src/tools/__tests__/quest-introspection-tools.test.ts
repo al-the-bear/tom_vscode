@@ -289,30 +289,37 @@ describe('listProjectsImpl', () => {
         assert.deepEqual(calls, [{ args: ['-R', w('.'), ':projects', '--all', '--json'], cwd: w('.') }]);
     });
 
-    test('no buildkit → ok: false naming where it looked', async () => {
+    test('no buildkit → the JavaScript port lists them, with the fallback diagnostic', async () => {
         const src: ProjectSource = {
             readProjects: () => listWorkspaceProjects(w('nowhere'), {
                 fresh: true,
                 config: { binaryPath: { '*': w('no-layer') } }, // eslint-disable-line @typescript-eslint/naming-convention -- the '*' platform key
                 env: { PATH: w('no-path') }, // eslint-disable-line @typescript-eslint/naming-convention -- PATH
+                homeDir: w('no-home'),
+                jsLister: () => ({ projects: [] }),
             }),
         };
         const r = JSON.parse(await listProjectsImpl(src, {}));
-        assert.equal(r.ok, false);
-        assert.match(r.error, /buildkit not found/);
-        assert.ok(r.searched.some((s: string) => s.startsWith(w('no-layer'))));
+        assert.equal(r.ok, true);
+        assert.match(r.discoveredFrom, /JavaScript port/);
+        assert.equal(r.fallback.kind, 'notFound');
+        assert.match(r.fallback.reason, /buildkit was not found/);
+        assert.ok(r.fallback.searched.some((s: string) => s.startsWith(w('no-layer'))));
+        assert.match(r.fallback.hint, /bridge\.executables\.buildkit/);
         assert.deepEqual(r.projects, []);
     });
 
-    test('a failing or foreign listing → ok: false with buildkit\'s message', async () => {
+    test('a failing or foreign listing → the JavaScript port, with buildkit\'s message', async () => {
         const failing = projectSourceFor(async () => ({ exitCode: 2, stdout: '', stderr: 'Error: boom' }));
         const r1 = JSON.parse(await listProjectsImpl(failing, {}));
-        assert.equal(r1.ok, false);
-        assert.match(r1.error, /exited with 2: Error: boom/);
+        assert.equal(r1.ok, true);
+        assert.equal(r1.fallback.kind, 'failed');
+        assert.match(r1.fallback.buildkitError, /exit 2: Error: boom/);
+        assert.match(r1.fallback.hint, /tom_build_kit 1\.18\.0/);
         const newer = projectSourceFor(async () => ({ exitCode: 0, stdout: JSON.stringify({ ...PROJECTS_DOC, formatVersion: 2 }), stderr: '' }));
         const r2 = JSON.parse(await listProjectsImpl(newer, {}));
-        assert.equal(r2.ok, false);
-        assert.match(r2.error, /formatVersion 2 is not 1/);
+        assert.equal(r2.ok, true);
+        assert.match(r2.fallback.buildkitError, /formatVersion 2 is not 1/);
     });
 });
 

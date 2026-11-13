@@ -151,7 +151,7 @@ opens; other transports are not affected.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + projects (buildkit's listing, as `tomAi_listProjects`; `projectsError` without buildkit) + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + projects (as `tomAi_listProjects`: buildkit's listing, else the JavaScript port with `projectsFallback` saying why; `projectsError` only when both fail) + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ |
@@ -396,7 +396,7 @@ shows, else `default`.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree (buildkit configured as `bridge.executables.buildkit`, from the binaries layer, or on PATH): `{id, name, path, absolutePath, language, type, natures, version?, description?}`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. buildkit is looked for in turn — `bridge.executables.buildkit`, `bridge.binaryPath` (passed with a note when its `${env:…}` variable is unset, as in a VS Code started from the Dock), the workspace's binaries layer, `~/.tom/bin/<platform>/`, PATH. Without one, or when it cannot list (a buildkit before tom_build_kit 1.18.0 has no `:projects`), the extension's JavaScript port of the same rules lists them (`discoveredFrom` says so; `fallback` `{kind, reason, searched, binary?, buildkitError?, hint}`), and a notification once per reason shows the diagnostic and how to fix it. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)
@@ -1321,6 +1321,20 @@ Check a DocSpecs Markdown document against its schema. The schema is the one its
 ### `tomAi_getQuestWindowStatus`
 
 The VS Code windows running on THIS machine and what is active in each, the sessions of each quest, and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: per window its workspace, quest, `alive` (a heartbeat within 90 s) and the heartbeat's age, pid, CLI and MCP server (running, port), the subsystems with a prompt out, the role, the process position, the ANTHROPIC/LLM panel's profile and session, the queue (auto-send, paused, counts per status, default transport / profile / session, the item being sent with its stage, profile and session), `build` (the extension build the window runs and the one installed, each `{commit, dirty, builtAt}`; `reloadNeeded: true` when a newer build is installed and the window still runs the older one), `dartBinaries` (the window's platform, `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`, and the `missing` list) and `isThisWindow`; windows without a live heartbeat are left out unless `includeGone`. `quests`: per quest with a live window, and the `quest` asked for even when none runs, its sessions (base, lifetime, profile, last model, whether it has a conversation, temporary `tmp-*` ones flagged, the implicit `default` and `chat`) with the profile an item without its own runs with in each (session, else queue default), and the queue's default session. `profiles`: the profiles a sent item may name (`isDefault`, `noApiKey`). Every profile is `{id, name, model, transport}`; an id the config no longer holds is `unknownProfile: true`. `quest` narrows the answer to that quest; an unknown quest is refused. Reads only.
+
+### `tomAi_listProjects`
+
+The workspace's projects as the build tools see them: `buildkit :projects --all --json` run in the workspace root — every Dart, Flutter, TypeScript, JavaScript, Python, Java, Go, Rust, C and C++ project of the tree, also those the `navigation:` excludes of `buildkit_master.yaml` keep from the build commands. Not listed: folders under a skip marker (`buildkit_master.yaml` of a nested workspace, `tom_skip.yaml`, `buildkit_skip.yaml`), projects nested inside another project (samples, test fixtures) and `zom_` test projects. Each entry: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. The answer is `{ok, discoveredFrom, binary, root, count, projects}`. Listings are cached for 30 s per root.
+
+**Where buildkit is looked for**, in turn, the first place that has the file winning:
+
+1. `bridge.executables.buildkit` (a file);
+2. `bridge.binaryPath` — passed, with a note in `searched`, when it names an `${env:…}` variable this VS Code does not have (`${env:TOM_BINARY_PATH}` in a VS Code started from the Dock or Finder, which does not read the shell profile);
+3. the workspace's binaries layer `<workspace>/tom_binaries/tom/<platform>/`;
+4. `~/.tom/bin/<platform>/`;
+5. PATH.
+
+**Without buildkit, or when it cannot list** (it exits non-zero — a buildkit before tom_build_kit 1.18.0 has no `:projects` — or answers no document), the extension's JavaScript port of the same rules lists the projects (`services/projectListingJs.ts`: the walk, natures, identities and build order of tom_build_base's `listProjectsFor`; the same JSON, order included). The answer then says `discoveredFrom: "the extension's JavaScript port …"` and carries `fallback`: `{kind: "notFound" | "failed", reason, searched, binary?, buildkitError?, hint}` — what happened, every place looked at, what buildkit answered, and how to fix it (set the variable for GUI apps, e.g. `launchctl setenv TOM_BINARY_PATH <path>` and restart VS Code; install the binaries into the layer or `~/.tom/bin/<platform>/`; point `bridge.executables.buildkit` at the file; update an old buildkit). The window shows a notification once per reason with **Show details**. `ok: false` comes only when the JavaScript listing fails as well.
 
 ### `tomAi_listPromptPairs`
 

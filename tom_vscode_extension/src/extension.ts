@@ -94,6 +94,7 @@ import { getCliServerStatus } from './handlers/cliServer-handler';
 import { HEARTBEAT_INTERVAL_MS } from './utils/windowHeartbeat';
 import { checkBuildStatus, initBuildStatus } from './services/buildStatusService';
 import { currentDartBinariesStatus, setDartBinariesConfigSource, summarizeDartBinaries } from './services/dartBinariesStatus';
+import { projectListingNoticeLine, projectListingNoticeMarkdown, setProjectListingNotifier } from './services/workspaceProjects';
 import { initDartBinariesHelp, showWithDartBinariesHelp } from './handlers/dartBinariesHelp-handler';
 import { initPendingQuestionUi } from './handlers/askUser-handler';
 import { initAgentSdkCliHelp } from './handlers/agentSdkCliHelp-handler';
@@ -431,6 +432,16 @@ export async function activate(context: vscode.ExtensionContext) {
         return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: getWorkspaceRoot(), bridgeExecutable };
     });
     initDartBinariesHelp(context);
+    // The project list without buildkit (qrfix14): once per reason and window, a notification
+    // with the diagnostic (where buildkit was looked for, what it answered, how to fix it).
+    setProjectListingNotifier((fallback) => {
+        void vscode.window.showWarningMessage(projectListingNoticeLine(fallback), 'Show details').then(async (pick) => {
+            if (pick !== 'Show details') { return; }
+            const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: projectListingNoticeMarkdown(fallback, getWorkspaceRoot() ?? '') });
+            await vscode.window.showTextDocument(doc, { preview: true });
+        });
+    });
+    context.subscriptions.push({ dispose: () => setProjectListingNotifier(undefined) });
     // A question waiting for the user's answer: @T: Show Pending Question and its status-bar entry.
     initPendingQuestionUi(context);
     // The page the Agent SDK transport points to when the Anthropic provider's

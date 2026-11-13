@@ -40,7 +40,7 @@
 
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
-import { PROJECTS_SOURCE, type ProjectListing, type WorkspaceProject } from '../services/workspaceProjects';
+import { PROJECTS_SOURCE, PROJECTS_SOURCE_JS, type ProjectListing, type WorkspaceProject } from '../services/workspaceProjects';
 
 // ===========================================================================
 // Narrow deps
@@ -247,6 +247,16 @@ export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListP
                 projects: [],
             });
         }
+        if (result.source === 'javascript') {
+            // buildkit was not found or could not list: the extension's JavaScript port (qrfix14), and why.
+            return ok({
+                discoveredFrom: PROJECTS_SOURCE_JS,
+                fallback: result.fallback,
+                root: result.root,
+                count: result.projects.length,
+                projects: result.projects,
+            });
+        }
         return ok({
             discoveredFrom: PROJECTS_SOURCE,
             binary: result.binary,
@@ -272,10 +282,9 @@ export const LIST_PROJECTS_DESCRIPTION =
     '`path` workspace-relative with `/`; `type` the primary nature (e.g. ' +
     '`flutter`, `dart_package`, `python`); `natures` every nature (e.g. ' +
     '`git`, `buildkit`). Answer `{ok, discoveredFrom, binary, root, count, ' +
-    'projects}`. Without a buildkit binary (configured ' +
-    '`bridge.executables.buildkit`, the binaries layer, or PATH) the answer ' +
-    'is `{ok: false, error, searched, projects: []}`. Listings are cached ' +
-    'for 30 s.';
+    'projects}`. Without a buildkit that can list, the extension\'s JavaScript ' +
+    'port of the same rules lists them, with `fallback` `{kind, reason, ' +
+    'searched, hint}`. Cached 30 s. Where buildkit is looked for: tomAi_describeTool.';
 
 export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
     name: 'tomAi_listProjects',

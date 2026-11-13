@@ -11,7 +11,7 @@
 import { copilotQueueWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import { checkBuildStatus } from '../services/buildStatusService';
 import { currentDartBinariesStatus, summarizeDartBinaries } from '../services/dartBinariesStatus';
-import { listWorkspaceProjects, PROJECTS_SOURCE } from '../services/workspaceProjects';
+import { listWorkspaceProjects, projectsSourceOf } from '../services/workspaceProjects';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -777,11 +777,14 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
     let projects: WorkspaceInfoSnapshot['projects'] = null;
     let projectsSource: string | null = null;
     let projectsError: string | undefined;
+    let projectsFallback: WorkspaceInfoSnapshot['projectsFallback'];
     if (root) {
         const listing = await listWorkspaceProjects(root);
         if (listing.ok) {
             projects = listing.projects;
-            projectsSource = `${PROJECTS_SOURCE} (${listing.binary})`;
+            projectsSource = projectsSourceOf(listing);
+            // The JavaScript port listed them (qrfix14): why buildkit did not, and how to fix it.
+            if (listing.source === 'javascript') { projectsFallback = listing.fallback; }
         } else {
             projectsError = listing.error;
         }
@@ -821,6 +824,7 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
         projects,
         projectsSource,
         ...(projectsError ? { projectsError } : {}),
+        ...(projectsFallback ? { projectsFallback } : {}),
         git,
         // Checked now, so an agent sees a build installed a moment ago.
         ...(build ? { build } : {}),

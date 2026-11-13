@@ -37,8 +37,8 @@
  *
  *   - **Empty / missing data surfaces explicit markers** instead of
  *     `undefined`: getWorkspaceInfo reports `git: null` when not a
- *     git repo, `projects: null` + `projectsError` when buildkit's
- *     project listing could not be had.
+ *     git repo, `projects: null` + `projectsError` when no project
+ *     listing could be had (neither buildkit's nor the JavaScript port's).
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -75,6 +75,8 @@ export interface WorkspaceInfoSnapshot {
     projectsSource: string | null;
     /** Why there is no listing, when `projects` is null and a workspace is open. */
     projectsError?: string;
+    /** Why the projects come from the JavaScript port, not buildkit, and how to fix it (qrfix14). */
+    projectsFallback?: { kind: string; reason: string; searched: string[]; binary?: string; buildkitError?: string; hint: string };
     /** Whether the workspace is a git repo. `null` means not a repo. */
     git: GitSnapshot | null;
     /** The extension build this window runs and the one installed; absent outside a window. */
@@ -178,6 +180,7 @@ export async function getWorkspaceInfoImpl(
         projects: snap.projects,
         projectsSource: snap.projectsSource,
         ...(snap.projectsError ? { projectsError: snap.projectsError } : {}),
+        ...(snap.projectsFallback ? { projectsFallback: snap.projectsFallback } : {}),
         git: snap.git,
         ...(snap.build ? { build: snap.build } : {}),
         ...(snap.dartBinaries ? { dartBinaries: snap.dartBinaries } : {}),
@@ -188,9 +191,8 @@ export const GET_WORKSPACE_INFO_DESCRIPTION =
     'Return workspace context as JSON: `workspaceName`, `workspaceFile` ' +
     '(`.code-workspace` path if any), `workspaceFolders` (each with index/name/path), ' +
     '`quest` (active quest id, empty string when none), `projects` ' +
-    '(the projects as tomAi_listProjects lists them, from `buildkit :projects --all --json`; ' +
-    'null with `projectsError` when there is no buildkit), ' +
-    '`projectsSource` (the command and binary the projects came from, or null), ' +
+    '(as tomAi_listProjects lists them; `projectsFallback` says why when buildkit did not; null with ' +
+    '`projectsError` when no listing), `projectsSource` (where they came from, or null), ' +
     'and `git` (`{branch, commit, dirty, remote}`; null when not a git repo), ' +
     'and `build`: the extension build this window runs and the one installed (`running` / ' +
     '`installed`, each `{commit, dirty, builtAt}`), with `reloadNeeded: true` when a newer build is ' +
