@@ -236,7 +236,7 @@ describe('a queue turn waiting in tomAi_waitFor', () => {
             pick = 'Keep waiting';
             await continueWithChoice(queue(), item.id);
             assert.deepEqual(shown[0].slice(2), ['Keep waiting', 'Interrupt the wait and move on', 'Resend this stage', 'Skip to the next stage']);
-            assert.match(String(shown[0][0]), /waiting: pub\.dev limit: 12 versions in 24 h — until \d\d:\d\d \(59 min left\)/);
+            assert.match(String(shown[0][0]), /waiting: pub\.dev limit: 12 versions in 24 h — until (?:[A-Z][a-z]{2} )?\d\d:\d\d \(59 min left\)/);
             assert.ok(queue().waitForOf(item.id), 'Keep waiting changes nothing');
             pick = 'Interrupt the wait and move on';
             await continueWithChoice(queue(), item.id);

@@ -334,6 +334,9 @@ function qtNavPush(todoId) {
         qtCurrentTemplate = this.value || '__none__';
     });
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
+        // Paused 2 s after a click: a double click or a bouncing mouse queues once (the host guards too).
+        if (addQueueBtn.disabled) return;
+        qtPauseButton(addQueueBtn);
         var tplId = qtSelectedTemplateId();
         // Stacked todos win: one queue prompt per stacked todo, in stack order.
         if (qtStack.length) {
@@ -361,6 +364,8 @@ function qtNavPush(todoId) {
         });
     });
     if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
+        if (sendCopilotBtn.disabled) return;
+        qtPauseButton(sendCopilotBtn);
         var tplId = qtSelectedTemplateId();
         // Stacked todos win: all stacked todos combine into a SINGLE prompt.
         if (qtStack.length) {
@@ -888,6 +893,8 @@ function qtRenderList() {
             if (walkBtn) {
                 // The host asks which group prompt and queues the walk over `<prefix>*`.
                 e.stopPropagation();
+                if (walkBtn.disabled) return;
+                qtPauseButton(walkBtn);
                 vscode.postMessage({ type: 'qtQueueGroupPrompt', questId: qtCurrentQuestId, prefix: walkBtn.getAttribute('data-qt-group-walk') || '' });
                 return;
             }

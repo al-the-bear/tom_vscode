@@ -195,6 +195,7 @@ export function projectQueueItem(item: object): QueueItemSnapshot {
 export interface EnqueueInput {
     originalText: string;
     todoIdPattern?: string;
+    allowDuplicateTodo?: boolean;
     template?: string;
     answerWrapper?: boolean;
     position?: number;
@@ -457,6 +458,8 @@ export interface AddQueueItemInput {
     text: string;
     /** The todos it runs (marked as queued in the todo panel); a `<prefix>*` repeatCount gives it when omitted. */
     todoIdPattern?: string;
+    /** Queue it although an item with the same todo id pattern is staged, pending or sending. */
+    allowDuplicateTodo?: boolean;
     template?: string;
     answerWrapper?: boolean;
     position?: number;
@@ -544,6 +547,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             ...(input.doneNotificationRun?.trim() ? { doneNotificationRun: input.doneNotificationRun.trim() } : {}),
             originalText: input.text,
             ...(input.todoIdPattern?.trim() ? { todoIdPattern: input.todoIdPattern.trim() } : {}),
+            ...(input.allowDuplicateTodo ? { allowDuplicateTodo: true } : {}),
             template: input.template,
             answerWrapper: input.answerWrapper,
             position: input.position,
@@ -619,7 +623,8 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             answerWrapper: { type: 'boolean' },
             position: { type: 'number', description: 'Insert index. -1 appends.' },
             deferSend: { type: 'boolean', description: 'Default true → staged. False → enqueue as pending.' },
-            todoIdPattern: { type: 'string', description: 'The todos it runs: a todo id, `<prefix>*`, or several, comma-separated; the todo panel marks them queued. Default: a `<prefix>*` repeatCount.' },
+            todoIdPattern: { type: 'string', description: 'The todos it runs: a todo id, `<prefix>*`, or several, comma-separated; the todo panel marks them queued. Default: a `<prefix>*` repeatCount. An item with the same pattern still staged, pending or sending refuses it (the todo is already queued).' },
+            allowDuplicateTodo: { type: 'boolean', description: 'Queue it although its todo id pattern is already queued (a deliberate repeat). Default false.' },
             prePrompts: { type: 'array', items: { type: 'object', additionalProperties: true } },
             followUps: { type: 'array', items: { type: 'object', additionalProperties: true } },
             repeatCount: { description: REPEAT_COUNT_DOC },

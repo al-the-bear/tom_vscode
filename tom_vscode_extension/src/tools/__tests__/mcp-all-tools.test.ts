@@ -956,7 +956,11 @@ describe('every tool over MCP, in a sandbox', () => {
             assert.equal(manager.getById(passed.id)?.status, 'staged');
             assert.equal(manager.getById(passed.id)?.error, undefined);
             // A walk with work is queued as asked; blocked and decision-needed todos count as work.
-            const open = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*' });
+            // The same walk is still staged (`passed`): queuing it again is a deliberate repeat (vscimpb77).
+            const refused = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*' });
+            assert.equal(refused.ok, false);
+            assert.match(refused.error, /^The walk over ma-walk-\* is already in the prompt queue \(staged, item /);
+            const open = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*', allowDuplicateTodo: true });
             items.push(open.id);
             assert.equal(open.status, 'staged');
             assert.equal(open.warning, undefined);
@@ -970,7 +974,7 @@ describe('every tool over MCP, in a sandbox', () => {
             assert.equal(later.status, 'error');
             assert.equal((await call('tomAi_addQueuePrePrompt', { queueItemId: later.id, text: 'create the ma-later todos' })).ok, true);
             assert.equal(manager.getById(later.id)?.status, 'staged');
-            const withPre = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-later-*', prePrompts: [{ text: 'create them' }] });
+            const withPre = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-later-*', prePrompts: [{ text: 'create them' }], allowDuplicateTodo: true });
             items.push(withPre.id);
             assert.equal(withPre.status, 'staged', 'its pre-prompt may create the todos');
             // A plain repeat count is not checked.

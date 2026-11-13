@@ -13,6 +13,8 @@
  */
 
 import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
+import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
+import type { PromptQueueManager } from '../managers/promptQueueManager';
 import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
@@ -1594,11 +1596,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             const wrappedText = _todoPromptFragment(todo, questId, msg.sourceFile).yaml;
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
-            try {
-                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-                const queue = PromptQueueManager.instance;
-                const sel = todoPanelSelectionNow();
-                await queue.enqueue({
+            if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'queue', selectedTemplate, `queued: todo ${todo.id}`)) { return true; }
+            const sel = todoPanelSelectionNow();
+            const added = await _enqueueTodoItems([{
+                todoId: todo.id,
+                opts: {
                     originalText: wrappedText,
                     todoIdPattern: todo.id,
                     template: selectedTemplate,
@@ -1606,11 +1608,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     // The panel's session and run (vscimpb60d).
                     session: sel.session,
                     run: sel.run,
-                });
-                vscode.window.showInformationMessage(`Added todo ${todoId} to prompt queue`);
-            } catch {
-                vscode.window.showWarningMessage('Prompt queue not available');
-            }
+                },
+            }]);
+            if (added === 1) { vscode.window.showInformationMessage(`Added todo ${todoId} to prompt queue`); }
             return true;
         }
         case 'qtSendCurrentTodoToCopilot': {
@@ -1625,12 +1625,16 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`Todo not found: ${todoId}`);
                 return true;
             }
+            if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'send', String(msg.template || '__none__'), `sent: todo ${todo.id}`)) { return true; }
             const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
             await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'));
             return true;
         }
         case 'qtQueueGroupPrompt': {
-            await queueGroupWalk(effectiveQuestId(msg.questId), String(msg.prefix || ''));
+            const walkQuest = effectiveQuestId(msg.questId);
+            const walkPrefix = String(msg.prefix || '');
+            if (walkPrefix && _isRepeatedTodoAction(`${walkQuest}/${walkPrefix}*`, 'queue-walk', undefined, `queued: the walk over ${walkPrefix}*`)) { return true; }
+            await queueGroupWalk(walkQuest, walkPrefix);
             return true;
         }
         case 'qtQueueStackedTodos': {
@@ -1661,25 +1665,23 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
                 return true;
             }
-            try {
-                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-                const queue = PromptQueueManager.instance;
-                const sel = todoPanelSelectionNow();
-                for (const { text: originalText, todoId } of prepared) {
-                    await queue.enqueue({
-                        originalText,
-                        todoIdPattern: todoId,
-                        template: selectedTemplate,
-                        deferSend: true,
-                        // The panel's session and run (vscimpb60d).
-                        session: sel.session,
-                        run: sel.run,
-                    });
-                }
+            if (_isRepeatedTodoAction(`${questId}/${prepared.map((x) => x.todoId).join(',')}`, 'queue', selectedTemplate, `queued: ${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'}`)) { return true; }
+            const sel = todoPanelSelectionNow();
+            const added = await _enqueueTodoItems(prepared.map(({ text: originalText, todoId }) => ({
+                todoId,
+                opts: {
+                    originalText,
+                    todoIdPattern: todoId,
+                    template: selectedTemplate,
+                    deferSend: true,
+                    // The panel's session and run (vscimpb60d).
+                    session: sel.session,
+                    run: sel.run,
+                },
+            })));
+            if (added > 0) {
                 const suffix = missing.length ? ` (skipped missing: ${missing.join(', ')})` : '';
-                vscode.window.showInformationMessage(`Added ${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'} to prompt queue${suffix}`);
-            } catch {
-                vscode.window.showWarningMessage('Prompt queue not available');
+                vscode.window.showInformationMessage(`Added ${added} stacked todo${added === 1 ? '' : 's'} to prompt queue${suffix}`);
             }
             return true;
         }
@@ -1709,6 +1711,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.showErrorMessage(`No stacked todos found (missing: ${missing.join(', ')})`);
                 return true;
             }
+            if (_isRepeatedTodoAction(`${questId}/${fragments.map((f) => f.ref).join(',')}`, 'send', String(msg.template || '__none__'), `sent: ${fragments.length} stacked todo${fragments.length === 1 ? '' : 's'}`)) { return true; }
             if (missing.length) {
                 vscode.window.showWarningMessage(`Skipping missing stacked todos: ${missing.join(', ')}`);
             }
@@ -2390,9 +2393,84 @@ async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undef
             run: sel.run,
         });
         vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
-    } catch {
+    } catch (e) {
+        if (isTodoAlreadyQueued(e)) { _offerQueueAgain(e.message, async () => { await _queueTodoAgain(todo, questId, sourceFile, tpl); }); return; }
         vscode.window.showWarningMessage('Prompt queue not available');
     }
+}
+
+/** _queueTodo once more, as a deliberate repeat of a todo already queued. */
+async function _queueTodoAgain(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }): Promise<void> {
+    const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+    const sel = todoPanelSelectionNow();
+    await PromptQueueManager.instance.enqueue({
+        originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
+        todoIdPattern: todo.id,
+        template: tpl.id,
+        transport: 'anthropic',
+        deferSend: true,
+        session: sel.session,
+        run: sel.run,
+        allowDuplicateTodo: true,
+    });
+    vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue again (staged, Anthropic).`);
+}
+
+/**
+ * A todo view's queue or send action that repeats one accepted within 3 s
+ * (a double click, a bouncing mouse, one message posted several times) is
+ * ignored with a status-bar note, as the detail's Send / Queue buttons are
+ * (`_todoButtonGuard`, duplicateSubmitGuard.ts). `text` names the quest and the
+ * todo(s), `transport` the action, `template` the template it uses.
+ */
+function _isRepeatedTodoAction(text: string, transport: string, template: string | undefined, what: string): boolean {
+    if (!_todoButtonGuard.isDuplicate({ text, transport, template: template ?? '' })) { return false; }
+    vscode.window.setStatusBarMessage(`$(info) Already ${what} within 3 s`, 4000);
+    return true;
+}
+
+/** The notice for a todo already in the queue, with **Queue again** for a deliberate repeat. */
+function _offerQueueAgain(notice: string, again: () => Promise<void>): void {
+    void Promise.resolve(vscode.window.showWarningMessage(notice, 'Queue again')).then(async (choice) => {
+        if (choice !== 'Queue again') { return; }
+        try { await again(); } catch (e) { vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`); }
+    });
+}
+
+/**
+ * Enqueue todo items one by one. A todo already queued (an item with its id
+ * still staged, pending or sending) is not added again: one notice names them,
+ * with **Queue again**. Answers how many were added.
+ */
+async function _enqueueTodoItems(entries: Array<{ todoId: string; opts: Parameters<PromptQueueManager['enqueue']>[0] }>): Promise<number> {
+    let queue: PromptQueueManager;
+    try {
+        queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+    } catch {
+        vscode.window.showWarningMessage('Prompt queue not available');
+        return 0;
+    }
+    let added = 0;
+    const refused: typeof entries = [];
+    const notices: string[] = [];
+    for (const entry of entries) {
+        try {
+            await queue.enqueue(entry.opts);
+            added++;
+        } catch (e) {
+            if (isTodoAlreadyQueued(e)) { refused.push(entry); notices.push(e.message); continue; }
+            vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
+            return added;
+        }
+    }
+    if (refused.length) {
+        const notice = refused.length === 1 ? notices[0] : `Already in the prompt queue, not added again: ${refused.map((r) => r.todoId).join(', ')}.`;
+        _offerQueueAgain(notice, async () => {
+            for (const r of refused) { await queue.enqueue({ ...r.opts, allowDuplicateTodo: true }); }
+            vscode.window.showInformationMessage(`Added ${refused.length === 1 ? `todo ${refused[0].todoId}` : `${refused.length} todos`} to the prompt queue again`);
+        });
+    }
+    return added;
 }
 
 /**
@@ -2882,6 +2960,14 @@ async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
             void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${label}".`);
         }
     } catch (e) {
+        if (isTodoAlreadyQueued(e)) {
+            _offerQueueAgain(e.message, async () => {
+                const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+                await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, allowDuplicateTodo: true });
+                void vscode.window.showInformationMessage(`Queued the walk over ${prefix}* again with "${label}".`);
+            });
+            return;
+        }
         void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
     }
 }

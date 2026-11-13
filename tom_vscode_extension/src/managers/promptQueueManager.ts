@@ -80,6 +80,7 @@ import { WaitForRegistry } from '../services/waitForRegistry';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
+import { queuedItemForTodoPattern, TodoAlreadyQueuedError } from '../utils/todoQueueDuplicates';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
 import { queueMoveTarget } from '../utils/queueMove';
 import { CHAT_SENT_STATUS, CHAT_STATUS, appendChatItemNote, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
@@ -2110,7 +2111,18 @@ export class PromptQueueManager {
         temporarySession?: boolean;
         /** `run` is named on purpose: a running Proceed's position is not inherited (a done notification for another run). */
         runIsExplicit?: boolean;
+        /** Queue the todo(s) even while an item with the same todo id pattern is staged, pending or sending (a deliberate repeat). */
+        allowDuplicateTodo?: boolean;
     }): Promise<QueuedPrompt> {
+        // One todo, one waiting item (todoQueueDuplicates.ts): a second enqueue of a queued todo is refused.
+        const duplicatePattern = todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount });
+        if (duplicatePattern && !opts.allowDuplicateTodo) {
+            const existing = queuedItemForTodoPattern(this._items, duplicatePattern);
+            if (existing) {
+                logQueue(`Enqueue refused: ${duplicatePattern} is already queued (item ${existing.id}, ${existing.status})`);
+                throw new TodoAlreadyQueuedError(duplicatePattern, existing.id, existing.status);
+            }
+        }
         for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
             assertValidRepeatCount(value);
@@ -5163,12 +5175,13 @@ export class PromptQueueManager {
             });
             if (made.ok) { created = c.name; } else { error = made.error; }
         }
-        const withoutSession = { ...conversion.enqueue, session: undefined, temporarySession: undefined };
+        // An item another quest sends is deliberate: it is queued even when its todos already are.
+        const withoutSession = { ...conversion.enqueue, session: undefined, temporarySession: undefined, allowDuplicateTodo: true };
         let item: QueuedPrompt;
         try {
             item = await this.enqueue(error
                 ? { ...withoutSession, initialStatus: 'staged', deferSend: true }
-                : { ...conversion.enqueue, initialStatus: 'pending' });
+                : { ...conversion.enqueue, initialStatus: 'pending', allowDuplicateTodo: true });
         } catch (refused) {
             // The item's profile cannot continue the session's conversation (sessionRefusal).
             error = (refused as Error).message;

@@ -795,6 +795,10 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
                 record('window.showErrorMessage', [message, ...items]);
                 return Promise.resolve(undefined);
             },
+            setStatusBarMessage(text: string, ...rest: unknown[]): { dispose(): void } {
+                record('window.setStatusBarMessage', [text, ...rest]);
+                return { dispose: () => undefined };
+            },
             createOutputChannel(name: string): Record<string, unknown> {
                 record('window.createOutputChannel', [name]);
                 return {
