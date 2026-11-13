@@ -126,6 +126,13 @@ export interface AskCopilotDeps {
     expander: TemplateExpander;
     onResponseValues?: ResponseValuesSink;
     clock?: PollClock;
+    /** True once the prompt that called the tool has ended or was cancelled: the polling stops (vscimpb78). */
+    promptEnded?: () => boolean;
+}
+
+/** The answer of an ask whose prompt ended while it waited. */
+function promptEndedAnswer(answerFile: string, elapsedMs: number): string {
+    return err('cancelled: the prompt was ended — stopped waiting for Copilot\'s answer file.', { cancelled: true, reason: 'prompt-ended', answerFile, elapsedMs });
 }
 
 // ===========================================================================
@@ -187,7 +194,9 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
         const start = clock.now();
         const pollInterval = config.pollIntervalMs;
         while (clock.now() - start < timeoutMs) {
+            if (deps.promptEnded?.()) { return promptEndedAnswer(sink.absolutePath(), clock.now() - start); }
             await clock.sleep(pollInterval);
+            if (deps.promptEnded?.()) { return promptEndedAnswer(sink.absolutePath(), clock.now() - start); }
             let content: string | null;
             try {
                 content = sink.read();

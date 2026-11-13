@@ -10,7 +10,8 @@
  * the anthropic_sdk_integration spec).
  */
 
-import { runAsAskOwner } from '../services/askOwners';
+import { registerAskCancel, runAsAskOwner } from '../services/askOwners';
+import { PROMPT_ENDED_TOOL_RESULT, raceCancellation } from '../utils/cancelRace';
 import { randomUUID } from 'crypto';
 import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwners';
 import { commandsFinishedMessage, waitForOwnedCommands } from '../services/backgroundCommandWait';
@@ -1923,7 +1924,15 @@ export class AnthropicHandler {
                 data: { toolName: req.toolName, inputSummary: req.inputSummary },
                 respond: (r) => this.handleApprovalResponse(req.toolUseId, r.approved === true, r.approveAll === true),
             });
-            this.pendingApprovals.set(req.toolUseId, { resolve: (approved) => { remove(); resolve(approved); }, toolName: req.toolName, run, ...(queueItemId ? { queueItemId } : {}) });
+            // The prompt that asked ends (or is cancelled): the approval closes as denied (askOwners.ts, vscimpb78).
+            const unregisterOwner = registerAskCancel(() => {
+                if (!this.pendingApprovals.has(req.toolUseId)) { return; }
+                this.pendingApprovals.delete(req.toolUseId);
+                this._onApprovalSettled.fire(req.toolUseId);
+                remove();
+                resolve(false);
+            });
+            this.pendingApprovals.set(req.toolUseId, { resolve: (approved) => { unregisterOwner(); remove(); resolve(approved); }, toolName: req.toolName, run, ...(queueItemId ? { queueItemId } : {}) });
             this._onApprovalNeeded.fire({ ...req, run });
         }));
     }
@@ -2107,12 +2116,12 @@ export class AnthropicHandler {
      * Main entry point — send a message and run the tool-call loop to completion.
      * The send owns the questions its tool calls ask (services/askOwners.ts):
      * those still open when it ends — stopped, aborted, failed — are cancelled,
-     * so their panels close with it.
+     * so their panels close with it; when it is cancelled, at once (vscimpb78).
      */
     async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
         try {
             // The send owns the questions its tools ask and the command streams they start.
-            return await runAsAskOwner(() => runAsCommandOwner(randomUUID(), () => this.sendMessageOwned(options)));
+            return await runAsAskOwner(() => runAsCommandOwner(randomUUID(), () => this.sendMessageOwned(options)), options.cancellationToken);
         } finally {
             // After each send: the stored tool results are pruned to their retention (vscimpb49) —
             // the trigger needs no scheduler. Off the send's path, so the answer is not held up.
@@ -3863,6 +3872,10 @@ export class AnthropicHandler {
     ): Promise<AnthropicToolResultBlockParam> {
         const def = tools.find((t) => t.name === block.name);
         let input = (block.input ?? {}) as Record<string, unknown>;
+        // A send cancelled while an earlier call of its round ran: the rest do not run (vscimpb78).
+        if (options.cancellationToken?.isCancellationRequested) {
+            return { type: 'tool_result', tool_use_id: block.id, is_error: true, content: PROMPT_ENDED_TOOL_RESULT };
+        }
         options.onToolCall?.(block.name);
 
         // Plan mode (CC-3): a write tool is refused here, before approval and
@@ -3909,12 +3922,21 @@ export class AnthropicHandler {
             : hookDecision === 'ask' ? approvalMode !== 'never'
                 : def ? toolNeedsApproval(approvalMode, block.name, def) : false;
         if (needsApproval && (hookDecision === 'ask' || !this.sessionApprovals.has(block.name))) {
-            const approved = await this.awaitApproval({
+            // Raced against the cancel: a cancelled send does not wait for the user (the approval closes itself).
+            const approval = await raceCancellation(this.awaitApproval({
                 toolUseId: block.id,
                 toolName: block.name,
                 inputSummary,
-            });
-            if (!approved) {
+            }), options.cancellationToken);
+            if (approval.cancelled || (!approval.value && options.cancellationToken?.isCancellationRequested)) {
+                return {
+                    type: 'tool_result',
+                    tool_use_id: block.id,
+                    is_error: true,
+                    content: `${PROMPT_ENDED_TOOL_RESULT}: the approval of "${block.name}" was closed unanswered.`,
+                };
+            }
+            if (!approval.value) {
                 return {
                     type: 'tool_result',
                     tool_use_id: block.id,
@@ -3951,10 +3973,13 @@ export class AnthropicHandler {
         // what Claude Code's Read would. Local LLM and VS Code LM take text.
         let richBlocks: RichToolResult['blocks'] | undefined;
         const richExecutor = (configuration.transport ?? 'direct') === 'direct' ? def?.executeRich : undefined;
+        let endedByCancel = false;
         try {
             // Ambient context so tools (e.g. tomAi_writeChatVariable) can log
             // change-log entries with the correct source and request ID.
-            result = await runWithToolContext(
+            // Raced against the send's cancel (vscimpb78): a tool that does not listen to it — a
+            // question, a long poll — cannot hold a cancelled turn; its late result is dropped.
+            const outcome = await raceCancellation(runWithToolContext(
                 { source: 'anthropic', requestId },
                 async () => {
                     const rich = richExecutor ? await richExecutor(input) : undefined;
@@ -3966,7 +3991,15 @@ export class AnthropicHandler {
                         function: { name: block.name, arguments: input },
                     });
                 },
-            );
+            ), options.cancellationToken);
+            if (outcome.cancelled) {
+                endedByCancel = true;
+                richBlocks = undefined;
+                error = PROMPT_ENDED_TOOL_RESULT;
+                result = PROMPT_ENDED_TOOL_RESULT;
+            } else {
+                result = outcome.value;
+            }
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
             result = `Error: ${error}`;
@@ -3975,8 +4008,8 @@ export class AnthropicHandler {
 
         // Claude Code's PostToolUse hooks (CC-12): a block's reason (exit 2 or
         // `decision: block`) and any additionalContext go back to the model
-        // with the result; the call has already run.
-        if (hooks.length > 0) {
+        // with the result; the call has already run. Not for a call the cancelled send stopped waiting for.
+        if (hooks.length > 0 && !endedByCancel) {
             // eslint-disable-next-line @typescript-eslint/naming-convention -- Claude Code's hook and tool_result wire fields
             const post = await runHooks(hooks, 'PostToolUse', { tool_name: block.name, tool_input: input, tool_response: result }, hookOpts);
             this.reportHookMessages(post, liveTrail);

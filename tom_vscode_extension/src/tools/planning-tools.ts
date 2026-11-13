@@ -118,7 +118,12 @@ export interface PlanDecision {
     accepted: boolean;
     /** What the user said along with "Keep planning", if anything. */
     feedback?: string;
+    /** The prompt that proposed the plan ended (or was cancelled) before the user decided (vscimpb78). */
+    promptEnded?: boolean;
 }
+
+/** The note of a plan closed because the prompt that proposed it ended. */
+export const PLAN_PROMPT_ENDED_NOTE = 'The prompt that proposed this plan has ended; the plan was closed undecided and plan mode stays on.';
 
 /** Shows a proposed plan to the user and answers their decision (registered by the chat panel). */
 export type PlanDecider = (plan: string) => Promise<PlanDecision>;
@@ -263,6 +268,9 @@ export async function exitPlanModeImpl(input: ExitPlanModeInput, clock: PlanMode
         decision = await planDecider(plan);
     } catch (e) {
         return err(`The plan could not be shown to the user: ${(e as Error).message}`, { planMode: 'active', plan });
+    }
+    if (!decision.accepted && decision.promptEnded) {
+        return ok({ planMode: 'active', accepted: false, promptEnded: true, plan, note: PLAN_PROMPT_ENDED_NOTE });
     }
     if (!decision.accepted) {
         return ok({

@@ -164,7 +164,7 @@ describe('questions leave the user-input panel when they are resolved', () => {
 
     test('PC-6: the wiring', () => {
         const src = (...p: string[]): string => fs.readFileSync(path.join(EXT, 'src', ...p), 'utf8');
-        assert.match(src('handlers', 'anthropic-handler.ts'), /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\s*(try \{\s*)?(\/\/[^\n]*\n\s*)?return (await )?runAsAskOwner\(\(\) => (runAsCommandOwner\(randomUUID\(\), \(\) => )?this\.sendMessageOwned\(options\)\)?\);/);
+        assert.match(src('handlers', 'anthropic-handler.ts'), /async sendMessage\(options: AnthropicSendOptions\): Promise<AnthropicSendResult> \{\s*(try \{\s*)?(\/\/[^\n]*\n\s*)?return (await )?runAsAskOwner\(\(\) => (runAsCommandOwner\(randomUUID\(\), \(\) => )?this\.sendMessageOwned\(options\)\)?(, options\.cancellationToken)?\);/);
         const registry = src('services', 'askUserRegistry.ts');
         assert.match(registry, /unregisterOwner: registerAskCancel\(\(\) => this\.cancelRequest\(pending\.requestId, ASK_OWNER_ENDED_NOTE\)\)/);
         assert.match(registry, /this\.active\.delete\(run\);\s+\/\/ clear first → guards re-entrancy\s+active\.unregisterOwner\(\);/);

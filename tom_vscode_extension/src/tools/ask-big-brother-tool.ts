@@ -67,7 +67,8 @@ export type ChatTurn =
     | { role: 'assistant'; parts: ResponsePart[] }
     | { role: 'tool_result'; results: Array<{ callId: string; text: string }> };
 
-export interface CancelSignal { cancelled: boolean }
+/** Set to end the query: by its timeout, or because the prompt that called the tool ended (`reason`, vscimpb78). */
+export interface CancelSignal { cancelled: boolean; reason?: 'timeout' | 'prompt-ended' }
 
 export interface BigBrotherConfig {
     enabled: boolean;
@@ -236,6 +237,15 @@ export async function askBigBrotherImpl(bridge: LanguageModelBridge, input: AskB
             messages.push({ role: 'tool_result', results });
         }
 
+        if (timedOut && signal.reason === 'prompt-ended') {
+            return err('cancelled: the prompt was ended — the query was stopped.', {
+                cancelled: true,
+                reason: 'prompt-ended',
+                model: model.id,
+                iterationsUsed,
+                toolCallsMade,
+            });
+        }
         if (timedOut) {
             return err('Response timed out.', {
                 cancelled: true,

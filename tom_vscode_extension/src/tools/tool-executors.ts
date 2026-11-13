@@ -13,6 +13,7 @@ import { checkBuildStatus } from '../services/buildStatusService';
 import { currentDartBinariesStatus, summarizeDartBinaries } from '../services/dartBinariesStatus';
 import { listWorkspaceProjects, projectsSourceOf } from '../services/workspaceProjects';
 import * as vscode from 'vscode';
+import { registerAskCancel } from '../services/askOwners';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -414,7 +415,9 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
     }
     const config = loadLocalLlmToolsConfig();
     const signal: BBSignal = { cancelled: false };
-    const timer = setTimeout(() => { signal.cancelled = true; }, config.askBigBrother.responseTimeout);
+    const timer = setTimeout(() => { signal.cancelled = true; signal.reason = signal.reason ?? 'timeout'; }, config.askBigBrother.responseTimeout);
+    // The prompt that called it ends or is cancelled: the request is cancelled too (askOwners.ts, vscimpb78).
+    const unregisterOwner = registerAskCancel(() => { signal.reason = 'prompt-ended'; signal.cancelled = true; });
     try {
         const raw = await askBigBrotherImpl(liveBigBrotherBridge, input, signal);
         if (input.operation === 'query') {
@@ -433,6 +436,7 @@ async function executeAskBigBrother(input: AskBigBrotherInput): Promise<string> 
         return raw;
     } finally {
         clearTimeout(timer);
+        unregisterOwner();
     }
 }
 
@@ -529,8 +533,17 @@ async function executeAskCopilot(input: AskCopilotInput): Promise<string> {
         sinkFor: buildLiveAnswerFileSink,
         expander: liveTemplateExpander,
         onResponseValues(values) { updateChatResponseValues(values); },
+        promptEnded: () => promptEnded,
     };
-    const raw = await askCopilotImpl(deps, input);
+    // The prompt that called it ends or is cancelled: the polling stops (askOwners.ts, vscimpb78).
+    let promptEnded = false;
+    const unregisterOwner = registerAskCancel(() => { promptEnded = true; });
+    let raw: string;
+    try {
+        raw = await askCopilotImpl(deps, input);
+    } finally {
+        unregisterOwner();
+    }
     try {
         const parsed = JSON.parse(raw) as { response?: string; requestId?: string };
         if (parsed.response) {

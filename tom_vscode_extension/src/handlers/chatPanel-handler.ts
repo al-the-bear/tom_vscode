@@ -106,6 +106,7 @@ import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { assistProgress } from '../services/assistProgress';
 import { AUTO_HIDE_STATE_KEY, normalizeAutoHideDelay } from '../utils/copilotAutoHide';
+import { registerAskCancel } from '../services/askOwners';
 import { extensionToolsForWebview, openExtensionTool } from '../utils/extensionToolsCatalog';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
@@ -219,10 +220,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         return new Promise<PlanDecision>((resolve) => {
             let settled = false;
             let remove: () => void = () => undefined;
+            let unregisterOwner: () => void = () => undefined;
             const settle = (decision: PlanDecision): void => {
                 if (settled) { return; }
                 settled = true;
                 this._planProposals.delete(id);
+                unregisterOwner();
                 remove();
                 void this._view?.webview.postMessage({ type: 'planProposalSettled', id });
                 resolve(decision);
@@ -241,6 +244,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     settle({ accepted: r.accepted === true, ...(feedback ? { feedback } : {}) });
                 },
             });
+            // The prompt that proposed it ends (or is cancelled): the plan closes undecided (askOwners.ts, vscimpb78).
+            unregisterOwner = registerAskCancel(() => settle({ accepted: false, promptEnded: true }));
             if (this._view && this._approvalUiReady) {
                 this._view.show(true);
                 this._postPlanProposals();
