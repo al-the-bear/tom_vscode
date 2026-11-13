@@ -1,5 +1,11 @@
 # Tom Build Configuration for tom_vscode_bridge
 
+project_id: VSB
+name: bridge
+description: >-
+  VS Code Dart bridge.
+license: BSD-3-Clause
+
 versioner:
   variable-prefix: vscodeBridge
   output: lib/src/version.versioner.dart

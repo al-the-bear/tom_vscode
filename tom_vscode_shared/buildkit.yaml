@@ -1,0 +1,7 @@
+# buildkit configuration of tom_vscode_shared
+
+project_id: VSS
+name: vs-shared
+description: >-
+  Shared components for the Tom VS Code extensions
+license: BSD-3-Clause
