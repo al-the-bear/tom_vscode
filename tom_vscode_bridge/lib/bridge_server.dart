@@ -245,7 +245,7 @@ import 'dart:typed_data';
 import 'dart:isolate';
 import 'package:tom_d4rt_dcli/tom_d4rt_cli_api.dart';
 
-import 'package:dcli/dcli.dart';
+import 'package:tom_dcli/dcli.dart';
 
 import 'package:tom_basics/tom_basics.dart';
 
