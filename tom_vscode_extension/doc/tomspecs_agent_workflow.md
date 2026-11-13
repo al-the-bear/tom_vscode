@@ -262,8 +262,9 @@ it after each step. How to do a stage is in its runbook:
 5. **Author a step.** Each `csgen<n>` reads only what
    `tomAi_specCodeSpecsStepContext` returns for its step: its areas' extracts,
    the contract entries for their markers and the output project.
-6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 41 checks
-   over the generated projects (clean, violations or a usage error); checks
+6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 44 checks
+   over the generated projects — or, with `ir`, over their IR folder
+   (`*.ir.yaml`) before any code exists (clean, violations or a usage error); checks
    whose extra input was not given are listed as not run, never as passed.
    tom_code_specs' vocabulary, which checks 40 and 41 need, ships with the
    extension and is passed by default.

@@ -1,8 +1,9 @@
 /**
  * CodeSpecs validation and step context (vsctsa20).
  *
- *   - tomAi_specCodeSpecsValidate     — the 41 `codespecs_derivation_contract.md`
- *                                       §6 checks over a generated trio, through
+ *   - tomAi_specCodeSpecsValidate     — the `codespecs_derivation_contract.md`
+ *                                       §6 checks over a generated trio (or its
+ *                                       IR folder, `ir`), through
  *                                       the bundled validate_codespecs binary
  *   - tomAi_specCodeSpecsStepContext  — everything a Stage 3–4 authoring step
  *                                       may read (§2.9): the step, its areas'
@@ -38,6 +39,10 @@ import { dartBinariesHelp } from '../services/dartBinariesStatus';
 // ---------------------------------------------------------------------------
 
 export interface CodeSpecsValidateInput {
+    /** The trio's IR: a folder of `*.ir.yaml` documents, validated in place of shared / client / server. */
+    ir?: string;
+    /** With `ir`: a second generation run's IR folder, for the determinism check (31). */
+    regeneratedIr?: string;
     shared?: string;
     client?: string;
     server?: string;
@@ -55,16 +60,23 @@ const DEFAULT_VIOLATION_LIMIT = 200;
 /** Run the binary over the input; the report as written, with workspace-relative inputs echoed. */
 export async function codeSpecsValidationReport(deps: SpecToolDeps, input: CodeSpecsValidateInput): Promise<CodeSpecsValidationReport> {
     const abs = (p?: string): string | undefined => (p === undefined ? undefined : resolveInput(deps, p));
-    const trio = resolveTrio({ shared: abs(input.shared), client: abs(input.client), server: abs(input.server) });
-    let regenerated: Trio | undefined;
+    // With an IR folder nothing is defaulted: whatever trio is given goes to the binary as given, which refuses
+    // the IR together with a trio (exit 2, a usage error here).
+    const irMode = input.ir !== undefined || input.regeneratedIr !== undefined;
+    const given = { shared: abs(input.shared), client: abs(input.client), server: abs(input.server) };
+    const trio: Partial<Trio> = irMode ? given : resolveTrio(given);
+    let regenerated: Partial<Trio> | undefined;
     if (input.regenerated) {
-        regenerated = resolveTrio({ shared: abs(input.regenerated.shared), client: abs(input.regenerated.client), server: abs(input.regenerated.server) });
+        const r = { shared: abs(input.regenerated.shared), client: abs(input.regenerated.client), server: abs(input.regenerated.server) };
+        regenerated = irMode ? r : resolveTrio(r);
     }
     // Without a vocabulary of the caller's, the packaged one: checks 40 and 41
     // need its hook catalogue, which no generated trio can supply.
     const bundledVocabulary = input.csVocabulary === undefined && fs.existsSync(CS_VOCABULARY_FILE);
     const report = await validateCodeSpecs({
         ...trio,
+        ir: abs(input.ir),
+        regeneratedIr: abs(input.regeneratedIr),
         extracts: abs(input.extractsDir),
         migrations: abs(input.migrations),
         csVocabulary: bundledVocabulary ? CS_VOCABULARY_FILE : abs(input.csVocabulary),
@@ -220,13 +232,15 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the 41 codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) with the bundled validate_codespecs. `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated`) — a check that did not run is not a pass.',
+        'Run the codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) — or, with `ir`, over the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), before any code exists — with the bundled validate_codespecs. `ir` goes in place of shared / client / server, never with them (a `usageError`, as the binary refuses it); `regeneratedIr` with it for the determinism check (31). `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated` / `regeneratedIr`) — a check that did not run is not a pass.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
         type: 'object',
         properties: {
-            shared: PACKAGE_DIR('shared'),
+            ir: { type: 'string', description: 'The trio\'s IR (irspecs_ir.md): a folder of `*.ir.yaml` documents, validated in place of shared, client and server. Give the one or the other.' },
+            regeneratedIr: { type: 'string', description: 'With `ir`: a second generation run\'s IR folder, for the determinism check (31), comparing the two runs\' IR records file by file.' },
+            shared: PACKAGE_DIR('shared', ' Or pass `ir`.'),
             client: PACKAGE_DIR('client', ' Default: the shared folder\'s sibling, its name ending in `client` instead of `shared`.'),
             server: PACKAGE_DIR('server', ' Default: the shared folder\'s sibling, its name ending in `server` instead of `shared`.'),
             extractsDir: { type: 'string', description: 'The run\'s whole extract folder (`generated-doc/codespecs_extracts`), for checks 19 and 32–36.' },
@@ -240,7 +254,6 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
             coreSource: { type: 'string', description: 'The tom_core source holding the mirrored catalogues, for check 9 (against the vocabulary).' },
             limit: { type: 'number', description: `Most violations to return. Default ${DEFAULT_VIOLATION_LIMIT}.` },
         },
-        required: ['shared'],
     },
     execute: async (input) => codeSpecsValidateImpl(liveDeps(), input),
 };

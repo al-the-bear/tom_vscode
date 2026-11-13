@@ -68,6 +68,8 @@ export interface CodeSpecsStatusInput {
     questId?: string;
     /** The generated <app>_codespec_shared folder, to run the validation stage. */
     shared?: string;
+    /** Instead of `shared`: the trio's IR folder (`*.ir.yaml`), validated in its place. */
+    ir?: string;
 }
 
 export interface StatusDeps {
@@ -210,14 +212,16 @@ function authoringStage(status: StatusDeps, questId: string, tree: Json | undefi
     };
 }
 
-async function validationStage(deps: SpecToolDeps, file: string, shared: string | undefined): Promise<StageStatus> {
+async function validationStage(deps: SpecToolDeps, file: string, trio: { shared?: string; ir?: string }): Promise<StageStatus> {
     const tool = 'tomAi_specCodeSpecsValidate';
-    if (!shared) {
-        return { stage: 'validation', state: 'notChecked', summary: 'Pass `shared` (the generated <app>_codespec_shared folder) to validate the trio.', tool };
+    if (!trio.shared && !trio.ir) {
+        return { stage: 'validation', state: 'notChecked', summary: 'Pass `shared` (the generated <app>_codespec_shared folder) or `ir` (the trio\'s IR folder) to validate the trio.', tool };
     }
     // The run's extracts corroborate checks 19 and 32–36; without them those checks are reported not run.
     const extractsDir = path.join(path.dirname(resolveInput(deps, file)), EXTRACTS_DIR);
-    const r = parse(await codeSpecsValidateImpl(deps, { shared, ...(fs.existsSync(extractsDir) ? { extractsDir } : {}) }));
+    // Both given: passed on as given, and refused as a usage error, as the binary refuses them.
+    const given = { ...(trio.shared !== undefined ? { shared: trio.shared } : {}), ...(trio.ir !== undefined ? { ir: trio.ir } : {}) };
+    const r = parse(await codeSpecsValidateImpl(deps, { ...given, ...(fs.existsSync(extractsDir) ? { extractsDir } : {}) }));
     if (!r.ok && r.outcome === 'binaryMissing') {
         // Not a failure of the trio: this host cannot check it. The stage stays
         // open as if validation had not been asked for; the answer says why.
@@ -254,7 +258,7 @@ export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps
         const verdicts = await verdictsStage(deps, input.file);
         const tree = await todoTreeStage(deps, status, input.file, questId);
         const authoring = authoringStage(status, questId, tree.tree, tree.stage.state);
-        const validation = await validationStage(deps, input.file, input.shared);
+        const validation = await validationStage(deps, input.file, { shared: input.shared, ir: input.ir });
         const stages = [gate, extraction, verdicts, tree.stage, authoring, validation];
         const first = stages.find((s) => s.state !== 'done');
         const skipped = validation.details?.warnings as string[] | undefined;
@@ -344,7 +348,8 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
         + 'done, and the next one), `validation` (the generated trio against the derivation contract) — with its state '
         + '(done, notStarted, outdated, incomplete, failing, blocked, notChecked), a summary, the tool that moves it and '
         + 'details; and `next`: the first stage not done and what to do. Reads only: every stage is checked with its own '
-        + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` to include validation (without '
+        + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` (the generated trio) or `ir` (its IR folder, '
+        + '`*.ir.yaml`, before any code exists; not both) to include validation (without '
         + 'validate_codespecs on this platform it is notChecked, with `warnings` and `help`). How to do each '
         + 'stage: tomAi_specCodeSpecsGuide with `runbook`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
@@ -355,6 +360,7 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
             file: { ...FILE_PARAM, description: 'The specification document; its extracts and gate record sit beside it.' },
             questId: { type: 'string', description: 'The quest holding the Phase-4 todo tree. Default: the active quest.' },
             shared: { type: 'string', description: 'The generated <app>_codespec_shared folder; given, the trio is validated too.' },
+            ir: { type: 'string', description: 'Instead of `shared`: the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md); given, the IR is validated in the trio\'s place.' },
         },
         required: ['file'],
     },

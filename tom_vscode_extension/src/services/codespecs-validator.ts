@@ -144,7 +144,7 @@ export function resolveTrio(dirs: { shared?: string; client?: string; server?: s
             + 'so its siblings can be found.');
     };
     if (!dirs.shared) {
-        throw new CodeSpecsUsageError('The shared package is missing: pass `shared` (the <app>_codespec_shared folder).');
+        throw new CodeSpecsUsageError('The shared package is missing: pass `shared` (the <app>_codespec_shared folder), or `ir` (the trio\'s IR folder) instead.');
     }
     return { shared: dirs.shared, client: sibling('client'), server: sibling('server') };
 }
@@ -189,18 +189,32 @@ export function parseValidationReport(text: string): CodeSpecsValidationReport {
     return json as CodeSpecsValidationReport;
 }
 
-export interface ValidationOptions extends Trio {
+export interface ValidationOptions extends Partial<Trio> {
+    /** The trio's IR (irspecs_ir.md): a folder of `*.ir.yaml` documents, checked in place of the trio. */
+    ir?: string;
+    /** With `ir`: a second generation run's IR folder, for the determinism check (31). */
+    regeneratedIr?: string;
     extracts?: string;
     migrations?: string;
     csVocabulary?: string;
     coreSource?: string;
-    regenerated?: Trio;
+    regenerated?: Partial<Trio>;
 }
 
-/** The binary's arguments for `options`, in its own option names. */
+/**
+ * The binary's arguments for `options`, in its own option names. Every input
+ * given is passed on as given: `--ir` together with `--shared` / `--client` /
+ * `--server` (or `--regenerated-ir` without `--ir`) is the binary's to refuse
+ * (exit 2), so the caller gets its own message.
+ */
 export function validationArgs(options: ValidationOptions): string[] {
-    const args = ['--json', '--shared', options.shared, '--client', options.client, '--server', options.server];
+    const args = ['--json'];
     const optional: Array<[string, string | undefined]> = [
+        ['--shared', options.shared],
+        ['--client', options.client],
+        ['--server', options.server],
+        ['--ir', options.ir],
+        ['--regenerated-ir', options.regeneratedIr],
         ['--extracts', options.extracts],
         ['--migrations', options.migrations],
         ['--cs-vocabulary', options.csVocabulary],
