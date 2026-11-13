@@ -12,7 +12,7 @@
  *        passed with a note, and buildkit is still found in the workspace's binaries layer
  *   WP-5 no buildkit, or one that cannot list: the JavaScript port lists the projects (`source: 'javascript'`) with
  *        the diagnostic `fallback` {kind, reason, searched, binary?, buildkitError?, hint}; the hint names the unset
- *        variable and launchctl, or tom_build_kit 1.18.0; a buildkit that lists: `source: 'buildkit'`
+ *        variable and launchctl, or tom_build_kit 1.19.0; a buildkit that lists: `source: 'buildkit'`
  *   WP-6 the notifier is told once per reason and window; the notice's line and details (searched, answer, hint)
  */
 
