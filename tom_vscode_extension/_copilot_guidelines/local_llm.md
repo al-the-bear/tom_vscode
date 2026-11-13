@@ -12,8 +12,10 @@ Each entry of `localLlm.configurations` names an endpoint (`ollamaUrl`), a model
 
 Each configuration picks a protocol via `apiStyle` (default `'ollama'`):
 
-- `'ollama'` → `GET /api/tags` + `POST /api/chat`.
-- `'openai'` → `GET /v1/models` + `POST /v1/chat/completions` — for any **OpenAI-compatible** server (vLLM, LM Studio, llama.cpp, …). `ollamaUrl` is the base URL for both styles; `keepAlive` is ignored on the OpenAI path. Set `toolsEnabled: false` for a backend with no tool-call parser.
+- `'ollama'` → `POST /api/chat`.
+- `'openai'` → `POST /v1/chat/completions` — for any **OpenAI-compatible** server (vLLM, LM Studio, llama.cpp, a hosted API with an OpenAI-compatible endpoint). `keepAlive` is ignored on the OpenAI path. Set `toolsEnabled: false` for a backend with no tool-call parser.
+
+`ollamaUrl` is the base URL for both styles. One helper builds the endpoint, `localLlmChatUrl` in `src/utils/localLlmEndpoint.ts`; both requests use it, never an absolute-path `new URL('/…', base)`, which would drop the base's path. A server root (no path) gets the endpoints above. A URL with a path is the API root: it is kept and `api/chat` / `chat/completions` appended (`https://qianfan.baidubce.com/v2` → `/v2/chat/completions`). The query is kept, and an `https:` base goes through `https.request`.
 
 `apiKeyEnv` names an env var holding a bearer token (never the secret) for OpenAI-compatible auth; set + non-empty ⇒ `Authorization: Bearer <value>`, unset ⇒ unauthenticated, configured-but-empty ⇒ logged and treated as unset (so a typo fails loud-ish). Full reference, including the compaction-backend interaction: [../doc/llm_configuration.md §5.4](../doc/llm_configuration.md#54-backends-apistyle-and-bearer-auth-apikeyenv).
 

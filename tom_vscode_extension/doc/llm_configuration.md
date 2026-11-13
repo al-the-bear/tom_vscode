@@ -334,8 +334,8 @@ are its settings and stay.
 | Field | Used by | Meaning |
 | --- | --- | --- |
 | `id`, `name` | UI / refs | Identifier + label. |
-| `ollamaUrl` | Request builder | Endpoint base URL (also used for OpenAI-compatible servers — the field name is historical). |
-| `apiStyle` | Request builder | Backend protocol; defaults to `'ollama'`. `'ollama'` → `GET /api/tags` + `POST /api/chat`. `'openai'` → `GET /v1/models` + `POST /v1/chat/completions` — for **OpenAI-compatible** servers (vLLM, LM Studio, llama.cpp, etc.). See §5.4. |
+| `ollamaUrl` | Request builder | Endpoint base URL (also used for OpenAI-compatible servers — the field name is historical). A server root gets the API style's endpoint; a URL with a path is the API root and keeps it (§5.4). |
+| `apiStyle` | Request builder | Backend protocol; defaults to `'ollama'`. `'ollama'` → `POST /api/chat`. `'openai'` → `POST /v1/chat/completions` — for **OpenAI-compatible** servers (vLLM, LM Studio, llama.cpp, etc.). See §5.4. |
 | `apiKeyEnv` | Request builder | **Name** of an env var holding the bearer token for OpenAI-compatible auth — never the key itself. See §5.4. |
 | `model`, `temperature`, `keepAlive` | Request builder | Forwarded to the backend. `keepAlive` is Ollama-only — ignored when `apiStyle: 'openai'`. |
 | `stripThinkingTags` | Post-processor | Strip `<think>…</think>` from the cleaned text. |
@@ -377,17 +377,32 @@ configuration's `apiStyle` and `apiKeyEnv` (see §5.4).
 The Local LLM transport speaks two protocols, selected per configuration by
 `apiStyle` (default `'ollama'`):
 
-| `apiStyle` | Discovery | Chat endpoint | Backends |
+| `apiStyle` | On a server root | Below a URL with a path | Backends |
 | --- | --- | --- | --- |
-| `'ollama'` (default) | `GET /api/tags` | `POST /api/chat` | Ollama |
-| `'openai'` | `GET /v1/models` | `POST /v1/chat/completions` | **Any OpenAI-compatible server** — vLLM, LM Studio, llama.cpp (`llama-server`), and similar |
+| `'ollama'` (default) | `POST /api/chat` | `<path>/api/chat` | Ollama |
+| `'openai'` | `POST /v1/chat/completions` | `<path>/chat/completions` | **Any OpenAI-compatible server** — vLLM, LM Studio, llama.cpp (`llama-server`), and hosted APIs with an OpenAI-compatible endpoint |
 
-`ollamaUrl` is the base URL for **both** styles (the field name is historical);
-point it at the OpenAI-compatible server's root (e.g. `http://macpro2023.vpn:8001`)
-and the handler appends the right path. `keepAlive` is an Ollama parameter and is
-**ignored** for `apiStyle: 'openai'`. Tool-call support varies by backend — set
-`toolsEnabled: false` for a server that lacks a tool-call parser (e.g. a bare
-vLLM deployment), which omits the `tools` array entirely.
+`ollamaUrl` is the base URL for **both** styles (the field name is historical).
+It takes one of two forms (`src/utils/localLlmEndpoint.ts`):
+
+- **A server root** — no path, a trailing `/` alone (e.g.
+  `http://localhost:11434`, `http://macpro2023.vpn:8001`): the handler sends to
+  the style's endpoint above, `/api/chat` or `/v1/chat/completions`.
+- **An API root** — a URL with a path: the path is kept and the endpoint is
+  appended to it, with or without a trailing `/`. `https://qianfan.baidubce.com/v2`
+  → `…/v2/chat/completions`; Google's `…/v1beta/openai` → `…/v1beta/openai/chat/completions`;
+  Zhipu's `…/api/paas/v4` → `…/api/paas/v4/chat/completions`; an Ollama behind a
+  proxy at `https://gw/ollama` → `…/ollama/api/chat`. `http://host:8000/v1`
+  still reaches `/v1/chat/completions`. A query on the URL (an `api-version`) is
+  kept.
+
+An `https://` URL goes over TLS. The request log (Tom AI Local Log) and the
+last-request dump name the full endpoint.
+
+`keepAlive` is an Ollama parameter and is **ignored** for `apiStyle: 'openai'`.
+Tool-call support varies by backend — set `toolsEnabled: false` for a server
+that lacks a tool-call parser (e.g. a bare vLLM deployment), which omits the
+`tools` array entirely.
 
 **Bearer auth — `apiKeyEnv`.** OpenAI-compatible servers behind a gateway often
 require a token. Set `apiKeyEnv` to the **name** of an environment variable

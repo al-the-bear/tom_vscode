@@ -12,6 +12,7 @@
 
 import * as vscode from 'vscode';
 import * as http from 'http';
+import * as https from 'https';
 import { bridgeLog } from './handler_shared';
 import {
     OllamaTool, OllamaToolCall, SharedToolDefinition,
@@ -21,6 +22,7 @@ import { apiKeyAuthHeader } from '../utils/apiKeyAuthHeader';
 import { withRetryBudget, type RetryWait } from '../utils/retryWithBudget';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { httpStatusError } from '../utils/httpStatusError';
+import { localLlmChatUrl, localLlmRequestPath } from '../utils/localLlmEndpoint';
 
 // ============================================================================
 // Interfaces
@@ -112,7 +114,8 @@ export class LocalLlmManager {
         apiKeyEnv?: string,
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
-            const url = new URL('/api/chat', baseUrl);
+            // The base URL's own path is kept: it is the API root (localLlmEndpoint.ts).
+            const url = localLlmChatUrl(baseUrl, 'ollama');
             // Diagnostic log so a /api/chat 404 in the vLLM server log
             // can be traced back to a specific code path. If the user
             // ever sees this URL hit a server that only speaks OpenAI,
@@ -157,11 +160,12 @@ export class LocalLlmManager {
             };
             const body = JSON.stringify(requestBody);
 
-            const req = http.request(
+            // An https base (a hosted OpenAI-compatible API) goes over TLS; the query stays on the path.
+            const req = (url.protocol === 'https:' ? https : http).request(
                 {
                     hostname: url.hostname,
                     port: url.port,
-                    path: url.pathname,
+                    path: localLlmRequestPath(url),
                     method: 'POST',
                     headers: {
                         // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -306,7 +310,8 @@ export class LocalLlmManager {
         apiKeyEnv?: string,
     ): Promise<{ text: string; stats?: OllamaStats; toolCalls?: OllamaToolCall[] }> {
         return new Promise((resolve, reject) => {
-            const url = new URL('/v1/chat/completions', baseUrl);
+            // The base URL's own path is kept: it is the API root (localLlmEndpoint.ts).
+            const url = localLlmChatUrl(baseUrl, 'openai');
             this.logChannel.appendLine(`[openaiChat] POST ${url.toString()} (apiStyle=openai, stream=true)`);
             const startedAt = Date.now();
             // Double-settle guards. We deliberately do NOT install an
@@ -383,11 +388,12 @@ export class LocalLlmManager {
             };
             const body = JSON.stringify(requestBody);
 
-            const req = http.request(
+            // An https base (a hosted OpenAI-compatible API) goes over TLS; the query stays on the path.
+            const req = (url.protocol === 'https:' ? https : http).request(
                 {
                     hostname: url.hostname,
                     port: url.port,
-                    path: url.pathname,
+                    path: localLlmRequestPath(url),
                     method: 'POST',
                     headers: {
                         // eslint-disable-next-line @typescript-eslint/naming-convention

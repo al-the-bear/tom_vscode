@@ -438,6 +438,7 @@ import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { boundPayloadHistory } from '../services/historyPayloadBound';
 import { applyToolTrailRetention, conversationHasThinking, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
+import { localLlmEndpointText } from '../utils/localLlmEndpoint';
 import { readQuestSection } from '../managers/extensionConfigStore';
 import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 export { temperatureField };
@@ -3433,7 +3434,7 @@ export class AnthropicHandler {
             writeLastRequest({
                 timestamp: new Date().toISOString(),
                 subsystem: 'localllm',
-                endpoint: `${llm.apiStyle === 'openai' ? 'POST /v1/chat/completions' : 'POST /api/chat'} (${llm.baseUrl}) — via Anthropic profile`,
+                endpoint: `POST ${localLlmEndpointText(llm.baseUrl, llm.apiStyle === 'openai' ? 'openai' : 'ollama')} — via Anthropic profile`,
                 configId: configuration.id,
                 model: llm.model,
                 profile: options.profile.id,
