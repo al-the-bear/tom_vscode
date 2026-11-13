@@ -10,6 +10,9 @@
  *         section answers its own text and its children instead
  *   GD-4  the runbooks: every stage has one, it names its tools and carries its guide sections;
  *         arguments are filled in; an unknown runbook is refused
+ *   GD-5  the runbooks follow IR authoring and generation units (vscimpb67e, codespecs_mapping.md §1.1.2): an
+ *         authoring step writes IR into <spec-root>/irspecs/, reads its units; validation maps each unit
+ *         (`irspecs map --unit`) and validates with `ir`; Stage C plans csproj per generation unit
  */
 
 import test, { describe } from 'node:test';
@@ -122,5 +125,24 @@ describe('CodeSpecs guides', () => {
         const step = runbookText('codespecs-authoring-step', { file: 'f.yaml', step: '10' });
         assert.ok(step.ok && step.text.includes('csgen10'));
         assert.deepEqual(runbookText('nope', {}), { ok: false, error: `Unknown runbook "nope". Runbooks: ${names.join(', ')}.` });
+    });
+
+    test('GD-5: IR authoring and generation units', () => {
+        const text = (name: string): string => {
+            const r = runbookText(name, { file: 'specs/sbp.docspecs.yaml', step: '10', questId: 'q1' });
+            assert.ok(r.ok, name);
+            return r.ok ? r.text.split('\n---\n')[0] : '';
+        };
+        const authoring = text('codespecs-authoring-step');
+        assert.match(authoring, /Write IR, not code: the step's IR documents <spec-root>\/irspecs\/<CE-CODE>\.ir\.yaml/);
+        assert.match(authoring, /its `units`/);
+        assert.match(authoring, /irspecs_ir\.md §8\.1/);
+        const validate = text('codespecs-validate');
+        assert.match(validate, /irspecs map --mapper <the unit's mapper> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml\n\s+--unit <unit id>/);
+        assert.match(validate, /tomAi_specCodeSpecsValidate with `ir`/);
+        assert.match(validate, /`regeneratedIr`/);
+        assert.match(text('codespecs-stage-c'), /csproj<n> \(one scaffolding todo per generation unit/);
+        assert.match(text('codespecs-next-step'), /The authoring steps write IR/);
+        assert.ok(RUNBOOKS.find((r) => r.name === 'codespecs-validate')!.arguments.every((a) => a.name !== 'shared' || !a.required), '`shared` is optional now');
     });
 });

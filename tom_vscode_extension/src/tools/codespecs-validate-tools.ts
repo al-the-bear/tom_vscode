@@ -33,6 +33,7 @@ import {
 import { CONTRACT_FILE, entriesForStep, readContract } from '../services/codespecs-contract';
 import { entryView, readExtractDirectory } from '../services/codespecs-trace';
 import { dartBinariesHelp } from '../services/dartBinariesStatus';
+import { irDocuments, registerOf, specRootOfExtracts, stepUnits, unitsOfEntries, IR_DIR } from './codespecs-units';
 
 // ---------------------------------------------------------------------------
 // Validate
@@ -184,6 +185,12 @@ export async function codeSpecsStepContextImpl(deps: SpecToolDeps, input: CodeSp
             };
         });
 
+        // The units the step's entries go to (their `units`), with kind and mappers from the document's register.
+        const register = input.file ? registerOf(deps, input.file) : null;
+        const stepEntries = dir.files.filter((f) => step.areaCodes.includes(f.extract.area.code)).flatMap((f) => f.extract.entries);
+        const unitIds = unitsOfEntries(stepEntries, register ?? []);
+        const specRoot = input.file ? path.dirname(resolveInput(deps, input.file)) : specRootOfExtracts(dir.dir);
+
         const contract = readContract();
         const chosen = entriesForStep(contract, step.slice, areas.map((a) => ({ code: a.code, annotations: a.annotations })));
         const universalRoot = contract.universal.find((s) => s.number === '2');
@@ -199,6 +206,16 @@ export async function codeSpecsStepContextImpl(deps: SpecToolDeps, input: CodeSp
                 areas: areas.map((a) => ({ code: a.code, canonicalId: a.canonicalId, markers: a.annotations.map((m) => `@${m}`) })),
             },
             outputProject: slice?.project ?? null,
+            // codespecs_derivation_contract.md §2.9 <UNITS>: the units the step's entries go to; the trio without any.
+            units: unitIds.length > 0
+                ? stepUnits(unitIds, register, step.areaCodes)
+                : [],
+            ...(unitIds.length === 0 ? { unitsNote: 'The entries name no generation unit: the step writes the §4.2 trio (codespecs_mapping.md §1.1.1 item 4).' } : {}),
+            ...(unitIds.length > 0 && !register ? { unitsNote: 'Pass `file` (the specification document) for each unit\'s kind and mappers from its register.' } : {}),
+            // §2.9 <IR>: one IR document per area of the step, which the step writes.
+            ir: specRoot
+                ? { dir: toWorkspacePath(deps, path.join(specRoot, IR_DIR)), documents: irDocuments(deps, specRoot, step.areaCodes) }
+                : { dir: null, note: 'The extract folder is not <spec-root>/generated-doc/codespecs_extracts: pass `file` to locate <spec-root>/irspecs/.' },
             extractsDir: toWorkspacePath(deps, dir.dir),
             ...(dir.gateError ? { gateRecordError: dir.gateError } : {}),
             extracts,
@@ -266,8 +283,11 @@ export const CODESPECS_STEP_CONTEXT_TOOL: SharedToolDefinition<CodeSpecsStepCont
         + 'step\'s title, slice, placement and areas (from the catalogue\'s step table); those areas\' extracts, entry by '
         + 'entry (token, path, class, field, generation units, verbatim value), flagged when the gate record puts an area out of the pass '
         + 'or when an extract is missing; the §3 contract entries for the markers those areas emit (text included, with '
-        + 'how each area was matched); §2\'s section list (or its full text with includeUniversalRules); and the output '
-        + 'project. Nothing else is for the step to read — not the Phase-3 specification documents.',
+        + 'how each area was matched); §2\'s section list (or its full text with includeUniversalRules); the output '
+        + 'project; the generation `units` its entries go to (§2.9 <UNITS>: read off the entries, with each unit\'s kind '
+        + 'and the mapper of each of the step\'s areas from the document\'s register when `file` is given; none: the trio); '
+        + 'and the IR documents it writes (§2.9 <IR>: `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area, with whether '
+        + 'each exists). Nothing else is for the step to read — not the Phase-3 specification documents.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

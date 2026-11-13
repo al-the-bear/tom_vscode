@@ -10,6 +10,8 @@
  *   WS-5  the tree: no quest → notChecked; none in the quest → notStarted; created → done; authoring counts
  *         the todos done and names the next one
  *   WS-6  validation: without `shared` notChecked; with the trio it runs
+ *   WS-10 validation by default: without `shared` / `ir`, the run's own <spec-root>/irspecs/ once it holds IR (vscimpb67e);
+ *         before that, notChecked naming the folder
  *   WS-9  validation of the trio's IR: `ir` runs the stage on the IR folder with the validate tool's result;
  *         `ir` with `shared` is a usage error, the stage failing with the binary's message
  *   WS-7  the guide tool: the overview, an outline, a section, a runbook with its arguments, refusals
@@ -41,6 +43,7 @@ import {
     CODESPECS_WORKFLOW_TOOLS,
     codeSpecsGuideImpl,
     codeSpecsStatusImpl,
+    NEXT_ACTION,
     type StatusDeps,
 } from '../codespecs-workflow-tools.js';
 
@@ -179,7 +182,9 @@ describe('CodeSpecs workflow', () => {
         assert.match(authoring.details.nextTodo.id, /^csproj1_/);
         assert.deepEqual([authoring.details.stepsDone, authoring.details.steps], [0, 31]);
 
-        for (const t of questTodo.readAllTodos('qw5').filter((x) => /^(csproj1|csgen1|csgen2)_/.test(x.id))) {
+        // Meridian declares three generation units: one csproj each (codespecs_prompt.md §7).
+        assert.equal(questTodo.readAllTodos('qw5').filter((x) => /^csproj\d+_/.test(x.id)).length, 3);
+        for (const t of questTodo.readAllTodos('qw5').filter((x) => /^(csproj\d+|csgen1|csgen2)_/.test(x.id))) {
             questTodo.updateTodo('qw5', t.id, { status: 'completed' } as never);
         }
         r = await statusOf({ file });
@@ -221,6 +226,21 @@ describe('CodeSpecs workflow', () => {
         const both = stage(await statusOf({ file, ir: 'w9/codespec/irspecs', shared: 'w9/codespec/shared' }), 'validation');
         assert.equal(both.state, 'failing');
         assert.match(both.summary, /usageError.*--ir is the trio as data/);
+    });
+
+    test('WS-10: validation of the run\'s own IR by default', async () => {
+        const file = meridian('w10');
+        const none = stage(await statusOf({ file }), 'validation');
+        assert.equal(none.state, 'notChecked');
+        assert.match(none.summary, /No IR at w10\/irspecs yet/);
+        fs.cpSync(path.join(FIXTURE, 'codespec', 'irspecs'), path.join(ws, 'w10', 'irspecs'), { recursive: true });
+        const v = stage(await statusOf({ file }), 'validation');
+        assert.ok(['done', 'failing'].includes(v.state), JSON.stringify(v));
+        assert.equal(v.details.ir, 'w10/irspecs');
+        assert.match(v.details.irFolder, /<spec-root>\/irspecs/);
+        assert.equal(v.details.checkCount, 44);
+        assert.match(NEXT_ACTION.validation, /irspecs map --unit/, 'the stage\'s next action names mapping');
+        assert.match(NEXT_ACTION.authoring, /writes IR/);
     });
 
     test('WS-7: the guide tool', async () => {

@@ -261,13 +261,21 @@ it after each step. How to do a stage is in its runbook:
    still missing.
 4. **Stage C, the todo tree.** `tomAi_specCodeSpecsPlanTodos` with `dryRun`
    first, then for real: `csopen<n>` questions (the queue pauses on them),
-   `csproj1` for the three projects, `csgen1`–`csgen31` for the authoring steps.
+   `csproj<n>` one per generation unit of the document's register (pass
+   `file`; without units `csproj1` for the trio), `csgen1`–`csgen31` for the
+   authoring steps, each naming the IR documents it writes and its units.
 5. **Author a step.** Each `csgen<n>` reads only what
    `tomAi_specCodeSpecsStepContext` returns for its step: its areas' extracts,
-   the contract entries for their markers and the output project.
-6. **Validate and trace.** `tomAi_specCodeSpecsValidate` runs the 44 checks
-   over the generated projects — or, with `ir`, over their IR folder
-   (`*.ir.yaml`) before any code exists (clean, violations or a usage error); checks
+   the contract entries for their markers, its generation units (with kinds and
+   mappers when given `file`) and its IR documents. It writes IR, not code: one
+   `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area (irspecs_ir.md).
+6. **Map, validate and trace.** Each unit's package is mapped from the IR
+   (`dart run tom_specs_clitool:irspecs map --mapper <its mapper> --ir
+   <spec-root>/irspecs --spec <document> --unit <unit id>`, from a
+   tom_specs_clitool checkout; the runbook `codespecs-validate`).
+   `tomAi_specCodeSpecsValidate` runs the 44 checks over the IR folder (`ir`)
+   — or over generated projects — (clean, violations or a usage error);
+   `tomAi_specCodeSpecsStatus` validates the run's own IR folder by default; checks
    whose extra input was not given are listed as not run, never as passed.
    tom_code_specs' vocabulary, which checks 40 and 41 need, ships with the
    extension and is passed by default.

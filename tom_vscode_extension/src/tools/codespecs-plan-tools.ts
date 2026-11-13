@@ -9,9 +9,13 @@
  *     Stage-B verdict is `insufficient` and not yet resolved (`resolution:
  *     descoped`), its title the gap line verbatim; an insufficient entry
  *     recorded without gap lines gets one L0 for the area, carrying its note;
- *   - L1 `csproj1`: the trio scaffolding, one todo because the three projects
- *     are not separable (§4.2);
- *   - L2 `csgen<n>`: all thirty-one authoring steps, `<n>` the step ordinal.
+ *   - L1 `csproj<n>`: one per generation unit of the document's register
+ *     (codespecs_mapping.md §1.1.1 item 4), each the scaffolding of that unit's
+ *     package; without units `csproj1`, the trio scaffolding, one todo because
+ *     the three projects are not separable (§4.2);
+ *   - L2 `csgen<n>`: all thirty-one authoring steps, `<n>` the step ordinal,
+ *     each naming the IR documents it writes (`<spec-root>/irspecs/<CE>.ir.yaml`
+ *     per area) and the units its extracts' entries go to.
  *     A step whose areas are all out of scope is still created: completing it
  *     with an empty L3 rung is the recorded outcome §1.1.3 asks for.
  * L3 is never created here: each csgen todo creates its own as its first act.
@@ -37,6 +41,8 @@ import { CodeSpecsRefusal, codeSpecsFailure } from './codespecs-tools';
 import { missingAreas, readRecord, recordPath, stageA } from './codespecs-gate-tools';
 import { createQuestTodoImpl, type QuestTodoToolsDeps, type TodoDecision } from './quest-todo-tools';
 import { buildIdPrefix } from './id-prefix-tools';
+import { readExtractDirectory } from '../services/codespecs-trace';
+import { IR_DIR, IR_SUFFIX, registerOf, specRootOfExtracts, unitsOfEntries, type UnitView } from './codespecs-units';
 
 export interface CodeSpecsPlanTodosInput {
     /** The specification document; its record and extracts sit beside it. Also runs Stage A. */
@@ -102,12 +108,23 @@ const isOutOfScope = (e: CodeSpecsGateEntry | null): boolean =>
 const verdictLabel = (e: CodeSpecsGateEntry | null): string =>
     !e ? 'no verdict' : `${e.verdict.word}${e.descoped ? ', descoped' : ''}`;
 
+/** What the plan knows of the generation units (codespecs_mapping.md §1.1.1 item 4). */
+export interface UnitPlan {
+    /** The document's register; null when it was not read (no `file`). */
+    register: UnitView[] | null;
+    /** Area code → the units its extract's entries go to. */
+    unitsOfArea: (code: string) => string[];
+    /** The IR folder, workspace-relative. */
+    irRel: string;
+}
+
 /** The tree for a complete gate record, before ids. */
 function planItems(
     deps: SpecToolDeps,
     verdictFor: (code: string) => CodeSpecsGateEntry | null,
     extractsRel: string,
     appName: string | undefined,
+    units: UnitPlan,
 ): PlannedItem[] {
     const catalog = deps.service.codeSpecsCatalog;
     const extractPath = (code: string): string => path.posix.join(extractsRel, `${code}${K_CODE_SPECS_EXTRACT_FILE_SUFFIX}`);
@@ -194,48 +211,79 @@ function planItems(
         });
     }
 
-    // L1 — the trio, one todo.
-    const projects = new Map<string, string[]>();
-    for (const area of catalog.activeAreas) {
-        if (isOutOfScope(verdictFor(area.code))) { continue; }
-        for (const s of area.slices) {
-            const project = catalog.sliceNumbered(s)?.project.replace('<app>', app) ?? `slice ${s}`;
-            const list = projects.get(project) ?? [];
-            if (!list.includes(area.code)) { list.push(area.code); }
-            projects.set(project, list);
-        }
+    // L1 — one package per generation unit (codespecs_mapping.md §1.1.1 item 4), else the trio.
+    const outOfScopeAreas = catalog.activeAreas.filter((a) => isOutOfScope(verdictFor(a.code)));
+    const register = units.register ?? [];
+    for (const [index, unit] of register.entries()) {
+        const held = Object.entries(unit.mappers);
+        const inPass = held.filter(([area]) => !outOfScopeAreas.some((a) => a.code === area));
+        const out = held.filter(([area]) => outOfScopeAreas.some((a) => a.code === area));
+        items.push({
+            kind: 'csproj',
+            itemTag: `codespecs-proj:${unit.unitId}`,
+            ordinal: index + 1,
+            slug: slugOf(`scaffold ${unit.unitId}`),
+            title: (id) => `${id.split('_')[0]}: scaffold the generation unit ${unit.unitId}${unit.kind ? ` (${unit.kind})` : ''}`,
+            description: [
+                `Create the package of the generation unit ${unit.unitId}${unit.kind ? `, kind ${unit.kind}` : ''}, as the document's `
+                    + 'register declares it (codespecs_mapping.md §1.1.1 item 4): its pubspec (or the mapper\'s project file), its '
+                    + 'dependency edges and the per-area folders of the areas it holds.',
+                'Its areas and the mapper that writes each:',
+                ...inPass.map(([area, mapper]) => `- ${area}: ${mapper || '(no mapper set)'}`),
+                ...(out.length > 0 ? [`Out of this pass (no folders): ${out.map(([area]) => `${area} (${verdictLabel(verdictFor(area))})`).join(', ')}.`] : []),
+                `The package's code is written later from the IR (${units.irRel}) by \`irspecs map --unit ${unit.unitId}\`; `
+                    + 'this todo only scaffolds it. Nothing in it is chosen: the register determines the rung (codespecs_mapping.md §1.1.3).',
+            ].join('\n'),
+            status: 'not-started',
+            priority: 'medium',
+            after: items.filter((x) => x.kind === 'csopen').map((x) => x.itemTag),
+            references: [{ path: MAPPING, description: '§1.1.1 item 4 the units; §1.1.3 L1' }],
+            extraTags: [`unit:${unit.unitId}`],
+        });
     }
-    const outOfScope = catalog.activeAreas.filter((a) => isOutOfScope(verdictFor(a.code)))
-        .map((a) => `${a.code} (${verdictLabel(verdictFor(a.code))})`);
-    items.push({
-        kind: 'csproj',
-        itemTag: 'codespecs-proj',
-        ordinal: 1,
-        slug: 'scaffold-codespecs-trio',
-        title: (id) => `${id.split('_')[0]}: scaffold the CodeSpecs trio ${app}_codespec_shared / _client / _server`,
-        description: [
-            'Create the three generated projects of codespecs_mapping.md §4.2 in one pass, because they are not '
-                + `separable: ${app}_codespec_client and ${app}_codespec_server depend on ${app}_codespec_shared by path.`,
-            'Create their pubspecs and dependency edges, and the per-area folders under the project each area is emitted into:',
-            ...[...projects].map(([project, codes]) => `- ${project}: ${codes.join(', ')}`),
-            ...(outOfScope.length > 0 ? [`Out of this pass (no folders): ${outOfScope.join(', ')}.`] : []),
-            'Nothing in it is chosen: given §4.2 and the application name, the whole rung is determined (codespecs_mapping.md §1.1.3).',
-        ].join('\n'),
-        status: appName ? 'not-started' : 'decision-needed',
-        priority: 'medium',
-        ...(appName ? {} : {
-            decisions: [{
-                summary: 'The application name <app> the three projects are named after',
-                // The todo schema's own field name (todo.schema.json).
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                decision_needed: 'The trio is <app>_codespec_shared, <app>_codespec_client and <app>_codespec_server. '
-                    + 'Which application name replaces <app>, and where do the three projects live?',
-            }],
-        }),
-        after: items.map((i) => i.itemTag),
-        references: [{ path: MAPPING, description: '§4.2 the three generated projects; §1.1.3 L1' }],
-        extraTags: [],
-    });
+    if (register.length === 0) {
+        const projects = new Map<string, string[]>();
+        for (const area of catalog.activeAreas) {
+            if (isOutOfScope(verdictFor(area.code))) { continue; }
+            for (const s of area.slices) {
+                const project = catalog.sliceNumbered(s)?.project.replace('<app>', app) ?? `slice ${s}`;
+                const list = projects.get(project) ?? [];
+                if (!list.includes(area.code)) { list.push(area.code); }
+                projects.set(project, list);
+            }
+        }
+        const outOfScope = catalog.activeAreas.filter((a) => isOutOfScope(verdictFor(a.code)))
+            .map((a) => `${a.code} (${verdictLabel(verdictFor(a.code))})`);
+        items.push({
+            kind: 'csproj',
+            itemTag: 'codespecs-proj',
+            ordinal: 1,
+            slug: 'scaffold-codespecs-trio',
+            title: (id) => `${id.split('_')[0]}: scaffold the CodeSpecs trio ${app}_codespec_shared / _client / _server`,
+            description: [
+                'Create the three generated projects of codespecs_mapping.md §4.2 in one pass, because they are not '
+                    + `separable: ${app}_codespec_client and ${app}_codespec_server depend on ${app}_codespec_shared by path.`,
+                'Create their pubspecs and dependency edges, and the per-area folders under the project each area is emitted into:',
+                ...[...projects].map(([project, codes]) => `- ${project}: ${codes.join(', ')}`),
+                ...(outOfScope.length > 0 ? [`Out of this pass (no folders): ${outOfScope.join(', ')}.`] : []),
+                'Nothing in it is chosen: given §4.2 and the application name, the whole rung is determined (codespecs_mapping.md §1.1.3).',
+            ].join('\n'),
+            status: appName ? 'not-started' : 'decision-needed',
+            priority: 'medium',
+            ...(appName ? {} : {
+                decisions: [{
+                    summary: 'The application name <app> the three projects are named after',
+                    // The todo schema's own field name (todo.schema.json).
+                    // eslint-disable-next-line @typescript-eslint/naming-convention
+                    decision_needed: 'The trio is <app>_codespec_shared, <app>_codespec_client and <app>_codespec_server. '
+                        + 'Which application name replaces <app>, and where do the three projects live?',
+                }],
+            }),
+            after: items.map((i) => i.itemTag),
+            references: [{ path: MAPPING, description: '§4.2 the three generated projects; §1.1.3 L1' }],
+            extraTags: [],
+        });
+    }
 
     // L2 — all thirty-one steps, in authoring order.
     const steps: CodeSpecsStep[] = [...catalog.steps].sort((a, b) => a.number - b.number);
@@ -244,6 +292,14 @@ function planItems(
         const areas = step.areaCodes.map((c) => catalog.byCode(c)).filter((a): a is CodeSpecsArea => a !== null);
         const inScope = areas.filter((a) => !isOutOfScope(verdictFor(a.code)));
         const isLast = step.number === steps[steps.length - 1].number;
+        const irDocs = step.areaCodes.map((c) => path.posix.join(units.irRel, `${c}${IR_SUFFIX}`));
+        const stepUnitIds = unitsOfEntriesOf(step.areaCodes, units);
+        const unitText = stepUnitIds.length > 0
+            ? stepUnitIds.map((id) => {
+                const u = register.find((x) => x.unitId === id);
+                return u?.kind ? `${id} (${u.kind})` : id;
+            }).join(', ')
+            : 'none named — the §4.2 trio';
         items.push({
             kind: 'csgen',
             itemTag: `codespecs-step:${step.number}`,
@@ -252,16 +308,19 @@ function planItems(
             title: (id) => `${id.split('_')[0]}: ${step.title}`,
             description: [
                 `Authoring step ${step.number} of ${steps.length} (${STEP_COUNT_NOTE}), slice ${step.slice}`
-                    + `${slice ? ` (${slice.title})` : ''}, writing into ${slice?.project.replace('<app>', app) ?? '?'}.`,
+                    + `${slice ? ` (${slice.title})` : ''}${register.length === 0 ? `, writing into ${slice?.project.replace('<app>', app) ?? '?'}` : ''}.`,
+                `It writes the IR documents ${irDocs.join(', ')} (irspecs_ir.md), not Dart: the units' packages are mapped from them.`,
+                `Units its extracts' entries go to: ${unitText}.`,
                 `Areas: ${areas.map((a) => `${a.code} (${verdictLabel(verdictFor(a.code))})`).join(', ')}. Placed by: ${step.placedBy}.`,
-                `Read only what tomAi_specCodeSpecsStepContext({extractsDir: '${extractsRel}', step: ${step.number}}) returns: `
-                    + 'the step\'s extracts, its §3 contract entries and its output project (codespecs_derivation_contract.md §2.9). '
+                `Read only what tomAi_specCodeSpecsStepContext({extractsDir: '${extractsRel}', step: ${step.number}}) returns `
+                    + '(pass the specification document as `file` instead for the units\' kinds and mappers): the step\'s extracts, '
+                    + 'its §3 contract entries, its units and its IR documents (codespecs_derivation_contract.md §2.9). '
                     + 'Do not open the specification documents.',
                 'First, check the three preconditions of codespecs_mapping.md §1.1.3: the extracts exist and are fresh, the '
                     + 'slice is ready, and every part this step cites was authored by an earlier, completed step. A failed '
                     + 'precondition is not a decision: do not start, fix the cause.',
                 'Then create this step\'s L3 todos (cs<area><k>, one per extract entry, in codespecs_mapping.md §4.4.8 order) '
-                    + 'and author the step with the §2.9 prompt. A derivation with no admissible output files a csopen todo '
+                    + 'and author the step with the §2.9 prompt into its IR documents. A derivation with no admissible output files a csopen todo '
                     + '(decision-needed) and the step continues with the next entry.',
                 ...(/SCC-/.test(step.title)
                     ? ['This step is a strongly connected component: author it in the two passes of codespecs_mapping.md §4.4.7, inside this one todo.']
@@ -271,20 +330,32 @@ function planItems(
                         + 'with an empty L3 rung; that outcome is what this todo records.']
                     : []),
                 ...(isLast
-                    ? [`After this step, validate the trio: tomAi_specCodeSpecsValidate with extractsDir '${extractsRel}'.`]
+                    ? [`After this step, map and validate (codespecs_mapping.md §1.1.2 stage 5, runbook codespecs-validate): `
+                        + (register.length > 0
+                            ? `\`irspecs map --mapper <the unit's mapper> --ir ${units.irRel} --spec <document> --unit <unit id> --out <packages folder>\` per unit `
+                                + `(${register.map((u) => u.unitId).join(', ')})`
+                            : `\`irspecs map --mapper dart-tom --ir ${units.irRel} --out <packages folder>\` for the trio`)
+                        + `, then tomAi_specCodeSpecsValidate with ir '${units.irRel}' and extractsDir '${extractsRel}'.`]
                     : []),
             ].join('\n'),
             status: 'not-started',
             priority: 'medium',
-            after: ['codespecs-proj', ...(step.number > 1 ? [`codespecs-step:${step.number - 1}`] : [])],
+            after: [...items.filter((x) => x.kind === 'csproj').map((x) => x.itemTag), ...(step.number > 1 ? [`codespecs-step:${step.number - 1}`] : [])],
             references: [
                 ...areas.map((a) => ({ path: extractPath(a.code), description: `${a.code} extract` })),
+                ...irDocs.map((p, k) => ({ path: p, description: `${step.areaCodes[k]} IR document (written by this step)` })),
                 { path: CONTRACT, description: '§2.9 the authoring prompt; §3 the contract entries' },
             ],
             extraTags: inScope.length === 0 ? ['out-of-scope'] : [],
         });
     }
     return items;
+}
+
+/** The units the entries of `areas` go to, in register order. */
+function unitsOfEntriesOf(areas: string[], units: UnitPlan): string[] {
+    const ids = areas.flatMap((a) => units.unitsOfArea(a));
+    return unitsOfEntries([{ units: ids }], units.register ?? []);
 }
 
 /** The tree with ids, existing todos recognised. */
@@ -336,7 +407,14 @@ export async function codeSpecsPlanTodosImpl(deps: SpecToolDeps, plan: PlanTodoD
         const extractsDir = path.dirname(file);
         const extractsRel = toWorkspacePath(deps, extractsDir);
         const runTag = `codespecs-run:${extractsRel}`;
-        const items = planItems(deps, (code) => state.record.verdictFor(code), extractsRel, input.appName);
+        // The units: the register (with `file`) and the units each area's entries go to.
+        const register = input.file ? registerOf(deps, input.file) : null;
+        const extracts = readExtractDirectory(extractsDir);
+        const unitsOfArea = (code: string): string[] =>
+            unitsOfEntries(extracts.files.filter((f) => f.extract.area.code === code).flatMap((f) => f.extract.entries), register ?? []);
+        const specRoot = specRootOfExtracts(extractsDir) ?? path.dirname(extractsDir);
+        const irRel = toWorkspacePath(deps, path.join(specRoot, IR_DIR));
+        const items = planItems(deps, (code) => state.record.verdictFor(code), extractsRel, input.appName, { register, unitsOfArea, irRel });
         const resolved = resolveIds(items, runTag, plan.allTodos(input.questId), buildIdPrefix(plan.now()));
         const idOf = new Map(resolved.map((r) => [r.item.itemTag, r.id]));
 
@@ -391,6 +469,10 @@ export async function codeSpecsPlanTodosImpl(deps: SpecToolDeps, plan: PlanTodoD
             gateRecord: toWorkspacePath(deps, file),
             stageA: gate.checked ? gate : { checked: false, note: 'Pass `file` (the spec document) to check Stage A before creating.' },
             verdicts: counts,
+            units: register === null
+                ? { read: false, note: 'Pass `file` (the specification document) to plan one csproj per generation unit of its register; without it the trio is planned.' }
+                : { read: true, units: register.map((u) => ({ unitId: u.unitId, kind: u.kind })), ...(register.length === 0 ? { note: 'The document declares no generation units: the §4.2 trio.' } : {}) },
+            ir: irRel,
             tree: { csopen: view('csopen'), csproj: view('csproj'), csgen: view('csgen') },
             ...(input.dryRun ? {} : { created, existing: resolved.filter((r) => r.existing).map((r) => r.id) }),
             ...(warnings.length > 0 ? { warnings } : {}),
@@ -420,9 +502,11 @@ export const CODESPECS_PLAN_TODOS_TOOL: SharedToolDefinition<CodeSpecsPlanTodosI
     description:
         'Stage C of Phase 4 (codespecs_prompt.md §7): propose (`dryRun`) or create the todo tree from the gate record. '
         + 'L0 `csopen<n>`: decision-needed, one per gap line of each area whose verdict is insufficient and not descoped '
-        + '(its title the line verbatim), or one per such area carrying the gate note when its entry records no gap lines. L1 `csproj1`: the trio scaffolding (decision-needed when `appName` is not given). L2 `csgen<n>`: all 31 '
-        + 'authoring steps, `<n>` the step number, each naming its areas and verdicts, its extracts, its output project and '
-        + 'tomAi_specCodeSpecsStepContext as what it reads. Ids come from tomAi_generateIdPrefix; the queue walks csopen*, '
+        + '(its title the line verbatim), or one per such area carrying the gate note when its entry records no gap lines. L1 `csproj<n>`: one per generation unit of the document\'s register (with `file`; its kind and the mapper of each area it holds), '
+        + 'else `csproj1`, the trio scaffolding (decision-needed when `appName` is not given). L2 `csgen<n>`: all 31 '
+        + 'authoring steps, `<n>` the step number, each naming its areas and verdicts, its extracts, the IR documents it '
+        + 'writes (`<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area), the units its entries go to and '
+        + 'tomAi_specCodeSpecsStepContext as what it reads; the last names the map-and-validate stage. Ids come from tomAi_generateIdPrefix; the queue walks csopen*, '
         + 'csproj*, csgen* lowest first and pauses on decision-needed. Refused when the record lacks a verdict for an active '
         + 'area, or (with `file`) when Stage A does not pass. Idempotent: an item already in the quest (live or archived) is '
         + 'reported as existing, not created again.',

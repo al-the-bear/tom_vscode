@@ -11,6 +11,10 @@
  *   PT-5  refusals: no record, an incomplete record, no quest; no appName makes csproj1 decision-needed
  *   PT-6  Stage A with the document: Meridian and the corpus record pass, a broken copy is refused
  *   PT-7  registration
+ *   PT-8  generation units (vscimpb67e, codespecs_prompt.md §7): with the document, one csproj per unit of its register
+ *         (kind and the mapper of each area in the description, no app name needed); each csgen names its IR documents
+ *         (<spec-root>/irspecs/<CE>.ir.yaml) and the units its entries go to; the last maps per unit and validates the
+ *         IR; without the document, the trio and `units.read: false`
  */
 
 import test, { before, describe } from 'node:test';
@@ -31,6 +35,7 @@ import { SomDocumentStore } from '../../services/som-document-store.js';
 import * as questTodo from '../../managers/questTodoManager.js';
 import { collectDecisionNeededTodos, pickNextTodoForIteration } from '../../utils/queueStep3Utils.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
+import { codeSpecsWriteExtractsImpl } from '../codespecs-tools.js';
 import type { QuestTodoFull, QuestTodoStoreAccess } from '../quest-todo-tools.js';
 import { CODESPECS_PLAN_TOOLS, codeSpecsPlanTodosImpl, slugOf, type PlanTodoDeps } from '../codespecs-plan-tools.js';
 
@@ -238,6 +243,51 @@ describe('CodeSpecs plan todos', () => {
         assert.equal(closed.code, 'gateClosed');
         assert.ok(closed.stageA.failing.includes('A1'), 'the emptied required field fails A1 (other checks may report it too)');
         assert.equal(fs.existsSync(path.join(ws, '_ai', 'quests', 'q6')), false, 'on rejection no todo is created');
+    });
+
+    test('PT-8: one csproj per generation unit; csgen names its IR documents and units', async () => {
+        put('u/meridian.docspecs.yaml', MERIDIAN_YAML);
+        const written = JSON.parse(await codeSpecsWriteExtractsImpl(deps, { file: 'u/meridian.docspecs.yaml' }));
+        assert.equal(written.ok, true, JSON.stringify(written).slice(0, 300));
+        put(path.join('u', EXTRACTS, 'gate.verdicts.yaml'), fs.readFileSync(path.join(CORPUS, 'gate.verdicts.yaml'), 'utf8'));
+
+        const dry = await call({ file: 'u/meridian.docspecs.yaml', questId: 'q8', dryRun: true });
+        assert.equal(dry.ok, true, JSON.stringify(dry).slice(0, 400));
+        assert.deepEqual(dry.units, { read: true, units: [
+            { unitId: 'meridian_codespec_shared', kind: 'shared' },
+            { unitId: 'meridian_codespec_client', kind: 'client' },
+            { unitId: 'meridian_codespec_server', kind: 'server' },
+        ] });
+        assert.equal(dry.ir, 'u/irspecs');
+        assert.deepEqual(dry.tree.csproj.map((t: Json) => [t.id, t.status]), [
+            ['csproj1_ajmp-scaffold-meridian-codespec-shared', 'not-started'],
+            ['csproj2_ajmp-scaffold-meridian-codespec-client', 'not-started'],
+            ['csproj3_ajmp-scaffold-meridian-codespec-server', 'not-started'],
+        ], 'no app name needed: the units name their packages');
+        assert.equal(dry.tree.csproj[2].title, 'csproj3: scaffold the generation unit meridian_codespec_server (server)');
+
+        const created = await call({ file: 'u/meridian.docspecs.yaml', questId: 'q8' });
+        assert.equal(created.ok, true, JSON.stringify(created).slice(0, 400));
+        const todos = todosOf('q8');
+        const byStem = (stem: string): Json => todos.find((t) => t.id.startsWith(`${stem}_`));
+        const server = byStem('csproj3');
+        assert.match(server.description, /^- CE-DB: dart-tom$/m, 'each area the unit holds, with its mapper');
+        assert.match(server.description, /irspecs map --unit meridian_codespec_server/);
+
+        const db = byStem('csgen10');
+        assert.match(db.description, /It writes the IR documents u\/irspecs\/CE-DB\.ir\.yaml \(irspecs_ir\.md\), not Dart/);
+        assert.match(db.description, /Units its extracts' entries go to: meridian_codespec_server \(server\)\./);
+        assert.ok(db.references.some((r: Json) => r.path === 'u/irspecs/CE-DB.ir.yaml'), 'the IR document among the references');
+        for (const n of [1, 2, 3]) {
+            assert.ok(db.dependencies.includes(byStem(`csproj${n}`).id), `csgen10 comes after csproj${n}`);
+        }
+        const last = byStem('csgen31');
+        assert.match(last.description, /irspecs map --mapper <the unit's mapper> --ir u\/irspecs --spec <document> --unit <unit id> --out <packages folder>` per unit \(meridian_codespec_shared, meridian_codespec_client, meridian_codespec_server\)/);
+        assert.match(last.description, /tomAi_specCodeSpecsValidate with ir 'u\/irspecs'/);
+
+        const noDoc = await call({ specRoot: 'u', questId: 'q8b', appName: 'meridian', dryRun: true });
+        assert.equal(noDoc.units.read, false);
+        assert.deepEqual(noDoc.tree.csproj.map((t: Json) => t.id), ['csproj1_ajmp-scaffold-codespecs-trio'], 'without the register: the trio');
     });
 
     test('PT-7: slugs and registration', () => {
