@@ -9,16 +9,34 @@ import 'package:tom_code_specs/tom_code_specs.dart';
 /// One accepted customer order.
 @CodeSpec(
   'dataAccess.Order',
-  source: ['DAENT-IDEN', 'content', 'DAATT-IDEN', 'DAATT-DATA'],
+  source: ['DAENT-IDEN', 'content', 'KEAGN', 'DAATT-IDEN', 'DAATT-DATA'],
 )
 @DocSpec([
-  DocRef('DAENT-IDEN', 'supplies the entity, its table and its storage placement'),
-  DocRef('content', 'supplies the entity narrative'),
+  DocRef(
+    'DAENT-IDEN',
+    'supplies the entity, its table and its storage placement',
+  ),
+  DocRef('content', 'supplies the entity narrative and its key'),
+  DocRef('KEAGN', 'supplies the key generation strategy'),
   DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),
   DocRef('DAATT-DATA', 'supplies the storage type'),
 ])
 @CsTable('orders')
+@CsTableKey(
+  'pk_orders',
+  kind: CsKeyKind.primary,
+  columns: ['order_id'],
+  generation: CsKeyGeneration.uuid,
+)
 class Order {
+  /// The identifier the order is filed under.
+  @DocSpec([
+    DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),
+    DocRef('DAATT-DATA', 'supplies the storage type'),
+  ])
+  @CsColumn(column: 'order_id', columnType: 'UUID')
+  late String orderId;
+
   /// The moment the order was accepted.
   @DocSpec([
     DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),

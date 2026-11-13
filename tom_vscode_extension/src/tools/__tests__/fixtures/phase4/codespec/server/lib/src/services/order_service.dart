@@ -16,7 +16,10 @@ import '../data_access/order.dart';
 )
 @DocSpec([
   DocRef('DAENT-IDEN', 'names the aggregate root this service unit owns'),
-  DocRef('DAENT-CLAS', 'supplies the aggregate and the bounded context that caps it'),
+  DocRef(
+    'DAENT-CLAS',
+    'supplies the aggregate and the bounded context that caps it',
+  ),
   DocRef('content', 'supplies the entity narrative'),
 ])
 @CsServiceUnit(rootAggregate: Order, boundedContext: 'Ordering')

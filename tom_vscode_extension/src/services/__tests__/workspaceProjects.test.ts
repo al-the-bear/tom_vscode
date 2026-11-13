@@ -128,7 +128,7 @@ describe('workspaceProjects', () => {
             assert.equal(failed.fallback.binary, binary);
             assert.match(failed.fallback.reason, /could not list the projects: exit 64: Unknown command: :projects$/);
             assert.match(failed.fallback.buildkitError ?? '', /Error: Unknown command: projects/);
-            assert.match(failed.fallback.hint, /tom_build_kit 1\.18\.0/);
+            assert.match(failed.fallback.hint, /tom_build_kit 1\.19\.0/);
 
             const listed = await listWorkspaceProjects(root, { fresh: true, config, runner: async () => ({ exitCode: 0, stdout: doc([project]), stderr: '' }) });
             assert.ok(listed.ok && listed.source === 'buildkit');

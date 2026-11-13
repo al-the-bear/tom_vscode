@@ -93,8 +93,9 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.outcome, 'clean');
         assert.equal(r.summary, recorded.summary);
         assert.deepEqual(r.violations, []);
-        assert.equal(r.checkCount, 41);
-        assert.equal(r.checksRun, 38, 'checks 9, 13 and 31 lack their corroborating input');
+        // 44 checks since tom_specs_clitool 0.16.0 (42-44: an entity's keys and indexes, cskey1).
+        assert.equal(r.checkCount, 44);
+        assert.equal(r.checksRun, 41, 'checks 9, 13 and 31 lack their corroborating input');
         assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
         assert.deepEqual(r.inputs, {
             shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts',
@@ -203,7 +204,7 @@ describe('CodeSpecs step context', () => {
         assert.deepEqual(r.extracts[0].entries.map((e: Json) => e.token), tokens, 'every entry of CE-DB, in order, and nothing else');
         assert.ok(r.extracts[0].entries.every((e: Json) => e.area === 'CE-DB'));
 
-        assert.deepEqual(r.contract.entries.map((s: Json) => s.number), ['3.0.1', '3.3.1', '3.3.2', '3.3.3', '3.3.4']);
+        assert.deepEqual(r.contract.entries.map((s: Json) => s.number), ['3.0.1', '3.3.1', '3.3.2', '3.3.3', '3.3.4', '3.3.11']);
         assert.match(r.contract.entries[1].text, /^#### 3\.3\.1 `@CsTable`/);
         assert.doesNotMatch(r.contract.entries[1].text, /#### 3\.3\.2/, 'one entry per section');
         assert.deepEqual(Object.entries(r.contract.matchedBy), [['CE-DB', 'slice']]);
@@ -276,7 +277,7 @@ describe('CodeSpecs step context', () => {
         copyRun('cv7');
         const own = await call(codeSpecsValidateImpl, { ...trio('cv7'), csVocabulary: 'vocab/vocabulary.dart' });
         assert.equal(own.inputs['cs-vocabulary'], 'vocab/vocabulary.dart');
-        assert.equal(own.checksRun, 38);
+        assert.equal(own.checksRun, 41);
     });
 
     test('SC-4: the packaged contract equals its source in ai_build', (t) => {

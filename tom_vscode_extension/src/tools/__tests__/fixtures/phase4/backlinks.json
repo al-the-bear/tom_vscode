@@ -15,9 +15,10 @@
       "path": "Customer",
       "kind": "classType",
       "file": "lib/src/data_access/customer.dart",
-      "line": 21,
+      "line": 25,
       "markers": [
-        "CsTable"
+        "CsTable",
+        "CsTableKey"
       ],
       "codeSpec": {
         "id": "dataAccess.Customer",
@@ -36,7 +37,7 @@
         },
         {
           "token": "content",
-          "description": "supplies the entity narrative"
+          "description": "supplies the entity narrative and its key"
         },
         {
           "token": "DAATT-IDEN",
@@ -63,7 +64,7 @@
       "path": "Customer.email",
       "kind": "field",
       "file": "lib/src/data_access/customer.dart",
-      "line": 28,
+      "line": 32,
       "markers": [
         "CsColumn"
       ],
@@ -78,7 +79,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 23,
+      "docSpecLine": 27,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -92,7 +93,7 @@
       "path": "Customer.displayName",
       "kind": "field",
       "file": "lib/src/data_access/customer.dart",
-      "line": 36,
+      "line": 40,
       "markers": [
         "CsColumn"
       ],
@@ -107,7 +108,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 31,
+      "docSpecLine": 35,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -121,15 +122,17 @@
       "path": "Order",
       "kind": "classType",
       "file": "lib/src/data_access/order.dart",
-      "line": 21,
+      "line": 31,
       "markers": [
-        "CsTable"
+        "CsTable",
+        "CsTableKey"
       ],
       "codeSpec": {
         "id": "dataAccess.Order",
         "source": [
           "DAENT-IDEN",
           "content",
+          "KEAGN",
           "DAATT-IDEN",
           "DAATT-DATA"
         ],
@@ -142,7 +145,11 @@
         },
         {
           "token": "content",
-          "description": "supplies the entity narrative"
+          "description": "supplies the entity narrative and its key"
+        },
+        {
+          "token": "KEAGN",
+          "description": "supplies the key generation strategy"
         },
         {
           "token": "DAATT-IDEN",
@@ -157,6 +164,7 @@
       "tokens": [
         "DAENT-IDEN",
         "content",
+        "KEAGN",
         "DAATT-IDEN",
         "DAATT-DATA"
       ]
@@ -164,12 +172,12 @@
     {
       "locus": "server",
       "package": "server",
-      "name": "placedAt",
+      "name": "orderId",
       "owner": "Order",
-      "path": "Order.placedAt",
+      "path": "Order.orderId",
       "kind": "field",
       "file": "lib/src/data_access/order.dart",
-      "line": 28,
+      "line": 38,
       "markers": [
         "CsColumn"
       ],
@@ -184,7 +192,36 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 23,
+      "docSpecLine": 33,
+      "tokens": [
+        "DAATT-IDEN",
+        "DAATT-DATA"
+      ]
+    },
+    {
+      "locus": "server",
+      "package": "server",
+      "name": "placedAt",
+      "owner": "Order",
+      "path": "Order.placedAt",
+      "kind": "field",
+      "file": "lib/src/data_access/order.dart",
+      "line": 46,
+      "markers": [
+        "CsColumn"
+      ],
+      "codeSpec": null,
+      "docSpec": [
+        {
+          "token": "DAATT-IDEN",
+          "description": "supplies the stored attribute and its column"
+        },
+        {
+          "token": "DAATT-DATA",
+          "description": "supplies the storage type"
+        }
+      ],
+      "docSpecLine": 41,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -198,7 +235,7 @@
       "path": "CustomerService",
       "kind": "classType",
       "file": "lib/src/services/customer_service.dart",
-      "line": 24,
+      "line": 27,
       "markers": [
         "CsServiceUnit"
       ],
@@ -240,7 +277,7 @@
       "path": "CustomerService.ownedEntities",
       "kind": "field",
       "file": "lib/src/services/customer_service.dart",
-      "line": 25,
+      "line": 28,
       "markers": [],
       "codeSpec": null,
       "docSpec": null,
@@ -255,7 +292,7 @@
       "path": "OrderService",
       "kind": "classType",
       "file": "lib/src/services/order_service.dart",
-      "line": 24,
+      "line": 27,
       "markers": [
         "CsServiceUnit"
       ],
@@ -297,7 +334,7 @@
       "path": "OrderService.ownedEntities",
       "kind": "field",
       "file": "lib/src/services/order_service.dart",
-      "line": 25,
+      "line": 28,
       "markers": [],
       "codeSpec": null,
       "docSpec": null,

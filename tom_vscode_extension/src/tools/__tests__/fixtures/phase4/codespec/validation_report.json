@@ -14,7 +14,7 @@
     "regenerated-server": null
   },
   "passed": true,
-  "summary": "codespecs: 41 checks passed",
+  "summary": "codespecs: 44 checks passed",
   "checks": [
     {
       "number": 1,
@@ -220,6 +220,21 @@
       "number": 41,
       "definedIn": "§3.4.5",
       "title": "No binding's route lies under a path csFeatureReservedPaths reserves for a framework protocol feature"
+    },
+    {
+      "number": 42,
+      "definedIn": "§3.3.11",
+      "title": "Every @CsTableKey / @CsTableIndex column is a @CsColumn of its @CsTable class, and foreign-key arguments sit on a foreign key"
+    },
+    {
+      "number": 43,
+      "definedIn": "§3.3.11",
+      "title": "A foreign key's references is a @CsTable class and its referencedColumns are columns there, one per key column"
+    },
+    {
+      "number": 44,
+      "definedIn": "§3.3.11",
+      "title": "Every @CsTable holds exactly one @CsTableKey that identifies the row"
     }
   ],
   "notRun": [

@@ -195,7 +195,7 @@ describe('CodeSpecs workflow', () => {
         // The fixture trio was generated from another document, so against Meridian it does not validate clean.
         const before = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
         assert.ok(['done', 'failing'].includes(before.state), JSON.stringify(before));
-        assert.equal(before.details.checkCount, 41);
+        assert.equal(before.details.checkCount, 44);
         assert.ok(before.details.notRun.includes(19), 'without extracts, the extract checks are not run');
         await codeSpecsWriteExtractsImpl(deps, { file });
         const v = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
