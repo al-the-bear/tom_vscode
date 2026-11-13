@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../.tom/json-schema/buildkit/buildkit.schema.json
 project_id: VSE
 name: ext
 description: >-
