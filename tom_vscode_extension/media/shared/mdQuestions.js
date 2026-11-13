@@ -423,3 +423,37 @@ function mdbProposalEdit(lines, proposalLine, action, text, at) {
     return null;
 }
 
+
+/**
+ * The questions whose block changed between two texts of a document (vscimpb66b): a new question, or one whose
+ * lines from its header to the end of its quote — the options, the Answer line, a proposed answer — read
+ * differently. Each by id (a repeated id by its occurrence), with its header's line in `newText` (0-based).
+ * The MD Browser takes them to update the questions an open editor sits on and to show what changed.
+ *
+ * @param {string} oldText
+ * @param {string} newText
+ * @returns {Array<{id: string, line: number}>}
+ */
+function mdbChangedQuestions(oldText, newText) {
+    /**
+     * @param {string} text
+     * @returns {Array<{key: string, id: string, line: number, body: string}>}
+     */
+    function blocks(text) {
+        var lines = String(text || '').replace(/\r\n|\r/g, '\n').split('\n');
+        /** @type {Record<string, number>} */
+        var seen = {};
+        return mdbQuestionHeads(text).map(function (h) {
+            var end = h.line + 1;
+            while (end < lines.length && /^\s{0,3}>/.test(lines[end])) { end++; }
+            var n = seen[h.id] = (seen[h.id] || 0) + 1;
+            return { key: h.id + '#' + n, id: h.id, line: h.line, body: lines.slice(h.line, end).join('\n') };
+        });
+    }
+    /** @type {Record<string, string>} */
+    var before = {};
+    blocks(oldText).forEach(function (b) { before[b.key] = b.body; });
+    return blocks(newText)
+        .filter(function (b) { return before[b.key] !== b.body; })
+        .map(function (b) { return { id: b.id, line: b.line }; });
+}

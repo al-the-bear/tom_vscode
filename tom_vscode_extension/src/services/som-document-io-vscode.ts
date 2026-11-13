@@ -14,6 +14,7 @@ import * as vscode from 'vscode';
 
 import { SomDocumentIo, SomDocumentStore, nodeSomDocumentIo, readFileHead } from './som-document-store';
 import { SomModelService } from './som-model-service';
+import { notifyDocumentWritten } from './documentWrites';
 
 function openDocument(filePath: string): vscode.TextDocument | undefined {
     const target = path.resolve(filePath);
@@ -37,6 +38,8 @@ export const vscodeSomDocumentIo: SomDocumentIo = {
         const doc = openDocument(filePath);
         if (!doc) {
             await nodeSomDocumentIo.write(filePath, text);
+            // The MD Browser panels on the file render it again (services/documentWrites.ts).
+            notifyDocumentWritten(path.resolve(filePath));
             return;
         }
         const edit = new vscode.WorkspaceEdit();
@@ -47,6 +50,7 @@ export const vscodeSomDocumentIo: SomDocumentIo = {
         if (!(await doc.save())) {
             throw new Error(`${path.basename(filePath)} was edited in its editor but could not be saved.`);
         }
+        notifyDocumentWritten(path.resolve(filePath));
     },
 };
 

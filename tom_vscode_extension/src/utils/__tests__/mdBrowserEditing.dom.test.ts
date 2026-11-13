@@ -9,7 +9,9 @@
  *   MD-4  edit mode: an edit and an insert button at the end of every editable block, shown only in edit mode
  *   MD-5  edit opens the block's source with the blank line before it and sends the
  *         text as typed (removing that newline merges); insert appends to the block
- *   MD-6  a refresh of the same file is held while an editor is open, applied when it closes
+ *   MD-6  a refresh of the same file while an editor with typed text is open is held (the bar asks; Keep my
+ *         text applies it when the editor closes); an editor with nothing typed goes and the refresh shows
+ *         (mdBrowserAutoUpdate.dom.test.ts has the rest)
  *   MD-7  with CR/LF on and nothing converted (no line map) every control is there, as with it off
  *   MD-8  GFM: a table renders as a table (marked's defaults are kept)
  *   MD-9  a save patches the shown document in place; the file's refresh with the same text renders nothing
@@ -186,11 +188,13 @@ describe('Markdown Browser editing', () => {
         assert.equal(e.replacement, '- item one\n- item two\n\nA new paragraph.', 'appended directly at the end');
     });
 
-    test('MD-6: a refresh is held while an editor is open', () => {
+    test('MD-6: a refresh is held while an editor holds typed text', () => {
         const { window } = setup();
         send(window, content(DOC));
         $(window, '.mdb-answer-btn')[0].click();
+        $(window, '.mdb-editor textarea')[0].value = 'typed';
         send(window, content(`${DOC}\n\nAdded elsewhere.`));
+        window.document.querySelector('#mdbChangeBar [data-change-action="keep"]').click();
         assert.equal($(window, '.mdb-editor').length, 1, 'the open editor survives');
         assert.ok(!window.document.getElementById('contentArea').textContent.includes('Added elsewhere'));
         $(window, '.mdb-editor-btn')[1].click();

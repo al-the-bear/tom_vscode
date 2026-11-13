@@ -587,3 +587,23 @@ span.mdb-own { box-shadow: none; outline: 1px dashed var(--vscode-charts-green, 
 .team-pop .mdb-team-revision { padding: 3px 8px; font-size: 12px; border-top: 1px solid var(--vscode-panel-border); }
 .team-pop .mdb-team-revision-title { font-weight: 600; }
 .team-pop .mdb-team-revision-line { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; margin-top: 2px; }
+
+/* The document changed on disk while text is typed in an editor (vscimpb66b). */
+.mdb-change-bar {
+    position: sticky; top: 0; z-index: 900;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    background: var(--vscode-inputValidation-warningBackground, #352a05);
+    border-bottom: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+}
+.mdb-change-bar[hidden] { display: none; }
+.mdb-change-text { flex: 1; min-width: 200px; }
+.mdb-change-btn {
+    padding: 2px 10px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px; cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #fff);
+}
+/* A question a refresh changed: marked for a moment. */
+.mdb-block.mdb-changed {
+    transition: background-color 0.3s;
+    background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+}

@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -101,6 +101,8 @@
         var shownCrlf = false;          // the CR/LF mode shownText was rendered with
         var openEditors = 0;
         var pendingContent = null;      // a same-file refresh held back while an editor is open
+        var liveEditors = [];           // the open in-place editors: {area, initial, close} (vscimpb66b)
+        var changedOnRender = null;     // the questions a refresh changed, shown once it rendered
         var restoreScrollTop = null;    // where to stay after our own save re-renders
         var afterNextRender = null;     // Save and next, when its save needs a full render first
         var forceRender = false;        // Reload: render the next content in any case
@@ -1202,6 +1204,8 @@
             if (isTopElement(placeAfter)) { box.style.marginLeft = placeAfter.style.marginLeft; }
             trigger.style.display = 'none';
             openEditors++;
+            var live = { area: area, initial: initial, close: close };
+            liveEditors.push(live);
             updateEditorLocks();
             area.focus();
 
@@ -1211,7 +1215,9 @@
                 box.parentNode.removeChild(box);
                 trigger.style.display = '';
                 openEditors = Math.max(0, openEditors - 1);
+                liveEditors = liveEditors.filter(function(e) { return e !== live; });
                 updateEditorLocks();
+                if (openEditors === 0) { hideChangeBar(); }
                 if (openEditors === 0 && pendingContent) {
                     var held = pendingContent;
                     pendingContent = null;
@@ -3043,6 +3049,87 @@
             }
         });
 
+        // ---- The document changed on disk while editors are open (vscimpb66b) ----
+        // A refresh no longer waits silently for the last editor to close: editors
+        // holding nothing typed go and the new version shows; with typed text the
+        // bar asks first. A save of text typed against the old version is refused
+        // by the host when its lines changed (`expected`), so it never overwrites
+        // the new answer.
+
+        /** Close every open editor without rendering a held refresh (the caller renders). */
+        function closeAllEditors() {
+            pendingContent = null;
+            liveEditors.slice().forEach(function(e) { e.close(); });
+            Array.prototype.forEach.call(docRoot.querySelectorAll('.mdb-editor'), function(ed) { ed.parentNode.removeChild(ed); });
+            liveEditors = [];
+            openEditors = 0;
+            updateEditorLocks();
+        }
+
+        function hideChangeBar() {
+            var bar = document.getElementById('mdbChangeBar');
+            if (bar) { bar.hidden = true; }
+        }
+
+        /** The ask: the document changed (`ids`) while text is typed in `count` editors. */
+        function showChangeBar(ids, count) {
+            var bar = document.getElementById('mdbChangeBar');
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'mdbChangeBar';
+                bar.className = 'mdb-change-bar';
+                bar.setAttribute('role', 'alert');
+                document.body.insertBefore(bar, document.body.firstChild);
+            }
+            bar.textContent = '';
+            var text = document.createElement('span');
+            text.className = 'mdb-change-text';
+            text.textContent = (ids.length ? ids.join(', ') + (ids.length === 1 ? ' was' : ' were') : 'The document was')
+                + ' changed on disk while you are typing in ' + (count === 1 ? 'an editor' : count + ' editors') + '.';
+            bar.appendChild(text);
+            var show = document.createElement('button');
+            show.className = 'mdb-change-btn';
+            show.dataset.changeAction = 'show';
+            show.textContent = 'Show the new version';
+            show.title = 'Close the editors (your typed text is dropped) and show what is in the file now';
+            show.addEventListener('click', function() {
+                var held = pendingContent;
+                hideChangeBar();
+                closeAllEditors();
+                if (held) { handleContent(held); }
+            });
+            var keep = document.createElement('button');
+            keep.className = 'mdb-change-btn';
+            keep.dataset.changeAction = 'keep';
+            keep.textContent = 'Keep my text';
+            keep.title = 'Go on typing; the new version shows when you close the editors. A save over lines that changed is refused, so it never overwrites the new text.';
+            keep.addEventListener('click', function() { hideChangeBar(); });
+            bar.appendChild(show);
+            bar.appendChild(keep);
+            bar.hidden = false;
+        }
+
+        /** Scroll to the first question a refresh changed and mark the changed ones briefly. */
+        function showChangedQuestions(changed) {
+            if (!changed || !changed.length || shownCrlf) { return; }
+            var wrappers = Array.prototype.slice.call(docRoot.querySelectorAll('.mdb-block'));
+            var first = null;
+            changed.forEach(function(q) {
+                var w = wrappers.find(function(el) {
+                    var b = el.__mdbBlock;
+                    return b && b.startLine <= q.line && q.line < b.endLine;
+                });
+                if (!w) { return; }
+                if (!first) { first = w; }
+                w.classList.add('mdb-changed');
+                setTimeout(function() { w.classList.remove('mdb-changed'); }, 2500);
+            });
+            if (first) {
+                revealElement(first);
+                if (typeof first.scrollIntoView === 'function') { first.scrollIntoView({ block: 'center' }); }
+            }
+        }
+
         function handleContent(msg) {
             var forced = forceRender;
             forceRender = false;
@@ -3052,15 +3139,27 @@
                 // Reload: open editors go with the old rendering.
                 Array.prototype.forEach.call(docRoot.querySelectorAll('.mdb-editor'), function(ed) { ed.parentNode.removeChild(ed); });
                 openEditors = 0;
+                liveEditors = [];
                 pendingContent = null;
+                hideChangeBar();
                 updateEditorLocks();
                 if (msg.filePath === currentFilePath && contentArea) { restoreScrollTop = contentArea.scrollTop; }
             }
-            // A refresh of the same file while an editor is open would throw the
-            // typed text away: hold it until the last editor closes.
-            if (openEditors > 0 && msg.filePath === currentFilePath && !msg.error) {
-                pendingContent = msg;
-                return;
+            var sameFileText = msg.filePath === currentFilePath && !msg.error;
+            // The questions this refresh changes (not after our own save: the reader stays put).
+            changedOnRender = sameFileText && restoreScrollTop === null && typeof mdbChangedQuestions === 'function' && shownText && msg.content !== shownText
+                ? mdbChangedQuestions(shownText, msg.content || '') : null;
+            if (openEditors > 0 && sameFileText) {
+                var typed = liveEditors.filter(function(e) { return e.area.value !== e.initial; });
+                if (typed.length === 0) {
+                    // Nothing typed: the editors go, the new version shows.
+                    closeAllEditors();
+                } else {
+                    // Typed text: hold the refresh and ask.
+                    pendingContent = msg;
+                    showChangeBar((changedOnRender || []).map(function(q) { return q.id; }), typed.length);
+                    return;
+                }
             }
             if (msg.error) {
                 contentArea.innerHTML = '<div class="empty-state error-state">'
@@ -3138,7 +3237,10 @@
                     indentApplied = false;  // a fresh render carries no indent styles
                     finishFolding(sameFile);
                     applyIndent();
+                    var changed = sameFile ? changedOnRender : null;
+                    changedOnRender = null;
                     afterRender(sameFile, anchor, position);
+                    showChangedQuestions(changed);
                     if (afterNextRender) {
                         var then = afterNextRender;
                         afterNextRender = null;

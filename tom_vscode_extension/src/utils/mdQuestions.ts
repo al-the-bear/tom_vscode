@@ -53,6 +53,7 @@ interface Parser {
     mdbAnswerAt(lines: string[], line: number, column: number): { text: string; endLine: number };
     mdbWriteAnswer(lines: string[], line: number, column: number, answer: string, at?: string): string;
     mdbQuestionHeads(text: string): Array<{ id: string; line: number; topic: string; text: string }>;
+    mdbChangedQuestions(oldText: string, newText: string): Array<{ id: string; line: number }>;
     mdbQuestionOptions(lines: string[], head: number, end: number): { options: MdQuestionOption[]; recommended: string | null };
     mdbOptionAnswer(letter: string): string;
     mdbQuoteDepth(line: string): number;
@@ -266,4 +267,9 @@ export function settleProposedAnswer(
 export function localDate(now = new Date()): string {
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** The questions whose block differs between two texts (new ones too), with their header line in `newText` (media/shared/mdQuestions.js). */
+export function changedMdQuestions(oldText: string, newText: string): Array<{ id: string; line: number }> {
+    return plain(load().mdbChangedQuestions(oldText, newText));
 }
