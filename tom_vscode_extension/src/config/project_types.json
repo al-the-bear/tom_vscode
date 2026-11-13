@@ -15,11 +15,11 @@
       {
         "name": "tom_project",
         "detection": {
-          "hasFile": ["tom_project.yaml"]
+          "hasFile": ["buildkit.yaml"]
         },
         "attributes": {
           "types": "tom,project,tom_project",
-          "flags": "hasTomProjectConfig"
+          "flags": "hasBuildkitConfig"
         }
       },
       {

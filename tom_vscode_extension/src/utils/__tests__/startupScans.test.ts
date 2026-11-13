@@ -18,6 +18,8 @@
  *   SS-8 the shipped tom_workspace detector marks the directory holding
  *        buildkit_master.yaml (with _ai/ and _copilot_guidelines/); the retired
  *        tom_workspace.yaml / tom.code-workspace mark nothing
+ *   SS-9 the tom_project detector marks a directory holding buildkit.yaml, the
+ *        one project file; the retired tom_project.yaml marks nothing
  *   SS-7 promptScopes: every `prompt/` folder (not descending into one, ztmp
  *        skipped) as scan scopes, each detected project's `prompt/` as a project
  *        scope; the walk is shared within the TTL
@@ -203,6 +205,21 @@ describe('tom_workspace detector', () => {
             assert.ok(detectProjectAttributes(ws).detectorNames.includes('tom_workspace'));
         } finally {
             fs.rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('tom_project detector', () => {
+    test('SS-9: buildkit.yaml marks a Tom project; tom_project.yaml does not', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss9-'));
+        try {
+            fs.writeFileSync(path.join(dir, 'tom_project.yaml'), 'project_id: OLD\n');
+            assert.ok(!detectProjectAttributes(dir).detectorNames.includes('tom_project'),
+                'the retired file alone is no project');
+            fs.writeFileSync(path.join(dir, 'buildkit.yaml'), 'project_id: NEW\n');
+            assert.ok(detectProjectAttributes(dir).detectorNames.includes('tom_project'));
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
         }
     });
 });
