@@ -280,7 +280,7 @@ Clicking the wrench icon opens a floating popup panel (VS Code `QuickPick`-style
 - Updates `ChatVariablesStore.role`
 
 ##### c) Project Selector
-- Multi-select checklist listing projects from `tom_master.yaml`
+- Multi-select checklist listing the projects as buildkit sees them (`buildkit :projects --json`), supplemented by the workspace project scanner
 - Updates `ChatVariablesStore.activeProjects`
 
 ##### d) Todo File Picker

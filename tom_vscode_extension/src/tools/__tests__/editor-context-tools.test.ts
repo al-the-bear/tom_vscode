@@ -17,7 +17,7 @@
  *        - untitled documents (untitled: true + scheme: 'untitled')
  *        - output-channel pseudo-documents (scheme: 'output')
  *        - non-text tab kinds (webview, terminal, custom → file:null + kind)
- *        - no git repo / no tom_master.yaml (null in response, not missing)
+ *        - no git repo / no buildkit listing (null in response, not missing)
  *        - includeGit: false short-circuit (no git surface)
  *   c) Tests with snapshot-style fakes that mirror what the real
  *      vscode bridge would produce.
@@ -53,10 +53,10 @@ const TYPICAL_WORKSPACE: WorkspaceInfoSnapshot = {
     ],
     questId: 'vscode_extension',
     projects: [
-        { id: 'tom_vscode_extension', name: 'Tom VS Code Extension', path: 'tom_ai/vscode/tom_vscode_extension', type: 'dart' },
-        { id: 'tom_basics', name: 'Tom Basics', path: 'tom_ai/basics/tom_basics', type: 'dart' },
+        { id: 'tom_vscode_extension', name: 'Tom VS Code Extension', path: 'tom_ai/vscode/tom_vscode_extension', absolutePath: '/ws/tom_ai/vscode/tom_vscode_extension', language: 'typescript', type: 'typescript', natures: ['vscode_extension', 'typescript'] },
+        { id: 'tom_basics', name: 'Tom Basics', path: 'tom_ai/basics/tom_basics', absolutePath: '/ws/tom_ai/basics/tom_basics', language: 'dart', type: 'dart_package', natures: ['dart_package'] },
     ],
-    projectsSource: '/ws/.tom_metadata/tom_master.yaml',
+    projectsSource: 'buildkit :projects --json (/ws/tom_binaries/tom/darwin-arm64/buildkit)',
     git: { branch: 'main', commit: 'abc1234', dirty: false, remote: 'git@github.com:al-the-bear/tom_vscode.git' },
 };
 
@@ -129,7 +129,9 @@ describe('getWorkspaceInfoImpl', () => {
         assert.equal(r.workspaceFolders[1].name, 'extras');
         assert.equal(r.projects.length, 2);
         assert.equal(r.projects[0].id, 'tom_vscode_extension');
-        assert.equal(r.projectsSource, '/ws/.tom_metadata/tom_master.yaml');
+        assert.equal(r.projectsSource, 'buildkit :projects --json (/ws/tom_binaries/tom/darwin-arm64/buildkit)');
+        assert.deepEqual(r.projects[1].natures, ['dart_package']);
+        assert.equal('projectsError' in r, false);
         assert.equal(r.git.branch, 'main');
     });
 
@@ -139,11 +141,12 @@ describe('getWorkspaceInfoImpl', () => {
         assert.equal(r.quest, '');
     });
 
-    test('no tom_master.yaml → projects: null, projectsSource: null (not missing)', async () => {
-        const src = makeWsSource({ ...TYPICAL_WORKSPACE, projects: null, projectsSource: null });
+    test('no buildkit listing → projects: null, projectsSource: null, projectsError says why', async () => {
+        const src = makeWsSource({ ...TYPICAL_WORKSPACE, projects: null, projectsSource: null, projectsError: 'buildkit not found' });
         const r = JSON.parse(await getWorkspaceInfoImpl({ source: src }, {}));
         assert.equal(r.projects, null);
         assert.equal(r.projectsSource, null);
+        assert.equal(r.projectsError, 'buildkit not found');
     });
 
     test('no git repo → git: null (so the model can tell)', async () => {

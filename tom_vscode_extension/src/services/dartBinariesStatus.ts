@@ -156,6 +156,11 @@ export function setDartBinariesConfigSource(source: () => DartBinariesConfig): v
     configSource = source;
 }
 
+/** The `bridge` configuration of this window, read now ({} when unreadable). */
+export function currentDartBinariesConfig(): DartBinariesConfig {
+    try { return configSource(); } catch { return {}; }
+}
+
 /** The status for this window, read now (the configuration may have changed). */
 export function currentDartBinariesStatus(extensionRoot: string = defaultRoot): DartBinariesStatus {
     let config: DartBinariesConfig = {};

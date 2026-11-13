@@ -216,15 +216,12 @@ async function _sendContextData(): Promise<void> {
                     .sort();
             } catch { /* */ }
         }
-        const masterYaml = WsPaths.metadata('tom_master.yaml') || path.join(wsRoot, '.tom_metadata', 'tom_master.yaml');
-        if (fs.existsSync(masterYaml)) {
-            try {
-                const yaml = await import('yaml');
-                const content = fs.readFileSync(masterYaml, 'utf-8');
-                const parsed = yaml.parse(content);
-                if (parsed?.projects) projects = Object.keys(parsed.projects).sort();
-            } catch { /* */ }
-        }
+        // The projects as buildkit sees them (services/workspaceProjects.ts)
+        try {
+            const { listWorkspaceProjects } = await import('../services/workspaceProjects.js');
+            const listing = await listWorkspaceProjects(wsRoot);
+            if (listing.ok) projects = listing.projects.map(p => p.name).sort();
+        } catch { /* */ }
         // Supplement with scanned workspace projects
         try {
             const { scanWorkspaceProjects } = await import('../managers/questTodoManager.js');
@@ -430,7 +427,7 @@ async function _sendTodosForFile(file: string): Promise<void> {
 async function _pickProjects(): Promise<void> {
     if (!_panel) return;
 
-    // Use the workspace project scanner instead of tom_master.yaml
+    // The workspace project scanner (utils/projectDetector.ts)
     let projects: string[] = [];
     try {
         const { scanWorkspaceProjects } = await import('../managers/questTodoManager.js');

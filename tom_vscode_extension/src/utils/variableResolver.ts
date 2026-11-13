@@ -1206,13 +1206,11 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <em>Workspace Folders:</em><br>
 <code>\${aiFolder}</code> – AI folder name (_ai)<br>
 <code>\${guidelinesFolder}</code> – Guidelines folder name (_copilot_guidelines)<br>
-<code>\${metadataFolder}</code> – Metadata folder name (.tom_metadata)<br>
 <code>\${githubFolder}</code> – GitHub folder name (.github)<br>
 <code>\${homeTomFolder}</code> – Home Tom folder name (.tom)<br>
 <code>\${wsConfigFolder}</code> – Workspace config folder name (.tom)<br>
 <code>\${aiPath}</code> – AI folder absolute path<br>
 <code>\${guidelinesPath}</code> – Guidelines folder absolute path<br>
-<code>\${metadataPath}</code> – Metadata folder absolute path<br>
 <code>\${questsPath}</code> – Quests folder absolute path<br>
 <code>\${rolesPath}</code> – Roles folder absolute path<br>
 <code>\${wsConfigPath}</code> – Workspace config folder absolute path<br>

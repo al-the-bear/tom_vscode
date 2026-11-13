@@ -11,6 +11,7 @@
 import { copilotQueueWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import { checkBuildStatus } from '../services/buildStatusService';
 import { currentDartBinariesStatus, summarizeDartBinaries } from '../services/dartBinariesStatus';
+import { listWorkspaceProjects, PROJECTS_SOURCE } from '../services/workspaceProjects';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -775,24 +776,15 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
 
     let projects: WorkspaceInfoSnapshot['projects'] = null;
     let projectsSource: string | null = null;
+    let projectsError: string | undefined;
     if (root) {
-        try {
-            const masterPath = EditorWsPaths.metadata('tom_master.yaml');
-            if (masterPath && fs.existsSync(masterPath)) {
-                const yaml = await import('yaml');
-                const doc = yaml.parse(fs.readFileSync(masterPath, 'utf8'));
-                if (doc?.projects && Array.isArray(doc.projects)) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    projects = (doc.projects as Array<Record<string, any>>).map((p) => ({
-                        id: String(p.id ?? p.name ?? ''),
-                        name: String(p.name ?? p.id ?? ''),
-                        path: p.path ? String(p.path) : undefined,
-                        type: p.type ? String(p.type) : undefined,
-                    }));
-                    projectsSource = masterPath;
-                }
-            }
-        } catch { /* leave projects null, projectsSource null */ }
+        const listing = await listWorkspaceProjects(root);
+        if (listing.ok) {
+            projects = listing.projects;
+            projectsSource = `${PROJECTS_SOURCE} (${listing.binary})`;
+        } else {
+            projectsError = listing.error;
+        }
     }
 
     let git: WorkspaceInfoSnapshot['git'] = null;
@@ -828,6 +820,7 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
         questId,
         projects,
         projectsSource,
+        ...(projectsError ? { projectsError } : {}),
         git,
         // Checked now, so an agent sees a build installed a moment ago.
         ...(build ? { build } : {}),

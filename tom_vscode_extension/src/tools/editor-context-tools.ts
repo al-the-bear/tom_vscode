@@ -37,12 +37,14 @@
  *
  *   - **Empty / missing data surfaces explicit markers** instead of
  *     `undefined`: getWorkspaceInfo reports `git: null` when not a
- *     git repo, `projectsSource: null` when no `tom_master.yaml`.
+ *     git repo, `projects: null` + `projectsError` when buildkit's
+ *     project listing could not be had.
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import type { BuildStatus } from '../utils/buildStamp';
 import type { DartBinariesSummary } from '../services/dartBinariesStatus';
+import type { WorkspaceProject } from '../services/workspaceProjects';
 
 // ===========================================================================
 // Snapshot shapes — what the production bridge passes to the impls
@@ -53,12 +55,8 @@ export interface WorkspaceFolderSnapshot {
     fsPath: string;
 }
 
-export interface ProjectSnapshot {
-    id: string;
-    name: string;
-    path?: string;
-    type?: string;
-}
+/** One project of buildkit's listing (services/workspaceProjects.ts). */
+export type ProjectSnapshot = WorkspaceProject;
 
 export interface GitSnapshot {
     branch?: string;
@@ -73,8 +71,10 @@ export interface WorkspaceInfoSnapshot {
     workspaceFolders: WorkspaceFolderSnapshot[];
     questId: string;
     projects: ProjectSnapshot[] | null;
-    /** Whether `tom_master.yaml` exists at the metadata path. */
+    /** Where the projects came from (`buildkit :projects --json (<binary>)`), or null without a listing. */
     projectsSource: string | null;
+    /** Why there is no listing, when `projects` is null and a workspace is open. */
+    projectsError?: string;
     /** Whether the workspace is a git repo. `null` means not a repo. */
     git: GitSnapshot | null;
     /** The extension build this window runs and the one installed; absent outside a window. */
@@ -135,7 +135,7 @@ export interface TabSnapshot {
 export interface WorkspaceInfoSource {
     /**
      * Build the workspace snapshot. Production reads from
-     * `vscode.workspace.*`, parses `tom_master.yaml` if it exists,
+     * `vscode.workspace.*`, lists the projects with buildkit,
      * and (optionally) runs git rev-parse/status. Tests pass a
      * pre-built snapshot.
      */
@@ -177,6 +177,7 @@ export async function getWorkspaceInfoImpl(
         quest: snap.questId === 'default' ? '' : snap.questId,
         projects: snap.projects,
         projectsSource: snap.projectsSource,
+        ...(snap.projectsError ? { projectsError: snap.projectsError } : {}),
         git: snap.git,
         ...(snap.build ? { build: snap.build } : {}),
         ...(snap.dartBinaries ? { dartBinaries: snap.dartBinaries } : {}),
@@ -187,8 +188,9 @@ export const GET_WORKSPACE_INFO_DESCRIPTION =
     'Return workspace context as JSON: `workspaceName`, `workspaceFile` ' +
     '(`.code-workspace` path if any), `workspaceFolders` (each with index/name/path), ' +
     '`quest` (active quest id, empty string when none), `projects` ' +
-    '(parsed from `.tom_metadata/tom_master.yaml`; null when the file is ' +
-    'absent), `projectsSource` (the path the projects came from, or null), ' +
+    '(the projects as tomAi_listProjects lists them, from `buildkit :projects --json`; ' +
+    'null with `projectsError` when there is no buildkit), ' +
+    '`projectsSource` (the command and binary the projects came from, or null), ' +
     'and `git` (`{branch, commit, dirty, remote}`; null when not a git repo), ' +
     'and `build`: the extension build this window runs and the one installed (`running` / ' +
     '`installed`, each `{commit, dirty, builtAt}`), with `reloadNeeded: true` when a newer build is ' +

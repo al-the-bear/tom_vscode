@@ -151,7 +151,7 @@ opens; other transports are not affected.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + projects + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + projects (buildkit's listing, as `tomAi_listProjects`; `projectsError` without buildkit) + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `validate_codespecs` each `configured` / `bundled` / `missing`). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ |
@@ -396,7 +396,7 @@ shows, else `default`.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_listProjects` | Projects from `tom_master.yaml`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --json` (buildkit configured as `bridge.executables.buildkit`, from the binaries layer, or on PATH): `{id, name, path, absolutePath, language, type, natures, version?, description?}`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)

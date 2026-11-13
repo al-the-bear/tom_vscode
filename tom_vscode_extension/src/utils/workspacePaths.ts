@@ -45,12 +45,6 @@ function getAiFolderName(): string {
 const GUIDELINES_FOLDER = '_copilot_guidelines';
 
 /**
- * Workspace folder for Tom metadata.
- * Currently `.tom_metadata`.
- */
-const TOM_METADATA_FOLDER = '.tom_metadata';
-
-/**
  * Home-directory base for Tom user-level data.
  * Currently `.tom` (i.e. `~/.tom/`).
  */
@@ -116,8 +110,6 @@ export class WsPaths {
     static get aiFolder(): string { return getAiFolderName(); }
     /** The guidelines folder name, e.g. `_copilot_guidelines` */
     static get guidelinesFolder(): string { return GUIDELINES_FOLDER; }
-    /** The Tom metadata folder name, e.g. `.tom_metadata` */
-    static get metadataFolder(): string { return TOM_METADATA_FOLDER; }
     /** The GitHub folder name, e.g. `.github` */
     static get githubFolder(): string { return GITHUB_FOLDER; }
     /** The home-level Tom folder name, e.g. `.tom` */
@@ -218,12 +210,6 @@ export class WsPaths {
         return path.join(ws, GUIDELINES_FOLDER);
     }
 
-    /** Resolve the `.tom_metadata` directory. */
-    static metadata(...extra: string[]): string | undefined {
-        const ws = this.wsRoot;
-        return ws ? path.join(ws, TOM_METADATA_FOLDER, ...extra) : undefined;
-    }
-
     /** Resolve the `.github` directory. */
     static github(...extra: string[]): string | undefined {
         const ws = this.wsRoot;
@@ -279,7 +265,6 @@ export class WsPaths {
         return {
             aiFolder:            aiFolder,
             guidelinesFolder:    GUIDELINES_FOLDER,
-            metadataFolder:      TOM_METADATA_FOLDER,
             githubFolder:        GITHUB_FOLDER,
             homeTomFolder:       HOME_TOM_FOLDER,
             // Absolute paths
@@ -290,7 +275,6 @@ export class WsPaths {
             // files keep resolving without a migration step.
             ai:                  ws ? path.join(ws, aiFolder) : '',
             guidelinesPath:      ws ? path.join(ws, GUIDELINES_FOLDER) : '',
-            metadataPath:        ws ? path.join(ws, TOM_METADATA_FOLDER) : '',
             questsPath:          ws ? path.join(ws, aiFolder, 'quests') : '',
             rolesPath:           ws ? path.join(ws, aiFolder, 'roles') : '',
             wsConfigPath:        ws ? path.join(ws, WORKSPACE_CONFIG_FOLDER) : '',

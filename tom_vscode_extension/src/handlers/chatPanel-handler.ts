@@ -2167,19 +2167,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             projects = scanned.map(p => p.name);
         } catch { /* ignore */ }
 
-        // Fallback: try tom_master.yaml if no projects found
+        // Fallback: buildkit's listing when the scanner found none
         if (projects.length === 0 && wsRoot) {
-            const masterYaml = WsPaths.metadata('tom_master.yaml') || path.join(wsRoot, '.tom_metadata', 'tom_master.yaml');
-            if (fs.existsSync(masterYaml)) {
-                try {
-                    const yaml = await import('yaml');
-                    const content = fs.readFileSync(masterYaml, 'utf-8');
-                    const parsed = yaml.parse(content);
-                    if (parsed?.projects) {
-                        projects = Object.keys(parsed.projects).sort();
-                    }
-                } catch { /* ignore */ }
-            }
+            try {
+                const { listWorkspaceProjects } = await import('../services/workspaceProjects.js');
+                const listing = await listWorkspaceProjects(wsRoot);
+                if (listing.ok) { projects = [...new Set(listing.projects.map(p => p.name))].sort(); }
+            } catch { /* no listing: keep the empty list */ }
         }
 
         // Get current values from ChatVariablesStore (if available)

@@ -452,12 +452,14 @@ export interface SendToChatConfig {
          * Cross-platform executable configuration: a path per platform for
          * each name. `tom_bs` is the bridge (DartScript), `validate_codespecs`
          * the CodeSpecs validator, `spec_checks` the TomSpecs process checks; a configured file that exists is used before
-         * the binary bundled in `bin/<platform>/` (services/dartBinariesStatus.ts).
+         * the binary bundled in `bin/<platform>/` (services/dartBinariesStatus.ts). `buildkit` (not bundled) lists the
+         * projects; without an entry it comes from the binaries layer or PATH (services/workspaceProjects.ts).
          */
         executables?: { [name: string]: { [platform: string]: string } } & {
             tom_bs?: { [platform: string]: string }; // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
             validate_codespecs?: { [platform: string]: string }; // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
             spec_checks?: { [platform: string]: string }; // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
+            buildkit?: { [platform: string]: string };
         };
         profiles: { [name: string]: {
             label: string;

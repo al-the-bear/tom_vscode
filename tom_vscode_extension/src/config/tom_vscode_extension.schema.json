@@ -28,6 +28,11 @@
                             "description": "The CodeSpecs validator binary (tomAi_specCodeSpecsValidate, the Trace agreement, the validation stage of tomAi_specCodeSpecsStatus); for a platform the extension carries none for.",
                             "additionalProperties": { "type": "string" }
                         },
+                        "buildkit": {
+                            "type": "object",
+                            "description": "The buildkit binary the project list comes from (tomAi_listProjects, tomAi_getWorkspaceInfo, the project pickers: `buildkit :projects --json`). Not bundled; without this entry it is taken from the binaries layer (binaryPath, else <workspace>/tom_binaries/tom/<platform>/) or PATH.",
+                            "additionalProperties": { "type": "string" }
+                        },
                         "spec_checks": {
                             "type": "object",
                             "description": "The TomSpecs process checks binary (tomAi_specImportAnswers, tomAi_specRequiredFields, tomAi_specQuestionRegister, tomAi_specFeatureRegister, tomAi_specProjectIdeaCoverage, tomAi_specAuthorizationCheck, tomAi_specCoverage); for a platform the extension carries none for.",

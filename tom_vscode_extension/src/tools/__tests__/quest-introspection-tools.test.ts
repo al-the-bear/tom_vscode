@@ -20,11 +20,11 @@
  *
  *   a) Description clarity — verified in the impl file; discovery
  *      mechanism (workspace-file basename, _ai/quests/* walk,
- *      tom_master.yaml) is spelled out; what counts as a "project"
- *      (one YAML array entry) is spelled out.
+ *      `buildkit :projects --json`) is spelled out; what counts as a
+ *      "project" (a folder a buildkit project command visits) is spelled out.
  *   b) Ambiguities — covered explicitly:
  *        - quest id format: free-form, whatever the folder is named
- *        - project path format: workspace-relative, verbatim from YAML
+ *        - project path format: workspace-relative with `/`, as buildkit reports it
  *        - listDocuments returns ALL files (not only .md)
  *        - listDocuments subPath traversal hole CLOSED
  *        - getActiveQuest returns `active: null` vs `rawId` so the
@@ -52,6 +52,7 @@ import {
     type DocumentCategory,
     type ProjectInfo,
 } from '../quest-introspection-tools.js';
+import { listWorkspaceProjects, type BuildkitRunner } from '../../services/workspaceProjects.js';
 
 // ===========================================================================
 // On-disk fixture — 2 quests + 3 projects + 5 category folders
@@ -75,25 +76,6 @@ before(() => {
     write('_ai/quests/beta/notes.md', 'random notes\n');
     write('_ai/quests/beta/todos.beta.todo.yaml', 'todos: []\n');
     write('_ai/quests/beta/extra.beta.todo.yaml', 'todos: []\n');
-
-    // -- Projects (tom_master.yaml) ------------------------------------------
-    const masterYaml = [
-        'projects:',
-        '  - id: tom_basics',
-        '    name: Tom Basics',
-        '    path: tom_ai/basics/tom_basics',
-        '    type: dart-package',
-        '  - id: tom_core_kernel',
-        '    name: Tom Core Kernel',
-        '    path: tom_ai/core/tom_core_kernel',
-        '    type: dart-package',
-        '  - id: vscode-extension',
-        '    name: VS Code Extension',
-        '    path: tom_ai/vscode/tom_vscode_extension',
-        '    type: typescript',
-        '',
-    ].join('\n');
-    write('.tom_metadata/tom_master.yaml', masterYaml);
 
     // -- Document categories -------------------------------------------------
     // prompts (recursive)
@@ -137,28 +119,38 @@ function questSourceFor(activeId: string): QuestSource {
     };
 }
 
-const projectSource: ProjectSource = {
-    readProjects(): { found: boolean; masterPath: string; projects: ProjectInfo[] } {
-        const masterPath = w('.tom_metadata/tom_master.yaml');
-        if (!fs.existsSync(masterPath)) { return { found: false, masterPath, projects: [] }; }
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const yaml = require('yaml');
-        const doc = yaml.parse(fs.readFileSync(masterPath, 'utf8')) as { projects?: unknown[] };
-        const projects: ProjectInfo[] = [];
-        if (doc?.projects && Array.isArray(doc.projects)) {
-            for (const raw of doc.projects) {
-                const p = raw as { id?: string; name?: string; path?: string; type?: string };
-                projects.push({
-                    id: p.id || p.name || '',
-                    name: p.name || p.id || '',
-                    path: p.path || '',
-                    type: p.type || undefined,
-                });
-            }
-        }
-        return { found: true, masterPath, projects };
-    },
+/** What `buildkit :projects --json` prints for the fixture (tom_build_base's ListedProject.toJson()). */
+const PROJECTS_DOC = {
+    formatVersion: 1,
+    tool: 'buildkit',
+    root: '/ws',
+    count: 3,
+    projects: [
+        { id: 'TBA', name: 'Tom Basics', path: 'tom_ai/basics/tom_basics', absolutePath: '/ws/tom_ai/basics/tom_basics', language: 'dart', type: 'dart_package', natures: ['dart_package', 'buildkit'], version: '1.0.0', description: 'Basics.' },
+        { id: 'tom_core_kernel', name: 'tom_core_kernel', path: 'tom_ai/core/tom_core_kernel', absolutePath: '/ws/tom_ai/core/tom_core_kernel', language: 'dart', type: 'dart_package', natures: ['dart_package'] },
+        { id: 'tom-ai', name: 'tom-ai', path: 'tom_ai/vscode/tom_vscode_extension', absolutePath: '/ws/tom_ai/vscode/tom_vscode_extension', language: 'typescript', type: 'typescript', natures: ['vscode_extension', 'typescript'] },
+    ],
 };
+
+/** The live source over a fake buildkit run (a configured binary that exists). */
+function projectSourceFor(run: BuildkitRunner): ProjectSource {
+    const binary = w('fake-bin/buildkit');
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    fs.writeFileSync(binary, '');
+    return {
+        readProjects: () => listWorkspaceProjects(w('.'), {
+            fresh: true,
+            config: { executables: { buildkit: { '*': binary } } }, // eslint-disable-line @typescript-eslint/naming-convention -- the '*' platform key
+            runner: run,
+        }),
+    };
+}
+
+const projectSource = projectSourceFor(async () => ({
+    exitCode: 0,
+    stdout: JSON.stringify(PROJECTS_DOC, null, 2) + '\n',
+    stderr: 'Skipping - buildkit_skip.yaml found: x\n',
+}));
 
 const documentSource: DocumentSource = {
     resolveCategoryFolder(category: DocumentCategory) {
@@ -265,46 +257,62 @@ describe('listQuestsImpl', () => {
 
 describe('listProjectsImpl', () => {
 
-    test('typical: reads all 3 projects from tom_master.yaml', async () => {
+    test('typical: the projects of buildkit\'s listing, with identity and natures', async () => {
         const raw = await withTiming('tomAi_listProjects:typical', () =>
             listProjectsImpl(projectSource, {}));
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
-        assert.equal(r.discoveredFrom, '.tom_metadata/tom_master.yaml');
+        assert.equal(r.discoveredFrom, 'buildkit :projects --json');
+        assert.equal(r.binary, w('fake-bin/buildkit'));
         assert.equal(r.count, 3);
         assert.deepEqual(
             r.projects.map((p: ProjectInfo) => p.id).sort(),
-            ['tom_basics', 'tom_core_kernel', 'vscode-extension'],
+            ['TBA', 'tom-ai', 'tom_core_kernel'],
         );
-        // Path format preserved verbatim from YAML (workspace-relative).
-        const basics = r.projects.find((p: ProjectInfo) => p.id === 'tom_basics');
+        const basics = r.projects.find((p: ProjectInfo) => p.id === 'TBA');
         assert.equal(basics.path, 'tom_ai/basics/tom_basics');
         assert.equal(basics.name, 'Tom Basics');
-        assert.equal(basics.type, 'dart-package');
+        assert.equal(basics.type, 'dart_package');
+        assert.deepEqual(basics.natures, ['dart_package', 'buildkit']);
+        assert.equal(basics.version, '1.0.0');
+        const kernel = r.projects.find((p: ProjectInfo) => p.id === 'tom_core_kernel');
+        assert.equal('version' in kernel, false, 'absent fields stay absent');
     });
 
-    test('tom_master.yaml missing → ok: false with diagnostic envelope', async () => {
-        const missing: ProjectSource = {
-            readProjects: () => ({ found: false, masterPath: '/nope/tom_master.yaml', projects: [] }),
+    test('the command run: -R <root> :projects --json in the workspace root', async () => {
+        const calls: Array<{ args: string[]; cwd: string }> = [];
+        const src = projectSourceFor(async (_b, args, cwd) => {
+            calls.push({ args, cwd });
+            return { exitCode: 0, stdout: JSON.stringify(PROJECTS_DOC), stderr: '' };
+        });
+        await listProjectsImpl(src, {});
+        assert.deepEqual(calls, [{ args: ['-R', w('.'), ':projects', '--json'], cwd: w('.') }]);
+    });
+
+    test('no buildkit → ok: false naming where it looked', async () => {
+        const src: ProjectSource = {
+            readProjects: () => listWorkspaceProjects(w('nowhere'), {
+                fresh: true,
+                config: { binaryPath: { '*': w('no-layer') } }, // eslint-disable-line @typescript-eslint/naming-convention -- the '*' platform key
+                env: { PATH: w('no-path') }, // eslint-disable-line @typescript-eslint/naming-convention -- PATH
+            }),
         };
-        const r = JSON.parse(await listProjectsImpl(missing, {}));
+        const r = JSON.parse(await listProjectsImpl(src, {}));
         assert.equal(r.ok, false);
-        assert.match(r.error, /tom_master.yaml not found/);
-        assert.equal(r.masterPath, '/nope/tom_master.yaml');
+        assert.match(r.error, /buildkit not found/);
+        assert.ok(r.searched.some((s: string) => s.startsWith(w('no-layer'))));
         assert.deepEqual(r.projects, []);
     });
 
-    test('id/name fallback: only `name` present → id falls back to name', async () => {
-        const partial: ProjectSource = {
-            readProjects: () => ({
-                found: true,
-                masterPath: '/x/tom_master.yaml',
-                projects: [{ id: 'nameonly', name: 'nameonly', path: 'p', type: undefined }],
-            }),
-        };
-        const r = JSON.parse(await listProjectsImpl(partial, {}));
-        assert.equal(r.projects[0].id, 'nameonly');
-        assert.equal(r.projects[0].name, 'nameonly');
+    test('a failing or foreign listing → ok: false with buildkit\'s message', async () => {
+        const failing = projectSourceFor(async () => ({ exitCode: 2, stdout: '', stderr: 'Error: boom' }));
+        const r1 = JSON.parse(await listProjectsImpl(failing, {}));
+        assert.equal(r1.ok, false);
+        assert.match(r1.error, /exited with 2: Error: boom/);
+        const newer = projectSourceFor(async () => ({ exitCode: 0, stdout: JSON.stringify({ ...PROJECTS_DOC, formatVersion: 2 }), stderr: '' }));
+        const r2 = JSON.parse(await listProjectsImpl(newer, {}));
+        assert.equal(r2.ok, false);
+        assert.match(r2.error, /formatVersion 2 is not 1/);
     });
 });
 

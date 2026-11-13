@@ -119,12 +119,12 @@ import {
     type ProjectSource,
     type DocumentSource,
     type DocumentCategory,
-    type ProjectInfo,
     getActiveQuestImpl,
     listQuestsImpl,
     listProjectsImpl,
     listDocumentsImpl,
 } from './quest-introspection-tools';
+import { listWorkspaceProjects } from '../services/workspaceProjects';
 
 // — QuestSource bridge ——————————————————————————————————————————————
 
@@ -1195,7 +1195,7 @@ export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
 //
 // Impls and tool defs live in `quest-introspection-tools.ts` (entry #23).
 // Bridges below wire the vscode-bound sources:
-//   - liveProjectSource reads .tom_metadata/tom_master.yaml via dynamic YAML import.
+//   - liveProjectSource runs `buildkit :projects --json` (services/workspaceProjects.ts).
 //   - liveDocumentSource resolves WsPaths.ai('prompt'|'answersCopilot'|'notes'|'roles')
 //     and WsPaths.guidelines() for the `guidelines` category.
 //   - liveQuestSource was wired further up where DETERMINE_QUEST_TOOL is exported.
@@ -1203,27 +1203,9 @@ export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
 
 const liveProjectSource: ProjectSource = {
     readProjects() {
-        const masterPath = WsPaths.metadata('tom_master.yaml') ?? '';
-        if (!masterPath || !fs.existsSync(masterPath)) {
-            return { found: false, masterPath, projects: [] };
-        }
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const yaml = require('yaml');
-        const content = fs.readFileSync(masterPath, 'utf8');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const doc = yaml.parse(content) as { projects?: any[] } | null;
-        const projects: ProjectInfo[] = [];
-        if (doc?.projects && Array.isArray(doc.projects)) {
-            for (const p of doc.projects) {
-                projects.push({
-                    id: p.id || p.name || '',
-                    name: p.name || p.id || '',
-                    path: p.path || '',
-                    type: p.type || undefined,
-                });
-            }
-        }
-        return { found: true, masterPath, projects };
+        const root = WsPaths.wsRoot;
+        if (!root) { return Promise.resolve({ ok: false, error: 'no workspace folder is open' }); }
+        return listWorkspaceProjects(root);
     },
 };
 

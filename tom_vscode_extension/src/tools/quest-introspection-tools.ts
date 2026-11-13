@@ -6,8 +6,8 @@
  *                               open .code-workspace filename.
  *   - `tomAi_listQuests`      — enumerates quest folders under
  *                               `_ai/quests/`.
- *   - `tomAi_listProjects`    — reads the projects array from
- *                               `.tom_metadata/tom_master.yaml`.
+ *   - `tomAi_listProjects`    — the workspace's projects as buildkit
+ *                               sees them (`buildkit :projects --json`).
  *   - `tomAi_listDocuments`   — walks a workspace document category
  *                               folder (prompts / answers / notes /
  *                               roles / guidelines).
@@ -29,8 +29,8 @@
  *     `_ai/quests/*`.  No regex enforced — whatever VS Code accepts as
  *     a folder name + whatever the user picks for the .code-workspace
  *     filename round-trips through these tools.
- *   - Project "path" format: workspace-relative, as recorded verbatim
- *     in `.tom_metadata/tom_master.yaml`.  No normalisation.
+ *   - Project "path" format: workspace-relative with `/` separators, as
+ *     buildkit's listing reports it (services/workspaceProjects.ts).
  *   - `listDocuments` returns *every* file in the resolved folder
  *     (recursive), not just markdown.  Filtering by extension would
  *     be a behaviour change; tools doing it can post-filter the array.
@@ -40,6 +40,7 @@
 
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
+import { PROJECTS_SOURCE, type ProjectListing, type WorkspaceProject } from '../services/workspaceProjects';
 
 // ===========================================================================
 // Narrow deps
@@ -68,30 +69,13 @@ export interface QuestSource {
     questFolderRelative(questId: string): string;
 }
 
-/** `.tom_metadata/tom_master.yaml` reader for `tomAi_listProjects`. */
+/** The workspace's projects for `tomAi_listProjects` (services/workspaceProjects.ts; a fake in tests). */
 export interface ProjectSource {
-    /**
-     * Read the master metadata file.  Returns the absolute path the
-     * read was attempted from + a parsed-projects list, or `found:
-     * false` when the file is missing.
-     */
-    readProjects(): {
-        found: boolean;
-        masterPath: string;
-        projects: ProjectInfo[];
-    };
+    readProjects(): Promise<ProjectListing>;
 }
 
-export interface ProjectInfo {
-    /** Stable identifier; falls back to `name` if `id` is absent in YAML. */
-    id: string;
-    /** Display name; falls back to `id` if `name` is absent in YAML. */
-    name: string;
-    /** Workspace-relative path as recorded in the YAML (verbatim). */
-    path: string;
-    /** Project type when present in YAML (e.g. `dart-package`, `flutter-app`). */
-    type?: string;
-}
+/** One project: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. */
+export type ProjectInfo = WorkspaceProject;
 
 /** Category folder resolver + filesystem walker for `tomAi_listDocuments`. */
 export interface DocumentSource {
@@ -220,8 +204,7 @@ export async function listQuestsImpl(quests: QuestSource, input: ListQuestsInput
 
 export const LIST_QUESTS_DESCRIPTION =
     'List every quest folder under `_ai/quests/`. Discovery is a ' +
-    'filesystem walk of the `_ai/quests/` directory (NOT ' +
-    '`.tom_metadata/tom_master.yaml`) — directory entries are returned in ' +
+    'filesystem walk of the `_ai/quests/` directory — directory entries are returned in ' +
     'alphabetical order. Quest ids are free-form directory names; no format ' +
     'is enforced (the convention is snake_case but neither this tool nor ' +
     'the manager rejects other names). By default returns ' +
@@ -255,17 +238,19 @@ export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
 
 export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListProjectsInput): Promise<string> {
     try {
-        const result = projectsSrc.readProjects();
-        if (!result.found) {
-            return err('tom_master.yaml not found', {
-                discoveredFrom: '.tom_metadata/tom_master.yaml',
-                masterPath: result.masterPath,
+        const result = await projectsSrc.readProjects();
+        if (!result.ok) {
+            return err(result.error, {
+                discoveredFrom: PROJECTS_SOURCE,
+                ...(result.binary ? { binary: result.binary } : {}),
+                ...(result.searched ? { searched: result.searched } : {}),
                 projects: [],
             });
         }
         return ok({
-            discoveredFrom: '.tom_metadata/tom_master.yaml',
-            masterPath: result.masterPath,
+            discoveredFrom: PROJECTS_SOURCE,
+            binary: result.binary,
+            root: result.root,
             count: result.projects.length,
             projects: result.projects,
         });
@@ -275,18 +260,22 @@ export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListP
 }
 
 export const LIST_PROJECTS_DESCRIPTION =
-    'List every project recorded in `.tom_metadata/tom_master.yaml` ' +
-    '(the workspace analyzer\'s output). A "project" is a single entry in ' +
-    'the YAML\'s top-level `projects` array — typically a Dart package, a ' +
-    'Flutter app, or a TypeScript module. Each entry returns ' +
-    '`{id, name, path, type?}`: `path` is workspace-relative *as recorded ' +
-    'in the YAML* (no normalisation, no absolute conversion); `id` falls ' +
-    'back to `name` when missing, and vice versa; `type` is omitted when ' +
-    'absent in the YAML. When the master file is missing, the response is ' +
-    '`{ok: false, error: "tom_master.yaml not found", masterPath, projects: ' +
-    '[]}` so callers can detect "no metadata" vs "no projects" cleanly. To ' +
-    'regenerate the metadata, run the workspace analyzer ' +
-    '(`tom_ai_build`).';
+    'List the workspace\'s projects as the build tools see them, from ' +
+    '`buildkit :projects --json` run in the workspace root: every Dart, ' +
+    'Flutter, TypeScript, JavaScript, Python, Java, Go, Rust, C and C++ ' +
+    'project a buildkit project command visits (skip markers and the ' +
+    '`navigation:` defaults of `buildkit_master.yaml` apply; projects nested ' +
+    'inside another project, e.g. test fixtures, and `zom_` test projects are ' +
+    'not listed). Each entry: `{id, name, path, absolutePath, language, type, ' +
+    'natures, version?, description?}` — `id` and `name` from the project\'s ' +
+    '`buildkit.yaml` (`project_id`, `name`), else the project file\'s name; ' +
+    '`path` workspace-relative with `/`; `type` the primary nature (e.g. ' +
+    '`flutter`, `dart_package`, `python`); `natures` every nature (e.g. ' +
+    '`git`, `buildkit`). Answer `{ok, discoveredFrom, binary, root, count, ' +
+    'projects}`. Without a buildkit binary (configured ' +
+    '`bridge.executables.buildkit`, the binaries layer, or PATH) the answer ' +
+    'is `{ok: false, error, searched, projects: []}`. Listings are cached ' +
+    'for 30 s.';
 
 export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
     name: 'tomAi_listProjects',
