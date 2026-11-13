@@ -173,7 +173,7 @@ export function postInboxItem(access: Pick<QuestSendAccess, 'liveWindows' | 'del
 }
 
 export const SEND_ITEM_TO_QUEST_DESCRIPTION =
-    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`). `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
+    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`). `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${itemAnswer}` — what the item answered —, `${itemTitle}`, `${itemTodos}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
 
 export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
     name: 'tomAi_sendItemToQuest',
@@ -189,7 +189,7 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
             text: { type: 'string', description: 'The prompt.' },
             template: { type: 'string', description: 'A message template of the target queue.' },
             anthropicProfileId: { type: 'string', description: 'Anthropic profile the item runs with (transport anthropic).' },
-            doneNotificationPrompt: { type: 'string', description: 'Queued when the item is done or fails for good: in the target queue, or in `doneNotificationQuest`.' },
+            doneNotificationPrompt: { type: 'string', description: 'Queued when the item is done or fails for good: in the target queue, or in `doneNotificationQuest`. `${itemOutcome}`, `${itemAnswer}` (the item\'s answer), `${itemTitle}`, `${itemTodos}`.' },
             doneNotificationQuest: { type: 'string', description: 'The quest the done notification is posted to (e.g. your own, to hear back). Default: the target quest.' },
             doneNotificationRun: { type: 'string', description: 'The process run the done notification is queued in. Default: the item\'s run in the target quest, `default` in another.' },
             run: { type: 'string', description: 'The target quest\'s process run the item is queued in (tomAi_listProcessRuns there). Default: `default`.' },

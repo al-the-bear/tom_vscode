@@ -28,6 +28,7 @@ import * as path from 'path';
 
 import { isValidSessionName, normalizeSessionMode, type SessionMode, type SessionRecord } from './agentSdkSessions';
 import { sanitizeFilePart, sanitizeHostnameForFile } from './queueStep5Utils';
+import { fillPlaceholder } from './placeholderEscape';
 
 export const INBOX_SUFFIX = '.inbox.queue.yaml';
 const CLAIM_MARK = '.claimed-';
@@ -309,9 +310,10 @@ export interface InboxConversion {
     error?: string;
 }
 
+/** The sender filled in; an escaped `$${senderQuest}` (inside a done notification's answer) stays as it is. */
 function fillSender(text: string | undefined, from: InboxSender): string | undefined {
     return text === undefined ? undefined
-        : text.split(SENDER_QUEST_PLACEHOLDER).join(from.quest).split(SENDER_RUN_PLACEHOLDER).join(from.run || 'default');
+        : fillPlaceholder(fillPlaceholder(text, SENDER_QUEST_PLACEHOLDER, from.quest), SENDER_RUN_PLACEHOLDER, from.run || 'default');
 }
 
 /**

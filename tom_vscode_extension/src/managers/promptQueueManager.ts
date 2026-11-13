@@ -552,7 +552,8 @@ export interface QueuedPrompt {
     /**
      * Queued right after this item when it is finished — done, or ended in an
      * error that will not recover (src/utils/doneNotification.ts).
-     * `${itemOutcome}` in it reads `done` / `error: <message>`.
+     * `${itemOutcome}` in it reads `done` / `error: <message>`; `${itemAnswer}`,
+     * `${itemTitle}` and `${itemTodos}` what came out (vscimpb72).
      */
     doneNotificationPrompt?: string;
     /** The done-notification prompt is kept but not queued. */
@@ -5206,7 +5207,16 @@ export class PromptQueueManager {
     private async _itemFinished(item: QueuedPrompt, outcome: ItemOutcome): Promise<void> {
         try {
             const ownQuest = WsPaths.getWorkspaceQuestId() || 'default';
-            const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items, ownQuest);
+            const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items, ownQuest, {
+                // `${itemTodos}`: each walked todo's status now, archived todos included.
+                todoStatus: (id) => {
+                    try {
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports
+                        const qt = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
+                        return qt.readAllTodos(ownQuest, qt.ALL_TODO_FILES).find((t) => t.id === id)?.status;
+                    } catch { return undefined; }
+                },
+            });
             const deleteSessionNow = deletesTemporarySession(item as DoneNotificationItem, plan);
             if (plan?.targetQuest) {
                 // Another quest: posted into its inbox, queued there with its own defaults in the named run.

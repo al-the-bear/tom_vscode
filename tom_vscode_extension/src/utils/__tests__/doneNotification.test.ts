@@ -12,6 +12,10 @@
  *        name (the queue makes it `<session>@<run>`) and keeps transport, profile, pause and temporary session; another
  *        quest gets the text only, run `default` unless named, no pause or temporary session handed over (deleted at
  *        once); ${senderQuest} / ${senderRun} filled; this quest named is the default; the target fields round-trip
+ *   DN-8 what came out (vscimpb72): ${itemAnswer} a direct answer; a walk's answers per todo (and repetitions per
+ *        number); a long answer cut at 4,000 characters with the note naming the item; an error outcome with no
+ *        answer; ${itemTitle} the prompt's first line; ${itemTodos} the walked todos with their status; all escaped,
+ *        so neither a later sender fill nor the placeholder engine touches a `${…}` the answer quotes
  *   DN-7 the queue editor's pickers: this quest first, then quests with a running window, then the others (their
  *        notification waits in the inbox); the runs with the default first
  *   HB-1 the stale rule: a heartbeat within 90 s is alive, an older one or none is not
@@ -22,7 +26,10 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    ITEM_ANSWER_LIMIT,
     applyPlanToItem,
+    cutAnswer,
+    fillPlaceholder,
     deletesTemporarySession,
     doneNotificationMetaFromYaml,
     doneNotificationMetaToYaml,
@@ -31,6 +38,8 @@ import {
     type DoneNotificationItem,
 } from '../doneNotification.js';
 import { questPicks, runPicks } from '../doneNotificationTargets.js';
+import { unescapePlaceholders } from '../placeholderEscape.js';
+import { planInboxConversion } from '../questInbox.js';
 import { HEARTBEAT_STALE_MS, isWindowAlive, liveWindowsOf, serverSummary, withHeartbeat } from '../windowHeartbeat.js';
 import { buildNextTemplateIterationParams } from '../queueStep3Utils.js';
 
@@ -178,6 +187,43 @@ describe('done-notification', () => {
             doneNotificationPosted: { quest: 'q2', run: 'rx', file: 'f.inbox.queue.yaml', waiting: true, at: '2026-11-13T20:00:00.000Z' } };
         assert.deepEqual(doneNotificationMetaFromYaml(doneNotificationMetaToYaml(fields)), fields, 'round-trips');
         assert.deepEqual(doneNotificationMetaToYaml({ doneNotificationRun: 'r2' }), { 'done-notification': { prompt: '', run: 'r2' } });
+    });
+
+    test('DN-8: the answer, the title, the todos', () => {
+        const pending = [{ id: 'i1', status: 'sent' }];
+        const plan = (item: Partial<DoneNotificationItem>, prompt: string, outcome: Parameters<typeof planDoneNotification>[1] = { kind: 'done' },
+            lookup: Parameters<typeof planDoneNotification>[4] = {}): string =>
+            planDoneNotification({ id: 'i1', status: 'sent', doneNotificationPrompt: prompt, ...item }, outcome, pending, 'q1', lookup)!.text;
+
+        // A direct answer.
+        assert.equal(plan({ originalText: 'File the todos\nin tom_core', answerText: '  Filed 3 todos: a, b, c.  ' },
+            '${itemTitle}: ${itemOutcome}\n${itemAnswer}'), 'File the todos: done\nFiled 3 todos: a, b, c.');
+        // A walk: one block per todo, with the todos' status.
+        const walk = { todoIdPattern: 'tsm*', answerText: 'the last', repetitionAnswers: [{ key: 'tsm1_a', text: 'One done.' }, { key: 'tsm2_b', text: 'Two done.' }] };
+        assert.equal(plan(walk, '${itemAnswer}'), '### tsm1_a\n\nOne done.\n\n### tsm2_b\n\nTwo done.');
+        assert.equal(plan(walk, '${itemTodos}', { kind: 'done' }, { todoStatus: (id) => (id === 'tsm1_a' ? 'completed' : undefined) }),
+            'tsm1_a (completed), tsm2_b (status unknown)');
+        assert.equal(plan({ todoIdPattern: 'x1_a, y2*' }, '${itemTodos}', { kind: 'done' }, { todoStatus: () => 'in-progress' }), 'x1_a (in-progress)',
+            'not a walk: the todo it names (a prefix is not a todo)');
+        assert.equal(plan({}, '${itemTodos}'), '(none)');
+        // Repetitions: one block per repetition.
+        assert.equal(plan({ repetitionAnswers: [{ key: '1', text: 'a' }, { key: '2', text: 'b' }] }, '${itemAnswer}'), '### Repetition 1\n\na\n\n### Repetition 2\n\nb');
+        // A long answer is cut, with the note.
+        const long = 'x'.repeat(ITEM_ANSWER_LIMIT + 500);
+        const cut = plan({ answerText: long }, '${itemAnswer}');
+        assert.ok(cut.startsWith('x'.repeat(ITEM_ANSWER_LIMIT) + '\n\n[… cut at 4000 of 4500 characters. The whole answer is queue item i1\'s'));
+        assert.match(cut, /tomAi_listQueue with includeSent\.\]$/);
+        assert.equal(cutAnswer('short', 'i1'), 'short');
+        // An error with no answer.
+        assert.equal(plan({}, '${itemOutcome} | ${itemAnswer}', { kind: 'error', message: 'Invalid request (400)' }), 'error: Invalid request (400) | (no answer)');
+        // Escaped: the answer quoting placeholders reaches the model as written, even through the target's sender fill.
+        const quoting = plan({ originalText: 'Use ${todoId}', answerText: 'I left ${senderQuest} and ${itemOutcome} as they are.' },
+            'From ${senderQuest}: ${itemTitle} → ${itemAnswer}');
+        assert.equal(quoting, 'From q1: Use $${todoId} → I left $${senderQuest} and $${itemOutcome} as they are.');
+        const delivered = planInboxConversion({ text: quoting, from: { quest: 'q9', windowId: 'w', host: 'h', sentAt: '' } },
+            { profileExists: () => true, readSession: () => undefined, now: new Date(), token: 't' }).enqueue.originalText;
+        assert.equal(unescapePlaceholders(delivered), 'From q1: Use ${todoId} → I left ${senderQuest} and ${itemOutcome} as they are.');
+        assert.equal(fillPlaceholder('${a}${a} $${a}', '${a}', 'V$&'), 'V$&V$& $${a}', 'back to back, escaped kept, no replacement patterns');
     });
 
     test('DN-7: the editor\'s pickers', () => {

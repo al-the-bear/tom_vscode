@@ -819,7 +819,7 @@ function renderDoneNotification(item, safeId, safeStatus) {
     : '';
   var body = finished
     ? '<div class="done-notification-text" style="white-space:pre-wrap;">' + escapeHtml(prompt) + '</div>'
-    : '<textarea class="done-notification-input" placeholder="Queued after this item when it is done, or fails for good. ${itemOutcome}: done / error: <message>." onchange="updateDoneNotification(\'' + safeId + '\', this.value)">' + escapeHtml(prompt) + '</textarea>';
+    : '<textarea class="done-notification-input" placeholder="Queued after this item when it is done, or fails for good. ${itemOutcome}: done / error: <message>; ${itemAnswer}: its answer; ${itemTitle}: its prompt\'s first line; ${itemTodos}: the todos it ran." onchange="updateDoneNotification(\'' + safeId + '\', this.value)">' + escapeHtml(prompt) + '</textarea>';
   if (finished && !prompt) { return ''; }
   return '<details class="done-notification' + (disabled ? ' disabled' : '') + '"' + (prompt ? ' open' : '') + '>'
     + '<summary>Done notification' + toggle + '</summary>'

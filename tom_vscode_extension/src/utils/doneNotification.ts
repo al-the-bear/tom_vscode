@@ -30,7 +30,15 @@
  *   quest).
  * - `${itemOutcome}` in the prompt becomes `done` or `error: <message>`;
  *   `${senderQuest}` and `${senderRun}` the quest and run the notification
- *   comes from (the finished item's).
+ *   comes from (the finished item's). What came out (vscimpb72):
+ *   `${itemAnswer}` the item's answer — the main prompt's, or for a walk or
+ *   repetitions one `### <todo id | repetition>` block each — cut at
+ *   {@link ITEM_ANSWER_LIMIT} characters with a note naming the item and where
+ *   to read the rest; `${itemTitle}` the first line of the item's prompt;
+ *   `${itemTodos}` the todos a walk ran (or the todo the item ran), each with
+ *   its status now. They are filled last and escaped
+ *   (src/utils/placeholderEscape.ts), so an answer that quotes `${…}` reaches
+ *   the model as written.
  *
  * Also the item's fields as its entry file stores them (in `meta`).
  *
@@ -38,15 +46,55 @@
  */
 
 import type { InboxSender } from './questInbox';
+import { escapePlaceholders, fillPlaceholder } from './placeholderEscape';
+
+export { fillPlaceholder };
 
 export const ITEM_OUTCOME_PLACEHOLDER = '${itemOutcome}';
 /** The quest a notification comes from (the finished item's). */
 export const SENDER_QUEST_PLACEHOLDER = '${senderQuest}';
 /** The process run a notification comes from (the finished item's). */
 export const SENDER_RUN_PLACEHOLDER = '${senderRun}';
+/** The finished item's answer (vscimpb72). */
+export const ITEM_ANSWER_PLACEHOLDER = '${itemAnswer}';
+/** The first line of the finished item's prompt. */
+export const ITEM_TITLE_PLACEHOLDER = '${itemTitle}';
+/** The todos the finished item ran, with their status. */
+export const ITEM_TODOS_PLACEHOLDER = '${itemTodos}';
+/** The most characters of the answer a notification carries. */
+export const ITEM_ANSWER_LIMIT = 4000;
 const DEFAULT_RUN_NAME = 'default';
 
 export type ItemOutcome = { kind: 'done' } | { kind: 'error'; message: string };
+
+/** What the item produced, for `${itemAnswer}`: the answers of a walk or repetitions, else the main answer. */
+export function itemAnswerText(item: Pick<DoneNotificationItem, 'answerText' | 'repetitionAnswers'>): string {
+    const answers = item.repetitionAnswers ?? [];
+    if (answers.length > 1 || (answers.length === 1 && !/^\d+$/.test(answers[0].key))) {
+        return answers.map((a) => `### ${/^\d+$/.test(a.key) ? `Repetition ${a.key}` : a.key}\n\n${a.text.trim()}`).join('\n\n');
+    }
+    return (item.answerText ?? answers[0]?.text ?? '').trim();
+}
+
+/** `answer` cut at `limit` characters, with a note naming the item and where to read the rest. */
+export function cutAnswer(answer: string, itemId: string, limit = ITEM_ANSWER_LIMIT): string {
+    if (answer.length <= limit) { return answer; }
+    return `${answer.slice(0, limit)}\n\n[… cut at ${limit} of ${answer.length} characters. The whole answer is queue item ${itemId}'s: `
+        + 'the Prompt Queue editor, or tomAi_listQueue with includeSent.]';
+}
+
+/** The todos an item ran, for `${itemTodos}`: a walk's todo ids (its answers), else the todo it names. */
+export function itemTodoIds(item: Pick<DoneNotificationItem, 'repetitionAnswers' | 'todoIdPattern'>): string[] {
+    const walked = (item.repetitionAnswers ?? []).map((a) => a.key).filter((k) => !/^\d+$/.test(k));
+    if (walked.length > 0) { return Array.from(new Set(walked)); }
+    return (item.todoIdPattern ?? '').split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*'));
+}
+
+/** What the planner looks up besides the item. */
+export interface DoneNotificationLookup {
+    /** A todo's status now (the quest's todo files), undefined when it is not found. */
+    todoStatus?(id: string): string | undefined;
+}
 
 /** What `${itemOutcome}` reads: `done`, or `error: <message>` (one line). */
 export function outcomeText(outcome: ItemOutcome): string {
@@ -62,6 +110,14 @@ export interface DoneNotificationItem {
     runId?: string;
     /** The item's process run (`default` when unset). */
     run?: string;
+    /** The item's prompt (`${itemTitle}`: its first line). */
+    originalText?: string;
+    /** The main prompt's latest answer. */
+    answerText?: string;
+    /** A walk's or repeated item's answer per todo / repetition (utils/repetitionAnswers.ts). */
+    repetitionAnswers?: ReadonlyArray<{ key: string; text: string }>;
+    /** The todos the item runs (a todo id, `<prefix>*`, or several). */
+    todoIdPattern?: string;
     pauseAfter?: boolean;
     transport?: 'copilot' | 'anthropic';
     anthropicProfileId?: string;
@@ -136,15 +192,29 @@ export function planDoneNotification(
     outcome: ItemOutcome,
     items: ReadonlyArray<Pick<DoneNotificationItem, 'id' | 'status'>>,
     ownQuest = '',
+    lookup: DoneNotificationLookup = {},
 ): DoneNotificationPlan | null {
     const prompt = item.doneNotificationPrompt;
     if (!prompt || !prompt.trim() || item.doneNotificationDisabled) { return null; }
     const run = runKeyOf(item);
     if (item.doneNotificationQueuedFor === run) { return null; }
     const itemRun = item.run || DEFAULT_RUN_NAME;
-    const text = prompt.split(ITEM_OUTCOME_PLACEHOLDER).join(outcomeText(outcome))
-        .split(SENDER_QUEST_PLACEHOLDER).join(ownQuest || DEFAULT_RUN_NAME)
-        .split(SENDER_RUN_PLACEHOLDER).join(itemRun);
+    let text = fillPlaceholder(prompt, ITEM_OUTCOME_PLACEHOLDER, outcomeText(outcome));
+    text = fillPlaceholder(text, SENDER_QUEST_PLACEHOLDER, ownQuest || DEFAULT_RUN_NAME);
+    text = fillPlaceholder(text, SENDER_RUN_PLACEHOLDER, itemRun);
+    // What came out last, escaped: no later pass (the target's inbox conversion, the placeholder engine) touches it.
+    if (text.includes(ITEM_TITLE_PLACEHOLDER)) {
+        text = fillPlaceholder(text, ITEM_TITLE_PLACEHOLDER, escapePlaceholders((item.originalText ?? '').split('\n').find((l) => l.trim())?.trim() ?? ''));
+    }
+    if (text.includes(ITEM_TODOS_PLACEHOLDER)) {
+        const ids = itemTodoIds(item);
+        const list = ids.length ? ids.map((id) => `${id} (${lookup.todoStatus?.(id) ?? 'status unknown'})`).join(', ') : '(none)';
+        text = fillPlaceholder(text, ITEM_TODOS_PLACEHOLDER, escapePlaceholders(list));
+    }
+    if (text.includes(ITEM_ANSWER_PLACEHOLDER)) {
+        const answer = itemAnswerText(item);
+        text = fillPlaceholder(text, ITEM_ANSWER_PLACEHOLDER, escapePlaceholders(answer ? cutAnswer(answer, item.id) : '(no answer)'));
+    }
     const quest = item.doneNotificationQuest?.trim();
     if (quest && quest !== ownQuest) {
         // Another quest: its inbox, its queue's defaults; the pause and a temporary session stay here.

@@ -595,7 +595,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
 
 /** What a queue item's `doneNotificationPrompt` is. */
 const DONE_NOTIFICATION_DOC =
-    'A prompt queued right after the item, ahead of the others, once it is finished (done, or an error that will not recover); `${itemOutcome}` reads `done` or `error: <message>`, `${senderQuest}` / `${senderRun}` the quest and run it comes from. Where: `doneNotificationQuest` / `doneNotificationRun`.';
+    'A prompt queued right after the item, ahead of the others, once it is finished (done, or an error that will not recover); `${itemOutcome}` reads `done` or `error: <message>`, `${itemAnswer}` the item\'s answer (a walk\'s per todo; cut at 4,000 characters), `${itemTitle}` its prompt\'s first line, `${itemTodos}` the todos it ran with their status, `${senderQuest}` / `${senderRun}` the quest and run it comes from. Where: `doneNotificationQuest` / `doneNotificationRun`.';
 const DONE_NOTIFICATION_QUEST_DOC =
     'The quest the done notification is posted to: another quest\'s inbox (queued there with its queue\'s defaults; with no window of it running it waits until one starts, and the item says so). Default: this quest. \'\' resets.';
 const DONE_NOTIFICATION_RUN_DOC =

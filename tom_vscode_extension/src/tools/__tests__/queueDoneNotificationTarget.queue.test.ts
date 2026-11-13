@@ -11,6 +11,8 @@
  *        meta
  *   DT-4 the other side, the inbox: a notification posted from another quest into this quest's run is queued in
  *        that run's lane with the sender filled in; a run this quest does not have makes it an error in `default`
+ *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
+ *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -241,5 +243,35 @@ describe('the done notification\'s quest and run', () => {
         assert.equal(missing.run, 'default');
         assert.match(String(missing.error), /no process run "nope"/);
         clean();
+    });
+
+    test('DT-5: the answer reaches the notification', async () => {
+        clean();
+        const item = await add({
+            originalText: 'File the todos\nof idea tsm', run: 'r1', todoIdPattern: 'tsm1_a',
+            doneNotificationPrompt: '${itemTitle}: ${itemOutcome}\n${itemAnswer}\n${itemTodos}',
+        });
+        queue().setRunQueueSettings('r1', { autoSend: true, autoPause: false });
+        await wait(60);
+        (queue().getById(item.id) as Json).answerText = 'Filed tsm1_a; kept ${senderQuest} as written.';
+        await finish(item);
+        const n = notificationOf(item)!;
+        assert.equal(n.originalText, 'File the todos: done\nFiled tsm1_a; kept $${senderQuest} as written.\ntsm1_a (status unknown)');
+
+        const posts: Json[] = [];
+        queue().setDoneNotificationPoster((p) => { posts.push(p); return { file: 'f.inbox.queue.yaml', targetRunning: true }; });
+        try {
+            const other = await add({ originalText: 'Report', run: 'r1', doneNotificationPrompt: 'From ${senderQuest}: ${itemAnswer}', doneNotificationQuest: 'q2' });
+            queue().setRunAutoSend('r1', true);
+            await wait(60);
+            await finish(n); // the first notification goes first in r1's lane
+            (queue().getById(other.id) as Json).answerText = 'All three filed.';
+            await finish(other);
+            assert.equal(posts[0].text, `From ${QUEST}: All three filed.`);
+            assert.equal(queue().getById(other.id)?.doneNotificationPosted?.waiting, false);
+        } finally {
+            queue().setDoneNotificationPoster(undefined);
+            clean();
+        }
     });
 });

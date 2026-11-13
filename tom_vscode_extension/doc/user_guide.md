@@ -625,7 +625,11 @@ or a rate limit is not such an error, so nothing is queued then.
 - The notification is queued ahead of every other pending item and runs with
   the item's transport, profile and session. Its header reads *notification of
   <item>*.
-- `${itemOutcome}` in it reads `done` or `error: <message>`.
+- `${itemOutcome}` in it reads `done` or `error: <message>`; `${itemAnswer}`
+  the item's answer (for a walk one section per todo, for repetitions one per
+  repetition; cut at 4,000 characters with a note on where to read the rest);
+  `${itemTitle}` the first line of the item's prompt; `${itemTodos}` the todos
+  it ran with their status.
 - The bell icon in the section's title switches it off (the prompt is kept, not
   queued) and on again. The prompt can be changed until the item is sent, also
   while it is running.
