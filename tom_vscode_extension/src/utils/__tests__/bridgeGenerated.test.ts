@@ -24,7 +24,7 @@ const churn = require(path.join(SCRIPTS, 'bridge-generated-churn.cjs')) as {
     onlyGeneratedHeaderChanged(before: string, after: string): boolean;
     restoreHeaderOnlyBridgeChanges(dir: string): { restored: string[]; changed: string[] };
     onlyStampChanged(before: string, after: string): boolean;
-    restoreStampOnlyBuildState(dir: string): { restored: string[]; changed: string[] };
+    restoreStampOnlyVersioner(dir: string): { restored: string[]; changed: string[] };
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fresh = require(path.join(SCRIPTS, 'check-bridge-fresh.cjs')) as {
@@ -105,7 +105,6 @@ describe('generated bridges', () => {
             '}',
             '',
         ].join('\n');
-        const state = (build: number, time: string): string => `{\n  "buildNumber": ${build},\n  "lastBuild": "${time}"\n}`;
         const old = stamp('2026-10-13T08:50:49Z', 'cd4e670', 45);
         assert.equal(churn.onlyStampChanged(old, stamp('2026-10-20T11:44:59Z', '8edc00d', 65)), true);
         assert.equal(churn.onlyStampChanged(old, stamp('2026-10-20T11:44:59Z', '8edc00d', 65, '1.1.0')), false, 'a new version is a change');
@@ -115,22 +114,18 @@ describe('generated bridges', () => {
         git(repo, 'init', '-q');
         fs.mkdirSync(path.join(repo, 'lib', 'src'), { recursive: true });
         const versioner = path.join(repo, 'lib', 'src', 'version.versioner.dart');
-        const buildState = path.join(repo, 'tom_build_state.json');
         fs.writeFileSync(versioner, old);
-        fs.writeFileSync(buildState, state(45, '2026-10-13T08:50:49Z'));
         git(repo, 'add', '.');
         git(repo, 'commit', '-q', '-m', 'init');
 
         fs.writeFileSync(versioner, stamp('2026-10-20T11:44:59Z', '8edc00d', 65));
-        fs.writeFileSync(buildState, state(65, '2026-10-20T11:44:59Z'));
-        assert.deepEqual([...churn.restoreStampOnlyBuildState(repo).restored], ['lib/src/version.versioner.dart', 'tom_build_state.json']);
-        assert.equal(fs.readFileSync(versioner, 'utf8'), old);
-        assert.match(fs.readFileSync(buildState, 'utf8'), /"buildNumber": 45/, 'the build state goes back with it');
+        assert.deepEqual([...churn.restoreStampOnlyVersioner(repo).restored], ['lib/src/version.versioner.dart']);
+        assert.equal(fs.readFileSync(versioner, 'utf8'), old, 'the next build counts on from the committed number');
+        assert.equal(fs.existsSync(path.join(repo, 'tom_build_state.json')), false, 'no build-state file is written or restored');
 
         fs.writeFileSync(versioner, stamp('2026-10-20T11:44:59Z', '8edc00d', 66, '1.1.0'));
-        fs.writeFileSync(buildState, state(66, '2026-10-20T11:44:59Z'));
-        const kept = churn.restoreStampOnlyBuildState(repo);
+        const kept = churn.restoreStampOnlyVersioner(repo);
         assert.deepEqual([...kept.restored], []);
-        assert.deepEqual([...kept.changed], ['lib/src/version.versioner.dart', 'tom_build_state.json'], 'a version bump stays, both files');
+        assert.deepEqual([...kept.changed], ['lib/src/version.versioner.dart'], 'a version bump stays');
     });
 });

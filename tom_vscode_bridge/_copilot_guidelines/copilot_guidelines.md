@@ -52,12 +52,12 @@ keep them honest:
 - **No build churn.** A from-source build (`compile_and_install.*`) regenerates
   the bridges and runs the versioner, which rewrites the generator's time stamp
   in five `*.b.dart` files and the build stamp in `lib/src/version.versioner.dart`
-  and `tom_build_state.json`. Afterwards
+  (which also keeps the build number). Afterwards
   `tom_vscode_extension/scripts/bridge-generated-churn.cjs` puts back every
-  file whose only change is that stamp (the version stamp and the build state
-  together, only while the version is unchanged — the compiled `tom_bs` already
-  carries the new stamp) and names what really changed. Commit those with the
-  bridge; nothing else is left modified.
+  file whose only change is that stamp (the version stamp only while the
+  version is unchanged — the compiled `tom_bs` already carries the new stamp)
+  and names what really changed. Commit those with the bridge; nothing else is
+  left modified.
 
 ### Dependencies
 

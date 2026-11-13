@@ -13,11 +13,12 @@
  * report as stale.
  *
  * The same build also runs the versioner, which rewrites the bridge's version
- * stamp (`lib/src/version.versioner.dart`) and `tom_build_state.json` with the
- * build time, commit and a new build number. When the version itself is
- * unchanged, both are put back too: the compiled tom_bs already carries this
- * build's stamp, and the repository keeps the one of the last version bump.
- * A version bump stays, both files, to be committed.
+ * stamp (`lib/src/version.versioner.dart`) with the build time, commit and a
+ * new build number. When the version itself is unchanged, the stamp is put
+ * back too: the compiled tom_bs already carries this build's stamp, and the
+ * repository keeps the one of the last version bump. The stamp is the only
+ * place the build number is kept, so the next build counts on from the
+ * committed one. A version bump stays, to be committed.
  *
  * Usage: node scripts/bridge-generated-churn.cjs <bridge package dir>
  * Exit 0 always (a real change is reported, not an error).
@@ -53,7 +54,6 @@ function onlyStampChanged(before, after) {
 }
 
 const VERSIONER = 'lib/src/version.versioner.dart';
-const BUILD_STATE = 'tom_build_state.json';
 
 function git(cwd, args) {
     return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
@@ -89,19 +89,18 @@ function restoreHeaderOnlyBridgeChanges(dir) {
 }
 
 /**
- * Put back the versioner stamp and the build state when only the stamp moved;
- * they go back together, so the next build counts on from the committed number.
+ * Put back the versioner stamp when only its per-build lines moved.
  */
-function restoreStampOnlyBuildState(dir) {
-    const changed = git(dir, ['diff', '--name-only', '--relative', '--', VERSIONER, BUILD_STATE])
-        .split('\n').map((s) => s.trim()).filter(Boolean).sort();
+function restoreStampOnlyVersioner(dir) {
+    const changed = git(dir, ['diff', '--name-only', '--relative', '--', VERSIONER])
+        .split('\n').map((s) => s.trim()).filter(Boolean);
     if (!changed.includes(VERSIONER)) { return { restored: [], changed }; }
-    const committed = (rel) => committedText(dir, rel);
-    if (!onlyStampChanged(committed(VERSIONER), fs.readFileSync(path.join(dir, VERSIONER), 'utf8'))) {
+    const committed = committedText(dir, VERSIONER);
+    if (!onlyStampChanged(committed, fs.readFileSync(path.join(dir, VERSIONER), 'utf8'))) {
         return { restored: [], changed };
     }
-    for (const rel of changed) { fs.writeFileSync(path.join(dir, rel), committed(rel)); }
-    return { restored: changed, changed: [] };
+    fs.writeFileSync(path.join(dir, VERSIONER), committed);
+    return { restored: [VERSIONER], changed: [] };
 }
 
 if (require.main === module) {
@@ -115,14 +114,14 @@ if (require.main === module) {
         for (const f of changed) { console.log(`     ${f}`); }
     }
     if (!restored.length && !changed.length) { console.log('  ✔ bridges unchanged'); }
-    const stamp = restoreStampOnlyBuildState(dir);
+    const stamp = restoreStampOnlyVersioner(dir);
     if (stamp.restored.length) {
-        console.log('  ✔ version stamp and build state: only this build\'s stamp moved — kept as committed (tom_bs carries the new one)');
+        console.log('  ✔ version stamp: only this build\'s stamp moved — kept as committed (tom_bs carries the new one)');
     }
     if (stamp.changed.length) {
-        console.log('  ⚠️  The version changed — commit the stamp and the build state with the bridge:');
+        console.log('  ⚠️  The version changed — commit the stamp with the bridge:');
         for (const f of stamp.changed) { console.log(`     ${f}`); }
     }
 }
 
-module.exports = { onlyGeneratedHeaderChanged, restoreHeaderOnlyBridgeChanges, onlyStampChanged, restoreStampOnlyBuildState };
+module.exports = { onlyGeneratedHeaderChanged, restoreHeaderOnlyBridgeChanges, onlyStampChanged, restoreStampOnlyVersioner };
