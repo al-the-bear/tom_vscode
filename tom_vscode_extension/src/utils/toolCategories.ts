@@ -290,6 +290,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSetFormField',
         'tomAi_specSetHeadline',
         'tomAi_specSetItemSectionId',
+        'tomAi_specSetUnits',
         'tomAi_specWriteAnswers',
         'tomAi_specImportAnswers',
         'tomAi_specQuestionRegister',

@@ -264,7 +264,7 @@ export const CODESPECS_STEP_CONTEXT_TOOL: SharedToolDefinition<CodeSpecsStepCont
     description:
         'Everything a CodeSpecs authoring step (csgen<n>, 1–31) may read, per codespecs_derivation_contract.md §2.9: the '
         + 'step\'s title, slice, placement and areas (from the catalogue\'s step table); those areas\' extracts, entry by '
-        + 'entry (token, path, class, field, verbatim value), flagged when the gate record puts an area out of the pass '
+        + 'entry (token, path, class, field, generation units, verbatim value), flagged when the gate record puts an area out of the pass '
         + 'or when an extract is missing; the §3 contract entries for the markers those areas emit (text included, with '
         + 'how each area was matched); §2\'s section list (or its full text with includeUniversalRules); and the output '
         + 'project. Nothing else is for the step to read — not the Phase-3 specification documents.',

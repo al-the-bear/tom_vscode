@@ -251,7 +251,10 @@ it after each step. How to do a stage is in its runbook:
 2. **Extract.** `tomAi_specCodeSpecsRouting` shows how every section is routed;
    `tomAi_specCodeSpecsWriteExtracts` writes one extract per area beside the
    document (`generated-doc/codespecs_extracts/`). `tomAi_specCodeSpecsExtract`
-   and `tomAi_specCodeSpecsQueryExtracts` read them.
+   and `tomAi_specCodeSpecsQueryExtracts` read them. Each entry carries its
+   generation `units` (SOM §11.2): the units a section names with
+   `tomAi_specSetUnits`, else every unit of the document's register that maps
+   the area.
 3. **Stage B, one verdict per area.** For each area, read its extract and
    record `sufficient`, `not applicable` or `insufficient` with
    `tomAi_specCodeSpecsSetVerdict`. `tomAi_specCodeSpecsVerdicts` lists what is

@@ -288,7 +288,8 @@ export const CODESPECS_QUERY_TOOL: SharedToolDefinition<CodeSpecsQueryInput> = {
         'Query the entries of a written CodeSpecs run (any writer: tomAi_specCodeSpecsWriteExtracts or the Dart CLI), read '
         + 'through the runtime\'s reader. Filters, AND-combined: `area` (CE-…), `token` (a section id — the unit back-links '
         + 'cite), `path` (that spec path and below), `text` (substring of the value, any case). Each entry: area, token, '
-        + 'path, class, field, instance id, headline, the routing that placed it, the verbatim value; `outOfScope` when '
+        + 'path, class, field, instance id, headline, the routing that placed it, its generation `units` (SOM §11.2, when the run '
+        + 'records them), the verbatim value; `outOfScope` when '
         + 'the gate record puts its area out of this pass. An extract in a format this runtime does not read is listed '
         + 'under `unreadable`, never misread.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],

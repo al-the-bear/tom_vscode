@@ -130,6 +130,8 @@ export interface EntryView {
     instanceId?: string;
     headline?: string;
     routedBy: string;
+    /** The generation units the entry goes to (SOM §11.2): the nearest stored `units`, else the register's default. */
+    units?: string[];
     value: string;
 }
 
@@ -143,6 +145,7 @@ export function entryView(e: CodeSpecsExtractEntry): EntryView {
         ...(e.instanceId ? { instanceId: e.instanceId } : {}),
         ...(e.headline ? { headline: e.headline } : {}),
         routedBy: e.routedBy,
+        ...(e.units.length > 0 ? { units: e.units } : {}),
         value: e.value,
     };
 }

@@ -21,6 +21,11 @@
  *          an enum leaf's domain — as `wrongValue` with the leaf's declared type, the leaf unchanged (the code
  *          tomAi_specSetFormField answers for the same mistake). The bundled model has no typed value leaf
  *          (its leaves are text content and String list items), so a two-field model built here stands in
+ *   SE-19  units (SOM §11.2, vscimpb67d): getSection and outline show a section's stored `units`; setUnits (a list or
+ *          a comma-joined string) writes them as YAML `units:` and answers the ids; null clears them; a wrong value is
+ *          refused; the batch's `setUnits` op; units naming no declared unit introduce `unknownUnit`
+ *   SE-20  the five validation phase-8 codes surface through the edit tools' `validation` and tomAi_specValidate:
+ *          unknownUnit, unitsUnrouted, duplicateUnitId, unitBuildsNothing, unitAreaMalformed
  *   SE-18  addNode with a headline (vscimpa9): one call adds a populated, headlined item; a headline with a line
  *          break (it would break the Markdown heading) refuses the whole add, and setHeadline refuses it too
  */
@@ -51,8 +56,11 @@ import {
     specSetFormFieldImpl,
     specSetHeadlineImpl,
     specSetItemSectionIdImpl,
+    specSetUnitsImpl,
+    specApplyEditsImpl,
 } from '../spec-edit-tools.js';
-import { specGetSectionImpl } from '../spec-tools.js';
+import { specGetSectionImpl, specOutlineImpl } from '../spec-tools.js';
+import { specValidateImpl } from '../spec-validate-tools.js';
 import { SpecEditRefusal, setLeafValue } from '../spec-edit-core.js';
 import { SpecAnnotation, SpecClass, SpecDocument, SpecEditor, SpecField, SpecFieldKind, SpecModel, SpecRoot } from 'tom_som_typescript_runtime';
 import { resolveEffectiveTools } from '../../handlers/mcpServer-handler.js';
@@ -319,12 +327,12 @@ describe('TomSpecs edit tools', () => {
         assert.equal((await run(specSetContentImpl, { file: 'newer.docspecs.yaml', path: 'SBP/content', text: 'x' })).code, 'readOnly');
     });
 
-    test('SE-16: all ten need approval and stay outside the MCP read-only floor', () => {
-        assert.equal(SPEC_EDIT_TOOLS.length, 11, 'the ten single edits and the batch');
+    test('SE-16: all eleven need approval and stay outside the MCP read-only floor', () => {
+        assert.equal(SPEC_EDIT_TOOLS.length, 12, 'the eleven single edits and the batch');
         assert.ok(SPEC_EDIT_TOOLS.every((t) => t.readOnly === false && t.requiresApproval === true));
         const floor = resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: false, allowWriteWithoutAuth: false });
         assert.deepEqual(floor, [], 'an unauthenticated MCP client sees none of them');
-        assert.equal(resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: true, allowWriteWithoutAuth: false }).length, 11);
+        assert.equal(resolveEffectiveTools(SPEC_EDIT_TOOLS, { authenticated: true, allowWriteWithoutAuth: false }).length, 12);
     });
 
     test('SE-17: a typed value leaf refuses what it cannot read as wrongValue', () => {
@@ -380,5 +388,83 @@ describe('TomSpecs edit tools', () => {
         const set = await run(specSetHeadlineImpl, { file, path: r.path, headline: 'a\r\nb' });
         assert.equal(set.code, 'invalidHeadline');
         assert.equal(read(file), before);
+    });
+
+    // ── units (SOM §11.2) ──────────────────────────────────────────────────
+    const MSGKR = 'SBP/informationAndDataModel/messageKeyRegistry';
+    const STYLE = 'SBP/solutionArchitectureAndTechnology/technicalFramework/basicRequirements/architectureStyle';
+    /** A leaf whose class, and every class beneath it, routes nothing to CodeSpecs. */
+    const UNROUTED = 'SBP/targetOperatingModelConcept/processStepsAndActorInteractions/overview';
+    const UNIT = (n: number): string => `${STYLE}/GENUN-UNIT-LST-${n}`;
+    const codes = (r: Json): string[] => r.validation.introduced.map((e: Json) => e.code);
+
+    test('SE-19: units — read, set, clear, batch', async () => {
+        const file = copy();
+        assert.equal((await section(file, MSGKR)).units, 'meridian_codespec_shared', 'the sample\'s own units');
+        const outline = await run(specOutlineImpl, { file, path: 'SBP/informationAndDataModel', depth: 1 });
+        assert.equal(outline.nodes.find((n: Json) => n.path === MSGKR).units, 'meridian_codespec_shared');
+
+        const r = JSON.parse(await withTiming('tomAi_specSetUnits:typical', () =>
+            specSetUnitsImpl(deps, { file, path: MSGKR, units: ['meridian_codespec_server', ' meridian_codespec_client'] })));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(r.units, ['meridian_codespec_server', 'meridian_codespec_client']);
+        assert.deepEqual(r.validation.introduced, [], 'both are declared units');
+        assert.equal((await section(file, MSGKR)).units, 'meridian_codespec_server,meridian_codespec_client');
+        assert.match(read(file), /units: \|2-\n\s+meridian_codespec_server,meridian_codespec_client/);
+
+        assert.deepEqual((await run(specSetUnitsImpl, { file, path: MSGKR, units: 'meridian_codespec_shared' })).units, ['meridian_codespec_shared']);
+        const cleared = await run(specSetUnitsImpl, { file, path: MSGKR, units: null });
+        assert.equal(cleared.units, null);
+        assert.equal((await section(file, MSGKR)).units, undefined);
+        assert.equal((await run(specSetUnitsImpl, { file, path: MSGKR, units: [] })).units, null, '[] clears too');
+
+        const before = read(file);
+        assert.equal((await run(specSetUnitsImpl, { file, path: MSGKR, units: 7 })).code, 'invalidInput');
+        assert.equal((await run(specSetUnitsImpl, { file, path: MSGKR, units: ['two words'] })).code, 'invalidInput');
+        assert.equal(read(file), before, 'a refused value writes nothing');
+
+        const batch = await run(specApplyEditsImpl, { file, edits: [
+            { op: 'setUnits', path: MSGKR, units: ['meridian_codespec_client'] },
+            { op: 'setCodeSpec', path: MSGKR, codeSpec: 'CsMessages' },
+        ] });
+        assert.equal(batch.ok, true, JSON.stringify(batch));
+        const s = await section(file, MSGKR);
+        assert.equal(s.units, 'meridian_codespec_client');
+        assert.equal(s.codeSpec, 'CsMessages');
+
+        const unknown = await run(specSetUnitsImpl, { file, path: MSGKR, units: ['nowhere'] });
+        assert.deepEqual(codes(unknown), ['unknownUnit']);
+    });
+
+    test('SE-20: the phase-8 codes surface through the edits and tomAi_specValidate', async () => {
+        const file = copy();
+        assert.deepEqual(codes(await run(specSetUnitsImpl, { file, path: MSGKR, units: 'nowhere' })), ['unknownUnit']);
+        await run(specSetUnitsImpl, { file, path: MSGKR, units: null });
+        assert.deepEqual(codes(await run(specSetUnitsImpl, { file, path: UNROUTED, units: 'meridian_codespec_server' })), ['unitsUnrouted']);
+        await run(specSetUnitsImpl, { file, path: UNROUTED, units: null });
+        assert.deepEqual(codes(await run(specSetFormFieldImpl, { file, path: `${UNIT(2)}/content`, field: 'unitId', value: 'meridian_codespec_shared' })), ['duplicateUnitId']);
+        await run(specSetFormFieldImpl, { file, path: `${UNIT(2)}/content`, field: 'unitId', value: 'meridian_codespec_client' });
+        assert.deepEqual(codes(await run(specSetFormFieldImpl, { file, path: `${UNIT(2)}/content`, field: 'deploymentTarget', value: null })), ['unitBuildsNothing']);
+        await run(specSetFormFieldImpl, { file, path: `${UNIT(2)}/content`, field: 'deploymentTarget', value: 'DEPTAR-DEPL-1' });
+        const area = await run(specSetFormFieldImpl, { file, path: `${UNIT(2)}/GEMAP-MAPP-LST-1/content`, field: 'area', value: 'logging' });
+        assert.ok(codes(area).includes('unitAreaMalformed'), JSON.stringify(area.validation));
+
+        // All five at once, through the validate tool.
+        await run(specApplyEditsImpl, { file, edits: [
+            { op: 'setUnits', path: MSGKR, units: 'nowhere' },
+            { op: 'setUnits', path: UNROUTED, units: 'meridian_codespec_server' },
+            { op: 'setFormField', path: `${UNIT(3)}/content`, field: 'unitId', value: 'meridian_codespec_shared' },
+            { op: 'setFormField', path: `${UNIT(1)}/content`, field: 'deploymentTarget', value: null },
+            { op: 'setFormField', path: `${UNIT(1)}/content`, field: 'component', value: null },
+            { op: 'setFormField', path: `${UNIT(2)}/GEMAP-MAPP-LST-1/content`, field: 'area', value: 'logging' },
+        ] });
+        const v = await run(specValidateImpl, { file });
+        assert.equal(v.passed, false);
+        const found = new Set(v.violations.filter((x: Json) => x.tier === 'instance').map((x: Json) => x.code));
+        for (const code of ['unknownUnit', 'unitsUnrouted', 'duplicateUnitId', 'unitBuildsNothing', 'unitAreaMalformed']) {
+            assert.ok(found.has(code), `${code} in ${[...found].join(', ')}`);
+        }
+        const unknown = v.violations.find((x: Json) => x.code === 'unknownUnit');
+        assert.equal(unknown.path, MSGKR, 'the path to fix');
     });
 });

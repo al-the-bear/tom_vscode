@@ -16,6 +16,9 @@
  *   CT-9   input errors, the back-link provider, a wrong index format
  *   CT-10  the fixture equals the sample's run (when the sample has been run)
  *   CT-11  registration
+ *   CT-13  generation units (SOM §11.2, vscimpb67d): the extracts written from Meridian carry each entry's `units`
+ *          — the stored `units` of the message-key registry for its entries, the register's default for the rest —
+ *          and tomAi_specCodeSpecsQueryExtracts and tomAi_specCodeSpecsStepContext show them
  *   CT-12  codeDirs through the bundled validate_codespecs: the same index and agreement as backlinks.json
  */
 
@@ -39,6 +42,8 @@ import {
     codeSpecsTraceImpl,
     setBacklinkProvider,
 } from '../codespecs-trace-tools.js';
+import { codeSpecsWriteExtractsImpl } from '../codespecs-tools.js';
+import { codeSpecsStepContextImpl } from '../codespecs-validate-tools.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
@@ -218,6 +223,30 @@ describe('CodeSpecs query and trace', () => {
             ['tomAi_specCodeSpecsQueryExtracts', true],
             ['tomAi_specCodeSpecsTrace', true],
         ]);
+    });
+
+    test('CT-13: generation units in the extracts', async () => {
+        put('units/meridian.docspecs.yaml', MERIDIAN_YAML);
+        const written = await call(codeSpecsWriteExtractsImpl, { file: 'units/meridian.docspecs.yaml', outDir: 'units/extracts' });
+        assert.equal(written.ok, true, JSON.stringify(written).slice(0, 400));
+        const MSGKR = 'SBP/informationAndDataModel/messageKeyRegistry';
+        const stored = await call(codeSpecsQueryImpl, { extractsDir: 'units/extracts', path: MSGKR });
+        assert.ok(stored.entries.length > 0, JSON.stringify(stored).slice(0, 300));
+        assert.ok(stored.entries.every((e: Json) => JSON.stringify(e.units) === '["meridian_codespec_shared"]'),
+            'the registry\'s stored units, for every entry under it');
+        const db = await call(codeSpecsQueryImpl, { extractsDir: 'units/extracts', area: 'CE-DB', limit: 2000 });
+        assert.ok(db.entries.length > 0);
+        assert.ok(db.entries.every((e: Json) => Array.isArray(e.units) && e.units.length > 0), 'the register\'s default units');
+        const yaml = fs.readFileSync(path.join(ws, 'units', 'extracts', 'CE-DB.extract.yaml'), 'utf8');
+        assert.match(yaml, /^ {6}units: \[/m, 'as the runtime writes them');
+
+        const ctx = await call(codeSpecsStepContextImpl, { extractsDir: 'units/extracts', step: 10 });
+        assert.equal(ctx.ok, true, JSON.stringify(ctx).slice(0, 300));
+        const entries = ctx.extracts.find((x: Json) => x.area === 'CE-DB').entries;
+        assert.deepEqual(entries.map((e: Json) => e.units), db.entries.map((e: Json) => e.units), 'the step context shows the same units');
+
+        const fixture = await call(codeSpecsQueryImpl, { ...base, area: 'CE-DB' });
+        assert.ok(fixture.entries.every((e: Json) => e.units === undefined), 'a run without units shows none');
     });
 
     test('CT-12: codeDirs through the bundled binary', async () => {
