@@ -155,7 +155,9 @@ describe('Finish review round', () => {
         const proc = path.join(EXT, '..', '..', '..', '_ai', 'processes', 'tom_specs');
         if (fs.existsSync(proc)) {
             const yaml = fs.readFileSync(path.join(proc, 'tom_specs.process.yaml'), 'utf8');
-            assert.equal((yaml.match(/\$\{finish-review-round\}/g) ?? []).length, 17, 'every closing item that shows the result');
+            // The live process grows (tom_uam's Phase 3 waves, 2026-11-13): at least the 17 closing items it had when the
+            // button came; the exact count belongs to the process, not to this test.
+            assert.ok((yaml.match(/\$\{finish-review-round\}/g) ?? []).length >= 17, 'every closing item that shows the result');
             assert.ok(!yaml.includes('then open the working document\'s current rendition with `tomAi_openInMdBrowser`'), 'no closing item opens it without the button');
             assert.match(fs.readFileSync(path.join(proc, 'tom_specs.md'), 'utf8'), /\*\*Showing the result\.\*\*[\s\S]*?`\$\$\{finish-review-round\}`[\s\S]*?finishReviewRound: true/);
         }

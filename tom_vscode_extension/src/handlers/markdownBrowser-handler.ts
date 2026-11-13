@@ -75,8 +75,9 @@ import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
 import { runQuestionAssist, type AssistNotice, type QuestionAssistDeps } from '../services/questionAssist.js';
+import { assistProgress } from '../services/assistProgress.js';
 import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
-import { liveAssistDeps } from '../services/assistLiveDeps.js';
+import { liveAssistDeps, liveAssistProgress } from '../services/assistLiveDeps.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
@@ -165,6 +166,8 @@ class MdBrowserPanel {
     private _webviewReady = false;
     /** The tomAi_askInMdBrowser bar this panel shows, sent again when the webview (re)starts. */
     private _askBar?: AskMdBar;
+    /** Unsubscribe from the running assist's overlay (services/assistProgress.ts). */
+    private _assistUnsubscribe?: () => void;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -230,6 +233,17 @@ class MdBrowserPanel {
             scheduleRememberOpenPanels();
         }, undefined, context.subscriptions);
         refreshPanelTitles();
+        // Grill me / Explain in detail on this panel's document: its "thinking" overlay (vscimpb65).
+        this._assistUnsubscribe = assistProgress.onChange(() => this._sendAssistOverlay());
+    }
+
+    /** The running assist's overlay when it is about the document this panel shows, else none. */
+    private _sendAssistOverlay(): void {
+        if (!this._webviewReady) { return; }
+        const view = assistProgress.shown();
+        const current = this._history.current?.filePath;
+        const mine = view && current && path.resolve(view.filePath) === path.resolve(current) ? view : null;
+        void this._panel.webview.postMessage({ type: 'assistOverlay', view: mine });
     }
 
     /** Show the title the registry gives this panel (it names the file). */
@@ -291,6 +305,7 @@ class MdBrowserPanel {
     // ---- Lifecycle ---------------------------------------------------------
 
     private _onDispose(): void {
+        this._assistUnsubscribe?.();
         this._stopWatching();
         // An ask shown here ends: nobody can click its buttons any more.
         mdBrowserAskSlot.panelClosed(this._panelId);
@@ -340,6 +355,7 @@ class MdBrowserPanel {
             this._sendFileContent(absPath, anchor);
             this._watchCurrentFile(absPath);
             this._sendNavState();
+            this._sendAssistOverlay();
         } catch (err) {
             debugLog(`[MdBrowser] navigateToFile error: ${err}`, 'ERROR', 'mdBrowser');
         }
@@ -696,6 +712,10 @@ class MdBrowserPanel {
                     });
                     break;
                 }
+                case 'assistCancel':
+                    // The overlay's Cancel (a failed run's: Dismiss).
+                    assistProgress.cancel(String(msg.id || ''));
+                    break;
                 case 'askAnswer':
                     mdBrowserAskSlot.click(String(msg.requestId || ''), String(msg.button || ''), msg.keepFile !== false);
                     break;
@@ -705,6 +725,7 @@ class MdBrowserPanel {
                 case 'webviewReady':
                     this._webviewReady = true;
                     if (this._askBar) { void this._panel.webview.postMessage({ type: 'askBar', bar: this._askBar }); }
+                    this._sendAssistOverlay();
                     this._sendGroups();
                     if (this._pendingInitialFile) {
                         this._navigateToFile(this._pendingInitialFile, 'other', this._pendingInitialAnchor);
@@ -1344,6 +1365,8 @@ function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssis
             } catch { /* no queue in this window */ }
         },
         notify: (notice) => { void showAssistNotice(notice); },
+        // The "thinking" overlay between the rounds, with Cancel (vscimpb65).
+        progress: liveAssistProgress(),
     };
 }
 

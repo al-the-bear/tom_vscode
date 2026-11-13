@@ -19,7 +19,7 @@ export interface AssistLiveDeps {
     hasSession(folder: string, name: string): boolean;
     createSession(folder: string, name: string, opts: { basedOn?: string }): { ok: boolean; error?: string };
     deleteSession(folder: string, name: string): void;
-    send(prompt: string, session: string, source: string): Promise<{ ok: boolean; error?: string; rejected?: boolean }>;
+    send(prompt: string, session: string, source: string, hooks?: { onChatItem?(chatItemId: string): void }): Promise<{ ok: boolean; error?: string; rejected?: boolean; chatItemId?: string }>;
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -47,11 +47,41 @@ export function liveAssistDeps(context: vscode.ExtensionContext): AssistLiveDeps
         createSession: (folder, name, opts) => sessions.createSession(folder, name, opts),
         // A temporary session leaves nothing: file, in-memory conversation, storage (temporarySessions.ts).
         deleteSession: (folder, name) => { discardSessionCompletely(folder, paths.WsPaths.getWorkspaceQuestId(), name); },
-        send: async (prompt, session, source) => {
+        send: async (prompt, session, source, hooks) => {
             const { runAnthropicSend } = require('../handlers/sendToChatRouter.js') as typeof import('../handlers/sendToChatRouter');
-            const outcome = await runAnthropicSend(context, prompt, { session, source });
+            const outcome = await runAnthropicSend(context, prompt, { session, source, ...(hooks?.onChatItem ? { onChatItem: hooks.onChatItem } : {}) });
             return { ok: outcome.ok, error: outcome.error, rejected: outcome.rejected, ...(outcome.chatItemId ? { chatItemId: outcome.chatItemId } : {}) };
         },
     };
 }
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * The live "thinking" overlay of an assist turn (vscimpb65): the run in
+ * services/assistProgress.ts, its Cancel stopping the chat send, its phase
+ * following the turn's waits for the user (a question, an MD Browser ask, an
+ * approval keyed by its chat item).
+ */
+export function liveAssistProgress(): import('./questionAssist').AssistProgressPort {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { assistProgress } = require('./assistProgress.js') as typeof import('./assistProgress');
+    const waits = require('./userWaits.js') as typeof import('./userWaits');
+    const { cancelAnthropicSend } = require('../handlers/sendToChatState.js') as typeof import('../handlers/sendToChatState');
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    return {
+        begin(info) {
+            const id = assistProgress.start(info, () => { cancelAnthropicSend(); });
+            const sync = (): void => {
+                const chat = assistProgress.chatItemOf(id);
+                if (chat) { assistProgress.setWaiting(id, waits.queueItemWaits().has(chat)); }
+            };
+            const unsubscribe = waits.onUserWaitsChanged(sync);
+            return {
+                chatItem: (chatItemId) => { assistProgress.setChatItem(id, chatItemId); sync(); },
+                cancelled: () => assistProgress.wasCancelled(id),
+                fail: (error) => { unsubscribe(); assistProgress.fail(id, error); },
+                end: () => { unsubscribe(); assistProgress.end(id); },
+            };
+        },
+    };
+}

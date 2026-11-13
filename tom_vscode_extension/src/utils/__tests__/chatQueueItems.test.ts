@@ -126,7 +126,7 @@ describe('chat sends in the prompt queue', () => {
         finishChatItem(bare, {});
         appendChatItemNote(bare, 'left open');
         assert.equal(bare.answerText, 'left open');
-        assert.match(src('handlers', 'sendToChatRouter.ts'), /onChatItem: \(itemId\) => \{ chatItemId = itemId; \}/);
+        assert.match(src('handlers', 'sendToChatRouter.ts'), /onChatItem: \(itemId\) => \{ chatItemId = itemId; opts\?\.onChatItem\?\.\(itemId\); \}/);
         assert.match(src('handlers', 'sendToChatRouter.ts'), /ok: true, answer: result\.text, \.\.\.\(chatItemId \? \{ chatItemId \} : \{\}\)/);
         assert.match(src('handlers', 'chatQueueTracking.ts'), /id = queue\.addChatItem\(send\);\s*opts\?\.onChatItem\?\.\(id\);/);
         const manager = src('managers', 'promptQueueManager.ts');

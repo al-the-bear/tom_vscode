@@ -104,6 +104,7 @@ import { CHAT_RUN_SECTIONS, chatRunKey, chatRunOptions, chatRunSession, effectiv
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
+import { assistProgress } from '../services/assistProgress';
 
 // Re-export the trail helpers that external modules (todoLogPanel,
 // windowStatusPanel) import from this module today. Keeps their
@@ -140,6 +141,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _activeCts: Map<string, vscode.CancellationTokenSource> = new Map();
     /** Whether the webview script has started and can show an approval dialog. */
     private _approvalUiReady = false;
+    /** Unsubscribe from the running assist's overlay. */
+    private _assistUnsubscribe?: () => void;
+
+    /** The running assist's overlay (thinking, or its error) in the panel; null when none shows. */
+    private _postAssistOverlay(): void {
+        if (!this._view || !this._approvalUiReady) { return; }
+        void this._view.webview.postMessage({ type: 'assistOverlay', view: assistProgress.shown() ?? null });
+    }
     /** Tool-approval requests, shown in front of the user (src/utils/approvalRelay.ts). */
     private readonly _approvals = new ApprovalRelay({
         isReady: () => !!this._view && this._approvalUiReady,
@@ -422,6 +431,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     ): void {
         this._view = webviewView;
         this._approvalUiReady = false;
+        // The running Grill me / Explain in detail turn's "thinking" overlay (vscimpb65).
+        this._assistUnsubscribe?.();
+        this._assistUnsubscribe = assistProgress.onChange(() => this._postAssistOverlay());
         webviewView.onDidDispose(() => {
             if (this._view === webviewView) { this._view = undefined; this._approvalUiReady = false; }
         });
@@ -528,6 +540,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this._approvals.ready();
                         this._postPlanMode();
                         this._postPlanProposals();
+                        this._postAssistOverlay();
+                        break;
+                    case 'assistCancel':
+                        // The Grill me / Explain overlay's Cancel (a failed run's: Dismiss), vscimpb65.
+                        assistProgress.cancel(String(message.id || ''));
                         break;
                     case 'leavePlanMode':
                         // The user leaves plan mode with the badge (CC-27).

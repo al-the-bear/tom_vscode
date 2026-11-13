@@ -3,7 +3,11 @@
  * button runs the Assist prompt of that name (chosen on the Status Page)
  * outside the queue, in the ANTHROPIC panel, in a temporary session based on
  * the session the document's work runs in — so it does not wait for a running
- * walk and still knows the context. The temporary session is removed when the
+ * walk and still knows the context. While the turn works between two
+ * interactions with the user, a "thinking" overlay with Cancel shows in the MD
+ * Browser panel on the document and in the chat panel (vscimpb65,
+ * services/assistProgress.ts); Cancel stops the turn and nothing more is
+ * written. The temporary session is removed when the
  * turn ends. When the question is still open then, the question panel offers
  * the question's own choices — its options (the recommended one marked), the
  * proposed answer when the turn left one, Leave it open — and takes a typed
@@ -45,7 +49,9 @@ export interface QuestionAssistDeps {
     createSession(folder: string, name: string, opts: { basedOn?: string }): { ok: boolean; error?: string };
     deleteSession(folder: string, name: string): void;
     /** Run the prompt in the ANTHROPIC panel, in `session`. */
-    send(prompt: string, session: string, source: string): Promise<{ ok: boolean; error?: string; rejected?: boolean; chatItemId?: string }>;
+    send(prompt: string, session: string, source: string, hooks?: { onChatItem?(chatItemId: string): void }): Promise<{ ok: boolean; error?: string; rejected?: boolean; chatItemId?: string }>;
+    /** The "thinking" overlay of the turn (services/assistProgress.ts); unset: none. */
+    progress?: AssistProgressPort;
     /** Add a note under the answer of the turn's prompt queue entry (and the Tom Prompt Queue channel). */
     noteChatItem?(chatItemId: string, note: string): void;
     /** Tell the user how the question ended: a notification; `line` (1-based) is the Answer line, for opening the file there. */
@@ -59,8 +65,21 @@ export interface QuestionAssistDeps {
     now?(): Date;
 }
 
+/** The overlay of one turn: begun before the send, ended or failed after it; Cancel is the user's. */
+export interface AssistProgressPort {
+    begin(info: { label: string; questionId: string; filePath: string; file: string }): AssistProgressHandle;
+}
+export interface AssistProgressHandle {
+    /** The prompt queue entry the turn is shown as (its waits for the user hide the overlay). */
+    chatItem(chatItemId: string): void;
+    /** Whether the user cancelled the turn from the overlay. */
+    cancelled(): boolean;
+    fail(error: string): void;
+    end(): void;
+}
+
 export type QuestionAssistOutcome =
-    | ({ ok: true; session: string; basedOn: string | null; prompt: string; chatItemId?: string; notice?: AssistNotice } & ClosingResult)
+    | ({ ok: true; session: string; basedOn: string | null; prompt: string; chatItemId?: string; notice?: AssistNotice; cancelled?: boolean } & ClosingResult)
     | { ok: false; error: string; session?: string };
 
 /** How the question ended after the turn. */
@@ -138,13 +157,34 @@ export async function runQuestionAssist(deps: QuestionAssistDeps, req: QuestionA
     if (!made.ok) { return { ok: false, error: made.error }; }
     const { session, basedOn } = made;
     let sentChatItem: string | undefined;
+    const progress = deps.progress?.begin({ label: SOURCE[req.use], questionId: question.id, filePath: req.filePath, file: rel });
+    let settled = false;
     try {
-        const sent = await deps.send(prompt, session, `${SOURCE[req.use]} (${req.questionId})`);
+        const sent = await deps.send(prompt, session, `${SOURCE[req.use]} (${req.questionId})`, { onChatItem: (id) => progress?.chatItem(id) });
         sentChatItem = sent.chatItemId;
-        if (!sent.ok) {
-            return { ok: false, session, error: sent.rejected ? 'the ANTHROPIC panel is busy with another request — try again when it is done' : (sent.error ?? 'the send failed') };
+        if (progress?.cancelled()) {
+            // Cancelled from the overlay: the document stays as the turn left it; no closing answer.
+            progress.end();
+            settled = true;
+            const notice: AssistNotice = { kind: 'info', message: `${SOURCE[req.use]}: cancelled — ${question.id} in ${rel} is left as it is.`, filePath: req.filePath };
+            try { deps.notify?.(notice); } catch { /* told or not, it is cancelled */ }
+            if (sentChatItem) { try { deps.noteChatItem?.(sentChatItem, notice.message); } catch { /* entry gone */ } }
+            return { ok: true, session, basedOn, prompt, cancelled: true, notice, ...(sentChatItem ? { chatItemId: sentChatItem } : {}) };
         }
+        if (!sent.ok) {
+            const error = sent.rejected ? 'the ANTHROPIC panel is busy with another request — try again when it is done' : (sent.error ?? 'the send failed');
+            progress?.fail(error);
+            settled = true;
+            return { ok: false, session, error };
+        }
+        progress?.end();
+        settled = true;
+    } catch (e) {
+        progress?.fail(e instanceof Error ? e.message : String(e));
+        settled = true;
+        throw e;
     } finally {
+        if (!settled) { progress?.end(); }
         try { deps.deleteSession(folder, session); } catch { /* gone already */ }
     }
     const closing = await closingAnswer(deps, req);

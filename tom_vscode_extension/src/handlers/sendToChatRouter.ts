@@ -129,6 +129,8 @@ export async function runAnthropicSend(
          * process position; recorded on its queue entry. Default: the window's run.
          */
         run?: string;
+        /** Told the prompt queue entry the turn is shown as, as soon as it is made (an assist's overlay follows its waits). */
+        onChatItem?: (chatItemId: string) => void;
     },
 ): Promise<SendToChatOutcome> {
     if (!prompt || !prompt.trim()) {
@@ -215,7 +217,7 @@ export async function runAnthropicSend(
             // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
             {
                 cancel: (itemId) => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === itemId); },
-                onChatItem: (itemId) => { chatItemId = itemId; },
+                onChatItem: (itemId) => { chatItemId = itemId; opts?.onChatItem?.(itemId); },
             },
         );
 
