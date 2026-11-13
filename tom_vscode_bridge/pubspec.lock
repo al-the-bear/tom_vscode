@@ -717,10 +717,10 @@ packages:
     dependency: "direct main"
     description:
       name: tom_d4rt_dcli
-      sha256: e5e90109a7ce3b07f82e5b722b2904689787294b63b020ec732b8e4497b9d579
+      sha256: e996463956bc784aeb94b3500e4b4c5b3e17007db1efef3d926e2f6b631f56ac
       url: "https://pub.dev"
     source: hosted
-    version: "1.16.0"
+    version: "2.0.0"
   tom_d4rt_generator:
     dependency: "direct dev"
     description:
@@ -729,6 +729,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.63.0"
+  tom_dcli:
+    dependency: "direct main"
+    description:
+      name: tom_dcli
+      sha256: dd3b50f6c35e0dee4245c5d8554a23f5581db8d57a9b019f0e7c023de72549c5
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.4.7+tom.1"
   tom_todo_model:
     dependency: "direct main"
     description:
