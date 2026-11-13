@@ -314,7 +314,7 @@ describe('listProjectsImpl', () => {
         assert.equal(r1.ok, true);
         assert.equal(r1.fallback.kind, 'failed');
         assert.match(r1.fallback.buildkitError, /exit 2: Error: boom/);
-        assert.match(r1.fallback.hint, /tom_build_kit 1\.18\.0/);
+        assert.match(r1.fallback.hint, /tom_build_kit 1\.19\.0/);
         const newer = projectSourceFor(async () => ({ exitCode: 0, stdout: JSON.stringify({ ...PROJECTS_DOC, formatVersion: 2 }), stderr: '' }));
         const r2 = JSON.parse(await listProjectsImpl(newer, {}));
         assert.equal(r2.ok, true);

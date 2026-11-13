@@ -12,13 +12,18 @@
  *   CV-3  client and server default to the shared folder's siblings
  *   CV-4  usage errors are kept apart from clean and violations
  *   CV-5  a missing binary is an error naming the build step
- *   CV-6  the fixture trio equals the sample's (when the sample is present)
+ *   CV-6  the fixture trio equals the sample's (when the sample is present), its IR (codespec/irspecs) included
  *   CV-7  the bundled CodeSpecs vocabulary equals tom_code_specs' and is passed by default, so
  *         checks 40 and 41 run; a vocabulary given explicitly is used instead
  *   CV-8  the bundled binary is built from tom_specs_clitool's source as it is now (its build stamp,
  *         scripts/codespecs-binary-stamp.cjs); when ai_build is not checked out, not measured; when the
  *         source has uncommitted edits (another session's work in progress), skipped, naming them — a red
  *         CV-8 means something this checkout's install fixes (`npm run codespecs:check` stays strict)
+ *   CV-9  `ir`: the trio's IR folder (codespec/irspecs, `irspecs from-codespecs` over the trio) validates
+ *         clean with the binary's own result, the inputs naming `ir`; `regeneratedIr` runs check 31
+ *   CV-10 `ir`: a crafted violation in the IR carries its check number, as the binary reports it
+ *   CV-11 `ir` with a trio, `regeneratedIr` without `ir`, a regenerated trio with `ir`, a missing IR
+ *         folder: usage errors with the binary's message, nothing defaulted
  *   SC-1  a step's context: its areas' extracts exactly, its entries, its project
  *   SC-2  every step's areas have extracts and contract entries
  *   SC-3  input errors, a missing extract, §2 in full
@@ -31,6 +36,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
@@ -93,8 +99,9 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.outcome, 'clean');
         assert.equal(r.summary, recorded.summary);
         assert.deepEqual(r.violations, []);
-        assert.equal(r.checkCount, 41);
-        assert.equal(r.checksRun, 38, 'checks 9, 13 and 31 lack their corroborating input');
+        // 44 checks since tom_specs_clitool 0.16.0 (42-44: an entity's keys and indexes, cskey1).
+        assert.equal(r.checkCount, 44);
+        assert.equal(r.checksRun, 41, 'checks 9, 13 and 31 lack their corroborating input');
         assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
         assert.deepEqual(r.inputs, {
             shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts',
@@ -178,6 +185,87 @@ describe('CodeSpecs validate', () => {
                 `fixtures/phase4/codespec/${f} is stale: copy the sample's codespec/ trio and validation_report.json`);
         }
     });
+
+    /** The binary's own `--json` report for `args` (relative to the test workspace); exit 0 or 1. */
+    const cliReport = (args: string[]): Json => {
+        try {
+            return JSON.parse(execFileSync(validateCodespecsBinary(), ['--json', ...args], { cwd: ws, encoding: 'utf8' }));
+        } catch (e) {
+            const err = e as { status?: number; stdout?: string };
+            if (err.status === 1 && err.stdout) { return JSON.parse(err.stdout); }
+            throw e;
+        }
+    };
+    const ir = (name: string): string => `${name}/codespec/irspecs`;
+
+    test('CV-9: an IR folder validates with the binary\'s result', async () => {
+        const r = await call(codeSpecsValidateImpl, { ir: ir('base'), extractsDir: 'base/codespecs_extracts' });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(r.outcome, 'clean');
+        const cli = cliReport(['--ir', ir('base'), '--extracts', 'base/codespecs_extracts', '--cs-vocabulary', CS_VOCABULARY_FILE]);
+        assert.equal(r.summary, cli.summary);
+        assert.deepEqual(r.notRun, cli.notRun);
+        assert.equal(r.checkCount, cli.checks.length);
+        assert.equal(r.checkCount, 44);
+        assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
+        assert.deepEqual(r.inputs, {
+            ir: 'base/codespec/irspecs', extracts: 'base/codespecs_extracts',
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            'cs-vocabulary': '(bundled) resources/codespecs/vocabulary.dart',
+        }, 'no shared / client / server defaulted');
+
+        const twice = await call(codeSpecsValidateImpl, { ir: ir('base'), regeneratedIr: ir('base'), extractsDir: 'base/codespecs_extracts' });
+        assert.equal(twice.outcome, 'clean', JSON.stringify(twice));
+        assert.equal(twice.inputs['regenerated-ir'], 'base/codespec/irspecs');
+        assert.ok(!twice.notRun.some((n: Json) => n.checks.includes(31)), 'the determinism check runs on two IR runs');
+    });
+
+    test('CV-10: a violation in the IR carries its check number', async () => {
+        copyRun('irbroken');
+        const file = path.join(ws, ir('irbroken'), 'CE-DB.ir.yaml');
+        const text = fs.readFileSync(file, 'utf8');
+        const anchor = '        docSpecLine: 14\n';
+        assert.ok(text.includes(anchor), 'the fixture IR still has the shape this test edits');
+        const changed = text.replace(anchor, '          - sectionId: "NOPE-TOKN"\n            description: "supplies nothing"\n'
+            + '            descriptionLiteral: "\'supplies nothing\'"\n' + anchor);
+        fs.writeFileSync(file, changed);
+
+        const r = await call(codeSpecsValidateImpl, { ir: ir('irbroken'), extractsDir: 'irbroken/codespecs_extracts' });
+        assert.equal(r.ok, true);
+        assert.equal(r.outcome, 'violations');
+        const cli = cliReport(['--ir', ir('irbroken'), '--extracts', 'irbroken/codespecs_extracts', '--cs-vocabulary', CS_VOCABULARY_FILE]);
+        assert.equal(r.summary, cli.summary);
+        assert.deepEqual(r.violations.map((v: Json) => [v.check, v.file, v.line, v.token ?? null]),
+            cli.violations.map((v: Json) => [v.check, v.file, v.line, v.token]));
+        const dangling = r.violations.find((v: Json) => v.check === 36);
+        assert.ok(dangling, JSON.stringify(r.violations));
+        assert.equal(dangling.token, 'NOPE-TOKN');
+        assert.equal(dangling.file, 'lib/src/data_access/customer.dart');
+        assert.deepEqual(Object.entries(r.byCheck), [['7', 1], ['36', 1]]);
+    });
+
+    test('CV-11: `ir` is refused with a trio, as the binary refuses it', async () => {
+        const both = await call(codeSpecsValidateImpl, { ir: ir('base'), shared: 'base/codespec/shared' });
+        assert.equal(both.ok, false);
+        assert.equal(both.outcome, 'usageError');
+        assert.match(both.error, /--ir is the trio as data; give it or --shared\/--client\/--server, not both/);
+        const server = await call(codeSpecsValidateImpl, { ir: ir('base'), server: 'base/codespec/server' });
+        assert.equal(server.outcome, 'usageError', 'a lone client or server too: nothing is defaulted, the binary decides');
+
+        const alone = await call(codeSpecsValidateImpl, { regeneratedIr: ir('base') });
+        assert.equal(alone.outcome, 'usageError');
+        assert.match(alone.error, /--regenerated-ir compares two IR runs; it needs --ir/);
+        const regTrio = await call(codeSpecsValidateImpl, { ir: ir('base'), regenerated: { shared: 'base/codespec/shared' } });
+        assert.equal(regTrio.outcome, 'usageError');
+        assert.match(regTrio.error, /with --ir the second run is an IR folder too/);
+        const missing = await call(codeSpecsValidateImpl, { ir: 'base/codespec/nope' });
+        assert.equal(missing.outcome, 'usageError');
+        assert.match(missing.error, /IR folder not found/);
+
+        const none = await call(codeSpecsValidateImpl, {});
+        assert.equal(none.outcome, 'usageError');
+        assert.match(none.error, /pass `shared`.*or `ir`/);
+    });
 });
 
 describe('CodeSpecs step context', () => {
@@ -203,7 +291,7 @@ describe('CodeSpecs step context', () => {
         assert.deepEqual(r.extracts[0].entries.map((e: Json) => e.token), tokens, 'every entry of CE-DB, in order, and nothing else');
         assert.ok(r.extracts[0].entries.every((e: Json) => e.area === 'CE-DB'));
 
-        assert.deepEqual(r.contract.entries.map((s: Json) => s.number), ['3.0.1', '3.3.1', '3.3.2', '3.3.3', '3.3.4']);
+        assert.deepEqual(r.contract.entries.map((s: Json) => s.number), ['3.0.1', '3.3.1', '3.3.2', '3.3.3', '3.3.4', '3.3.11']);
         assert.match(r.contract.entries[1].text, /^#### 3\.3\.1 `@CsTable`/);
         assert.doesNotMatch(r.contract.entries[1].text, /#### 3\.3\.2/, 'one entry per section');
         assert.deepEqual(Object.entries(r.contract.matchedBy), [['CE-DB', 'slice']]);
@@ -276,7 +364,7 @@ describe('CodeSpecs step context', () => {
         copyRun('cv7');
         const own = await call(codeSpecsValidateImpl, { ...trio('cv7'), csVocabulary: 'vocab/vocabulary.dart' });
         assert.equal(own.inputs['cs-vocabulary'], 'vocab/vocabulary.dart');
-        assert.equal(own.checksRun, 38);
+        assert.equal(own.checksRun, 41);
     });
 
     test('SC-4: the packaged contract equals its source in ai_build', (t) => {

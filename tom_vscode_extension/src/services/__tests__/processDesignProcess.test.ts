@@ -59,7 +59,8 @@ describe('the process_design process', { skip: present ? false : 'no _ai/process
         for (const phase of def!.phases) { assert.equal(phase.repeatable, true, `${phase.id} is repeatable`); }
         assert.deepEqual(def!.phases[0].steps.map((s) => s.id), ['start', 'questions'], '00 Start first');
         assert.match(step('intent', 'start').prompt!, /tomAi_askUser[\s\S]*tomAi_writeChatVariable: `design`[\s\S]*`design-input-mode`[\s\S]*Resume a design[\s\S]*tomAi_setProcessState/, '00 Start: new, revise or resume, settled with the user');
-        assert.match(step('generation', 'generate').prompt!, /Under review are several documents[\s\S]*\$\{finish-review-round\}/, 'the generation shows its documents for the review');
+        // The step that shows them is the process's to choose (since its own revision of 2026-11-13: 02 File the Prerequisites).
+        assert.ok(def!.phases.find((x) => x.id === 'generation')!.steps.some((x) => /Under review are several documents[\s\S]*\$\{finish-review-round\}/.test(x.prompt ?? '')), 'the generation shows its documents for the review');
         assert.equal(step('intent', 'questions').repeatable, true);
         assert.equal(step('design', 'iteration').repeatable, true);
         for (const [p, s] of [['design', 'review-initial'], ['generation', 'review']]) { assert.equal(step(p, s).userAction, true, `${p}/${s}`); }

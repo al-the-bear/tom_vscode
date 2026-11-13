@@ -76,6 +76,7 @@ import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../too
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
 import { runQuestionAssist, type AssistNotice, type QuestionAssistDeps } from '../services/questionAssist.js';
 import { assistProgress } from '../services/assistProgress.js';
+import { onDocumentWritten } from '../services/documentWrites.js';
 import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
 import { liveAssistDeps, liveAssistProgress } from '../services/assistLiveDeps.js';
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
@@ -260,6 +261,14 @@ class MdBrowserPanel {
     /** This panel's id in the registry. */
     get panelId(): string {
         return this._panelId;
+    }
+
+    /** A tool wrote `absPath` (services/documentWrites.ts): render it again when this panel shows it. */
+    refreshIfShowing(absPath: string): void {
+        const current = this._history.current;
+        if (!current || path.resolve(current.filePath) !== path.resolve(absPath) || !fs.existsSync(absPath)) { return; }
+        this._refreshMtimeBaseline(absPath);
+        this._sendFileContent(absPath);
     }
 
     /** Bring the panel to the front (into `viewColumn` when given) and render its file again. */
@@ -478,8 +487,9 @@ class MdBrowserPanel {
             const dir = path.dirname(absPath);
             const name = path.basename(absPath);
             const pattern = new vscode.RelativePattern(dir, name);
-            this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
-            this._fileWatcher.onDidChange(() => {
+            // Create events too: an atomic write (a temporary file renamed over this one) can arrive as one.
+            this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern, false, false, true);
+            const onChanged = (): void => {
                 if (this._fileWatcherDebounce !== undefined) {
                     clearTimeout(this._fileWatcherDebounce);
                 }
@@ -490,7 +500,9 @@ class MdBrowserPanel {
                         this._sendFileContent(absPath);
                     }
                 }, 200);
-            });
+            };
+            this._fileWatcher.onDidChange(onChanged);
+            this._fileWatcher.onDidCreate(onChanged);
 
             // Poll fallback: the native watcher does not reliably fire for the
             // symlinked `_ai/` live-trail (real path outside the workspace
@@ -1390,6 +1402,9 @@ function processActions(): typeof import('../services/processActionService') {
  */
 export function registerMarkdownBrowser(context: vscode.ExtensionContext): void {
     mdBrowserContext = context;
+    // A document the spec / Markdown question tools wrote: every panel on it renders it again at once (vscimpb66b).
+    const stopListening = onDocumentWritten((absPath) => { for (const panel of allPanels) { panel.refreshIfShowing(absPath); } });
+    context.subscriptions.push({ dispose: stopListening });
     context.subscriptions.push(
         // Context-menu / palette: always opens a NEW browser window.
         vscode.commands.registerCommand('tomAi.openInMdBrowser', (uri?: vscode.Uri) => {

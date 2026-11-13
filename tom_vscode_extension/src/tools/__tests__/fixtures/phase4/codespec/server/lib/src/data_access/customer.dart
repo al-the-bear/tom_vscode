@@ -12,12 +12,16 @@ import 'package:tom_code_specs/tom_code_specs.dart';
   source: ['DAENT-IDEN', 'content', 'DAATT-IDEN', 'DAATT-DATA'],
 )
 @DocSpec([
-  DocRef('DAENT-IDEN', 'supplies the entity, its table and its storage placement'),
-  DocRef('content', 'supplies the entity narrative'),
+  DocRef(
+    'DAENT-IDEN',
+    'supplies the entity, its table and its storage placement',
+  ),
+  DocRef('content', 'supplies the entity narrative and its key'),
   DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),
   DocRef('DAATT-DATA', 'supplies the storage type'),
 ])
 @CsTable('customers')
+@CsTableKey('pk_customers', kind: CsKeyKind.natural, columns: ['email'])
 class Customer {
   /// The address order confirmations are sent to.
   @DocSpec([

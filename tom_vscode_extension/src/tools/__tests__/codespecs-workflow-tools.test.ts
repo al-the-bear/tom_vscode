@@ -10,6 +10,8 @@
  *   WS-5  the tree: no quest → notChecked; none in the quest → notStarted; created → done; authoring counts
  *         the todos done and names the next one
  *   WS-6  validation: without `shared` notChecked; with the trio it runs
+ *   WS-9  validation of the trio's IR: `ir` runs the stage on the IR folder with the validate tool's result;
+ *         `ir` with `shared` is a usage error, the stage failing with the binary's message
  *   WS-7  the guide tool: the overview, an outline, a section, a runbook with its arguments, refusals
  *   WS-8  registration: both read-only
  */
@@ -34,6 +36,7 @@ import type { SpecToolDeps } from '../spec-tool-common.js';
 import type { QuestTodoFull, QuestTodoStoreAccess } from '../quest-todo-tools.js';
 import { codeSpecsWriteExtractsImpl } from '../codespecs-tools.js';
 import { codeSpecsPlanTodosImpl, type PlanTodoDeps } from '../codespecs-plan-tools.js';
+import { codeSpecsValidateImpl } from '../codespecs-validate-tools.js';
 import {
     CODESPECS_WORKFLOW_TOOLS,
     codeSpecsGuideImpl,
@@ -195,12 +198,29 @@ describe('CodeSpecs workflow', () => {
         // The fixture trio was generated from another document, so against Meridian it does not validate clean.
         const before = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
         assert.ok(['done', 'failing'].includes(before.state), JSON.stringify(before));
-        assert.equal(before.details.checkCount, 41);
+        assert.equal(before.details.checkCount, 44);
         assert.ok(before.details.notRun.includes(19), 'without extracts, the extract checks are not run');
         await codeSpecsWriteExtractsImpl(deps, { file });
         const v = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
         assert.equal(v.state, 'failing', JSON.stringify(v));
         assert.ok(v.details.violations > 0 && !v.details.notRun.includes(19), 'with the extracts, Meridian\'s tokens are checked');
+    });
+
+    test('WS-9: validation of an IR folder', async () => {
+        const file = meridian('w9');
+        fs.cpSync(path.join(FIXTURE, 'codespec'), path.join(ws, 'w9', 'codespec'), { recursive: true });
+        const v = stage(await statusOf({ file, ir: 'w9/codespec/irspecs' }), 'validation');
+        assert.ok(['done', 'failing'].includes(v.state), JSON.stringify(v));
+        assert.equal(v.details.checkCount, 44);
+        assert.ok(v.details.notRun.includes(19), 'without extracts, the extract checks are not run');
+        const direct = JSON.parse(await codeSpecsValidateImpl(deps, { ir: 'w9/codespec/irspecs' }));
+        assert.equal(v.details.checksRun, direct.checksRun, 'the validate tool\'s result');
+        assert.equal(v.state, direct.outcome === 'clean' ? 'done' : 'failing');
+        assert.notEqual(stage(await statusOf({ file }), 'validation').summary.indexOf('`ir`'), -1, 'the notChecked hint names `ir`');
+
+        const both = stage(await statusOf({ file, ir: 'w9/codespec/irspecs', shared: 'w9/codespec/shared' }), 'validation');
+        assert.equal(both.state, 'failing');
+        assert.match(both.summary, /usageError.*--ir is the trio as data/);
     });
 
     test('WS-7: the guide tool', async () => {

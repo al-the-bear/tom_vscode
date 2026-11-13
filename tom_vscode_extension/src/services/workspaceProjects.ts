@@ -21,7 +21,7 @@
  *   5. `buildkit` on PATH.
  *
  * Without a buildkit, or when it cannot list (exits non-zero, e.g. a build
- * older than tom_build_kit 1.18.0 without `:projects`, or answers no
+ * older than tom_build_kit 1.19.0 without `:projects`, or answers no
  * document), the listing comes from the extension's JavaScript port of the
  * same rules (services/projectListingJs.ts), `source: 'javascript'`, with a
  * `fallback` diagnostic: what happened, where it looked and how to fix it.
@@ -207,7 +207,7 @@ export function resolveBuildkitBinary(
 /** How to fix a listing that did not come from buildkit. */
 export function fallbackHint(kind: ListingFallback['kind'], searched: readonly string[], binary?: string): string {
     if (kind === 'failed') {
-        return `The buildkit at ${binary} could not list the projects; \`:projects --all --json\` needs tom_build_kit 1.18.0 or later. `
+        return `The buildkit at ${binary} could not list the projects; \`:projects --all --json\` needs tom_build_kit 1.19.0 or later. `
             + 'Update the tom binaries (rebuild buildkit, or pull the binaries layer), or point `bridge.executables.buildkit` '
             + 'in .tom/tom_vscode_extension.json at a newer one.';
     }

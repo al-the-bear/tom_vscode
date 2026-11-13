@@ -1,0 +1,11 @@
+format: "irspecs-ir"
+formatVersion: 1
+area: "package"
+projects:
+  - locus: "shared"
+    package: "shared"
+  - locus: "client"
+    package: "client"
+  - locus: "server"
+    package: "server"
+files: []
