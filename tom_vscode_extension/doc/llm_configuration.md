@@ -404,6 +404,16 @@ Tool-call support varies by backend — set `toolsEnabled: false` for a server
 that lacks a tool-call parser (e.g. a bare vLLM deployment), which omits the
 `tools` array entirely.
 
+**Tool-call arguments.** Some models (ERNIE on Baidu Qianfan, smaller local
+models) send a tool call's arguments as JSON in a Markdown code fence, with
+text around it, or encoded twice. Both API styles read them through one
+tolerant parser (`src/utils/toolCallArguments.ts`): an object is taken as it
+is, plain JSON as before, a fence (with or without `json`) is removed first, a
+double-encoded string is decoded once more, and the object is taken out of
+surrounding text. Only arguments none of these reads reach the tool as
+`{ _raw: <text> }`, and the Tom AI Local Log names the tool; a repaired read is
+logged too (`arguments read as fenced JSON`).
+
 **Bearer auth — `apiKeyEnv`.** OpenAI-compatible servers behind a gateway often
 require a token. Set `apiKeyEnv` to the **name** of an environment variable
 holding the token (never the secret itself, mirroring the Anthropic

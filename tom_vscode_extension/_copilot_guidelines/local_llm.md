@@ -17,6 +17,8 @@ Each configuration picks a protocol via `apiStyle` (default `'ollama'`):
 
 `ollamaUrl` is the base URL for both styles. One helper builds the endpoint, `localLlmChatUrl` in `src/utils/localLlmEndpoint.ts`; both requests use it, never an absolute-path `new URL('/…', base)`, which would drop the base's path. A server root (no path) gets the endpoints above. A URL with a path is the API root: it is kept and `api/chat` / `chat/completions` appended (`https://qianfan.baidubce.com/v2` → `/v2/chat/completions`). The query is kept, and an `https:` base goes through `https.request`.
 
+Tool-call arguments are turned into the tool's object in one place, `parseToolArguments` in `src/utils/toolCallArguments.ts`, for both API styles (`withParsedArguments` in the handler): fenced, double-encoded or text-wrapped JSON is read; only what none of that reads becomes `{ _raw }`, logged with the tool name. Never parse arguments with a bare `JSON.parse` in the transport.
+
 `apiKeyEnv` names an env var holding a bearer token (never the secret) for OpenAI-compatible auth; set + non-empty ⇒ `Authorization: Bearer <value>`, unset ⇒ unauthenticated, configured-but-empty ⇒ logged and treated as unset (so a typo fails loud-ish). Full reference, including the compaction-backend interaction: [../doc/llm_configuration.md §5.4](../doc/llm_configuration.md#54-backends-apistyle-and-bearer-auth-apikeyenv).
 
 ## The client: `LocalLlmManager.callLocalLlmOnce`

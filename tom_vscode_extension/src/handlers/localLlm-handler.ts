@@ -23,6 +23,7 @@ import { withRetryBudget, type RetryWait } from '../utils/retryWithBudget';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { httpStatusError } from '../utils/httpStatusError';
 import { localLlmChatUrl, localLlmRequestPath } from '../utils/localLlmEndpoint';
+import { parseToolArguments } from '../utils/toolCallArguments';
 
 // ============================================================================
 // Interfaces
@@ -95,6 +96,20 @@ export class LocalLlmManager {
         return apiKeyAuthHeader(apiKeyEnv, process.env, (name) => {
             this.logChannel.appendLine(`[localLlm] apiKeyEnv='${name}' is configured but the environment variable is empty/undefined — sending the request without Authorization.`);
         });
+    }
+
+    /**
+     * A received tool call with its arguments as the object the tool takes:
+     * fenced, double-encoded or text-wrapped JSON is read (toolCallArguments.ts);
+     * what cannot be read becomes `{ _raw }` and is logged with the tool name.
+     */
+    private withParsedArguments(tc: OllamaToolCall): OllamaToolCall {
+        const name = tc.function?.name ?? '';
+        const parsed = parseToolArguments(tc.function?.arguments, name, (line) => this.logChannel.appendLine(line));
+        if (parsed.read !== 'object' && parsed.read !== 'json' && parsed.read !== 'empty' && parsed.read !== 'raw') {
+            this.logChannel.appendLine(`[toolArguments] ${name}: arguments read as ${parsed.read} JSON`);
+        }
+        return { ...tc, function: { ...tc.function, arguments: parsed.args } };
     }
 
     /**
@@ -218,7 +233,8 @@ export class LocalLlmManager {
                                 }
                                 // Detect tool calls from model
                                 if (parsed.message?.tool_calls && parsed.message.tool_calls.length > 0) {
-                                    toolCalls = parsed.message.tool_calls;
+                                    // Ollama sends the arguments as an object; a model may send a (fenced) string.
+                                    toolCalls = (parsed.message.tool_calls as OllamaToolCall[]).map((tc) => this.withParsedArguments(tc));
                                 }
                                 if (parsed.done === true) {
                                     stats = {
@@ -243,7 +259,8 @@ export class LocalLlmManager {
                                     fullResponse += parsed.message.content;
                                 }
                                 if (parsed.message?.tool_calls && parsed.message.tool_calls.length > 0) {
-                                    toolCalls = parsed.message.tool_calls;
+                                    // Ollama sends the arguments as an object; a model may send a (fenced) string.
+                                    toolCalls = (parsed.message.tool_calls as OllamaToolCall[]).map((tc) => this.withParsedArguments(tc));
                                 }
                                 if (parsed.done === true && !stats) {
                                     stats = {
@@ -534,16 +551,10 @@ export class LocalLlmManager {
                         const toolCalls: OllamaToolCall[] | undefined = partialTools.length > 0
                             ? partialTools
                                 .filter((t): t is PartialTool => !!t && (t.name.length > 0 || t.args.length > 0))
-                                .map((t) => {
-                                    let args: Record<string, unknown> = {};
-                                    if (t.args) {
-                                        try { args = JSON.parse(t.args); } catch { args = { _raw: t.args }; }
-                                    }
-                                    return {
-                                        id: t.id,
-                                        function: { name: t.name, arguments: args },
-                                    } as OllamaToolCall;
-                                })
+                                .map((t) => this.withParsedArguments({
+                                    id: t.id,
+                                    function: { name: t.name, arguments: t.args },
+                                } as unknown as OllamaToolCall))
                             : undefined;
                         // A clean stream end without [DONE] is unusual but
                         // not fatal — the body we've accumulated is still
