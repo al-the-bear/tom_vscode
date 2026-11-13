@@ -1186,8 +1186,9 @@ function registerCommands(context: vscode.ExtensionContext) {
     // Show Status Page
     const showStatusPageCmd = vscode.commands.registerCommand(
         'tomAi.statusPage',
-        async () => {
-            await showStatusPageHandler();
+        // An optional section id (the Extension Tools catalogue's section entries): open it and scroll to it.
+        async (section?: unknown) => {
+            await showStatusPageHandler(typeof section === 'string' ? section : undefined);
         }
     );
     // Restore the Status Page panel after a window reload.

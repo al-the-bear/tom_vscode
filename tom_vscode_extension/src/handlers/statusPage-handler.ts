@@ -18,6 +18,7 @@ import { installedProviders, PROVIDER_SDKS_COMMAND } from '../services/providerR
 import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
+import { extensionToolsOverviewHtml, toolById } from '../utils/extensionToolsCatalog';
 import { compactionPickerState, parseCompactionTarget, resolveCompactionTarget, type CompactionPickerConfig } from '../utils/compactionTarget';
 import type { UsageSummary } from '../utils/usageLedger';
 import { buildLabel, type BuildStatus } from '../utils/buildStamp';
@@ -1184,6 +1185,18 @@ export async function handleStatusAction(action: string, message: any): Promise<
             if (Number.isFinite(message.toolResultsMaxPerSession) && message.toolResultsMaxPerSession >= 0) { stcConfig.trail.toolResultsMaxPerSession = message.toolResultsMaxPerSession; }
             saveSendToChatConfig(stcConfig);
             vscode.window.showInformationMessage('Trail settings updated');
+            break;
+        }
+        // The overview of every editor and page (src/utils/extensionToolsCatalog.ts): by id, never a command the
+        // webview names.
+        case 'openExtensionTool': {
+            const tool = toolById(String(message?.toolId ?? ''));
+            if (!tool) { break; }
+            if (tool.command) {
+                await vscode.commands.executeCommand(tool.command);
+            } else if (tool.statusSection) {
+                await showStatusPageHandler(tool.statusSection);
+            }
             break;
         }
         // Editors
@@ -2471,6 +2484,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
 
     return `
 <div class="sp-panel">
+    ${extensionToolsOverviewHtml()}
     ${setupWorkspaceSectionHtml()}
     ${strictErrorsHtml}
     ${buildSectionHtml(status.build)}
@@ -2689,25 +2703,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateChatQuestions">Save Chat Questions Settings</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Editors Section -->
-    <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="editors">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▼</span> 🔗 Editors</span>
-        </div>
-        <div class="sp-collapse-content" id="sp-editors-content">
-            <div class="sp-links">
-                <button class="sp-link-btn" data-status-action="openGlobalTemplateEditor">📋 Templates</button>
-                <button class="sp-link-btn" data-status-action="openReusablePromptEditor">📝 Reusable</button>
-                <button class="sp-link-btn" data-status-action="openContextSettingsEditor">⚙️ Context</button>
-                <button class="sp-link-btn" data-status-action="openChatVariablesEditor">🔑 Variables</button>
-                <button class="sp-link-btn" data-status-action="openTimedRequestsEditor">⏰ Timed</button>
-                <button class="sp-link-btn" data-status-action="openQueueEditor">📤 Queue</button>
-                <button class="sp-link-btn" data-status-action="openTrailViewer">📊 Trail Viewer</button>
-                <button class="sp-link-btn" data-status-action="openTrailFile">📜 Trail File</button>
             </div>
         </div>
     </div>
@@ -3322,7 +3317,15 @@ export function getStatusPanelListenersScript(): string {
  * (preserving the user's collapse/scroll state — the §3 content-injection pattern,
  * matching the @WS accordion embed).
  */
-export async function showStatusPageHandler(): Promise<void> {
+/** A section to scroll to once the page has rendered (`tomAi.statusPage <section>`). */
+let pendingReveal: string | undefined;
+
+/**
+ * Show the Status Page; with `section` (a section id such as `telegram`, `mcpConfig`, `usage`), open that section
+ * and scroll to it.
+ */
+export async function showStatusPageHandler(section?: string): Promise<void> {
+    if (typeof section === 'string' && section) { pendingReveal = section; }
     if (statusPanel) {
         statusPanel.reveal();
         await refreshStatusPage();
@@ -3345,8 +3348,9 @@ export async function showStatusPageHandler(): Promise<void> {
 function getStatusPageWebviewOptions(extPath: string | undefined): vscode.WebviewOptions {
     return {
         enableScripts: true,
+        // media/ and the codicons font (the overview's icons).
         localResourceRoots: extPath
-            ? [vscode.Uri.file(path.join(extPath, 'media'))]
+            ? [vscode.Uri.file(path.join(extPath, 'media')), vscode.Uri.file(path.join(extPath, 'node_modules', '@vscode', 'codicons', 'dist'))]
             : undefined,
     };
 }
@@ -3360,8 +3364,12 @@ function getStatusPageWebviewOptions(extPath: string | undefined): vscode.Webvie
 function bindStatusPanel(panel: vscode.WebviewPanel): void {
     statusPanel = panel;
 
+    const extPath = getExtensionPath();
+    const codiconsUri = extPath
+        ? panel.webview.asWebviewUri(vscode.Uri.file(path.join(extPath, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css'))).toString()
+        : '';
     panel.webview.html = loadWebviewHtml(panel.webview, 'statusPage', {
-        init: { availableLlmTools: AVAILABLE_LLM_TOOLS },
+        init: { availableLlmTools: AVAILABLE_LLM_TOOLS, codiconsUri },
     });
     wireCompletionMessages(panel.webview);
 
@@ -3414,6 +3422,10 @@ export async function refreshStatusPage(): Promise<void> {
     if (!statusPanel) { return; }
     const status = await gatherStatusData();
     statusPanel.webview.postMessage({ type: 'statusData', html: getEmbeddedStatusHtml(status) });
+    if (pendingReveal) {
+        statusPanel.webview.postMessage({ type: 'revealSection', section: pendingReveal });
+        pendingReveal = undefined;
+    }
 }
 
 /**

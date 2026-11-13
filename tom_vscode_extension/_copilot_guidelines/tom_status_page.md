@@ -4,7 +4,7 @@ Runtime status + configuration dashboard. Source: [statusPage-handler.ts](../src
 
 ## Command
 
-- `tomAi.statusPage` — bound to `Ctrl+Shift+8`.
+- `tomAi.statusPage` — bound to `Ctrl+Shift+8`. An optional string argument names a section to reveal once the page has rendered (`showStatusPageHandler(section)` → the `revealSection` message → `spRevealSection` in `listeners.js`: the section is expanded, scrolled to and briefly outlined).
 
 ## Purpose
 
@@ -12,6 +12,7 @@ Single-page view for runtime visibility into extension state, configuration high
 
 ## Content areas
 
+- **Editors and pages** (first, `data-section="toolsOverview"`) — every editor, page and viewer of the extension in four groups (Prompts & templates, Queue & automation, Quest & process, Trails, logs & setup), each with its one-line purpose and a button. The list is `src/utils/extensionToolsCatalog.ts` (`EXTENSION_TOOLS`, rendered by `extensionToolsOverviewHtml`), shared with the chat panels' Extension Tools overlay. **Open** posts `openExtensionTool` with the entry's id and the host runs the entry's command (the webview never names a command); an entry that is a section of this page (Assist prompts, Telegram, MCP server, Usage) has **Go to** (`data-sp-jump`) instead. A new editor or page command goes into the catalogue, or into `CATALOG_EXCLUDED_COMMANDS` with the reason: `extensionToolsCatalog.test.ts` fails otherwise.
 - **Extension build** — the build this window runs and the one installed (`buildSectionHtml`, from `src/services/buildStatusService.ts`); when a newer one is installed, a warning and a **Reload window** button (action `reloadWindow`).
 - **Usage and cost** — today's and the since-reset totals of this window's sends, per model: sends, tokens, cache reads and writes, cost (`usageSectionHtml`, `src/utils/usageSection.ts`, from the ledger in `src/services/usageLedgerService.ts`). Costs come from `anthropic.modelPrices` (direct, counted round by round, so a failed send shows what it used) or the Agent SDK's own report; an unpriced model or a Local LLM shows "no price". **Reset** (action `resetUsage`) starts the since-reset totals again.
 - **Bridge / runtime status** — bridge profile, PID, last message, connection state.

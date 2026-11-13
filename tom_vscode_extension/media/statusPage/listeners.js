@@ -27,12 +27,20 @@ function attachStatusPanelListeners(skipEditorInit) {
         });
     });
     
+    // The overview's section entries: open that section and scroll to it.
+    panel.querySelectorAll('[data-sp-jump]').forEach(function(el) {
+        if (el.dataset.spJumpBound === '1') return;
+        el.dataset.spJumpBound = '1';
+        el.addEventListener('click', function() { spRevealSection(el.getAttribute('data-sp-jump')); });
+    });
     panel.querySelectorAll('[data-status-action]').forEach(function(el) {
         if (el.dataset.spActionBound === '1') return;
         el.dataset.spActionBound = '1';
         el.addEventListener('click', function() {
             var action = el.getAttribute('data-status-action');
             var msgData = { type: 'statusAction', action: action };
+            // The overview of editors and pages: which entry (the host looks its command up).
+            if (el.hasAttribute('data-tool-id')) { msgData.toolId = el.getAttribute('data-tool-id'); }
             
             if (action === 'updateTrailSettings') {
                 msgData.maxRawFiles = parseInt((document.getElementById('sp-trailMaxRawFiles') || {}).value || '1000');
@@ -1057,3 +1065,24 @@ function collectLlmConfigurationsData() {
     return result;
 }
 
+/**
+ * Open a section of the page (its collapsed content expanded) and scroll to it: `sp-<id>-content`, else the section
+ * marked `data-section="<id>"`. Used by the overview's section entries and by `tomAi.statusPage <section>`.
+ */
+// eslint-disable-next-line no-unused-vars -- called from main.js's revealSection message
+function spRevealSection(id) {
+    if (!id) { return; }
+    var content = document.getElementById('sp-' + id + '-content');
+    var section = content ? content.closest('.sp-section') : document.querySelector('[data-section="' + id + '"]');
+    if (content && content.classList.contains('sp-collapsed')) {
+        content.classList.remove('sp-collapsed');
+        var header = content.previousElementSibling;
+        var icon = header ? header.querySelector('.sp-collapse-icon') : null;
+        if (icon) { icon.textContent = '▼'; }
+    }
+    if (section && typeof section.scrollIntoView === 'function') { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    if (section) {
+        section.classList.add('sp-revealed');
+        setTimeout(function() { section.classList.remove('sp-revealed'); }, 1600);
+    }
+}

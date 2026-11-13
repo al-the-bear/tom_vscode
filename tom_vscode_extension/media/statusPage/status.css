@@ -187,3 +187,11 @@
 
 /* Selects in controls */
 #sp-bridgeProfile { padding: 3px 6px; font-size: 11px; min-width: 80px; }
+
+/* The overview of every editor and page (src/utils/extensionToolsCatalog.ts, vscimpb73). */
+.sp-tools-group { margin: 6px 0 10px; }
+.sp-tools-group-title { font-weight: bold; margin-bottom: 4px; }
+.sp-tools-row { display: grid; grid-template-columns: 18px minmax(160px, 220px) 1fr auto; gap: 8px; align-items: center; padding: 2px 0; }
+.sp-tools-label { font-weight: 600; }
+.sp-tools-purpose { opacity: 0.85; font-size: 12px; }
+.sp-section.sp-revealed { outline: 2px solid var(--vscode-focusBorder); }

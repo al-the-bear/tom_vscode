@@ -774,6 +774,8 @@ Use:
 - `@T: Open Config File`
 - `@T: Toggle Bridge Debug Logging`
 
+The Status Page opens with **Editors and pages**: every editor, page and viewer of the extension in four groups — Prompts & templates, Queue & automation, Quest & process, Trails, logs & setup — each with what it is for and an **Open** button (**Go to** for the ones that are sections of the Status Page itself, such as Telegram, the MCP server and Usage).
+
 ### VS Code settings (`tomAi.*`)
 
 Most of the extension's configuration is in its config file (`@T: Open Config File`). The VS Code settings it contributes, each read by the extension:

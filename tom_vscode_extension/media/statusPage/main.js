@@ -14,7 +14,7 @@
 // delivered via postMessage ({type:'statusData', html}) — the §3 content-injection
 // pattern, identical to the @WS accordion embed. @ts-nocheck: bootstrap glue that
 // references ambient globals declared in the sibling listeners.js script.
-/* global attachStatusPanelListeners */
+/* global attachStatusPanelListeners, spRevealSection */
 
 var vscode = acquireVsCodeApi();
 // Publish the bridge so media/shared/completion.js reuses it (acquireVsCodeApi
@@ -25,6 +25,14 @@ window.__tomVscodeApi = vscode;
 // top of its LLM-configs editor block, so it MUST be set before that runs.
 var __INIT__ = window.__INIT__ || {};
 window.__statusAvailableLlmTools = __INIT__.availableLlmTools || [];
+// The codicons stylesheet (the overview of editors and pages shows their icons): no placeholder exists for
+// node_modules assets, so the host passes its webview URI.
+if (__INIT__.codiconsUri) {
+    var __codiconLink = document.createElement('link');
+    __codiconLink.rel = 'stylesheet';
+    __codiconLink.href = __INIT__.codiconsUri;
+    document.head.appendChild(__codiconLink);
+}
 
 // Inject a fresh status body and (re)wire its listeners, preserving the
 // collapse/expand state of any sections already on screen — mirrors the @WS
@@ -66,6 +74,9 @@ window.addEventListener('message', function (e) {
     if (!msg || !msg.type) { return; }
     if (msg.type === 'statusData') {
         applyStatusData(msg.html);
+    }
+    if (msg.type === 'revealSection' && typeof spRevealSection === 'function') {
+        spRevealSection(msg.section);
     }
 });
 

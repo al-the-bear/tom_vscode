@@ -15,7 +15,7 @@
  *   SW-5 VS Code's dialogs (the vscode stub): the folder dialog, the modal buttons and their answers, the
  *        configuration opened from the note, a dismissed modal is Cancel / Stay here; the command is contributed
  *   SW-6 the buttons: the placeholder page (both buttons, the click posts, the provider runs the command) and the
- *        first section of the Status Page (@WS the same HTML) dispatching to the command, with Create new quest
+ *        first section of the Status Page after its Editors and pages overview (@WS the same HTML) dispatching to the command, with Create new quest
  *        beside it (tomAi.createQuest)
  *   SW-7 entries that are no file or would land outside the folder are not written
  */
@@ -311,7 +311,7 @@ describe('Setup New Workspace Folder', () => {
         await handlers[0]({ type: 'setupWorkspaceFolder' });
         assert.equal(commands().length, before + 1, 'the placeholder runs the command');
 
-        // The Status Page: its first section; @WS embeds the same HTML.
+        // The Status Page: its first section after the Editors and pages overview (vscimpb73); @WS embeds the same HTML.
         const page = new JSDOM(`<body>${getEmbeddedStatusHtml(await gatherStatusData())}</body>`, { runScripts: 'outside-only' });
         t.after(() => page.window.close());
         const w = page.window as unknown as Record<string, unknown> & { eval(s: string): unknown };
@@ -320,7 +320,8 @@ describe('Setup New Workspace Folder', () => {
         w.eval(getStatusPanelListenersScript());
         w.eval('attachStatusPanelListeners(true)');
         const panel = page.window.document.querySelector('.sp-panel')!;
-        const first = panel.firstElementChild!;
+        assert.equal(panel.firstElementChild!.getAttribute('data-section'), 'toolsOverview');
+        const first = panel.firstElementChild!.nextElementSibling!;
         assert.equal(first.getAttribute('data-section'), 'setupWorkspace');
         const button = first.querySelector('[data-status-action="setupWorkspaceFolder"]') as unknown as { textContent: string; click(): void };
         assert.equal(button.textContent, 'Setup new workspace folder');
