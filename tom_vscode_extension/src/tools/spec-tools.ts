@@ -321,7 +321,7 @@ export const SPEC_OUTLINE_TOOL: SharedToolDefinition<SpecOutlineInput> = {
     description:
         'The instance tree of a TomSpecs document under `path` (default: the root), pre-order, `depth` levels deep (default 2, '
         + 'max 12). Per node: path, kind (root/complex/section/list/listItemComplex/listItemScalar/form/content/scalar/enumValue), '
-        + 'section id, headline, codeSpec, filled, and the item count for lists. Every declared child appears, filled or not, '
+        + 'section id, headline, codeSpec, units (generation-unit ids, when set), filled, and the item count for lists. Every declared child appears, filled or not, '
         + 'so the outline also shows where content can go; `filledOnly: true` leaves empty subtrees out. Paged: `limit` '
         + '(default 200) and `offset`; `nextOffset` is set when more follow. Also returns the document\'s format, stamp, '
         + 'editability, readOnlyReason and revision. ' + UNRESOLVED_NOTE + ' Editor counterpart: doc_outline.',
@@ -349,7 +349,7 @@ export const SPEC_GET_SECTION_TOOL: SharedToolDefinition<SpecGetSectionInput> = 
         'One node of a TomSpecs document with its values. A value leaf (content, scalar, enum, scalar list item) returns '
         + '`value`; a form returns `fields`, each with its declared type, enum domain, required flag and typed value; a list '
         + 'returns its `items` (path, section id, headline); a section returns its own `values`, its `forms` (every field, '
-        + 'value or null) and its structural `children` with list items. Always: kind, section id, headline, codeSpec. '
+        + 'value or null) and its structural `children` with list items. Always: kind, section id, headline, codeSpec and units (when set). '
         + UNRESOLVED_NOTE + FIRST_LOOK + ' Editor counterparts: doc_get_content, doc_get_form_field, doc_section_meta.',
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,

@@ -17,7 +17,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { SharedToolDefinition } from './shared-tool-registry';
-import { FILE_PARAM, json, liveDeps, resolveInput, type SpecToolDeps } from './spec-tool-common';
+import { FILE_PARAM, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
+import { IR_DIR, IR_SUFFIX } from './codespecs-units';
 import { EXTRACTS_DIR, codeSpecsWriteExtractsImpl } from './codespecs-tools';
 import { codeSpecsGateImpl, codeSpecsVerdictsImpl } from './codespecs-gate-tools';
 import { codeSpecsPlanTodosImpl, type PlanTodoDeps } from './codespecs-plan-tools';
@@ -202,7 +203,7 @@ function authoringStage(status: StatusDeps, questId: string, tree: Json | undefi
         return { stage: 'authoring', state: 'done', summary: `All ${items.length} todos of the tree are done.`, tool, details };
     }
     const next = open[0];
-    const what = next.kind === 'csopen' ? 'answer the open question' : next.kind === 'csproj' ? 'scaffold the trio' : 'author the step';
+    const what = next.kind === 'csopen' ? 'answer the open question' : next.kind === 'csproj' ? 'scaffold the package' : 'author the step into its IR documents';
     return {
         stage: 'authoring',
         state: stepsDone === 0 && open.length === items.length ? 'notStarted' : 'incomplete',
@@ -214,8 +215,16 @@ function authoringStage(status: StatusDeps, questId: string, tree: Json | undefi
 
 async function validationStage(deps: SpecToolDeps, file: string, trio: { shared?: string; ir?: string }): Promise<StageStatus> {
     const tool = 'tomAi_specCodeSpecsValidate';
+    // Without `shared` / `ir`: the run's own IR folder, <spec-root>/irspecs/, once the authoring steps wrote it.
+    const ownIr = path.join(path.dirname(resolveInput(deps, file)), IR_DIR);
+    let usedOwnIr = false;
     if (!trio.shared && !trio.ir) {
-        return { stage: 'validation', state: 'notChecked', summary: 'Pass `shared` (the generated <app>_codespec_shared folder) or `ir` (the trio\'s IR folder) to validate the trio.', tool };
+        if (!fs.existsSync(ownIr) || !fs.readdirSync(ownIr).some((f) => f.endsWith(IR_SUFFIX))) {
+            return { stage: 'validation', state: 'notChecked', summary: `No IR at ${toWorkspacePath(deps, ownIr)} yet (the authoring steps write it); `
+                + 'or pass `shared` (a generated <app>_codespec_shared folder) or `ir` (an IR folder).', tool };
+        }
+        trio = { ir: toWorkspacePath(deps, ownIr) };
+        usedOwnIr = true;
     }
     // The run's extracts corroborate checks 19 and 32–36; without them those checks are reported not run.
     const extractsDir = path.join(path.dirname(resolveInput(deps, file)), EXTRACTS_DIR);
@@ -232,21 +241,23 @@ async function validationStage(deps: SpecToolDeps, file: string, trio: { shared?
     if (!r.ok) {
         return { stage: 'validation', state: 'failing', summary: `Validation could not run (${r.outcome}): ${r.error}`, tool };
     }
-    const details = { checksRun: r.checksRun, checkCount: r.checkCount, notRun: r.notRun.map((n: Json) => n.checks).flat(),
+    const details = { ...(trio.ir ? { ir: trio.ir, ...(usedOwnIr ? { irFolder: 'the run\'s own, <spec-root>/irspecs/' } : {}) } : { shared: trio.shared }),
+        checksRun: r.checksRun, checkCount: r.checkCount, notRun: r.notRun.map((n: Json) => n.checks).flat(),
         ...(r.violationCount ? { violations: r.violationCount, byCheck: r.byCheck } : {}) };
     if (r.outcome === 'violations') {
         return { stage: 'validation', state: 'failing', summary: `${r.violationCount} violation(s) of the derivation contract.`, tool, details };
     }
-    return { stage: 'validation', state: 'done', summary: `Clean: ${r.checksRun} of ${r.checkCount} checks ran and passed.`, tool, details };
+    return { stage: 'validation', state: 'done', summary: `Clean: ${r.checksRun} of ${r.checkCount} checks ran and passed`
+        + `${trio.ir ? ` on the IR at ${trio.ir}` : ''}.`, tool, details };
 }
 
-const NEXT_ACTION: Record<StageName, string> = {
+export const NEXT_ACTION: Record<StageName, string> = {
     gate: 'Fix the Stage-A findings in the specification (runbook codespecs-stage-a).',
     extraction: 'Write the extracts (runbook codespecs-extraction).',
     verdicts: 'Record the missing Stage-B verdicts (runbook codespecs-stage-b).',
     todoTree: 'Create the todo tree (runbook codespecs-stage-c).',
-    authoring: 'Work the tree: the next todo (runbook codespecs-authoring-step).',
-    validation: 'Validate the generated trio (runbook codespecs-validate).',
+    authoring: 'Work the tree: the next todo; an authoring step writes IR (runbook codespecs-authoring-step).',
+    validation: 'Map each generation unit from the IR (`irspecs map --unit`) and validate (runbook codespecs-validate).',
 };
 
 export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps, input: CodeSpecsStatusInput): Promise<string> {
@@ -345,7 +356,8 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
         'Where a TomSpecs document is in Phase 4 (CodeSpecs), in one call: each stage in order — `gate` (Stage A, A1–A5), '
         + '`extraction` (are the extracts on disk current?), `verdicts` (Stage B: does the gate record cover every active area?), '
         + '`todoTree` (Stage C: is the csopen/csproj/csgen tree in the quest?), `authoring` (how many of the tree\'s todos are '
-        + 'done, and the next one), `validation` (the generated trio against the derivation contract) — with its state '
+        + 'done, and the next one), `validation` (the IR, or a generated trio, against the derivation contract; by default '
+        + 'the run\'s own IR folder `<spec-root>/irspecs/` once it holds IR) — with its state '
         + '(done, notStarted, outdated, incomplete, failing, blocked, notChecked), a summary, the tool that moves it and '
         + 'details; and `next`: the first stage not done and what to do. Reads only: every stage is checked with its own '
         + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` (the generated trio) or `ir` (its IR folder, '
@@ -360,7 +372,7 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
             file: { ...FILE_PARAM, description: 'The specification document; its extracts and gate record sit beside it.' },
             questId: { type: 'string', description: 'The quest holding the Phase-4 todo tree. Default: the active quest.' },
             shared: { type: 'string', description: 'The generated <app>_codespec_shared folder; given, the trio is validated too.' },
-            ir: { type: 'string', description: 'Instead of `shared`: the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md); given, the IR is validated in the trio\'s place.' },
+            ir: { type: 'string', description: 'Instead of `shared`: the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), validated in the trio\'s place. Default (neither given): the run\'s own `<spec-root>/irspecs/` once it holds IR.' },
         },
         required: ['file'],
     },

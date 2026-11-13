@@ -479,6 +479,10 @@ function renderEntry(item, idx) {
           (item.notificationOf
             ? '<span class="queue-from-chip" title="' + escapeHtml('The done-notification of item ' + item.notificationOf) + '"><span class="codicon codicon-bell"></span> notification of ' + escapeHtml(String(item.notificationOf).slice(0, 8)) + '</span>'
             : '') +
+          // Its done notification went to another quest and waits there for a window (vscimpb71).
+          (item.doneNotificationPosted && item.doneNotificationPosted.waiting
+            ? '<span class="queue-from-chip" title="' + escapeHtml('The done notification was posted to ' + item.doneNotificationPosted.quest + ' (run ' + item.doneNotificationPosted.run + '); no window of that quest is running, so it waits in its inbox until one starts') + '"><span class="codicon codicon-watch"></span> notification waits in ' + escapeHtml(item.doneNotificationPosted.quest) + '</span>'
+            : '') +
           runChip +
           // The todos it runs (todoIdPattern): a todo id, a group walk prefix*, or several.
           (item.todoIdPattern
@@ -815,12 +819,40 @@ function renderDoneNotification(item, safeId, safeStatus) {
     : '';
   var body = finished
     ? '<div class="done-notification-text" style="white-space:pre-wrap;">' + escapeHtml(prompt) + '</div>'
-    : '<textarea class="done-notification-input" placeholder="Queued after this item when it is done, or fails for good. ${itemOutcome}: done / error: <message>." onchange="updateDoneNotification(\'' + safeId + '\', this.value)">' + escapeHtml(prompt) + '</textarea>';
+    : '<textarea class="done-notification-input" placeholder="Queued after this item when it is done, or fails for good. ${itemOutcome}: done / error: <message>; ${itemAnswer}: its answer; ${itemTitle}: its prompt\'s first line; ${itemTodos}: the todos it ran." onchange="updateDoneNotification(\'' + safeId + '\', this.value)">' + escapeHtml(prompt) + '</textarea>';
   if (finished && !prompt) { return ''; }
   return '<details class="done-notification' + (disabled ? ' disabled' : '') + '"' + (prompt ? ' open' : '') + '>'
     + '<summary>Done notification' + toggle + '</summary>'
     + body
+    + renderDoneNotificationTarget(item, safeId, finished)
     + '</details>';
+}
+
+/**
+ * Where the done notification goes (vscimpb71): this queue, another run, or another quest's run; and, once posted to
+ * another quest, whether it waits there for a window. The button opens the host's quest and run pickers.
+ */
+function renderDoneNotificationTarget(item, safeId, finished) {
+  var quest = item.doneNotificationQuest || '';
+  var itemRun = item.run || 'default';
+  var run = item.doneNotificationRun || (quest ? 'default' : itemRun);
+  var label = quest ? 'quest ' + quest + ', run ' + run : (run !== itemRun ? 'run ' + run + ' of this quest' : 'this queue');
+  var posted = item.doneNotificationPosted;
+  var postedText = posted
+    ? '<span class="done-notification-posted' + (posted.waiting ? ' waiting' : '') + '" title="' + escapeHtml('Inbox file ' + (posted.file || '') + (posted.at ? ', ' + posted.at : '')) + '">'
+      + (posted.waiting
+        ? '<span class="codicon codicon-watch"></span> posted to ' + escapeHtml(posted.quest) + ' / ' + escapeHtml(posted.run) + ': no window of that quest is running, it waits in its inbox'
+        : '<span class="codicon codicon-check"></span> posted to ' + escapeHtml(posted.quest) + ' / ' + escapeHtml(posted.run))
+      + '</span>'
+    : '';
+  return '<div class="done-notification-target">'
+    + '<span>Posted to: </span>'
+    + (finished
+      ? '<span>' + escapeHtml(label) + '</span>'
+      : '<button class="icon-btn" type="button" onclick="pickDoneNotificationTarget(\'' + safeId + '\')" title="Choose the quest and run the notification is queued in">'
+        + '<span class="codicon codicon-send"></span> ' + escapeHtml(label) + '</button>')
+    + (postedText ? ' ' + postedText : '')
+    + '</div>';
 }
 
 /**

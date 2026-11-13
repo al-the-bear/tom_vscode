@@ -55,6 +55,8 @@ export interface SpecNodeSummary {
     sectionId?: string;
     headline?: string;
     codeSpec?: string;
+    /** The section's generation units (SOM §11.2), comma-joined as stored; absent means the default. */
+    units?: string;
     filled: boolean;
     /** Lists only. */
     itemCount?: number;
@@ -243,6 +245,8 @@ export class SomSpecInspector {
         if (headline) { node.headline = headline; }
         const codeSpec = doc.codeSpec(path);
         if (codeSpec) { node.codeSpec = codeSpec; }
+        const units = doc.units(path);
+        if (units) { node.units = units; }
         if (res.kind === SpecNodeKind.LIST) { node.itemCount = doc.listItemCount(path); }
         return node;
     }

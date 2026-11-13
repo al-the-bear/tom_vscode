@@ -102,7 +102,8 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(deepen, /Please do the quest todo \$\{repeatTodoId\} — \$\{repeatTodoTitle\}\./, 'left for the queue');
         assert.match(deepen, /The Finish review round instructions for the closing item:\n\n\*\*Finish review round\*\*/);
         const file = prompt(at('todos', 'file'));
-        assert.match(file, /sent to \$\{senderQuest\}: \$\{itemOutcome\}\./, 'left for the done notification');
+        assert.match(file, /sent to <quest>: \$\{itemOutcome\}\. What <quest> answered: \$\{itemAnswer\}/, 'left for the done notification, with the answer (vscimpb72)');
+        assert.match(file, /`doneNotificationQuest` this quest and `doneNotificationRun` this run/, 'it comes back here (vscimpb71)');
         const gate = prompt(at('idea', 'g1'));
         assert.match(gate, /Gate G1 of the idea[\s\S]*`gates\/G1\.md`[\s\S]*approval and the move \(Gate passed \/ failed\) are the user's/);
     });

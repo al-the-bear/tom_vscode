@@ -689,6 +689,17 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemSession(id, session);
     },
+    questExists(quest) {
+        const folder = WsPaths.ai('quests', quest);
+        return !!folder && fs.existsSync(folder) && fs.statSync(folder).isDirectory();
+    },
+    questRunExists(quest, run) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).questRunExists(quest, run);
+    },
+    currentQuest() {
+        return WsPaths.getWorkspaceQuestId() || 'default';
+    },
     updateItemDoneNotification(id, patch) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemDoneNotification(id, patch);
@@ -790,8 +801,18 @@ export const QUEUE_REMOVE_FOLLOW_UP_TOOL: SharedToolDefinition<RemoveQueueFollow
 
 import { SEND_ITEM_TO_QUEST_TOOL as SEND_ITEM_TO_QUEST_DEF, sendItemToQuestImpl, type QuestSendAccess, type SendItemToQuestInput } from './send-to-quest-tools';
 
-const liveQuestSendAccess: QuestSendAccess = {
+export const liveQuestSendAccess: QuestSendAccess = {
     currentQuest: () => WsPaths.getWorkspaceQuestId() || undefined,
+    currentRun: () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ProcessStateStore } = require('../managers/processStateStore') as typeof import('../managers/processStateStore');
+        return ProcessStateStore.instance?.currentRun ?? 'default';
+    },
+    runExists: (quest, run) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { questRunExists } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
+        return questRunExists(quest, run);
+    },
     questExists: (quest) => {
         const folder = WsPaths.ai('quests', quest);
         return !!folder && fs.existsSync(folder) && fs.statSync(folder).isDirectory();

@@ -779,6 +779,8 @@ function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminde
 function setPauseAfter(id, pauseAfter) { vscode.postMessage({ type: 'setPauseAfter', id, pauseAfter }); }
 function updateDoneNotification(id, prompt) { vscode.postMessage({ type: 'updateDoneNotification', id, prompt: String(prompt || '') }); }
 function setDoneNotificationDisabled(id, disabled) { vscode.postMessage({ type: 'setDoneNotificationDisabled', id, disabled: !!disabled }); }
+// eslint-disable-next-line no-unused-vars -- called by the done notification's target button (queueEntryRenderFunctions.js)
+function pickDoneNotificationTarget(id) { vscode.postMessage({ type: 'pickDoneNotificationTarget', id }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }
 function addPrompt() {

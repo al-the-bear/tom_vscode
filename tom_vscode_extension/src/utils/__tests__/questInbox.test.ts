@@ -14,6 +14,9 @@
  *   QB-7 a new session: refused without its base, or when the name is taken; named or temporary; its profile is
  *        the one given, else the base's (inherited), else the item's
  *   QB-8 a file written while no window ran is found by the listing a starting window makes
+ *   QB-9 runs (vscimpb71): the item's run, the sender's run, its notification's quest and run and the item it reports
+ *        on round-trip; the conversion queues it in its run, fills ${senderRun}; a run the quest does not have makes
+ *        it an error queued in `default`
  */
 
 import test, { describe } from 'node:test';
@@ -192,6 +195,32 @@ describe('queue inbox', () => {
         assert.equal(temporary.createSession?.name, 'tmp-261027-123456-t1');
         assert.equal(temporary.createSession?.temporary, true);
         assert.deepEqual([temporary.enqueue.session, temporary.enqueue.temporarySession], ['tmp-261027-123456-t1', true]);
+    });
+
+    test('QB-9: runs and the notification target', () => {
+        const item: InboxItem = {
+            text: '${senderQuest}/${senderRun} asks', run: 'review', notificationOf: 'abc12345',
+            doneNotificationPrompt: 'answered for ${senderRun}', doneNotificationQuest: 'vscode_extension', doneNotificationRun: 'collab',
+            from: { ...FROM, run: 'collab' },
+        };
+        const parsed = parseInboxItem(serializeInboxItem(item));
+        assert.ok(parsed.ok);
+        if (!parsed.ok) { return; }
+        assert.deepEqual(parsed.item, item, 'round-trips');
+        assert.match(serializeInboxItem({ text: 'x', from: FROM }), /^(?![\s\S]*\brun:)/, 'no run written when unset');
+        const ctx = { profileExists: () => true, readSession: sessions(), now: NOW, token: 't1', runExists: (run: string) => run === 'default' || run === 'review' };
+        const c = planInboxConversion(parsed.item, ctx);
+        assert.equal(c.error, undefined);
+        assert.deepEqual(c.enqueue, {
+            originalText: 'tom_uam/collab asks', doneNotificationPrompt: 'answered for collab',
+            doneNotificationQuest: 'vscode_extension', doneNotificationRun: 'collab', run: 'review', notificationOf: 'abc12345',
+            from: { ...FROM, run: 'collab' },
+        });
+        assert.equal(planInboxConversion({ text: '${senderRun}', from: FROM }, ctx).enqueue.originalText, 'default', 'no sender run: default');
+        const missing = planInboxConversion({ text: 'x', run: 'gone', from: FROM }, ctx);
+        assert.match(missing.error ?? '', /no process run "gone"/);
+        assert.equal(missing.enqueue.run, undefined, 'queued in default');
+        assert.equal(planInboxConversion({ text: 'x', run: 'gone', from: FROM }, { ...ctx, runExists: undefined }).error, undefined, 'unchecked without runExists');
     });
 
     test('QB-8: a file written while no window ran', () => {

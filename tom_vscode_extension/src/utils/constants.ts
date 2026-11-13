@@ -260,6 +260,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specSetFormField',
     'tomAi_specSetHeadline',
     'tomAi_specSetItemSectionId',
+    'tomAi_specSetUnits',
     'tomAi_specApplyEdits',
     'tomAi_specConvert',
     // TomSpecs review annotations — write tools, approval-gated

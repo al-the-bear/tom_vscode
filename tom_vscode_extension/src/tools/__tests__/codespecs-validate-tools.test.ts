@@ -29,6 +29,10 @@
  *   SC-3  input errors, a missing extract, §2 in full
  *   SC-4  the packaged contract equals its source in ai_build
  *   SC-5  registration
+ *   SC-6  units and IR (vscimpb67e, §2.9 <UNITS> / <IR>): with the document, the step's units with kind and the mapper
+ *         of each of its areas (from the register) and its IR documents (<spec-root>/irspecs/<CE>.ir.yaml, whether
+ *         each exists); with only the standard extract folder, the units without kinds and a note; a run without units
+ *         and outside the standard location: no units (the trio) and no IR folder
  */
 
 import test, { before, describe } from 'node:test';
@@ -46,6 +50,7 @@ import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
 import { CS_VOCABULARY_FILE, CodeSpecsBinaryMissing, validateCodespecsBinary } from '../../services/codespecs-validator.js';
 import { CONTRACT_FILE } from '../../services/codespecs-contract.js';
+import { codeSpecsWriteExtractsImpl } from '../codespecs-tools.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
 import {
     CODESPECS_VALIDATE_TOOLS,
@@ -60,6 +65,7 @@ const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const SAMPLE_TRIO = path.join(AI_BUILD, 'tom_specs_samples', 'phase4_codespecs_run', 'codespec');
 const CONTRACT_SOURCE = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
 const VOCABULARY_SOURCE = path.join(AI_BUILD, 'tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-validate-'));
 /** A copy of the fixture's trio and extracts under `name/`. */
@@ -375,6 +381,38 @@ describe('CodeSpecs step context', () => {
         }
         assert.equal(fs.readFileSync(CONTRACT_FILE, 'utf8'), fs.readFileSync(CONTRACT_SOURCE, 'utf8'),
             'resources/codespecs/codespecs_derivation_contract.md is stale: run npm run som:pack -- --catalog-only');
+    });
+
+    test('SC-6: a step\'s units and IR documents', async () => {
+        fs.mkdirSync(path.join(ws, 'unitrun'), { recursive: true });
+        fs.writeFileSync(path.join(ws, 'unitrun', 'meridian.docspecs.yaml'), MERIDIAN_YAML);
+        const file = 'unitrun/meridian.docspecs.yaml';
+        assert.equal((await call(codeSpecsWriteExtractsImpl, { file })).ok, true);
+
+        const r = await call(codeSpecsStepContextImpl, { file, step: 10 });
+        assert.equal(r.ok, true, JSON.stringify(r).slice(0, 300));
+        // Area codes are the mappers' keys.
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        assert.deepEqual(r.units, [{ unitId: 'meridian_codespec_server', kind: 'server', mappers: { 'CE-DB': 'dart-tom' } }]);
+        assert.equal(r.unitsNote, undefined);
+        assert.deepEqual(r.ir, { dir: 'unitrun/irspecs', documents: [{ area: 'CE-DB', path: 'unitrun/irspecs/CE-DB.ir.yaml', exists: false }] });
+        assert.ok(r.extracts[0].entries.every((e: Json) => JSON.stringify(e.units) === '["meridian_codespec_server"]'), 'each entry\'s units');
+
+        fs.mkdirSync(path.join(ws, 'unitrun', 'irspecs'), { recursive: true });
+        fs.writeFileSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB.ir.yaml'), 'format: "irspecs-ir"\n');
+        const scc = await call(codeSpecsStepContextImpl, { file, step: 23 });
+        assert.deepEqual(scc.ir.documents.map((d: Json) => d.area), ['CE-EL', 'CE-FM', 'CE-AC', 'CE-SC', 'CE-ST', 'CE-NV'], 'one per area of the step');
+        assert.equal((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0].exists, true);
+
+        const dirOnly = await call(codeSpecsStepContextImpl, { extractsDir: 'unitrun/generated-doc/codespecs_extracts', step: 10 });
+        assert.deepEqual(dirOnly.units, [{ unitId: 'meridian_codespec_server' }]);
+        assert.match(dirOnly.unitsNote, /Pass `file`/);
+        assert.equal(dirOnly.ir.dir, 'unitrun/irspecs', 'the spec root of the standard extract folder');
+
+        const trioRun = await call(codeSpecsStepContextImpl, { extractsDir: 'ctx/codespecs_extracts', step: 10 });
+        assert.deepEqual(trioRun.units, []);
+        assert.match(trioRun.unitsNote, /trio/);
+        assert.equal(trioRun.ir.dir, null);
     });
 
     test('SC-5: registration', () => {

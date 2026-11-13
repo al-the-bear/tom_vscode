@@ -56,6 +56,7 @@ const WRITERS = [
     'tomAi_specSetFormField',
     'tomAi_specSetHeadline',
     'tomAi_specSetItemSectionId',
+    'tomAi_specSetUnits',
     'tomAi_specWriteAnswers',
 ];
 
@@ -74,7 +75,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 62);
+        assert.equal(specTools.length, 63);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);
@@ -115,7 +116,7 @@ describe('the spec tools as a set', () => {
         const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert', 'tomAi_specWriteAnswers', 'tomAi_specReviewRoundCreate', 'tomAi_specMergeReviews', 'tomAi_specDecideConflicts',
             // The process checks' writes rewrite files whole, through the check: no batch counterpart.
             'tomAi_specImportAnswers', 'tomAi_specQuestionRegister'].includes(t.name));
-        assert.equal(singleEdits.length, 19);
+        assert.equal(singleEdits.length, 20);
         for (const t of singleEdits) {
             assert.match(t.description, /tomAi_specApplyEdits/, `${t.name}: does not point to the batch for more than one change`);
         }

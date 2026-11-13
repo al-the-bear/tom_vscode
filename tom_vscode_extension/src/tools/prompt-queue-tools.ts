@@ -145,6 +145,12 @@ export interface QueueItemSnapshot {
     /** Queued right after the item when it is finished (src/utils/doneNotification.ts). */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
+    /** The quest the done notification is posted to; unset: this quest. */
+    doneNotificationQuest?: string;
+    /** The process run it is queued in; unset: the item's run here, `default` in another quest. */
+    doneNotificationRun?: string;
+    /** Where a done notification for another quest was posted, and whether it waits there for a window. */
+    doneNotificationPosted?: { quest: string; run: string; file: string; waiting: boolean; at: string };
     /** On a done-notification item: the item it reports on. */
     notificationOf?: string;
     /** On an item another quest's window sent: its sender. */
@@ -165,7 +171,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
-    'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'notificationOf', 'from', 'todoIdPattern',
+    'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
     'yieldAfterIteration', 'waitingFor',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
@@ -220,6 +226,10 @@ export interface EnqueueInput {
     prePrompts?: PrePromptSpec[];
     followUps?: FollowUpSpec[];
     doneNotificationPrompt?: string;
+    /** The quest the done notification is posted to; unset: this quest. */
+    doneNotificationQuest?: string;
+    /** The process run the done notification is queued in. */
+    doneNotificationRun?: string;
 }
 
 /** A queue item's session as a tool takes it: a name, or how to create it when missing. */
@@ -249,6 +259,12 @@ export interface PromptQueueAccess {
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
     /** The quest's process runs (`tomAi_addQueueItem {run}` must name one); unset: not checked. */
     runs?(): string[];
+    /** Whether `quest` exists (`_ai/quests/<quest>/`); for a done notification posted to another quest. */
+    questExists?(quest: string): boolean;
+    /** Whether `quest` has the process run `run` (`default` always). */
+    questRunExists?(quest: string, run: string): boolean;
+    /** This window's quest. */
+    currentQuest?(): string;
     remove(id: string): void;
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
@@ -282,7 +298,7 @@ export interface PromptQueueAccess {
      */
     updateItemSession?(id: string, session: QueueSessionInput): boolean;
     /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
-    updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean }): boolean;
+    updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean; quest?: string; run?: string }): boolean;
 
     addPrePrompt(id: string, text: string, template: string | undefined, opts?: {
         transport?: QueueTransport;
@@ -423,6 +439,9 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         ...(i.run ? { run: i.run } : {}),
         answerText: i.answerText || null,
         ...(i.doneNotificationPrompt ? { doneNotificationPrompt: i.doneNotificationPrompt, doneNotificationDisabled: !!i.doneNotificationDisabled } : {}),
+        ...(i.doneNotificationQuest ? { doneNotificationQuest: i.doneNotificationQuest } : {}),
+        ...(i.doneNotificationRun ? { doneNotificationRun: i.doneNotificationRun } : {}),
+        ...(i.doneNotificationPosted ? { doneNotificationPosted: i.doneNotificationPosted } : {}),
         ...(i.notificationOf ? { notificationOf: i.notificationOf } : {}),
         ...(i.from ? { from: i.from } : {}),
         // Its turn waits in tomAi_waitFor (vscimpb82): reason, since, until.
@@ -470,8 +489,36 @@ export interface AddQueueItemInput {
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
     doneNotificationPrompt?: string;
+    /** The quest the done notification is posted to (its inbox); default this quest. */
+    doneNotificationQuest?: string;
+    /** The process run the done notification is queued in; default the item's run here, `default` in another quest. */
+    doneNotificationRun?: string;
     /** The process run of the quest the item belongs to (tomAi_listProcessRuns); default the window's. */
     run?: string;
+}
+
+/**
+ * Why a done-notification target cannot be used, or undefined: an unknown
+ * quest, or a run that quest does not have. '' (unset) passes.
+ */
+export function doneNotificationTargetRefusal(access: PromptQueueAccess, quest: string | undefined, run: string | undefined): string | undefined {
+    const q = quest?.trim() || '';
+    const r = run?.trim() || '';
+    const own = access.currentQuest?.() || '';
+    if (q && q !== own) {
+        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(q) || (access.questExists && !access.questExists(q))) {
+            return `There is no quest "${q}" for the done notification (_ai/quests/${q}/).`;
+        }
+        if (r && access.questRunExists && !access.questRunExists(q, r)) {
+            return `The quest "${q}" has no process run "${r}" for the done notification.`;
+        }
+        return undefined;
+    }
+    if (r && access.runs) {
+        const known = access.runs();
+        if (!known.includes(r)) { return `The quest has no run "${r}" for the done notification; its runs: ${known.join(', ') || '(none)'}.`; }
+    }
+    return undefined;
 }
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
@@ -489,8 +536,12 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             const known = access.runs();
             if (!known.includes(run)) { return err(`The quest has no run "${run}"; its runs: ${known.join(', ') || '(none)'}. tomAi_listProcessRuns lists them.`); }
         }
+        const badTarget = doneNotificationTargetRefusal(access, input.doneNotificationQuest, input.doneNotificationRun);
+        if (badTarget) { return err(badTarget); }
         const item = await access.enqueue({
             ...(run ? { run } : {}),
+            ...(input.doneNotificationQuest?.trim() ? { doneNotificationQuest: input.doneNotificationQuest.trim() } : {}),
+            ...(input.doneNotificationRun?.trim() ? { doneNotificationRun: input.doneNotificationRun.trim() } : {}),
             originalText: input.text,
             ...(input.todoIdPattern?.trim() ? { todoIdPattern: input.todoIdPattern.trim() } : {}),
             template: input.template,
@@ -544,7 +595,11 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
 
 /** What a queue item's `doneNotificationPrompt` is. */
 const DONE_NOTIFICATION_DOC =
-    'A prompt queued right after the item, ahead of the others, once it is finished (done, or an error that will not recover); `${itemOutcome}` reads `done` or `error: <message>`.';
+    'A prompt queued right after the item, ahead of the others, once it is finished (done, or an error that will not recover); `${itemOutcome}` reads `done` or `error: <message>`, `${itemAnswer}` the item\'s answer (a walk\'s per todo; cut at 4,000 characters), `${itemTitle}` its prompt\'s first line, `${itemTodos}` the todos it ran with their status, `${senderQuest}` / `${senderRun}` the quest and run it comes from. Where: `doneNotificationQuest` / `doneNotificationRun`.';
+const DONE_NOTIFICATION_QUEST_DOC =
+    'The quest the done notification is posted to: another quest\'s inbox (queued there with its queue\'s defaults; with no window of it running it waits until one starts, and the item says so). Default: this quest. \'\' resets.';
+const DONE_NOTIFICATION_RUN_DOC =
+    'The process run the done notification is queued in (its lane; sessions `<session>@<run>`). Default: the item\'s run in this quest, `default` in another. \'\' resets.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
     'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `session` names the session it runs in.' + API_KEY_WARNING_DOC;
@@ -584,6 +639,8 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             session: SESSION_SCHEMA,
             run: { type: 'string', description: 'The process run of the quest the item belongs to (tomAi_listProcessRuns): its sessions are the run\'s (`<session>@<run>`). Default: the run of the Proceed prompt it is queued from, else the window\'s run.' },
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
+            doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
+            doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -853,6 +910,10 @@ export interface UpdateQueueItemInput {
     /** '' removes it. */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
+    /** '' resets to this quest. */
+    doneNotificationQuest?: string;
+    /** '' resets to the default run. */
+    doneNotificationRun?: string;
     /**
      * "Let the next item go first" (vscimpb60e): true lets the next pending item of its lane go before this iteration
      * item (a pending one moves behind it now, a sending one after its running iteration); false cancels an armed one.
@@ -914,10 +975,19 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 return err(`The session of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
             }
         }
-        if (input.doneNotificationPrompt !== undefined || input.doneNotificationDisabled !== undefined) {
+        if (input.doneNotificationQuest !== undefined || input.doneNotificationRun !== undefined) {
+            const current = access.getById(input.queueItemId);
+            const badTarget = doneNotificationTargetRefusal(access,
+                input.doneNotificationQuest ?? current?.doneNotificationQuest, input.doneNotificationRun ?? current?.doneNotificationRun);
+            if (badTarget) { return err(badTarget); }
+        }
+        if (input.doneNotificationPrompt !== undefined || input.doneNotificationDisabled !== undefined
+            || input.doneNotificationQuest !== undefined || input.doneNotificationRun !== undefined) {
             const changed = access.updateItemDoneNotification?.(input.queueItemId, {
                 ...(input.doneNotificationPrompt !== undefined ? { prompt: input.doneNotificationPrompt } : {}),
                 ...(input.doneNotificationDisabled !== undefined ? { disabled: input.doneNotificationDisabled } : {}),
+                ...(input.doneNotificationQuest !== undefined ? { quest: input.doneNotificationQuest } : {}),
+                ...(input.doneNotificationRun !== undefined ? { run: input.doneNotificationRun } : {}),
             });
             if (!changed) {
                 return err(`The done-notification of queue item "${input.queueItemId}" cannot be changed (the item is finished).`);
@@ -947,6 +1017,8 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             answerWaitMinutes: updated?.answerWaitMinutes ?? null,
             transport: updated?.transport ?? 'copilot',
             ...(updated?.doneNotificationPrompt ? { doneNotificationPrompt: updated.doneNotificationPrompt, doneNotificationDisabled: !!updated.doneNotificationDisabled } : {}),
+            ...(updated?.doneNotificationQuest ? { doneNotificationQuest: updated.doneNotificationQuest } : {}),
+            ...(updated?.doneNotificationRun ? { doneNotificationRun: updated.doneNotificationRun } : {}),
             ...apiKeyWarning(access, input.queueItemId),
         });
     } catch (e) {
@@ -961,8 +1033,9 @@ export const UPDATE_QUEUE_ITEM_DESCRIPTION =
     '`staged` / `pending` states** — items in `sending`/`sent`/`error` are ' +
     'frozen. `repeatCount`/`templateRepeatCount` accept literal numbers or ' +
     'chat-variable names. To change pre-prompts use `tomAi_updateQueuePrePrompt`; ' +
-    'for follow-ups use `tomAi_updateQueueFollowUp`. `doneNotificationPrompt` (\'\' removes it) and ' +
-    '`doneNotificationDisabled` can be changed until the item is finished, also while it is sending. ' +
+    'for follow-ups use `tomAi_updateQueueFollowUp`. `doneNotificationPrompt` (\'\' removes it), ' +
+    '`doneNotificationDisabled` and where the notification goes (`doneNotificationQuest`, `doneNotificationRun`; \'\' resets) ' +
+    'can be changed until the item is finished, also while it is sending. ' +
     '`letNextGoFirst: true` on a pending or sending iteration item (a `<prefix>*` walk or a repeat count) lets the ' +
     'next pending item of its lane go first — a pending one moves behind it now, a sending one after its running ' +
     'iteration, the walk resuming after it; `false` cancels it. Refused without a following item in its lane.';
@@ -997,6 +1070,8 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
+            doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
+            doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
             doneNotificationDisabled: { type: 'boolean', description: 'Keep the done-notification prompt but do not queue it.' },
             letNextGoFirst: { type: 'boolean', description: 'An iteration item lets the next pending item of its lane go first (a sending one after its running iteration); false cancels it.' },
         },

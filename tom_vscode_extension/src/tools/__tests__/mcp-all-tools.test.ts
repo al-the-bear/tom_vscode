@@ -394,6 +394,7 @@ function inputs(): Record<string, Input> {
         tomAi_specSetContent: { file: SPEC, path: 'SBP/content', text: 'Written by the MCP test.' },
         tomAi_specSetFormField: { file: SPEC, path: `${FR}/FRE-REQU-LST-1/FREP`, field: 'priority', value: 'could' },
         tomAi_specSetCodeSpec: { file: SPEC, path: `${FR}/FRE-REQU-LST-1`, codeSpec: 'CsMcpTest' },
+        tomAi_specSetUnits: { file: SPEC, path: `${FR}/FRE-REQU-LST-1`, units: ['server'] },
         tomAi_specSetItemSectionId: { file: SPEC, itemPath: `${FR}/FRE-REQU-LST-1`, sectionId: 'FRE-REQU-MCP-TEST' },
         tomAi_specMoveListItem: { file: SPEC, itemPath: `${FR}/FRE-REQU-LST-1`, toIndex: 1 },
         tomAi_specRemoveListItem: { file: SPEC, itemPath: `${FR}/FRE-REQU-LST-2` },

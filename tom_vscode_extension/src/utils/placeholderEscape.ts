@@ -27,3 +27,12 @@ export function escapePlaceholders(text: string): string {
     // A function, not a replacement string: there `$$` would stand for one `$`.
     return text.replace(/\$\{/g, () => '$$' + '{');
 }
+
+/**
+ * Replace every `${name}` of `text` that is not escaped (`$${name}` stays as it is: escaped text, e.g. an answer
+ * filled in earlier, must not be touched by a later pass).
+ */
+export function fillPlaceholder(text: string, placeholder: string, value: string): string {
+    const name = placeholder.slice(2, -1);
+    return text.replace(new RegExp(`(?<!\\$)\\$\\{${name}\\}`, 'g'), () => value);
+}

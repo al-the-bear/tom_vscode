@@ -102,6 +102,7 @@ import {
     doneNotificationMetaToYaml,
     planDoneNotification,
     type DoneNotificationItem,
+    type DoneNotificationPosted,
     type ItemOutcome,
 } from '../utils/doneNotification';
 import {
@@ -551,13 +552,20 @@ export interface QueuedPrompt {
     /**
      * Queued right after this item when it is finished — done, or ended in an
      * error that will not recover (src/utils/doneNotification.ts).
-     * `${itemOutcome}` in it reads `done` / `error: <message>`.
+     * `${itemOutcome}` in it reads `done` / `error: <message>`; `${itemAnswer}`,
+     * `${itemTitle}` and `${itemTodos}` what came out (vscimpb72).
      */
     doneNotificationPrompt?: string;
     /** The done-notification prompt is kept but not queued. */
     doneNotificationDisabled?: boolean;
-    /** The run the done-notification was queued for (not again for the same run). */
+    /** The send-run the done-notification was queued for (not again for the same send-run). */
+    doneNotificationQueuedFor?: string;
+    /** The quest the done-notification is posted to (through its inbox); unset: this item's own. */
+    doneNotificationQuest?: string;
+    /** The process run the done-notification is queued in; unset: the item's run here, `default` in another quest. */
     doneNotificationRun?: string;
+    /** Where a done-notification for another quest was posted, and whether it waits there for a window. */
+    doneNotificationPosted?: DoneNotificationPosted;
     /** On a done-notification item: the id of the item it reports on. */
     notificationOf?: string;
     /** On an item another quest's window sent (tomAi_sendItemToQuest): who sent it. */
@@ -2093,9 +2101,15 @@ export class PromptQueueManager {
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
         doneNotificationDisabled?: boolean;
+        /** The quest the done-notification is posted to; unset: this quest. */
+        doneNotificationQuest?: string;
+        /** The process run the done-notification is queued in. */
+        doneNotificationRun?: string;
         notificationOf?: string;
         from?: InboxSender;
         temporarySession?: boolean;
+        /** `run` is named on purpose: a running Proceed's position is not inherited (a done notification for another run). */
+        runIsExplicit?: boolean;
     }): Promise<QueuedPrompt> {
         for (const value of [opts.repeatCount, opts.templateRepeatCount, ...(opts.prePrompts ?? []).map((p) => p.repeatCount),
             ...(opts.followUps ?? []).map((f) => f.repeatCount)]) {
@@ -2105,7 +2119,8 @@ export class PromptQueueManager {
         // The item's process run: its Proceed's (also inherited while one runs), else the one named,
         // else the window's. It uses the run's own sessions: a named session becomes `<session>@<run>`
         // (src/utils/runSessions.ts).
-        const itemRun = normalizeRun(inheritedProcessRun(opts.processRun)?.run ?? opts.run ?? windowProcessRun());
+        const inherited = opts.runIsExplicit ? opts.processRun : inheritedProcessRun(opts.processRun);
+        const itemRun = normalizeRun(inherited?.run ?? opts.run ?? windowProcessRun());
         const sessionSpec = parsedSession ? { ...parsedSession, name: runSessionName(parsedSession.name, itemRun) } : parsedSession;
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
         // Spec §4.16 — pass the transport so template lookup hits the
@@ -2200,13 +2215,16 @@ export class PromptQueueManager {
             ...(sessionSpec && specExtras(sessionSpec) ? { sessionCreate: specExtras(sessionSpec) } : {}),
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
-            ...(inheritedProcessRun(opts.processRun) ? { processRun: inheritedProcessRun(opts.processRun) } : {}),
+            ...(inherited ? { processRun: inherited } : {}),
             run: itemRun,
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
             ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
+            // This quest is the default: stored as unset.
+            ...(opts.doneNotificationQuest && opts.doneNotificationQuest !== (WsPaths.getWorkspaceQuestId() || 'default') ? { doneNotificationQuest: opts.doneNotificationQuest } : {}),
+            ...(opts.doneNotificationRun ? { doneNotificationRun: normalizeRun(opts.doneNotificationRun) } : {}),
             ...(opts.notificationOf ? { notificationOf: opts.notificationOf } : {}),
             ...(opts.from ? { from: opts.from } : {}),
             ...(opts.temporarySession ? { temporarySession: true } : {}),
@@ -5131,6 +5149,7 @@ export class PromptQueueManager {
             readSession: (name) => readSession(folder, name),
             now: new Date(),
             token: randomUUID().slice(0, 8),
+            runExists: (run) => questRunExists(WsPaths.getWorkspaceQuestId() || 'default', run),
         });
         let error = conversion.error;
         let created: string | undefined;
@@ -5187,12 +5206,41 @@ export class PromptQueueManager {
      */
     private async _itemFinished(item: QueuedPrompt, outcome: ItemOutcome): Promise<void> {
         try {
-            const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items);
+            const ownQuest = WsPaths.getWorkspaceQuestId() || 'default';
+            const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items, ownQuest, {
+                // `${itemTodos}`: each walked todo's status now, archived todos included.
+                todoStatus: (id) => {
+                    try {
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports
+                        const qt = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
+                        return qt.readAllTodos(ownQuest, qt.ALL_TODO_FILES).find((t) => t.id === id)?.status;
+                    } catch { return undefined; }
+                },
+            });
             const deleteSessionNow = deletesTemporarySession(item as DoneNotificationItem, plan);
-            if (plan) {
+            if (plan?.targetQuest) {
+                // Another quest: posted into its inbox, queued there with its own defaults in the named run.
+                applyPlanToItem(item as DoneNotificationItem, plan);
+                const posted = this._doneNotificationPoster()({
+                    quest: plan.targetQuest,
+                    run: plan.targetRun,
+                    text: plan.text,
+                    notificationOf: item.id,
+                    from: { quest: ownQuest, run: item.run || DEFAULT_RUN },
+                });
+                item.doneNotificationPosted = {
+                    quest: plan.targetQuest, run: plan.targetRun, file: posted.file, waiting: !posted.targetRunning, at: new Date().toISOString(),
+                };
+                this.persist();
+                this._onDidChange.fire();
+                logQueue(`Item ${item.id} finished (${outcome.kind}): done-notification posted to ${plan.targetQuest} / ${plan.targetRun}`
+                    + `${posted.targetRunning ? '' : ' (no window of that quest is running: it waits in its inbox)'}`);
+            } else if (plan) {
                 applyPlanToItem(item as DoneNotificationItem, plan);
                 this.persist();
                 const notification = await this.enqueue({
+                    run: plan.targetRun,
+                    ...(plan.explicitRun ? { runIsExplicit: true } : {}),
                     originalText: plan.text,
                     position: plan.position,
                     initialStatus: 'pending',
@@ -5206,7 +5254,7 @@ export class PromptQueueManager {
                     temporarySession: plan.temporarySession,
                     ...(item.from ? { from: item.from } : {}),
                 });
-                logQueue(`Item ${item.id} finished (${outcome.kind}): done-notification ${notification.id} queued next`);
+                logQueue(`Item ${item.id} finished (${outcome.kind}): done-notification ${notification.id} queued next in run ${notification.run ?? DEFAULT_RUN}`);
             }
             if (deleteSessionNow && item.session) {
                 item.temporarySession = false;
@@ -5216,6 +5264,28 @@ export class PromptQueueManager {
         } catch (err) {
             logQueueError(`done-notification of ${item.id}`, err);
         }
+    }
+
+    /** Posts a done notification into another quest's inbox; replaceable for tests. */
+    private _postDoneNotification?: DoneNotificationPoster;
+
+    /** Set the poster of done notifications for other quests (tests); undefined restores the live one. */
+    setDoneNotificationPoster(poster: DoneNotificationPoster | undefined): void {
+        this._postDoneNotification = poster;
+    }
+
+    private _doneNotificationPoster(): DoneNotificationPoster {
+        if (this._postDoneNotification) { return this._postDoneNotification; }
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { liveQuestSendAccess } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { postInboxItem } = require('../tools/send-to-quest-tools') as typeof import('../tools/send-to-quest-tools');
+        return (n) => postInboxItem(liveQuestSendAccess, n.quest, {
+            text: n.text,
+            run: n.run,
+            notificationOf: n.notificationOf,
+            from: { ...n.from, ...liveQuestSendAccess.sender(), sentAt: new Date().toISOString() },
+        });
     }
 
     /**
@@ -6126,9 +6196,17 @@ export class PromptQueueManager {
      * off or on. Possible until the item is finished — also while it is
      * sending; false for an unknown or finished (`sent`) item.
      */
-    updateItemDoneNotification(id: string, patch: { prompt?: string; disabled?: boolean }): boolean {
+    updateItemDoneNotification(id: string, patch: { prompt?: string; disabled?: boolean; quest?: string; run?: string }): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item || item.status === 'sent') { return false; }
+        // '' resets to the default: this quest, the item's run.
+        if (patch.quest !== undefined) {
+            const own = WsPaths.getWorkspaceQuestId() || 'default';
+            item.doneNotificationQuest = patch.quest.trim() === '' || patch.quest.trim() === own ? undefined : patch.quest.trim();
+        }
+        if (patch.run !== undefined) {
+            item.doneNotificationRun = patch.run.trim() === '' ? undefined : normalizeRun(patch.run);
+        }
         if (patch.prompt !== undefined) {
             item.doneNotificationPrompt = patch.prompt.trim() === '' ? undefined : patch.prompt;
         }
@@ -7063,4 +7141,28 @@ function windowProcessRun(): string {
     } catch {
         return 'default';
     }
+}
+
+/** A done notification for another quest, as the poster delivers it. */
+export interface DoneNotificationPost {
+    quest: string;
+    run: string;
+    text: string;
+    notificationOf: string;
+    from: { quest: string; run: string };
+}
+
+/** Delivers a done notification into another quest's inbox: the file's name and whether a window of that quest runs. */
+export type DoneNotificationPoster = (post: DoneNotificationPost) => { file: string; targetRunning: boolean };
+
+/** Whether `quest` has the process run `run` (`default` always; src/utils/processRepository.ts). */
+export function questRunExists(quest: string, run: string): boolean {
+    const r = normalizeRun(run);
+    if (r === DEFAULT_RUN) { return true; }
+    const processes = WsPaths.ai('processes');
+    const quests = WsPaths.ai('quests');
+    if (!processes || !quests) { return false; }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ProcessRepository } = require('../utils/processRepository') as typeof import('../utils/processRepository');
+    return new ProcessRepository(processes, quests).hasRun(quest, r);
 }

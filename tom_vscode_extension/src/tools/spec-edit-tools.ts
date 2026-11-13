@@ -10,6 +10,7 @@
  *   tomAi_specSetFormField      one typed form field
  *   tomAi_specSetHeadline       a section's stored headline
  *   tomAi_specSetCodeSpec       the heading-level codeSpec routing marker
+ *   tomAi_specSetUnits          a section's generation units (SOM §11.2)
  *   tomAi_specAddNode           a child or list item, optionally populated
  *   tomAi_specSetItemSectionId  rename a list item's section id
  *   tomAi_specMoveListItem      reorder within a list, or move to a sibling list
@@ -27,7 +28,7 @@
  * the document, since a stated count (countOf) usually sits outside the list
  * that changed — and, for YAML, review entries left without a node.
  *
- * All ten write files: `readOnly: false`, `requiresApproval: true`, so they
+ * All eleven write files: `readOnly: false`, `requiresApproval: true`, so they
  * pass the approval gate and the MCP server offers them only to
  * authenticated clients.
  */
@@ -107,6 +108,11 @@ export interface SpecSetHeadlineInput extends SpecEditOptions {
 export interface SpecSetCodeSpecInput extends SpecEditOptions {
     path: string;
     codeSpec: string | null;
+}
+export interface SpecSetUnitsInput extends SpecEditOptions {
+    path: string;
+    /** Generation-unit ids: a comma-joined string or a list; null, "" or [] clears them. */
+    units: string | string[] | null;
 }
 export interface SpecAddNodeInput extends SpecEditOptions {
     parentPath: string;
@@ -257,6 +263,32 @@ function opSetCodeSpec(deps: SpecToolDeps, ctx: EditContext, input: OpInput<Spec
 
 export async function specSetCodeSpecImpl(deps: SpecToolDeps, input: SpecSetCodeSpecInput): Promise<string> {
     return runEdit(deps, input, (ctx) => opSetCodeSpec(deps, ctx, input));
+}
+
+/** `units` as the runtime stores it: the ids comma-joined, each trimmed; "" clears. */
+function unitsValue(units: unknown): string {
+    if (units === undefined || units === null) { return ''; }
+    const list = Array.isArray(units) ? units : typeof units === 'string' ? units.split(',') : null;
+    if (list === null || list.some((u) => typeof u !== 'string')) {
+        throw new SpecEditRefusal('invalidInput', '`units` must be a list of generation-unit ids or a comma-joined string (null or "" clears them).');
+    }
+    const ids = (list as string[]).map((u) => u.trim()).filter((u) => u !== '');
+    const bad = ids.find((u) => /[\s"]/.test(u));
+    if (bad !== undefined) {
+        throw new SpecEditRefusal('invalidInput', `A generation-unit id holds no space or quote: "${bad}".`);
+    }
+    return ids.join(',');
+}
+
+function opSetUnits(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecSetUnitsInput>): OpOutcome {
+    ctx.inspector.resolve(input.path);
+    ctx.loaded.document.setUnits(input.path, unitsValue(input.units));
+    const stored = ctx.loaded.document.units(input.path);
+    return { touched: input.path, result: { path: input.path, units: stored === null ? null : stored.split(',') } };
+}
+
+export async function specSetUnitsImpl(deps: SpecToolDeps, input: SpecSetUnitsInput): Promise<string> {
+    return runEdit(deps, input, (ctx) => opSetUnits(deps, ctx, input));
 }
 
 function opAddNode(deps: SpecToolDeps, ctx: EditContext, input: OpInput<SpecAddNodeInput>): OpOutcome {
@@ -450,6 +482,22 @@ export const SPEC_SET_CODE_SPEC_TOOL = editTool<SpecSetCodeSpecInput>(
     specSetCodeSpecImpl,
 );
 
+export const SPEC_SET_UNITS_TOOL = editTool<SpecSetUnitsInput>(
+    { name: 'tomAi_specSetUnits', displayName: 'Spec: Set Units' },
+    'Set a section\'s generation units (SOM §11.2), the counterpart of tomAi_specSetCodeSpec: the ids of the '
+    + 'generation-unit entries (`GENUN-UNIT-LST` under the architecture style) the section\'s artefacts are generated into, '
+    + 'stored beside `codeSpec` (Markdown heading `units="a,b"`, YAML `units:`). A list or a comma-joined string; null, "" '
+    + 'or [] clears it, back to the default (every unit mapping the area). Answers the stored ids. Validation reports an id '
+    + 'no unit declares (`unknownUnit`) and units on a section that routes nothing to CodeSpecs (`unitsUnrouted`).' + RESULT_NOTE,
+    {
+        ...EDIT_PARAMS,
+        path: { type: 'string', description: PATH_PARAM_HINT },
+        units: { type: ['array', 'string', 'null'], items: { type: 'string' }, description: 'The generation-unit ids, e.g. ["server", "web"] or "server,web".' },
+    },
+    ['file', 'path', 'units'],
+    specSetUnitsImpl,
+);
+
 export const SPEC_ADD_NODE_TOOL = editTool<SpecAddNodeInput>(
     { name: 'tomAi_specAddNode', displayName: 'Spec: Add Node' },
     'Add a child under `parentPath`: under a list segment (e.g. `FRE-REQU-LST`) a new item whose section id is generated from the list\'s pattern (dated `month`/`day`) or is `itemId`; else the single child. `content`, `fields` (`{"<form segment relative to the new node>": {field: value}}`) and `headline` fill it in the same call. A refused add answers the runtime\'s code and the parent\'s `addable` children. Editor counterparts: doc_add_node, doc_add_list_item.' + RESULT_NOTE,
@@ -522,6 +570,7 @@ const BATCH_OPS: Record<string, (deps: SpecToolDeps, ctx: EditContext, input: ne
     setFormField: opSetFormField,
     setHeadline: opSetHeadline,
     setCodeSpec: opSetCodeSpec,
+    setUnits: opSetUnits,
     addNode: opAddNode,
     setItemSectionId: opSetItemSectionId,
     moveListItem: opMoveListItem,
@@ -679,7 +728,7 @@ export const SPEC_APPLY_EDITS_TOOL: SharedToolDefinition<SpecApplyEditsInput> = 
     name: 'tomAi_specApplyEdits',
     displayName: 'Spec: Apply Edits',
     description:
-        'Apply several edits to one TomSpecs document as ONE change: one approval, one write, all or nothing — the way to make more than one change. `edits` (at most ' + MAX_BATCH_EDITS + ') are `{op, …}` with the single tool\'s arguments minus `file`: setContent, setFormField, setHeadline, setCodeSpec, addNode, setItemSectionId, moveListItem, removeListItem, clearSection, insertComment, insertQuestion, setAnswer, editComment, assignCommentIds, resolveAnnotation, decideMarks, commentChange, editMarkComment, removeAllAnnotations. addNode can bind its new path (`as: "req"`) for later entries (`$req/FRED`); an entry naming a path a move changed is refused (`stalePath`). A failing entry writes nothing (`failedOp`). Paths as in the single tools, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.' + FIRST_LOOK,
+        'Apply several edits to one TomSpecs document as ONE change: one approval, one write, all or nothing — the way to make more than one change. `edits` (at most ' + MAX_BATCH_EDITS + ') are `{op, …}` with the single tool\'s arguments minus `file`: setContent, setFormField, setHeadline, setCodeSpec, setUnits, addNode, setItemSectionId, moveListItem, removeListItem, clearSection, insertComment, insertQuestion, setAnswer, editComment, assignCommentIds, resolveAnnotation, decideMarks, commentChange, editMarkComment, removeAllAnnotations. addNode can bind its new path (`as: "req"`) for later entries (`$req/FRED`); an entry naming a path a move changed is refused (`stalePath`). A failing entry writes nothing (`failedOp`). Paths as in the single tools, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'edit', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,
@@ -714,6 +763,7 @@ export const SPEC_EDIT_TOOLS: SharedToolDefinition<any>[] = [
     SPEC_SET_FORM_FIELD_TOOL,
     SPEC_SET_HEADLINE_TOOL,
     SPEC_SET_CODE_SPEC_TOOL,
+    SPEC_SET_UNITS_TOOL,
     SPEC_ADD_NODE_TOOL,
     SPEC_SET_ITEM_SECTION_ID_TOOL,
     SPEC_MOVE_LIST_ITEM_TOOL,

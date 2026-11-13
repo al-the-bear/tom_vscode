@@ -2367,10 +2367,10 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <button class="sp-btn small danger" data-status-action="deleteLlmConfiguration" data-config-id="${cfg.id}">🗑️</button>
             </div>
             <div class="sp-settings-row">
-                <label>URL:</label>
-                <input type="text" data-field="ollamaUrl" value="${cfg.ollamaUrl}" style="flex:2">
+                <label title="A server root (http://localhost:11434) gets /api/chat or /v1/chat/completions. A URL with a path is the API root and keeps it: https://qianfan.baidubce.com/v2 → …/v2/chat/completions (OpenAI) or …/api/chat (Ollama). https URLs go over TLS.">URL:</label>
+                <input type="text" data-field="ollamaUrl" value="${cfg.ollamaUrl}" style="flex:2" title="A server root (http://localhost:11434) gets /api/chat or /v1/chat/completions. A URL with a path is the API root and keeps it: https://qianfan.baidubce.com/v2 → …/v2/chat/completions (OpenAI) or …/api/chat (Ollama). https URLs go over TLS.">
                 <label>API:</label>
-                <select data-field="apiStyle" title="Ollama: GET /api/tags + POST /api/chat. OpenAI: GET /v1/models + POST /v1/chat/completions (vLLM, LM Studio, llama.cpp)">
+                <select data-field="apiStyle" title="Ollama: POST /api/chat. OpenAI: POST /v1/chat/completions (vLLM, LM Studio, llama.cpp). Below a URL with a path: api/chat or chat/completions appended to it.">
                     <option value="ollama"${(cfg.apiStyle ?? 'ollama') === 'ollama' ? ' selected' : ''}>Ollama</option>
                     <option value="openai"${cfg.apiStyle === 'openai' ? ' selected' : ''}>OpenAI/vLLM</option>
                 </select>

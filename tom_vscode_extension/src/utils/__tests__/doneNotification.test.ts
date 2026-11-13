@@ -8,6 +8,16 @@
  *   DN-3 "pause after this" moves to the notification; a temporary session is handed over, else deleted at once
  *   DN-4 the fields round-trip through an entry's meta, and an untouched item writes nothing
  *   DN-5 a template iteration carries transport, profile, session and the notification to the next iteration
+ *   DN-6 the target (vscimpb71): by default the item's own run; another run of this quest gets the session's base
+ *        name (the queue makes it `<session>@<run>`) and keeps transport, profile, pause and temporary session; another
+ *        quest gets the text only, run `default` unless named, no pause or temporary session handed over (deleted at
+ *        once); ${senderQuest} / ${senderRun} filled; this quest named is the default; the target fields round-trip
+ *   DN-8 what came out (vscimpb72): ${itemAnswer} a direct answer; a walk's answers per todo (and repetitions per
+ *        number); a long answer cut at 4,000 characters with the note naming the item; an error outcome with no
+ *        answer; ${itemTitle} the prompt's first line; ${itemTodos} the walked todos with their status; all escaped,
+ *        so neither a later sender fill nor the placeholder engine touches a `${…}` the answer quotes
+ *   DN-7 the queue editor's pickers: this quest first, then quests with a running window, then the others (their
+ *        notification waits in the inbox); the runs with the default first
  *   HB-1 the stale rule: a heartbeat within 90 s is alive, an older one or none is not
  *   HB-2 the live windows of a quest; the server summary; a heartbeat merged into a state file keeps its fields
  */
@@ -16,7 +26,10 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    ITEM_ANSWER_LIMIT,
     applyPlanToItem,
+    cutAnswer,
+    fillPlaceholder,
     deletesTemporarySession,
     doneNotificationMetaFromYaml,
     doneNotificationMetaToYaml,
@@ -24,6 +37,9 @@ import {
     planDoneNotification,
     type DoneNotificationItem,
 } from '../doneNotification.js';
+import { questPicks, runPicks } from '../doneNotificationTargets.js';
+import { unescapePlaceholders } from '../placeholderEscape.js';
+import { planInboxConversion } from '../questInbox.js';
 import { HEARTBEAT_STALE_MS, isWindowAlive, liveWindowsOf, serverSummary, withHeartbeat } from '../windowHeartbeat.js';
 import { buildNextTemplateIterationParams } from '../queueStep3Utils.js';
 
@@ -48,9 +64,9 @@ describe('done-notification', () => {
             { id: 'old', status: 'sent' }, { id: 'it-1', status: 'sent' }, { id: 'a', status: 'staged' },
             { id: 'b', status: 'pending' }, { id: 'c', status: 'pending' },
         ];
-        const plan = planDoneNotification(item(), { kind: 'done' }, queue);
+        const plan = planDoneNotification(item(), { kind: 'done' }, queue, 'vscode_extension');
         assert.deepEqual(plan, {
-            text: 'Report to ${senderQuest}: done',
+            text: 'Report to vscode_extension: done',
             position: 3,
             transport: 'anthropic',
             anthropicProfileId: 'opus-direct',
@@ -59,10 +75,12 @@ describe('done-notification', () => {
             temporarySession: false,
             notificationOf: 'it-1',
             run: 'r1',
-        }, 'ahead of the first pending item; a staged one is not waiting to run');
+            targetRun: 'default',
+            explicitRun: false,
+        }, 'ahead of the first pending item; a staged one is not waiting to run; ${senderQuest} is this quest');
         assert.equal(planDoneNotification(item(), { kind: 'done' }, [{ id: 'it-1', status: 'sent' }])?.position, -1, 'nothing pending: appended');
-        const failed = planDoneNotification(item({ status: 'error' }), { kind: 'error', message: 'Invalid\n  request (400)' }, queue);
-        assert.equal(failed?.text, 'Report to ${senderQuest}: error: Invalid request (400)');
+        const failed = planDoneNotification(item({ status: 'error' }), { kind: 'error', message: 'Invalid\n  request (400)' }, queue, 'vscode_extension');
+        assert.equal(failed?.text, 'Report to vscode_extension: error: Invalid request (400)');
         assert.equal(outcomeText({ kind: 'error', message: '' }), 'error: unknown error');
     });
 
@@ -87,7 +105,7 @@ describe('done-notification', () => {
         assert.deepEqual([plan.pauseAfter, plan.temporarySession], [true, true]);
         assert.equal(deletesTemporarySession(paused, plan), false, 'the notification runs in it');
         applyPlanToItem(paused, plan);
-        assert.deepEqual([paused.pauseAfter, paused.temporarySession, paused.doneNotificationRun], [false, false, 'r1'],
+        assert.deepEqual([paused.pauseAfter, paused.temporarySession, paused.doneNotificationQueuedFor], [false, false, 'r1'],
             'the item no longer pauses the queue; the notification does');
         const notification = item({ id: 'n-1', doneNotificationPrompt: undefined, temporarySession: true, notificationOf: 'it-1' });
         assert.equal(deletesTemporarySession(notification, planDoneNotification(notification, { kind: 'done' }, queue)), true,
@@ -101,7 +119,7 @@ describe('done-notification', () => {
         const full: Partial<DoneNotificationItem> = {
             doneNotificationPrompt: 'tell me',
             doneNotificationDisabled: true,
-            doneNotificationRun: 'r1',
+            doneNotificationQueuedFor: 'r1',
             notificationOf: 'it-0',
             from: FROM,
             temporarySession: true,
@@ -136,6 +154,88 @@ describe('done-notification', () => {
         );
         const plain = buildNextTemplateIterationParams({ originalText: 'Body', templateRepeatCount: 2, templateRepeatIndex: 0 }, 2)!;
         assert.equal('transport' in plain, false, 'unset stays unset (the queue default applies)');
+    });
+
+    test('DN-6: the target quest and run', () => {
+        const base: DoneNotificationItem = {
+            id: 'i1', status: 'sent', run: 'r1', transport: 'anthropic', anthropicProfileId: 'p', session: 'sa@r1',
+            pauseAfter: true, temporarySession: false, doneNotificationPrompt: '${senderQuest}/${senderRun}: ${itemOutcome}',
+        };
+        const pending = [{ id: 'i1', status: 'sent' }, { id: 'i2', status: 'pending' }];
+        const own = planDoneNotification({ ...base }, { kind: 'done' }, pending, 'q1')!;
+        assert.deepEqual([own.targetRun, own.targetQuest, own.explicitRun, own.session, own.position, own.text],
+            ['r1', undefined, false, 'sa@r1', 1, 'q1/r1: done'], 'the default: the item\'s own run and session');
+        const otherRun = planDoneNotification({ ...base, doneNotificationRun: 'r2' }, { kind: 'done' }, pending, 'q1')!;
+        assert.deepEqual([otherRun.targetRun, otherRun.explicitRun, otherRun.session, otherRun.pauseAfter, otherRun.transport, otherRun.anthropicProfileId],
+            ['r2', true, 'sa', true, 'anthropic', 'p'], 'another run: the session\'s base name, the rest as before');
+        const sameRunNamed = planDoneNotification({ ...base, doneNotificationRun: 'r1' }, { kind: 'done' }, pending, 'q1')!;
+        assert.equal(sameRunNamed.session, 'sa@r1');
+        const ownNamed = planDoneNotification({ ...base, doneNotificationQuest: 'q1' }, { kind: 'done' }, pending, 'q1')!;
+        assert.equal(ownNamed.targetQuest, undefined, 'this quest named is the default');
+        const tmp = { ...base, session: 'tmp-261113-120000-abc', temporarySession: true };
+        const other = planDoneNotification({ ...tmp, doneNotificationQuest: 'q2' }, { kind: 'error', message: 'x' }, pending, 'q1')!;
+        assert.deepEqual(other, {
+            text: 'q1/r1: error: x', position: -1, pauseAfter: false, temporarySession: false, notificationOf: 'i1', run: 'run',
+            targetQuest: 'q2', targetRun: 'default', explicitRun: true,
+        }, 'another quest: the text only, its queue\'s defaults');
+        assert.equal(deletesTemporarySession(tmp, other), true, 'a temporary session is not handed over to another quest');
+        assert.equal(planDoneNotification({ ...base, doneNotificationQuest: 'q2', doneNotificationRun: 'rx' }, { kind: 'done' }, pending, 'q1')!.targetRun, 'rx');
+        const applied = { ...base, doneNotificationQuest: 'q2' };
+        applyPlanToItem(applied, planDoneNotification(applied, { kind: 'done' }, pending, 'q1')!);
+        assert.equal(applied.pauseAfter, true, 'the pause stays with the item');
+        const fields = { doneNotificationPrompt: 'x', doneNotificationQuest: 'q2', doneNotificationRun: 'rx',
+            doneNotificationPosted: { quest: 'q2', run: 'rx', file: 'f.inbox.queue.yaml', waiting: true, at: '2026-11-13T20:00:00.000Z' } };
+        assert.deepEqual(doneNotificationMetaFromYaml(doneNotificationMetaToYaml(fields)), fields, 'round-trips');
+        assert.deepEqual(doneNotificationMetaToYaml({ doneNotificationRun: 'r2' }), { 'done-notification': { prompt: '', run: 'r2' } });
+    });
+
+    test('DN-8: the answer, the title, the todos', () => {
+        const pending = [{ id: 'i1', status: 'sent' }];
+        const plan = (item: Partial<DoneNotificationItem>, prompt: string, outcome: Parameters<typeof planDoneNotification>[1] = { kind: 'done' },
+            lookup: Parameters<typeof planDoneNotification>[4] = {}): string =>
+            planDoneNotification({ id: 'i1', status: 'sent', doneNotificationPrompt: prompt, ...item }, outcome, pending, 'q1', lookup)!.text;
+
+        // A direct answer.
+        assert.equal(plan({ originalText: 'File the todos\nin tom_core', answerText: '  Filed 3 todos: a, b, c.  ' },
+            '${itemTitle}: ${itemOutcome}\n${itemAnswer}'), 'File the todos: done\nFiled 3 todos: a, b, c.');
+        // A walk: one block per todo, with the todos' status.
+        const walk = { todoIdPattern: 'tsm*', answerText: 'the last', repetitionAnswers: [{ key: 'tsm1_a', text: 'One done.' }, { key: 'tsm2_b', text: 'Two done.' }] };
+        assert.equal(plan(walk, '${itemAnswer}'), '### tsm1_a\n\nOne done.\n\n### tsm2_b\n\nTwo done.');
+        assert.equal(plan(walk, '${itemTodos}', { kind: 'done' }, { todoStatus: (id) => (id === 'tsm1_a' ? 'completed' : undefined) }),
+            'tsm1_a (completed), tsm2_b (status unknown)');
+        assert.equal(plan({ todoIdPattern: 'x1_a, y2*' }, '${itemTodos}', { kind: 'done' }, { todoStatus: () => 'in-progress' }), 'x1_a (in-progress)',
+            'not a walk: the todo it names (a prefix is not a todo)');
+        assert.equal(plan({}, '${itemTodos}'), '(none)');
+        // Repetitions: one block per repetition.
+        assert.equal(plan({ repetitionAnswers: [{ key: '1', text: 'a' }, { key: '2', text: 'b' }] }, '${itemAnswer}'), '### Repetition 1\n\na\n\n### Repetition 2\n\nb');
+        // A long answer is cut, with the note.
+        const long = 'x'.repeat(ITEM_ANSWER_LIMIT + 500);
+        const cut = plan({ answerText: long }, '${itemAnswer}');
+        assert.ok(cut.startsWith('x'.repeat(ITEM_ANSWER_LIMIT) + '\n\n[… cut at 4000 of 4500 characters. The whole answer is queue item i1\'s'));
+        assert.match(cut, /tomAi_listQueue with includeSent\.\]$/);
+        assert.equal(cutAnswer('short', 'i1'), 'short');
+        // An error with no answer.
+        assert.equal(plan({}, '${itemOutcome} | ${itemAnswer}', { kind: 'error', message: 'Invalid request (400)' }), 'error: Invalid request (400) | (no answer)');
+        // Escaped: the answer quoting placeholders reaches the model as written, even through the target's sender fill.
+        const quoting = plan({ originalText: 'Use ${todoId}', answerText: 'I left ${senderQuest} and ${itemOutcome} as they are.' },
+            'From ${senderQuest}: ${itemTitle} → ${itemAnswer}');
+        assert.equal(quoting, 'From q1: Use $${todoId} → I left $${senderQuest} and $${itemOutcome} as they are.');
+        const delivered = planInboxConversion({ text: quoting, from: { quest: 'q9', windowId: 'w', host: 'h', sentAt: '' } },
+            { profileExists: () => true, readSession: () => undefined, now: new Date(), token: 't' }).enqueue.originalText;
+        assert.equal(unescapePlaceholders(delivered), 'From q1: Use ${todoId} → I left ${senderQuest} and ${itemOutcome} as they are.');
+        assert.equal(fillPlaceholder('${a}${a} $${a}', '${a}', 'V$&'), 'V$&V$& $${a}', 'back to back, escaped kept, no replacement patterns');
+    });
+
+    test('DN-7: the editor\'s pickers', () => {
+        assert.deepEqual(questPicks('q1', ['q3', 'q1', 'q2', 'q4'], new Set(['q4', 'q2'])).map((p) => [p.label, p.value, p.description]), [
+            ['q1', '', 'this quest (default)'],
+            ['q2', 'q2', 'a window is running'],
+            ['q4', 'q4', 'a window is running'],
+            ['q3', 'q3', 'no window running: waits in its inbox until one starts'],
+        ]);
+        assert.deepEqual(runPicks(['r2', 'default', 'r1'], true, 'r1').map((p) => [p.label, p.value]),
+            [['r1', ''], ['default', 'default'], ['r2', 'r2']], 'this quest: the item\'s run is the default');
+        assert.deepEqual(runPicks(['rx'], false, 'r1').map((p) => [p.label, p.value]), [['default', ''], ['rx', 'rx']], 'another quest: default');
     });
 });
 
