@@ -285,56 +285,6 @@ function getPromptEditorComponent(options) {
  * `default` from the host.
  */
 var chatRunsState = { options: [{ run: 'default', label: 'default' }], selected: {}, windowRun: 'default' };
-/* The queue items waiting for their background work (the host's queueBackgroundWaits) and which ? lists are open. */
-var queueBackgroundWaits = [];
-var queueBackgroundOpen = {};
-
-function bgEscape(text) {
-    return String(text).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
-}
-
-/** The @CHAT line of each waiting queue item: what, how long, the limit; ?; Wait without limit / Keep waiting / Stop waiting. */
-function renderQueueBackgroundWaits() {
-    var box = document.getElementById('anthropic-bg-waits');
-    if (!box) { return; }
-    if (!queueBackgroundWaits.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
-    box.style.display = '';
-    box.innerHTML = queueBackgroundWaits.map(function(w) {
-        var v = w.view || {};
-        var id = bgEscape(w.id);
-        var open = queueBackgroundOpen[w.id] === true;
-        var list = !open ? '' : '<div class="bg-wait-list">' + (v.items || []).map(function(t) {
-            return '<div class="bg-wait-task"><span class="bg-wait-task-name">' + bgEscape(t.description || t.command || t.id) + '</span>'
-                + ' <span class="bg-wait-task-id">[' + bgEscape(t.kind === 'command' ? 'handle ' + t.id : t.id) + ']</span>'
-                + (t.command && t.command !== t.description ? '<div class="bg-wait-task-cmd"><code>' + bgEscape(t.command) + '</code></div>' : '')
-                + (t.outputFile ? '<div class="bg-wait-task-out">output: <code>' + bgEscape(t.outputFile) + '</code></div>' : '')
-                + '</div>';
-        }).join('') + '</div>';
-        return '<div class="bg-wait" data-qid="' + id + '">'
-            + '<span class="bg-wait-badge" title="' + bgEscape('Queue item: ' + (w.label || w.id)) + '">\u23f3 Queue: waiting for background work \u2014 ' + bgEscape(v.line || '') + '</span>'
-            + ' <button type="button" class="bg-wait-help" data-bg-id="' + id + '" data-bg-action="toggle" title="The running tasks with their commands">?</button>'
-            + ' <button type="button" class="bg-wait-btn" data-bg-id="' + id + '" data-bg-action="waitWithoutLimit"' + (v.unlimited ? ' disabled' : '') + ' title="Wait until the work ends, however long">Wait without limit</button>'
-            + ' <button type="button" class="bg-wait-btn" data-bg-id="' + id + '" data-bg-action="keepWaiting" title="Start the limit again from now">Keep waiting up to ' + bgEscape(v.limit || '') + '</button>'
-            + ' <button type="button" class="bg-wait-btn stop" data-bg-id="' + id + '" data-bg-action="stopWaiting" title="End the turn now (its answer names what still runs); the queue goes on">Stop waiting</button>'
-            + list
-            + '</div>';
-    }).join('');
-}
-
-/* The buttons of the waiting line: one delegated listener (no inline handlers under the panel's CSP). */
-document.addEventListener('click', function(e) {
-    var btn = e.target && e.target.closest ? e.target.closest('#anthropic-bg-waits [data-bg-action]') : null;
-    if (!btn || btn.disabled) { return; }
-    var id = btn.getAttribute('data-bg-id');
-    var action = btn.getAttribute('data-bg-action');
-    if (action === 'toggle') {
-        queueBackgroundOpen[id] = !queueBackgroundOpen[id];
-        renderQueueBackgroundWaits();
-        return;
-    }
-    vscode.postMessage({ type: 'queueBackgroundWaitAction', id: id, action: action });
-});
-
 function applyChatRuns(msg) {
     chatRunsState = {
         options: Array.isArray(msg.options) && msg.options.length ? msg.options : [{ run: 'default', label: 'default' }],
@@ -470,9 +420,6 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
 
             afterToolbarHtml:
-                // A queue item waiting for its background work: the line, the ? list and the
-                // three choices, as in the queue editor (queueBackgroundWaits).
-                '<div id="anthropic-bg-waits" class="bg-waits" style="display:none;"></div>' +
                 // Plan mode (CC-3, CC-27): the badge while it is on, with the
                 // button that leaves it; a plan proposed with tomAi_exitPlanMode
                 // shown for the user to accept or keep planning.
@@ -1359,9 +1306,6 @@ window.addEventListener('message', function(e) {
         updateClaudeCliDot();
     } else if (msg.type === 'chatRuns') {
         applyChatRuns(msg);
-    } else if (msg.type === 'queueBackgroundWaits') {
-        queueBackgroundWaits = Array.isArray(msg.waits) ? msg.waits : [];
-        renderQueueBackgroundWaits();
     } else if (msg.type === 'anthropicSession') {
         // The session as the queue's context bar shows it: name, base, lifetime, model.
         var sessionLabel = document.getElementById('anthropic-session-name');
