@@ -177,7 +177,7 @@
     /** Icon and short text of each move kind in the action bar. */
     var MOVE_ICON = {
         proceed: 'play', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
-        'gate-failed': 'error', 'finish-process': 'check-all', 'follow-up': 'arrow-swap', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left', 'back-phase': 'arrow-circle-left', 'phase-start': 'debug-restart-frame',
+        'gate-failed': 'error', jump: 'git-compare', 'finish-process': 'check-all', 'follow-up': 'arrow-swap', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left', 'back-phase': 'arrow-circle-left', 'phase-start': 'debug-restart-frame',
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 
@@ -255,6 +255,29 @@
                 return '<li title="' + esc(r.at || '') + '"><b>' + esc(r.where) + '</b>' + (r.phaseIteration > 1 ? ' <span class="muted">(iteration ' + r.phaseIteration + ')</span>' : '')
                     + ' — ' + esc(r.reason) + ' <span class="muted">(' + esc(BY[r.by] || r.by) + ')</span></li>';
             }).join('') + '</ul></details>';
+    }
+
+    /** The jumps decision steps made (vscimpb95), newest first: where from, where to, the choice and who made it. */
+    function jumpsBox(items) {
+        if (!items || !items.length) { return ''; }
+        var BY = { condition: 'automatic', user: 'by the user', agent: 'by the agent' };
+        return '<details class="left-out jumps"><summary><span class="codicon codicon-git-compare"></span> Jumps (' + items.length + ')</summary><ul>'
+            + items.map(function (r) {
+                return '<li title="' + esc(r.at || '') + '"><b>' + esc(r.label) + '</b>: ' + esc(r.from) + ' → ' + esc(r.to)
+                    + ' <span class="muted">(' + esc(BY[r.by] || r.by) + (r.reason ? ' — ' + esc(r.reason) : '') + ')</span></li>';
+            }).join('') + '</ul></details>';
+    }
+
+    /** A decision step's box: how it decides and its targets (vscimpb95). */
+    function decisionStepNote(step) {
+        if (!step || !step.decision) { return ''; }
+        var MODE = { auto: 'decided by the extension from the chat variables (the user when nothing holds)', user: 'decided by you (Proceed opens the choices)', judge: 'judged by the agent at Proceed (you decide when it does not)' };
+        var mode = step.decision.mode || 'user';
+        return '<div class="cond-note decision-step"><span class="codicon codicon-git-compare"></span> Decision step — ' + esc(MODE[mode] || mode) + ':<ul>'
+            + (step.decision.targets || []).map(function (t) {
+                var when = !t.when ? '' : typeof t.when.judge === 'string' ? t.when.judge : t.when.var + (t.when.equals !== undefined ? ' is ' + t.when.equals : t.when.notEquals !== undefined ? ' is not ' + t.when.notEquals : t.when.in ? ' is one of ' + t.when.in.join(', ') : t.when.set === false ? ' is not set' : ' is set');
+                return '<li>' + esc(t.label || ('Go to ' + t.to)) + ' <span class="muted">→ ' + esc(t.to) + (when ? ' — when ' + esc(when) : '') + '</span></li>';
+            }).join('') + '</ul></div>';
     }
 
     /** The follow-up chain: the processes this one was switched to from, oldest first, with what each switch took along. */
@@ -385,7 +408,7 @@
                 var entries = stepsOf(phase);
                 var entry = entries.find(function (e) { return e.step.id === c.state.step; });
                 var stepOptions = entries.map(function (e, i) {
-                    var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : '';
+                    var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : e.step.decision ? 'Decision: ' : '';
                     var mark = leftIds.indexOf(e.step.id) >= 0 ? ' — left out' : cond.steps[e.step.id] ? ' ⁇' : '';
                     return { value: e.step.id, label: (i + 1) + '. ' + prefix + label(e.step) + mark };
                 });
@@ -393,6 +416,7 @@
                 html += row('Step', select('sel-step', stepOptions, c.state.step, 'Step of the phase (⁇: optional or conditional)'),
                     iteration('step', step, c.state.stepIteration, entry && entry.kind === 'gate') + help('step'), 'step', step && step.description);
                 html += conditionNote(step && cond.steps[step.id]);
+                html += decisionStepNote(step);
                 if (step && step.substeps && step.substeps.length) {
                     var sub = step.substeps.find(function (x) { return x.id === c.state.substep; });
                     html += row('Sub-step', select('sel-substep', step.substeps.map(function (x, i) { return { value: x.id, label: (i + 1) + '. ' + label(x) }; }), c.state.substep, 'Sub-step'),
@@ -412,6 +436,7 @@
         }
         html += originBox(c.origins, (c.definition && (c.definition.name || c.definition.id)) || (c.state && c.state.process) || '');
         html += leftOutBox(c.leftOut);
+        html += jumpsBox(c.jumps);
         if (c.processes.length === 0) {
             html += '<div class="muted">No processes yet — create one in the process editor (_ai/processes/).</div>';
         }

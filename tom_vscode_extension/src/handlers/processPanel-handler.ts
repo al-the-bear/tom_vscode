@@ -151,6 +151,12 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 where: entry?.definition ? leftOutWhere(entry.definition, r.phase, r.step) : [r.phase, r.step].filter(Boolean).join(' › '),
                 phaseIteration: r.phaseIteration, reason: r.reason, by: r.by, at: r.at,
             })),
+            // The jumps decision steps made (vscimpb95), newest first.
+            jumps: (state.jumps ?? []).slice(-8).reverse().map((r) => {
+                const end = (e: { phase: string; phaseIteration: number; step: string; stepIteration: number }): string =>
+                    `${entry?.definition ? leftOutWhere(entry.definition, e.phase, e.step) : `${e.phase} › ${e.step}`} (#${e.phaseIteration}/#${e.stepIteration})`;
+                return { from: end(r.from), to: end(r.to), label: r.label, reason: r.reason, by: r.by, at: r.at };
+            }),
             // Where it came from by follow-up processes (vscimpb47), oldest first.
             origins: (state.origins ?? []).map((o) => {
                 const from = store.entry(o.process)?.definition;

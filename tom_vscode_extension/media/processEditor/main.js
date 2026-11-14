@@ -153,16 +153,20 @@
      * `when:` — a variable test the extension decides, or a text the agent
      * judges at Proceed. Not on a gate.
      */
-    function conditionFields(path, node, what) {
+    function conditionFields(path, node, what, forTarget) {
         var when = node.when || null;
         var mode = !when ? '' : typeof when.judge === 'string' ? 'judge' : 'var';
-        var modes = [
+        var modes = forTarget ? [
+            { value: '', label: 'no condition' },
+            { value: 'var', label: 'when a variable…' },
+            { value: 'judge', label: 'when (for the agent)…' },
+        ] : [
             { value: '', label: 'always runs' },
             { value: 'var', label: 'runs when a variable…' },
             { value: 'judge', label: 'runs when the agent judges…' },
         ];
         var html = '<div class="cond">'
-            + '<label class="check" title="The user may leave the ' + what + ' out (Leave out in the PROCESS view); left out, it is recorded"><input type="checkbox" data-path="' + path + '.optional" data-kind="bool"' + (node.optional ? ' checked' : '') + '> optional</label>'
+            + (forTarget ? '' : '<label class="check" title="The user may leave the ' + what + ' out (Leave out in the PROCESS view); left out, it is recorded"><input type="checkbox" data-path="' + path + '.optional" data-kind="bool"' + (node.optional ? ' checked' : '') + '> optional</label>')
             + '<select data-cond-mode="' + path + '" title="When the ' + what + ' runs: a variable test is decided by the extension (a ' + what + ' it fails is passed by and recorded); a text is judged by the agent at Proceed">'
             + modes.map(function (m) { return '<option value="' + m.value + '"' + (m.value === mode ? ' selected' : '') + '>' + m.label + '</option>'; }).join('') + '</select>';
         if (mode === 'judge') {
@@ -180,6 +184,47 @@
             }
         }
         return html + '</div>';
+    }
+
+    /**
+     * A decision step (`decision:`, vscimpb95): how it decides — auto (the
+     * first target whose condition holds), user (the Decide… dialog), judge
+     * (the agent at Proceed) — and its targets, any step or phase of the
+     * process, each with a label and a condition.
+     */
+    function decisionBlock(path, step) {
+        var d = step.decision;
+        var head = '<summary>Decision step' + (d ? ' — ' + esc(d.mode || 'user') + ', ' + (d.targets || []).length + ' target(s)' : '') + '</summary>';
+        if (!d) {
+            return '<details class="proc-lists decision-block">' + head + '<div class="proc-list"><div class="note">A decision step chooses where the process goes when the step before it has finished — any step or phase, earlier or later; it has no sub-steps.</div>'
+                + '<button class="add" data-op="make-decision" data-path="' + path + '"><span class="codicon codicon-git-compare"></span> make it a decision step</button></div></details>';
+        }
+        var targetOptions = [{ value: '', label: '— choose —' }];
+        ((doc && doc.def && doc.def.phases) || []).forEach(function (p, i) {
+            targetOptions.push({ value: p.id, label: 'Phase ' + (i + 1) + ': ' + (p.name || p.id) + ' (its start)' });
+            var all = (p.steps || []).concat(p.gate ? [p.gate] : []).concat(p.postGate ? [p.postGate] : []);
+            all.forEach(function (st) { targetOptions.push({ value: p.id + '/' + st.id, label: '    ' + (p.name || p.id) + ' › ' + (st.name || st.id) }); });
+        });
+        var modes = [['user', 'the user decides (Decide…)'], ['auto', 'automatic: the first target whose condition holds'], ['judge', 'the agent judges at Proceed']];
+        var html = '<details class="proc-lists decision-block" open>' + head + '<div class="proc-list">'
+            + '<label class="io-map">decided by <select data-path="' + path + '.decision.mode">' + modes.map(function (m) {
+                return '<option value="' + m[0] + '"' + (m[0] === (d.mode || 'user') ? ' selected' : '') + '>' + esc(m[1]) + '</option>';
+            }).join('') + '</select></label>'
+            + '<button class="icon" data-op="remove-decision" data-path="' + path + '" title="No decision step any more"><span class="codicon codicon-trash"></span></button>';
+        (d.targets || []).forEach(function (t, k) {
+            var tp = path + '.decision.targets.' + k;
+            var value = t.to || '';
+            var opts = targetOptions.some(function (o) { return o.value === value; }) ? targetOptions : targetOptions.concat([{ value: value, label: value + ' (as written)' }]);
+            html += '<div class="proc-entry decision-target">'
+                + '<select data-path="' + tp + '.to" title="Where this choice goes">' + opts.map(function (o) {
+                    return '<option value="' + esc(o.value) + '"' + (o.value === value ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+                }).join('') + '</select>'
+                + text(tp + '.label', t.label, 'label (default: Go to …)', 'proc-desc')
+                + '<button class="icon" data-op="remove" data-path="' + tp + '" title="Remove"><span class="codicon codicon-trash"></span></button>'
+                + conditionFields(tp, t, 'target', true)
+                + '</div>';
+        });
+        return html + '<button class="add" data-op="add-target" data-path="' + path + '"><span class="codicon codicon-add"></span> target</button></div></details>';
     }
 
     /** The gate's failure target: one of the phase's steps, or the gate run again (unset). */
@@ -328,7 +373,8 @@
             + (kind === 'gate' ? onFailField(path, step, phaseStepsList || []) : '')
             + processListsBlock(path, step)
             + documentsBlock(path, step)
-            + (kind !== 'substep' ? followUpsBlock(path, step, 'step') : '');
+            + (kind !== 'substep' ? followUpsBlock(path, step, 'step') : '')
+            + (kind === 'step' && !(step.substeps && step.substeps.length) ? decisionBlock(path, step) : '');
         if (kind !== 'substep') {
             var subs = step.substeps || [];
             if (subs.length) {
@@ -513,6 +559,17 @@
             case 'add-document':
                 node.documents = node.documents || [];
                 node.documents.push({ path: '' });
+                break;
+            case 'make-decision':
+                node.decision = { mode: 'user', targets: [{ to: '' }] };
+                break;
+            case 'remove-decision':
+                delete node.decision;
+                break;
+            case 'add-target':
+                node.decision = node.decision || { mode: 'user', targets: [] };
+                node.decision.targets = node.decision.targets || [];
+                node.decision.targets.push({ to: '' });
                 break;
             case 'add-todo':
                 node.todos = node.todos || [];

@@ -202,6 +202,41 @@ export interface ProcessFollowUps {
  */
 export interface ProcessStep extends ProcessSubstep, ProcessConditional, ProcessFollowUps {
     substeps?: ProcessSubstep[];
+    /** A decision step (vscimpb95): where the process goes when the step before it has finished. */
+    decision?: ProcessDecisionSpec;
+}
+
+/**
+ * How a decision step chooses its target: `auto` — the extension takes the
+ * first target whose `when:` holds (a target without one always holds), the
+ * user decides when none does or a variable is not set; `user` — the user
+ * picks one in the Decide… dialog; `judge` — Proceed runs the step's prompt
+ * and the agent picks one (tomAi_setProcessState `decide`), the user decides
+ * when it does not.
+ */
+export type ProcessDecisionMode = 'auto' | 'user' | 'judge';
+
+export const PROCESS_DECISION_MODES: readonly ProcessDecisionMode[] = ['auto', 'user', 'judge'];
+
+/**
+ * A target of a decision step: `to` names a step or phase of the process —
+ * `<phase>/<step>`, `<phase>` (its first step), or a bare step id of the
+ * decision step's own phase (a bare id names that phase's step when it has
+ * one, else a phase).
+ */
+export interface ProcessDecisionTarget {
+    to: string;
+    /** What the choice says; default `Go to <where>`. */
+    label?: string;
+    /** When it is the one (auto); what it is for (user, judge — shown with it). */
+    when?: ProcessCondition;
+}
+
+/** A step's `decision:` block. */
+export interface ProcessDecisionSpec {
+    /** Default `user`. */
+    mode?: ProcessDecisionMode;
+    targets: ProcessDecisionTarget[];
 }
 
 /** A phase's quality gate. */
@@ -308,7 +343,9 @@ const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
 const CONDITIONAL_KEYS = ['optional', 'when'];
 const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps', 'steps', 'gate', 'postGate'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches', 'documents'];
-const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps'];
+const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps', 'decision'];
+const DECISION_KEYS = ['mode', 'targets'];
+const DECISION_TARGET_KEYS = ['to', 'label', 'when'];
 const CONDITION_TESTS = ['equals', 'notEquals', 'in', 'set'];
 const POST_GATE_KEYS = [...STEP_KEYS, 'todos', 'todoPrefix'];
 const GATE_KEYS = [...STEP_KEYS, 'onFail'];
@@ -512,9 +549,30 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
         if (test === 'in' && (!Array.isArray(when.in) || when.in.length === 0 || when.in.some((v) => typeof v !== 'string'))) { err(`${at}.in`, 'a list of texts'); }
         if (test === 'set' && typeof when.set !== 'boolean') { err(`${at}.set`, 'true or false'); }
     };
+    const decisionSteps: Array<{ path: string; phase: string; step: string; decision: Raw }> = [];
+    const checkDecision = (obj: Raw, path: string): void => {
+        const decision = obj.decision;
+        if (decision === undefined) { return; }
+        const at = `${path}.decision`;
+        if (!isObject(decision)) { err(at, 'a decision step: {mode: auto | user | judge, targets: [{to, label, when}]}'); return; }
+        unknownKeys(decision, DECISION_KEYS, at);
+        if (decision.mode !== undefined && !PROCESS_DECISION_MODES.includes(decision.mode as ProcessDecisionMode)) { err(`${at}.mode`, '"auto" (the extension decides from chat variables), "user" (the Decide… dialog) or "judge" (the agent decides)'); }
+        if (obj.substeps !== undefined) { err(`${at}`, 'a decision step has no sub-steps: it only chooses where the process goes'); }
+        if (obj.userAction !== undefined) { err(`${path}.userAction`, 'a decision step is decided by its mode (user: the Decide… dialog), not confirmed as a user action'); }
+        if (!Array.isArray(decision.targets) || decision.targets.length === 0) { err(`${at}.targets`, 'at least one target {to, label, when}'); return; }
+        decision.targets.forEach((target, i) => {
+            const tAt = `${at}.targets[${i}]`;
+            if (!isObject(target)) { err(tAt, 'an object {to, label, when}'); return; }
+            unknownKeys(target, DECISION_TARGET_KEYS, tAt);
+            if (typeof target.to !== 'string' || !/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)?$/.test(target.to)) { err(`${tAt}.to`, 'required: `<phase>/<step>`, `<phase>` or a step of this phase'); }
+            checkText(target, 'label', tAt);
+            checkConditional(target, tAt);
+            if (decision.mode === 'auto' && isObject(target.when) && 'judge' in target.when) { err(`${tAt}.when`, 'an automatic decision is taken from chat variables: {var, …}; a text to judge needs mode judge'); }
+        });
+    };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
-        if (isObject(obj)) { checkConditional(obj, path); checkFollowUps(obj, path); }
+        if (isObject(obj)) { checkConditional(obj, path); checkFollowUps(obj, path); checkDecision(obj, path); }
         if (isObject(obj) && obj.userAction === true && obj.substeps !== undefined) {
             err(`${path}.userAction`, 'a step with sub-steps is a group — flag the sub-steps the user does');
         }
@@ -596,6 +654,9 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                 phase.steps.forEach((step, k) => {
                     const stepPath = `${path}.steps[${k}]`;
                     noteStep(checkStep(step, stepPath, STEP_KEYS), stepPath);
+                    if (isObject(step) && isObject(step.decision) && typeof step.id === 'string') {
+                        decisionSteps.push({ path: `${stepPath}.decision`, phase: phaseId, step: step.id, decision: step.decision });
+                    }
                 });
             }
             if (phase.gate === undefined) {
@@ -607,6 +668,9 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                     if (typeof phase.gate.onFail !== 'string' || !targets.includes(phase.gate.onFail)) {
                         err(`${path}.gate.onFail`, `the step a failed gate goes back to: one of ${targets.filter((t) => typeof t === 'string').map((t) => `"${t}"`).join(', ')}`);
                     }
+                }
+                if (isObject(phase.gate) && phase.gate.decision !== undefined) {
+                    err(`${path}.gate.decision`, 'a gate is decided by Gate passed / failed; put a decision step among the phase\'s steps');
                 }
                 if (isObject(phase.gate) && phase.gate.userAction !== undefined) {
                     err(`${path}.gate.userAction`, 'a gate is the agents\' check; the user\'s approval is the Gate passed / failed decision');
@@ -620,6 +684,9 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             if (phase.postGate !== undefined) {
                 const postPath = `${path}.postGate`;
                 noteStep(checkStep(phase.postGate, postPath, POST_GATE_KEYS), postPath);
+                if (isObject(phase.postGate) && phase.postGate.decision !== undefined) {
+                    err(`${postPath}.decision`, 'a decision step is one of the phase\'s steps, not its post-gate step');
+                }
                 if (isObject(phase.postGate)) {
                     checkText(phase.postGate, 'todoPrefix', postPath);
                     const todos = phase.postGate.todos;
@@ -636,6 +703,20 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                 }
             }
         });
+    }
+    // Every decision target names a step or phase of this process, and not the decision step itself.
+    if (Array.isArray(raw.phases)) {
+        const phases = raw.phases.filter(isObject) as unknown as ProcessPhase[];
+        for (const d of decisionSteps) {
+            if (!Array.isArray(d.decision.targets)) { continue; }
+            d.decision.targets.forEach((target, i) => {
+                if (!isObject(target) || typeof target.to !== 'string') { return; }
+                const found = resolveDecisionTarget(phases, d.phase, target.to);
+                const tAt = `${d.path}.targets[${i}].to`;
+                if (!found) { err(tAt, `no step or phase "${target.to}" in the process (\`<phase>/<step>\`, \`<phase>\` or a step of the phase "${d.phase}")`); return; }
+                if (found.phase.id === d.phase && found.step.id === d.step) { err(tAt, 'a decision step cannot go to itself'); }
+            });
+        }
     }
     return errors.length ? { errors } : { definition: raw as unknown as ProcessDefinition, errors };
 }
@@ -807,6 +888,12 @@ function orderedProcessDefinition(def: ProcessDefinition): Raw {
     const step = (s: ProcessStep): Raw => {
         const out = lists(pick(s, [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps']));
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
+        if (s.decision) {
+            out.decision = {
+                ...(s.decision.mode ? { mode: s.decision.mode } : {}),
+                targets: s.decision.targets.map((t) => pick(t, DECISION_TARGET_KEYS)),
+            };
+        }
         return out;
     };
     return {
@@ -870,6 +957,19 @@ export interface ProcessState {
      * {@link trackStepIterations}; dropped when the process changes.
      */
     phaseIterations?: Record<string, number>;
+    /** The jumps decision steps made (vscimpb95), oldest first: where from, where to, why. */
+    jumps?: ProcessJumpRecord[];
+    /**
+     * The agent's choice at a decision step in `judge` mode (tomAi_setProcessState
+     * `decide`): the target's index and why; taken when the step's Proceed run
+     * ends, at once without one. Dropped when the position changes.
+     */
+    decide?: { target: number; reason: string };
+    /**
+     * A transient mark on a move's target: Back, a correction — the phase it
+     * leaves is not recorded in `phaseIterations`. Never written.
+     */
+    correction?: true;
     /**
      * A level above the quest's own process (src/utils/processStack.ts): it
      * was started from the step of the level below as a subprocess or a
@@ -963,6 +1063,31 @@ export interface ProcessSkipRecord {
 
 /** How many skip records a level keeps. */
 export const MAX_SKIP_RECORDS = 50;
+
+/** A position as a jump record names it. */
+export interface ProcessJumpEnd {
+    phase: string;
+    phaseIteration: number;
+    step: string;
+    stepIteration: number;
+}
+
+/** A jump a decision step made (vscimpb95). */
+export interface ProcessJumpRecord {
+    from: ProcessJumpEnd;
+    to: ProcessJumpEnd;
+    /** The target's label. */
+    label: string;
+    /** Why: the condition that held, the agent's reason, '' for the user. */
+    reason: string;
+    /** The extension (auto, a condition held), the agent (judge) or the user (the Decide… dialog). */
+    by: 'condition' | 'agent' | 'user';
+    /** ISO time. */
+    at: string;
+}
+
+/** How many jump records a level keeps. */
+export const MAX_JUMP_RECORDS = 50;
 
 /** An agent's suggestion of a process the position lists. */
 export interface StoredSuggestion {
@@ -1065,10 +1190,11 @@ export function trackStepIterations(before: ProcessState, after: ProcessState): 
  * move leaves it; another process starts without a record.
  */
 function trackPhaseIterations(before: ProcessState, after: ProcessState): ProcessState {
-    const { phaseIterations: _old, ...rest } = after;
+    const { phaseIterations: _old, correction, ...rest } = after;
     if (!after.process || before.process !== after.process) { return rest; }
     const phases = { ...(before.phaseIterations ?? {}) };
-    if (before.phase && (before.phase !== after.phase || before.phaseIteration !== after.phaseIteration)) {
+    // Back is a correction: the phase it leaves did not run its round.
+    if (!correction && before.phase && (before.phase !== after.phase || before.phaseIteration !== after.phaseIteration)) {
         phases[before.phase] = Math.max(phases[before.phase] ?? 0, before.phaseIteration);
     }
     return Object.keys(phases).length ? { ...rest, phaseIterations: phases } : rest;
@@ -1410,7 +1536,7 @@ function withoutLeaveOut(state: ProcessState): ProcessState {
 /** The first position of the phase after `phase`; null after the last. */
 function afterPhase(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase): ProcessState | null {
     const next = def.phases[def.phases.indexOf(phase) + 1];
-    return next ? withStep({ ...state, phase: next.id, phaseIteration: 1 }, firstStepOf(next), 1) : null;
+    return next ? withStep(withoutRecord({ ...state, phase: next.id, phaseIteration: phaseEntryIteration(state, next) }), firstStepOf(next), 1) : null;
 }
 
 /** The position after the whole step `stepId` of `phase` (the next step, else the next phase); null at the end. */
@@ -1425,6 +1551,124 @@ function afterStep(def: ProcessDefinition, state: ProcessState, phase: ProcessPh
 }
 
 /**
+ * The step and phase a decision target names (vscimpb95): `<phase>/<step>`,
+ * `<phase>` (its first step), or a bare id — a step of the decision step's
+ * own phase when it has one, else a phase. Null when nothing matches.
+ */
+export function resolveDecisionTarget(phases: readonly ProcessPhase[], fromPhase: string, to: string): { phase: ProcessPhase; step: ProcessStep } | null {
+    const stepsOf = (p: ProcessPhase): ProcessStep[] => [...(Array.isArray(p.steps) ? p.steps : []), p.gate, ...(p.postGate ? [p.postGate] : [])]
+        .filter((x): x is ProcessStep => !!x && typeof x === 'object' && typeof (x as ProcessStep).id === 'string');
+    const [first, second] = to.split('/');
+    if (second !== undefined) {
+        const phase = phases.find((p) => p.id === first);
+        const step = phase ? stepsOf(phase).find((x) => x.id === second) : undefined;
+        return phase && step ? { phase, step } : null;
+    }
+    const own = phases.find((p) => p.id === fromPhase);
+    const ownStep = own ? stepsOf(own).find((x) => x.id === first) : undefined;
+    if (own && ownStep) { return { phase: own, step: ownStep }; }
+    const phase = phases.find((p) => p.id === first);
+    const start = phase ? stepsOf(phase)[0] : undefined;
+    return phase && start ? { phase, step: start } : null;
+}
+
+/** The label of a decision target: its own, else `Go to <where>`. */
+export function decisionTargetLabel(def: ProcessDefinition, fromPhase: string, target: ProcessDecisionTarget): string {
+    if (target.label && target.label.trim()) { return target.label.trim(); }
+    const found = resolveDecisionTarget(def.phases, fromPhase, target.to);
+    if (!found) { return `Go to ${target.to}`; }
+    return `Go to ${found.phase.id === fromPhase ? nameOf(found.step) : `${nameOf(found.phase)} › ${nameOf(found.step)}`}`;
+}
+
+/** The first target of an automatic decision whose `when:` holds (none: always); null when a condition cannot be decided or none holds. */
+function autoDecisionTarget(spec: ProcessDecisionSpec, lookup: ConditionLookup): { index: number; reason: string } | null {
+    for (let i = 0; i < spec.targets.length; i++) {
+        const when = spec.targets[i].when;
+        if (!when) { return { index: i, reason: 'the default target (no condition)' }; }
+        const verdict = evaluateCondition(when, lookup);
+        if (verdict === 'holds') { return { index: i, reason: `${conditionText(when)} holds` }; }
+        if (verdict === 'judge') { return null; }
+    }
+    return null;
+}
+
+/**
+ * The position a decision step's target `index` leads to, the jump recorded
+ * (vscimpb95). Iterations count on: within the step's own phase iteration the
+ * target step continues at its next iteration (the steps after it as they come
+ * round again); another phase starts at the iteration after the one it was
+ * last in (1 when it has not run), its steps at 1.
+ */
+function jumpTarget(def: ProcessDefinition, from: ProcessState, phase: ProcessPhase, step: ProcessStep, index: number, by: ProcessJumpRecord['by'], reason: string, now: string): ProcessState {
+    const target = step.decision!.targets[index];
+    const found = resolveDecisionTarget(def.phases, phase.id, target.to)!;
+    const { decide: _d, decision: _x, ...base } = from;
+    let to: ProcessState;
+    if (found.phase.id === from.phase) {
+        to = withStep(base, found.step, reentryIteration(base, found.phase, found.step));
+    } else {
+        to = withStep(withoutRecord({ ...base, phase: found.phase.id, phaseIteration: phaseEntryIteration(base, found.phase) }), found.step, 1);
+    }
+    const record: ProcessJumpRecord = {
+        from: { phase: from.phase, phaseIteration: from.phaseIteration, step: from.step, stepIteration: from.stepIteration },
+        to: { phase: to.phase, phaseIteration: to.phaseIteration, step: to.step, stepIteration: to.stepIteration },
+        label: decisionTargetLabel(def, phase.id, target), reason, by, at: now,
+    };
+    return { ...to, jumps: [...(from.jumps ?? []), record].slice(-MAX_JUMP_RECORDS) };
+}
+
+/** The running step when it is a decision step: its phase, the step and its `decision:` block. */
+export function decisionStepAt(def: ProcessDefinition | null, state: ProcessState): { phase: ProcessPhase; step: ProcessStep; spec: ProcessDecisionSpec; mode: ProcessDecisionMode } | null {
+    if (!def || !state.process || state.completed) { return null; }
+    const phase = findPhase(def, state.phase);
+    const step = phase ? findStep(phase, state.step) : undefined;
+    if (!phase || !step || !step.decision || step === phase.gate || step === phase.postGate) { return null; }
+    return { phase, step, spec: step.decision, mode: step.decision.mode ?? 'user' };
+}
+
+/** The choices of a decision step's decision: one jump per target, each with where it leads (past what conditions leave out). */
+function decisionStepOptions(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): ProcessMove[] {
+    const step = pos.entries[pos.stepIndex].step as ProcessStep;
+    const now = options.now ?? new Date().toISOString();
+    return step.decision!.targets.map((t, i) => ({
+        kind: 'jump' as const,
+        label: decisionTargetLabel(def, pos.phase.id, t),
+        target: passExcluded(def, here, jumpTarget(def, here, pos.phase, step, i, 'user', '', now), options),
+        key: `target:${i}`,
+        branchOption: true as const,
+    }));
+}
+
+/**
+ * Where Proceed at a decision step leads: auto — the first target whose
+ * condition holds; judge — the target the agent chose (`decide`); else, and
+ * when nothing decides it, the decision (the user picks in the dialog).
+ */
+function decisionStepProceed(def: ProcessDefinition, state: ProcessState, here: ProcessState, pos: Position, options: ConditionOptions): ProcessState {
+    const step = pos.entries[pos.stepIndex].step as ProcessStep;
+    const spec = step.decision!;
+    const mode = spec.mode ?? 'user';
+    const now = options.now ?? new Date().toISOString();
+    const take = (index: number, by: ProcessJumpRecord['by'], reason: string): ProcessState =>
+        passExcluded(def, here, jumpTarget(def, here, pos.phase, step, index, by, reason, now), options);
+    if (mode === 'auto' && options.lookup) {
+        const chosen = autoDecisionTarget(spec, options.lookup);
+        if (chosen) { return take(chosen.index, 'condition', chosen.reason); }
+    }
+    if (mode === 'judge' && state.decide && spec.targets[state.decide.target]) {
+        return take(state.decide.target, 'agent', state.decide.reason);
+    }
+    const { decide: _d, ...rest } = here;
+    return { ...rest, decision: true };
+}
+
+/** The target of a decision step a choice names: its label (any case) or its `to`; -1 when none. */
+export function decisionTargetIndex(def: ProcessDefinition, fromPhase: string, spec: ProcessDecisionSpec, choice: string): number {
+    const want = choice.trim().toLowerCase();
+    return spec.targets.findIndex((t) => decisionTargetLabel(def, fromPhase, t).toLowerCase() === want || t.to.toLowerCase() === want);
+}
+
+/**
  * Where a forward move from `from` to `target` really leads: every phase it
  * enters and every step it enters whose `when:` the extension decides does
  * not hold is passed by, and recorded in `skipped`. Past the last phase the
@@ -1434,6 +1678,7 @@ function afterStep(def: ProcessDefinition, state: ProcessState, phase: ProcessPh
 export function passExcluded(def: ProcessDefinition, from: ProcessState, target: ProcessState, options: ConditionOptions = {}): ProcessState {
     if (!options.lookup) { return target; }
     const now = options.now ?? new Date().toISOString();
+    const decided = new Set<string>();
     let prev = from;
     let at = target;
     for (let guard = 0; guard < 10_000; guard++) {
@@ -1448,9 +1693,22 @@ export function passExcluded(def: ProcessDefinition, from: ProcessState, target:
         } else {
             const step = findStep(phase, at.step);
             const entersStep = entersPhase || at.step !== prev.step || at.stepIteration !== prev.stepIteration;
-            if (!step || !entersStep || step === phase.gate || !step.when || evaluateCondition(step.when, options.lookup) !== 'fails') { return at; }
-            at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, step: step.id, reason: `runs only when ${conditionText(step.when)}`, by: 'condition', at: now });
-            next = afterStep(def, at, phase, step.id);
+            if (!step || !entersStep || step === phase.gate) { return at; }
+            if (step.when && evaluateCondition(step.when, options.lookup) === 'fails') {
+                at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, step: step.id, reason: `runs only when ${conditionText(step.when)}`, by: 'condition', at: now });
+                next = afterStep(def, at, phase, step.id);
+            } else if (step.decision) {
+                // A decision step entered: auto decides now (each step once per pass), user decides in the dialog, judge at Proceed.
+                const mode = step.decision.mode ?? 'user';
+                if (mode === 'judge') { return at; }
+                const where = `${phase.id}#${at.phaseIteration}/${step.id}`;
+                const chosen = mode === 'auto' && !decided.has(where) ? autoDecisionTarget(step.decision, options.lookup) : null;
+                if (!chosen) { return { ...at, decision: true }; }
+                decided.add(where);
+                next = jumpTarget(def, at, phase, step, chosen.index, 'condition', chosen.reason, now);
+            } else {
+                return at;
+            }
         }
         if (!next) { return { ...at, completed: true }; }
         prev = at;
@@ -1521,10 +1779,10 @@ export function skippedInPhase(state: ProcessState): ProcessSkipRecord[] {
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back' | 'back-phase' | 'phase-start';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back' | 'back-phase' | 'phase-start' | 'jump';
 
 /** The move kinds, in the order the action bar shows them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back', 'back-phase', 'phase-start'];
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back', 'back-phase', 'phase-start', 'jump'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
@@ -1541,6 +1799,8 @@ export interface ProcessMove {
      * context and record the carried variables (completeFollowUpSwitch).
      */
     followUp?: { key: string; entry: ProcessFollowUp };
+    /** A `jump` (a decision step's target, vscimpb95): which one, `target:<n>`. */
+    key?: string;
 }
 
 interface Position {
@@ -1572,7 +1832,17 @@ function forwardTarget(def: ProcessDefinition, state: ProcessState, pos: Positio
         return withStep(state, next, reentryIteration(state, pos.phase, next));
     }
     const nextPhase = def.phases[pos.phaseIndex + 1];
-    return nextPhase ? withStep({ ...state, phase: nextPhase.id, phaseIteration: 1 }, firstStepOf(nextPhase), 1) : null;
+    return nextPhase ? withStep(withoutRecord({ ...state, phase: nextPhase.id, phaseIteration: phaseEntryIteration(state, nextPhase) }), firstStepOf(nextPhase), 1) : null;
+}
+
+/**
+ * The iteration a phase is entered at by a move on (vscimpb95): the one after
+ * the last it was in (`phaseIterations`, after a jump or a move back), so its
+ * round folders continue — bounded by what it allows; 1 when it has not run.
+ */
+function phaseEntryIteration(state: ProcessState, phase: ProcessPhase): number {
+    const last = state.phaseIterations?.[phase.id];
+    return last === undefined ? 1 : clampIteration(phase, last + 1);
 }
 
 /**
@@ -1603,7 +1873,9 @@ function backTarget(def: ProcessDefinition, state: ProcessState, pos: Position):
     return {
         ...state,
         phase: phase.id,
-        phaseIteration: clampIteration(phase, state.phaseIteration),
+        // Into the previous phase: the iteration it was last in; Back is a correction, not a new round.
+        phaseIteration: clampIteration(phase, phase === pos.phase ? state.phaseIteration : state.phaseIterations?.[phase.id] ?? state.phaseIteration),
+        ...(phase === pos.phase ? {} : { correction: true as const }),
         step: step.id,
         stepIteration: clampIteration(repeatView(phase, step), was ?? state.stepIteration),
         substep: last?.id ?? '',
@@ -1627,7 +1899,8 @@ function isDecisionPoint(pos: Position): boolean {
     const subs = entry.step.substeps ?? [];
     const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
     const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
-    return (entry.kind === 'gate' && stepEnds)
+    return (entry.kind === 'step' && (entry.step as ProcessStep).decision !== undefined)
+        || (entry.kind === 'gate' && stepEnds)
         || phaseEnds
         || subs[pos.substepIndex]?.repeatable === true
         || (stepEnds && entry.step.repeatable === true)
@@ -1868,17 +2141,19 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
     const forwardRaw = forwardTarget(def, here, pos);
     const forward = forwardRaw ? passExcluded(def, here, withoutLeaveOut(notRun(forwardRaw)), options) : null;
     const moves: ProcessMove[] = [];
+    const decisionStep = pos.entries[pos.stepIndex].kind === 'step' && (pos.entries[pos.stepIndex].step as ProcessStep).decision !== undefined;
     if (state.decision && isDecisionPoint(pos)) {
         moves.push({ kind: 'proceed', label: 'Decide…', target: state });
-        moves.push(...decisionOptions(def, here, pos, forward, options));
+        moves.push(...(decisionStep ? decisionStepOptions(def, here, pos, options) : decisionOptions(def, here, pos, forward, options)));
         moves.push({ kind: 'back', label: 'Back', target: here });
         moves.push(...phaseStartMove(def, here, pos, true, options));
         moves.push(...backPhaseMove(def, here, pos, options));
         return moves;
     }
     const next = isDecisionPoint(pos) || !forward ? { ...here, decision: true as const } : forward;
-    moves.push({ kind: 'proceed', label: userActionAt(def, state) ? 'Confirm done' : 'Proceed', target: next });
-    moves.push({ kind: 'skip', label: 'Skip', target: next });
+    // A decision step: Proceed decides (or runs the agent's judgement); Skip passes it by without a jump.
+    moves.push({ kind: 'proceed', label: userActionAt(def, state) ? 'Confirm done' : 'Proceed', target: decisionStep ? decisionStepProceed(def, state, here, pos, options) : next });
+    moves.push({ kind: 'skip', label: 'Skip', target: decisionStep ? forward ?? { ...here, completed: true } : next });
     moves.push(...leaveOutMoves(def, state, here, pos, options));
     const backRaw = backTarget(def, here, pos);
     if (backRaw) {
@@ -2148,6 +2423,16 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
             : `${conditionText(judged.condition)} (the variable is not set, so the extension cannot decide it)`;
         lines.push('', `**Condition** — this ${what} runs only when: ${condition}. Judge it before doing any of its work. When it holds, go on as usual. When it does not, do none of the ${what}'s work: call \`tomAi_setProcessState {leaveOut: "<why>"}\` and end your answer — the process then leaves the ${what} out and records why.`);
     }
+    const decisionStep = decisionStepAt(def, state);
+    if (decisionStep && !state.decision) {
+        const targets = decisionStep.spec.targets.map((t, i) => `${i + 1}. ${decisionTargetLabel(def!, decisionStep.phase.id, t)} → \`${t.to}\`${t.when ? ` (${isJudgeCondition(t.when) ? t.when.judge.trim() : `when ${conditionText(t.when)}`})` : ''}`);
+        if (decisionStep.mode === 'judge') {
+            lines.push('', `**Decision step** — this step chooses where the process goes next; you judge it. Its targets:`, ...targets,
+                `Choose one: call \`tomAi_setProcessState {decide: "<label>", reason: "<why>"}\` and end your answer — the process jumps there when this step's run ends. Choosing none leaves the decision to the user.`);
+        } else {
+            lines.push('', `**Decision step** — this step chooses where the process goes next (${decisionStep.mode === 'auto' ? 'the extension decides from the chat variables; the user when nothing holds' : 'the user decides in the PROCESS view'}). Its targets:`, ...targets, 'An agent does not decide it.');
+        }
+    }
     if (!state.completed && userActionAt(def, state)) {
         lines.push('', '**User action** — this position is done by the user, not by an agent: do not do its work and do not move past it; the user confirms it with Proceed in the PROCESS view.');
     }
@@ -2182,6 +2467,54 @@ function parseStepIterations(raw: unknown): { stepIterations?: StepIterationReco
     if (Object.keys(steps).length === 0) { return {}; }
     const phaseIteration = Number.isInteger(raw.phaseIteration) && (raw.phaseIteration as number) >= 1 ? raw.phaseIteration as number : 1;
     return { stepIterations: { phase: raw.phase, phaseIteration, steps } };
+}
+
+const JUMP_BY: readonly ProcessJumpRecord['by'][] = ['condition', 'agent', 'user'];
+
+function parseJumpEnd(raw: unknown): ProcessJumpEnd | null {
+    if (!isObject(raw) || typeof raw.phase !== 'string' || typeof raw.step !== 'string') { return null; }
+    const n = (v: unknown): number => (Number.isInteger(v) && (v as number) >= 1 ? v as number : 1);
+    return { phase: raw.phase, phaseIteration: n(raw.phaseIteration), step: raw.step, stepIteration: n(raw.stepIteration) };
+}
+
+function parseJumps(raw: unknown): { jumps?: ProcessJumpRecord[] } {
+    if (!Array.isArray(raw)) { return {}; }
+    const out: ProcessJumpRecord[] = [];
+    for (const x of raw) {
+        if (!isObject(x)) { continue; }
+        const from = parseJumpEnd(x.from);
+        const to = parseJumpEnd(x.to);
+        if (!from || !to) { continue; }
+        out.push({
+            from, to,
+            label: typeof x.label === 'string' ? x.label : '',
+            reason: typeof x.reason === 'string' ? x.reason : '',
+            by: JUMP_BY.includes(x.by as ProcessJumpRecord['by']) ? x.by as ProcessJumpRecord['by'] : 'user',
+            at: typeof x.at === 'string' ? x.at : '',
+        });
+    }
+    return out.length ? { jumps: out.slice(-MAX_JUMP_RECORDS) } : {};
+}
+
+/** A jump as one line: `p1 #1 › work #1 → p2 #1 › check #1: label (by, reason)`. */
+export function jumpRecordText(r: ProcessJumpRecord): string {
+    const end = (e: ProcessJumpEnd): string => `${e.phase} #${e.phaseIteration} › ${e.step} #${e.stepIteration}`;
+    const who = r.by === 'condition' ? 'automatic' : r.by === 'agent' ? 'the agent' : 'the user';
+    return `${end(r.from)} → ${end(r.to)}: ${r.label} (${who}${r.reason ? `, ${r.reason}` : ''})`;
+}
+
+/** The decisions journal entry of a jump a decision step made (vscimpb95). */
+export function jumpJournalEntry(r: ProcessJumpRecord, process: string, run: string): string {
+    const end = (e: ProcessJumpEnd): string => `${process} › ${e.phase} #${e.phaseIteration} › ${e.step} #${e.stepIteration}`;
+    return [
+        `## ${r.at || new Date().toISOString()} — decision step: ${r.label}`,
+        '',
+        `- **From:** ${end(r.from)}`,
+        `- **To:** ${end(r.to)}`,
+        `- **By:** ${r.by === 'condition' ? 'the extension (its condition held)' : r.by === 'agent' ? 'the agent' : 'the user'}${r.reason ? ` — ${r.reason}` : ''}`,
+        ...(run && run !== 'default' ? [`- **Run:** ${run}`] : []),
+        '',
+    ].join('\n');
 }
 
 function parsePhaseIterations(raw: unknown): { phaseIterations?: Record<string, number> } {
@@ -2226,6 +2559,9 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
         ...parseStepIterations(raw.stepIterations),
         ...parsePhaseIterations(raw.phaseIterations),
+        ...parseJumps(raw.jumps),
+        ...(isObject(raw.decide) && Number.isInteger(raw.decide.target) && (raw.decide.target as number) >= 0
+            ? { decide: { target: raw.decide.target as number, reason: typeof raw.decide.reason === 'string' ? raw.decide.reason : '' } } : {}),
         ...parseNested(raw.nested),
         ...parseNestedEnded(raw.nestedEnded),
         ...textRecord('inputs', raw.inputs),
@@ -2329,6 +2665,8 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.decision ? { decision: true } : {}),
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
         ...(state.phaseIterations && Object.keys(state.phaseIterations).length ? { phaseIterations: state.phaseIterations } : {}),
+        ...(state.jumps?.length ? { jumps: state.jumps } : {}),
+        ...(state.decide ? { decide: state.decide } : {}),
         ...(state.nested ? { nested: state.nested } : {}),
         ...(state.nestedEnded ? { nestedEnded: state.nestedEnded } : {}),
         ...(state.inputs && Object.keys(state.inputs).length ? { inputs: state.inputs } : {}),

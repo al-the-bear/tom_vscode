@@ -521,6 +521,11 @@ counted on, so the round folders continue either way. Both are choices of
 the decision too: the current phase's at every decision inside the phase,
 and after a gate both (*Gate failed — back to the start of …*), which suits a
 gate that is a phase of its own. The moves go to the decisions journal.
+A step may be a **decision step** (`decision:`): when the step before it has
+finished it chooses where the process goes next, any step or phase —
+automatically from the chat variables, by you at Decide…, or judged by the
+agent (`tomAi_setProcessState {decide}`). Jumps count the iterations on and
+are listed in the PROCESS view, the state file and the decisions journal.
 
 ### @TOM VSC: resource-hungry extensions
 

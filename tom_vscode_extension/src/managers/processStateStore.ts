@@ -59,6 +59,11 @@ import {
     conditionLookup,
     followUpJournalEntry,
     backPhaseJournalEntry,
+    decisionStepAt,
+    decisionTargetIndex,
+    decisionTargetLabel,
+    jumpJournalEntry,
+    type ProcessJumpRecord,
     originVariables,
     judgedLevelAt,
     passExcluded,
@@ -675,7 +680,7 @@ export class ProcessStateStore {
     /** The move of `kind` (and `level`; for a follow-up its `key`, else the first) offered now, if any. */
     findMove(kind: ProcessMoveKind, level?: ProcessLevel, key?: string): ProcessMove | undefined {
         return this.moves().find((m) => m.kind === kind && (m.level ?? undefined) === (level ?? undefined)
-            && (key === undefined || m.followUp?.key === key));
+            && (key === undefined || (m.followUp?.key ?? m.key) === key));
     }
 
     /**
@@ -705,6 +710,43 @@ export class ProcessStateStore {
         const result = this.commit(repo, before, target, source);
         if (result.ok) { this.journalFollowUp(before, result.state); }
         return result;
+    }
+
+    /**
+     * The agent's choice at a decision step in `judge` mode (tomAi_setProcessState
+     * `decide`, vscimpb95): `choice` names a target by its label or its `to`.
+     * Inside the step's Proceed run it is recorded and taken when the run ends;
+     * otherwise the process jumps at once. Refused where the running step is no
+     * decision step or names no such target.
+     */
+    decide(choice: string, reason: string, running: boolean, source: ChangeSource): ProcessChangeResult {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; the process state belongs to a quest' }; }
+        const repo = this.repo();
+        if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
+        const def = this.currentDefinition();
+        const at = decisionStepAt(def, this.state);
+        if (!def || !at) { return { ok: false, error: 'the running step is no decision step: `decide` chooses the target of a decision step' }; }
+        const index = decisionTargetIndex(def, at.phase.id, at.spec, choice);
+        if (index < 0) {
+            return { ok: false, error: `the decision step ${at.step.id} has no target "${choice}"; its targets: ${at.spec.targets.map((t) => `"${decisionTargetLabel(def, at.phase.id, t)}" (${t.to})`).join(', ')}` };
+        }
+        const why = reason.trim();
+        if (this.state.decision) { return this.move('jump', undefined, source, { key: `target:${index}` }); }
+        const marked = this.commit(repo, this.state, { ...this.state, decide: { target: index, reason: why } }, source);
+        if (!marked.ok || running) { return marked; }
+        return this.move('proceed', undefined, source);
+    }
+
+    /** Jumps decision steps made go to the quest's decisions journal (best effort). */
+    private journalJumps(process: string, jumps: ProcessJumpRecord[]): void {
+        try {
+            const quests = WsPaths.ai('quests');
+            if (!quests) { return; }
+            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
+            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, `${head}${jumps.map((r) => `${jumpJournalEntry(r, process, this.run)}\n`).join('')}`, 'utf-8');
+        } catch { /* the journal is a record, not a participant */ }
     }
 
     /** A move back to the start of the previous phase goes to the quest's decisions journal (best effort). */
@@ -799,8 +841,8 @@ export class ProcessStateStore {
 
     private commit(repo: ProcessRepository, before: ProcessState, next: ProcessState, source: ChangeSource): ProcessChangeResult {
         // A move to another position leaves the step's suggestions behind (they belong to the step).
-        if (!samePosition(before, next) && (next.suggestions || next.suggestionsDue || next.leaveOut)) {
-            const { suggestions: _s, suggestionsDue: _d, leaveOut: _l, ...rest } = next;
+        if (!samePosition(before, next) && (next.suggestions || next.suggestionsDue || next.leaveOut || next.decide)) {
+            const { suggestions: _s, suggestionsDue: _d, leaveOut: _l, decide: _c, ...rest } = next;
             next = rest;
         }
         // Every change passes here, so the step it leaves is recorded once, in one place.
@@ -815,6 +857,9 @@ export class ProcessStateStore {
             return this.endTop('finished', source, [...this.levels.slice(0, -1), result.state]);
         }
         repo.writeState(this.quest, result.state, this.run);
+        // The jumps a decision step made with this change go to the decisions journal.
+        const newJumps = (result.state.jumps ?? []).filter((r) => !(before.jumps ?? []).includes(r));
+        if (newJumps.length) { this.journalJumps(result.state.process, newJumps); }
         this.rawState = result.state;
         this.rawLevels = [...this.rawLevels.slice(0, -1), result.state];
         const role = roleAfterMove(before, result.state, this.currentDefinition());

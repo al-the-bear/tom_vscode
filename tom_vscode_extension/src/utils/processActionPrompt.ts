@@ -253,7 +253,7 @@ export function userActionConfirmation(def: ProcessDefinition, state: ProcessSta
 export interface DecisionDialog {
     message: string;
     detail: string;
-    options: Array<{ label: string; kind: ProcessMove['kind']; level?: ProcessMove['level']; followUp?: { key: string } }>;
+    options: Array<{ label: string; kind: ProcessMove['kind']; level?: ProcessMove['level']; followUp?: { key: string }; key?: string }>;
 }
 
 /**
@@ -269,6 +269,6 @@ export function decisionDialog(def: ProcessDefinition, state: ProcessState, cond
         detail: ended
             ? `The ${ended.kind} ${ended.process} ${ended.outcome === 'aborted' ? 'was aborted' : 'finished'}. Go on past the step, or run it again — nothing is queued; the process moves to what you pick.`
             : `This position has run. Choose how the process goes on — nothing is queued; the process moves to what you pick.${decision.options.some((o) => o.kind === 'follow-up') ? ' Continue in … switches to a follow-up process at the position it names (the run and its chat variables stay).' : ''}`,
-        options: decision.options.map((o) => ({ label: o.label, kind: o.kind, ...(o.level ? { level: o.level } : {}), ...(o.followUp ? { followUp: { key: o.followUp.key } } : {}) })),
+        options: decision.options.map((o) => ({ label: o.label, kind: o.kind, ...(o.level ? { level: o.level } : {}), ...(o.followUp ? { followUp: { key: o.followUp.key } } : {}), ...(o.key ? { key: o.key } : {}) })),
     };
 }

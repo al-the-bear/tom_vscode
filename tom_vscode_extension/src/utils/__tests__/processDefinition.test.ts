@@ -78,6 +78,9 @@ import {
     validateProcessDefinition,
     stringifyProcessDefinition,
     yaml11ReadsAsNonString,
+    decisionTargetIndex,
+    decisionTargetLabel,
+    jumpRecordText,
     roleAfterMove,
     availableMoves,
     decisionAt,
@@ -937,5 +940,184 @@ describe('back to the start of the current phase (vscimpb94)', () => {
         assert.equal(gate.label, 'Gate failed — back to the start of the current phase (Draft)');
         assert.equal(gate.target.phaseIteration, 1, 'not a phase repeat');
         assert.ok(restart(def, afterWrite), 'and in the action bar at a decision');
+    });
+});
+
+describe('decision steps (vscimpb95)', () => {
+    const BRANCHY = `
+id: branchy
+name: Branchy
+phases:
+  - id: p1
+    name: P1
+    repeatable: true
+    steps:
+      - id: draft
+        name: Draft
+        repeatable: true
+      - id: route
+        name: Route
+        decision:
+          mode: auto
+          targets:
+            - to: p3/ship
+              label: Straight to shipping
+              when: { var: fast, equals: "yes" }
+            - to: p2
+              label: To the review
+              when: { var: fast, equals: "no" }
+    gate: { id: g1, name: G1 }
+  - id: p2
+    name: P2
+    repeatable: true
+    steps:
+      - id: review
+        name: Review
+      - id: choose
+        name: Choose
+        decision:
+          targets:
+            - to: p1/draft
+              label: Redo the draft
+            - to: p3
+              label: Ship it
+    gate: { id: g2, name: G2 }
+  - id: p3
+    name: P3
+    steps:
+      - id: prep
+        name: Prep
+        repeatable: true
+      - id: ship
+        name: Ship
+      - id: judgeit
+        name: Judge it
+        decision:
+          mode: judge
+          targets:
+            - to: prep
+              label: Prepare again
+              when: { judge: the build failed }
+            - to: g3
+    gate: { id: g3, name: G3 }
+`;
+    const def = (): ProcessDefinition => {
+        const r = parseProcessYaml(BRANCHY);
+        assert.deepEqual(r.errors, []);
+        return r.definition!;
+    };
+    const opts = (vars: Record<string, string> = {}) => ({ lookup: (n: string) => vars[n], now: '2026-11-14T18:00:00.000Z' });
+    const pos = (s: ReturnType<typeof selectProcess>): string => `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}`;
+    /** A move made the way the store commits it: the move's target, the iterations recorded. */
+    const go = (d: ProcessDefinition, s: ReturnType<typeof selectProcess>, kind: string, vars: Record<string, string> = {}, key?: string) => {
+        const all = [...availableMoves(d, s, opts(vars)), ...(decisionAt(d, s, opts(vars))?.options ?? [])];
+        const m = all.find((x) => x.kind === kind && (key === undefined || x.key === key || x.label === key));
+        assert.ok(m, `${kind} ${key ?? ''} at ${pos(s)}: ${all.map((x) => `${x.kind} ${x.label}`).join('; ')}`);
+        return trackStepIterations(s, m!.target);
+    };
+    const at = (d: ProcessDefinition, phase: string, step: string): ReturnType<typeof selectProcess> =>
+        normalizeState({ ...selectProcess(d), phase, step }, d);
+
+    test('DS-1: validated — the targets exist, the step is no gate, no sub-steps; the schema agrees; written back', () => {
+        const d = def();
+        assert.deepEqual(parseProcessYaml(stringifyProcessDefinition(d)).definition, d, 'written and read back');
+        const bad = (edit: (raw: any) => void): string[] => {
+            const raw = parse(BRANCHY);
+            edit(raw);
+            return validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`);
+        };
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.targets[0].to = 'p9/x'; }).join('\n'), /phases\[0\]\.steps\[1\]\.decision\.targets\[0\]\.to: no step or phase "p9\/x"/);
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.targets[0].to = 'nope'; }).join('\n'), /no step or phase "nope"/);
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.targets[0].to = 'route'; }).join('\n'), /cannot go to itself/);
+        assert.match(bad((r) => { r.phases[0].gate.decision = { targets: [{ to: 'p2' }] }; }).join('\n'), /phases\[0\]\.gate\.decision: a gate is decided by Gate passed \/ failed/);
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.targets[0].when = { judge: 'x' }; }).join('\n'), /an automatic decision is taken from chat variables/);
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.mode = 'maybe'; }).join('\n'), /decision\.mode: "auto"/);
+        assert.match(bad((r) => { r.phases[0].steps[1].decision.targets = []; }).join('\n'), /at least one target/);
+        assert.match(bad((r) => { r.phases[0].steps[1].substeps = [{ id: 'a' }]; }).join('\n'), /a decision step has no sub-steps/);
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(BRANCHY)), true, JSON.stringify(validate.errors));
+        const wrong = parse(BRANCHY);
+        wrong.phases[0].steps[1].decision.targets[0].go = 'x';
+        assert.equal(validate(wrong), false, 'the schema refuses an unknown key too');
+    });
+
+    test('DS-2: automatic — the first target whose condition holds, across phases; the user when none holds', () => {
+        const d = def();
+        const draft = selectProcess(d);
+        const fast = go(d, draft, 'proceed', { fast: 'yes' });
+        assert.equal(pos(fast), 'p1#1/draft#1 (decision)', 'draft is repeatable: its decision first');
+        const shipped = go(d, fast, 'finish', { fast: 'yes' });
+        assert.equal(pos(shipped), 'p3#1/ship#1', 'route decided on entry: straight to shipping');
+        assert.deepEqual(shipped.jumps, [{
+            from: { phase: 'p1', phaseIteration: 1, step: 'route', stepIteration: 1 }, to: { phase: 'p3', phaseIteration: 1, step: 'ship', stepIteration: 1 },
+            label: 'Straight to shipping', reason: '`fast` is `yes` holds', by: 'condition', at: '2026-11-14T18:00:00.000Z',
+        }]);
+        assert.deepEqual(shipped.phaseIterations, { p1: 1 });
+        assert.equal(pos(go(d, fast, 'finish', { fast: 'no' })), 'p2#1/review#1');
+        // Nothing holds: the decision is the user's, with the targets.
+        const open = go(d, fast, 'finish', {});
+        assert.equal(pos(open), 'p1#1/route#1 (decision)');
+        assert.deepEqual(decisionAt(d, open, opts())!.options.map((o) => `${o.kind} ${o.key} ${o.label}`), ['jump target:0 Straight to shipping', 'jump target:1 To the review']);
+        assert.equal(pos(go(d, open, 'jump', {}, 'target:1')), 'p2#1/review#1');
+        assert.equal(go(d, open, 'jump', {}, 'target:1').jumps![0].by, 'user');
+        // At its own position (Back onto it) Proceed decides; Skip passes it by without a jump.
+        const onRoute = at(d, 'p1', 'route');
+        assert.equal(pos(go(d, onRoute, 'proceed', { fast: 'yes' })), 'p3#1/ship#1');
+        assert.equal(pos(go(d, onRoute, 'skip', { fast: 'yes' })), 'p1#1/g1#1');
+    });
+
+    test('DS-3: the user decides — jumping back counts the target and every level after it on', () => {
+        const d = def();
+        let s = go(d, selectProcess(d), 'proceed', { fast: 'no' });
+        s = go(d, s, 'finish', { fast: 'no' });
+        assert.equal(pos(s), 'p2#1/review#1');
+        s = go(d, s, 'proceed');
+        assert.equal(pos(s), 'p2#1/choose#1 (decision)', 'a user decision step: its decision at once');
+        assert.deepEqual(decisionAt(d, s, opts())!.options.map((o) => o.label), ['Redo the draft', 'Ship it']);
+        s = go(d, s, 'jump', {}, 'Redo the draft');
+        assert.equal(pos(s), 'p1#2/draft#1', 'P1 again at its next iteration');
+        assert.deepEqual(s.phaseIterations, { p1: 1, p2: 1 });
+        s = go(d, s, 'proceed', { fast: 'no' });
+        s = go(d, s, 'finish', { fast: 'no' });
+        assert.equal(pos(s), 'p2#2/review#1', 'P2 after it counts on too');
+        assert.equal(s.jumps!.length, 3, 'route, choose, route again');
+    });
+
+    test('DS-4: the agent judges — its choice is taken at Proceed; without one the user decides', () => {
+        const d = def();
+        let s = go(d, at(d, 'p3', 'prep'), 'proceed');
+        s = go(d, s, 'finish');
+        s = go(d, s, 'proceed');
+        assert.equal(pos(s), 'p3#1/judgeit#1', 'judge: Proceed runs the step');
+        assert.equal(pos(go(d, s, 'proceed')), 'p3#1/judgeit#1 (decision)', 'no choice: the decision is the user\'s');
+        assert.equal(decisionTargetIndex(d, 'p3', d.phases[2].steps[2].decision!, 'prepare AGAIN'), 0, 'by label, any case');
+        assert.equal(decisionTargetIndex(d, 'p3', d.phases[2].steps[2].decision!, 'g3'), 1, 'by its to');
+        assert.equal(decisionTargetIndex(d, 'p3', d.phases[2].steps[2].decision!, 'nowhere'), -1);
+        assert.equal(decisionTargetLabel(d, 'p3', d.phases[2].steps[2].decision!.targets[1]), 'Go to G3', 'the default label');
+        const chosen = go(d, { ...s, decide: { target: 0, reason: 'the build failed' } }, 'proceed');
+        assert.equal(pos(chosen), 'p3#1/prep#2', 'prep ran once in this phase iteration: its next iteration');
+        assert.deepEqual([chosen.jumps!.at(-1)!.by, chosen.jumps!.at(-1)!.reason, chosen.decide], ['agent', 'the build failed', undefined]);
+        // The agent is told in the system prompt; at a user step it is told the decision is not its.
+        const block = processContextBlock(d, s, '', true, opts());
+        assert.match(block, /\*\*Decision step\*\* — this step chooses where the process goes next; you judge it\. Its targets:\n1\. Prepare again → `prep` \(the build failed\)\n2\. Go to G3 → `g3`\nChoose one: call `tomAi_setProcessState \{decide: "<label>", reason: "<why>"\}`/);
+        assert.match(processContextBlock(d, at(d, 'p2', 'choose'), '', false, opts()), /\*\*Decision step\*\* — this step chooses where the process goes next \(the user decides in the PROCESS view\)[\s\S]*An agent does not decide it\./);
+    });
+
+    test('DS-5: the state file keeps the jumps and the agent\'s choice; Back is a correction', () => {
+        const d = def();
+        let s = go(d, selectProcess(d), 'proceed', { fast: 'yes' });
+        s = go(d, s, 'finish', { fast: 'yes' });
+        const withChoice = { ...s, decide: { target: 1, reason: 'why' } };
+        const again = parseProcessState(stringifyProcessState(withChoice, '2026-11-14T18:00:00Z'));
+        assert.deepEqual(again.jumps, s.jumps);
+        assert.deepEqual(again.decide, { target: 1, reason: 'why' });
+        assert.equal(jumpRecordText(s.jumps![0]), 'p1 #1 › route #1 → p3 #1 › ship #1: Straight to shipping (automatic, `fast` is `yes` holds)');
+        // Back from P2's first step into P1 and on again: P2 is entered at the iteration it had.
+        const review = trackStepIterations(at(d, 'p1', 'g1'), at(d, 'p2', 'review'));
+        const back = go(d, review, 'back');
+        assert.equal(back.phase, 'p1');
+        assert.deepEqual(back.phaseIterations, { p1: 1 }, 'Back records nothing for the phase it corrects');
+        assert.equal(back.correction, undefined, 'the mark is never kept');
     });
 });

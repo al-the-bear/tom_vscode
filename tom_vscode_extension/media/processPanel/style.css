@@ -189,3 +189,4 @@ details.level > summary { cursor: pointer; }
 .documents .doc-link:hover:not([disabled]) { text-decoration: underline; background: var(--vscode-list-hoverBackground); }
 .documents .doc-link[disabled] { color: var(--vscode-disabledForeground); cursor: default; }
 .documents .doc-link .muted { margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decision-step ul { margin: 2px 0 0 0; padding-left: 18px; }

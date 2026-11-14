@@ -45,7 +45,7 @@ import {
     processActionValues,
     type ProcessActionTemplates,
 } from '../utils/processActionPrompt';
-import { decisionAt, samePosition, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
+import { decisionAt, decisionStepAt, samePosition, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
 import { positionText, reviewFileName } from '../utils/processActionPrompt';
 import { markerText, newProceedId, openMarkerIds, type ProcessMoveSpec } from '../utils/processMoveMarker';
 import { processResetConfirmation, processResetLines, type ProcessResetMode, type ProcessResetPlan } from '../utils/processReset';
@@ -200,7 +200,7 @@ function planProcessAction(
     const queue = PromptQueueManager.instance;
     if (move.kind !== 'proceed') {
         // A follow-up's call context is resolved by the placeholder engine as the decision sees it.
-        const moved = store.move(kind, level, 'user', move.kind === 'follow-up' ? { key: move.followUp?.key, resolve: (text) => resolveVariables(text) } : undefined);
+        const moved = store.move(kind, level, 'user', move.kind === 'follow-up' ? { key: move.followUp?.key, resolve: (text) => resolveVariables(text) } : move.key ? { key: move.key } : undefined);
         if (moved.ok) { queue.dropProcessMoveMarkers(store.activeQuest, `${move.label} by hand`, store.currentRun); }
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
     }
@@ -218,7 +218,9 @@ function planProcessAction(
     }
     const session = actionSession(def, here, sessionOverride, store.inheritedSession(), store.currentRun);
     // A user action is done by the user: confirming it queues nothing.
-    const text = userActionAt(def, here) ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
+    // A decision step runs a prompt only when the agent judges it; auto and user steps decide at once.
+    const deciding = decisionStepAt(def, here);
+    const text = userActionAt(def, here) || (deciding && deciding.mode !== 'judge') ? '' : buildProcessActionPrompt(store, move, customInstructions, undefined, sessionOverride);
     if (!text) {
         const moved = store.move(kind, level, 'user');
         return moved.ok ? { ok: true, queued: false, label: move.label } : moved;
@@ -364,7 +366,7 @@ export async function decideInDialog(context?: vscode.ExtensionContext, run?: st
         return { helper: pick.use };
     }
     if (pick.kind !== 'option') { return {}; }
-    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '', undefined, pick.option.followUp?.key, run) };
+    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '', undefined, pick.option.followUp?.key ?? pick.option.key, run) };
 }
 
 /** Reopen the decision (the note's button, the end of a helper's turn); a failed move is reported. */
@@ -484,7 +486,7 @@ export async function takeDecisionOption(label: string, run?: string): Promise<P
     const decide = decisionOf(store, run);
     const option = decide?.options.find((o) => o.label === label);
     const result: ProcessActionResult = option
-        ? await confirmProcessAction(option.kind, option.level, '', undefined, option.followUp?.key, run)
+        ? await confirmProcessAction(option.kind, option.level, '', undefined, option.followUp?.key ?? option.key, run)
         : { ok: false, error: decide ? `the decision no longer offers "${label}"` : 'the process is not at a decision any more' };
     if (!result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
     return result;

@@ -238,6 +238,9 @@
         },
         "followUps": {
           "$ref": "#/$defs/followUps"
+        },
+        "decision": {
+          "$ref": "#/$defs/decision"
         }
       }
     },
@@ -488,6 +491,50 @@
             }
           }
         ]
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targets"
+      ],
+      "description": "A decision step: it runs when the step before it has finished and chooses where the process goes next — any step or phase of the process, earlier or later. No sub-steps and no userAction; not on a gate or a post-gate step (the validator enforces these and that every target exists).",
+      "properties": {
+        "mode": {
+          "enum": [
+            "auto",
+            "user",
+            "judge"
+          ],
+          "description": "auto: the extension takes the first target whose `when:` holds (a target without one always holds), the user decides when none does; user (default): the Decide… dialog; judge: Proceed runs the step's prompt and the agent chooses (tomAi_setProcessState `decide`)."
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "to"
+            ],
+            "properties": {
+              "to": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)?$",
+                "description": "`<phase>/<step>`, `<phase>` (its first step), or a step of the decision step's own phase."
+              },
+              "label": {
+                "type": "string",
+                "description": "What the choice says; default `Go to <where>`."
+              },
+              "when": {
+                "$ref": "#/$defs/condition",
+                "description": "auto: when this target is taken; user, judge: shown with it."
+              }
+            }
+          }
+        }
       }
     },
     "condition": {

@@ -68,6 +68,12 @@ export interface ProcessToolDeps {
      * none runs).
      */
     leaveOut?(reason: string): ProcessChangeResult;
+    /**
+     * The agent's choice at a decision step (vscimpb95): the target named by
+     * its label or `to`; taken when the step's Proceed run ends (at once when
+     * none runs).
+     */
+    decide?(choice: string, reason: string): ProcessChangeResult;
     /** The documents a level's position puts in front of the user (its `documents:`, resolved; vscimpb64). */
     documents?(state: ProcessState): DocumentLink[];
 }
@@ -248,8 +254,21 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number; run?
 // tomAi_setProcessState
 // ===========================================================================
 
-export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange & { run?: string; leaveOut?: string }): Promise<string> {
-    const { run, leaveOut, ...change } = input;
+export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessChange & { run?: string; leaveOut?: string; decide?: string; reason?: string }): Promise<string> {
+    const { run, leaveOut, decide, reason, ...change } = input;
+    if (decide !== undefined) {
+        if (Object.keys(change).length || leaveOut !== undefined) { return JSON.stringify({ ok: false, error: '`decide` goes alone (with `reason`): it chooses the target of the running decision step, and moves nothing else' }); }
+        if (typeof decide !== 'string' || decide.trim() === '') { return JSON.stringify({ ok: false, error: '`decide` names a target of the decision step: its label or its `to`' }); }
+        if (!deps.decide) { return JSON.stringify({ ok: false, error: 'deciding is not available here' }); }
+        const answer = onRun(deps, run, () => {
+            const result = deps.decide!(decide, typeof reason === 'string' ? reason : '');
+            if (!result.ok) { return result; }
+            const jump = result.state.jumps?.[result.state.jumps.length - 1];
+            return { ok: true, ...(run ? { run } : {}), state: result.state, ...(result.state.decide ? { decided: 'recorded: the process jumps when this step\'s run ends' } : { jumped: jump ?? null }) };
+        });
+        return JSON.stringify(answer, null, 2);
+    }
+    if (reason !== undefined) { return JSON.stringify({ ok: false, error: '`reason` goes with `decide`' }); }
     if (leaveOut !== undefined) {
         if (Object.keys(change).length) { return JSON.stringify({ ok: false, error: '`leaveOut` goes alone: it records that the running phase or step is left out, and moves nothing else' }); }
         if (typeof leaveOut !== 'string') { return JSON.stringify({ ok: false, error: '`leaveOut` is the reason, as text' }); }
@@ -278,11 +297,11 @@ export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessC
     return JSON.stringify(answer, null, 2);
 }
 
-export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?: string; leaveOut?: string }> = {
+export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?: string; leaveOut?: string; decide?: string; reason?: string }> = {
     name: 'tomAi_setProcessState',
     displayName: 'Set Process State',
     description:
-        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker. `leaveOut` (alone; the reason): the running phase or step whose `when:` you judge does not hold is left out and recorded — when its Proceed run ends, at once without one. `run` moves another run of the quest (tomAi_listProcessRuns) instead of the window\'s current one.',
+        'Move the active quest in its process — the running (top) level of its process stack: `process` ("" clears it; leaves every level), `phase`, `step`, `substep` (applied in that order, each starting at its first child), the iterations (repeatable levels only), `completed: true`. Every name is checked against the definition; a refusal changes nothing. In a subprocess, `outputs` sets its declared outputs (handed back to the step that started it when it finishes; a required one must be set first). Answers `{state, role, roleChanged}` (a step\'s role becomes the `role` chat variable). Setting the state removes a Proceed\'s process-move marker. `leaveOut` (alone; the reason): the running phase or step whose `when:` you judge does not hold is left out and recorded — when its Proceed run ends, at once without one. `decide` (with `reason`, alone): at a decision step you judge, the target it goes to (its label or `to`) — the process jumps there when the step\'s Proceed run ends, at once without one, and records the jump. `run` moves another run of the quest (tomAi_listProcessRuns) instead of the window\'s current one.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     // Like tomAi_writeChatVariable: state, not content, and visible live in
@@ -301,6 +320,8 @@ export const SET_PROCESS_STATE_TOOL: SharedToolDefinition<ProcessChange & { run?
             completed: { type: 'boolean', description: 'true: the process is finished (its last step done).' },
             outputs: { type: 'object', additionalProperties: { type: 'string' }, description: 'Outputs of the running subprocess or branch, by declared name (merged with those set before).' },
             leaveOut: { type: 'string', description: 'Why the running phase or step is left out: its `when:` condition, judged by you, does not hold. Goes alone.' },
+            decide: { type: 'string', description: 'At a decision step: the target you choose, by its label or its `to`. Goes alone (with `reason`).' },
+            reason: { type: 'string', description: 'With `decide`: why that target.' },
             ...RUN_PARAM,
         },
     },
@@ -359,6 +380,11 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const run = (require('../services/processRunContext.js') as typeof import('../services/processRunContext')).currentProcessRun();
             return store().leaveOut(reason, !!run?.proceedId && run.quest === store().activeQuest, source);
+        },
+        decide: (choice, reason) => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const run = (require('../services/processRunContext.js') as typeof import('../services/processRunContext')).currentProcessRun();
+            return store().decide(choice, reason, !!run?.proceedId && run.quest === store().activeQuest, source);
         },
     };
     function dropMarkers(run: string): number {
