@@ -24,6 +24,9 @@
  *   CV-10 `ir`: a crafted violation in the IR carries its check number, as the binary reports it
  *   CV-11 `ir` with a trio, `regeneratedIr` without `ir`, a regenerated trio with `ir`, a missing IR
  *         folder: usage errors with the binary's message, nothing defaulted
+ *   CV-12 coverage gaps (vscimpb110, contract §2.11): an extract value no code cites fails check 35; `recordGaps`
+ *         writes it into coverage_gaps.yaml beside the extracts (`recordedGaps`, needs: unknown, foundBy: mechanical),
+ *         a second run records nothing new; settled `leaveAsIs`, it comes back as `leftAsIsGaps` and check 35 passes
  *   SC-1  a step's context: its areas' extracts exactly, its entries, its project
  *   SC-2  every step's areas have extracts and contract entries
  *   SC-3  input errors, a missing extract, §2 in full
@@ -250,6 +253,57 @@ describe('CodeSpecs validate', () => {
         assert.equal(dangling.token, 'NOPE-TOKN');
         assert.equal(dangling.file, 'lib/src/data_access/customer.dart');
         assert.deepEqual(Object.entries(r.byCheck), [['7', 1], ['36', 1]]);
+    });
+
+    test('CV-12: coverage gaps are recorded, and a gap left as is is not held', async () => {
+        copyRun('gaps');
+        const extract = path.join(ws, 'gaps', 'codespecs_extracts', 'CE-DB.extract.yaml');
+        const text = fs.readFileSync(extract, 'utf8');
+        const entry = [
+            '    - sectionId: "DAENT-GAPX"',
+            '      headline: "Customer"',
+            '      instanceId: "DAENT-ENTI-AA1"',
+            '      path: "SBP/informationAndDataModel/dataModel/DAENT-ENTI-LST-1/DAENT-GAPX"',
+            '      className: "DataEntityEntry"',
+            '      fieldName: "retention"',
+            '      formField: "retentionPeriod"',
+            '      routedBy: "CodeSpecPart.dataAccess"',
+            '      routedAt: "DataEntityEntry"',
+            '      routingNote: "a fact with no place"',
+            '      value: "ten years"',
+            '',
+        ].join('\n');
+        const changed = text.replace('  entries:\n', `  entries:\n${entry}`).replace('entryCount: 35', 'entryCount: 36');
+        assert.notEqual(changed, text);
+        fs.writeFileSync(extract, changed);
+        const input = { ...trio('gaps'), extractsDir: 'gaps/codespecs_extracts' };
+        const record = path.join(ws, 'gaps', 'codespecs_extracts', 'coverage_gaps.yaml');
+
+        const before = await call(codeSpecsValidateImpl, input);
+        assert.ok(before.violations.some((v: Json) => v.check === 35 && v.token === 'DAENT-GAPX'), JSON.stringify(before.violations));
+        assert.equal(before.recordedGaps, undefined, 'without recordGaps nothing is recorded');
+        assert.equal(fs.existsSync(record), false);
+
+        const first = await call(codeSpecsValidateImpl, { ...input, recordGaps: true });
+        assert.equal(first.recordedGaps.length, 1, JSON.stringify(first.recordedGaps));
+        assert.equal(first.recordedGaps[0].id, 'GAP-1');
+        assert.equal(first.recordedGaps[0].token, 'DAENT-GAPX');
+        assert.equal(first.recordedGaps[0].area, 'CE-DB');
+        const recordText = fs.readFileSync(record, 'utf8');
+        assert.match(recordText, /coverageGaps:/);
+        assert.match(recordText, /id: GAP-1/);
+        assert.match(recordText, /needs: unknown/);
+        assert.match(recordText, /foundBy: mechanical/);
+        assert.match(recordText, /resolution: open/);
+        assert.ok(first.violations.some((v: Json) => v.check === 35), 'the checks run as without it');
+
+        const again = await call(codeSpecsValidateImpl, { ...input, recordGaps: true });
+        assert.deepEqual(again.recordedGaps, [], 'an open gap is not recorded twice');
+
+        fs.writeFileSync(record, recordText.replace('resolution: open', 'resolution: leaveAsIs\n      reason: kept out of the code'));
+        const settled = await call(codeSpecsValidateImpl, input);
+        assert.equal(settled.violations.some((v: Json) => v.check === 35), false, JSON.stringify(settled.violations));
+        assert.deepEqual(settled.leftAsIsGaps.map((g: Json) => [g.token, g.area, g.gaps]), [['DAENT-GAPX', 'CE-DB', ['GAP-1']]]);
     });
 
     test('CV-11: `ir` is refused with a trio, as the binary refuses it', async () => {

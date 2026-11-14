@@ -13,6 +13,9 @@
  *   GD-5  the runbooks follow IR authoring and generation units (vscimpb67e, codespecs_mapping.md §1.1.2): an
  *         authoring step writes IR into <spec-root>/irspecs/, reads its units; validation maps each unit
  *         (`irspecs map --unit`) and validates with `ir`; Stage C plans csproj per generation unit
+ *   GD-6  the runbooks name the coverage-gap record (vscimpb110, contract §2.11): Stage B and an authoring step record a
+ *         fact with no place in coverage_gaps.yaml and file the run's gap review; validation offers `recordGaps`; the
+ *         next-step runbook says an open gap stops the run
  */
 
 import test, { describe } from 'node:test';
@@ -147,5 +150,25 @@ describe('CodeSpecs guides', () => {
         assert.match(text('codespecs-stage-c'), /csproj<n> \(one scaffolding todo per generation unit/);
         assert.match(text('codespecs-next-step'), /The authoring steps write IR/);
         assert.ok(RUNBOOKS.find((r) => r.name === 'codespecs-validate')!.arguments.every((a) => a.name !== 'shared' || !a.required), '`shared` is optional now');
+    });
+
+    test('GD-6: the coverage-gap record', () => {
+        const text = (name: string): string => {
+            const r = runbookText(name, { file: 'specs/sbp.docspecs.yaml', step: '10', questId: 'q1' });
+            return r.ok ? r.text.split('\n---\n')[0] : '';
+        };
+        const record = 'generated-doc/codespecs_extracts/coverage_gaps.yaml beside specs/sbp.docspecs.yaml';
+        const stageB = text('codespecs-stage-b');
+        assert.ok(stageB.includes(record), stageB);
+        assert.match(stageB, /`foundBy: stageB`/);
+        assert.match(stageB, /codespecs_derivation_contract\.md §2\.11/);
+        assert.match(stageB, /one csopen<n>, decision-needed/);
+        const authoring = text('codespecs-authoring-step');
+        assert.ok(authoring.includes(record), authoring);
+        assert.match(authoring, /`foundBy: authoring`,\n?\s*`step: 10`/);
+        assert.match(authoring, /put it nowhere in the IR/);
+        assert.match(authoring, /set\s+the next csgen<n> todo to decision-needed/);
+        assert.match(text('codespecs-validate'), /`recordGaps: true`[\s\S]*`recordedGaps`[\s\S]*`leftAsIsGaps`/);
+        assert.match(text('codespecs-next-step'), /An open coverage gap[\s\S]*stops the\s+run wherever it stands/);
     });
 });

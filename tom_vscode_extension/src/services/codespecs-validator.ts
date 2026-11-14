@@ -171,6 +171,14 @@ export interface CodeSpecsValidationReport {
     checks: Array<{ number: number; definedIn: string; title: string }>;
     notRun: Array<{ checks: number[]; reason: string }>;
     excludedAreas: Array<Record<string, unknown>>;
+    /**
+     * The coverage gaps settled `leaveAsIs` (codespecs_derivation_contract.md
+     * §2.11) whose tokens check 35 did not hold against the trio; only when
+     * there are any.
+     */
+    leftAsIsGaps?: Array<Record<string, unknown>>;
+    /** With `recordGaps`: the gaps the run appended to coverage_gaps.yaml (possibly none). */
+    recordedGaps?: Array<Record<string, unknown>>;
     violations: CodeSpecsViolation[];
 }
 
@@ -199,6 +207,13 @@ export interface ValidationOptions extends Partial<Trio> {
     csVocabulary?: string;
     coreSource?: string;
     regenerated?: Partial<Trio>;
+    /**
+     * `--record-gaps` (needs `extracts`): every token check 35 reports becomes
+     * a coverage gap (needs: unknown, foundBy: mechanical) in
+     * `coverage_gaps.yaml` beside the extracts, unless an open or `leaveAsIs`
+     * gap names it already. The checks run as without it.
+     */
+    recordGaps?: boolean;
 }
 
 /**
@@ -226,6 +241,7 @@ export function validationArgs(options: ValidationOptions): string[] {
     for (const [flag, value] of optional) {
         if (value !== undefined) { args.push(flag, value); }
     }
+    if (options.recordGaps) { args.push('--record-gaps'); }
     return args;
 }
 

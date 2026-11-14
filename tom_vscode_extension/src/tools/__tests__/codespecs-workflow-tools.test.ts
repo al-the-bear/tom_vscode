@@ -14,6 +14,9 @@
  *         before that, notChecked naming the folder
  *   WS-9  validation of the trio's IR: `ir` runs the stage on the IR folder with the validate tool's result;
  *         `ir` with `shared` is a usage error, the stage failing with the binary's message
+ *   WS-11 coverage gaps (vscimpb110, contract §2.11): no record → done; open gaps → interrupted with the record, the
+ *         counts and each open gap, and `next` is their review even when an earlier stage is not done; every gap
+ *         settled → done with the counts; an unreadable record or another formatVersion → failing
  *   WS-7  the guide tool: the overview, an outline, a section, a runbook with its arguments, refusals
  *   WS-8  registration: both read-only
  */
@@ -107,7 +110,7 @@ describe('CodeSpecs workflow', () => {
             codeSpecsStatusImpl(deps, status, { file })));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.deepEqual(states(r), {
-            gate: 'done', extraction: 'notStarted', verdicts: 'notStarted', todoTree: 'notChecked', authoring: 'notChecked', validation: 'notChecked',
+            gate: 'done', extraction: 'notStarted', verdicts: 'notStarted', coverageGaps: 'done', todoTree: 'notChecked', authoring: 'notChecked', validation: 'notChecked',
         });
         assert.equal(stage(r, 'extraction').tool, 'tomAi_specCodeSpecsWriteExtracts');
         assert.deepEqual([r.next.stage, r.next.tool], ['extraction', 'tomAi_specCodeSpecsWriteExtracts']);
@@ -241,6 +244,46 @@ describe('CodeSpecs workflow', () => {
         assert.equal(v.details.checkCount, 47);
         assert.match(NEXT_ACTION.validation, /tomAi_specCodeSpecsMap/, 'the stage\'s next action names mapping');
         assert.match(NEXT_ACTION.authoring, /writes IR/);
+    });
+
+    test('WS-11: coverage gaps', async () => {
+        const file = meridian('w11');
+        const gapsFile = path.join('w11', EXTRACTS, 'coverage_gaps.yaml');
+        let r = await statusOf({ file });
+        assert.equal(stage(r, 'coverageGaps').state, 'done');
+        assert.match(stage(r, 'coverageGaps').summary, /No coverage gap recorded/);
+        put(gapsFile, [
+            'coverageGaps:', '  formatVersion: 1', '  gaps:',
+            '    - id: GAP-1', '      sectionId: "DAENT-ORDER"', '      path: "SBP/x/DAENT-ORDER"', '      field: retentionPeriod',
+            '      valueKind: string', '      area: CE-DB', '      needs: markerArgument', '      foundBy: authoring', '      step: 9',
+            '      note: "@CsTable has no argument for how long a row is kept"', '      resolution: open',
+            '    - id: GAP-2', '      sectionId: "DAENT-IDEN"', '      path: "SBP/x/DAENT-IDEN"', '      area: CE-EN', '      needs: unknown',
+            '      foundBy: mechanical', '      note: "check 35"', '      resolution: leaveAsIs', '      reason: kept out',
+            '',
+        ].join('\n'));
+        r = await statusOf({ file });
+        const gaps = stage(r, 'coverageGaps');
+        assert.equal(gaps.state, 'interrupted');
+        assert.match(gaps.summary, /1 open coverage gap\(s\) stop the run \(GAP-1\)/);
+        assert.equal(gaps.details.record, 'w11/generated-doc/codespecs_extracts/coverage_gaps.yaml');
+        assert.deepEqual(gaps.details.counts, { open: 1, leaveAsIs: 1 });
+        assert.deepEqual(gaps.details.open, [{ id: 'GAP-1', sectionId: 'DAENT-ORDER', field: 'retentionPeriod', area: 'CE-DB', needs: 'markerArgument',
+            foundBy: 'authoring', step: 9, note: '@CsTable has no argument for how long a row is kept' }]);
+        assert.equal(stage(r, 'extraction').state, 'notStarted', 'an earlier stage is not done ...');
+        assert.deepEqual([r.next.stage, r.next.state], ['coverageGaps', 'interrupted'], '... and the gap review still comes first');
+        assert.match(r.next.action, /added, fixed or leaveAsIs[\s\S]*restart Phase 4 from Stage A/);
+        assert.equal(r.next.action, NEXT_ACTION.coverageGaps);
+
+        put(gapsFile, fs.readFileSync(path.join(ws, gapsFile), 'utf8').replace('resolution: open', 'resolution: fixed'));
+        r = await statusOf({ file });
+        assert.equal(stage(r, 'coverageGaps').state, 'done');
+        assert.match(stage(r, 'coverageGaps').summary, /2 recorded, all settled \(1 fixed, 1 leaveAsIs\)/);
+        assert.equal(r.next.stage, 'extraction');
+
+        put(gapsFile, 'coverageGaps:\n  formatVersion: 2\n  gaps: []\n');
+        assert.equal(stage(await statusOf({ file }), 'coverageGaps').state, 'failing');
+        put(gapsFile, 'gaps: [\n');
+        assert.match(stage(await statusOf({ file }), 'coverageGaps').summary, /cannot be read/);
     });
 
     test('WS-7: the guide tool', async () => {

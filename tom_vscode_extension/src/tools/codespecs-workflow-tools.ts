@@ -15,6 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { parse as parseYaml } from 'yaml';
 
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
@@ -36,7 +37,7 @@ import {
 // Status
 // ---------------------------------------------------------------------------
 
-export type StageName = 'gate' | 'extraction' | 'verdicts' | 'todoTree' | 'authoring' | 'validation';
+export type StageName = 'gate' | 'extraction' | 'verdicts' | 'coverageGaps' | 'todoTree' | 'authoring' | 'validation';
 
 export type StageState =
     /** The stage's work is complete and current. */
@@ -52,7 +53,9 @@ export type StageState =
     /** It cannot run until an earlier stage is done. */
     | 'blocked'
     /** Not checked: an input is missing (named in `summary`). */
-    | 'notChecked';
+    | 'notChecked'
+    /** The run stops here: an open coverage gap waits for its review (contract §2.11). */
+    | 'interrupted';
 
 export interface StageStatus {
     stage: StageName;
@@ -155,6 +158,56 @@ async function verdictsStage(deps: SpecToolDeps, file: string): Promise<StageSta
     return { stage: 'verdicts', state: 'done', summary: `Every active area has a verdict.${tail}`, tool, details };
 }
 
+/** The coverage-gap record's file name, beside the extracts (codespecs_derivation_contract.md §2.11). */
+export const COVERAGE_GAP_FILE = 'coverage_gaps.yaml';
+/** The record's `formatVersion` this reader knows. */
+const COVERAGE_GAP_FORMAT = 1;
+/** Open gaps listed in the stage's details at most. */
+const OPEN_GAP_LIST_LIMIT = 20;
+
+/**
+ * The run's coverage-gap record (contract §2.11): facts the specification
+ * states that CodeSpecs has no place for, recorded by Stage B, the authoring
+ * steps and `validate_codespecs --record-gaps`. An open gap stops the run until
+ * the review settles it (added, fixed or leaveAsIs); then Phase 4 restarts.
+ */
+function coverageGapsStage(deps: SpecToolDeps, file: string): StageStatus {
+    const tool = 'tomAi_specCodeSpecsGuide';
+    const recordFile = path.join(path.dirname(resolveInput(deps, file)), EXTRACTS_DIR, COVERAGE_GAP_FILE);
+    const record = toWorkspacePath(deps, recordFile);
+    if (!fs.existsSync(recordFile)) {
+        return { stage: 'coverageGaps', state: 'done', summary: `No coverage gap recorded (no ${COVERAGE_GAP_FILE} beside the extracts).`, tool, details: { record } };
+    }
+    let gaps: Json[];
+    try {
+        const doc = parseYaml(fs.readFileSync(recordFile, 'utf8')) as Json;
+        const root = doc?.coverageGaps;
+        if (!root || typeof root !== 'object') { throw new Error('no `coverageGaps` map'); }
+        if (root.formatVersion !== COVERAGE_GAP_FORMAT) { throw new Error(`formatVersion ${root.formatVersion}, this reader knows ${COVERAGE_GAP_FORMAT}`); }
+        gaps = Array.isArray(root.gaps) ? root.gaps : [];
+    } catch (e) {
+        return { stage: 'coverageGaps', state: 'failing', summary: `The coverage-gap record ${record} cannot be read: ${(e as Error).message}.`, tool, details: { record } };
+    }
+    const counts: Record<string, number> = {};
+    for (const g of gaps) { const r = String(g?.resolution ?? 'open'); counts[r] = (counts[r] ?? 0) + 1; }
+    const open = gaps.filter((g) => (g?.resolution ?? 'open') === 'open');
+    const details: Record<string, unknown> = { record, gaps: gaps.length, counts };
+    if (open.length === 0) {
+        return { stage: 'coverageGaps', state: 'done', tool, details,
+            summary: `No open coverage gap: ${gaps.length} recorded, all settled (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ')}).` };
+    }
+    details.open = open.slice(0, OPEN_GAP_LIST_LIMIT).map((g) => ({
+        id: g.id, sectionId: g.sectionId, ...(g.field ? { field: g.field } : {}), area: g.area, needs: g.needs, foundBy: g.foundBy,
+        ...(g.step !== undefined ? { step: g.step } : {}), ...(g.note ? { note: g.note } : {}),
+    }));
+    if (open.length > OPEN_GAP_LIST_LIMIT) { details.openTruncated = true; }
+    return {
+        stage: 'coverageGaps', state: 'interrupted', tool, details,
+        summary: `${open.length} open coverage gap(s) stop the run (${open.slice(0, 5).map((g) => g.id).join(', ')}${open.length > 5 ? ', …' : ''}): `
+            + `facts the specification states that CodeSpecs has no place for. The review settles each in ${record}; then Phase 4 restarts from Stage A.`,
+    };
+}
+
 interface TreeView { stage: StageStatus; tree?: Json }
 
 async function todoTreeStage(deps: SpecToolDeps, status: StatusDeps, file: string, questId: string): Promise<TreeView> {
@@ -255,6 +308,7 @@ export const NEXT_ACTION: Record<StageName, string> = {
     gate: 'Fix the Stage-A findings in the specification (runbook codespecs-stage-a).',
     extraction: 'Write the extracts (runbook codespecs-extraction).',
     verdicts: 'Record the missing Stage-B verdicts (runbook codespecs-stage-b).',
+    coverageGaps: 'Review the open coverage gaps (codespecs_derivation_contract.md §2.11; the csopen gap-review todo): settle each in coverage_gaps.yaml to added, fixed or leaveAsIs — a gap that needs vocabulary becomes a todo and stays open until it lands — then restart Phase 4 from Stage A (runbook codespecs-next-step).',
     todoTree: 'Create the todo tree (runbook codespecs-stage-c).',
     authoring: 'Work the tree: the next todo; an authoring step writes IR (runbook codespecs-authoring-step).',
     validation: 'Map each generation unit from the IR (tomAi_specCodeSpecsMap) and validate (runbook codespecs-validate).',
@@ -267,11 +321,13 @@ export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps
         const gate = await gateStage(deps, input.file);
         const extraction = await extractionStage(deps, input.file);
         const verdicts = await verdictsStage(deps, input.file);
+        const gaps = coverageGapsStage(deps, input.file);
         const tree = await todoTreeStage(deps, status, input.file, questId);
         const authoring = authoringStage(status, questId, tree.tree, tree.stage.state);
         const validation = await validationStage(deps, input.file, { shared: input.shared, ir: input.ir });
-        const stages = [gate, extraction, verdicts, tree.stage, authoring, validation];
-        const first = stages.find((s) => s.state !== 'done');
+        const stages = [gate, extraction, verdicts, gaps, tree.stage, authoring, validation];
+        // An open coverage gap stops the run wherever it stands: its review comes first (contract §2.11).
+        const first = gaps.state === 'interrupted' ? gaps : stages.find((s) => s.state !== 'done');
         const skipped = validation.details?.warnings as string[] | undefined;
         return json({
             ok: true,
@@ -281,7 +337,7 @@ export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps
             stages,
             next: first
                 ? { stage: first.stage, state: first.state, tool: first.tool, action: first.state === 'notChecked' ? first.summary : NEXT_ACTION[first.stage] }
-                : { stage: null, action: 'Phase 4 is complete for this document: the gate passes, the tree is done and the trio validates clean.' },
+                : { stage: null, action: 'Phase 4 is complete for this document: the gate passes, no coverage gap is open, the tree is done and the trio validates clean.' },
         });
     } catch (e) {
         return json({ ok: false, code: 'statusError', error: (e as Error).message });

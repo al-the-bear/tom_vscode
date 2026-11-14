@@ -259,7 +259,15 @@ it after each step. How to do a stage is in its runbook:
 3. **Stage B, one verdict per area.** For each area, read its extract and
    record `sufficient`, `not applicable` or `insufficient` with
    `tomAi_specCodeSpecsSetVerdict`. `tomAi_specCodeSpecsVerdicts` lists what is
-   still missing.
+   still missing. A fact the extract states that no marker argument, marker or
+   area can hold is not a verdict: it is a **coverage gap**
+   (codespecs_derivation_contract.md §2.11), recorded in
+   `generated-doc/codespecs_extracts/coverage_gaps.yaml` beside the extracts.
+   A pass that recorded gaps is interrupted: one `csopen<n>` gap review
+   (decision-needed) settles each gap to `added`, `fixed` or `leaveAsIs`, and
+   then Phase 4 restarts from Stage A. `tomAi_specCodeSpecsStatus` reports open
+   gaps as the `coverageGaps` stage (`interrupted`) and makes their review
+   `next` wherever the run stands.
 4. **Stage C, the todo tree.** `tomAi_specCodeSpecsPlanTodos` with `dryRun`
    first, then for real: `csopen<n>` questions (the queue pauses on them),
    `csproj<n>` one per generation unit of the document's register (pass
@@ -269,7 +277,9 @@ it after each step. How to do a stage is in its runbook:
    `tomAi_specCodeSpecsStepContext` returns for its step: its areas' extracts,
    the contract entries for their markers, its generation units (with kinds and
    mappers when given `file`) and its IR documents. It writes IR, not code: one
-   `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area (irspecs_ir.md).
+   `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area (irspecs_ir.md). A fact
+   among its entries with no place in the vocabulary goes nowhere in the IR: the
+   step records it as a coverage gap and holds the walk at the gap review.
 6. **Map, validate and trace.** `tomAi_specCodeSpecsMap` (`file`, `out`,
    optionally `unit`, `dryRun`) maps each unit's package from the IR with the
    bundled `irspecs` — per unit and per mapper it names, `irspecs map --mapper
@@ -283,6 +293,9 @@ it after each step. How to do a stage is in its runbook:
    — or over generated projects — (clean, violations or a usage error);
    `tomAi_specCodeSpecsStatus` validates the run's own IR folder by default; checks
    whose extra input was not given are listed as not run, never as passed.
+   `recordGaps` records every token check 35 finds uncited as a coverage gap
+   (`recordedGaps`); a token settled `leaveAsIs` is not held and comes back as
+   `leftAsIsGaps`.
    tom_code_specs' vocabulary, which checks 40 and 41 need, ships with the
    extension and is passed by default.
    `tomAi_specCodeSpecsTrace` follows a token from the specification to the code

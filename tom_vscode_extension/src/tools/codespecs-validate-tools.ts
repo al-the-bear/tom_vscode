@@ -52,6 +52,8 @@ export interface CodeSpecsValidateInput {
     regenerated?: { shared?: string; client?: string; server?: string };
     csVocabulary?: string;
     coreSource?: string;
+    /** Record check 35's uncited tokens as coverage gaps in coverage_gaps.yaml beside the extracts (needs `extractsDir`). */
+    recordGaps?: boolean;
     /** Most violations to return. */
     limit?: number;
 }
@@ -83,6 +85,7 @@ export async function codeSpecsValidationReport(deps: SpecToolDeps, input: CodeS
         csVocabulary: bundledVocabulary ? CS_VOCABULARY_FILE : abs(input.csVocabulary),
         coreSource: abs(input.coreSource),
         regenerated,
+        ...(input.recordGaps ? { recordGaps: true } : {}),
     });
     // The inputs carry the binary's own option names.
     // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -121,6 +124,10 @@ export async function codeSpecsValidateImpl(deps: SpecToolDeps, input: CodeSpecs
             checkCount: report.checks.length,
             notRun: report.notRun,
             ...(report.excludedAreas.length > 0 ? { excludedAreas: report.excludedAreas } : {}),
+            // The coverage-gap record (contract §2.11): gaps left as they are, which check 35 did not hold
+            // against the trio, and with `recordGaps` what this run appended to coverage_gaps.yaml.
+            ...(report.leftAsIsGaps && report.leftAsIsGaps.length > 0 ? { leftAsIsGaps: report.leftAsIsGaps } : {}),
+            ...(report.recordedGaps ? { recordedGaps: report.recordedGaps } : {}),
             ...(report.passed ? {} : { violationCount: report.violations.length, byCheck }),
             violations: report.violations.slice(0, limit).map((v) => ({
                 check: v.check,
@@ -249,7 +256,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) — or, with `ir`, over the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), before any code exists — with the bundled validate_codespecs. `ir` goes in place of shared / client / server, never with them (a `usageError`, as the binary refuses it); `regeneratedIr` with it for the determinism check (31). `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated` / `regeneratedIr`) — a check that did not run is not a pass.',
+        'Run the codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) — or, with `ir`, over the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), before any code exists — with the bundled validate_codespecs. `ir` goes in place of shared / client / server, never with them (a `usageError`, as the binary refuses it); `regeneratedIr` with it for the determinism check (31). `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated` / `regeneratedIr`) — a check that did not run is not a pass. Coverage gaps (contract §2.11): `recordGaps` writes check 35\'s uncited tokens to coverage_gaps.yaml (`recordedGaps`); gaps left as they are come back as `leftAsIsGaps`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -269,6 +276,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
             },
             csVocabulary: { type: 'string', description: 'tom_code_specs\' vocabulary source (vocabulary.dart or its lib/), for checks 9, 40 and 41. Default: the copy bundled with the extension.' },
             coreSource: { type: 'string', description: 'The tom_core source holding the mirrored catalogues, for check 9 (against the vocabulary).' },
+            recordGaps: { type: 'boolean', description: 'With `extractsDir`: record every token check 35 reports as a coverage gap (needs: unknown, foundBy: mechanical) in coverage_gaps.yaml beside the extracts, unless an open or leaveAsIs gap names it (contract §2.11); answered as `recordedGaps`. The checks run as without it. Default false.' },
             limit: { type: 'number', description: `Most violations to return. Default ${DEFAULT_VIOLATION_LIMIT}.` },
         },
     },
