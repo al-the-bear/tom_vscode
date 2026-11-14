@@ -12,6 +12,7 @@
  *         writing one back keeps the quote prefix on every line
  *   MB-7  folding: a folded heading hides its section, deeper headings included; its own state is kept
  *   MB-8  folding: the folded headings an element sits under, for revealing it
+ *   MB-8b the +/- groups (vscimpb100): a heading's level within its parent section, other levels and other parents apart
  *   MB-9  indent depths: a heading at its level - 1, its content one step deeper
  *   MB-10 html blocks that open an element (e.g. <details>) are grouped with everything up to its close
  *   MB-11 section references `OUTER > INNER`: found in text, uppercase ids only
@@ -56,6 +57,7 @@ interface BlocksApi {
     mdbWriteAnswer(lines: string[], line: number, column: number, answer: string): string;
     mdbFoldHidden(entries: Array<{ level: number | null; folded?: boolean }>): boolean[];
     mdbFoldAncestors(entries: Array<{ level: number | null; folded?: boolean }>, index: number): number[];
+    mdbFoldLevelGroups(entries: Array<{ level: number | null; folded?: boolean }>): Array<{ members: number[]; parent: number } | null>;
     mdbIndentDepths(entries: Array<{ level: number | null }>): number[];
     mdbGroups(tokens: unknown[]): Array<[number, number]>;
     mdbSectionRefs(text: string): Array<{ start: number; end: number; ids: string[] }>;
@@ -192,6 +194,20 @@ describe('Markdown Browser source mapping', () => {
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([0, 4]), 5)), [0, 4]);
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 7)), [], '## D is not under ## B');
         assert.deepEqual(Array.from(api.mdbFoldAncestors(outline([2]), 4)), [2], 'a heading under a folded one');
+    });
+
+    test('MB-8b: the sections a heading\'s +/- act on', () => {
+        // # A (0), ## B (2), ### C (4), ## D (6), # E (8), each followed by text; then # F's own ## G.
+        const entries = [...outline([]), { level: 2, folded: false }, { level: 1, folded: false }, { level: 2, folded: false }];
+        const groups = api.mdbFoldLevelGroups(entries);
+        const g = (i: number) => (groups[i] ? { members: Array.from(groups[i]!.members), parent: groups[i]!.parent } : null);
+        assert.equal(groups[1], null, 'text is no heading');
+        assert.deepEqual(g(2), { members: [2, 6], parent: 0 }, '## B and ## D under # A');
+        assert.equal(groups[2], groups[6], 'one group, shared');
+        assert.deepEqual(g(4), { members: [4], parent: 2 }, '### C alone under ## B');
+        assert.deepEqual(g(0), { members: [0, 8, 11], parent: -1 }, 'the top level: the document');
+        assert.deepEqual(g(10), { members: [10], parent: 8 }, '## under # E is not ## B\'s group');
+        assert.deepEqual(g(12), { members: [12], parent: 11 }, 'another parent, another group');
     });
 
     test('MB-9: indent depths', () => {

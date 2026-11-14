@@ -16,6 +16,9 @@
  *         (the sizes interleaved, each the faster of two runs), so a busy machine slows both sides alike
  *         while a quadratic render (4x) still fails; MF-9b checks the rule on counted linear and quadratic work
  *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
+ *   MF-11 a heading's +/- open / collapse every section of its level inside its parent section (vscimpb100):
+ *         other sections and levels keep their flags, a collapsed section opens with its siblings, the buttons
+ *         are hidden where the level has one section in its parent, and they say what they act on
  */
 
 import test, { describe } from 'node:test';
@@ -228,5 +231,33 @@ describe('Markdown Browser folding', () => {
         assert.deepEqual(sections.map((s: Win) => s.children.length), [150, 150, 100]);
         assert.ok(!w.document.querySelector('.mdb-doc').classList.contains('mdb-large'), 'a small document is laid out whole');
         assert.match(sections[0].style.containIntrinsicSize, /^auto \d+px$/);
+    });
+
+    test('MF-11: +/- open / collapse the sections of one level inside the parent', () => {
+        const w = setup();
+        show(w, ['# A', '', 'a', '', '## B', '', 'b', '', '### C', '', 'c', '', '### C2', '', 'c2', '',
+            '## D', '', 'd', '', '# E', '', 'e', '', '## F', '', 'f'].join('\n'));
+        const box = (t: string): Win => heading(w, t).querySelector('.mdb-fold-level');
+        const level = (t: string, op: 'open' | 'close'): void => box(t).querySelector(`[data-op="${op}"]`).click();
+        assert.deepEqual(['A', 'B', 'C', 'C2', 'D', 'E', 'F'].map((t) => box(t).hidden), [false, false, false, false, false, false, true],
+            'F is the only level-2 section in E');
+        assert.equal(box('B').querySelector('[data-op="open"]').title, 'Open all level 2 sections in "A"');
+        assert.equal(box('A').querySelector('[data-op="close"]').title, 'Collapse all level 1 sections in the document');
+        assert.ok(box('C').querySelector('.codicon-add') && box('C').querySelector('.codicon-remove'));
+        assert.equal(box('C').querySelector('button').tagName, 'BUTTON', 'keyboard-reachable');
+        toggle(w, 'C2');
+        level('B', 'close');
+        assert.deepEqual(visible(w), ['A', 'a', 'B', 'D', 'E', 'e', 'F', 'f'], 'B and D collapsed; E\'s section untouched');
+        level('D', 'open');
+        assert.deepEqual(visible(w), ['A', 'a', 'B', 'b', 'C', 'c', 'C2', 'D', 'd', 'E', 'e', 'F', 'f'], 'reopened; C2 keeps its own flag');
+        toggle(w, 'B');
+        level('B', 'open');
+        assert.ok(visible(w).includes('b'), '+ on a collapsed section opens it with its siblings');
+        level('C', 'open');
+        assert.ok(visible(w).includes('c2'), 'C2 opened with C');
+        level('A', 'close');
+        assert.deepEqual(visible(w), ['A', 'E']);
+        level('E', 'open');
+        assert.deepEqual(visible(w), ['A', 'a', 'B', 'b', 'C', 'c', 'C2', 'c2', 'D', 'd', 'E', 'e', 'F', 'f'], 'both level-1 sections open, the inner flags as they were');
     });
 });

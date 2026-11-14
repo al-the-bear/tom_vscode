@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -975,6 +975,8 @@
             // The patched region's chips, and what is left to decide.
             decorateTeamReview();
             markOwnLines();
+            // A patched heading gets its +/- (and its group may have changed).
+            refreshFoldControls();
             return true;
         }
 
@@ -1023,7 +1025,9 @@
 
         /** The level dropdown lists the levels the document has; the buttons say what a click does. */
         function refreshFoldControls() {
-            var headings = foldEntries().filter(function(e) { return e.level !== null; });
+            var entries = foldEntries();
+            refreshLevelButtons(entries);
+            var headings = entries.filter(function(e) { return e.level !== null; });
             if (foldAllBtn) {
                 var foldAll = headings.some(function(e) { return !e.folded; });
                 foldAllBtn.innerHTML = '<span class="codicon codicon-' + (foldAll ? 'collapse-all' : 'expand-all') + '"></span>';
@@ -1050,12 +1054,64 @@
             foldLevelSelect.disabled = levels.length === 0;
         }
 
+        /**
+         * A heading's +/- open / collapse every section of its level inside
+         * its parent section (its siblings and itself); shown when that group
+         * has more than one section. Other levels keep their flags.
+         */
+        function refreshLevelButtons(entries) {
+            var groups = mdbFoldLevelGroups(entries);
+            entries.forEach(function(e, i) {
+                if (!e.heading) { return; }
+                var box = e.heading.querySelector(':scope > .mdb-fold-level');
+                if (!box) { return; }
+                var group = groups[i];
+                var show = !!group && group.members.length > 1;
+                if (box.hidden === show) { box.hidden = !show; }
+                if (!show) { return; }
+                var where = group.parent < 0 ? 'the document' : '"' + headingTitle(entries[group.parent].heading) + '"';
+                var titles = {
+                    open: 'Open all level ' + e.level + ' sections in ' + where,
+                    close: 'Collapse all level ' + e.level + ' sections in ' + where,
+                };
+                Array.prototype.forEach.call(box.children, function(b) {
+                    var t = titles[b.dataset.op];
+                    if (b.title !== t) { b.title = t; b.setAttribute('aria-label', t); }
+                });
+            });
+        }
+
+        function headingTitle(h) {
+            var t = (h.textContent || '').trim();
+            return t.length > 60 ? t.slice(0, 57) + '…' : t;
+        }
+
         var foldButtonTemplate = document.createElement('button');
         foldButtonTemplate.className = 'mdb-fold-btn';
         foldButtonTemplate.title = 'Fold / unfold this section';
         foldButtonTemplate.innerHTML = '<span class="codicon codicon-chevron-down"></span>';
+        var levelButtonsTemplate = document.createElement('span');
+        levelButtonsTemplate.className = 'mdb-fold-level';
+        levelButtonsTemplate.hidden = true;
+        levelButtonsTemplate.innerHTML = '<button class="mdb-fold-level-btn" data-op="open"><span class="codicon codicon-add"></span></button>'
+            + '<button class="mdb-fold-level-btn" data-op="close"><span class="codicon codicon-remove"></span></button>';
         if (contentArea) {
             contentArea.addEventListener('click', function(e) {
+                var levelBtn = e.target && e.target.closest ? e.target.closest('.mdb-fold-level-btn') : null;
+                if (levelBtn) {
+                    var h = levelBtn.closest('[data-fold-key]');
+                    if (!h) { return; }
+                    e.stopPropagation();
+                    e.preventDefault();
+                    var entries = foldEntries();
+                    var index = entries.findIndex(function(x) { return x.heading === h; });
+                    var group = index < 0 ? null : mdbFoldLevelGroups(entries)[index];
+                    if (!group) { return; }
+                    var fold = levelBtn.dataset.op === 'close';
+                    group.members.forEach(function(m) { foldState[entries[m].key] = fold; });
+                    applyFolding();
+                    return;
+                }
                 var btn = e.target && e.target.closest ? e.target.closest('.mdb-fold-btn') : null;
                 if (!btn || !btn.parentElement) { return; }
                 var key = btn.parentElement.dataset.foldKey;
@@ -1078,6 +1134,7 @@
                 // One template cloned per heading; clicks are handled by one
                 // delegated listener on the content area.
                 h.insertBefore(foldButtonTemplate.cloneNode(true), h.firstChild);
+                h.insertBefore(levelButtonsTemplate.cloneNode(true), h.firstChild.nextSibling);
             });
         }
 

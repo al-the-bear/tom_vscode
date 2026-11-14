@@ -6,7 +6,7 @@
 // before main.js; the declarations below are globals main.js calls. The question
 // and answer parser is media/shared/mdQuestions.js, loaded before this file and
 // shared with the extension host (src/utils/mdQuestions.ts).
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -142,6 +142,38 @@ function mdbFoldAncestors(entries, index) {
         stack = stack.filter(function(s) { return /** @type {number} */ (entries[s].level) < own; });
     }
     return stack.filter(function(s) { return entries[s].folded === true; });
+}
+
+/**
+ * For each heading, the sections its +/- buttons open and collapse
+ * (vscimpb100): the headings of its own level whose parent section is its
+ * parent (the nearest shallower heading before it; none for the document's
+ * top level) — itself included, in document order — and that parent's index
+ * (-1: the document). Null for an entry that is no heading. Other levels are
+ * not part of a group, so their flags stay as they are.
+ *
+ * @param {MdbFoldEntry[]} entries
+ * @returns {Array<{ members: number[], parent: number } | null>}
+ */
+function mdbFoldLevelGroups(entries) {
+    /** @type {number[]} */
+    var stack = [];
+    /** @type {Object<string, { members: number[], parent: number }>} */
+    var groups = {};
+    /** @type {Array<{ members: number[], parent: number } | null>} */
+    var out = [];
+    for (var i = 0; i < entries.length; i++) {
+        var lvl = entries[i].level;
+        if (lvl === null || lvl === undefined) { out.push(null); continue; }
+        while (stack.length && /** @type {number} */ (entries[stack[stack.length - 1]].level) >= lvl) { stack.pop(); }
+        var parent = stack.length ? stack[stack.length - 1] : -1;
+        var key = parent + '|' + lvl;
+        if (!groups[key]) { groups[key] = { members: [], parent: parent }; }
+        groups[key].members.push(i);
+        out.push(groups[key]);
+        stack.push(i);
+    }
+    return out;
 }
 
 // ---- Indentation ----
