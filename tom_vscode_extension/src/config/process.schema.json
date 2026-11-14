@@ -241,6 +241,11 @@
         },
         "decision": {
           "$ref": "#/$defs/decision"
+        },
+        "goto": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)?$",
+          "description": "A goto step: when the process reaches it, it goes on at this step or phase (`<phase>/<step>`, `<phase>` or a step of this phase) — an automatic decision with one target. Not with `decision`, sub-steps or userAction; not on a gate or post-gate step (the validator enforces these and that the target exists)."
         }
       }
     },
@@ -380,6 +385,35 @@
         },
         "followUps": {
           "$ref": "#/$defs/followUps"
+        },
+        "next": {
+          "type": "array",
+          "description": "The phases that may follow this one: phase ids, or {phase | end: true, when, label}. The decision at its end offers each whose condition does not fail. Unset: the following phase (the end after the last); []: the process ends after it. The validator checks that every phase is reached and every path can end.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/id"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "phase": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "end": {
+                    "const": true
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "when": {
+                    "$ref": "#/$defs/condition"
+                  }
+                }
+              }
+            ]
+          }
         },
         "steps": {
           "type": "array",

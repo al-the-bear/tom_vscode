@@ -190,3 +190,6 @@ details.level > summary { cursor: pointer; }
 .documents .doc-link[disabled] { color: var(--vscode-disabledForeground); cursor: default; }
 .documents .doc-link .muted { margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .decision-step ul { margin: 2px 0 0 0; padding-left: 18px; }
+.flow li.current { color: var(--vscode-foreground); }
+.flow li.visited { color: var(--vscode-descriptionForeground); }
+.flow-path { margin: 2px 0 0 18px; }

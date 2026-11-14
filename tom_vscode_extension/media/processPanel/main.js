@@ -268,8 +268,32 @@
             }).join('') + '</ul></details>';
     }
 
+    /**
+     * The phase graph and the path taken (vscimpb96), for a process whose
+     * phases are not a straight line: each phase with what may follow it,
+     * the current one marked ▶, those the process went through ✓; below, the
+     * path — every phase iteration entered, oldest first.
+     */
+    function flowBox(flow, path, current) {
+        if (!flow || !flow.nonLinear) { return ''; }
+        var seen = {};
+        (path || []).forEach(function (e) { seen[e.phase] = true; });
+        var rows = flow.phases.map(function (p) {
+            var mark = p.id === current ? '▶ ' : seen[p.id] ? '✓ ' : '';
+            var after = p.next.slice();
+            if (p.ends) { after.push('the end'); }
+            return '<li class="' + (p.id === current ? 'current' : seen[p.id] ? 'visited' : '') + '">' + mark + '<b>' + esc(p.name) + '</b> → ' + esc(after.join(' or ') || '—') + '</li>';
+        }).join('');
+        var trail = (path || []).map(function (e) { return esc(e.name) + (e.phaseIteration > 1 ? ' #' + e.phaseIteration : ''); }).join(' → ');
+        return '<details class="left-out flow" open><summary><span class="codicon codicon-type-hierarchy"></span> Flow</summary><ul>' + rows + '</ul>'
+            + (trail ? '<div class="flow-path"><span class="muted">Path taken:</span> ' + trail + '</div>' : '') + '</details>';
+    }
+
     /** A decision step's box: how it decides and its targets (vscimpb95). */
     function decisionStepNote(step) {
+        if (step && !step.decision && step.goto) {
+            return '<div class="cond-note decision-step"><span class="codicon codicon-git-compare"></span> Goto step — the process goes on at ' + esc(step.goto) + '</div>';
+        }
         if (!step || !step.decision) { return ''; }
         var MODE = { auto: 'decided by the extension from the chat variables (the user when nothing holds)', user: 'decided by you (Proceed opens the choices)', judge: 'judged by the agent at Proceed (you decide when it does not)' };
         var mode = step.decision.mode || 'user';
@@ -408,7 +432,7 @@
                 var entries = stepsOf(phase);
                 var entry = entries.find(function (e) { return e.step.id === c.state.step; });
                 var stepOptions = entries.map(function (e, i) {
-                    var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : e.step.decision ? 'Decision: ' : '';
+                    var prefix = e.kind === 'gate' ? 'Gate: ' : e.kind === 'post-gate' ? 'Post-gate: ' : e.step.decision ? 'Decision: ' : e.step.goto ? 'Goto: ' : '';
                     var mark = leftIds.indexOf(e.step.id) >= 0 ? ' — left out' : cond.steps[e.step.id] ? ' ⁇' : '';
                     return { value: e.step.id, label: (i + 1) + '. ' + prefix + label(e.step) + mark };
                 });
@@ -435,6 +459,7 @@
             }
         }
         html += originBox(c.origins, (c.definition && (c.definition.name || c.definition.id)) || (c.state && c.state.process) || '');
+        html += flowBox(c.flow, c.path, c.state && c.state.phase);
         html += leftOutBox(c.leftOut);
         html += jumpsBox(c.jumps);
         if (c.processes.length === 0) {

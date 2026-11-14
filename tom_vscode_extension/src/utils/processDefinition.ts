@@ -204,6 +204,21 @@ export interface ProcessStep extends ProcessSubstep, ProcessConditional, Process
     substeps?: ProcessSubstep[];
     /** A decision step (vscimpb95): where the process goes when the step before it has finished. */
     decision?: ProcessDecisionSpec;
+    /**
+     * A goto step (vscimpb96): when the process reaches it, it goes on at
+     * this step or phase (a decision target, `<phase>/<step>`, `<phase>` or a
+     * step of this phase) — an automatic decision step with one target, e.g.
+     * to pass the other alternative at the end of a branch.
+     */
+    goto?: string;
+}
+
+/** The decision a step makes: its `decision:` block, or its `goto:` as an automatic decision with one target. */
+export function decisionOf(step: ProcessStep | ProcessPostGateStep | undefined): ProcessDecisionSpec | undefined {
+    const s = step as ProcessStep | undefined;
+    if (!s) { return undefined; }
+    if (s.decision) { return s.decision; }
+    return typeof s.goto === 'string' && s.goto ? { mode: 'auto', targets: [{ to: s.goto }] } : undefined;
 }
 
 /**
@@ -270,7 +285,17 @@ export interface ProcessPhase extends ProcessConditional, ProcessFollowUps {
     /** Every phase ends with a quality gate. */
     gate: ProcessGate;
     postGate?: ProcessPostGateStep;
+    /**
+     * The phases that may follow it (vscimpb96): ids, or `{phase | end,
+     * when, label}`; at the decision at its end the user goes on to one whose
+     * condition does not fail (only one left: that one). Unset: the following
+     * phase (the end after the last); `[]`: the process ends after it.
+     */
+    next?: ProcessNextEntry[];
 }
+
+/** An entry of a phase's `next:` — a phase id, or `{phase | end: true, when, label}`. */
+export type ProcessNextEntry = string | { phase?: string; end?: boolean; when?: ProcessCondition; label?: string };
 
 export interface ProcessDefinition extends ProcessFollowUps {
     id: string;
@@ -341,9 +366,10 @@ const FOLLOW_UP_KEYS = ['process', 'phase', 'step', 'description', 'carry', 'con
 const IO_KEYS = ['name', 'kind', 'description', 'required'];
 const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
 const CONDITIONAL_KEYS = ['optional', 'when'];
-const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps', 'steps', 'gate', 'postGate'];
+const PHASE_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps', 'steps', 'gate', 'postGate', 'next'];
+const NEXT_KEYS = ['phase', 'end', 'when', 'label'];
 const SUBSTEP_KEYS = ['id', 'name', 'description', 'prompt', 'session', 'role', 'repeatable', 'maxIterations', 'userAction', 'subprocesses', 'branches', 'documents'];
-const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps', 'decision'];
+const STEP_KEYS = [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps', 'substeps', 'decision', 'goto'];
 const DECISION_KEYS = ['mode', 'targets'];
 const DECISION_TARGET_KEYS = ['to', 'label', 'when'];
 const CONDITION_TESTS = ['equals', 'notEquals', 'in', 'set'];
@@ -549,7 +575,7 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
         if (test === 'in' && (!Array.isArray(when.in) || when.in.length === 0 || when.in.some((v) => typeof v !== 'string'))) { err(`${at}.in`, 'a list of texts'); }
         if (test === 'set' && typeof when.set !== 'boolean') { err(`${at}.set`, 'true or false'); }
     };
-    const decisionSteps: Array<{ path: string; phase: string; step: string; decision: Raw }> = [];
+    const decisionSteps: Array<{ path: string; phase: string; step: string; decision: Raw; goto?: true }> = [];
     const checkDecision = (obj: Raw, path: string): void => {
         const decision = obj.decision;
         if (decision === undefined) { return; }
@@ -570,9 +596,16 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             if (decision.mode === 'auto' && isObject(target.when) && 'judge' in target.when) { err(`${tAt}.when`, 'an automatic decision is taken from chat variables: {var, …}; a text to judge needs mode judge'); }
         });
     };
+    const checkGoto = (obj: Raw, path: string): void => {
+        if (obj.goto === undefined) { return; }
+        if (typeof obj.goto !== 'string' || !/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)?$/.test(obj.goto)) { err(`${path}.goto`, '`<phase>/<step>`, `<phase>` or a step of this phase'); }
+        if (obj.decision !== undefined) { err(`${path}.goto`, 'a step is a goto or a decision step, not both (a goto is a decision with one target)'); }
+        if (obj.substeps !== undefined) { err(`${path}.goto`, 'a goto step has no sub-steps'); }
+        if (obj.userAction !== undefined) { err(`${path}.userAction`, 'a goto step goes on by itself; it is no user action'); }
+    };
     const checkStep = (obj: unknown, path: string, allowed: string[]): string => {
         const id = checkSubstep(obj, path, allowed, 'step');
-        if (isObject(obj)) { checkConditional(obj, path); checkFollowUps(obj, path); checkDecision(obj, path); }
+        if (isObject(obj)) { checkConditional(obj, path); checkFollowUps(obj, path); checkDecision(obj, path); checkGoto(obj, path); }
         if (isObject(obj) && obj.userAction === true && obj.substeps !== undefined) {
             err(`${path}.userAction`, 'a step with sub-steps is a group — flag the sub-steps the user does');
         }
@@ -643,6 +676,26 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             checkRepeat(phase, path, 'phase');
             checkConditional(phase, path);
             checkFollowUps(phase, path);
+            if (phase.next !== undefined) {
+                if (!Array.isArray(phase.next)) {
+                    err(`${path}.next`, 'a list of the phases that may follow: ids, or {phase | end: true, when, label}; [] ends the process');
+                } else {
+                    phase.next.forEach((entry, k) => {
+                        const nAt = `${path}.next[${k}]`;
+                        if (typeof entry === 'string') {
+                            if (!ID_PATTERN.test(entry)) { err(nAt, `a phase id: ${ID_MESSAGE}`); }
+                            return;
+                        }
+                        if (!isObject(entry)) { err(nAt, 'a phase id or {phase | end: true, when, label}'); return; }
+                        unknownKeys(entry, NEXT_KEYS, nAt);
+                        if ((entry.phase === undefined) === (entry.end !== true)) { err(nAt, 'exactly one of `phase: <id>` and `end: true`'); }
+                        if (entry.phase !== undefined && (typeof entry.phase !== 'string' || !ID_PATTERN.test(entry.phase))) { err(`${nAt}.phase`, `a phase id: ${ID_MESSAGE}`); }
+                        if (entry.end !== undefined && entry.end !== true) { err(`${nAt}.end`, 'true (the process ends here)'); }
+                        checkText(entry, 'label', nAt);
+                        checkConditional(entry, nAt);
+                    });
+                }
+            }
             const stepIds = new Set<string>();
             const noteStep = (stepId: string, stepPath: string): void => {
                 if (stepId && stepIds.has(stepId)) { err(`${stepPath}.id`, `"${stepId}" is used twice in phase "${phaseId}"`); }
@@ -656,6 +709,8 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                     noteStep(checkStep(step, stepPath, STEP_KEYS), stepPath);
                     if (isObject(step) && isObject(step.decision) && typeof step.id === 'string') {
                         decisionSteps.push({ path: `${stepPath}.decision`, phase: phaseId, step: step.id, decision: step.decision });
+                    } else if (isObject(step) && typeof step.goto === 'string' && typeof step.id === 'string') {
+                        decisionSteps.push({ path: stepPath, phase: phaseId, step: step.id, decision: { targets: [{ to: step.goto }] }, goto: true });
                     }
                 });
             }
@@ -668,6 +723,9 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
                     if (typeof phase.gate.onFail !== 'string' || !targets.includes(phase.gate.onFail)) {
                         err(`${path}.gate.onFail`, `the step a failed gate goes back to: one of ${targets.filter((t) => typeof t === 'string').map((t) => `"${t}"`).join(', ')}`);
                     }
+                }
+                if (isObject(phase.gate) && phase.gate.goto !== undefined) {
+                    err(`${path}.gate.goto`, 'a gate is decided by Gate passed / failed; a phase names what follows it in `next:`');
                 }
                 if (isObject(phase.gate) && phase.gate.decision !== undefined) {
                     err(`${path}.gate.decision`, 'a gate is decided by Gate passed / failed; put a decision step among the phase\'s steps');
@@ -684,6 +742,9 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             if (phase.postGate !== undefined) {
                 const postPath = `${path}.postGate`;
                 noteStep(checkStep(phase.postGate, postPath, POST_GATE_KEYS), postPath);
+                if (isObject(phase.postGate) && phase.postGate.goto !== undefined) {
+                    err(`${postPath}.goto`, 'the post-gate step ends its phase: name the phases that follow in the phase\'s `next:`');
+                }
                 if (isObject(phase.postGate) && phase.postGate.decision !== undefined) {
                     err(`${postPath}.decision`, 'a decision step is one of the phase\'s steps, not its post-gate step');
                 }
@@ -712,9 +773,43 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
             d.decision.targets.forEach((target, i) => {
                 if (!isObject(target) || typeof target.to !== 'string') { return; }
                 const found = resolveDecisionTarget(phases, d.phase, target.to);
-                const tAt = `${d.path}.targets[${i}].to`;
+                const tAt = d.goto ? `${d.path}.goto` : `${d.path}.targets[${i}].to`;
                 if (!found) { err(tAt, `no step or phase "${target.to}" in the process (\`<phase>/<step>\`, \`<phase>\` or a step of the phase "${d.phase}")`); return; }
-                if (found.phase.id === d.phase && found.step.id === d.step) { err(tAt, 'a decision step cannot go to itself'); }
+                if (found.phase.id === d.phase && found.step.id === d.step) { err(tAt, `a ${d.goto ? 'goto' : 'decision'} step cannot go to itself`); }
+            });
+        }
+        // The phase graph (vscimpb96): `next:` names phases of the process; every phase is reached and every path can end.
+        const ids = phases.map((p) => p.id);
+        let graphOk = errors.length === 0;
+        phases.forEach((phase, i) => {
+            if (!Array.isArray(phase.next)) { return; }
+            phase.next.forEach((entry, k) => {
+                const target = typeof entry === 'string' ? entry : entry?.phase;
+                if (target === undefined) { return; }
+                if (!ids.includes(target)) { err(`phases[${i}].next[${k}]`, `no phase "${target}" (the phases: ${ids.join(', ')})`); graphOk = false; }
+                else if (target === phase.id) { err(`phases[${i}].next[${k}]`, 'a phase cannot follow itself: make it repeatable'); graphOk = false; }
+            });
+        });
+        if (graphOk && phases.length) {
+            const graph = phaseGraph(phases as ProcessPhase[]);
+            const reached = new Set<string>([phases[0].id]);
+            const queue = [phases[0].id];
+            while (queue.length) {
+                for (const n of graph.edges.get(queue.shift()!) ?? []) { if (!reached.has(n)) { reached.add(n); queue.push(n); } }
+            }
+            phases.forEach((phase, i) => {
+                if (!reached.has(phase.id)) { err(`phases[${i}]`, `the phase "${phase.id}" is never reached: no phase before it leads to it (the following phase by default, \`next:\`, a decision or goto step)`); }
+            });
+            const ending = new Set<string>(graph.ends);
+            let grown = true;
+            while (grown) {
+                grown = false;
+                for (const id of ids) {
+                    if (!ending.has(id) && (graph.edges.get(id) ?? []).some((n) => ending.has(n))) { ending.add(id); grown = true; }
+                }
+            }
+            phases.forEach((phase, i) => {
+                if (reached.has(phase.id) && !ending.has(phase.id)) { err(`phases[${i}]`, `from the phase "${phase.id}" the process never ends: no path leads to a phase after which it ends (the last phase by default, \`next: []\` or \`{end: true}\`)`); }
             });
         }
     }
@@ -888,6 +983,7 @@ function orderedProcessDefinition(def: ProcessDefinition): Raw {
     const step = (s: ProcessStep): Raw => {
         const out = lists(pick(s, [...SUBSTEP_KEYS, ...CONDITIONAL_KEYS, 'followUps']));
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
+        if (typeof s.goto === 'string' && s.goto) { out.goto = s.goto; }
         if (s.decision) {
             out.decision = {
                 ...(s.decision.mode ? { mode: s.decision.mode } : {}),
@@ -907,6 +1003,7 @@ function orderedProcessDefinition(def: ProcessDefinition): Raw {
             for (const key of CONDITIONAL_KEYS) { delete gate[key]; }
             if (p.gate.onFail) { gate.onFail = p.gate.onFail; }
             const out: Raw = { ...lists(pick(p, ['id', 'name', 'description', 'prompt', 'session', 'repeatable', 'maxIterations', ...CONDITIONAL_KEYS, 'followUps'])), steps: p.steps.map(step), gate };
+            if (Array.isArray(p.next)) { out.next = p.next.map((e) => (typeof e === 'string' ? e : pick(e, NEXT_KEYS))); }
             if (p.postGate) {
                 const post = step(p.postGate);
                 if (p.postGate.todos && p.postGate.todos.length) { post.todos = p.postGate.todos.map((t) => pick(t, TODO_KEYS)); }
@@ -959,6 +1056,8 @@ export interface ProcessState {
     phaseIterations?: Record<string, number>;
     /** The jumps decision steps made (vscimpb95), oldest first: where from, where to, why. */
     jumps?: ProcessJumpRecord[];
+    /** The phases the process went through (vscimpb96), oldest first: each phase iteration it entered. */
+    phasePath?: ProcessPathEntry[];
     /**
      * The agent's choice at a decision step in `judge` mode (tomAi_setProcessState
      * `decide`): the target's index and why; taken when the step's Proceed run
@@ -1089,6 +1188,12 @@ export interface ProcessJumpRecord {
 /** How many jump records a level keeps. */
 export const MAX_JUMP_RECORDS = 50;
 
+/** A phase iteration the process entered (vscimpb96). */
+export interface ProcessPathEntry { phase: string; phaseIteration: number }
+
+/** How many path entries a level keeps. */
+export const MAX_PATH_ENTRIES = 100;
+
 /** An agent's suggestion of a process the position lists. */
 export interface StoredSuggestion {
     kind: NestedKind;
@@ -1190,7 +1295,15 @@ export function trackStepIterations(before: ProcessState, after: ProcessState): 
  * move leaves it; another process starts without a record.
  */
 function trackPhaseIterations(before: ProcessState, after: ProcessState): ProcessState {
-    const { phaseIterations: _old, correction, ...rest } = after;
+    const { phaseIterations: _old, correction, phasePath: _p, ...tail } = after;
+    // The path taken (vscimpb96): every phase iteration entered; a new process starts a new path.
+    const sameProcess = !!after.process && before.process === after.process;
+    const path = sameProcess ? [...(before.phasePath ?? [])] : [];
+    const last = path[path.length - 1];
+    if (after.process && after.phase && (!last || last.phase !== after.phase || last.phaseIteration !== after.phaseIteration)) {
+        if (correction && path.length > 1 && path[path.length - 2].phase === after.phase) { path.pop(); } else { path.push({ phase: after.phase, phaseIteration: after.phaseIteration }); }
+    }
+    const rest: ProcessState = path.length ? { ...tail, phasePath: path.slice(-MAX_PATH_ENTRIES) } : tail;
     if (!after.process || before.process !== after.process) { return rest; }
     const phases = { ...(before.phaseIterations ?? {}) };
     // Back is a correction: the phase it leaves did not run its round.
@@ -1534,20 +1647,90 @@ function withoutLeaveOut(state: ProcessState): ProcessState {
 }
 
 /** The first position of the phase after `phase`; null after the last. */
-function afterPhase(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase): ProcessState | null {
-    const next = def.phases[def.phases.indexOf(phase) + 1];
-    return next ? withStep(withoutRecord({ ...state, phase: next.id, phaseIteration: phaseEntryIteration(state, next) }), firstStepOf(next), 1) : null;
+function afterPhase(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase, lookup?: ConditionLookup): ProcessState | null {
+    const next = autoSuccessor(def, phase, lookup);
+    return next ? enterPhase(state, next) : null;
 }
 
 /** The position after the whole step `stepId` of `phase` (the next step, else the next phase); null at the end. */
-function afterStep(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase, stepId: string): ProcessState | null {
+function afterStep(def: ProcessDefinition, state: ProcessState, phase: ProcessPhase, stepId: string, lookup?: ConditionLookup): ProcessState | null {
     const entries = phaseSteps(phase);
     const index = entries.findIndex((e) => e.step.id === stepId);
     if (index >= 0 && index < entries.length - 1) {
         const next = entries[index + 1].step;
         return withStep(state, next, reentryIteration(state, phase, next));
     }
-    return afterPhase(def, state, phase);
+    return afterPhase(def, state, phase, lookup);
+}
+
+/**
+ * The phase graph (vscimpb96): for each phase the phases that may follow it —
+ * its `next:` (the following phase by default) and the phases its decision
+ * and goto steps jump to — and the phases after which the process may end.
+ */
+export function phaseGraph(phases: readonly ProcessPhase[]): { edges: Map<string, string[]>; ends: string[] } {
+    const edges = new Map<string, string[]>();
+    const ends: string[] = [];
+    phases.forEach((phase, i) => {
+        const out = new Set<string>();
+        let ends_ = false;
+        if (Array.isArray(phase.next)) {
+            if (phase.next.length === 0) { ends_ = true; }
+            for (const entry of phase.next) {
+                if (typeof entry === 'string') { out.add(entry); } else if (entry && entry.end === true) { ends_ = true; } else if (entry && typeof entry.phase === 'string') { out.add(entry.phase); }
+            }
+        } else if (phases[i + 1]) {
+            out.add(phases[i + 1].id);
+        } else {
+            ends_ = true;
+        }
+        for (const step of Array.isArray(phase.steps) ? phase.steps : []) {
+            for (const t of decisionOf(step)?.targets ?? []) {
+                const found = typeof t?.to === 'string' ? resolveDecisionTarget(phases, phase.id, t.to) : null;
+                if (found && found.phase.id !== phase.id) { out.add(found.phase.id); }
+            }
+        }
+        edges.set(phase.id, [...out]);
+        if (ends_) { ends.push(phase.id); }
+    });
+    return { edges, ends };
+}
+
+/** A successor of a phase: the phase it leads to (null: the end of the process), its label and its `next:` index. */
+export interface PhaseSuccessor { phase: ProcessPhase | null; label?: string; when?: ProcessCondition; index: number }
+
+/** What may follow `phase` (vscimpb96): its `next:` entries in order, or the following phase (the end after the last). */
+export function phaseSuccessors(def: ProcessDefinition, phase: ProcessPhase): PhaseSuccessor[] {
+    if (!Array.isArray(phase.next)) {
+        return [{ phase: def.phases[def.phases.indexOf(phase) + 1] ?? null, index: 0 }];
+    }
+    if (phase.next.length === 0) { return [{ phase: null, index: 0 }]; }
+    return phase.next.map((entry, index) => {
+        if (typeof entry === 'string') { return { phase: findPhase(def, entry) ?? null, index }; }
+        return { phase: entry.end ? null : findPhase(def, entry.phase ?? '') ?? null, ...(entry.label ? { label: entry.label } : {}), ...(entry.when ? { when: entry.when } : {}), index };
+    });
+}
+
+/** The successors the decision at the end of `phase` offers: those whose condition does not fail (all of them when every one fails). */
+function offeredSuccessors(def: ProcessDefinition, phase: ProcessPhase, lookup?: ConditionLookup): PhaseSuccessor[] {
+    const all = phaseSuccessors(def, phase);
+    const open = all.filter((x) => !x.when || evaluateCondition(x.when, lookup) !== 'fails');
+    return open.length ? open : all;
+}
+
+/** The successor a move that passes `phase` by (left out, its condition fails) takes: the first offered one. */
+function autoSuccessor(def: ProcessDefinition, phase: ProcessPhase, lookup?: ConditionLookup): ProcessPhase | null {
+    return offeredSuccessors(def, phase, lookup)[0]?.phase ?? null;
+}
+
+/** Whether the process may end after `phase` (its process follow-ups are offered there). */
+function phaseMayEnd(def: ProcessDefinition, phase: ProcessPhase): boolean {
+    return phaseSuccessors(def, phase).some((x) => x.phase === null);
+}
+
+/** The first position of `phase`, entered from `state` by a move on: its iteration counted on (phaseEntryIteration). */
+function enterPhase(state: ProcessState, phase: ProcessPhase): ProcessState {
+    return withStep(withoutRecord({ ...state, phase: phase.id, phaseIteration: phaseEntryIteration(state, phase) }), firstStepOf(phase), 1);
 }
 
 /**
@@ -1600,7 +1783,7 @@ function autoDecisionTarget(spec: ProcessDecisionSpec, lookup: ConditionLookup):
  * last in (1 when it has not run), its steps at 1.
  */
 function jumpTarget(def: ProcessDefinition, from: ProcessState, phase: ProcessPhase, step: ProcessStep, index: number, by: ProcessJumpRecord['by'], reason: string, now: string): ProcessState {
-    const target = step.decision!.targets[index];
+    const target = decisionOf(step)!.targets[index];
     const found = resolveDecisionTarget(def.phases, phase.id, target.to)!;
     const { decide: _d, decision: _x, ...base } = from;
     let to: ProcessState;
@@ -1622,15 +1805,16 @@ export function decisionStepAt(def: ProcessDefinition | null, state: ProcessStat
     if (!def || !state.process || state.completed) { return null; }
     const phase = findPhase(def, state.phase);
     const step = phase ? findStep(phase, state.step) : undefined;
-    if (!phase || !step || !step.decision || step === phase.gate || step === phase.postGate) { return null; }
-    return { phase, step, spec: step.decision, mode: step.decision.mode ?? 'user' };
+    const spec = step && phase && step !== phase.gate && step !== phase.postGate ? decisionOf(step) : undefined;
+    if (!phase || !step || !spec) { return null; }
+    return { phase, step, spec, mode: spec.mode ?? 'user' };
 }
 
 /** The choices of a decision step's decision: one jump per target, each with where it leads (past what conditions leave out). */
 function decisionStepOptions(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): ProcessMove[] {
     const step = pos.entries[pos.stepIndex].step as ProcessStep;
     const now = options.now ?? new Date().toISOString();
-    return step.decision!.targets.map((t, i) => ({
+    return decisionOf(step)!.targets.map((t, i) => ({
         kind: 'jump' as const,
         label: decisionTargetLabel(def, pos.phase.id, t),
         target: passExcluded(def, here, jumpTarget(def, here, pos.phase, step, i, 'user', '', now), options),
@@ -1646,7 +1830,7 @@ function decisionStepOptions(def: ProcessDefinition, here: ProcessState, pos: Po
  */
 function decisionStepProceed(def: ProcessDefinition, state: ProcessState, here: ProcessState, pos: Position, options: ConditionOptions): ProcessState {
     const step = pos.entries[pos.stepIndex].step as ProcessStep;
-    const spec = step.decision!;
+    const spec = decisionOf(step)!;
     const mode = spec.mode ?? 'user';
     const now = options.now ?? new Date().toISOString();
     const take = (index: number, by: ProcessJumpRecord['by'], reason: string): ProcessState =>
@@ -1689,20 +1873,21 @@ export function passExcluded(def: ProcessDefinition, from: ProcessState, target:
         let next: ProcessState | null | undefined;
         if (entersPhase && phase.when && evaluateCondition(phase.when, options.lookup) === 'fails') {
             at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, reason: `runs only when ${conditionText(phase.when)}`, by: 'condition', at: now });
-            next = afterPhase(def, at, phase);
+            next = afterPhase(def, at, phase, options.lookup);
         } else {
             const step = findStep(phase, at.step);
             const entersStep = entersPhase || at.step !== prev.step || at.stepIteration !== prev.stepIteration;
             if (!step || !entersStep || step === phase.gate) { return at; }
             if (step.when && evaluateCondition(step.when, options.lookup) === 'fails') {
                 at = addSkip(at, { phase: phase.id, phaseIteration: at.phaseIteration, step: step.id, reason: `runs only when ${conditionText(step.when)}`, by: 'condition', at: now });
-                next = afterStep(def, at, phase, step.id);
-            } else if (step.decision) {
+                next = afterStep(def, at, phase, step.id, options.lookup);
+            } else if (decisionOf(step)) {
                 // A decision step entered: auto decides now (each step once per pass), user decides in the dialog, judge at Proceed.
-                const mode = step.decision.mode ?? 'user';
+                const spec = decisionOf(step)!;
+                const mode = spec.mode ?? 'user';
                 if (mode === 'judge') { return at; }
                 const where = `${phase.id}#${at.phaseIteration}/${step.id}`;
-                const chosen = mode === 'auto' && !decided.has(where) ? autoDecisionTarget(step.decision, options.lookup) : null;
+                const chosen = mode === 'auto' && !decided.has(where) ? autoDecisionTarget(spec, options.lookup) : null;
                 if (!chosen) { return { ...at, decision: true }; }
                 decided.add(where);
                 next = jumpTarget(def, at, phase, step, chosen.index, 'condition', chosen.reason, now);
@@ -1739,13 +1924,13 @@ function leaveOutMoves(def: ProcessDefinition, state: ProcessState, here: Proces
     const lead = (skipped: ProcessState, next: ProcessState | null): ProcessState => (next ? passExcluded(def, skipped, next, options) : { ...skipped, completed: true });
     if (pos.stepIndex === 0 && pos.substepIndex <= 0 && leavable(pos.phase)) {
         const skipped = addSkip(base, { phase: pos.phase.id, phaseIteration: here.phaseIteration, ...record('phase', pos.phase), at: now });
-        moves.push({ kind: 'leave-out', level: 'phase', label: `Leave out the phase ${nameOf(pos.phase)}`, target: lead(skipped, afterPhase(def, skipped, pos.phase)) });
+        moves.push({ kind: 'leave-out', level: 'phase', label: `Leave out the phase ${nameOf(pos.phase)}`, target: lead(skipped, afterPhase(def, skipped, pos.phase, options.lookup)) });
     }
     const entry = pos.entries[pos.stepIndex];
     const step = entry.step as ProcessStep;
     if (entry.kind !== 'gate' && leavable(step)) {
         const skipped = addSkip(base, { phase: pos.phase.id, phaseIteration: here.phaseIteration, step: step.id, ...record('step', step), at: now });
-        moves.push({ kind: 'leave-out', level: 'step', label: `Leave out the step ${nameOf(step)}`, target: lead(skipped, afterStep(def, skipped, pos.phase, step.id)) });
+        moves.push({ kind: 'leave-out', level: 'step', label: `Leave out the step ${nameOf(step)}`, target: lead(skipped, afterStep(def, skipped, pos.phase, step.id, options.lookup)) });
     }
     return moves;
 }
@@ -1831,8 +2016,8 @@ function forwardTarget(def: ProcessDefinition, state: ProcessState, pos: Positio
         const next = pos.entries[pos.stepIndex + 1].step;
         return withStep(state, next, reentryIteration(state, pos.phase, next));
     }
-    const nextPhase = def.phases[pos.phaseIndex + 1];
-    return nextPhase ? withStep(withoutRecord({ ...state, phase: nextPhase.id, phaseIteration: phaseEntryIteration(state, nextPhase) }), firstStepOf(nextPhase), 1) : null;
+    const nextPhase = autoSuccessor(def, pos.phase);
+    return nextPhase ? enterPhase(state, nextPhase) : null;
 }
 
 /**
@@ -1861,8 +2046,9 @@ function backTarget(def: ProcessDefinition, state: ProcessState, pos: Position):
     let entries = pos.entries;
     let index = pos.stepIndex - 1;
     if (index < 0) {
-        if (pos.phaseIndex === 0) { return null; }
-        phase = def.phases[pos.phaseIndex - 1];
+        const came = phaseCameFrom(def, state, pos);
+        if (!came) { return null; }
+        phase = came;
         entries = phaseSteps(phase);
         index = entries.length - 1;
     }
@@ -1899,7 +2085,7 @@ function isDecisionPoint(pos: Position): boolean {
     const subs = entry.step.substeps ?? [];
     const stepEnds = subs.length === 0 || pos.substepIndex === subs.length - 1;
     const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
-    return (entry.kind === 'step' && (entry.step as ProcessStep).decision !== undefined)
+    return (entry.kind === 'step' && decisionOf(entry.step) !== undefined)
         || (entry.kind === 'gate' && stepEnds)
         || phaseEnds
         || subs[pos.substepIndex]?.repeatable === true
@@ -1919,6 +2105,24 @@ function whereTo(def: ProcessDefinition, from: ProcessState, to: ProcessState): 
 }
 
 /**
+ * The phase before the current one (vscimpb96): one that leads to it in the
+ * flow (its `next:`, by default the order) — of those, the one the process
+ * last came through (its path), else the one before it in the definition.
+ * A jump is not a way into a phase here. None in the first phase.
+ */
+function phaseCameFrom(def: ProcessDefinition, state: ProcessState, pos: Position): ProcessPhase | undefined {
+    const preds = def.phases.filter((p) => p !== pos.phase && phaseSuccessors(def, p).some((x) => x.phase === pos.phase));
+    if (!preds.length) { return undefined; }
+    const path = state.phasePath ?? [];
+    for (let i = path.length - 1; i >= 0; i--) {
+        const p = preds.find((x) => x.id === path[i].phase);
+        if (p) { return p; }
+    }
+    const before = def.phases[pos.phaseIndex - 1];
+    return before && preds.includes(before) ? before : preds[0];
+}
+
+/**
  * The start of the phase before the current one (vscimpb93): its first step
  * (past what its conditions leave out), the phase's iteration counted on from
  * the one it was last in (bounded by its maxIterations; a phase not marked
@@ -1926,7 +2130,7 @@ function whereTo(def: ProcessDefinition, from: ProcessState, to: ProcessState): 
  * phase.
  */
 function previousPhaseStart(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): { name: string; target: ProcessState } | null {
-    const phase = def.phases[pos.phaseIndex - 1];
+    const phase = phaseCameFrom(def, here, pos);
     if (!phase) { return null; }
     const iteration = clampIteration(phase, (here.phaseIterations?.[phase.id] ?? 1) + 1);
     const start = withStep(withoutRecord({ ...here, phase: phase.id, phaseIteration: iteration }), firstStepOf(phase), 1);
@@ -1965,7 +2169,20 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
     const phaseEnds = stepEnds && pos.stepIndex === pos.entries.length - 1;
     const onward = forward ? `go on to ${whereTo(def, here, forward)}` : '';
     const moves: ProcessMove[] = [];
-    if (!forward || forward.completed) {
+    // The phase ends here and names what follows it (vscimpb96): one go-on per successor offered.
+    const successors = phaseEnds && Array.isArray(pos.phase.next) ? offeredSuccessors(def, pos.phase, options.lookup) : null;
+    if (successors) {
+        const prefix = isGate ? 'Gate passed — ' : '';
+        for (const succ of successors) {
+            if (!succ.phase) {
+                moves.push({ kind: 'finish-process', label: `${prefix}${succ.label ? `${succ.label} — ` : ''}${isGate ? 'finish the process' : 'Finish the process'}`, target: { ...here, completed: true }, key: `next:${succ.index}` });
+                continue;
+            }
+            const target = passExcluded(def, here, enterPhase(here, succ.phase), options);
+            const text = `go on to ${succ.label ?? (target.completed ? 'the end' : whereTo(def, here, target))}`;
+            moves.push({ kind: isGate ? 'gate-passed' : 'finish', label: isGate ? `${prefix}${text}` : text.charAt(0).toUpperCase() + text.slice(1), target, key: `next:${succ.index}` });
+        }
+    } else if (!forward || forward.completed) {
         // The end of the process — or everything after this is left out by its conditions.
         moves.push({ kind: 'finish-process', label: isGate ? 'Gate passed — finish the process' : 'Finish the process', target: forward ?? { ...here, completed: true } });
     } else if (isGate && stepEnds) {
@@ -2020,7 +2237,7 @@ function followUpOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
     const offered: Array<{ level: ProcessOrigin['level']; list: ProcessFollowUp[] }> = [];
     if (stepEnds) { offered.push({ level: 'step', list: (pos.entries[pos.stepIndex].step as ProcessStep).followUps ?? [] }); }
     if (phaseEnds) { offered.push({ level: 'phase', list: pos.phase.followUps ?? [] }); }
-    if (phaseEnds && pos.phaseIndex === def.phases.length - 1) { offered.push({ level: 'process', list: def.followUps ?? [] }); }
+    if (phaseEnds && phaseMayEnd(def, pos.phase)) { offered.push({ level: 'process', list: def.followUps ?? [] }); }
     const now = options.now ?? new Date().toISOString();
     const moves: ProcessMove[] = [];
     for (const { level, list } of offered) {
@@ -2141,7 +2358,7 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
     const forwardRaw = forwardTarget(def, here, pos);
     const forward = forwardRaw ? passExcluded(def, here, withoutLeaveOut(notRun(forwardRaw)), options) : null;
     const moves: ProcessMove[] = [];
-    const decisionStep = pos.entries[pos.stepIndex].kind === 'step' && (pos.entries[pos.stepIndex].step as ProcessStep).decision !== undefined;
+    const decisionStep = pos.entries[pos.stepIndex].kind === 'step' && decisionOf(pos.entries[pos.stepIndex].step) !== undefined;
     if (state.decision && isDecisionPoint(pos)) {
         moves.push({ kind: 'proceed', label: 'Decide…', target: state });
         moves.push(...(decisionStep ? decisionStepOptions(def, here, pos, options) : decisionOptions(def, here, pos, forward, options)));
@@ -2469,6 +2686,15 @@ function parseStepIterations(raw: unknown): { stepIterations?: StepIterationReco
     return { stepIterations: { phase: raw.phase, phaseIteration, steps } };
 }
 
+function parsePhasePath(raw: unknown): { phasePath?: ProcessPathEntry[] } {
+    if (!Array.isArray(raw)) { return {}; }
+    const out = raw.filter(isObject).filter((x) => typeof x.phase === 'string').map((x): ProcessPathEntry => ({
+        phase: x.phase as string,
+        phaseIteration: Number.isInteger(x.phaseIteration) && (x.phaseIteration as number) >= 1 ? x.phaseIteration as number : 1,
+    }));
+    return out.length ? { phasePath: out.slice(-MAX_PATH_ENTRIES) } : {};
+}
+
 const JUMP_BY: readonly ProcessJumpRecord['by'][] = ['condition', 'agent', 'user'];
 
 function parseJumpEnd(raw: unknown): ProcessJumpEnd | null {
@@ -2560,6 +2786,7 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         ...parseStepIterations(raw.stepIterations),
         ...parsePhaseIterations(raw.phaseIterations),
         ...parseJumps(raw.jumps),
+        ...parsePhasePath(raw.phasePath),
         ...(isObject(raw.decide) && Number.isInteger(raw.decide.target) && (raw.decide.target as number) >= 0
             ? { decide: { target: raw.decide.target as number, reason: typeof raw.decide.reason === 'string' ? raw.decide.reason : '' } } : {}),
         ...parseNested(raw.nested),
@@ -2666,6 +2893,7 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
         ...(state.phaseIterations && Object.keys(state.phaseIterations).length ? { phaseIterations: state.phaseIterations } : {}),
         ...(state.jumps?.length ? { jumps: state.jumps } : {}),
+        ...(state.phasePath?.length ? { phasePath: state.phasePath } : {}),
         ...(state.decide ? { decide: state.decide } : {}),
         ...(state.nested ? { nested: state.nested } : {}),
         ...(state.nestedEnded ? { nestedEnded: state.nestedEnded } : {}),

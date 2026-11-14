@@ -195,16 +195,16 @@
     function decisionBlock(path, step) {
         var d = step.decision;
         var head = '<summary>Decision step' + (d ? ' — ' + esc(d.mode || 'user') + ', ' + (d.targets || []).length + ' target(s)' : '') + '</summary>';
+        var targetOptions = [{ value: '', label: '— choose —' }].concat(targetOptionsList());
         if (!d) {
-            return '<details class="proc-lists decision-block">' + head + '<div class="proc-list"><div class="note">A decision step chooses where the process goes when the step before it has finished — any step or phase, earlier or later; it has no sub-steps.</div>'
-                + '<button class="add" data-op="make-decision" data-path="' + path + '"><span class="codicon codicon-git-compare"></span> make it a decision step</button></div></details>';
+            var gotoOptions = [{ value: '', label: '— no goto —' }].concat(targetOptionsList());
+            var gotoValue = step.goto || '';
+            return '<details class="proc-lists decision-block"' + (gotoValue ? ' open' : '') + '><summary>' + (gotoValue ? 'Goto step — ' + esc(gotoValue) : 'Decision step') + '</summary><div class="proc-list"><div class="note">A decision step chooses where the process goes when the step before it has finished — any step or phase, earlier or later; it has no sub-steps. A goto step always goes on at one place (e.g. past the other alternative at the end of a branch).</div>'
+                + (gotoValue ? '' : '<button class="add" data-op="make-decision" data-path="' + path + '"><span class="codicon codicon-git-compare"></span> make it a decision step</button>')
+                + '<label class="io-map">goto <select data-path="' + path + '.goto" title="Where the process goes on when it reaches this step">' + gotoOptions.map(function (o) {
+                    return '<option value="' + esc(o.value) + '"' + (o.value === gotoValue ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+                }).join('') + '</select></label></div></details>';
         }
-        var targetOptions = [{ value: '', label: '— choose —' }];
-        ((doc && doc.def && doc.def.phases) || []).forEach(function (p, i) {
-            targetOptions.push({ value: p.id, label: 'Phase ' + (i + 1) + ': ' + (p.name || p.id) + ' (its start)' });
-            var all = (p.steps || []).concat(p.gate ? [p.gate] : []).concat(p.postGate ? [p.postGate] : []);
-            all.forEach(function (st) { targetOptions.push({ value: p.id + '/' + st.id, label: '    ' + (p.name || p.id) + ' › ' + (st.name || st.id) }); });
-        });
         var modes = [['user', 'the user decides (Decide…)'], ['auto', 'automatic: the first target whose condition holds'], ['judge', 'the agent judges at Proceed']];
         var html = '<details class="proc-lists decision-block" open>' + head + '<div class="proc-list">'
             + '<label class="io-map">decided by <select data-path="' + path + '.decision.mode">' + modes.map(function (m) {
@@ -398,6 +398,60 @@
         return html + '</div>';
     }
 
+    /** Every phase and step as a target option (decision targets, goto). */
+    function targetOptionsList() {
+        var out = [];
+        ((doc && doc.def && doc.def.phases) || []).forEach(function (p, i) {
+            out.push({ value: p.id, label: 'Phase ' + (i + 1) + ': ' + (p.name || p.id) + ' (its start)' });
+            var all = (p.steps || []).concat(p.gate ? [p.gate] : []).concat(p.postGate ? [p.postGate] : []);
+            all.forEach(function (st) { out.push({ value: p.id + '/' + st.id, label: '    ' + (p.name || p.id) + ' › ' + (st.name || st.id) }); });
+        });
+        return out;
+    }
+
+    /** The phases that follow a phase (vscimpb96): `next:` — unset the following one; `[]` the end. */
+    function successorText(phases, i) {
+        var phase = phases[i];
+        var name = function (id) { var p = phases.find(function (x) { return x.id === id; }); return p ? (p.name || p.id) : id; };
+        if (!Array.isArray(phase.next)) { return phases[i + 1] ? name(phases[i + 1].id) : 'the end'; }
+        if (!phase.next.length) { return 'the end'; }
+        return phase.next.map(function (e) { return typeof e === 'string' ? name(e) : e.end ? 'the end' : name(e.phase || '?'); }).join(' or ');
+    }
+
+    function nextBlock(path, phase, i) {
+        var phases = (doc && doc.def && doc.def.phases) || [];
+        var list = phase.next;
+        var np = path + '.next';
+        var options = [{ value: '', label: '— choose —' }].concat(phases.filter(function (p) { return p.id !== phase.id; }).map(function (p) {
+            return { value: p.id, label: 'Phase ' + (phases.indexOf(p) + 1) + ': ' + (p.name || p.id) };
+        })).concat([{ value: '(end)', label: 'the end of the process' }]);
+        var sel = function (dataPath, value) {
+            return '<select data-path="' + dataPath + '" title="The phase that may follow">' + options.map(function (o) {
+                return '<option value="' + esc(o.value) + '"' + (o.value === value ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+            }).join('') + '</select>';
+        };
+        var html = '<details class="proc-lists next-block"' + (Array.isArray(list) ? ' open' : '') + '><summary>Followed by: ' + esc(successorText(phases, i)) + '</summary><div class="proc-list">';
+        if (!Array.isArray(list)) {
+            html += '<div class="note">By default the following phase comes next (after the last phase the process ends). Name the phases that may follow to branch: the decision at this phase\'s end offers each whose condition does not fail.</div>'
+                + '<button class="add" data-op="add-next" data-path="' + path + '"><span class="codicon codicon-git-merge"></span> name the phases that follow</button>';
+        } else {
+            list.forEach(function (e, k) {
+                var ep = np + '.' + k;
+                html += '<div class="proc-entry next-entry">';
+                if (typeof e === 'string') {
+                    html += sel(ep, e) + '<button class="icon" data-op="next-condition" data-path="' + ep + '" title="Give it a label and a condition"><span class="codicon codicon-filter"></span></button>';
+                } else {
+                    html += sel(ep + '.phase', e.end ? '(end)' : (e.phase || '')) + text(ep + '.label', e.label, 'label (optional)', 'proc-desc') + conditionFields(ep, e, 'phase', true);
+                }
+                html += '<button class="icon" data-op="remove" data-path="' + ep + '" title="Remove"><span class="codicon codicon-trash"></span></button></div>';
+            });
+            if (!list.length) { html += '<div class="note">No phase follows: the process ends after this phase.</div>'; }
+            html += '<button class="add" data-op="add-next-entry" data-path="' + path + '"><span class="codicon codicon-add"></span> phase</button>'
+                + '<button class="icon" data-op="clear-next" data-path="' + path + '" title="Back to the default: the following phase"><span class="codicon codicon-discard"></span></button>';
+        }
+        return html + '</div></details>';
+    }
+
     function phaseCard(phase, i, count) {
         var path = 'phases.' + i;
         var steps = phase.steps || [];
@@ -409,6 +463,7 @@
             + sessionFields(path, phase.session)
             + conditionFields(path, phase, 'phase')
             + followUpsBlock(path, phase, 'phase')
+            + nextBlock(path, phase, i)
             + '<div class="steps">' + steps.map(function (s, k) { return stepCard(s, path + '.steps.' + k, 'step', k, steps.length); }).join('') + '</div>'
             + '<button class="add" data-op="add-step" data-path="' + path + '"><span class="codicon codicon-add"></span> step</button>'
             + stepCard(phase.gate || { id: '' }, path + '.gate', 'gate', 0, 1, steps)
@@ -560,6 +615,22 @@
                 node.documents = node.documents || [];
                 node.documents.push({ path: '' });
                 break;
+            case 'add-next':
+                node.next = [{ phase: '' }];
+                break;
+            case 'add-next-entry':
+                node.next = node.next || [];
+                node.next.push({ phase: '' });
+                break;
+            case 'clear-next':
+                delete node.next;
+                break;
+            case 'next-condition': {
+                var owner2 = getAt(path.slice(0, -1));
+                var k2 = path[path.length - 1];
+                if (owner2 && typeof owner2[k2] === 'string') { owner2[k2] = owner2[k2] === '(end)' ? { end: true } : { phase: owner2[k2] }; }
+                break;
+            }
             case 'make-decision':
                 node.decision = { mode: 'user', targets: [{ to: '' }] };
                 break;
@@ -623,6 +694,31 @@
             : kind === 'list' ? t.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean)
                 : kind === 'kv' ? kvValue(t.value) : t.value;
         if (Array.isArray(value) && value.length === 0) { value = ''; }
+        // A phase that follows (`next:`, vscimpb96): "the end" is `{end: true}`, a phase id `phase:` (a plain entry stays a string).
+        if (/\.next\.\d+(\.phase)?$/.test(p)) {
+            var np2 = parsePath(p);
+            var isField = /\.phase$/.test(p);
+            var entryPath = isField ? np2.slice(0, -1) : np2;
+            var list2 = getAt(entryPath.slice(0, -1));
+            var k3 = entryPath[entryPath.length - 1];
+            var old = list2 ? list2[k3] : undefined;
+            if (list2) {
+                if (value === '(end)') {
+                    var rest2 = typeof old === 'object' && old ? old : {};
+                    list2[k3] = { end: true };
+                    if (rest2.label) { list2[k3].label = rest2.label; }
+                    if (rest2.when) { list2[k3].when = rest2.when; }
+                } else if (typeof old === 'object' && old) {
+                    delete old.end;
+                    old.phase = value;
+                } else {
+                    list2[k3] = value;
+                }
+            }
+            changed();
+            renderMain();
+            return;
+        }
         setAt(parsePath(p), value);
         // A follow-up's other process or phase: the phase and step it named belong to the old one.
         if (/followUps\.\d+\.(process|phase)$/.test(p)) {

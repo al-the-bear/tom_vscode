@@ -36,7 +36,7 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { conditionText, evaluateCondition, findPhase, findStep, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
+import { conditionText, evaluateCondition, findPhase, findStep, phaseGraph, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog, resetProcessRun } from '../services/processActionService';
@@ -151,6 +151,9 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 where: entry?.definition ? leftOutWhere(entry.definition, r.phase, r.step) : [r.phase, r.step].filter(Boolean).join(' › '),
                 phaseIteration: r.phaseIteration, reason: r.reason, by: r.by, at: r.at,
             })),
+            // The phase graph and the path taken (vscimpb96): shown when the process is not a straight line.
+            flow: entry?.definition ? processFlow(entry.definition) : null,
+            path: (state.phasePath ?? []).map((e) => ({ name: (entry?.definition ? findPhase(entry.definition, e.phase)?.name : undefined) || e.phase, phase: e.phase, phaseIteration: e.phaseIteration })),
             // The jumps decision steps made (vscimpb95), newest first.
             jumps: (state.jumps ?? []).slice(-8).reverse().map((r) => {
                 const end = (e: { phase: string; phaseIteration: number; step: string; stepIteration: number }): string =>
@@ -391,6 +394,21 @@ export function conditionNotes(def: ProcessDefinition, state: ProcessState, look
         if (note) { steps[e.step.id] = note; }
     }
     return { phase: noteOf(phase, lookup), steps };
+}
+
+/** The phases and what may follow each, for the PROCESS view; `nonLinear` when any phase names its successors or jumps to another phase. */
+function processFlow(def: ProcessDefinition): { nonLinear: boolean; phases: Array<{ id: string; name: string; next: string[]; ends: boolean }> } {
+    const graph = phaseGraph(def.phases);
+    const name = (id: string): string => findPhase(def, id)?.name || id;
+    let nonLinear = false;
+    const phases = def.phases.map((p, i) => {
+        const next = graph.edges.get(p.id) ?? [];
+        const ends = graph.ends.includes(p.id);
+        const linear = (next.length === 1 && next[0] === def.phases[i + 1]?.id && !ends) || (next.length === 0 && ends && i === def.phases.length - 1);
+        if (!linear) { nonLinear = true; }
+        return { id: p.id, name: p.name || p.id, next: next.map(name), ends };
+    });
+    return { nonLinear, phases };
 }
 
 function leftOutWhere(def: ProcessDefinition, phaseId: string, stepId?: string): string {

@@ -81,6 +81,7 @@ import {
     decisionTargetIndex,
     decisionTargetLabel,
     jumpRecordText,
+    phaseGraph,
     roleAfterMove,
     availableMoves,
     decisionAt,
@@ -1119,5 +1120,149 @@ phases:
         assert.equal(back.phase, 'p1');
         assert.deepEqual(back.phaseIterations, { p1: 1 }, 'Back records nothing for the phase it corrects');
         assert.equal(back.correction, undefined, 'the mark is never kept');
+    });
+});
+
+describe('non-linear processes (vscimpb96)', () => {
+    const GRAPH = `
+id: graph
+name: Graph
+phases:
+  - id: start
+    name: Start
+    next:
+      - { phase: alpha, label: The alpha way, when: { var: way, equals: alpha } }
+      - { phase: beta, label: The beta way, when: { var: way, equals: beta } }
+      - { phase: solo, label: Alone, when: { var: way, equals: solo } }
+    steps: [{ id: s1, name: S1 }]
+    gate: { id: g, name: Start gate }
+  - id: alpha
+    name: Alpha
+    next: [join]
+    steps: [{ id: a1, name: A1 }]
+    gate: { id: g, name: Alpha gate }
+  - id: beta
+    name: Beta
+    next: [join]
+    steps: [{ id: b1, name: B1 }]
+    gate: { id: g, name: Beta gate }
+  - id: solo
+    name: Solo
+    next: []
+    steps: [{ id: o1, name: O1 }]
+    gate: { id: g, name: Solo gate }
+  - id: join
+    name: Join
+    steps: [{ id: j1, name: J1 }]
+    gate: { id: g, name: Join gate }
+`;
+    const def = (): ProcessDefinition => {
+        const r = parseProcessYaml(GRAPH);
+        assert.deepEqual(r.errors, []);
+        return r.definition!;
+    };
+    const opts = (vars: Record<string, string> = {}) => ({ lookup: (n: string) => vars[n], now: '2026-11-14T19:30:00.000Z' });
+    const pos = (s: ReturnType<typeof selectProcess>): string => `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}${s.completed ? ' (finished)' : ''}`;
+    const go = (d: ProcessDefinition, s: ReturnType<typeof selectProcess>, kind: string, vars: Record<string, string> = {}, label?: string) => {
+        const all = [...availableMoves(d, s, opts(vars)), ...(decisionAt(d, s, opts(vars))?.options ?? [])];
+        const m = all.find((x) => x.kind === kind && (label === undefined || x.label === label));
+        assert.ok(m, `${kind} ${label ?? ''} at ${pos(s)}: ${all.map((x) => `${x.kind} ${x.label}`).join('; ')}`);
+        return trackStepIterations(s, m!.target);
+    };
+    const options = (d: ProcessDefinition, s: ReturnType<typeof selectProcess>, vars: Record<string, string> = {}): string[] =>
+        decisionAt(d, s, opts(vars))!.options.map((o) => `${o.kind} ${o.label}`);
+    /** From a phase's first step to the decision after its gate. */
+    const toGate = (d: ProcessDefinition, s: ReturnType<typeof selectProcess>, vars: Record<string, string> = {}) => go(d, go(d, s, 'proceed', vars), 'proceed', vars);
+    const bad = (edit: (raw: any) => void): string => {
+        const raw = parse(GRAPH);
+        edit(raw);
+        return validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+    };
+
+    test('NL-1: validated — every phase reached, every path ends; the schema agrees; written back as written', () => {
+        const d = def();
+        const graph = phaseGraph(d.phases);
+        assert.deepEqual(Object.fromEntries(graph.edges), { start: ['alpha', 'beta', 'solo'], alpha: ['join'], beta: ['join'], solo: [], join: [] });
+        assert.deepEqual(graph.ends, ['solo', 'join']);
+        const text = stringifyProcessDefinition(d);
+        assert.match(text, /next:\n\s+- join\n/, 'a plain entry stays a plain id');
+        assert.match(text, /next: \[\]/);
+        assert.deepEqual(parseProcessYaml(text).definition, d);
+        assert.match(bad((r) => { r.phases[1].next = ['nowhere']; }), /phases\[1\]\.next\[0\]: no phase "nowhere"/);
+        assert.match(bad((r) => { r.phases[1].next = ['alpha']; }), /a phase cannot follow itself/);
+        assert.match(bad((r) => { r.phases[0].next = [{ phase: 'alpha', end: true }]; }), /exactly one of `phase: <id>` and `end: true`/);
+        assert.match(bad((r) => { r.phases[0].next.pop(); }), /phases\[3\]: the phase "solo" is never reached/);
+        assert.match(bad((r) => { r.phases[3].next = ['alpha']; r.phases[1].next = ['solo']; r.phases[2].next = ['solo']; }), /from the phase "alpha" the process never ends[\s\S]*from the phase "solo" the process never ends/);
+        const schema = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'src', 'config', 'process.schema.json'), 'utf-8'));
+        const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+        assert.equal(validate(parse(GRAPH)), true, JSON.stringify(validate.errors));
+        const wrong = parse(GRAPH);
+        wrong.phases[0].next[0].go = 'x';
+        assert.equal(validate(wrong), false);
+    });
+
+    test('NL-2: runs as decided — two branches meet at Join, one ends on its own; the path is recorded', () => {
+        const d = def();
+        const atStart = toGate(d, selectProcess(d), { way: 'alpha' });
+        assert.equal(pos(atStart), 'start#1/g#1 (decision)');
+        assert.deepEqual(options(d, atStart, { way: 'alpha' }).filter((o) => o.startsWith('gate-passed')), ['gate-passed Gate passed — go on to The alpha way'], 'only the branch whose condition holds');
+        let s = go(d, atStart, 'gate-passed', { way: 'alpha' });
+        assert.equal(pos(s), 'alpha#1/a1#1');
+        s = toGate(d, s);
+        assert.deepEqual(options(d, s).filter((o) => o.startsWith('gate-passed')), ['gate-passed Gate passed — go on to Join › J1']);
+        s = go(d, s, 'gate-passed');
+        assert.equal(pos(s), 'join#1/j1#1', 'the branches meet');
+        s = toGate(d, s);
+        assert.deepEqual(options(d, s)[0], 'finish-process Gate passed — finish the process');
+        assert.deepEqual(s.phasePath!.map((e) => e.phase), ['start', 'alpha', 'join'], 'the path taken');
+        // Nothing decided: you choose among all three; beta meets alpha's join, solo ends on its own.
+        assert.deepEqual(options(d, atStart).filter((o) => o.startsWith('gate-passed')), ['gate-passed Gate passed — go on to The alpha way', 'gate-passed Gate passed — go on to The beta way', 'gate-passed Gate passed — go on to Alone']);
+        let b = go(d, atStart, 'gate-passed', {}, 'Gate passed — go on to The beta way');
+        b = go(d, toGate(d, b), 'gate-passed');
+        assert.equal(pos(b), 'join#1/j1#1');
+        let o = go(d, atStart, 'gate-passed', {}, 'Gate passed — go on to Alone');
+        o = toGate(d, o);
+        assert.deepEqual(options(d, o).filter((x) => !x.startsWith('gate-failed') && !x.startsWith('phase-start') && !x.startsWith('back-phase')), ['finish-process Gate passed — finish the process'], 'solo ends the process');
+        assert.equal(go(d, o, 'finish-process').completed, true);
+    });
+
+    test('NL-3: the previous phase is the one the process came from', () => {
+        const d = def();
+        let s = go(d, toGate(d, selectProcess(d), { way: 'beta' }), 'gate-passed', { way: 'beta' });
+        s = go(d, toGate(d, s), 'gate-passed');
+        assert.equal(pos(s), 'join#1/j1#1');
+        const back = availableMoves(d, s, opts()).find((m) => m.kind === 'back-phase')!;
+        assert.equal(back.label, 'Back to the start of the previous phase (Beta)', 'not Solo, the phase before Join in the definition');
+        assert.equal(pos(back.target), 'beta#1/b1#1', 'Beta is not repeatable: it stays at 1');
+        // Back across the boundary is a correction: the path drops the phase it leaves.
+        const corrected = go(d, s, 'back');
+        assert.equal(corrected.phase, 'beta');
+        assert.deepEqual(corrected.phasePath!.map((e) => e.phase), ['start', 'beta']);
+        assert.deepEqual(parseProcessState(stringifyProcessState(s, '2026-11-14T19:30:00Z')).phasePath, s.phasePath, 'kept in the state file');
+    });
+
+    test('NL-4: a goto step passes the other alternative', () => {
+        const yaml = [
+            'id: alt', 'phases:',
+            '  - id: p1', '    name: P1', '    steps:',
+            '      - { id: a, name: A, when: { var: way, equals: a } }',
+            '      - { id: toend, name: To the end, goto: p1/c }',
+            '      - { id: b, name: B, when: { var: way, equals: b } }',
+            '      - { id: c, name: C }',
+            '    gate: { id: g }', '',
+        ].join('\n');
+        const r = parseProcessYaml(yaml);
+        assert.deepEqual(r.errors, []);
+        const d = r.definition!;
+        const s = go(d, selectProcess(d), 'proceed', { way: 'a' });
+        assert.equal(pos(s), 'p1#1/c#1', 'A ran; the goto passes B');
+        assert.deepEqual([s.jumps![0].label, s.jumps![0].by], ['Go to C', 'condition']);
+        assert.equal(pos(go(d, { ...selectProcess(d), step: 'toend' }, 'skip', { way: 'b' })), 'p1#1/b#1', 'Skip passes the goto itself by');
+        const badGoto = (edit: (raw: any) => void): string => { const raw = parse(yaml); edit(raw); return validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`).join('\n'); };
+        assert.match(badGoto((x) => { x.phases[0].steps[1].goto = 'p1/nope'; }), /steps\[1\]\.goto: no step or phase "p1\/nope"/);
+        assert.match(badGoto((x) => { x.phases[0].steps[1].goto = 'toend'; }), /a goto step cannot go to itself/);
+        assert.match(badGoto((x) => { x.phases[0].steps[1].decision = { targets: [{ to: 'c' }] }; }), /a step is a goto or a decision step, not both/);
+        assert.match(badGoto((x) => { x.phases[0].gate.goto = 'c'; }), /gate\.goto: a gate is decided by Gate passed \/ failed/);
+        assert.match(stringifyProcessDefinition(d), /goto: p1\/c/, 'written back');
     });
 });

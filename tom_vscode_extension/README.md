@@ -526,6 +526,10 @@ finished it chooses where the process goes next, any step or phase —
 automatically from the chat variables, by you at Decide…, or judged by the
 agent (`tomAi_setProcessState {decide}`). Jumps count the iterations on and
 are listed in the PROCESS view, the state file and the decisions journal.
+A process need not be a straight line: a phase may name the phases that
+follow it (`next:`, with conditions; `[]` ends the process), so branches may
+meet again or end on their own, and a **goto** step (`goto:`) passes the
+other alternative. The PROCESS view shows the flow and the path taken.
 
 ### @TOM VSC: resource-hungry extensions
 
