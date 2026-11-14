@@ -439,6 +439,12 @@ export interface QueuedPrompt {
      * towards the quest refresh and do not trigger a due one.
      */
     processItem?: boolean;
+    /**
+     * The Status Page's *Send prompt after reload* (vscimpb109): queued at the
+     * front of the window's run when the window starts, by the window named
+     * here, and sent as Continue does. The queue editor badges it.
+     */
+    reloadPrompt?: { windowId: string };
     answerText?: string;
     /**
      * Snapshot of the last prompt actually dispatched for this item —
@@ -2108,6 +2114,8 @@ export class PromptQueueManager {
         processMove?: ProcessMoveSpec;
         /** A process item: does not count towards the quest refresh (vscimpb97). */
         processItem?: boolean;
+        /** The reload prompt of the window named (vscimpb109). */
+        reloadPrompt?: { windowId: string };
         /** "Pause after this". */
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
@@ -2242,6 +2250,7 @@ export class PromptQueueManager {
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.processItem ? { processItem: true } : {}),
+            ...(opts.reloadPrompt ? { reloadPrompt: { windowId: opts.reloadPrompt.windowId } } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
             ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
@@ -2994,6 +3003,61 @@ export class PromptQueueManager {
             this._repeatRuns.add(id);
         }
         await this.sendItem(item);
+    }
+
+    /**
+     * The Status Page's *Send prompt after reload* (vscimpb109): `text` becomes
+     * an item of `run` (default: the window's current run) with that run's
+     * defaults, inserted at the front of the queue (position 0), and is sent as
+     * Continue / Send Now send it — also while the run is paused, without
+     * switching its auto-send on. An unsent reload item this window queued
+     * before is replaced; another window's stays (several windows of a quest
+     * may each queue one). When the run's lane is busy (an item of it runs a
+     * stage) it is sent as soon as none does — a sending item held at the pause
+     * gate does not count. Answers the item.
+     */
+    async queueReloadPrompt(text: string, opts: { run?: string; windowId?: string } = {}): Promise<QueuedPrompt | undefined> {
+        const prompt = text.trim();
+        if (!prompt) { return undefined; }
+        const windowId = opts.windowId ?? getWindowStatusWindowId();
+        const run = normalizeRun(opts.run ?? windowProcessRun());
+        for (const old of this._items.filter((i) => i.reloadPrompt?.windowId === windowId && itemRun(i) === run && (i.status === 'staged' || i.status === 'pending'))) {
+            logQueue(`Reload prompt: replacing the unsent reload item ${old.id} of an earlier reload`);
+            this.remove(old.id);
+        }
+        const item = await this.enqueue({
+            originalText: prompt,
+            run,
+            runIsExplicit: true,
+            position: 0,
+            initialStatus: 'pending',
+            deferSend: true,
+            reloadPrompt: { windowId },
+        });
+        logQueue(`Reload prompt: queued item ${item.id} at the front of run ${run} (${item.transport ?? this._settingsOf(run).defaultTransport ?? 'copilot'})`);
+        this._sendReloadPromptWhenFree(item.id, run);
+        return item;
+    }
+
+    /** Whether an item of `run` runs a stage now (a sending item held at the pause gate does not). */
+    runLaneBusy(run: string | undefined): boolean {
+        const name = normalizeRun(run);
+        return this._items.some((i) => itemRun(i) === name && i.status === 'sending' && !this._isPausedAtGate(i));
+    }
+
+    /** Send the reload item now, or once its run's lane is free. */
+    private _sendReloadPromptWhenFree(id: string, run: string): void {
+        const trySend = (): boolean => {
+            const item = this._items.find((i) => i.id === id);
+            if (!item || item.status !== 'pending') { return true; }
+            if (this.runLaneBusy(run)) { return false; }
+            logQueue(`Reload prompt: sending item ${id} (as Continue: the run's auto-send is ${this._settingsOf(run).autoSend ? 'on' : 'off'})`);
+            void this.sendNow(id);
+            return true;
+        };
+        if (trySend()) { return; }
+        logQueue(`Reload prompt: run ${run} is busy — item ${id} is sent once its running stage has ended`);
+        const sub = this._onDidChange.event(() => { if (trySend()) { sub.dispose(); } });
     }
 
     /**
@@ -6624,6 +6688,7 @@ export class PromptQueueManager {
                 ...(typeof main.run === 'string' && main.run ? { run: main.run } : {}),
                 ...(parseProcessMove(main['process-move']) ? { processMove: parseProcessMove(main['process-move']) } : {}),
                 ...(main['process-item'] === true ? { processItem: true } : {}),
+                ...(typeof main['reload-prompt']?.['window-id'] === 'string' ? { reloadPrompt: { windowId: main['reload-prompt']['window-id'] } } : {}),
                 answerText: main['answer-text'] || undefined,
                 chatSource: main['chat-source'] || undefined,
                 chatWindowId: main['chat-window-id'] || undefined,
@@ -6775,6 +6840,7 @@ export class PromptQueueManager {
             ...(item.run ? { run: item.run } : {}),
             ...(item.processMove ? { 'process-move': item.processMove } : {}),
             ...(item.processItem ? { 'process-item': true } : {}),
+            ...(item.reloadPrompt ? { 'reload-prompt': { 'window-id': item.reloadPrompt.windowId } } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),

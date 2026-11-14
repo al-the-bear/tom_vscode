@@ -1403,12 +1403,16 @@ function scheduleConfiguredReloadPromptSend(): void {
             return;
         }
 
-        setTimeout(() => {
-            void vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
-        }, 15_000);
+        // Not straight into Copilot Chat (vscimpb109): once the queue is
+        // restored (items loaded, crash recovery done) and the window's run is
+        // known, the prompt is queued at the front of that run's queue with its
+        // defaults and sent as Continue sends it, also while the run is paused.
+        void Promise.all([PromptQueueManager.whenReady(), ProcessStateStore.ready])
+            .then(([manager]) => manager.queueReloadPrompt(prompt))
+            .catch((error) => bridgeLog(`Reload prompt could not be queued: ${error instanceof Error ? error.message : String(error)}`, 'ERROR'));
 
         bridgeLog(
-            `Scheduled reload prompt send in 15s (${questId ? `quest=${questId}` : 'workspace scope'})`,
+            `Reload prompt: queued at the front of the window's run once the queue is restored (${questId ? `quest=${questId}` : 'workspace scope'})`,
             'INFO',
         );
     } catch (error) {

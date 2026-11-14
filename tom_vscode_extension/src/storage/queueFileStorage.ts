@@ -188,6 +188,8 @@ export interface QueuePromptYaml {
     'process-move'?: unknown;
     /** A process item: the work of a process step; does not count towards the quest refresh (vscimpb97). */
     'process-item'?: boolean;
+    /** The Status Page's *Send prompt after reload*: the window that queued it (vscimpb109). */
+    'reload-prompt'?: { 'window-id': string };
     'answer-text'?: string;
     /** A chat send shown in the queue: where it came from and the window that ran it. */
     'chat-source'?: string;

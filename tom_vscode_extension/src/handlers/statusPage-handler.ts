@@ -2562,11 +2562,12 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <input type="checkbox" id="sp-reloadPromptEnabled" ${status.queue.reloadPromptAfterReloadEnabled ? 'checked' : ''}>
                 Send prompt after reload
             </label>
+            <span class="sp-reload-help" style="font-size:11px;color:var(--vscode-descriptionForeground)">When the window starts, the prompt is queued at the front of its run's queue, with that run's defaults (transport, profile, session), and sent as Continue sends it — also while the queue is paused.</span>
             <span style="font-size:11px;color:var(--vscode-descriptionForeground)">Scope: ${escapeHtmlContent(status.queue.scopeLabel)}</span>
         </div>
         <div class="sp-settings-row" style="align-items:flex-start">
             <label style="padding-top:4px">Prompt:</label>
-            <textarea id="sp-reloadPromptText" data-completion="on" rows="3" style="flex:1;min-width:220px;max-width:none" placeholder="Prompt to send 15s after extension activation">${escapeHtmlContent(status.queue.reloadPromptAfterReloadText || '')}</textarea>
+            <textarea id="sp-reloadPromptText" data-completion="on" rows="3" style="flex:1;min-width:220px;max-width:none" placeholder="Prompt queued at the front of the run's queue after a window reload">${escapeHtmlContent(status.queue.reloadPromptAfterReloadText || '')}</textarea>
             <button class="sp-btn" data-status-action="saveReloadPromptAfterReload">Save</button>
         </div>
     </div>

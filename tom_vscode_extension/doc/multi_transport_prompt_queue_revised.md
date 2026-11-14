@@ -938,6 +938,15 @@ Persisted keys (entry YAML): `session` is a string, or the map `{name, basedOn, 
 
 Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-for-run?}`, `notification-of`, `from: {quest, window-id, host, sent-at}`, `temporary-session`.
 
+### 4.21 The prompt after a reload
+
+The Status Page's *Send prompt after reload* (Queue & Timer → After Reload, stored per quest scope as `reload-prompt-by-scope` in `queue-settings.yaml`) is not sent to Copilot Chat directly. At activation `scheduleConfiguredReloadPromptSend` (extension.ts) waits for `PromptQueueManager.whenReady()` (the queue restored: entries loaded, crash recovery applied) and `ProcessStateStore.ready` (the window's run known), then calls `queueReloadPrompt(text)`:
+
+- the prompt becomes an item of the window's current run with that run's defaults (transport, profile, session, template), inserted at position 0, marked `reloadPrompt: {windowId}` (entry `reload-prompt: {window-id}`; the queue editor shows an **after reload** chip) and logged in the Tom Prompt Queue channel;
+- an unsent reload item this window queued before is replaced; another window's stays (several windows of one quest may each queue one);
+- it is sent with `sendNow`, as Continue / Send Now send an item: also while the run is paused, without switching its auto-send on, so the items behind it wait as before. While an item of the run runs a stage (`runLaneBusy`: sending, not held at the pause gate) it waits, pending, and is sent once none does;
+- it goes to Copilot only when the run's default transport is Copilot.
+
 ## 5. Edge cases and non-obvious bits
 
 - **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.

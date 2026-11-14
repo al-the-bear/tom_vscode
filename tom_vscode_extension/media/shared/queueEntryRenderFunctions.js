@@ -488,6 +488,10 @@ function renderEntry(item, idx) {
             ? '<span class="queue-from-chip" title="' + escapeHtml('The done notification was posted to ' + item.doneNotificationPosted.quest + ' (run ' + item.doneNotificationPosted.run + '); no window of that quest is running, so it waits in its inbox until one starts') + '"><span class="codicon codicon-watch"></span> notification waits in ' + escapeHtml(item.doneNotificationPosted.quest) + '</span>'
             : '') +
           runChip +
+          // The Status Page's "Send prompt after reload" (vscimpb109): queued at the front when the window started.
+          (item.reloadPrompt
+            ? '<span class="queue-from-chip queue-reload-chip" title="' + escapeHtml('Send prompt after reload: queued at the front of this run\'s queue when the window started, and sent as Continue sends it') + '"><span class="codicon codicon-debug-restart"></span> after reload</span>'
+            : '') +
           // The todos it runs (todoIdPattern): a todo id, a group walk prefix*, or several.
           (item.todoIdPattern
             ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'
