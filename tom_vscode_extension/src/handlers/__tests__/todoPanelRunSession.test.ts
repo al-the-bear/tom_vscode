@@ -14,6 +14,8 @@
  *        them too; the bar's transport is the panel run's queue default
  *   TR-5 a run deleted elsewhere falls back to `default` and is forgotten
  *   TR-6 a Send as another run than the window's runs with that run's process position (processRunFor)
+ *   TR-7 the group walk (Queue Group Prompt, qtQueueGroupPrompt) is queued into the panel's run and session, the
+ *        confirmation names them; on the panel's default (session `chat`, run `default`) it is too (vscimpb98)
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -55,6 +57,9 @@ process.env.USERPROFILE = HOME;
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
+// The group walk's picker (TR-7) needs these before the handler is imported (its `vscode` namespace is copied then).
+(vscodeStub.stub as Record<string, unknown>).ThemeIcon = class { constructor(public id: string) { /* a codicon */ } };
+(vscodeStub.stub as Record<string, unknown>).QuickPickItemKind = { Separator: -1, Default: 0 };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
@@ -63,7 +68,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
 import { handleQuestTodoMessage, setQuestTodoContext } from '../questTodoPanel-handler.js';
 import * as router from '../sendToChatRouter.js';
-import { TODO_PANEL_DEFAULT_SESSION, todoPanelRunKey, todoPanelSelection, todoPanelSessionKey } from '../../utils/todoPanelRunSession.js';
+import { TODO_PANEL_DEFAULT_SESSION, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelSelection, todoPanelSessionKey } from '../../utils/todoPanelRunSession.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
@@ -194,5 +199,48 @@ describe('the todo panel\'s session and run', () => {
         assert.equal(position?.state.step, 'build', 'the run\'s position');
         assert.equal(router.processRunFor('default'), undefined, 'the window\'s run: no context needed');
         assert.equal(router.processRunFor(undefined), undefined);
+    });
+
+    test('TR-7: the group walk uses the panel\'s run and session', async () => {
+        assert.deepEqual(todoPanelQueueTarget(todoPanelSelection('work', 'r3', ['default', 'r3'])), { session: 'work', run: 'r3' });
+        assert.equal(todoPanelQueueTargetText(todoPanelSelection('work', 'r3', ['default', 'r3'])), 'in run r3, session work@r3');
+        const win = vscodeStub.stub.window as Json;
+        const original = { createQuickPick: win.createQuickPick, info: win.showInformationMessage };
+        const infos: string[] = [];
+        // The picker takes its first choice, the default group prompt.
+        win.createQuickPick = () => {
+            const handlers: Record<string, (x?: unknown) => void> = {};
+            const qp: Json = {
+                items: [], selectedItems: [], dispose: () => undefined,
+                onDidAccept: (f: () => void) => { handlers.accept = f; }, onDidTriggerItemButton: (f: () => void) => { handlers.button = f; },
+                onDidHide: (f: () => void) => { handlers.hide = f; },
+                hide: () => handlers.hide?.(),
+                show: () => { qp.selectedItems = [qp.items[0]]; handlers.accept?.(); },
+            };
+            return qp;
+        };
+        win.showInformationMessage = (m: string) => { infos.push(m); return Promise.resolve(undefined); };
+        try {
+            ChatVariablesStore.instance.set('quest', QUEST, 'user');
+            const { webview } = view();
+            await send(webview, { type: 'qtSetRun', run: 'r3' });
+            enqueued.length = 0;
+            await send(webview, { type: 'qtQueueGroupPrompt', prefix: 'a' });
+            assert.deepEqual(enqueued.map((o) => [o.repeatCount, o.session, o.run]), [['a*', 'work', 'r3']]);
+            assert.match(infos.at(-1)!, /^Queued a walk over a\* with "Default" in run r3, session work@r3\.$/);
+            // The panel's default: the chat session, run default.
+            await context.workspaceState.update(todoPanelSessionKey(QUEST), undefined);
+            await send(webview, { type: 'qtSetRun', run: 'default' });
+            await send(webview, { type: 'qtQueueGroupPrompt', prefix: 'u' });
+            assert.deepEqual(enqueued.slice(1).map((o) => [o.repeatCount, o.session, o.run]), [['u*', 'chat', 'default']]);
+            assert.match(infos.at(-1)!, /in run default, session chat\.$/);
+            // Every queue action of the panel takes the target from one place.
+            const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
+            assert.equal((host.match(/\.\.\.todoPanelQueueTarget\(sel\)/g) ?? []).length, 6, 'add-to-queue, stacked, Queue / Guide me (and again), the walk (and again)');
+            assert.doesNotMatch(host, /session: sel\.session,/);
+        } finally {
+            win.createQuickPick = original.createQuickPick;
+            win.showInformationMessage = original.info;
+        }
     });
 });

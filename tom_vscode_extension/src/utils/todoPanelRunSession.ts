@@ -53,6 +53,21 @@ export function todoPanelSelection(storedSession: string | undefined, storedRun:
     };
 }
 
+/**
+ * What an item the panel queues names (vscimpb98): the session as picked (the
+ * queue makes it the run's own, `<session>@<run>`) and the run. Every queue
+ * action of the panel — a todo's Queue, add-to-queue, the stacked todos, Guide
+ * me, the group walk — takes it from here.
+ */
+export function todoPanelQueueTarget(sel: TodoPanelSelection): { session: string; run: string } {
+    return { session: sel.session, run: sel.run };
+}
+
+/** Where the panel queued an item, for its confirmation: `in run <run>, session <session>`. */
+export function todoPanelQueueTargetText(sel: TodoPanelSelection): string {
+    return `in run ${sel.run}, session ${sel.effectiveSession}`;
+}
+
 /** The message the views get: the selection and the run select's options (`default` first, the window's run marked). */
 export function todoPanelRunSessionMessage(sel: TodoPanelSelection, runs: readonly string[], windowRun: string): {
     type: 'qtRunSession';

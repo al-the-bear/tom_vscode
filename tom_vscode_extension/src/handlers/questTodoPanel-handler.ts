@@ -27,7 +27,7 @@ import { todoListItem } from '../utils/todoListItem';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
-import { todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
+import { todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
@@ -1606,8 +1606,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     template: selectedTemplate,
                     deferSend: true,
                     // The panel's session and run (vscimpb60d).
-                    session: sel.session,
-                    run: sel.run,
+                    ...todoPanelQueueTarget(sel),
                 },
             }]);
             if (added === 1) { vscode.window.showInformationMessage(`Added todo ${todoId} to prompt queue`); }
@@ -1675,8 +1674,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     template: selectedTemplate,
                     deferSend: true,
                     // The panel's session and run (vscimpb60d).
-                    session: sel.session,
-                    run: sel.run,
+                    ...todoPanelQueueTarget(sel),
                 },
             })));
             if (added > 0) {
@@ -2389,8 +2387,7 @@ async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undef
             template: tpl.id,
             transport: 'anthropic',
             deferSend: true,
-            session: sel.session,
-            run: sel.run,
+            ...todoPanelQueueTarget(sel),
         });
         vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
     } catch (e) {
@@ -2409,8 +2406,7 @@ async function _queueTodoAgain(todo: questTodo.QuestTodoItem, questId: string | 
         template: tpl.id,
         transport: 'anthropic',
         deferSend: true,
-        session: sel.session,
-        run: sel.run,
+        ...todoPanelQueueTarget(sel),
         allowDuplicateTodo: true,
     });
     vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue again (staged, Anthropic).`);
@@ -2951,20 +2947,23 @@ async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
         text = composeGroupPrompt(text, addition);
         if (addition.trim()) { label = `${label} + typed addition`; }
     }
+    // The panel's session and run (vscimpb98), as every other queue action of the panel.
+    const sel = todoPanelSelectionNow();
+    const where = todoPanelQueueTargetText(sel);
     try {
         const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-        const item = await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true });
+        const item = await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, ...todoPanelQueueTarget(sel) });
         if (item.status === 'error') {
-            void vscode.window.showWarningMessage(`Queued, but held in error — ${item.error ?? 'the walk has nothing to walk over'}`);
+            void vscode.window.showWarningMessage(`Queued ${where}, but held in error — ${item.error ?? 'the walk has nothing to walk over'}`);
         } else {
-            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${label}".`);
+            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${label}" ${where}.`);
         }
     } catch (e) {
         if (isTodoAlreadyQueued(e)) {
             _offerQueueAgain(e.message, async () => {
                 const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-                await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, allowDuplicateTodo: true });
-                void vscode.window.showInformationMessage(`Queued the walk over ${prefix}* again with "${label}".`);
+                await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, allowDuplicateTodo: true, ...todoPanelQueueTarget(sel) });
+                void vscode.window.showInformationMessage(`Queued the walk over ${prefix}* again with "${label}" ${where}.`);
             });
             return;
         }
