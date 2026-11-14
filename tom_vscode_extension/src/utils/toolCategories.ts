@@ -60,6 +60,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specCodeSpecsStepContext',
         'tomAi_specCodeSpecsTrace',
         'tomAi_specCodeSpecsValidate',
+        'tomAi_specCodeSpecsMap',
         'tomAi_specCodeSpecsVerdicts',
         'tomAi_specCodeSpecsWriteExtracts',
     ],

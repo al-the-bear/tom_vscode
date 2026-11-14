@@ -331,10 +331,11 @@ function planItems(
                     : []),
                 ...(isLast
                     ? [`After this step, map and validate (codespecs_mapping.md §1.1.2 stage 5, runbook codespecs-validate): `
+                        + `tomAi_specCodeSpecsMap with file '<document>' and out '<packages folder>' (the bundled irspecs: `
                         + (register.length > 0
                             ? `\`irspecs map --mapper <the unit's mapper> --ir ${units.irRel} --spec <document> --unit <unit id> --out <packages folder>\` per unit `
-                                + `(${register.map((u) => u.unitId).join(', ')})`
-                            : `\`irspecs map --mapper dart-tom --ir ${units.irRel} --out <packages folder>\` for the trio`)
+                                + `(${register.map((u) => u.unitId).join(', ')}))`
+                            : `\`irspecs map --mapper dart-tom --ir ${units.irRel} --out <packages folder>\` for the trio)`)
                         + `, then tomAi_specCodeSpecsValidate with ir '${units.irRel}' and extractsDir '${extractsRel}'.`]
                     : []),
             ].join('\n'),

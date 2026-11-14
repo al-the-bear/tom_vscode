@@ -1546,6 +1546,7 @@ import { CODESPECS_TOOLS } from './codespecs-tools';
 import { CODESPECS_GATE_TOOLS } from './codespecs-gate-tools';
 import { CODESPECS_TRACE_TOOLS } from './codespecs-trace-tools';
 import { CODESPECS_VALIDATE_TOOLS } from './codespecs-validate-tools';
+import { CODESPECS_MAP_TOOL } from './codespecs-map-tools';
 import { SPEC_CHECKS_TOOLS } from './spec-checks-tools';
 import { CODESPECS_PLAN_TOOLS } from './codespecs-plan-tools';
 import { CODESPECS_WORKFLOW_TOOLS } from './codespecs-workflow-tools';
@@ -1638,6 +1639,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CODESPECS_GATE_TOOLS,      // CodeSpecs Stage A/B: gate A1–A5 and the gate record (read-only), set a verdict (approval)
     ...CODESPECS_TRACE_TOOLS,     // CodeSpecs query extracts, trace spec ↔ code by back-link token (read-only)
     ...CODESPECS_VALIDATE_TOOLS,  // CodeSpecs validate a trio (bundled binary), authoring-step context (read-only)
+    CODESPECS_MAP_TOOL,           // CodeSpecs stage 5: map each generation unit from the IR (bundled irspecs; writer)
     ...SPEC_CHECKS_TOOLS,         // TomSpecs process checks (bundled spec_checks): required fields, registers, coverage, authorization; import answers (approval)
     ...CODESPECS_PLAN_TOOLS,      // CodeSpecs Stage C: the csopen / csproj / csgen todo tree (approval)
     ...CODESPECS_WORKFLOW_TOOLS,  // CodeSpecs: where a document is in Phase 4; the workflow guides and runbooks

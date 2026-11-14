@@ -7,7 +7,9 @@
  *     codespecs_derivation_contract.md §6 checks, plus the `--backlinks`
  *     index) — the CodeSpecs tools;
  *   - spec_checks (`bin/spec_checks.dart`: the TomSpecs process checks,
- *     doc/process_checks.md) — the tomAi_spec* process-check tools.
+ *     doc/process_checks.md) — the tomAi_spec* process-check tools;
+ *   - irspecs (`bin/irspecs.dart`: Phase 4's mapping of each generation unit
+ *     from the IR, `irspecs map`) — tomAi_specCodeSpecsMap.
  *
  *   node scripts/build-validate-codespecs.cjs     (npm run codespecs:build)
  *

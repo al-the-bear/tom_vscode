@@ -43,7 +43,7 @@ const ASSET = 'tom-ai-extension.vsix';
 const LINK = `https://github.com/${REPO}/releases/download/${TAG}/${ASSET}`;
 const README_PATH = 'vscode_extension/vsix/README.md';
 const TITLE = 'Tom AI VS Code extension — latest build';
-const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'];
+const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 
 /** Run a command: `{status, stdout, stderr}`; status null when it could not be started. */
 function defaultRun(cmd, args, opts = {}) {

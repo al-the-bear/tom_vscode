@@ -39,7 +39,7 @@ const path = require('path');
 const EXT_ROOT = path.resolve(__dirname, '..');
 
 /** The Dart-built binaries under bin/<platform>/, reported per platform. */
-const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'];
+const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 /** The tom build tools under bin/<platform>/ (scripts/binaries-layer.cjs tools), reported per platform. */
 const BUILD_TOOLS = ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit'];
 const HOST_PLATFORM = `${process.platform}-${process.arch}`;

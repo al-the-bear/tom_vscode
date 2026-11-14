@@ -37,6 +37,11 @@
                             "type": "object",
                             "description": "The TomSpecs process checks binary (tomAi_specImportAnswers, tomAi_specRequiredFields, tomAi_specQuestionRegister, tomAi_specFeatureRegister, tomAi_specProjectIdeaCoverage, tomAi_specAuthorizationCheck, tomAi_specCoverage); for a platform the extension carries none for.",
                             "additionalProperties": { "type": "string" }
+                        },
+                        "irspecs": {
+                            "type": "object",
+                            "description": "The CodeSpecs mapping binary (tomAi_specCodeSpecsMap: `irspecs map` of each generation unit from the IR); for a platform the extension carries none for.",
+                            "additionalProperties": { "type": "string" }
                         }
                     },
                     "additionalProperties": {

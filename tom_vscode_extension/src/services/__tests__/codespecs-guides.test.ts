@@ -138,7 +138,10 @@ describe('CodeSpecs guides', () => {
         assert.match(authoring, /its `units`/);
         assert.match(authoring, /irspecs_ir\.md §8\.1/);
         const validate = text('codespecs-validate');
-        assert.match(validate, /irspecs map --mapper <the unit's mapper> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml\n\s+--unit <unit id>/);
+        assert.match(validate, /1\. Map\. tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"` and `out`/);
+        assert.match(validate, /`irspecs map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml --unit <id> --out <out>`/);
+        assert.match(validate, /`formatterUnavailable`/);
+        assert.match(authoring, /tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"`, `out: <scratch>`/);
         assert.match(validate, /tomAi_specCodeSpecsValidate with `ir`/);
         assert.match(validate, /`regeneratedIr`/);
         assert.match(text('codespecs-stage-c'), /csproj<n> \(one scaffolding todo per generation unit/);

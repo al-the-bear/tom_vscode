@@ -81,14 +81,14 @@ describe('check-vsix-contents', () => {
 
     test('CVX-2: per platform', () => {
         const names = new Set([
-            'extension/bin/darwin-arm64/tom_bs', 'extension/bin/darwin-arm64/validate_codespecs', 'extension/bin/darwin-arm64/spec_checks',
+            'extension/bin/darwin-arm64/tom_bs', 'extension/bin/darwin-arm64/validate_codespecs', 'extension/bin/darwin-arm64/spec_checks', 'extension/bin/darwin-arm64/irspecs',
             'extension/bin/win32-x64/tom_bs.exe', 'extension/bin/win32-x64/spec_checks.exe', 'extension/bin/linux-x64/validate_codespecs',
         ]);
         assert.deepEqual(dartBinaryReport(names, 'linux-arm64'), [
-            { platform: 'darwin-arm64', binaries: { tom_bs: true, validate_codespecs: true, spec_checks: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-arm64', binaries: { tom_bs: false, validate_codespecs: false, spec_checks: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-x64', binaries: { tom_bs: false, validate_codespecs: true, spec_checks: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'win32-x64', binaries: { tom_bs: true, validate_codespecs: false, spec_checks: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'darwin-arm64', binaries: { tom_bs: true, validate_codespecs: true, spec_checks: true, irspecs: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-arm64', binaries: { tom_bs: false, validate_codespecs: false, spec_checks: false, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-x64', binaries: { tom_bs: false, validate_codespecs: true, spec_checks: false, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'win32-x64', binaries: { tom_bs: true, validate_codespecs: false, spec_checks: true, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
         ]);
         const exe = process.platform === 'win32' ? '.exe' : '';
         const r = check('host.vsix', [...required(), { name: `extension/bin/${HOST}/validate_codespecs${exe}` }]);

@@ -9,9 +9,10 @@
  *   node scripts/binaries-layer.cjs unpushed
  *   node scripts/binaries-layer.cjs sync
  *
- * The extension carries three binaries per platform, built with the Dart SDK:
+ * The extension carries four binaries per platform, built with the Dart SDK:
  * tom_bs (the DartScript bridge) and tom_specs_clitool's validate_codespecs
- * (CodeSpecs validation) and spec_checks (the TomSpecs process checks) — the
+ * (CodeSpecs validation), spec_checks (the TomSpecs process checks) and
+ * irspecs (the CodeSpecs mapping) — the
  * clitool binaries of codespecs-binary-stamp.cjs (CLITOOL_BINARIES). A Dart binary can only be built on its own platform, so a VSIX
  * for several platforms takes the others' from the layer,
  * `tom_binaries/tom/<platform>/`, where every host that builds them leaves

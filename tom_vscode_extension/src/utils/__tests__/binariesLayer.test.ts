@@ -172,15 +172,15 @@ describe('binaries layer', () => {
         const t = makeLayer();
         const dir = path.join(t.layerDir, 'win32-x64');
         fs.mkdirSync(dir, { recursive: true });
-        for (const f of ['tom_bs.exe', 'validate_codespecs.exe', 'spec_checks.exe', 'tom_bs.build.json', 'validate_codespecs.build.json', 'spec_checks.build.json']) {
+        for (const f of ['tom_bs.exe', 'validate_codespecs.exe', 'spec_checks.exe', 'irspecs.exe', 'tom_bs.build.json', 'validate_codespecs.build.json', 'spec_checks.build.json', 'irspecs.build.json']) {
             fs.writeFileSync(path.join(dir, f), f);
         }
         const r = runLayer(t, 'bundle', '--platforms', 'win32-x64,darwin-x64');
         assert.equal(r.status, 0, r.stderr);
-        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['spec_checks.build.json', 'spec_checks.exe', 'tom_bs.build.json', 'tom_bs.exe', 'validate_codespecs.build.json', 'validate_codespecs.exe'], 'the stamps too (.vscodeignore keeps them out of the VSIX)');
+        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['irspecs.build.json', 'irspecs.exe', 'spec_checks.build.json', 'spec_checks.exe', 'tom_bs.build.json', 'tom_bs.exe', 'validate_codespecs.build.json', 'validate_codespecs.exe'], 'the stamps too (.vscodeignore keeps them out of the VSIX)');
         assert.match(fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8'), /^bin\/\*\/\*\.build\.json$/m);
-        assert.match(r.stdout, /darwin-x64: none of tom_bs, validate_codespecs, spec_checks in the binaries layer/);
-        assert.match(r.stdout, /Bundled 3 binaries from the binaries layer/);
+        assert.match(r.stdout, /darwin-x64: none of tom_bs, validate_codespecs, spec_checks, irspecs in the binaries layer/);
+        assert.match(r.stdout, /Bundled 4 binaries from the binaries layer/);
         assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'linux-x64', 'win32-x64'], "the fleet's build platforms only");
     });
 
@@ -245,7 +245,7 @@ describe('binaries layer', () => {
         assert.equal(d.clitool.validate_codespecs.state, 'stale');
         assert.match(d.clitool.validate_codespecs.text, /older than the sources/);
         assert.deepEqual(layer.describePlatform('darwin-x64', { layer: t.layerDir, currentHashes: hashes }),
-            { platform: 'darwin-x64', tomBs: null, clitool: { validate_codespecs: null, spec_checks: null } }); // eslint-disable-line @typescript-eslint/naming-convention -- binary names
+            { platform: 'darwin-x64', tomBs: null, clitool: { validate_codespecs: null, spec_checks: null, irspecs: null } }); // eslint-disable-line @typescript-eslint/naming-convention -- binary names
     });
 });
 

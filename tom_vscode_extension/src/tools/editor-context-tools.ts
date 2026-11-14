@@ -81,7 +81,7 @@ export interface WorkspaceInfoSnapshot {
     git: GitSnapshot | null;
     /** The extension build this window runs and the one installed; absent outside a window. */
     build?: BuildStatus;
-    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks) this window has on its platform; absent outside a window. */
+    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks, irspecs) this window has on its platform; absent outside a window. */
     dartBinaries?: DartBinariesSummary;
 }
 

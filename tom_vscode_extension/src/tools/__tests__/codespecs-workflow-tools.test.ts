@@ -239,7 +239,7 @@ describe('CodeSpecs workflow', () => {
         assert.equal(v.details.ir, 'w10/irspecs');
         assert.match(v.details.irFolder, /<spec-root>\/irspecs/);
         assert.equal(v.details.checkCount, 47);
-        assert.match(NEXT_ACTION.validation, /irspecs map --unit/, 'the stage\'s next action names mapping');
+        assert.match(NEXT_ACTION.validation, /tomAi_specCodeSpecsMap/, 'the stage\'s next action names mapping');
         assert.match(NEXT_ACTION.authoring, /writes IR/);
     });
 

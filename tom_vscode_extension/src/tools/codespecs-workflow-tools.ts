@@ -257,7 +257,7 @@ export const NEXT_ACTION: Record<StageName, string> = {
     verdicts: 'Record the missing Stage-B verdicts (runbook codespecs-stage-b).',
     todoTree: 'Create the todo tree (runbook codespecs-stage-c).',
     authoring: 'Work the tree: the next todo; an authoring step writes IR (runbook codespecs-authoring-step).',
-    validation: 'Map each generation unit from the IR (`irspecs map --unit`) and validate (runbook codespecs-validate).',
+    validation: 'Map each generation unit from the IR (tomAi_specCodeSpecsMap) and validate (runbook codespecs-validate).',
 };
 
 export async function codeSpecsStatusImpl(deps: SpecToolDeps, status: StatusDeps, input: CodeSpecsStatusInput): Promise<string> {

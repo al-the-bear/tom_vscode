@@ -236,6 +236,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specCodeSpecsQueryExtracts',
     'tomAi_specCodeSpecsTrace',
     'tomAi_specCodeSpecsValidate',
+    'tomAi_specCodeSpecsMap',
     'tomAi_specCodeSpecsStepContext',
     'tomAi_specCodeSpecsPlanTodos',
     'tomAi_specCodeSpecsStatus',

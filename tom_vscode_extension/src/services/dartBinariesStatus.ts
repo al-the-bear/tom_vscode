@@ -46,7 +46,7 @@ import {
 } from '../utils/executableResolver';
 import { BUILD_TOOL_PURPOSE, buildToolFileName, buildToolsStatus, type BuildToolName, type BuildToolSource, type BuildToolState } from './buildTools';
 
-export const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'] as const;
+export const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'] as const;
 export type DartBinaryName = typeof DART_BINARIES[number];
 
 /** What each binary gives the extension, for the page and the Status Page. */
@@ -54,6 +54,7 @@ export const DART_BINARY_FEATURE: Record<DartBinaryName, string> = {
     tom_bs: 'DartScript', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
     validate_codespecs: 'CodeSpecs validation', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
     spec_checks: 'TomSpecs process checks', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
+    irspecs: 'CodeSpecs mapping',
 };
 
 export const HELP_COMMAND = 'tomAi.showDartBinariesHelp';

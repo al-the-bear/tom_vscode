@@ -1852,7 +1852,7 @@ export interface StatusData {
     configErrors: string[];
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
-    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks) this platform has. */
+    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks, irspecs) this platform has. */
     dartBinaries?: DartBinariesStatus;
     /** This window's usage totals (live-trail usage events, any transport). */
     usage?: UsageSummary;

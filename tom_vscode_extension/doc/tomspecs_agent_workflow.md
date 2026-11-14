@@ -269,10 +269,15 @@ it after each step. How to do a stage is in its runbook:
    the contract entries for their markers, its generation units (with kinds and
    mappers when given `file`) and its IR documents. It writes IR, not code: one
    `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area (irspecs_ir.md).
-6. **Map, validate and trace.** Each unit's package is mapped from the IR
-   (`dart run tom_specs_clitool:irspecs map --mapper <its mapper> --ir
-   <spec-root>/irspecs --spec <document> --unit <unit id>`, from a
-   tom_specs_clitool checkout; the runbook `codespecs-validate`).
+6. **Map, validate and trace.** `tomAi_specCodeSpecsMap` (`file`, `out`,
+   optionally `unit`, `dryRun`) maps each unit's package from the IR with the
+   bundled `irspecs` — per unit and per mapper it names, `irspecs map --mapper
+   <m> --ir <spec-root>/irspecs --spec <document> --unit <unit id> --out <out>`
+   (the runbook `codespecs-validate`); no Dart SDK is needed. The Dart + Tom
+   mapper (`dart-tom`) formats with `dart format`, which a compiled binary
+   cannot run: such a run answers `formatterUnavailable`, its files written
+   but not formatted — format them where a Dart SDK is installed, or map that
+   unit with `dart run tom_specs_clitool:irspecs map …` from a checkout.
    `tomAi_specCodeSpecsValidate` runs the 47 checks over the IR folder (`ir`)
    — or over generated projects — (clean, violations or a usage error);
    `tomAi_specCodeSpecsStatus` validates the run's own IR folder by default; checks

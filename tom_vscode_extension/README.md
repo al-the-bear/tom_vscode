@@ -77,8 +77,9 @@ to `resources/codespecs/`
 
 The CodeSpecs validate and trace tools run `validate_codespecs`, and the
 TomSpecs process check tools (`tomAi_specImportAnswers`, `tomAi_specRequiredFields`,
-…) run `spec_checks`, both from ai_build's `tom_specs_clitool`, as compiled
-binaries in `bin/<platform>/`. `scripts/build-validate-codespecs.cjs`
+…) run `spec_checks`, and the CodeSpecs map tool (`tomAi_specCodeSpecsMap`,
+Phase 4's stage 5) runs `irspecs`, all from ai_build's `tom_specs_clitool`, as
+compiled binaries in `bin/<platform>/`. `scripts/build-validate-codespecs.cjs`
 (`npm run codespecs:build`) compiles them for the host with `dart compile exe`;
 the install scripts run it. The installed extension never runs `dart run` for
 them.
@@ -105,7 +106,7 @@ Options (bash / PowerShell):
 
 - `--no-dart` / `-NoDart` (or `TOM_NO_DART=1`): builds as on a machine
   without a Dart SDK (below);
-- `--binaries-only` / `-BinariesOnly`: builds `tom_bs`, `validate_codespecs` and `spec_checks`
+- `--binaries-only` / `-BinariesOnly`: builds `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs`
   for this host, puts them into the binaries layer (step 5) and stops — no
   npm, no TypeScript, no VSIX, nothing installed;
 - `--no-layer` / `-NoLayer` (or `TOM_NO_LAYER=1`): leaves the binaries layer
@@ -121,12 +122,12 @@ It runs end to end:
 3. Regenerates the d4rt bridges for `tom_vscode_bridge`.
 4. `dart compile exe bin/tom_bs.dart` straight into the extension's local
    `bin/<platform>/` — it never relies on `$TOM_BINARY_PATH` or needs any tool
-   on `PATH` — and the same for `validate_codespecs` and `spec_checks` from
+   on `PATH` — and the same for `validate_codespecs`, `spec_checks` and `irspecs` from
    `tom_specs_clitool` (`npm run codespecs:build`).
 5. Puts them into the binaries layer, `tom_binaries/tom/<platform>/`, with
    their build stamps (`tom_bs.build.json`: the versioner stamp, build time,
    host and a hash of the bridge sources it was built from;
-   `validate_codespecs.build.json`, `spec_checks.build.json`: the source hash), commits exactly
+   `validate_codespecs.build.json`, `spec_checks.build.json`, `irspecs.build.json`: the source hash), commits exactly
    those files there and pushes (`scripts/binaries-layer.cjs publish`). The
    layer so always holds the latest build of each platform's host, which
    multi-platform VSIXes take (below). A push the remote refuses (the layer is
@@ -147,10 +148,10 @@ It runs end to end:
    config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
    personal files and literal secrets, as `resources/workspace_template.zip`
    (in the VSIX) and a copy beside it.
-8. Packages the VSIX (bundling only the host `tom_bs`, `validate_codespecs`, `spec_checks` and the build tools),
+8. Packages the VSIX (bundling only the host `tom_bs`, `validate_codespecs`, `spec_checks`, `irspecs` and the build tools),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
-   which of `tom_bs` / `validate_codespecs` / `spec_checks` and of the build tools it carries per platform is listed,
+   which of `tom_bs` / `validate_codespecs` / `spec_checks` / `irspecs` and of the build tools it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
    and installs it via the VS Code CLI (`code` on PATH, else the installation's own; without one it is only packaged).
 9. Prints the VSIX's path, to install the same file on other machines with
@@ -170,7 +171,8 @@ after the closing line says so. Such a VSIX lacks two things only:
 - **TomSpecs process checks** (`spec_checks`): `tomAi_specImportAnswers`,
   `tomAi_specRequiredFields`, `tomAi_specQuestionRegister`,
   `tomAi_specFeatureRegister`, `tomAi_specProjectIdeaCoverage`,
-  `tomAi_specAuthorizationCheck` and `tomAi_specCoverage`.
+  `tomAi_specAuthorizationCheck` and `tomAi_specCoverage`;
+- **CodeSpecs mapping** (`irspecs`): `tomAi_specCodeSpecsMap`.
 
 Everything else works: the chat panels and their transports, the prompt queue,
 the tools, quests, todos and processes, TomSpecs editing.
@@ -213,7 +215,7 @@ bash create_vsix_nodart.sh       # without the Dart binaries, no Dart SDK needed
 pwsh create_vsix.ps1             # Windows (create_vsix_nodart.ps1 likewise)
 ```
 
-For a VSIX that carries `tom_bs`, `validate_codespecs` and `spec_checks` for several
+For a VSIX that carries `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` for several
 platforms, the binaries come from the binaries layer:
 
 ```bash
@@ -224,7 +226,7 @@ pwsh create_currentbinaries_vsix.ps1  # Windows (create_fleetcompiled_vsix.ps1 l
 
 - `create_currentbinaries_vsix` builds this host's binaries
   (`compile_and_install --binaries-only`, into the layer), then packages with
-  every platform's `tom_bs`, `validate_codespecs` and `spec_checks` from the layer. Its report
+  every platform's `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` from the layer. Its report
   names each platform's binaries with their build stamps and says which are
   older than the sources here.
 - `create_fleetcompiled_vsix` is for a reconciled, quiet fleet (the reconcile
@@ -262,7 +264,7 @@ The layer is the public repository
 shallow clone into `.tom_binaries/` beside the script (gitignored, not in the
 VSIX, refreshed on the next run). It packages like the two above, with no Dart
 step even where Dart is installed, and ends with the same report: which
-platforms' `tom_bs`, `validate_codespecs` and `spec_checks` the VSIX carries, and which of
+platforms' `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` the VSIX carries, and which of
 them are older than the sources here or have no build stamp. A platform's
 binaries are put there by its own host (`compile_and_install --binaries-only`,
 or `create_fleetcompiled_vsix`).
@@ -282,7 +284,7 @@ bytes; what a binary was built from is what its stamp says.
   inside it as `resources/workspace_template.zip`);
 - which binaries the VSIX carries for which platform.
 
-`create_vsix.sh` carries `tom_bs`, `validate_codespecs` and `spec_checks` for the platform it
+`create_vsix.sh` carries `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` for the platform it
 runs on only: a Dart binary cannot be built for another platform, so build the
 VSIX on the platform that needs DartScript most, take the other platforms'
 from the binaries layer (`create_currentbinaries_vsix`,
@@ -347,8 +349,8 @@ What runs there depends on the binaries the VSIX carries for that machine's
 platform. The extension checks them when it starts, for the platform it runs
 on:
 
-- `tom_bs` (DartScript), `validate_codespecs` (CodeSpecs validation) and
-  `spec_checks` (TomSpecs process checks): for
+- `tom_bs` (DartScript), `validate_codespecs` (CodeSpecs validation),
+  `spec_checks` (TomSpecs process checks) and `irspecs` (CodeSpecs mapping): for
   the build machine's platform, when it had a Dart SDK;
 - the provider SDKs (the Anthropic API and Agent SDK transports): never in
   the VSIX; each machine installs them on its own Provider SDKs page, for its
@@ -392,7 +394,8 @@ the bundled one:
     "executables": {
       "tom_bs": { "win32-x64": "C:\\tom\\tom_bs.exe" },
       "validate_codespecs": { "win32-x64": "C:\\tom\\validate_codespecs.exe" },
-      "spec_checks": { "win32-x64": "C:\\tom\\spec_checks.exe" }
+      "spec_checks": { "win32-x64": "C:\\tom\\spec_checks.exe" },
+      "irspecs": { "win32-x64": "C:\\tom\\irspecs.exe" }
     }
   }
 }
@@ -480,7 +483,7 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 │       ├── tom_som_typescript_runtime/ # SOM runtime → vendor/tom_som/*.tgz
 │       └── tom_som_typescript_v0/     # SOM typed facade, meta, schemas
 └── tom_binaries/                      # binaries layer: each platform's latest from-source build
-    └── tom/<platform>/                # tom_bs, validate_codespecs, spec_checks and their *.build.json stamps
+    └── tom/<platform>/                # tom_bs, validate_codespecs, spec_checks, irspecs and their *.build.json stamps
 ```
 
 `<platform>` is VS Code's platform id: `darwin-arm64`, `linux-x64` or `win32-x64`, the
@@ -672,7 +675,7 @@ Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_pr
 
 ```bash
 npm run som:pack     # first, on a fresh checkout or after the SOM packages changed; then npm install
-npm run codespecs:build  # compile validate_codespecs and spec_checks into bin/<platform>/ (needs a Dart SDK); the CodeSpecs and spec_checks tests run them
+npm run codespecs:build  # compile validate_codespecs, spec_checks and irspecs into bin/<platform>/ (needs a Dart SDK); the CodeSpecs and spec_checks tests run them
 npm run codespecs:check  # are those binaries built from tom_specs_clitool's current source? (their build stamps)
 npm run check:tom-bs     # which bridge source the prebuilt tom_bs was built from, and whether the bridge changed since
 npm run binaries:report  # per platform in tom_binaries: tom_bs / validate_codespecs build stamps and whether they are older than the sources

@@ -30,6 +30,7 @@ const WRITERS = [
     'tomAi_specApplyEdits',
     'tomAi_specAssignCommentIds',
     'tomAi_specClearSection',
+    'tomAi_specCodeSpecsMap',
     'tomAi_specCodeSpecsPlanTodos',
     'tomAi_specCodeSpecsSetVerdict',
     'tomAi_specCodeSpecsWriteExtracts',
@@ -75,7 +76,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 63);
+        assert.equal(specTools.length, 64);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);

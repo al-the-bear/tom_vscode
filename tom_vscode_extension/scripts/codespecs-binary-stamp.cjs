@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Are the bundled tom_specs_clitool binaries — validate_codespecs (CodeSpecs
- * validation) and spec_checks (the TomSpecs process checks) — built from the
+ * validation), spec_checks (the TomSpecs process checks) and irspecs (the
+ * CodeSpecs mapping from the IR) — built from the
  * clitool source as it is now?
  *
  *   node scripts/codespecs-binary-stamp.cjs     (npm run codespecs:check)
@@ -38,7 +39,7 @@ const EXT_ROOT = path.resolve(__dirname, '..');
 const STAMP_FORMAT = 'validate-codespecs-build';
 const STAMP_FORMAT_VERSION = 1;
 /** The binaries compiled from tom_specs_clitool, each from its bin/<name>.dart. */
-const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks'];
+const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks', 'irspecs'];
 const DEFAULT_NAME = 'validate_codespecs';
 
 function aiBuildCheckout() {
