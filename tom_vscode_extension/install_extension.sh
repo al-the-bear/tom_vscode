@@ -157,6 +157,13 @@ if [ "$BINARIES_ONLY" != "1" ]; then
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
 echo "📦 Building the TomSpecs SOM packages..."
+# An ai_build elsewhere (TOM_SOM_AI_BUILD, e.g. an export of its HEAD): the SOM
+# packages and the CodeSpecs CLIs come from there, while the extension's tests
+# read tom_ai/ai_build's working tree; say so, the two may differ.
+if [ -n "${TOM_SOM_AI_BUILD:-}" ]; then
+    echo "ℹ️  TOM_SOM_AI_BUILD=$TOM_SOM_AI_BUILD: the SOM packages and the CodeSpecs CLIs are built from there;"
+    echo "   the extension's tests read tom_ai/ai_build's working tree, which may differ from it."
+fi
 node scripts/build-som-packages.cjs
 if [ $? -ne 0 ]; then
     echo "❌ Building the TomSpecs SOM packages failed"
@@ -233,8 +240,25 @@ TOM_BIN_DIR="$WORKSPACE_ROOT/tom_binaries/tom"
 BRIDGE_DIR="$WORKSPACE_ROOT/tom_ai/vscode/tom_vscode_bridge"
 BUNDLED_BINARIES="tom_bs"
 
-# Clean previous bin/ to avoid stale binaries
-rm -rf "$SCRIPT_DIR/bin"
+# The binaries are put together in bin.staging/ and replace bin/ only when every
+# step that writes them succeeded (vscimpb105): a step that fails (a CodeSpecs
+# CLI that does not compile, a layer without a binary) stops the install and
+# leaves bin/ — the previous binaries and their stamps — as it was. Starting
+# from an empty folder keeps stale binaries out, as the clean of bin/ did.
+BIN_STAGE="$SCRIPT_DIR/bin.staging"
+rm -rf "$BIN_STAGE"
+mkdir -p "$BIN_STAGE"
+# The node steps (binaries-layer.cjs, build-validate-codespecs.cjs,
+# check-tom-bs-provenance.cjs) write and read there too.
+export TOM_BINARIES_EXT_BIN="$BIN_STAGE"
+tom_bin_kept_on_failure() {
+    if [ "$1" != "0" ] && [ -d "$BIN_STAGE" ]; then
+        echo ""
+        echo "ℹ️  The install stopped before its binaries were complete: bin/ is unchanged, the previous"
+        echo "   binaries and stamps are kept (the partial build is in bin.staging/, cleared by the next install)."
+    fi
+}
+trap 'tom_bin_kept_on_failure $?' EXIT
 
 if [ "$LAYER_BINARIES" = "1" ]; then
     # Every platform's tom_bs and validate_codespecs from the binaries layer, as
@@ -274,7 +298,7 @@ elif [ "$FROM_SOURCE" = "1" ]; then
         *)              echo "❌ Unsupported host arch for from-source build: $(uname -m)"; exit 1 ;;
     esac
     BRIDGE_PLAT="$BRIDGE_OS-$BRIDGE_ARCH"
-    DST_DIR="$SCRIPT_DIR/bin/$BRIDGE_PLAT"
+    DST_DIR="$BIN_STAGE/$BRIDGE_PLAT"
     mkdir -p "$DST_DIR"
 
     # 1) Versioner: increment the bridge build number and (re)generate
@@ -340,7 +364,7 @@ else
         PLAT_ID="${PLAT_SPEC%%:*}"
         PLAT_EXT="${PLAT_SPEC#*:}"
         SRC_DIR="$TOM_BIN_DIR/$PLAT_ID"
-        DST_DIR="$SCRIPT_DIR/bin/$PLAT_ID"
+        DST_DIR="$BIN_STAGE/$PLAT_ID"
         if [ ! -d "$SRC_DIR" ]; then
             echo "  ⚠️  Source not found: $PLAT_ID — skipping"
             continue
@@ -436,6 +460,12 @@ if [ "$FROM_SOURCE" = "1" ] && [ "$NO_DART" != "1" ] && [ "$NO_LAYER" != "1" ]; 
         exit 1
     fi
 fi
+# Every binary is in place: bin.staging/ becomes bin/.
+rm -rf "$SCRIPT_DIR/bin"
+mv "$BIN_STAGE" "$SCRIPT_DIR/bin"
+unset TOM_BINARIES_EXT_BIN
+trap - EXIT
+
 if [ "$BINARIES_ONLY" = "1" ]; then
     echo ""
     echo "✅ Binaries built for this host and put into the binaries layer (no VSIX: --binaries-only)."

@@ -93,7 +93,30 @@ base script and print the closing lines (`scripts/install_summary.sh` / `.ps1`):
 the VSIX path, the warning, the finish time, the warning again. Beside each binary the build writes
 `<name>.build.json` (`validate_codespecs.build.json`, `spec_checks.build.json`), a hash of its source; `npm run codespecs:check`
 (and the test CV-8) say when tom_specs_clitool moved on since, so the binaries
-need `npm run codespecs:build` again. The stamps are not packaged. After packaging,
+need `npm run codespecs:build` again. The stamp names the clitool's commit
+(`clitool.head`, `dirty`) only when ai_build is the top level of its own git
+repository; an export of it (`git archive HEAD` into a folder passed as
+`TOM_SOM_AI_BUILD`) has no `.git`, and its stamp carries `head: null`,
+`dirty: null` and a `note` instead of the enclosing repository's commit
+(`isOwnGitRepo` in `scripts/codespecs-binary-stamp.cjs`). With
+`TOM_SOM_AI_BUILD` set, the install says that the SOM packages and the CLIs
+come from there while the extension's tests read `tom_ai/ai_build`'s working
+tree. The stamps are not packaged.
+
+**A failed binary step keeps `bin/`.** `build-validate-codespecs.cjs`
+compiles all three CLIs into `out/codespecs-build/<platform>/` and copies
+them with their stamps into `bin/<platform>/` only when every one built; a
+failure leaves the binaries and stamps there as they were and says so. The
+install scripts put every binary together in `bin.staging/`
+(`TOM_BINARIES_EXT_BIN` for the node steps: the layer bundle, the CLIs, the
+build tools, the layer publish, the tom_bs provenance check) and replace
+`bin/` with it only after the last of those steps; a step that fails stops
+the install as before, and the closing message says that `bin/` is unchanged
+and the previous binaries and stamps are kept (sh: an EXIT trap; ps1: a
+`try` / `finally`). The install does not go on to package with the old
+binaries: a failure still stops it. `bin.staging/` is gitignored and never
+packaged; the next install clears it. Tests: `codespecs-binary-stamp.test.ts`
+(BS-5, BS-6), `installBinStaging.test.ts` (IB-1 – IB-3). After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and no symlinks, and lists per platform which of
 `tom_bs` / `validate_codespecs` / `spec_checks` it carries (informational: a VSIX without them

@@ -10,7 +10,9 @@
  * `npm run codespecs:build` compiles bin/<platform>/<name> from ai_build's
  * tom_specs_clitool for each of CLITOOL_BINARIES and writes, beside it,
  * <name>.build.json: a sha256 over the files the binary is built from, with
- * the clitool's git HEAD and dirty flag for the message. Nothing
+ * the clitool's git HEAD and dirty flag for the message (read only from
+ * ai_build's own repository: an export without `.git` gets `head: null` and a
+ * `note`, never the enclosing repository's commit). Nothing
  * else noticed when that source moved on: the tests and the tools then ran an
  * old checker (the stale-model failure of gate A5, in another form).
  *
@@ -124,9 +126,32 @@ function sourceHash(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) {
     return { hash: hash.digest('hex'), files: files.length };
 }
 
-/** The clitool's HEAD and whether its source is dirty; nulls outside a git checkout. */
+/**
+ * Whether `aiBuild` is the top level of its own git repository. An export of
+ * ai_build (`git archive HEAD` into a folder, TOM_SOM_AI_BUILD) has no `.git`:
+ * git would answer for whatever repository encloses the folder, whose commit
+ * says nothing about the clitool (vscimpb105).
+ */
+function isOwnGitRepo(aiBuild = aiBuildCheckout()) {
+    try {
+        const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: aiBuild, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        return fs.realpathSync(top) === fs.realpathSync(aiBuild);
+    } catch {
+        return false;
+    }
+}
+
+/** The note a stamp carries when ai_build is no git checkout of its own. */
+const NOT_A_CHECKOUT_NOTE = 'ai_build is not a git checkout of its own (an export?): the commit it was built from is unknown';
+
+/**
+ * The clitool's HEAD and whether its source is dirty — only from ai_build's own
+ * repository; outside one (an export, a source drop) nulls and a note, never
+ * another repository's commit.
+ */
 function gitInfo(aiBuild = aiBuildCheckout()) {
     const cwd = path.join(aiBuild, 'tom_specs_clitool');
+    if (!isOwnGitRepo(aiBuild)) { return { head: null, dirty: null, note: NOT_A_CHECKOUT_NOTE }; }
     try {
         const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
         const dirty = execFileSync('git', ['status', '--porcelain', '--', '.'], { cwd, encoding: 'utf8' }).trim() !== '';
@@ -144,7 +169,7 @@ function gitInfo(aiBuild = aiBuildCheckout()) {
  */
 function uncommittedFeedFiles(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) {
     const files = feedFiles(aiBuild, name);
-    if (files.length === 0) { return []; }
+    if (files.length === 0 || !isOwnGitRepo(aiBuild)) { return []; }
     try {
         // Porcelain paths are relative to the repository root: strip ai_build's prefix in it.
         const prefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: aiBuild, encoding: 'utf8' }).trim();
@@ -164,8 +189,8 @@ function uncommittedFeedFiles(aiBuild = aiBuildCheckout(), name = DEFAULT_NAME) 
     }
 }
 
-/** Write the stamp for the binary just built. */
-function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), now = new Date(), name = DEFAULT_NAME } = {}) {
+/** Write the stamp for the binary just built (into `dir` when given, else bin/<platform>/ of extRoot). */
+function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform = hostPlatform(), now = new Date(), name = DEFAULT_NAME, dir } = {}) {
     const { hash, files } = sourceHash(aiBuild, name);
     const stamp = {
         format: STAMP_FORMAT,
@@ -176,7 +201,7 @@ function writeStamp({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platform 
         sourceFiles: files,
         clitool: gitInfo(aiBuild),
     };
-    fs.writeFileSync(stampPath(extRoot, platform, name), `${JSON.stringify(stamp, null, 2)}\n`);
+    fs.writeFileSync(dir ? path.join(dir, stampName(name)) : stampPath(extRoot, platform, name), `${JSON.stringify(stamp, null, 2)}\n`);
     return stamp;
 }
 
@@ -221,7 +246,7 @@ module.exports = {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- exported constants keep their names
     STAMP_FORMAT, STAMP_FORMAT_VERSION, CLITOOL_BINARIES,
     aiBuildCheckout, hostPlatform, binaryName, binaryPath, stampName, stampPath,
-    feedFiles, sourceHash, gitInfo, uncommittedFeedFiles, writeStamp, checkFreshness,
+    feedFiles, sourceHash, gitInfo, isOwnGitRepo, NOT_A_CHECKOUT_NOTE, uncommittedFeedFiles, writeStamp, checkFreshness,
 };
 
 if (require.main === module) {

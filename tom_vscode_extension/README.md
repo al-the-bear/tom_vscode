@@ -82,7 +82,10 @@ Phase 4's stage 5) runs `irspecs`, all from ai_build's `tom_specs_clitool`, as
 compiled binaries in `bin/<platform>/`. `scripts/build-validate-codespecs.cjs`
 (`npm run codespecs:build`) compiles them for the host with `dart compile exe`;
 the install scripts run it. The installed extension never runs `dart run` for
-them.
+them. They are taken over all together or not at all: when one does not
+compile, the binaries and stamps already in `bin/<platform>/` stay, and an
+install stops with `bin/` unchanged (it puts the binaries together in
+`bin.staging/` and replaces `bin/` only when every binary step succeeded).
 `TOM_SOM_AI_BUILD` points the script at another ai_build location. ai_build is
 shared with other sessions, so the script lists any uncommitted changes in the
 paths it packs, and `npm run som:pack -- --from-head` packs ai_build's committed

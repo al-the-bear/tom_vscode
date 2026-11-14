@@ -1,6 +1,8 @@
 node_modules
 out
 bin
+# The install's staging folder for bin/ (install_extension.*): replaces bin/ when complete.
+bin.staging/
 *.vsix
 .vscode-test
 .DS_Store

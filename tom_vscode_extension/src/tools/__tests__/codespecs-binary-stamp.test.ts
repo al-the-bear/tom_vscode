@@ -12,6 +12,12 @@
  *   BS-4 in a git checkout, a stale result names the feed files with uncommitted edits (modified or new, in the
  *        clitool or a path-resolved sibling; not tests): CV-8 skips on them; a committed change leaves the list
  *        empty, so a stale binary is a failure again
+ *   BS-5 the clitool's commit only from ai_build's own repository (vscimpb105): an export inside another
+ *        repository (TOM_SOM_AI_BUILD, `git archive HEAD`) gets `head: null`, `dirty: null` and a note, and no
+ *        uncommitted files of the enclosing repository; ai_build's own checkout gets its HEAD
+ *   BS-6 the build (scripts/build-validate-codespecs.cjs buildAll, compile stubbed): all CLIs compiled into a
+ *        scratch folder and taken over with their stamps only when every one built; a failing one leaves
+ *        bin/<platform>/ (binaries and stamps) as it was and says so
  */
 
 import test, { describe } from 'node:test';
@@ -25,7 +31,12 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const stamp = require(path.join(EXT_ROOT, 'scripts', 'codespecs-binary-stamp.cjs')) as {
     feedFiles(aiBuild: string): string[];
-    writeStamp(o: { extRoot: string; aiBuild: string; platform: string }): { sourceHash: string; sourceFiles: number; clitool: { head: string | null } };
+    writeStamp(o: { extRoot: string; aiBuild: string; platform: string; dir?: string; name?: string }): { sourceHash: string; sourceFiles: number; clitool: { head: string | null; dirty?: boolean | null; note?: string } };
+    gitInfo(aiBuild: string): { head: string | null; dirty: boolean | null; note?: string };
+    isOwnGitRepo(aiBuild: string): boolean;
+    uncommittedFeedFiles(aiBuild: string): string[];
+    NOT_A_CHECKOUT_NOTE: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    CLITOOL_BINARIES: string[]; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     checkFreshness(o: { extRoot: string; aiBuild: string; platform: string }): { state: string; message: string; uncommitted?: string[] };
     stampPath(extRoot: string, platform: string): string;
 };
@@ -137,5 +148,91 @@ describe('the validate_codespecs build stamp', () => {
         const committed = stamp.checkFreshness(o);
         assert.equal(committed.state, 'stale', 'a committed change still needs a rebuild');
         assert.deepEqual(committed.uncommitted, []);
+    });
+
+    test('BS-5: the commit only from ai_build\'s own repository', () => {
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- environment variables
+        const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x.invalid' };
+        const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', env }).trim();
+        // An export: ai_build's files in a folder of another repository (as ztmp/ of the workspace).
+        const { aiBuild, extRoot, put } = fixture();
+        const outer = path.dirname(aiBuild);
+        git(outer, 'init', '-q');
+        git(outer, 'add', '-A');
+        git(outer, 'commit', '-q', '-m', 'the enclosing repository');
+        put('tom_specs_clitool/lib/src/a.dart', 'void a() { /* changed in the enclosing repository */ }');
+        assert.equal(stamp.isOwnGitRepo(aiBuild), false);
+        assert.deepEqual(stamp.gitInfo(aiBuild), { head: null, dirty: null, note: stamp.NOT_A_CHECKOUT_NOTE });
+        assert.deepEqual(stamp.uncommittedFeedFiles(aiBuild), [], 'the enclosing repository\'s changes are not ai_build\'s');
+        const written = stamp.writeStamp({ extRoot, aiBuild, platform: PLATFORM, dir: (fs.mkdirSync(path.join(extRoot, 's'), { recursive: true }), path.join(extRoot, 's')) });
+        assert.deepEqual(written.clitool, { head: null, dirty: null, note: stamp.NOT_A_CHECKOUT_NOTE });
+        assert.ok(fs.existsSync(path.join(extRoot, 's', 'validate_codespecs.build.json')), '`dir` names the stamp\'s folder');
+        assert.match(fs.readFileSync(path.join(extRoot, 's', 'validate_codespecs.build.json'), 'utf8'), /"note": "ai_build is not a git checkout of its own/);
+        // ai_build's own checkout: its HEAD.
+        const own = fixture();
+        git(own.aiBuild, 'init', '-q');
+        git(own.aiBuild, 'add', '-A');
+        git(own.aiBuild, 'commit', '-q', '-m', 'seed');
+        assert.equal(stamp.isOwnGitRepo(own.aiBuild), true);
+        assert.deepEqual(stamp.gitInfo(own.aiBuild), { head: git(own.aiBuild, 'rev-parse', 'HEAD'), dirty: false });
+    });
+
+    test('BS-6: all CLIs or none', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const build = require(path.join(EXT_ROOT, 'scripts', 'build-validate-codespecs.cjs')) as {
+            buildAll(o: Record<string, unknown>): number;
+        };
+        const { aiBuild, extRoot } = fixture();
+        const outDir = path.join(extRoot, 'bin', PLATFORM);
+        fs.mkdirSync(outDir, { recursive: true });
+        // What an earlier build left.
+        for (const name of stamp.CLITOOL_BINARIES) {
+            fs.writeFileSync(path.join(outDir, name), `old ${name}`);
+            fs.writeFileSync(path.join(outDir, `${name}.build.json`), `{"old": "${name}"}`);
+        }
+        fs.writeFileSync(path.join(outDir, 'buildkit'), 'old buildkit');
+        const errors: string[] = [];
+        const origError = console.error;
+        const origLog = console.log;
+        console.error = (m: string) => { errors.push(String(m)); };
+        console.log = () => undefined;
+        try {
+            const scratch = path.join(extRoot, 'scratch');
+            const stampFor = (name: string, dir: string) => stamp.writeStamp({ extRoot, aiBuild, platform: PLATFORM, name, dir });
+            // The second CLI does not compile.
+            const failing = build.buildAll({
+                platform: PLATFORM, outDir, scratch, resolve: () => undefined, stampFor,
+                compile: (name: string, outFile: string) => { if (name === stamp.CLITOOL_BINARIES[1]) { throw new Error('Type SpecGenerationUnit not found'); } fs.writeFileSync(outFile, `new ${name}`); },
+            });
+            assert.equal(failing, 1);
+            for (const name of stamp.CLITOOL_BINARIES) {
+                assert.equal(fs.readFileSync(path.join(outDir, name), 'utf8'), `old ${name}`, `${name} kept`);
+                assert.equal(fs.readFileSync(path.join(outDir, `${name}.build.json`), 'utf8'), `{"old": "${name}"}`, `${name}'s stamp kept`);
+            }
+            assert.equal(fs.readFileSync(path.join(outDir, 'buildkit'), 'utf8'), 'old buildkit');
+            assert.ok(!fs.existsSync(scratch), 'the scratch folder is cleared');
+            const text = errors.join('\n');
+            assert.match(text, new RegExp(`Building ${stamp.CLITOOL_BINARIES[1]} failed: Type SpecGenerationUnit not found`));
+            assert.match(text, /Nothing was copied: validate_codespecs, spec_checks, irspecs are taken over only when all of them build/);
+            assert.match(text, /is unchanged: the previous binaries and stamps are kept \(buildkit, irspecs, spec_checks, validate_codespecs\)/);
+            // A failed dependency resolution says the same.
+            errors.length = 0;
+            assert.equal(build.buildAll({ platform: PLATFORM, outDir, scratch, resolve: () => { throw new Error('pub get'); }, compile: () => undefined, stampFor }), 1);
+            assert.match(errors.join('\n'), /previous binaries and stamps are kept/);
+            // Every one builds: taken over with fresh stamps.
+            const ok = build.buildAll({
+                platform: PLATFORM, outDir, scratch, resolve: () => undefined, stampFor,
+                compile: (name: string, outFile: string) => { fs.writeFileSync(outFile, `new ${name}`); },
+            });
+            assert.equal(ok, 0);
+            for (const name of stamp.CLITOOL_BINARIES) {
+                assert.equal(fs.readFileSync(path.join(outDir, name), 'utf8'), `new ${name}`);
+                assert.match(fs.readFileSync(path.join(outDir, `${name}.build.json`), 'utf8'), /"sourceHash"/);
+            }
+            assert.ok(!fs.existsSync(scratch));
+        } finally {
+            console.error = origError;
+            console.log = origLog;
+        }
     });
 });

@@ -218,6 +218,13 @@ if (-not $BinariesOnlyMode) {
 # tarballs package.json depends on. Must run before `npm install`: the VSIX has
 # to carry real copies of both packages, never a link into ai_build.
 Write-Host "Building the TomSpecs SOM packages..."
+# An ai_build elsewhere (TOM_SOM_AI_BUILD, e.g. an export of its HEAD): the SOM
+# packages and the CodeSpecs CLIs come from there, while the extension's tests
+# read tom_ai/ai_build's working tree; say so, the two may differ.
+if ($env:TOM_SOM_AI_BUILD) {
+    Write-Host "TOM_SOM_AI_BUILD=$($env:TOM_SOM_AI_BUILD): the SOM packages and the CodeSpecs CLIs are built from there;"
+    Write-Host "   the extension's tests read tom_ai/ai_build's working tree, which may differ from it."
+}
 Invoke-Native { node scripts/build-som-packages.cjs }
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Building the TomSpecs SOM packages failed"
@@ -306,8 +313,19 @@ if ($Result -match "^[Yy]") {
     $BridgeDir = Join-Path $WorkspaceRoot 'tom_ai/vscode/tom_vscode_bridge'
     $BundledBinaries = @('tom_bs')
 
-    $ExtBinDir = Join-Path $ExtensionDir 'bin'
+    # The binaries are put together in bin.staging\ and replace bin\ only when
+    # every step that writes them succeeded (vscimpb105): a step that fails (a
+    # CodeSpecs CLI that does not compile, a layer without a binary) stops the
+    # install and leaves bin\ - the previous binaries and their stamps - as it
+    # was. Starting from an empty folder keeps stale binaries out. The node
+    # steps write and read there too (TOM_BINARIES_EXT_BIN).
+    $FinalBinDir = Join-Path $ExtensionDir 'bin'
+    $ExtBinDir = Join-Path $ExtensionDir 'bin.staging'
     if (Test-Path $ExtBinDir) { Remove-Item -Recurse -Force $ExtBinDir }
+    New-Item -ItemType Directory -Force -Path $ExtBinDir | Out-Null
+    $env:TOM_BINARIES_EXT_BIN = $ExtBinDir
+    $BinSwapped = $false
+    try {
 
     if ($LayerBinariesMode) {
         # Every platform's tom_bs and validate_codespecs from the binaries
@@ -540,6 +558,18 @@ if ($Result -match "^[Yy]") {
             exit 1
         }
         Write-Host ""
+    }
+    # Every binary is in place: bin.staging\ becomes bin\.
+    if (Test-Path $FinalBinDir) { Remove-Item -Recurse -Force $FinalBinDir }
+    Move-Item -Path $ExtBinDir -Destination $FinalBinDir
+    $BinSwapped = $true
+    } finally {
+        Remove-Item Env:TOM_BINARIES_EXT_BIN -ErrorAction SilentlyContinue
+        if (-not $BinSwapped) {
+            Write-Host ""
+            Write-Host "The install stopped before its binaries were complete: bin\ is unchanged, the previous"
+            Write-Host "binaries and stamps are kept (the partial build is in bin.staging\, cleared by the next install)."
+        }
     }
     if ($BinariesOnlyMode) {
         Pop-Location

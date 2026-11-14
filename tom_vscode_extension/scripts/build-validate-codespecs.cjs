@@ -30,6 +30,13 @@
  * The platform folder uses VS Code's naming (darwin-arm64, linux-x64,
  * win32-x64, …), the one src/utils/executableResolver.ts resolves against.
  *
+ * All of them are compiled into a scratch folder first (out/codespecs-build/
+ * <platform>/) and copied, with their stamps, into bin/<platform>/ only when
+ * every one built: a failing build (another session's uncommitted edit that
+ * does not compile, say) leaves the binaries and stamps there as they were,
+ * and says so (vscimpb105). TOM_BINARIES_EXT_BIN names another bin folder
+ * (the install's staging folder).
+ *
  * Exit codes: 0 built, 1 a step failed (the message names it).
  */
 'use strict';
@@ -37,7 +44,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { CLITOOL_BINARIES, binaryName, writeStamp } = require('./codespecs-binary-stamp.cjs');
+const { CLITOOL_BINARIES, binaryName, stampName, writeStamp } = require('./codespecs-binary-stamp.cjs');
 const { findDart, notFoundMessage } = require('./find-dart.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
@@ -87,30 +94,78 @@ function main() {
     const dart = found.dart;
     if (found.via !== 'PATH') { console.log(`ℹ️  Dart SDK: ${dart} (${found.via})`); }
     listDirtyEdits();
-    const outDir = path.join(EXT_ROOT, 'bin', hostPlatform());
-    fs.mkdirSync(outDir, { recursive: true });
+    return buildAll({ dart });
+}
+
+/** What a failed build leaves: the binaries in bin/<platform>/ as they were. */
+function keptMessage(outDir) {
+    const kept = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => !f.endsWith('.json')) : [];
+    return kept.length
+        ? `   ${path.relative(EXT_ROOT, outDir) || outDir} is unchanged: the previous binaries and stamps are kept (${kept.join(', ')}).`
+        : `   ${path.relative(EXT_ROOT, outDir) || outDir} is unchanged (it holds no binaries).`;
+}
+
+/**
+ * Compile every CLI into a scratch folder, then copy the binaries and their
+ * stamps into `outDir` — all of them, or none. `compile(name, outFile)` and
+ * `stampFor(name, dir)` are replaceable for the tests.
+ */
+function buildAll({
+    dart,
+    platform = hostPlatform(),
+    outDir = path.join(process.env.TOM_BINARIES_EXT_BIN ? path.resolve(process.env.TOM_BINARIES_EXT_BIN) : path.join(EXT_ROOT, 'bin'), platform),
+    scratch = path.join(EXT_ROOT, 'out', 'codespecs-build', platform),
+    resolve = () => run(dart, ['pub', 'get'], CLITOOL_DIR),
+    compile = (name, outFile) => run(dart, ['compile', 'exe', entry(name), '-o', outFile], CLITOOL_DIR),
+    stampFor = (name, dir) => writeStamp({ extRoot: EXT_ROOT, aiBuild: AI_BUILD_CHECKOUT, platform, name, dir }),
+} = {}) {
     try {
         console.log('📦 Resolving tom_specs_clitool dependencies...');
-        run(dart, ['pub', 'get'], CLITOOL_DIR);
+        resolve();
     } catch (e) {
         console.error(`❌ Resolving tom_specs_clitool's dependencies failed: ${e.message}`);
+        console.error(keptMessage(outDir));
         return 1;
     }
+    fs.rmSync(scratch, { recursive: true, force: true });
+    fs.mkdirSync(scratch, { recursive: true });
+    const built = [];
     for (const name of CLITOOL_BINARIES) {
-        const outFile = path.join(outDir, binaryName(hostPlatform(), name));
+        const file = binaryName(platform, name);
+        const scratchFile = path.join(scratch, file);
         try {
-            console.log(`📦 Compiling ${name} for ${hostPlatform()} ...`);
-            run(dart, ['compile', 'exe', entry(name), '-o', outFile], CLITOOL_DIR);
+            console.log(`📦 Compiling ${name} for ${platform} ...`);
+            compile(name, scratchFile);
+            if (!fs.existsSync(scratchFile)) { throw new Error(`${file} was not written`); }
         } catch (e) {
             console.error(`❌ Building ${name} failed: ${e.message}`);
+            console.error(`   Nothing was copied: ${CLITOOL_BINARIES.join(', ')} are taken over only when all of them build.`);
+            console.error(keptMessage(outDir));
+            fs.rmSync(scratch, { recursive: true, force: true });
             return 1;
         }
-        if (process.platform !== 'win32') { fs.chmodSync(outFile, 0o755); }
+        if (process.platform !== 'win32') { fs.chmodSync(scratchFile, 0o755); }
         // What it was built from, for the freshness guard (codespecs-binary-stamp.cjs).
-        const stamp = writeStamp({ extRoot: EXT_ROOT, aiBuild: AI_BUILD_CHECKOUT, platform: hostPlatform(), name });
-        console.log(`  ✔ ${path.relative(EXT_ROOT, outFile)} (source ${stamp.sourceHash.slice(0, 12)}, ${stamp.sourceFiles} files)`);
+        const stamp = stampFor(name, scratch);
+        built.push({ name, file, stamp });
     }
+    // Every one built: take them over, each binary with its stamp.
+    fs.mkdirSync(outDir, { recursive: true });
+    for (const { name, file, stamp } of built) {
+        fs.copyFileSync(path.join(scratch, file), path.join(outDir, file));
+        if (process.platform !== 'win32') { fs.chmodSync(path.join(outDir, file), 0o755); }
+        const stampFile = stampName(name);
+        if (fs.existsSync(path.join(scratch, stampFile))) { fs.copyFileSync(path.join(scratch, stampFile), path.join(outDir, stampFile)); }
+        console.log(`  ✔ ${path.relative(EXT_ROOT, path.join(outDir, file))} (source ${String(stamp.sourceHash).slice(0, 12)}, ${stamp.sourceFiles} files)`);
+    }
+    fs.rmSync(scratch, { recursive: true, force: true });
+    // The scratch's parent (out/codespecs-build/) goes too once it is empty.
+    try { fs.rmdirSync(path.dirname(scratch)); } catch { /* other platforms' scratch, or already gone */ }
     return 0;
 }
 
-process.exitCode = main();
+module.exports = { buildAll, keptMessage };
+
+if (require.main === module) {
+    process.exitCode = main();
+}

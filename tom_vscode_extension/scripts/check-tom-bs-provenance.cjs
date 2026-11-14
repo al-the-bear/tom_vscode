@@ -98,7 +98,9 @@ function hostPlatform() {
 /** The host's prebuilt tom_bs: the one bundled into bin/, else the one in tom_binaries. */
 function defaultBinary() {
     const name = process.platform === 'win32' ? 'tom_bs.exe' : 'tom_bs';
-    const bundled = path.join(EXT_ROOT, 'bin', hostPlatform(), name);
+    // TOM_BINARIES_EXT_BIN: the install's staging folder (install_extension bin.staging/).
+    const binDir = process.env.TOM_BINARIES_EXT_BIN ? path.resolve(process.env.TOM_BINARIES_EXT_BIN) : path.join(EXT_ROOT, 'bin');
+    const bundled = path.join(binDir, hostPlatform(), name);
     if (fs.existsSync(bundled)) { return bundled; }
     return path.resolve(REPO, '..', '..', 'tom_binaries', 'tom', hostPlatform(), name);
 }

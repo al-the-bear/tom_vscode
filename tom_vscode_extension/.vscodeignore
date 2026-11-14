@@ -54,3 +54,7 @@ workspace_template.zip
 # release upload (scripts/vsix-release.cjs): never in a VSIX.
 out/vsix-split/**
 out/vsix-release/**
+# The install's staging folder for bin/ (left behind only by a failed install).
+bin.staging/**
+# The CodeSpecs CLIs' scratch folder (scripts/build-validate-codespecs.cjs).
+out/codespecs-build/**
