@@ -80,6 +80,7 @@ import {
     yaml11ReadsAsNonString,
     roleAfterMove,
     availableMoves,
+    decisionAt,
     userActionAt,
     effectiveSession,
     parseProcessState,
@@ -404,7 +405,7 @@ describe('process definitions', () => {
         const release = selectPhase(start, def, 'ship');
         assert.equal(at(move(release, 'back')), 'draft#1/tidy#1/#1 (decision)', 'back across a phase boundary: the previous phase\'s end');
         const shipVerdict = move(selectStep(release, def, 'gate'), 'proceed').target;
-        assert.deepEqual(options(shipVerdict), ['finish-process Gate passed — finish the process', 'gate-failed Gate failed — run Ship gate again']);
+        assert.deepEqual(options(shipVerdict), ['finish-process Gate passed — finish the process', 'gate-failed Gate failed — run Ship gate again', 'back-phase Gate failed — back to the start of Draft']);
         assert.equal(move(shipVerdict, 'finish-process').target.completed, true);
         assert.deepEqual(availableMoves(def, EMPTY_PROCESS_STATE), [], 'no process, no moves');
     });
@@ -841,5 +842,52 @@ describe('writing over an existing file (vscimpb92)', () => {
         const def = read(FIXTURE);
         assert.equal(stringifyProcessDefinition(def, ': not [ yaml'), stringifyProcessDefinition(def));
         assert.equal(stringifyProcessDefinition(def, '- a list\n'), stringifyProcessDefinition(def));
+    });
+});
+
+describe('back to the start of the previous phase (vscimpb93)', () => {
+    const at = (phase: string, step: string, extra: Partial<ReturnType<typeof selectProcess>> = {}): ReturnType<typeof selectProcess> =>
+        normalizeState({ ...selectProcess(definition()), phase, step, ...extra }, definition());
+    const backPhase = (state: ReturnType<typeof selectProcess>, def = definition()) => availableMoves(def, state).find((m) => m.kind === 'back-phase' && !m.branchOption);
+
+    test('BP-1: beside Back in every phase but the first; the previous phase starts again, its iteration counted on', () => {
+        assert.equal(backPhase(at('draft', 'review')), undefined, 'the first phase has no previous one');
+        const ship = at('ship', 'release', { phaseIterations: { draft: 2 } });
+        const moves = availableMoves(definition(), ship).map((m) => m.kind);
+        assert.deepEqual(moves.slice(-2), ['back', 'back-phase'], 'after Back');
+        const move = backPhase(ship)!;
+        assert.equal(move.label, 'Back to the start of Draft');
+        assert.deepEqual([move.target.phase, move.target.phaseIteration, move.target.step, move.target.stepIteration, move.target.substep, move.target.completed],
+            ['draft', 3, 'write', 1, '', false]);
+        assert.equal(move.target.stepIterations, undefined, 'no step record of another phase iteration');
+        assert.equal(backPhase(at('ship', 'release'))!.target.phaseIteration, 2, 'without a record the phase ran once');
+        assert.equal(backPhase(at('ship', 'release', { phaseIterations: { draft: 3 } }))!.target.phaseIteration, 3, 'bounded by maxIterations');
+        const plain = definition();
+        plain.phases[0].repeatable = false;
+        assert.equal(backPhase(at('ship', 'release', { phaseIterations: { draft: 1 } }), plain)!.target.phaseIteration, 1, 'a phase not marked repeatable stays at 1');
+        assert.ok(backPhase(at('ship', 'release', { decision: true })), 'also at a decision');
+    });
+
+    test('BP-2: a choice of the decision after a failed gate', () => {
+        const options = decisionAt(definition(), at('ship', 'gate', { decision: true, phaseIterations: { draft: 1 } }))!.options;
+        const choice = options.find((o) => o.kind === 'back-phase')!;
+        assert.equal(choice.label, 'Gate failed — back to the start of Draft');
+        assert.equal(choice.branchOption, true);
+        assert.deepEqual([choice.target.phase, choice.target.phaseIteration, choice.target.step], ['draft', 2, 'write']);
+        assert.equal(decisionAt(definition(), at('draft', 'gate', { decision: true }))!.options.some((o) => o.kind === 'back-phase'), false, 'not after the first phase\'s gate');
+    });
+
+    test('BP-3: each phase\'s last iteration is recorded on every move and kept in the state file', () => {
+        const def = definition();
+        const gate = at('draft', 'gate', { phaseIteration: 2 });
+        const ship = trackStepIterations(gate, at('ship', 'release'));
+        assert.deepEqual(ship.phaseIterations, { draft: 2 });
+        const back = trackStepIterations(ship, backPhase(ship, def)!.target);
+        assert.deepEqual([back.phase, back.phaseIteration, back.phaseIterations], ['draft', 3, { draft: 2, ship: 1 }]);
+        const again = trackStepIterations(back, at('ship', 'release', { phaseIterations: back.phaseIterations }));
+        assert.deepEqual(again.phaseIterations, { draft: 3, ship: 1 }, 'the highest iteration');
+        assert.equal(trackStepIterations(again, { ...EMPTY_PROCESS_STATE, process: 'other', phase: 'a', step: 's' }).phaseIterations, undefined, 'another process starts without one');
+        assert.deepEqual(parseProcessState(stringifyProcessState(again, '2026-11-14T10:00:00Z')).phaseIterations, { draft: 3, ship: 1 });
+        assert.equal(parseProcessState('process: x\nphaseIterations: { a: 0, b: two }').phaseIterations, undefined, 'unreadable counts are dropped');
     });
 });

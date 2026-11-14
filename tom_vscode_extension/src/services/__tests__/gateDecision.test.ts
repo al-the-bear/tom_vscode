@@ -97,7 +97,7 @@ describe('the gate decision', () => {
         assert.deepEqual(gateDecisionOptions(world(g1, target).deps), expected);
         assert.deepEqual(expected, ['Gate passed — go on to p2 › plan', 'Gate failed — back to revise']);
         const g2 = at('p2', 'g2');
-        assert.deepEqual(gateDecisionOptions(world(g2, gateTarget(g2)).deps), ['Gate passed — finish the process', 'Gate failed — run g2 again']);
+        assert.deepEqual(gateDecisionOptions(world(g2, gateTarget(g2)).deps), ['Gate passed — finish the process', 'Gate failed — run g2 again', 'Gate failed — back to the start of p1']);
         assert.deepEqual(gateDecisionOptions(world(at('p1', 'draft')).deps), []);
     });
 

@@ -58,6 +58,7 @@ import {
     completeFollowUpSwitch,
     conditionLookup,
     followUpJournalEntry,
+    backPhaseJournalEntry,
     originVariables,
     judgedLevelAt,
     passExcluded,
@@ -690,6 +691,12 @@ export class ProcessStateStore {
         if (kind === 'proceed' && this.state.leaveOut) { kind = 'leave-out'; level = this.state.leaveOut.level; }
         const move = this.findMove(kind, level, followUp?.key);
         if (!move) { return { ok: false, error: `"${kind}${level ? ` ${level}` : ''}" is not possible at the current position` }; }
+        if (move.kind === 'back-phase') {
+            const from = this.state;
+            const moved = this.commit(repo, from, move.target, source);
+            if (moved.ok) { this.journalMove(backPhaseJournalEntry, move.label, from, moved.state); }
+            return moved;
+        }
         if (move.kind !== 'follow-up') { return this.commit(repo, this.state, move.target, source); }
         // A switch to a follow-up process: its call context resolved now, the carried variables' values recorded.
         const before = this.state;
@@ -698,6 +705,20 @@ export class ProcessStateStore {
         const result = this.commit(repo, before, target, source);
         if (result.ok) { this.journalFollowUp(before, result.state); }
         return result;
+    }
+
+    /** A move back to the start of the previous phase goes to the quest's decisions journal (best effort). */
+    private journalMove(entryOf: typeof backPhaseJournalEntry, label: string, from: ProcessState, to: ProcessState): void {
+        try {
+            const quests = WsPaths.ai('quests');
+            if (!quests) { return; }
+            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
+            const def = this.entry(to.process)?.definition;
+            const where = (l: ProcessState): string => (def ? positionText(def, l) : `${l.phase} › ${l.step}`);
+            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, `${head}${entryOf(label, from, where(from), to, where(to), this.run)}\n`, 'utf-8');
+        } catch { /* the journal is a record, not a participant */ }
     }
 
     /** A switch to a follow-up process goes to the quest's decisions journal (best effort). */

@@ -864,6 +864,13 @@ export interface ProcessState {
      */
     stepIterations?: StepIterationRecord;
     /**
+     * The iteration each phase of the process other than the current one was
+     * last in (vscimpb93), so "Back to the start of the previous phase" counts
+     * it on and the phase's round folders continue. Kept by
+     * {@link trackStepIterations}; dropped when the process changes.
+     */
+    phaseIterations?: Record<string, number>;
+    /**
      * A level above the quest's own process (src/utils/processStack.ts): it
      * was started from the step of the level below as a subprocess or a
      * branch, with the follow-up the parent step gets when it ends.
@@ -1042,6 +1049,7 @@ function withoutRecord(state: ProcessState): ProcessState {
  * committed change of a quest's state goes through it.
  */
 export function trackStepIterations(before: ProcessState, after: ProcessState): ProcessState {
+    after = trackPhaseIterations(before, after);
     const samePhase = before.process === after.process && before.phase === after.phase
         && before.phaseIteration === after.phaseIteration && !!after.phase;
     if (!samePhase) { return withoutRecord(after); }
@@ -1049,6 +1057,21 @@ export function trackStepIterations(before: ProcessState, after: ProcessState): 
     if (before.step && before.step !== after.step) { steps[before.step] = before.stepIteration; }
     if (Object.keys(steps).length === 0) { return withoutRecord(after); }
     return { ...after, stepIterations: { phase: after.phase, phaseIteration: after.phaseIteration, steps } };
+}
+
+/**
+ * `after` with the phases' last iterations (vscimpb93): within one process,
+ * the phase `before` was in keeps the highest iteration it reached when the
+ * move leaves it; another process starts without a record.
+ */
+function trackPhaseIterations(before: ProcessState, after: ProcessState): ProcessState {
+    const { phaseIterations: _old, ...rest } = after;
+    if (!after.process || before.process !== after.process) { return rest; }
+    const phases = { ...(before.phaseIterations ?? {}) };
+    if (before.phase && (before.phase !== after.phase || before.phaseIteration !== after.phaseIteration)) {
+        phases[before.phase] = Math.max(phases[before.phase] ?? 0, before.phaseIteration);
+    }
+    return Object.keys(phases).length ? { ...rest, phaseIterations: phases } : rest;
 }
 
 /** The state at the position itself, not at the decision after it. */
@@ -1498,10 +1521,10 @@ export function skippedInPhase(state: ProcessState): ProcessSkipRecord[] {
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back' | 'back-phase';
 
 /** The move kinds, in the order the action bar shows them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back'];
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back', 'back-phase'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
@@ -1623,6 +1646,21 @@ function whereTo(def: ProcessDefinition, from: ProcessState, to: ProcessState): 
 }
 
 /**
+ * The start of the phase before the current one (vscimpb93): its first step
+ * (past what its conditions leave out), the phase's iteration counted on from
+ * the one it was last in (bounded by its maxIterations; a phase not marked
+ * repeatable stays at 1), so its round folders continue. Null in the first
+ * phase.
+ */
+function previousPhaseStart(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): { name: string; target: ProcessState } | null {
+    const phase = def.phases[pos.phaseIndex - 1];
+    if (!phase) { return null; }
+    const iteration = clampIteration(phase, (here.phaseIterations?.[phase.id] ?? 1) + 1);
+    const start = withStep(withoutRecord({ ...here, phase: phase.id, phaseIteration: iteration }), firstStepOf(phase), 1);
+    return { name: nameOf(phase), target: passExcluded(def, here, start, options) };
+}
+
+/**
  * The options at the decision position after `pos`: go on (gate passed after
  * a gate; finish the process at its end), a repeat of each repeatable level
  * that ends there (below its maxIterations), and after a gate, gate failed —
@@ -1650,6 +1688,8 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
         moves.push(back
             ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, reentryIteration(here, pos.phase, back)) }
             : { kind: 'gate-failed', label: `Gate failed — run ${nameOf(gate)} again`, target: changeIteration(here, def, 'step', 1) });
+        const previous = previousPhaseStart(def, here, pos, options);
+        if (previous) { moves.push({ kind: 'back-phase', label: `Gate failed — back to the start of ${previous.name}`, target: previous.target }); }
     }
     const sub = subs[pos.substepIndex];
     if (sub && canRepeat(sub, here.substepIteration)) {
@@ -1753,6 +1793,18 @@ export function followUpJournalEntry(from: ProcessState, fromPosition: string, t
     ].join('\n');
 }
 
+/** The decisions journal entry of a move back to the start of the previous phase (vscimpb93). */
+export function backPhaseJournalEntry(label: string, from: ProcessState, fromPosition: string, to: ProcessState, toPosition: string, run: string, at: Date = new Date()): string {
+    return [
+        `## ${at.toISOString()} — ${label}`,
+        '',
+        `- **From:** ${from.process} › ${fromPosition}`,
+        `- **To:** ${to.process} › ${toPosition} (phase iteration ${to.phaseIteration})`,
+        ...(run && run !== 'default' ? [`- **Run:** ${run}`] : []),
+        '',
+    ].join('\n');
+}
+
 /** The follow-up chain of `state` as text, oldest first (`design › p1 → review`), '' without one. */
 export function originChainText(state: ProcessState): string {
     if (!state.origins?.length) { return ''; }
@@ -1771,7 +1823,11 @@ export function originChainText(state: ProcessState): string {
  *   which follow as moves marked `branchOption` — go on (`finish`;
  *   `gate-passed` after a gate; `finish-process` at the end), `gate-failed`
  *   (back to the gate's `onFail` step, or the gate again), `repeat` of each
- *   repeatable level ending there — then `back` (to the position itself).
+ *   repeatable level ending there; after a gate also `back-phase`, back to
+ *   the start of the previous phase — then `back` (to the position itself).
+ * - `back-phase` ("Back to the start of <phase>") after `back`, everywhere
+ *   but in the first phase: the previous phase's first step, its iteration
+ *   counted on.
  *
  * Only a decision position repeats or decides. A finished process offers only
  * `back` ("Reopen"); no process, nothing.
@@ -1790,6 +1846,7 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
         moves.push({ kind: 'proceed', label: 'Decide…', target: state });
         moves.push(...decisionOptions(def, here, pos, forward, options));
         moves.push({ kind: 'back', label: 'Back', target: here });
+        moves.push(...backPhaseMove(def, here, pos, options));
         return moves;
     }
     const next = isDecisionPoint(pos) || !forward ? { ...here, decision: true as const } : forward;
@@ -1801,7 +1858,14 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
         const prev = positionOf(def, backRaw);
         moves.push({ kind: 'back', label: 'Back', target: prev && isDecisionPoint(prev) ? { ...notRun(backRaw), decision: true } : notRun(backRaw) });
     }
+    moves.push(...backPhaseMove(def, here, pos, options));
     return moves;
+}
+
+/** "Back to the start of the previous phase" for the action bar (vscimpb93); nothing in the first phase. */
+function backPhaseMove(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): ProcessMove[] {
+    const previous = previousPhaseStart(def, here, pos, options);
+    return previous ? [{ kind: 'back-phase', label: `Back to the start of ${previous.name}`, target: previous.target }] : [];
 }
 
 /**
@@ -2086,6 +2150,15 @@ function parseStepIterations(raw: unknown): { stepIterations?: StepIterationReco
     return { stepIterations: { phase: raw.phase, phaseIteration, steps } };
 }
 
+function parsePhaseIterations(raw: unknown): { phaseIterations?: Record<string, number> } {
+    if (!isObject(raw)) { return {}; }
+    const phases: Record<string, number> = {};
+    for (const [id, n] of Object.entries(raw)) {
+        if (Number.isInteger(n) && (n as number) >= 1) { phases[id] = n as number; }
+    }
+    return Object.keys(phases).length ? { phaseIterations: phases } : {};
+}
+
 /**
  * The state file is a stack of levels, bottom first: each level is a process
  * position with its own iterations, and the top one (the last) is where the
@@ -2118,6 +2191,7 @@ function parseLevel(raw: Record<string, unknown>): ProcessState {
         completed: raw.completed === true,
         ...(raw.decision === true || raw.ran === true ? { decision: true as const } : {}),
         ...parseStepIterations(raw.stepIterations),
+        ...parsePhaseIterations(raw.phaseIterations),
         ...parseNested(raw.nested),
         ...parseNestedEnded(raw.nestedEnded),
         ...textRecord('inputs', raw.inputs),
@@ -2220,6 +2294,7 @@ function levelRecord(state: ProcessState): Record<string, unknown> {
         ...(state.completed ? { completed: true } : {}),
         ...(state.decision ? { decision: true } : {}),
         ...(state.stepIterations ? { stepIterations: state.stepIterations } : {}),
+        ...(state.phaseIterations && Object.keys(state.phaseIterations).length ? { phaseIterations: state.phaseIterations } : {}),
         ...(state.nested ? { nested: state.nested } : {}),
         ...(state.nestedEnded ? { nestedEnded: state.nestedEnded } : {}),
         ...(state.inputs && Object.keys(state.inputs).length ? { inputs: state.inputs } : {}),
