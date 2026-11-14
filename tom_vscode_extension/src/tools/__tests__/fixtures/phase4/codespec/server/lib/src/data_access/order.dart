@@ -3,6 +3,7 @@
 // Spec model version: 1.1
 
 import 'package:tom_code_specs/tom_code_specs.dart';
+import 'package:tom_core_server/tom_core_server.dart';
 
 /// A single order placed by a customer.
 ///
@@ -21,13 +22,16 @@ import 'package:tom_code_specs/tom_code_specs.dart';
   DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),
   DocRef('DAATT-DATA', 'supplies the storage type'),
 ])
-@CsTable('orders')
+@CsTable('orders', datasource: 'main')
 @CsTableKey(
   'pk_orders',
   kind: CsKeyKind.primary,
   columns: ['order_id'],
   generation: CsKeyGeneration.uuid,
 )
+@CsCompletion('AC-1', fact: 'datasource', value: 'main')
+@tomReflector
+@TomDbTable(datasource: 'main', table: 'orders', primaryKeyFields: ['orderId'])
 class Order {
   /// The identifier the order is filed under.
   @DocSpec([

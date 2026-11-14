@@ -105,9 +105,10 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.outcome, 'clean');
         assert.equal(r.summary, recorded.summary);
         assert.deepEqual(r.violations, []);
-        // 44 checks since tom_specs_clitool 0.16.0 (42-44: an entity's keys and indexes, cskey1).
-        assert.equal(r.checkCount, 44);
-        assert.equal(r.checksRun, 41, 'checks 9, 13 and 31 lack their corroborating input');
+        // 47 checks since cskey2 (42-44: an entity's keys and indexes, cskey1; 45-47: @tomReflector / @TomDbTable, the
+        // repository's key type, an authored completion).
+        assert.equal(r.checkCount, 47);
+        assert.equal(r.checksRun, 44, 'checks 9, 13 and 31 lack their corroborating input');
         assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
         assert.deepEqual(r.inputs, {
             shared: 'base/codespec/shared', client: 'base/codespec/client', server: 'base/codespec/server', extracts: 'base/codespecs_extracts',
@@ -212,7 +213,7 @@ describe('CodeSpecs validate', () => {
         assert.equal(r.summary, cli.summary);
         assert.deepEqual(r.notRun, cli.notRun);
         assert.equal(r.checkCount, cli.checks.length);
-        assert.equal(r.checkCount, 44);
+        assert.equal(r.checkCount, 47);
         assert.deepEqual(r.notRun.map((n: Json) => n.checks), [[13], [9], [31]]);
         assert.deepEqual(r.inputs, {
             ir: 'base/codespec/irspecs', extracts: 'base/codespecs_extracts',
@@ -230,7 +231,7 @@ describe('CodeSpecs validate', () => {
         copyRun('irbroken');
         const file = path.join(ws, ir('irbroken'), 'CE-DB.ir.yaml');
         const text = fs.readFileSync(file, 'utf8');
-        const anchor = '        docSpecLine: 14\n';
+        const anchor = '        docSpecLine: 15\n';
         assert.ok(text.includes(anchor), 'the fixture IR still has the shape this test edits');
         const changed = text.replace(anchor, '          - sectionId: "NOPE-TOKN"\n            description: "supplies nothing"\n'
             + '            descriptionLiteral: "\'supplies nothing\'"\n' + anchor);
@@ -370,7 +371,7 @@ describe('CodeSpecs step context', () => {
         copyRun('cv7');
         const own = await call(codeSpecsValidateImpl, { ...trio('cv7'), csVocabulary: 'vocab/vocabulary.dart' });
         assert.equal(own.inputs['cs-vocabulary'], 'vocab/vocabulary.dart');
-        assert.equal(own.checksRun, 41);
+        assert.equal(own.checksRun, 44);
     });
 
     test('SC-4: the packaged contract equals its source in ai_build', (t) => {

@@ -203,7 +203,7 @@ describe('CodeSpecs workflow', () => {
         // The fixture trio was generated from another document, so against Meridian it does not validate clean.
         const before = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
         assert.ok(['done', 'failing'].includes(before.state), JSON.stringify(before));
-        assert.equal(before.details.checkCount, 44);
+        assert.equal(before.details.checkCount, 47);
         assert.ok(before.details.notRun.includes(19), 'without extracts, the extract checks are not run');
         await codeSpecsWriteExtractsImpl(deps, { file });
         const v = stage(await statusOf({ file, shared: 'w6/codespec/shared' }), 'validation');
@@ -216,7 +216,7 @@ describe('CodeSpecs workflow', () => {
         fs.cpSync(path.join(FIXTURE, 'codespec'), path.join(ws, 'w9', 'codespec'), { recursive: true });
         const v = stage(await statusOf({ file, ir: 'w9/codespec/irspecs' }), 'validation');
         assert.ok(['done', 'failing'].includes(v.state), JSON.stringify(v));
-        assert.equal(v.details.checkCount, 44);
+        assert.equal(v.details.checkCount, 47);
         assert.ok(v.details.notRun.includes(19), 'without extracts, the extract checks are not run');
         const direct = JSON.parse(await codeSpecsValidateImpl(deps, { ir: 'w9/codespec/irspecs' }));
         assert.equal(v.details.checksRun, direct.checksRun, 'the validate tool\'s result');
@@ -238,7 +238,7 @@ describe('CodeSpecs workflow', () => {
         assert.ok(['done', 'failing'].includes(v.state), JSON.stringify(v));
         assert.equal(v.details.ir, 'w10/irspecs');
         assert.match(v.details.irFolder, /<spec-root>\/irspecs/);
-        assert.equal(v.details.checkCount, 44);
+        assert.equal(v.details.checkCount, 47);
         assert.match(NEXT_ACTION.validation, /irspecs map --unit/, 'the stage\'s next action names mapping');
         assert.match(NEXT_ACTION.authoring, /writes IR/);
     });

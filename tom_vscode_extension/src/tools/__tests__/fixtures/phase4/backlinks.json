@@ -15,10 +15,11 @@
       "path": "Customer",
       "kind": "classType",
       "file": "lib/src/data_access/customer.dart",
-      "line": 25,
+      "line": 29,
       "markers": [
         "CsTable",
-        "CsTableKey"
+        "CsTableKey",
+        "CsCompletion"
       ],
       "codeSpec": {
         "id": "dataAccess.Customer",
@@ -28,7 +29,7 @@
           "DAATT-IDEN",
           "DAATT-DATA"
         ],
-        "line": 10
+        "line": 11
       },
       "docSpec": [
         {
@@ -48,7 +49,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 14,
+      "docSpecLine": 15,
       "tokens": [
         "DAENT-IDEN",
         "content",
@@ -64,7 +65,7 @@
       "path": "Customer.email",
       "kind": "field",
       "file": "lib/src/data_access/customer.dart",
-      "line": 32,
+      "line": 36,
       "markers": [
         "CsColumn"
       ],
@@ -79,7 +80,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 27,
+      "docSpecLine": 31,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -93,7 +94,7 @@
       "path": "Customer.displayName",
       "kind": "field",
       "file": "lib/src/data_access/customer.dart",
-      "line": 40,
+      "line": 44,
       "markers": [
         "CsColumn"
       ],
@@ -108,7 +109,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 35,
+      "docSpecLine": 39,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -122,10 +123,11 @@
       "path": "Order",
       "kind": "classType",
       "file": "lib/src/data_access/order.dart",
-      "line": 31,
+      "line": 35,
       "markers": [
         "CsTable",
-        "CsTableKey"
+        "CsTableKey",
+        "CsCompletion"
       ],
       "codeSpec": {
         "id": "dataAccess.Order",
@@ -136,7 +138,7 @@
           "DAATT-IDEN",
           "DAATT-DATA"
         ],
-        "line": 10
+        "line": 11
       },
       "docSpec": [
         {
@@ -160,7 +162,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 14,
+      "docSpecLine": 15,
       "tokens": [
         "DAENT-IDEN",
         "content",
@@ -177,7 +179,7 @@
       "path": "Order.orderId",
       "kind": "field",
       "file": "lib/src/data_access/order.dart",
-      "line": 38,
+      "line": 42,
       "markers": [
         "CsColumn"
       ],
@@ -192,7 +194,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 33,
+      "docSpecLine": 37,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"
@@ -206,7 +208,7 @@
       "path": "Order.placedAt",
       "kind": "field",
       "file": "lib/src/data_access/order.dart",
-      "line": 46,
+      "line": 50,
       "markers": [
         "CsColumn"
       ],
@@ -221,7 +223,7 @@
           "description": "supplies the storage type"
         }
       ],
-      "docSpecLine": 41,
+      "docSpecLine": 45,
       "tokens": [
         "DAATT-IDEN",
         "DAATT-DATA"

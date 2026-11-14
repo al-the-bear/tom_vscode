@@ -3,6 +3,7 @@
 // Spec model version: 1.1
 
 import 'package:tom_code_specs/tom_code_specs.dart';
+import 'package:tom_core_server/tom_core_server.dart';
 
 /// A person or organisation that places orders.
 ///
@@ -20,8 +21,11 @@ import 'package:tom_code_specs/tom_code_specs.dart';
   DocRef('DAATT-IDEN', 'supplies the stored attribute and its column'),
   DocRef('DAATT-DATA', 'supplies the storage type'),
 ])
-@CsTable('customers')
+@CsTable('customers', datasource: 'main')
 @CsTableKey('pk_customers', kind: CsKeyKind.natural, columns: ['email'])
+@CsCompletion('AC-1', fact: 'datasource', value: 'main')
+@tomReflector
+@TomDbTable(datasource: 'main', table: 'customers', primaryKeyFields: ['email'])
 class Customer {
   /// The address order confirmations are sent to.
   @DocSpec([

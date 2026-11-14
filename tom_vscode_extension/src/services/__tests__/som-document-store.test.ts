@@ -284,11 +284,14 @@ describe('SomDocumentStore', () => {
         assert.notEqual(s.render(doc, { stamp: doc.stamp }), foreign, 'the encoder alone would rewrite it');
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
         const result = await s.save(doc, { dryRun: true });
-        assert.equal(result.diff.split('\n').filter((l) => /^[-+]/.test(l) && !/^(---|\+\+\+) /.test(l)).length, 2 + 7 + 1, 'the stamp (2) and the value (7 out, 1 in)');
         await s.save(doc);
         const after = fs.readFileSync(p, 'utf8');
         const lines = foreign.split('\n');
         const stampLine = lines.findIndex((l) => l.startsWith('modelVersion: '));
+        // The stamp lines change only while the sample carries an older stamp than the model (2: out and in).
+        const stampMoved = !after.split('\n').includes(lines[stampLine]);
+        assert.equal(result.diff.split('\n').filter((l) => /^[-+]/.test(l) && !/^(---|\+\+\+) /.test(l)).length, (stampMoved ? 2 : 0) + 7 + 1,
+            'the stamp (2, when it moves) and the value (7 out, 1 in)');
         const value = new Set(Array.from({ length: 7 }, (_, k) => lines.indexOf('    content: |2-') + 1 + k));
         assert.deepEqual(linesGone(foreign, after).filter((i) => i !== stampLine && !value.has(i)), [], 'nothing else changed');
         assert.match(after, /SYTS-WORK-1: \|2-\n/, 'the file\'s scalar style');

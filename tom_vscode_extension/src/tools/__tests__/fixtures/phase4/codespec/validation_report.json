@@ -14,7 +14,7 @@
     "regenerated-server": null
   },
   "passed": true,
-  "summary": "codespecs: 44 checks passed",
+  "summary": "codespecs: 47 checks passed",
   "checks": [
     {
       "number": 1,
@@ -235,6 +235,21 @@
       "number": 44,
       "definedIn": "§3.3.11",
       "title": "Every @CsTable holds exactly one @CsTableKey that identifies the row"
+    },
+    {
+      "number": 45,
+      "definedIn": "§3.3.1",
+      "title": "Every @CsTable class carries @tomReflector and a @TomDbTable agreeing with @CsTable and its identifying @CsTableKey"
+    },
+    {
+      "number": 46,
+      "definedIn": "§3.3.4",
+      "title": "A @CsRepository extends TomRepository<E, K> with E a @CsTable class and K its primary-key type (TomCompositeKey for several columns)"
+    },
+    {
+      "number": 47,
+      "definedIn": "§2.10",
+      "title": "Every @CsCompletion names a rule of the register, its fact and its value, and the declaration carries that value"
     }
   ],
   "notRun": [

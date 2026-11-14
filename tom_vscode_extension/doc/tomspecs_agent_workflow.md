@@ -273,7 +273,7 @@ it after each step. How to do a stage is in its runbook:
    (`dart run tom_specs_clitool:irspecs map --mapper <its mapper> --ir
    <spec-root>/irspecs --spec <document> --unit <unit id>`, from a
    tom_specs_clitool checkout; the runbook `codespecs-validate`).
-   `tomAi_specCodeSpecsValidate` runs the 44 checks over the IR folder (`ir`)
+   `tomAi_specCodeSpecsValidate` runs the 47 checks over the IR folder (`ir`)
    — or over generated projects — (clean, violations or a usage error);
    `tomAi_specCodeSpecsStatus` validates the run's own IR folder by default; checks
    whose extra input was not given are listed as not run, never as passed.
