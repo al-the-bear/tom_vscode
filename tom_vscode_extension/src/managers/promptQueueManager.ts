@@ -432,6 +432,13 @@ export interface QueuedPrompt {
      * the position it moves from).
      */
     processMove?: ProcessMoveSpec;
+    /**
+     * A process item (vscimpb97): the work of a process step — the prompt
+     * Proceed queues for a position, its process-move marker, and what the
+     * step's agent queues with `processItem: true`. Its stages do not count
+     * towards the quest refresh and do not trigger a due one.
+     */
+    processItem?: boolean;
     answerText?: string;
     /**
      * Snapshot of the last prompt actually dispatched for this item —
@@ -2099,6 +2106,8 @@ export class PromptQueueManager {
         run?: string;
         /** Make the item a process-move marker (with `processRun`, the position it moves from). */
         processMove?: ProcessMoveSpec;
+        /** A process item: does not count towards the quest refresh (vscimpb97). */
+        processItem?: boolean;
         /** "Pause after this". */
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
@@ -2232,6 +2241,7 @@ export class PromptQueueManager {
             run: itemRun,
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
+            ...(opts.processItem ? { processItem: true } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
             ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
@@ -5074,6 +5084,8 @@ export class PromptQueueManager {
                 quest,
             ),
             incrementCount: () => { QuestRefreshStore.instance.incrementCount('anthropic', quest); },
+            // A process item (the work of a process step) neither counts nor triggers a due refresh.
+            counts: !item.processItem,
             onRefreshError: (err) => logQueue(
                 `Quest Refresh failed — the main prompt is dispatched next: ${err instanceof Error ? err.message : String(err)}`,
             ),
@@ -6611,6 +6623,7 @@ export class PromptQueueManager {
                 processRun: parseProcessRun(main['process-run']),
                 ...(typeof main.run === 'string' && main.run ? { run: main.run } : {}),
                 ...(parseProcessMove(main['process-move']) ? { processMove: parseProcessMove(main['process-move']) } : {}),
+                ...(main['process-item'] === true ? { processItem: true } : {}),
                 answerText: main['answer-text'] || undefined,
                 chatSource: main['chat-source'] || undefined,
                 chatWindowId: main['chat-window-id'] || undefined,
@@ -6761,6 +6774,7 @@ export class PromptQueueManager {
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.run ? { run: item.run } : {}),
             ...(item.processMove ? { 'process-move': item.processMove } : {}),
+            ...(item.processItem ? { 'process-item': true } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),

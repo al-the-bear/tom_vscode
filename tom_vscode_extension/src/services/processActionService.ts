@@ -160,8 +160,9 @@ export async function confirmProcessAction(
     try {
         // Both deferred, then one kick: the prompt's send must not hold this
         // call (and the marker must be in the queue before anything it queues).
-        await queue.enqueue({ originalText: text, ...(session ? { session } : {}), processRun, deferSend: true });
-        await queue.enqueue({ originalText: markerText(spec), processRun, processMove: spec, deferSend: true });
+        // Both are the step's own work (process items): they do not count towards the quest refresh.
+        await queue.enqueue({ originalText: text, ...(session ? { session } : {}), processRun, processItem: true, deferSend: true });
+        await queue.enqueue({ originalText: markerText(spec), processRun, processMove: spec, processItem: true, deferSend: true });
     } catch (e) {
         return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
     }

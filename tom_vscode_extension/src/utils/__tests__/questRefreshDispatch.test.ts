@@ -200,3 +200,39 @@ describe('runInteractiveRefreshHook', () => {
         assert.equal(counted, 0);
     });
 });
+
+describe('runMainStageWithRefresh: a process item (vscimpb97)', () => {
+    test('a process item neither counts nor runs the due refresh; it is still sent', async () => {
+        const order: string[] = [];
+        let counted = 0;
+        const result = await runMainStageWithRefresh<string>({
+            shouldRefresh: () => true,
+            runRefresh: async () => { order.push('refresh'); },
+            incrementCount: () => { counted += 1; },
+            sendMain: async () => { order.push('main'); return 'answer'; },
+            counts: false,
+        });
+        assert.equal(result, 'answer');
+        assert.deepEqual(order, ['main'], 'the refresh stays due for the next item that counts');
+        assert.equal(counted, 0);
+    });
+
+    test('an item that counts (the default) counts and refreshes as before', async () => {
+        const order: string[] = [];
+        let counted = 0;
+        await runMainStageWithRefresh<void>({
+            shouldRefresh: () => true,
+            runRefresh: async () => { order.push('refresh'); },
+            incrementCount: () => { counted += 1; },
+            sendMain: async () => { order.push('main'); },
+            counts: true,
+        });
+        assert.deepEqual(order, ['refresh', 'main']);
+        assert.equal(counted, 1);
+    });
+
+    test('the queue passes the item\'s marker', () => {
+        const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'managers', 'promptQueueManager.ts'), 'utf-8');
+        assert.match(src, /counts: !item\.processItem,/);
+    });
+});

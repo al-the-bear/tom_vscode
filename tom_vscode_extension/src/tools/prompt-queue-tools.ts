@@ -145,6 +145,8 @@ export interface QueueItemSnapshot {
     /** Queued right after the item when it is finished (src/utils/doneNotification.ts). */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
+    /** A process item: a process step's work; does not count towards the quest refresh (vscimpb97). */
+    processItem?: boolean;
     /** The quest the done notification is posted to; unset: this quest. */
     doneNotificationQuest?: string;
     /** The process run it is queued in; unset: the item's run here, `default` in another quest. */
@@ -172,7 +174,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
-    'yieldAfterIteration', 'waitingFor',
+    'yieldAfterIteration', 'waitingFor', 'processItem',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -231,6 +233,8 @@ export interface EnqueueInput {
     doneNotificationQuest?: string;
     /** The process run the done notification is queued in. */
     doneNotificationRun?: string;
+    /** A process item: a process step's own work; does not count towards the quest refresh (vscimpb97). */
+    processItem?: boolean;
 }
 
 /** A queue item's session as a tool takes it: a name, or how to create it when missing. */
@@ -440,6 +444,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         ...(i.run ? { run: i.run } : {}),
         answerText: i.answerText || null,
         ...(i.doneNotificationPrompt ? { doneNotificationPrompt: i.doneNotificationPrompt, doneNotificationDisabled: !!i.doneNotificationDisabled } : {}),
+        ...(i.processItem ? { processItem: true } : {}),
         ...(i.doneNotificationQuest ? { doneNotificationQuest: i.doneNotificationQuest } : {}),
         ...(i.doneNotificationRun ? { doneNotificationRun: i.doneNotificationRun } : {}),
         ...(i.doneNotificationPosted ? { doneNotificationPosted: i.doneNotificationPosted } : {}),
@@ -498,6 +503,8 @@ export interface AddQueueItemInput {
     doneNotificationRun?: string;
     /** The process run of the quest the item belongs to (tomAi_listProcessRuns); default the window's. */
     run?: string;
+    /** A process step's own work: does not count towards the quest refresh (vscimpb97). */
+    processItem?: boolean;
 }
 
 /**
@@ -572,6 +579,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             anthropicConfigId: input.anthropicConfigId,
             ...(input.session ? { session: input.session } : {}),
             ...(input.doneNotificationPrompt ? { doneNotificationPrompt: input.doneNotificationPrompt } : {}),
+            ...(input.processItem === true ? { processItem: true } : {}),
             prePrompts: input.prePrompts ?? [],
             followUps: (input.followUps ?? []).map((f) => ({
                 originalText: f.text,
@@ -606,7 +614,7 @@ const DONE_NOTIFICATION_RUN_DOC =
     'The process run the done notification is queued in (its lane; sessions `<session>@<run>`). Default: the item\'s run in this quest, `default` in another. \'\' resets.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
-    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `session` names the session it runs in.' + API_KEY_WARNING_DOC;
+    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `session` names the session it runs in. `processItem: true` marks a process step\'s own work (what a step queues while it runs): it does not count towards the quest refresh.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     name: 'tomAi_addQueueItem',
@@ -646,6 +654,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
             doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
+            processItem: { type: 'boolean', description: 'A process item: the work of a process step (what a step queues while it runs — its walks, its closing item). It does not count towards the quest refresh and triggers no due refresh. Default false.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

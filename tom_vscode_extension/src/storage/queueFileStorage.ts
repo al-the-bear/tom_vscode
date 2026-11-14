@@ -186,6 +186,8 @@ export interface QueuePromptYaml {
     run?: string;
     /** Set on a process-move marker: the move it makes when the queue reaches it (src/utils/processMoveMarker.ts). */
     'process-move'?: unknown;
+    /** A process item: the work of a process step; does not count towards the quest refresh (vscimpb97). */
+    'process-item'?: boolean;
     'answer-text'?: string;
     /** A chat send shown in the queue: where it came from and the window that ran it. */
     'chat-source'?: string;

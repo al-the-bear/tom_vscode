@@ -2659,7 +2659,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
         lines.push('', `**Decision** — this position has run; the user decides here how the process goes on: ${decision.options.map((o) => o.label).join('; ')}. An agent does not decide it and does not move past it.`);
     }
     lines.push('', inProceedRun
-        ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step (`leaveOut` is the exception: it only records that the step is to be left out).'
+        ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step (`leaveOut` is the exception: it only records that the step is to be left out). Every item you queue for this step (tomAi_addQueueItem — its todo walks, its closing item) is the step\'s own work: pass `processItem: true`, so it does not count towards the quest refresh.'
         : 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
     const section = (title: string, text: string | undefined): void => {
         if (text && text.trim()) { lines.push('', `### ${title}`, '', text.trim()); }

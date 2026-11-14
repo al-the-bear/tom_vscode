@@ -492,7 +492,7 @@ Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sen
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_addQueueItem` | Stage a prompt; accepts prePrompts, per-item repeat/answer-wait, full follow-up / reminder fields, `session` (the named session it runs in), `doneNotificationPrompt` and where it goes (`doneNotificationQuest`, `doneNotificationRun`). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_addQueueItem` | Stage a prompt; `processItem: true` marks a process step's own work (it does not count towards the quest refresh); accepts prePrompts, per-item repeat/answer-wait, full follow-up / reminder fields, `session` (the named session it runs in), `doneNotificationPrompt` and where it goes (`doneNotificationQuest`, `doneNotificationRun`). | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_addQueueFollowUp` | Append a follow-up; now accepts repeatCount, answerWaitMinutes, reminders. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_addQueuePrePrompt` | Append a pre-prompt (sent before the main prompt). | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updateQueuePrePrompt` | Patch pre-prompt fields by (itemId, index). | ⚪ | ⚪ | ⚪ | ⚪ |

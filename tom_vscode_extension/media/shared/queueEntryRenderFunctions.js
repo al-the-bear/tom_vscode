@@ -344,6 +344,10 @@ function renderEntry(item, idx) {
   } else if (item.processPosition) {
     processBadge += '  <span class="process-badge" style="border:1px solid #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="Runs as this process position">[⚙ ' + escapeHtml(item.processPosition) + ']</span>';
   }
+  // A process item (vscimpb97): the work of a process step; it does not count towards the quest refresh.
+  if (item.processItem && !item.processMove) {
+    processBadge += '  <span class="process-badge process-item" style="border:1px dashed #8a63d2;padding:0 4px;border-radius:3px;font-size:10px;" title="A process item: the work of a process step. It does not count towards the quest refresh and triggers no refresh that is due.">[process item]</span>';
+  }
   // The tokens the item's stages used in this run (summed by the host), so a
   // cache miss on a walk shows while it runs.
   if (item.sendUsageLine) {

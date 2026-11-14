@@ -43,6 +43,13 @@ export interface MainStageRefreshHooks<T> {
      * dispatch then fails with its own error.
      */
     stageRefused?: () => string | undefined;
+    /**
+     * Whether this stage counts towards the refresh interval (default true). A
+     * process item (vscimpb97: a step's own work, `processItem` on the queued
+     * item) neither counts nor triggers a refresh that is due; the refresh
+     * happens before the next item that counts.
+     */
+    counts?: boolean;
 }
 
 /**
@@ -53,7 +60,7 @@ export interface MainStageRefreshHooks<T> {
  * whether the refresh ran or failed (matching the original interactive hook).
  */
 export async function runMainStageWithRefresh<T>(hooks: MainStageRefreshHooks<T>): Promise<T> {
-    if (hooks.stageRefused?.()) {
+    if (hooks.stageRefused?.() || hooks.counts === false) {
         return hooks.sendMain();
     }
     try {
