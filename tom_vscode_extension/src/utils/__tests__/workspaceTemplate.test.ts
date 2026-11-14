@@ -23,6 +23,8 @@
  *        them are dropped
  *   WT-10 the Active Quests table keeps its header and the rows of the quests the template carries
  *   WT-11 built from this workspace, no relative link in the packed Markdown points outside the template
+ *   WT-12 the console Markdown guideline is packed for any Dart workspace: it points at the public package's page
+ *        (pub.dev, MIT) and names none of this workspace's packages (`tom_basics_console` stays workspace-specific)
  */
 
 import test, { describe } from 'node:test';
@@ -318,5 +320,16 @@ describe('the workspace template', () => {
             });
         }
         assert.deepEqual(dead, [], 'mark the passage <!-- workspace-specific --> or leave the file out (EXCLUDED_PATHS)');
+    });
+
+    test('WT-12: the console Markdown guideline is generic in the template', { skip: present ? false : 'no workspace around this checkout' }, () => {
+        const entries = readZip((tpl.buildTemplate(WS) as { zip: Buffer }).zip);
+        const guideline = entries.find((e) => e.path === '_copilot_guidelines/console_markdown.md');
+        assert.ok(guideline, 'packed');
+        const text = guideline.data.toString('utf8');
+        assert.match(text, /\[pub\.dev\]\(https:\/\/pub\.dev\/packages\/console_markdown\)/, 'the syntax: the public package\'s page');
+        assert.doesNotMatch(text, /tom_basics_console|tom_ai\//, 'no package of this workspace');
+        assert.match(fs.readFileSync(path.join(WS, '_copilot_guidelines', 'console_markdown.md'), 'utf8'),
+            /<!-- workspace-specific -->\nIn this workspace the package that formats the console output, `tom_basics_console`/, 'kept in the workspace\'s own copy');
     });
 });
