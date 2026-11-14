@@ -1,0 +1,30 @@
+{
+  "name": "tom-tac-service",
+  "version": "0.1.0",
+  "description": "The TAC (Tom Agent Collaboration) coordination service: store, HTTP and WebSocket API, command line. Local mode.",
+  "license": "SEE LICENSE IN ../LICENSE.md",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "tom-tac-service": "dist/src/cli.js"
+  },
+  "files": [
+    "dist",
+    "doc",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "compile": "npm run clean && tsc -p ./",
+    "test": "npm run compile && node --test --test-concurrency=1 \"dist/test/**/*.test.js\"",
+    "serve": "node dist/src/cli.js serve"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}

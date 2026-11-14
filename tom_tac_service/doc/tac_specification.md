@@ -274,6 +274,7 @@ since `nextToken` only grows, it never becomes current by accident.
 | `state` | `pending` / `delivered` / `acknowledged` / `expired` | |
 | `deliveredTo` | ULID[] | runtimes it was pushed to |
 | `acknowledgedBy` | ULID, optional | the runtime that took it |
+| `acknowledgedAt` | time, optional | when |
 | `outcome` | `taken` / `refused` / `filed`, optional | with `acknowledged` |
 | `reason` | string, optional | with `refused` |
 | `expiresAt` | time | `createdAt` (or the last `resend`) + 7 days |
@@ -481,13 +482,14 @@ it changes which keys conflict from then on.
 | `send(message, requestId)` | `class`, `type`, `origin`, `targets`, `preferHost?`, `payload` | `{messageId, createdAt}` |
 | `subscribe(runtimeId)` | | a stream of notifications and commands for the runtime's quests and `all` |
 | `pendingCommands(runtimeId)` | | the commands for its quests not yet acknowledged |
-| `ack(messageId, runtimeId, outcome, reason?)` | `outcome` `taken` / `refused` / `filed` | `{acknowledged: boolean, by}` |
+| `ack(messageId, runtimeId, outcome, reason?, quest?)` | `outcome` `taken` / `refused` / `filed`; `quest` the target the ack is for (default: the first target quest the runtime serves; required with `filed`, which a runtime of another quest sends) | `{acknowledged: boolean, by}` |
 | `listUndelivered(filter?)` | `quest`, `states` | commands with a delivery not `acknowledged` |
 | `resend(messageId, quest?)` | | the message, its expired or refused deliveries back to `pending` with a new `expiresAt` |
 | `drop(messageId)` | | nothing; the command is removed |
 
 - **Routing:** a notification goes to every connected runtime of the group
-  whose `quests` meet `targets` (every runtime for `all`). A command goes,
+  whose `quests` meet `targets` (every runtime for `all`), except its origin
+  runtime. A command goes,
   per target quest, to every present runtime serving that quest; with
   `preferHost`, to the runtimes on that host only, as long as one of them is
   present.
@@ -633,7 +635,10 @@ answered as `notFound`, so the group's existence is not revealed.
 - HTTP/1.1 with JSON bodies, under `/tac/<major>/`; for this version
   `/tac/1/`.
 - Authentication: `Authorization: Bearer <key>` on every request and on the
-  WebSocket upgrade. The local service's key is the content of
+  WebSocket upgrade. A WebSocket client that cannot set headers (the
+  WebSocket API of browsers and Node) offers the key as a subprotocol instead:
+  `Sec-WebSocket-Protocol: tac.v1, tac.key.<key>`; the service selects
+  `tac.v1`. The local service's key is the content of
   `~/.tom/coordination/local.key` (mode 0600); the server's keys are created by
   its admin API and stored only as salted hashes.
 - Every request MAY carry `Tac-Protocol-Version: tac/1.0`; a service answers
@@ -657,6 +662,7 @@ answered as `notFound`, so the group's existence is not revealed.
 | `POST {g}/migrate/export` · `POST /tac/1/groups` · `POST {g}/migrate/mark` | `export`, `import`, `markMigrated` |
 | `WS {g}/stream?runtimeId=…` | `subscribe` |
 | `/tac/1/admin/…` (server only) | customers, keys, groups, quotas |
+| `GET /tac/1/admin/status` · `POST /tac/1/admin/stop` (local service) | the service's pid, port, version, store size, open streams, idle timer; stop it |
 | `POST /tac/1/admin/handover` (local service) | asks an older service to stop for a newer one |
 
 Filters are query parameters. Results are the records of § 3 as JSON; lists are
@@ -743,3 +749,11 @@ be changed before the specification is published:
     `meta`), with `url` as the endpoint's address.
 15. The misconfiguration check's findings come back as `warnings` in the local
     service's `listRuntimes` answer.
+16. A notification is not pushed back to its origin runtime; a command is
+    (an `on_done` may target another run of the sender's own quest).
+17. `ack` names the target quest it acknowledges for when it is not one the
+    runtime serves (a `filed` ack); deliveries record `acknowledgedAt`.
+18. A WebSocket client may offer the key as the subprotocol `tac.key.<key>`
+    beside `tac.v1`.
+19. The local service has `admin/status` and `admin/stop` besides
+    `admin/handover`, with the local key.
