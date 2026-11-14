@@ -26,6 +26,11 @@
     from the binaries layer (TOM_LAYER_PLATFORMS=a,b,... narrows them;
     create_*binaries_vsix.*).
 
+    TOM_SPLIT_PLATFORMS=1 (with -PackageOnly; the multi-platform create
+    scripts set it) packs one VSIX per platform bin\ holds,
+    tom-ai-extension-<platform>.vsix, each with only that platform's binaries
+    and build tools (packed per target platform by scripts/vsix-split.cjs).
+
     A from-source build puts the binaries it built into the binaries layer,
     tom_binaries/tom/<platform>/, commits them there and pushes
     (scripts/binaries-layer.cjs publish; TOM_LAYER_FF=1 fast-forwards the
@@ -64,6 +69,11 @@ if ($NoDartMode -and -not $env:TOM_NO_DART_REASON) { $env:TOM_NO_DART_REASON = '
 $FromSource = ($env:TOM_BRIDGE_FROM_SOURCE -eq '1')
 if ($BinariesOnlyMode -and (-not $FromSource -or $NoDartMode -or $LayerBinariesMode)) {
     Write-Error "-BinariesOnly builds the binaries from source with Dart (compile_and_install.ps1 -BinariesOnly)"
+    exit 1
+}
+$SplitPlatformsMode = ($env:TOM_SPLIT_PLATFORMS -eq '1')
+if ($SplitPlatformsMode -and -not $PackageOnlyMode) {
+    Write-Error "One VSIX per platform (TOM_SPLIT_PLATFORMS=1) is packaging only (-PackageOnly): a VSIX of another platform cannot be installed here"
     exit 1
 }
 if ($LayerBinariesMode -and $FromSource) {
@@ -558,6 +568,18 @@ if ($Result -match "^[Yy]") {
     # its repository (package.json `repository`; vsce itself drops the folder).
     $BaseContentUrl = Invoke-Native { node scripts/vsix-base-url.cjs content }
     $BaseImagesUrl = Invoke-Native { node scripts/vsix-base-url.cjs images }
+    if ($SplitPlatformsMode) {
+        # One VSIX per platform bin/ holds (the multi-platform create scripts):
+        # vsce package --target <platform>, each with only its own bin\<platform>\
+        # (scripts/vsix-split.cjs), each checked; nothing is installed.
+        Write-Host "Packaging one VSIX per platform..."
+        Invoke-Native { node scripts/vsix-split.cjs package --vsce vsce }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Packaging the per-platform VSIX files failed (see above)"
+            exit 1
+        }
+        $VsixBuilt = $true
+    } else {
     Invoke-Native { cmd /c vsce package --skip-license --baseContentUrl $BaseContentUrl --baseImagesUrl $BaseImagesUrl }
     
     if ($LASTEXITCODE -eq 0) {
@@ -610,6 +632,7 @@ if ($Result -match "^[Yy]") {
         Write-Error "Failed to package extension"
         Write-Host "Try running: vsce package"
     }
+    } # SplitPlatformsMode
 } else {
     Write-Host ""
     Write-Host "To run the extension in development mode:"

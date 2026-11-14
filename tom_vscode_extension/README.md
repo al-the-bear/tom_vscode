@@ -215,8 +215,8 @@ bash create_vsix_nodart.sh       # without the Dart binaries, no Dart SDK needed
 pwsh create_vsix.ps1             # Windows (create_vsix_nodart.ps1 likewise)
 ```
 
-For a VSIX that carries `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` for several
-platforms, the binaries come from the binaries layer:
+For VSIX files that carry `tom_bs`, `validate_codespecs`, `spec_checks` and `irspecs` (and the
+bundled build tools) for every platform, the binaries come from the binaries layer:
 
 ```bash
 bash create_currentbinaries_vsix.sh   # this host's binaries built now, the others' as the layer holds them
@@ -246,6 +246,20 @@ pwsh create_currentbinaries_vsix.ps1  # Windows (create_fleetcompiled_vsix.ps1 l
 Both package through `install_extension --package-only` with
 `TOM_LAYER_BINARIES=1` (no second build), with the workspace template, and end
 like `create_vsix` plus the layer report.
+
+**One VSIX per platform.** The three multi-platform scripts (these two and
+`create_layerbinaries_vsix` below, sh and ps1) pack one VSIX for each platform
+the layer has — darwin-arm64, linux-x64, win32-x64 —
+`tom-ai-extension-<platform>.vsix`, with `vsce package --target <platform>`
+(`TOM_SPLIT_PLATFORMS=1`, `scripts/vsix-split.cjs`). Each carries only its
+own platform's `bin/<platform>/` (Dart binaries and build tools, about
+125 MB per platform), so none carries the other platforms' binaries; a
+platform the layer lacks gets no VSIX. Each is checked
+(`scripts/check-vsix-contents.cjs <vsix> --target <platform>`: another
+platform's `bin/` fails it) and the report names every VSIX with what it
+carries. `create_vsix` and `compile_and_install` keep packing one VSIX
+without a target: it carries only this host's binaries and installs on every
+platform (without DartScript and CodeSpecs validation elsewhere).
 
 Without a Dart SDK — on any machine with Node.js 20+, npm and git — the VSIX is
 built from this source with every platform's binaries as the binaries layer
@@ -325,13 +339,28 @@ extension updates:
 
 ### Installing the VSIX on another machine
 
-The latest VSIX is a download: <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension.vsix>
-(the GitHub Release `vscode-extension-latest` of `al-the-bear/tom_binaries`;
-its `vscode_extension/vsix/README.md` names the commit it was built from, its
-size, the script that packed it and the platforms whose Dart binaries it
-carries, with their build stamps). Every `create_*_vsix` script replaces it
-when the tom_vscode checkout it builds from has no local change and no
-unpushed commit (otherwise it says so and keeps the VSIX local);
+The latest VSIX files are downloads of the GitHub Release
+`vscode-extension-latest` of `al-the-bear/tom_binaries`. Take the one for the
+machine you install on:
+
+| Machine | Download |
+|---|---|
+| macOS, Apple silicon | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-darwin-arm64.vsix> |
+| Linux x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-linux-x64.vsix> |
+| Windows x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-win32-x64.vsix> |
+
+VS Code refuses a VSIX packed for another platform (`vsce package
+--target`); each carries that platform's Dart binaries and build tools.
+`tom-ai-extension.vsix` stays in the release too: the newest
+single-platform build of `create_vsix` (no target, installs everywhere, Dart
+binaries only for the platform it was built on), so older links keep
+working. The release's `vscode_extension/vsix/README.md` lists every file
+with the commit it was built from, its size, the script that packed it and
+the binaries and build tools each carries, with their build stamps. Every
+`create_*_vsix` script replaces its files (the multi-platform ones one asset
+per platform, `create_vsix` the single one) when the tom_vscode checkout it
+builds from has no local change and no unpushed commit (otherwise it says so
+and keeps the VSIX local);
 `--no-release` / `-NoRelease` leaves the release alone. It needs the GitHub
 CLI (`gh`) logged in with an account that may write to the repository; without
 it the script warns and the VSIX stays local. A script reading the binaries
@@ -342,7 +371,8 @@ Both installers end with the VSIX's path. Copy that file (or the download) to
 another machine and install it there (no checkout, Node or Dart needed):
 
 ```bash
-code --install-extension <path-to>/tom-ai-extension-0.1.0.vsix
+code --install-extension <path-to>/tom-ai-extension-<platform>.vsix   # a per-platform VSIX
+code --install-extension <path-to>/tom-ai-extension-0.1.0.vsix        # create_vsix / compile_and_install
 ```
 
 What runs there depends on the binaries the VSIX carries for that machine's
@@ -356,8 +386,9 @@ on:
   the VSIX; each machine installs them on its own Provider SDKs page, for its
   own platform.
 
-A VSIX built on macOS and installed on Windows therefore has no DartScript
-and no CodeSpecs validation there; everything else works once the provider
+A `create_vsix` VSIX built on macOS and installed on Windows therefore has no
+DartScript and no CodeSpecs validation there (the per-platform VSIX of the
+multi-platform scripts carry their own platform's binaries); everything else works once the provider
 SDKs are installed. When something is missing:
 
 - **DartScript / CodeSpecs validation:** the page

@@ -6,6 +6,7 @@
 #   Write-TomNoDartWarning <reason> <from-source $true|$false>
 #   Write-TomLayerVsixSummary <extension dir> <platforms>
 #   Write-TomLayerUnpushedWarning <extension dir>
+#   Get-TomPlatformVsixes <extension dir>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -18,7 +19,33 @@ function Get-TomNewestVsix([string]$Dir) {
     return $null
 }
 
+# The per-platform VSIX files in the extension folder (tom-ai-extension-<platform>.vsix,
+# scripts/vsix-split.cjs), full paths, newest first (an empty array if none).
+function Get-TomPlatformVsixes([string]$Dir) {
+    Push-Location $Dir
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $list = @(& node scripts/vsix-split.cjs list 2>$null | Where-Object { $_ })
+    } finally {
+        $ErrorActionPreference = $saved
+        Pop-Location
+    }
+    return $list
+}
+
 function Write-TomVsixPath([string]$Dir) {
+    $platformVsixes = @(Get-TomPlatformVsixes $Dir)
+    if ($platformVsixes.Count -gt 0) {
+        # One VSIX per platform: each installs only on the platform in its name.
+        Write-Host ""
+        Write-Host "One VSIX per platform (VS Code installs each only on its own platform):"
+        foreach ($v in $platformVsixes) { Write-Host "   $v" }
+        Write-Host "   On another machine: copy its platform's file there and run  code --install-extension <path-to>\tom-ai-extension-<platform>.vsix"
+        $template = Join-Path $Dir 'workspace_template.zip'
+        if (Test-Path $template) { Write-Host "Workspace template: $template (also inside each VSIX)" }
+        return
+    }
     $vsix = Get-TomNewestVsix $Dir
     if (-not $vsix) { return }
     Write-Host ""
@@ -72,13 +99,16 @@ function Write-TomNoDartWarning([string]$Reason, [bool]$FromSource) {
 # build stamp and freshness. $Platforms: comma-separated, '' for the default set.
 function Write-TomLayerVsixSummary([string]$Dir, [string]$Platforms) {
     Write-Host ""
-    Write-Host "-------- Private distribution VSIX --------"
+    Write-Host "-------- Private distribution VSIX (one per platform) --------"
     Write-TomVsixPath $Dir
-    $vsix = Get-TomNewestVsix $Dir
+    $vsixes = @(Get-TomPlatformVsixes $Dir)
     Push-Location $Dir
     $ErrorActionPreference = 'Continue'
-    if ($vsix) {
-        $contents = & node scripts/check-vsix-contents.cjs $vsix
+    # Each VSIX: the binaries and build tools it carries for its platform.
+    foreach ($vsix in $vsixes) {
+        $platform = ([System.IO.Path]::GetFileNameWithoutExtension($vsix)) -replace '^tom-ai-extension-', ''
+        Write-Host "   $(Split-Path -Leaf $vsix):"
+        $contents = & node scripts/check-vsix-contents.cjs $vsix --target $platform
         foreach ($line in @($contents | Select-Object -Skip 1)) { Write-Host "$line" }
     }
     if ($Platforms) {
@@ -124,7 +154,9 @@ function Get-TomReleasePrecheck([string]$Dir, [bool]$NoRelease) {
 function Publish-TomRelease([string]$Dir, [string]$Vsix, [string]$Script, [string]$Precheck, [bool]$NoRelease) {
     Write-Host ""
     Write-Host "-------- The VSIX as a download (GitHub Release of tom_binaries) --------"
-    $releaseArgs = @('scripts/vsix-release.cjs', 'publish', '--vsix', "$Vsix", '--script', $Script, '--precheck', $Precheck)
+    # $Vsix: one file, or several, one per line (the per-platform VSIX, Get-TomPlatformVsixes).
+    $releaseArgs = @('scripts/vsix-release.cjs', 'publish', '--script', $Script, '--precheck', $Precheck)
+    foreach ($v in @("$Vsix" -split "`r?`n" | Where-Object { $_ })) { $releaseArgs += @('--vsix', $v) }
     if ($NoRelease) { $releaseArgs += '--no-release' }
     Push-Location $Dir
     $saved = $ErrorActionPreference

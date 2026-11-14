@@ -15,6 +15,10 @@
  *        it carries with their build stamps, the platforms without them named; none at all said so
  *   VR-5 the scripts: each of the five create scripts (sh and ps1) checks at its start (before anything is built),
  *        publishes at its end and takes --no-release / -NoRelease; the nodart wrappers name themselves
+ *   VR-6 one VSIX per platform (vscimpb103): each tom-ai-extension-<platform>.vsix its own asset (one upload),
+ *        the README a download per platform with its binaries and build tools, the single tom-ai-extension.vsix
+ *        kept and listed; a single publish lists the per-platform assets; files that are not one per platform
+ *        are refused; the command line takes --vsix more than once
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- environment variables as written */
@@ -57,7 +61,7 @@ function repoPair(): { remote: string; clone: string } {
 }
 
 /** A gh stub: the calls it gets, and whether the release exists yet. */
-function ghStub(opts: { installed?: boolean; canPush?: boolean; exists?: boolean } = {}) {
+function ghStub(opts: { installed?: boolean; canPush?: boolean; exists?: boolean; assets?: Array<{ name: string; size: number; updatedAt: string }> } = {}) {
     const calls: string[][] = [];
     let exists = opts.exists === true;
     const run = (cmd: string, args: string[], o: Record<string, unknown> = {}) => {
@@ -66,7 +70,7 @@ function ghStub(opts: { installed?: boolean; canPush?: boolean; exists?: boolean
         if (opts.installed === false) { return { status: null, stdout: '', stderr: 'spawn gh ENOENT' }; }
         if (args[0] === '--version') { return { status: 0, stdout: 'gh version 2.0.0', stderr: '' }; }
         if (args[0] === 'api' && args[1] === `repos/${release.REPO}`) { return { status: 0, stdout: opts.canPush === false ? 'false' : 'true', stderr: '' }; }
-        if (args[0] === 'release' && args[1] === 'view') { return exists ? { status: 0, stdout: '{}', stderr: '' } : { status: 1, stdout: '', stderr: 'release not found' }; }
+        if (args[0] === 'release' && args[1] === 'view') { return exists ? { status: 0, stdout: JSON.stringify({ assets: opts.assets ?? [] }), stderr: '' } : { status: 1, stdout: '', stderr: 'release not found' }; }
         if (args[0] === 'release' && args[1] === 'create') { exists = true; }
         if (args[0] === 'api' && args.includes('PUT')) { return { status: 0, stdout: '{}', stderr: '' }; }
         if (args[0] === 'api') { return { status: 1, stdout: '', stderr: 'Not Found' }; }
@@ -197,5 +201,60 @@ describe('the VSIX as a release', () => {
         assert.match(read('create_vsix_nodart.sh'), /export TOM_RELEASE_SCRIPT="create_vsix_nodart\.sh"\nexec "\$SCRIPT_DIR\/create_vsix\.sh" --no-dart "\$\{PASS\[@\]\}"/);
         assert.match(read('create_vsix_nodart.ps1'), /\$env:TOM_RELEASE_SCRIPT = 'create_vsix_nodart\.ps1'[\s\S]*create_vsix\.ps1'\) -NoDart -NoRelease:\$NoRelease/);
         assert.match(read('scripts/install_summary.sh'), /tom_release_publish\(\) \{[\s\S]*node scripts\/vsix-release\.cjs "\$\{args\[@\]\}" \) \|\| true/, 'the step never fails the script');
+    });
+
+    test('VR-6: one VSIX per platform', () => {
+        const tom = repoPair();
+        const bins = repoPair();
+        const commit = git(tom.clone, 'rev-parse', 'HEAD');
+        const dir = path.join(SANDBOX, 'split');
+        fs.mkdirSync(dir, { recursive: true });
+        const files = ['darwin-arm64', 'linux-x64', 'win32-x64'].map((p, i) => {
+            const f = path.join(dir, `tom-ai-extension-${p}.vsix`);
+            fs.writeFileSync(f, Buffer.alloc((i + 1) * 1024 * 1024));
+            return f;
+        });
+        const single = { name: 'tom-ai-extension.vsix', size: 80 * 1024 * 1024, updatedAt: '2026-11-10T09:00:00Z' };
+        const stub = ghStub({ exists: true, assets: [single, { name: 'tom-ai-extension-linux-x64.vsix', size: 1, updatedAt: 'old' }] });
+        const logs: string[] = [];
+        const platformsOf = (_file: string, platform: string) => [platform === 'linux-x64'
+            ? { platform, carried: [], stamps: {}, tools: [] }
+            : { platform, carried: ['tom_bs', 'validate_codespecs'], stamps: { tom_bs: '2026-11-14T10:00:00Z from abc' }, tools: ['buildkit', 'testkit'] }];
+        const deps = { run: stub.run, gh: 'gh', repoDir: tom.clone, binariesRepo: bins.clone, workDir: path.join(SANDBOX, 'work6'), platforms: platformsOf, log: (l: string) => logs.push(l) };
+        const r = release.publish({ vsix: files, script: 'create_layerbinaries_vsix.sh', precheck: `ok ${commit}` }, deps);
+        assert.equal(r.updated, true, logs.join('\n'));
+        assert.deepEqual(r.assets, ['tom-ai-extension-darwin-arm64.vsix', 'tom-ai-extension-linux-x64.vsix', 'tom-ai-extension-win32-x64.vsix']);
+        const upload = stub.calls.filter((c) => c[0] === 'release' && c[1] === 'upload');
+        assert.equal(upload.length, 1, 'one upload for all of them');
+        assert.deepEqual(upload[0].slice(3, 6).map((f) => path.basename(f)), r.assets);
+        assert.ok(upload[0].includes('--clobber'));
+        assert.ok(!stub.calls.some((c) => c.includes('delete-asset')), 'the single asset is kept');
+        assert.match(logs.join('\n'), /🚀 Release updated: https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension-darwin-arm64\.vsix, .*linux-x64\.vsix, .*win32-x64\.vsix/);
+        const readme = git(bins.remote, 'show', 'main:vscode_extension/vsix/README.md');
+        assert.match(readme, /One VSIX per platform: take the one for the machine it is installed on/);
+        assert.match(readme, /\| darwin-arm64 \| \[`tom-ai-extension-darwin-arm64\.vsix`\]\(https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension-darwin-arm64\.vsix\) \| 1\.0 MiB \| tom_bs \(2026-11-14T10:00:00Z from abc\), validate_codespecs \| buildkit, testkit \|/);
+        assert.match(readme, /\| linux-x64 \| .* \| 2\.0 MiB \| none \(no DartScript, no CodeSpecs validation\) \| none \|/);
+        assert.match(readme, /\| win32-x64 \| \[`tom-ai-extension-win32-x64\.vsix`\]/);
+        assert.match(readme, /code --install-extension tom-ai-extension-<platform>\.vsix/);
+        assert.match(readme, /## Also in the release\n\n- \[`tom-ai-extension\.vsix`\]\(https:[^)]*\/tom-ai-extension\.vsix\) \(80\.0 MiB, updated 2026-11-10T09:00:00Z\): the single-platform build of `create_vsix`/);
+        assert.doesNotMatch(readme, /Also in the release[\s\S]*tom-ai-extension-linux-x64\.vsix\]\([^)]*\) \(0\.0 MiB/, 'the replaced asset is not listed twice');
+
+        // A single publish lists the per-platform assets.
+        const stub2 = ghStub({ exists: true, assets: [{ name: 'tom-ai-extension-win32-x64.vsix', size: 2 * 1024 * 1024, updatedAt: '2026-11-14T11:00:00Z' }] });
+        const one = release.publish({ vsix: vsixFile(), script: 'create_vsix.sh', precheck: `ok ${commit}` }, { ...deps, run: stub2.run, platforms: PLATFORMS });
+        assert.equal(one.updated, true);
+        assert.deepEqual(one.assets, ['tom-ai-extension.vsix']);
+        assert.match(one.text, /## Also in the release\n\nThe per-platform VSIX of the last multi-platform build \(each installs only on its platform\):\n\n- \[`tom-ai-extension-win32-x64\.vsix`\]/);
+
+        // Not one per platform: refused, nothing uploaded.
+        const stub3 = ghStub({ exists: true });
+        const twice = release.publish({ vsix: [files[0], vsixFile()], script: 's', precheck: `ok ${commit}` }, { ...deps, run: stub3.run });
+        assert.equal(twice.updated, false);
+        assert.match(twice.reason, /not one VSIX per platform/);
+        assert.ok(!stub3.calls.some((c) => c[1] === 'upload' || c[1] === 'create'));
+
+        // The command line: --vsix more than once.
+        const cli = spawnSync(process.execPath, [path.join(EXT, 'scripts', 'vsix-release.cjs'), 'publish', '--vsix', files[0], '--vsix', files[1], '--script', 's', '--precheck', 'ok x', '--no-release'], { encoding: 'utf8' });
+        assert.match(cli.stdout, /The VSIX stays local: .*tom-ai-extension-darwin-arm64\.vsix, .*tom-ai-extension-linux-x64\.vsix/);
     });
 });

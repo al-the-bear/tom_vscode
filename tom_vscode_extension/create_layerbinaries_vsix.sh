@@ -1,8 +1,13 @@
 #!/bin/bash
 
-# Package a private-distribution VSIX with every platform's tom_bs and
+# Package the private-distribution VSIX files with every platform's tom_bs and
 # validate_codespecs taken from the binaries layer; build nothing with Dart,
 # install nothing.
+#
+# One VSIX per platform the layer has (darwin-arm64, linux-x64, win32-x64):
+# tom-ai-extension-<platform>.vsix, packed with `vsce package --target`, each
+# with only that platform's Dart binaries and build tools (TOM_SPLIT_PLATFORMS=1,
+# scripts/vsix-split.cjs). VS Code installs each only on its own platform.
 #
 #   ./create_layerbinaries_vsix.sh [--layer <dir>] [--clone] [--no-release]
 #
@@ -16,14 +21,14 @@
 #     https://github.com/al-the-bear/tom_binaries into .tom_binaries/ here
 #     (refreshed on the next run; gitignored, not in the VSIX).
 #
-# Every run publishes the VSIX as the GitHub Release `vscode-extension-latest` of
-# al-the-bear/tom_binaries (asset tom-ai-extension.vsix, with
+# Every run publishes the VSIX files as the GitHub Release `vscode-extension-latest` of
+# al-the-bear/tom_binaries (one asset per platform, tom-ai-extension-<platform>.vsix, with
 # vscode_extension/vsix/README.md there; scripts/vsix-release.cjs) when the
 # tom_vscode checkout has no local change and no unpushed commit; --no-release
-# skips it. The VSIX also stays here for a local install.
+# skips it. The VSIX files also stay here for a local install.
 # The layer holds each platform's latest build, published by its host
 # (compile_and_install.sh / create_fleetcompiled_vsix.sh). It ends with the
-# VSIX path, the template path, the binaries the VSIX carries per platform and
+# VSIX paths, the template path, the binaries each VSIX carries for its platform and
 # each binary's build stamp and whether it is older than the sources here
 # (scripts/binaries-layer.cjs report; a platform the layer lacks is named).
 
@@ -41,7 +46,7 @@ while [ $# -gt 0 ]; do
         --no-release) NO_RELEASE=1; shift ;;
         --layer) LAYER="${2:-}"; [ -n "$LAYER" ] || { echo "❌ --layer needs a directory"; exit 1; }; shift 2 ;;
         --clone) CLONE=1; shift ;;
-        -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "❌ Unknown option: $1 (usage: $0 [--layer <dir>] [--clone] [--no-release])"; exit 1 ;;
     esac
 done
@@ -74,11 +79,13 @@ echo "📦 Binaries layer: $LAYER"
 export TOM_BINARIES_LAYER="$LAYER"
 export TOM_LAYER_BINARIES=1
 export TOM_PACKAGE_ONLY=1
+# One VSIX per platform, each with only its own binaries and build tools.
+export TOM_SPLIT_PLATFORMS=1
 export TOM_SKIP_FINISH_TS=1
 export TOM_NO_DART=1
 export TOM_NO_DART_REASON="create_layerbinaries_vsix: the binaries come from the layer"
 "$SCRIPT_DIR/install_extension.sh"
 
 tom_print_layer_vsix_summary "$SCRIPT_DIR" ""
-tom_release_publish "$SCRIPT_DIR" "$(tom_newest_vsix "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
+tom_release_publish "$SCRIPT_DIR" "$(tom_platform_vsixes "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"

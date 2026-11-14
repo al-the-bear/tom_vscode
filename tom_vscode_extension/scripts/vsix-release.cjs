@@ -4,7 +4,7 @@
  * of al-the-bear/tom_binaries, and `vscode_extension/vsix/README.md` there.
  *
  *   node scripts/vsix-release.cjs precheck
- *   node scripts/vsix-release.cjs publish --vsix <file> --script <name> --precheck "<line>" [--no-release]
+ *   node scripts/vsix-release.cjs publish --vsix <file> [--vsix <file> ...] --script <name> --precheck "<line>" [--no-release]
  *
  * Every create_*_vsix script (sh and ps1) runs both: `precheck` at its start —
  * the release must name a tom_vscode commit anyone can check out, so the
@@ -17,8 +17,13 @@
  *   uncommitted or unpushed.
  * publish — without --no-release and with a precheck `ok` whose commit is still
  *   HEAD: with `gh` and a login that may push to the repository, uploads the
- *   VSIX as the asset `tom-ai-extension.vsix` of the release (`gh release
- *   create` the first time, `gh release upload --clobber` after), sets the
+ *   VSIX as an asset of the release (`gh release create` the first time,
+ *   `gh release upload --clobber` after): the per-platform VSIX of the
+ *   multi-platform create scripts (`--vsix` once per file,
+ *   tom-ai-extension-<platform>.vsix; scripts/vsix-split.cjs) each as its own
+ *   asset of that name, the single VSIX of create_vsix.* as
+ *   `tom-ai-extension.vsix`. The other kind's assets stay in the release (the
+ *   single asset keeps the links to it working) and the README lists them. It sets the
  *   release notes (commit, date, size, script, the platforms whose Dart
  *   binaries it carries with their build stamps), and writes the README with
  *   the same, committed and pushed in the tom_binaries checkout (else through
@@ -35,6 +40,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const vsixContents = require('./check-vsix-contents.cjs');
+const vsixSplit = require('./vsix-split.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
 const REPO = 'al-the-bear/tom_binaries';
@@ -44,6 +50,9 @@ const LINK = `https://github.com/${REPO}/releases/download/${TAG}/${ASSET}`;
 const README_PATH = 'vscode_extension/vsix/README.md';
 const TITLE = 'Tom AI VS Code extension — latest build';
 const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'];
+const BUILD_TOOLS = vsixContents.BUILD_TOOLS;
+/** The download link of a release asset. */
+function assetLink(asset) { return `https://github.com/${REPO}/releases/download/${TAG}/${asset}`; }
 
 /** Run a command: `{status, stdout, stderr}`; status null when it could not be started. */
 function defaultRun(cmd, args, opts = {}) {
@@ -96,11 +105,14 @@ function parsePrecheck(line) {
 }
 
 /** Each platform's Dart binaries in the VSIX, with the build stamps found beside them. */
-function vsixPlatforms(vsix, { extBin = path.join(EXT_ROOT, 'bin'), layer } = {}) {
+function vsixPlatforms(vsix, { extBin = path.join(EXT_ROOT, 'bin'), layer, target } = {}) {
     const names = new Set(vsixContents.readCentralDirectory(fs.readFileSync(vsix)).map((e) => (typeof e === 'string' ? e : e.name)));
     const layerDir = layer ?? path.resolve(EXT_ROOT, '..', '..', '..', 'tom_binaries', 'tom');
-    return vsixContents.dartBinaryReport(names).map(({ platform, binaries }) => {
+    // A per-platform VSIX reports its own platform; another one also this host's.
+    const report = target ? vsixContents.dartBinaryReport(names, target) : vsixContents.dartBinaryReport(names);
+    return report.map(({ platform, binaries, buildTools }) => {
         const carried = DART_BINARIES.filter((b) => binaries[b]);
+        const tools = BUILD_TOOLS.filter((t) => buildTools && buildTools[t]);
         const stamps = {};
         for (const name of carried) {
             for (const dir of [path.join(extBin, platform), path.join(layerDir, platform)]) {
@@ -114,7 +126,7 @@ function vsixPlatforms(vsix, { extBin = path.join(EXT_ROOT, 'bin'), layer } = {}
                 break;
             }
         }
-        return { platform, carried, stamps };
+        return { platform, carried, stamps, tools };
     });
 }
 
@@ -158,7 +170,65 @@ function readmeText(info) {
             lines.push('', `On ${missing.join(', ')} the extension runs without DartScript and CodeSpecs validation (@T: Missing Dart Binaries says how to add them).`);
         }
     }
+    const others = (info.others || []).filter((a) => a.name !== ASSET);
+    if (others.length) {
+        lines.push('', '## Also in the release', '', 'The per-platform VSIX of the last multi-platform build (each installs only on its platform):', '');
+        for (const a of others) { lines.push(otherAssetLine(a)); }
+    }
     lines.push('', 'Provider SDKs (Anthropic, Agent SDK) are not in the VSIX: the extension installs them on request (Provider SDKs page).', '');
+    return lines.join('\n');
+}
+
+/** One row of the release's other assets, for the README. */
+function otherAssetLine(a) {
+    const mib = typeof a.size === 'number' ? ` (${(a.size / (1024 * 1024)).toFixed(1)} MiB` : ' (';
+    return `- [\`${a.name}\`](${assetLink(a.name)})${mib}${a.updatedAt ? `${typeof a.size === 'number' ? ', ' : ''}updated ${a.updatedAt}` : ''})`;
+}
+
+/**
+ * The README (and the release notes) for the per-platform VSIX of one run
+ * (scripts/vsix-split.cjs): one download per platform with the Dart binaries
+ * and build tools it carries; the release's other assets (the single-platform
+ * `tom-ai-extension.vsix` of create_vsix.*) listed after them.
+ */
+function readmeTextPlatforms(info) {
+    const lines = [
+        '# Tom AI VS Code extension — the latest VSIX',
+        '',
+        'One VSIX per platform: take the one for the machine it is installed on. VS Code installs a VSIX only on the platform it was packed for (`vsce package --target`), and each carries only that platform\'s Dart binaries and build tools.',
+        '',
+        '| Platform | Download | Size | Dart binaries | Build tools |',
+        '|---|---|---|---|---|',
+    ];
+    for (const v of info.vsixes) {
+        const bins = v.carried.length ? v.carried.map((b) => `${b}${v.stamps[b] ? ` (${v.stamps[b]})` : ''}`).join(', ') : 'none (no DartScript, no CodeSpecs validation)';
+        const tools = v.tools && v.tools.length ? v.tools.join(', ') : 'none';
+        lines.push(`| ${v.platform} | [\`${v.asset}\`](${assetLink(v.asset)}) | ${(v.size / (1024 * 1024)).toFixed(1)} MiB | ${bins} | ${tools} |`);
+    }
+    lines.push(
+        '',
+        'Install it with VS Code\'s command line (or *Extensions: Install from VSIX…*):',
+        '',
+        '```sh',
+        'code --install-extension tom-ai-extension-<platform>.vsix',
+        '```',
+        '',
+        '| | |',
+        '|---|---|',
+        `| Built from | tom_vscode \`${info.commit}\` |`,
+        `| Built at | ${info.date} |`,
+        `| Packed by | \`${info.script}\` |`,
+        '',
+    );
+    const others = (info.others || []).filter((a) => !info.vsixes.some((v) => v.asset === a.name));
+    if (others.length) {
+        lines.push('## Also in the release', '');
+        for (const a of others) {
+            lines.push(otherAssetLine(a) + (a.name === ASSET ? ': the single-platform build of `create_vsix` (one VSIX for every platform, Dart binaries only for the platform it was built on)' : ''));
+        }
+        lines.push('');
+    }
+    lines.push('Provider SDKs (Anthropic, Agent SDK) are not in the VSIX: the extension installs them on request (Provider SDKs page).', '');
     return lines.join('\n');
 }
 
@@ -171,14 +241,22 @@ function publish(opts, deps = {}) {
     const run = deps.run || defaultRun;
     const log = deps.log || ((line) => console.log(line));
     const gh = deps.gh || ghCommand();
+    // One VSIX, or the per-platform VSIX of a multi-platform run (tom-ai-extension-<platform>.vsix).
+    const files = (Array.isArray(opts.vsix) ? opts.vsix : [opts.vsix]).filter(Boolean);
     const notUpdated = (why, hint) => {
         log(`⚠️  The release was not updated: ${why}.`);
         if (hint) { log(`   ${hint}`); }
-        log(`   The VSIX stays local: ${opts.vsix || '(none)'}`);
+        log(`   The VSIX stays local: ${files.length ? files.join(', ') : '(none)'}`);
         return { updated: false, reason: why };
     };
     if (opts.noRelease) { return notUpdated('--no-release given'); }
-    if (!opts.vsix || !fs.existsSync(opts.vsix)) { return notUpdated('no VSIX was packed'); }
+    if (!files.length || files.some((f) => !fs.existsSync(f))) { return notUpdated('no VSIX was packed'); }
+    const perPlatform = files.map((f) => vsixSplit.platformOfVsix(f));
+    const split = perPlatform.some(Boolean);
+    if (split && (perPlatform.some((p) => !p) || new Set(perPlatform).size !== perPlatform.length)) {
+        return notUpdated(`the files are not one VSIX per platform (${files.map((f) => path.basename(f)).join(', ')})`);
+    }
+    if (!split && files.length > 1) { return notUpdated(`several VSIX files that name no platform (${files.map((f) => path.basename(f)).join(', ')})`); }
     const pre = parsePrecheck(opts.precheck);
     if (!pre.ok) { return notUpdated(pre.reason, 'Commit and push tom_vscode, then run the script again, so the release names a commit anyone can check out.'); }
     const head = run('git', ['rev-parse', 'HEAD'], { cwd: deps.repoDir || EXT_ROOT });
@@ -194,34 +272,64 @@ function publish(opts, deps = {}) {
         return notUpdated(`gh has no login that may push to ${REPO}${access.stderr ? ` (${access.stderr.split('\n')[0]})` : ''}`, 'Run `gh auth login` with an account that may write to the repository, then the script again.');
     }
 
-    const stat = fs.statSync(opts.vsix);
-    const info = {
-        commit: pre.commit,
-        // When the VSIX was packed (its file time), not when it is uploaded.
-        date: (deps.now || stat.mtime).toISOString(),
-        size: stat.size,
-        script: opts.script || 'a create_*_vsix script',
-        platforms: deps.platforms || vsixPlatforms(opts.vsix),
-    };
-    const text = readmeText(info);
+    // The release as it is: whether it exists, and the assets it holds (listed in the README).
+    const view = run(gh, ['release', 'view', TAG, '-R', REPO, '--json', 'assets']);
+    const exists = view.status === 0;
+    let others = [];
+    if (exists) {
+        try { others = (JSON.parse(view.stdout || '{}').assets || []).map((a) => ({ name: a.name, size: a.size, updatedAt: a.updatedAt })); } catch { others = []; }
+    }
+    const script = opts.script || 'a create_*_vsix script';
     const workDir = deps.workDir || path.join(EXT_ROOT, 'out', 'vsix-release');
     fs.mkdirSync(workDir, { recursive: true });
-    const asset = path.join(workDir, ASSET);
-    fs.copyFileSync(opts.vsix, asset);
+    const assets = [];
+    let info;
+    let text;
+    if (split) {
+        const vsixes = files.map((file, i) => {
+            const platform = perPlatform[i];
+            const stat = fs.statSync(file);
+            const found = (typeof deps.platforms === 'function' ? deps.platforms(file, platform) : vsixPlatforms(file, { target: platform }))
+                .find((p) => p.platform === platform) || { carried: [], stamps: {}, tools: [] };
+            return { asset: vsixSplit.vsixName(platform), platform, size: stat.size, date: stat.mtime.toISOString(), carried: found.carried, stamps: found.stamps, tools: found.tools || [], file };
+        });
+        const newest = Math.max(...files.map((f) => fs.statSync(f).mtimeMs));
+        info = { commit: pre.commit, date: (deps.now || new Date(newest)).toISOString(), script, vsixes, others: others.filter((a) => !vsixes.some((v) => v.asset === a.name)) };
+        text = readmeTextPlatforms(info);
+        for (const v of vsixes) { assets.push({ src: v.file, name: v.asset }); }
+    } else {
+        const stat = fs.statSync(files[0]);
+        info = {
+            commit: pre.commit,
+            // When the VSIX was packed (its file time), not when it is uploaded.
+            date: (deps.now || stat.mtime).toISOString(),
+            size: stat.size,
+            script,
+            platforms: (typeof deps.platforms === 'function' ? deps.platforms(files[0], null) : deps.platforms) || vsixPlatforms(files[0]),
+            others: others.filter((a) => a.name !== ASSET),
+        };
+        text = readmeText(info);
+        assets.push({ src: files[0], name: ASSET });
+    }
+    const uploads = assets.map((a) => {
+        const copy = path.join(workDir, a.name);
+        fs.copyFileSync(a.src, copy);
+        return copy;
+    });
     const notes = path.join(workDir, 'notes.md');
     fs.writeFileSync(notes, text, 'utf8');
 
-    const exists = run(gh, ['release', 'view', TAG, '-R', REPO, '--json', 'tagName']).status === 0;
     const steps = exists
-        ? [['release', 'upload', TAG, asset, '--clobber', '-R', REPO], ['release', 'edit', TAG, '--title', TITLE, '--notes-file', notes, '-R', REPO]]
-        : [['release', 'create', TAG, asset, '--title', TITLE, '--notes-file', notes, '-R', REPO]];
+        ? [['release', 'upload', TAG, ...uploads, '--clobber', '-R', REPO], ['release', 'edit', TAG, '--title', TITLE, '--notes-file', notes, '-R', REPO]]
+        : [['release', 'create', TAG, ...uploads, '--title', TITLE, '--notes-file', notes, '-R', REPO]];
     for (const args of steps) {
         const r = run(gh, args);
         if (r.status !== 0) { return notUpdated(`gh ${args.slice(0, 2).join(' ')} failed${r.stderr ? `: ${r.stderr.split('\n')[0]}` : ''}`); }
     }
-    log(`🚀 Release ${exists ? 'updated' : 'created'}: ${LINK}`);
+    const links = assets.map((a) => assetLink(a.name));
+    log(`🚀 Release ${exists ? 'updated' : 'created'}: ${links.join(', ')}`);
     writeReadme(text, info, { run, gh, log, binariesRepo: deps.binariesRepo });
-    return { updated: true, created: !exists, link: LINK, text };
+    return { updated: true, created: !exists, link: links[0], links, assets: assets.map((a) => a.name), text };
 }
 
 /** The README in tom_binaries: committed and pushed in the checkout, else through the GitHub API. */
@@ -265,7 +373,14 @@ function argValue(argv, name) {
     return i >= 0 ? argv[i + 1] : undefined;
 }
 
-module.exports = { REPO, TAG, ASSET, LINK, README_PATH, precheck, precheckLine, parsePrecheck, vsixPlatforms, readmeText, publish, writeReadme, ghCommand };
+/** Every value of a repeated option (`--vsix a --vsix b`). */
+function argValues(argv, name) {
+    const out = [];
+    argv.forEach((a, i) => { if (a === name && argv[i + 1] !== undefined) { out.push(argv[i + 1]); } });
+    return out;
+}
+
+module.exports = { REPO, TAG, ASSET, LINK, README_PATH, assetLink, precheck, precheckLine, parsePrecheck, vsixPlatforms, readmeText, readmeTextPlatforms, publish, writeReadme, ghCommand };
 
 if (require.main === module) {
     const [cmd, ...argv] = process.argv.slice(2);
@@ -275,7 +390,7 @@ if (require.main === module) {
     } else if (cmd === 'publish') {
         try {
             publish({
-                vsix: argValue(argv, '--vsix'),
+                vsix: argValues(argv, '--vsix'),
                 script: argValue(argv, '--script'),
                 precheck: argValue(argv, '--precheck'),
                 noRelease: argv.includes('--no-release'),
@@ -285,7 +400,7 @@ if (require.main === module) {
         }
         process.exitCode = 0;
     } else {
-        console.error('usage: vsix-release.cjs precheck | publish --vsix <file> --script <name> --precheck "<line>" [--no-release]');
+        console.error('usage: vsix-release.cjs precheck | publish --vsix <file> [--vsix <file> ...] --script <name> --precheck "<line>" [--no-release]');
         process.exitCode = 2;
     }
 }

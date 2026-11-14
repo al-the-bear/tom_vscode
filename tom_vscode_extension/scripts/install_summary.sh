@@ -6,6 +6,7 @@
 #   tom_print_no_dart_warning <reason> <from-source 0|1>
 #   tom_print_layer_vsix_summary <extension dir> <platforms>
 #   tom_print_layer_unpushed_warning <extension dir>
+#   tom_platform_vsixes <extension dir>
 #
 # The last lines are owned by whichever script runs last (the wrapper when
 # there is one, TOM_SKIP_FINISH_TS=1), so they are printed exactly once.
@@ -19,8 +20,28 @@ tom_newest_vsix() {
     return 0
 }
 
+# The per-platform VSIX files in the extension folder (tom-ai-extension-<platform>.vsix,
+# scripts/vsix-split.cjs), absolute paths, one per line, newest first ("" if none).
+tom_platform_vsixes() {
+    ( cd "$1" && node scripts/vsix-split.cjs list ) 2>/dev/null || true
+}
+
 tom_print_vsix_path() {
-    local vsix
+    local vsix platform_vsixes
+    platform_vsixes="$(tom_platform_vsixes "$1")"
+    if [ -n "$platform_vsixes" ]; then
+        # One VSIX per platform: each installs only on the platform in its name.
+        echo ""
+        echo "📦 One VSIX per platform (VS Code installs each only on its own platform):"
+        while IFS= read -r vsix; do
+            [ -n "$vsix" ] && echo "   $vsix"
+        done <<< "$platform_vsixes"
+        echo "   On another machine: copy its platform's file there and run  code --install-extension <path-to>/tom-ai-extension-<platform>.vsix"
+        if [ -f "$1/workspace_template.zip" ]; then
+            echo "📦 Workspace template: $1/workspace_template.zip (also inside each VSIX)"
+        fi
+        return 0
+    fi
     vsix="$(tom_newest_vsix "$1")"
     [ -z "$vsix" ] && return 0
     echo ""
@@ -77,12 +98,18 @@ tom_print_no_dart_warning() {
 #   tom_print_layer_vsix_summary <extension dir> <platforms>
 tom_print_layer_vsix_summary() {
     local dir="$1"
-    local vsix
-    vsix="$(tom_newest_vsix "$dir")"
+    local vsix platform
     echo ""
-    echo "──────── Private distribution VSIX ────────"
+    echo "──────── Private distribution VSIX (one per platform) ────────"
     tom_print_vsix_path "$dir"
-    [ -n "$vsix" ] && ( cd "$dir" && node scripts/check-vsix-contents.cjs "$vsix" | sed -n '2,$p' )
+    # Each VSIX: the binaries and build tools it carries for its platform.
+    while IFS= read -r vsix; do
+        [ -z "$vsix" ] && continue
+        platform="$(basename "$vsix" .vsix)"
+        platform="${platform#tom-ai-extension-}"
+        echo "   $(basename "$vsix"):"
+        ( cd "$dir" && node scripts/check-vsix-contents.cjs "$vsix" --target "$platform" | sed -n '2,$p' )
+    done <<< "$(tom_platform_vsixes "$dir")"
     if [ -n "$2" ]; then
         ( cd "$dir" && node scripts/binaries-layer.cjs report --platforms "$2" )
     else
@@ -109,10 +136,15 @@ tom_release_precheck() {
 
 # tom_release_publish <script dir> <vsix> <script name> <precheck line> <no-release 0|1>:
 # run at its end; uploads the VSIX and writes vscode_extension/vsix/README.md, or says why not.
+# <vsix>: one file, or several, one per line (the per-platform VSIX, tom_platform_vsixes).
 tom_release_publish() {
     echo ""
     echo "──────── The VSIX as a download (GitHub Release of tom_binaries) ────────"
-    local args=(publish --vsix "$2" --script "$3" --precheck "$4")
+    local args=(publish --script "$3" --precheck "$4")
+    local vsix
+    while IFS= read -r vsix; do
+        [ -n "$vsix" ] && args+=(--vsix "$vsix")
+    done <<< "$2"
     [ "$5" = "1" ] && args+=(--no-release)
     ( cd "$1" && node scripts/vsix-release.cjs "${args[@]}" ) || true
 }

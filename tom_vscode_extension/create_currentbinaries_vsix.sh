@@ -1,7 +1,12 @@
 #!/bin/bash
 
-# Package a private-distribution VSIX with this host's binaries built now and
+# Package the private-distribution VSIX files with this host's binaries built now and
 # every other platform's as the binaries layer holds them; install nothing.
+#
+# One VSIX per platform the layer has (darwin-arm64, linux-x64, win32-x64):
+# tom-ai-extension-<platform>.vsix, packed with `vsce package --target`, each
+# with only that platform's Dart binaries and build tools (TOM_SPLIT_PLATFORMS=1,
+# scripts/vsix-split.cjs). VS Code installs each only on its own platform.
 #
 #   ./create_currentbinaries_vsix.sh [--no-release]
 #
@@ -13,12 +18,12 @@
 #    tom_bs and validate_codespecs for every platform from the layer
 #    (TOM_LAYER_BINARIES=1), with the workspace template, as create_vsix.sh
 #    (no provider SDK: the extension installs them on request).
-# Every run publishes the VSIX as the GitHub Release `vscode-extension-latest` of
-# al-the-bear/tom_binaries (asset tom-ai-extension.vsix, with
+# Every run publishes the VSIX files as the GitHub Release `vscode-extension-latest` of
+# al-the-bear/tom_binaries (one asset per platform, tom-ai-extension-<platform>.vsix, with
 # vscode_extension/vsix/README.md there; scripts/vsix-release.cjs) when the
 # tom_vscode checkout has no local change and no unpushed commit; --no-release
-# skips it. The VSIX also stays here for a local install.
-# It ends with the VSIX path, the template path, the binaries the VSIX carries
+# skips it. The VSIX files also stay here for a local install.
+# It ends with the VSIX paths, the template path, the binaries each VSIX carries
 # per platform and, per platform, each binary's build stamp and whether it is
 # older than the sources here (scripts/binaries-layer.cjs report). A platform
 # whose binaries are older is rebuilt by its own host (compile_and_install.sh
@@ -34,7 +39,7 @@ NO_RELEASE=0
 for ARG in "$@"; do
     case "$ARG" in
         --no-release) NO_RELEASE=1 ;;
-        -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "❌ Unknown option: $ARG (usage: $0 [--no-release])"; exit 1 ;;
     esac
 done
@@ -52,10 +57,12 @@ echo ""
 echo "──────── 2/2 The VSIX, with every platform's binaries from the layer ────────"
 export TOM_LAYER_BINARIES=1
 export TOM_PACKAGE_ONLY=1
+# One VSIX per platform, each with only its own binaries and build tools.
+export TOM_SPLIT_PLATFORMS=1
 export TOM_SKIP_FINISH_TS=1
 "$SCRIPT_DIR/install_extension.sh"
 
 tom_print_layer_vsix_summary "$SCRIPT_DIR" ""
-tom_release_publish "$SCRIPT_DIR" "$(tom_newest_vsix "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
+tom_release_publish "$SCRIPT_DIR" "$(tom_platform_vsixes "$SCRIPT_DIR")" "$(basename "$0")" "$RELEASE_PRECHECK" "$NO_RELEASE"
 echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
 exit 0

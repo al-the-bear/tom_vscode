@@ -19,6 +19,10 @@
 # --layer-binaries (also TOM_LAYER_BINARIES=1) builds nothing with Dart: tom_bs
 # and validate_codespecs for every platform come from the binaries layer
 # (TOM_LAYER_PLATFORMS=a,b,... narrows them; create_*binaries_vsix.sh).
+# TOM_SPLIT_PLATFORMS=1 (with --package-only; the multi-platform create
+# scripts set it) packs one VSIX per platform bin/ holds,
+# tom-ai-extension-<platform>.vsix, each with only that platform's binaries
+# and build tools (vsce package --target; scripts/vsix-split.cjs).
 # A from-source build puts the binaries it built into the binaries layer,
 # tom_binaries/tom/<platform>/, commits them there and pushes
 # (scripts/binaries-layer.cjs publish; TOM_LAYER_FF=1 fast-forwards the layer
@@ -41,7 +45,7 @@ for ARG in "$@"; do
         --binaries-only) export TOM_BINARIES_ONLY=1 ;;
         --layer-binaries) export TOM_LAYER_BINARIES=1 ;;
         --no-layer) export TOM_NO_LAYER=1 ;;
-        -h|--help) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "❌ Unknown option: $ARG (usage: $0 [--no-dart] [--package-only] [--binaries-only] [--layer-binaries] [--no-layer])"; exit 1 ;;
     esac
 done
@@ -54,6 +58,10 @@ LAYER_BINARIES="${TOM_LAYER_BINARIES:-0}"
 NO_LAYER="${TOM_NO_LAYER:-0}"
 if [ "$BINARIES_ONLY" = "1" ] && { [ "$FROM_SOURCE" != "1" ] || [ "$NO_DART" = "1" ] || [ "$LAYER_BINARIES" = "1" ]; }; then
     echo "❌ --binaries-only builds the binaries from source with Dart (compile_and_install.sh --binaries-only)"
+    exit 1
+fi
+if [ "${TOM_SPLIT_PLATFORMS:-0}" = "1" ] && [ "$PACKAGE_ONLY" != "1" ]; then
+    echo "❌ One VSIX per platform (TOM_SPLIT_PLATFORMS=1) is packaging only (--package-only): a VSIX of another platform cannot be installed here"
     exit 1
 fi
 if [ "$LAYER_BINARIES" = "1" ] && [ "$FROM_SOURCE" = "1" ]; then
@@ -449,6 +457,24 @@ echo "📦 Building the workspace template..."
     echo "❌ Building the workspace template failed (see above)"
     exit 1
 }
+
+# One VSIX per platform (TOM_SPLIT_PLATFORMS=1, the multi-platform create
+# scripts): `vsce package --target <platform>` for each platform bin/ holds,
+# each with only its own bin/<platform>/ (scripts/vsix-split.cjs), each
+# checked; nothing is installed. VS Code installs a VSIX only on its platform.
+if [ "${TOM_SPLIT_PLATFORMS:-0}" = "1" ]; then
+    echo ""
+    echo "📦 Packaging one VSIX per platform..."
+    ( cd "$SCRIPT_DIR" && node scripts/vsix-split.cjs package --vsce "$VSCE_CMD" ) || {
+        echo "❌ Packaging the per-platform VSIX files failed (see above)"
+        exit 1
+    }
+    if [ "${TOM_SKIP_FINISH_TS:-0}" != "1" ]; then
+        tom_print_vsix_path "$SCRIPT_DIR"
+        echo "🕒 Finished at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    fi
+    exit 0
+fi
 
 # Package as VSIX
 echo ""

@@ -2,8 +2,12 @@
 /**
  * Check that a packaged VSIX is self-contained for the TomSpecs SOM runtime.
  *
- *   node scripts/check-vsix-contents.cjs [path/to/extension.vsix]
+ *   node scripts/check-vsix-contents.cjs [path/to/extension.vsix] [--target <platform>]
  *   (default: the newest *.vsix in the extension root)
+ *
+ * --target: a per-platform VSIX (scripts/vsix-split.cjs, `vsce package
+ * --target`): it may carry bin/<platform>/ for that platform only, and the
+ * binary report lists that platform (instead of this host).
  *
  * The installed extension must never reach back into an ai_build checkout, so
  * the VSIX has to carry tom_som_typescript_runtime and tom_som_typescript_v0 as
@@ -157,16 +161,16 @@ function dartBinaryReport(names, host = HOST_PLATFORM) {
     });
 }
 
-function printDartBinaryReport(report, host = HOST_PLATFORM) {
+function printDartBinaryReport(report, host = HOST_PLATFORM, mark = 'this host') {
     console.log('   Dart-built binaries (informational):');
     for (const { platform, binaries } of report) {
         const cells = DART_BINARIES.map((bin) => `${bin} ${binaries[bin] ? '✔' : '— missing'}`).join(', ');
-        console.log(`     ${platform}${platform === host ? ' (this host)' : ''}: ${cells}`);
+        console.log(`     ${platform}${platform === host ? ` (${mark})` : ''}: ${cells}`);
     }
     console.log('   Build tools, the last fallback (informational):');
     for (const { platform, buildTools } of report) {
         const cells = BUILD_TOOLS.map((tool) => `${tool} ${buildTools && buildTools[tool] ? '✔' : '— missing'}`).join(', ');
-        console.log(`     ${platform}${platform === host ? ' (this host)' : ''}: ${cells}`);
+        console.log(`     ${platform}${platform === host ? ` (${mark})` : ''}: ${cells}`);
     }
 }
 
@@ -181,8 +185,17 @@ function providerSdkEntries(names) {
     return [...names].filter((n) => PROVIDER_PREFIXES.some((p) => n.startsWith(p)) || /^extension\/bin\/[^/]+\/claude(\.exe)?$/.test(n)).sort();
 }
 
+/** Entries under another platform's bin/ folder than `target` (a per-platform VSIX carries its own only). */
+function otherPlatformEntries(names, target) {
+    return [...names].filter((n) => { const m = /^extension\/bin\/([^/]+)\//.exec(n); return m && m[1] !== target; }).sort();
+}
+
 function main() {
-    const vsixPath = process.argv[2] ? path.resolve(process.argv[2]) : newestVsix();
+    const argv = process.argv.slice(2);
+    const ti = argv.indexOf('--target');
+    const target = ti >= 0 ? argv[ti + 1] : undefined;
+    const file = argv.find((a, i) => !a.startsWith('--') && !(ti >= 0 && i === ti + 1));
+    const vsixPath = file ? path.resolve(file) : newestVsix();
     if (!vsixPath || !fs.existsSync(vsixPath)) {
         console.error('❌ No VSIX found. Package the extension first (install_extension.sh).');
         process.exit(2);
@@ -203,6 +216,11 @@ function main() {
     if (providerEntries.length > 0) {
         failures.push(`provider SDK in the VSIX (it is installed on request, never packaged): ${providerEntries.length} entries, e.g. ${providerEntries[0]}`);
     }
+    if (target) {
+        // A per-platform VSIX (scripts/vsix-split.cjs): bin/ holds that platform only.
+        const others = otherPlatformEntries(names, target);
+        if (others.length > 0) { failures.push(`another platform's binaries in the ${target} VSIX: ${others.length} entries, e.g. ${others[0]}`); }
+    }
     for (const e of entries.filter((x) => x.isSymlink)) {
         const som = SOM_PREFIXES.some((prefix) => e.name.startsWith(prefix));
         failures.push(`symlink${som ? ' in a SOM package' : ''}: ${e.name}`);
@@ -213,12 +231,12 @@ function main() {
         for (const f of failures) { console.error(`   ${f}`); }
         process.exit(1);
     }
-    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks, no provider SDK.`);
-    printDartBinaryReport(dartBinaryReport(names));
+    console.log(`✅ ${path.basename(vsixPath)}: SOM runtime + facade bundled as real files (${somFiles} entries), no symlinks, no provider SDK${target ? `, binaries for ${target} only` : ''}.`);
+    printDartBinaryReport(dartBinaryReport(names, target || HOST_PLATFORM), target || HOST_PLATFORM, target ? 'this VSIX\'s platform' : 'this host');
 }
 
 if (require.main === module) {
     main();
 }
 
-module.exports = { readCentralDirectory, dartBinaryReport, providerSdkEntries, REQUIRED, BUILD_TOOLS };
+module.exports = { readCentralDirectory, dartBinaryReport, providerSdkEntries, otherPlatformEntries, REQUIRED, BUILD_TOOLS, DART_BINARIES };

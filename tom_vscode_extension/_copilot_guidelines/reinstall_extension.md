@@ -158,18 +158,37 @@ with `scripts/vsix-release.cjs` (`tom_release_precheck` / `tom_release_publish`
 in `scripts/install_summary.sh`, `Get-TomReleasePrecheck` / `Publish-TomRelease`
 in the `.ps1` one): at its start `precheck` records whether the tom_vscode
 checkout is clean and pushed (the release must name a commit anyone can check
-out); at its end `publish` uploads the VSIX as the asset `tom-ai-extension.vsix`
-of the GitHub Release `vscode-extension-latest` of `al-the-bear/tom_binaries`
-(`gh release create` the first time, `gh release upload --clobber` and `gh
-release edit` after) — link https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension.vsix — and writes
-`vscode_extension/vsix/README.md` there (commit, date, size, script, the
-platforms whose Dart binaries it carries with their stamps), committed and
+out); at its end `publish` uploads the VSIX files as assets of the GitHub
+Release `vscode-extension-latest` of `al-the-bear/tom_binaries` (`gh release
+create` the first time, `gh release upload --clobber` and `gh release edit`
+after): the multi-platform scripts' per-platform VSIX each as its own asset,
+`tom-ai-extension-<platform>.vsix` (`--vsix` once per file), `create_vsix`'s
+single VSIX as `tom-ai-extension.vsix`, which stays in the release beside
+them so older links keep working — links
+https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-<platform>.vsix —
+and writes `vscode_extension/vsix/README.md` there (commit, date, size,
+script, one download per platform with the Dart binaries and build tools it
+carries and their stamps, the release's other assets listed), committed and
 pushed in the tom_binaries checkout, else through the GitHub API. Skipped with
 a warning, the VSIX left local and the script still succeeding: `--no-release`
 / `-NoRelease`, a dirty or unpushed checkout, HEAD moved during the build, no
 `gh`, no login that may push. Before bundling from the layer, `install_extension.*`
 runs `binaries-layer.cjs sync` (`TOM_LAYER_NO_SYNC=1` skips it). Tests:
-`vsixRelease.test.ts` (VR-1 – VR-5), `binariesLayer.test.ts` (BL-7).
+`vsixRelease.test.ts` (VR-1 – VR-6), `binariesLayer.test.ts` (BL-7).
+
+**One VSIX per platform.** `create_currentbinaries_vsix.*`,
+`create_fleetcompiled_vsix.*` and `create_layerbinaries_vsix.*` set
+`TOM_SPLIT_PLATFORMS=1` (with package-only; `install_extension.*` refuses it
+otherwise): after bundling every platform's binaries into `bin/<platform>/`,
+`scripts/vsix-split.cjs package` runs, for each platform `bin/` holds,
+`vsce package --target <platform> --ignoreFile out/vsix-split/vscodeignore-<platform>
+-o tom-ai-extension-<platform>.vsix` (the ignore file is `.vscodeignore` plus
+the other platforms' `bin/<p>/**`; nothing is moved) and checks it with
+`check-vsix-contents.cjs <vsix> --target <platform>` (another platform's `bin/`
+fails it). The summary (`tom_print_layer_vsix_summary` / `Write-TomLayerVsixSummary`)
+lists every VSIX (`tom_platform_vsixes` / `Get-TomPlatformVsixes`, `vsix-split.cjs
+list`). `create_vsix.*` and `compile_and_install.*` keep one VSIX without a
+target. Tests: `vsixSplit.test.ts` (VS-1 – VS-6).
 
 **The binaries layer** (`tom_binaries/tom/<platform>/`): every from-source build
 (`TOM_BRIDGE_FROM_SOURCE=1`: `compile_and_install.*`, `create_vsix.*`) ends its
