@@ -1,6 +1,7 @@
 /**
  * The "Assist prompts": the prompts the extension runs to help the user —
- * Grill me, Explain in detail, Explain a decision, Finish review round, and
+ * Grill me, Explain in detail, Explain a decision, Finish review round, Gate
+ * decision, and
  * the prompt a queue item continues with on another profile when its profile
  * ran out of credit (Out of budget).
  *
@@ -14,7 +15,7 @@
  * vscode-free.
  */
 
-export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'outOfBudget'] as const;
+export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget'] as const;
 export type AssistPromptUse = typeof ASSIST_PROMPT_USES[number];
 
 export interface AssistPromptTemplate {
@@ -232,6 +233,14 @@ const FINISH_REVIEW_ROUND_BODY = [
     '4. On anything else (the panel closed, a timeout) report it and end without moving the process.',
 ].join('\n');
 
+const GATE_DECISION_BODY = [
+    '**Gate decision** — put the gate\'s result in front of the user with the decision\'s buttons, ${step} of process ${process}.',
+    '',
+    '1. The result: ${resultsFile} — each checklist item with pass or fail and why, the answers taken in, and your recommendation (go on, or repeat / gate failed) with its full explanation. Name every file it refers to as a Markdown link relative to it. Close the MD Browser panels that show older copies of it (tomAi_listMdBrowserPanels, tomAi_closeMdBrowser with each `panelId`).',
+    '2. Show it with tomAi_askInMdBrowser: `gateDecision: true`, the title `Gate: ${step}` — the buttons are the decision\'s own choices (gate passed / gate failed, go on / repeat). Keep this file is the user\'s to decide. If the call is refused, open the document with tomAi_openInMdBrowser instead, say so, and leave the decision to the PROCESS view (Decide…).',
+    '3. Wait for the answer. On a choice (`decisionTaken`) the extension has ended the gate\'s step and taken the decision as Decide… does: report its `summary` in one line and end your answer. Do not move the process or queue anything yourself.',
+    '4. On anything else (the panel closed, a timeout) report it and end without moving the process: the decision opens in the PROCESS view once this prompt has ended.',
+].join('\n');
 
 /**
  * Earlier built-in defaults, by use: a default template on disk whose text is
@@ -321,6 +330,16 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
             reviewFile: 'the name of the review document a review of several documents gets (`review_<phase>_<step>_repetition_<n>_<yyyymmdd_hhmmss>.md`)',
         },
     },
+    gateDecision: {
+        label: 'Gate decision',
+        purpose: 'The end of a gate\'s prompt: shows the gate\'s result in the MD Browser with the buttons of the decision after the gate — gate passed / failed, go on / repeat (in a process step\'s prompt as `${gate-decision}`).',
+        defaultId: 'gate-decision', defaultName: 'Gate decision', defaultBody: GATE_DECISION_BODY,
+        placeholders: {
+            process: 'the process id',
+            step: 'the gate (where the process is)',
+            resultsFile: 'the gate\'s result document (`the gate\'s result document` in a process step\'s prompt; the gate\'s prompt names it, e.g. gates/G<n>.md)',
+        },
+    },
     outOfBudget: {
         label: 'Out of budget',
         purpose: 'A queue item continuing on another profile after its profile ran out of API credit.',
@@ -380,7 +399,7 @@ export function buildAssistPrompt(section: AssistPromptsSection | undefined, use
 }
 
 /**
- * Seed the five default templates that are missing (by id), so each use has
+ * Seed the default templates that are missing (by id), so each use has
  * an editable template on disk, and bring a default template still holding an
  * earlier built-in text (never edited) to the current one. Idempotent; an
  * edited template and the choices are never touched. Returns whether it

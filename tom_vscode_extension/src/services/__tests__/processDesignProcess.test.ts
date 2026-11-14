@@ -98,6 +98,9 @@ describe('the process_design process', { skip: present ? false : 'no _ai/process
         }
         assert.match(initial, /ends by showing the result with `\$\{finish-review-round\}`/, 'told to use Finish review round in the designed prompts');
         assert.match(initial, /\*\*Finish review round\*\* — put the results in front of the user/, 'and the step itself ends with it');
+        assert.match(initial, /its prompt \(ending by showing its result document with the decision's buttons, `\$\{gate-decision\}`\)/, 'the designed gates end with the gate decision (vscimpb85)');
+        const gate = prompt(at('intent', 'g1'));
+        assert.match(gate, /How a gate runs \(shared by the gates of process_design\)[\s\S]*\*\*Gate decision\*\* — put the gate's result in front of the user with the decision's buttons[\s\S]*`gateDecision: true`/, 'the shared gate round ends with the gate decision');
         const result = prompt(at('design', 'result'));
         assert.match(result, /tomAi_validateProcess \(`file`, the new roles as `draftRoles`\)/);
         const generate = prompt(at('generation', 'generate'));

@@ -106,6 +106,13 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(file, /`doneNotificationQuest` this quest and `doneNotificationRun` this run/, 'it comes back here (vscimpb71)');
         const gate = prompt(at('idea', 'g1'));
         assert.match(gate, /Gate G1 of the idea[\s\S]*`gates\/G1\.md`[\s\S]*approval and the move \(Gate passed \/ failed\) are the user's/);
+        // Every gate ends with its result and the decision's buttons (vscimpb85).
+        for (const [phase, g] of [['idea', 'g1'], ['blueprint', 'g2'], ['deepening', 'g3'], ['todos', 'g4']]) {
+            const text = prompt(at(phase, g));
+            assert.ok(!text.includes('${gate-decision}'), `${g}: filled in`);
+            assert.match(text, /\*\*Gate decision\*\* — put the gate's result in front of the user with the decision's buttons, Phase \d — [^\n]* of process idea_to_todos\./, g);
+            assert.match(text, /`gateDecision: true`/, g);
+        }
     });
 
     test('IT-3: the schema idea-blueprint/1.0', async () => {

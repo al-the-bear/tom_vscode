@@ -504,6 +504,13 @@ Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 and the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
 workspace todos, the todo log, window status).
 
+A quest's process can also be moved from a document in the MD Browser.
+A review's results carry **Finish review round** (`${finish-review-round}`
+in a step's prompt). A gate's result carries the buttons of the decision
+after the gate, gate passed or gate failed (`${gate-decision}` in a gate's
+prompt, `tomAi_askInMdBrowser` with `gateDecision`). One click ends the
+gate's step and takes the decision as the PROCESS view's Decide… does.
+
 ### @TOM VSC: resource-hungry extensions
 
 The **@TOM VSC** sidebar (view RESOURCES, `tomAi.vscResources`) tames the

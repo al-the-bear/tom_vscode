@@ -1349,6 +1349,12 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
         options: () => processActions().decisionOptionLabels(),
         take: async (label) => { await processActions().takeDecisionOption(label); },
     },
+    // The gate decision: a gate's prompt shows its result with the choices of the decision after the gate.
+    gateDecision: {
+        unavailable: () => processActions().gateDecisionUnavailableNow(),
+        options: () => processActions().gateDecisionOptionLabels(),
+        take: (label) => processActions().runGateDecision(label),
+    },
 };
 
 /** Grill me / Explain in detail's live collaborators: the shared assist deps and the file. */

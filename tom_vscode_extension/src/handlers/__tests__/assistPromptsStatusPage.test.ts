@@ -74,7 +74,7 @@ describe('Assist prompts: Status Page and template editor', () => {
             assert.ok(select, use);
             const row = select.closest('.sp-settings-row');
             const options = [...select.options].map((o: Json) => o.value);
-            assert.deepEqual(options, ['', 'mine', 'grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'out-of-budget'], use);
+            assert.deepEqual(options, ['', 'mine', 'grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'gate-decision', 'out-of-budget'], use);
             assert.match(select.options[0].textContent, /^\(default: /);
             assert.equal(select.value, use === 'explainDecision' ? 'mine' : '', `${use}: the choice is selected`);
             const actions = [...row.querySelectorAll('[data-status-action]')].map((b: Json) => [b.getAttribute('data-status-action'), b.getAttribute('data-assist-use')]);
@@ -96,7 +96,7 @@ describe('Assist prompts: Status Page and template editor', () => {
             ['deleteAssistPrompt', 'outOfBudget', ''],
             ['updateAssistPrompts', undefined, undefined],
         ]);
-        assert.deepEqual(posted[2].selected, { grillMe: 'mine', explainInDetail: '', explainDecision: '', grillMeDecision: '', finishReviewRound: 'mine', outOfBudget: '' });
+        assert.deepEqual(posted[2].selected, { grillMe: 'mine', explainInDetail: '', explainDecision: '', grillMeDecision: '', finishReviewRound: 'mine', gateDecision: '', outOfBudget: '' });
     });
 
     test('SA-3: the host writes and each use resolves its choice', async () => {
@@ -105,7 +105,7 @@ describe('Assist prompts: Status Page and template editor', () => {
         const section = readSection();
         assert.deepEqual(section.selected, { explainInDetail: 'a', explainDecision: 'b', finishReviewRound: 'a', outOfBudget: 'b' }, 'an empty choice removed, an unknown use ignored');
         assert.deepEqual(ASSIST_PROMPT_USES.map((u) => resolveAssistPrompt(section, u).template.slice(0, 6)),
-            [resolveAssistPrompt(section, 'grillMe').template.slice(0, 6), 'A body', 'B body', resolveAssistPrompt(section, 'grillMeDecision').template.slice(0, 6), 'A body', 'B body']);
+            [resolveAssistPrompt(section, 'grillMe').template.slice(0, 6), 'A body', 'B body', resolveAssistPrompt(section, 'grillMeDecision').template.slice(0, 6), 'A body', resolveAssistPrompt(section, 'gateDecision').template.slice(0, 6), 'B body']);
         assert.equal(resolveAssistPrompt(section, 'grillMe').source, 'default');
 
         stubbed.spies.clear();
@@ -135,7 +135,7 @@ describe('Assist prompts: Status Page and template editor', () => {
         await ask({ type: 'requestData', category: 'assistPrompts' });
         const all = panel.webview.__posted.filter((m: Json) => m.type === 'allData').pop();
         assert.deepEqual(all.categories.find((c: Json) => c.id === 'assistPrompts').items.map((i: Json) => i.id),
-            ['grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'out-of-budget']);
+            ['grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'gate-decision', 'out-of-budget']);
         await ask({ type: 'selectItem', category: 'assistPrompts', itemId: 'grill-me' });
         const fields = panel.webview.__posted.filter((m: Json) => m.type === 'itemFields').pop().fields;
         assert.deepEqual(fields.map((f: Json) => f.name), ['id', 'name', 'description', 'template']);

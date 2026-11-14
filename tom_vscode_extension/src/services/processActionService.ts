@@ -35,6 +35,7 @@ import {
 } from './decisionHelpers';
 import { WsPaths } from '../utils/workspacePaths';
 import { finishReviewRound, finishReviewUnavailable, type FinishReviewDeps, type FinishReviewOutcome } from './finishReviewRound';
+import { gateDecisionOptions, gateDecisionUnavailable, takeGateDecision, type GateDecisionDeps, type GateDecisionOutcome } from './gateDecision';
 import {
     actionSession,
     decisionDialog,
@@ -97,6 +98,13 @@ export function buildProcessActionPrompt(
         step: positionText(def, review),
         resultsFile: 'the document this step produced',
         reviewFile: reviewFileName(review),
+    });
+    // `${gate-decision}`: the Assist prompt a gate's prompt ends with — its result shown with the
+    // buttons of the decision after the gate (tomAi_askInMdBrowser + gateDecision).
+    values['gate-decision'] = buildAssistPrompt(loadSendToChatConfig()?.assistPrompts, 'gateDecision', {
+        process: def.id,
+        step: positionText(def, store.state),
+        resultsFile: 'the gate\'s result document',
     });
     return resolveVariables(template, { values }).trim();
 }
@@ -331,6 +339,40 @@ export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.
         },
         where: (state) => { const def = store.currentDefinition(); return def ? positionText(def, state) : ''; },
     };
+}
+
+/** The gate decision's live collaborators (vscimpb85): the running step as Finish review round reads it, Decide…'s move. */
+export function liveGateDecisionDeps(store: ProcessStateStore): GateDecisionDeps {
+    const review = liveFinishReviewDeps(store);
+    return {
+        definition: () => store.currentDefinition(),
+        state: () => store.state,
+        conditions: () => store.conditionOptions(),
+        runningStepTarget: review.runningStepTarget,
+        completeRunningStep: review.completeRunningStep,
+        take: async (label) => {
+            const taken = await takeDecisionOption(label);
+            return taken.ok ? { ok: true } : taken;
+        },
+        where: review.where,
+    };
+}
+
+/** Why the gate decision cannot be offered now (undefined: it can). */
+export function gateDecisionUnavailableNow(): string | undefined {
+    const store = ProcessStateStore.instance;
+    return store ? gateDecisionUnavailable(liveGateDecisionDeps(store)) : 'the process store is not initialised';
+}
+
+/** The choices of the decision after the running gate (or of the gate's decision), as Decide… shows them. */
+export function gateDecisionOptionLabels(): string[] {
+    const store = ProcessStateStore.instance;
+    return store ? gateDecisionOptions(liveGateDecisionDeps(store)) : [];
+}
+
+/** A gate decision's click: end the gate's step, take the choice. */
+export async function runGateDecision(label: string): Promise<GateDecisionOutcome> {
+    return takeGateDecision(liveGateDecisionDeps(await ProcessStateStore.ready), label);
 }
 
 /** Why Finish review round cannot be offered now (undefined: it can). */

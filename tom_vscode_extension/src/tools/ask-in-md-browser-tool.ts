@@ -26,6 +26,7 @@ import { resolveAskTimeoutMs } from '../utils/askTimeout';
 import { QuestionLogEntry } from '../utils/questionsLogFormat';
 import { finishReviewSummary, type FinishReviewOutcome } from '../services/finishReviewRound';
 import { markDecisionReopened } from '../services/decisionHelpers';
+import { gateDecisionSummary, type GateDecisionOutcome } from '../services/gateDecision';
 
 /** The button `finishReviewRound` adds; its click confirms the review and moves the process on. */
 export const FINISH_REVIEW_BUTTON: AskMdButton = { id: 'finish', label: 'Finish review round' };
@@ -89,6 +90,12 @@ export interface AskInMdBrowserDeps {
      * Back to the decision) and taking one of them.
      */
     reopenDecision?: { unavailable(): string | undefined; run(): Promise<void>; options?(): string[]; take?(label: string): Promise<void> };
+    /**
+     * The gate decision (`gateDecision`, vscimpb85): why it cannot be offered
+     * now, the choices of the decision after the gate, and the click — end the
+     * gate's step, then take the choice as Decide… does.
+     */
+    gateDecision?: { unavailable(): string | undefined; options(): string[]; take(label: string): Promise<GateDecisionOutcome> };
 }
 
 interface OpenAsk {
@@ -111,6 +118,9 @@ interface OpenAsk {
     decisionReopened?: boolean;
     /** One of the decision's options was clicked: the extension takes it. */
     decisionTaken?: string;
+    /** The gate decision's choices on the bar, by button id (`gateDecision`): the click ends the gate's step and takes it. */
+    gateOptions?: Map<string, string>;
+    takeGate?: (label: string) => Promise<GateDecisionOutcome>;
     /** Unregisters the cancel from the send that asked (services/askOwners.ts). */
     unregisterOwner?: () => void;
     /** The process run the asking turn works in (vscimpb81): one open ask per run. */
@@ -183,6 +193,11 @@ export class MdBrowserAskSlot {
             this.finishReviewClick(open, button);
             return true;
         }
+        const gateOption = open.gateOptions?.get(button.id);
+        if (gateOption !== undefined && open.takeGate) {
+            this.gateDecisionClick(open, button, gateOption);
+            return true;
+        }
         const option = open.decisionOptions?.get(button.id);
         if (option !== undefined && open.takeDecision) {
             // One of the decision's own choices: taken here, as the Decide… dialog takes it.
@@ -223,6 +238,33 @@ export class MdBrowserAskSlot {
                 button: button.id, keepFile: ask.keepFile, label: button.label, fileDeleted,
                 ...(deleteError ? { deleteError } : {}),
                 panelClosed: true, review, summary: finishReviewSummary(review), file: ask.file, panelId: ask.panelId,
+            }));
+        });
+    }
+
+    /**
+     * A gate decision's choice: the document stays open (the bar gives way to
+     * the choice) unless its file is not kept; the gate's step is ended and the
+     * choice taken; the answer reports what happened once it has.
+     */
+    private gateDecisionClick(ask: OpenAsk, button: AskMdButton, option: string): void {
+        this.release(ask);
+        const deps = ask.deps;
+        if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
+        let fileDeleted = false;
+        let deleteError: string | undefined;
+        if (!ask.keepFile) {
+            try { deps.closePanel(ask.panelId); deps.deleteFile(ask.absPath); fileDeleted = true; } catch (e) { deleteError = (e as Error).message; }
+        } else {
+            try { deps.clearBar(ask.panelId, ask.bar.requestId, `Decided: ${option}`); } catch { /* the panel is gone */ }
+        }
+        const take = ask.takeGate!;
+        void take(option).catch((e): GateDecisionOutcome => ({ ok: false, error: (e as Error).message })).then((gate) => {
+            journal(ask, 'click', button);
+            ask.resolve(JSON.stringify({
+                button: button.id, keepFile: ask.keepFile, label: button.label, decisionTaken: option, fileDeleted,
+                ...(deleteError ? { deleteError } : {}),
+                gate, summary: gateDecisionSummary(gate), file: ask.file, panelId: ask.panelId,
             }));
         });
     }
@@ -321,6 +363,8 @@ export interface AskInMdBrowserInput {
     finishReviewRound?: boolean;
     /** Add the Back to the decision button (only while the process is at a decision). */
     reopenDecision?: boolean;
+    /** Add the choices of the gate's decision (only while the running step is a gate, or at its decision). */
+    gateDecision?: boolean;
     keepFile?: boolean;
     title?: string;
     timeoutMinutes?: number;
@@ -366,7 +410,22 @@ export async function askInMdBrowserImpl(
         }
         buttons.push({ ...REOPEN_DECISION_BUTTON });
     }
-    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound` / `reopenDecision`).'); }
+    const gateDecision = input.gateDecision === true;
+    const gateOptions = new Map<string, string>();
+    if (gateDecision) {
+        if (reopenDecision) { return err('`gateDecision` and `reopenDecision` both offer the decision\'s choices; set one.'); }
+        if (buttons.some((b) => /^decide(-\d+)?$/.test(b.id))) { return err('With `gateDecision` the button ids `decide-<n>` are the decision\'s; name yours otherwise.'); }
+        if (!deps.gateDecision) { return err('The gate decision is not available here.'); }
+        const unavailable = deps.gateDecision.unavailable();
+        if (unavailable) { return err(`The gate decision cannot be offered: ${unavailable}. Open the document with tomAi_openInMdBrowser instead; the user decides in the PROCESS view (Decide…).`); }
+        deps.gateDecision.options().forEach((label, i) => {
+            const id = decisionOptionButtonId(i);
+            buttons.push({ id, label });
+            gateOptions.set(id, label);
+        });
+        if (gateOptions.size === 0) { return err('The gate\'s decision offers no choices.'); }
+    }
+    if (buttons.length === 0) { return err('`buttons` must hold at least one `{id, label}` (or set `finishReviewRound` / `reopenDecision` / `gateDecision`).'); }
     if (buttons.length > MAX_ASK_MD_BUTTONS) { return err(`Too many buttons (${buttons.length}); the maximum is ${MAX_ASK_MD_BUTTONS}.`); }
     if (buttons.some((b) => !b.id || !b.label)) { return err('Every button needs a non-empty `id` and `label`.'); }
     if (new Set(buttons.map((b) => b.id)).size !== buttons.length) { return err('Button ids must be unique.'); }
@@ -397,6 +456,7 @@ export async function askInMdBrowserImpl(
             ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
             ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run() } : {}),
             ...(decisionOptions.size && deps.reopenDecision?.take ? { decisionOptions, takeDecision: (label: string) => deps.reopenDecision!.take!(label) } : {}),
+            ...(gateOptions.size ? { gateOptions, takeGate: (label: string) => deps.gateDecision!.take(label) } : {}),
         };
         // In the slot before the panel opens, so a fast answer finds it.
         slot.begin(ask);
@@ -434,16 +494,17 @@ export async function askInMdBrowserImpl(
 
 export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'Ask the user through a document: `filePath` (a .md file in the workspace) opens in the MD Browser with ' +
-    '`buttons` (`[{id, label}]`, up to 8) and a *Keep this file* checkbox (`keepFile`, default on) in its top ' +
-    'area. For questionnaires, choices, confirmations, reviews: write the document first, then ask. BLOCKING ' +
-    'like tomAi_askUser (the queue holds); one open ask per process run (asks of other runs stay open beside it); no deadline unless `timeoutMinutes`. ' +
-    'Answers `{button, label, keepFile, fileDeleted, file, panelId}` (`button` null with `timedOut`, `closed` ' +
-    'or `cancelled`). `finishReviewRound: true` adds Finish review round (id `finish`; only at a review, or ' +
-    'when the running step leads to one): its click closes that panel, confirms the review, moves the process ' +
-    'on and queues the next step or opens the decision; `review` / `summary` report it — move nothing ' +
-    'yourself. `reopenDecision: true` (only at a decision) adds its choices (`decide-<n>`; a click takes one, ' +
-    '`decisionTaken`) and Back to the decision (`decide`, reopens it); move nothing yourself. An unchecked file is deleted, and its panel closed, as the flow goes on; else ' +
-    'the panel stays with the answer in place of the bar. Logged to the quest questions journal.';
+    '`buttons` (`[{id, label}]`, up to 8) and a *Keep this file* checkbox (`keepFile`, default on). Write the ' +
+    'document first, then ask. BLOCKING like tomAi_askUser; one open ask per process run; no deadline unless ' +
+    '`timeoutMinutes`. Answers `{button, label, keepFile, fileDeleted, file, panelId}` (`button` null with ' +
+    '`timedOut`, `closed` or `cancelled`). Process buttons — the extension moves the process, you move nothing: ' +
+    '`finishReviewRound: true` (at a review, or when the running step leads to one) adds Finish review round ' +
+    '(`finish`: confirms the review, moves on; `review`, `summary`); `reopenDecision: true` (at a decision) adds ' +
+    'its choices (`decide-<n>`, `decisionTaken`) and Back to the decision (`decide`); `gateDecision: true` (in a ' +
+    'gate\'s prompt) adds the choices of the decision after the gate (`decide-<n>`: a click ends the gate\'s step ' +
+    'and takes it as Decide… does; `decisionTaken`, `gate`, `summary`). An unchecked file is deleted, and its ' +
+    'panel closed, as the flow goes on; else the panel stays with the answer in place of the bar. Logged to the ' +
+    'quest questions journal.';
 
 export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> = {
     name: 'tomAi_askInMdBrowser',
@@ -473,6 +534,7 @@ export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> =
             keepFile: { type: 'boolean', description: 'The *Keep this file* checkbox\'s initial state. Default true.' },
             finishReviewRound: { type: 'boolean', description: 'Add the Finish review round button (id `finish`); only at a review. `buttons` may then be left out.' },
             reopenDecision: { type: 'boolean', description: 'Add the decision\'s choices (ids `decide-<n>`; a click takes it) and the Back to the decision button (id `decide`); only at a process decision. `buttons` may then be left out.' },
+            gateDecision: { type: 'boolean', description: 'In a gate\'s prompt: add the choices of the decision after the gate (ids `decide-<n>`); a click ends the gate\'s step and takes the choice as Decide… does. Only while the running step is a gate (or at its decision); not with `reopenDecision`. `buttons` may then be left out.' },
             title: { type: 'string', description: 'A line shown beside the buttons.' },
             timeoutMinutes: {
                 type: 'number',
