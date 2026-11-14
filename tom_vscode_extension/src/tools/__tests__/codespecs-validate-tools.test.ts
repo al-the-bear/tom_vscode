@@ -93,6 +93,8 @@ describe('CodeSpecs validate', () => {
 
     test('CV-1: the sample trio matches its recorded report', async () => {
         const recorded = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'codespec', 'validation_report.json'), 'utf8'));
+        // Timed first, so the tool's timing is recorded even when the report below no longer matches the fixture.
+        const r = JSON.parse(await withTiming('tomAi_specCodeSpecsValidate:typical', () => codeSpecsValidateImpl(deps, trio('base'))));
         const report = await codeSpecsValidationReport(deps, trio('base'));
         const { inputs: _a, notRun: gotNotRun, ...got } = report as Json;
         const { inputs: _b, notRun: wantNotRun, ...want } = recorded;
@@ -100,7 +102,6 @@ describe('CodeSpecs validate', () => {
         // The sample was recorded without a vocabulary; the tool passes the bundled one, so 40 and 41 run too.
         assert.deepEqual(gotNotRun, wantNotRun.filter((n: Json) => !n.checks.includes(40)));
 
-        const r = JSON.parse(await withTiming('tomAi_specCodeSpecsValidate:typical', () => codeSpecsValidateImpl(deps, trio('base'))));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.outcome, 'clean');
         assert.equal(r.summary, recorded.summary);
