@@ -18,7 +18,7 @@ import * as vscode from 'vscode';
 
 import { ProcessStateStore } from '../managers/processStateStore';
 import type { ProcessRun } from './processRunContext';
-import { DEFAULT_RUN } from '../utils/processRuns';
+import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveVariables } from '../utils/variableResolver';
@@ -145,8 +145,53 @@ export async function confirmProcessAction(
     sessionOverride?: string,
     /** A `follow-up` option: which one (ProcessMove.followUp.key). */
     followUpKey?: string,
+    /** The run to move (vscimpb89): default the window's. */
+    run?: string,
 ): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
+    const queue = PromptQueueManager.instance;
+    // Everything up to the queue writes reads and moves the run's state: synchronous, inside the run.
+    const plan = inRun(store, run, () => planProcessAction(store, kind, level, customInstructions, sessionOverride, followUpKey))
+        ?? { ok: false as const, error: `the quest has no run "${run}"` };
+    if (!('enqueue' in plan)) { return plan; }
+    const { text, session, processRun, spec, label } = plan.enqueue;
+    try {
+        // Both deferred, then one kick: the prompt's send must not hold this
+        // call (and the marker must be in the queue before anything it queues).
+        await queue.enqueue({ originalText: text, ...(session ? { session } : {}), processRun, deferSend: true });
+        await queue.enqueue({ originalText: markerText(spec), processRun, processMove: spec, deferSend: true });
+    } catch (e) {
+        return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
+    }
+    // sendNext starts only the runs whose auto-send is on (queue settings per run).
+    void queue.sendNext();
+    return { ok: true, queued: true, label };
+}
+
+/**
+ * `fn` with the store on run `run` (synchronous only: the store's run is
+ * restored when it returns); the window's run when `run` is not given or is
+ * the window's. Undefined when the quest has no such run.
+ */
+export function inRun<T>(store: ProcessStateStore, run: string | undefined, fn: () => T): T | undefined {
+    if (run === undefined || normalizeRun(run) === store.currentRun) { return fn(); }
+    const r = store.withRun(run, () => ({ value: fn() }));
+    return 'value' in r ? r.value : undefined;
+}
+
+type ProcessActionPlan = ProcessActionResult | {
+    enqueue: { text: string; session?: string; processRun: ProcessRun; spec: ProcessMoveSpec; label: string };
+};
+
+/** The synchronous part of a move, on the store's run: make it, or say what to queue for a Proceed. */
+function planProcessAction(
+    store: ProcessStateStore,
+    kind: ProcessMoveKind,
+    level: ProcessLevel | undefined,
+    customInstructions: string,
+    sessionOverride: string | undefined,
+    followUpKey: string | undefined,
+): ProcessActionPlan {
     const move = store.findMove(kind, level, followUpKey);
     const def = store.currentDefinition();
     if (!move || !def) { return { ok: false, error: 'this move is no longer possible at the current position' }; }
@@ -180,19 +225,9 @@ export async function confirmProcessAction(
         const error = ensureProcessSession(store.activeQuest, session.spec);
         if (error) { return { ok: false, error: `the session "${session.name}" could not be created: ${error}` }; }
     }
-    const run = { quest: store.activeQuest, state: here, proceedId: newProceedId(), level: store.levelIndex, ...(store.currentRun !== DEFAULT_RUN ? { run: store.currentRun } : {}) };
+    const processRun: ProcessRun = { quest: store.activeQuest, state: here, proceedId: newProceedId(), level: store.levelIndex, ...(store.currentRun !== DEFAULT_RUN ? { run: store.currentRun } : {}) };
     const spec: ProcessMoveSpec = { kind: move.kind, ...(move.level ? { level: move.level } : {}), label: move.label, to: positionText(def, move.target) };
-    try {
-        // Both deferred, then one kick: the prompt's send must not hold this
-        // call (and the marker must be in the queue before anything it queues).
-        await queue.enqueue({ originalText: text, ...(session.name ? { session: session.name } : {}), processRun: run, deferSend: true });
-        await queue.enqueue({ originalText: markerText(spec), processRun: run, processMove: spec, deferSend: true });
-    } catch (e) {
-        return { ok: false, error: `the prompt could not be queued, the state did not move: ${(e as Error).message}` };
-    }
-    // sendNext starts only the runs whose auto-send is on (queue settings per run).
-    void queue.sendNext();
-    return { ok: true, queued: true, label: move.label };
+    return { enqueue: { text, ...(session.name ? { session: session.name } : {}), processRun, spec, label: move.label } };
 }
 
 /**
@@ -249,35 +284,45 @@ export async function dropHeldStep(): Promise<void> {
     PromptQueueManager.instance.dropProcessMoveMarkers(store.activeQuest, 'step repeated', store.currentRun);
 }
 
-/** A held step: move on — the marker goes and its move is made now. */
-export async function moveOnFromHeldStep(): Promise<ProcessActionResult> {
+/** A held step: move on — the marker goes and its move is made now (in `run`, default the window's). */
+export async function moveOnFromHeldStep(run?: string): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
     const queue = PromptQueueManager.instance;
-    const running = queue.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
+    const where = inRun(store, run, () => ({ quest: store.activeQuest, level: store.levelIndex, run: store.currentRun }));
+    if (!where) { return { ok: false, error: `the quest has no run "${run}"` }; }
+    const running = queue.stepRunProgress(where.quest, where.level, where.run);
     if (!running) { return { ok: false, error: 'no step of this quest is running' }; }
     const marker = queue.items.find((i) => i.id === running.markerId);
-    queue.dropProcessMoveMarkers(store.activeQuest, 'moved on past a failed step', store.currentRun);
+    queue.dropProcessMoveMarkers(where.quest, 'moved on past a failed step', where.run);
     const result = marker ? await applyProcessMoveMarker(marker) : { ok: false as const, error: 'the marker is gone' };
     return result.ok ? { ok: true, queued: false, label: running.move.label } : result;
+}
+
+/** The decision `run` (default the window's) is at, if any. */
+function decisionOf(store: ProcessStateStore, run?: string): ReturnType<typeof decisionDialog> | undefined {
+    return inRun(store, run, () => {
+        const def = store.currentDefinition();
+        return def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
+    }) ?? undefined;
 }
 
 /**
  * The decision dialog of the PROCESS view: the options of the decision the
  * quest is at, one picked and made. Answers the label picked (undefined when
  * dismissed, or when the quest is at no decision) and what the move did.
+ * `run`: the run whose decision it is (default the window's).
  */
-export async function decideInDialog(context?: vscode.ExtensionContext): Promise<{ picked?: string; result?: ProcessActionResult; helper?: DecisionHelperUse }> {
+export async function decideInDialog(context?: vscode.ExtensionContext, run?: string): Promise<{ picked?: string; result?: ProcessActionResult; helper?: DecisionHelperUse }> {
     const store = await ProcessStateStore.ready;
-    const def = store.currentDefinition();
-    const decide = def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
+    const decide = decisionOf(store, run);
     if (!decide) { return {}; }
     // With the extension's context the dialog also offers the helpers (Grill me, Explain a decision).
     const labels = decide.options.map((o) => o.label);
     const buttons = context ? decisionDialogButtons(labels) : labels;
     const detail = context ? `${decide.detail} Grill me and Explain a decision give advice in a note; the decision stays yours and opens again.` : decide.detail;
-    // It decides for the run the PROCESS view works on (store.currentRun): named, so with several runs at a
-    // decision the user sees whose it is (vscimpb81).
-    const message = store.currentRun && store.currentRun !== 'default' ? `Run ${store.currentRun}: ${decide.message}` : decide.message;
+    // It names the run when it is not `default`, so with several runs at a decision the user sees whose it is (vscimpb81).
+    const runName = run ? normalizeRun(run) : store.currentRun;
+    const message = runName && runName !== 'default' ? `Run ${runName}: ${decide.message}` : decide.message;
     const picked = await vscode.window.showInformationMessage(message, { modal: true, detail }, ...buttons);
     const pick = interpretDecisionPick(picked, decide.options);
     if (pick.kind === 'helper' && context) {
@@ -287,12 +332,12 @@ export async function decideInDialog(context?: vscode.ExtensionContext): Promise
         return { helper: pick.use };
     }
     if (pick.kind !== 'option') { return {}; }
-    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '', undefined, pick.option.followUp?.key) };
+    return { picked: pick.option.label, result: await confirmProcessAction(pick.option.kind, pick.option.level, '', undefined, pick.option.followUp?.key, run) };
 }
 
 /** Reopen the decision (the note's button, the end of a helper's turn); a failed move is reported. */
-export async function reopenDecision(context: vscode.ExtensionContext): Promise<void> {
-    const { result } = await decideInDialog(context);
+export async function reopenDecision(context: vscode.ExtensionContext, run?: string): Promise<void> {
+    const { result } = await decideInDialog(context, run);
     if (result && !result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
 }
 
@@ -318,104 +363,106 @@ export function liveDecisionHelperDeps(context: vscode.ExtensionContext): Decisi
     };
 }
 
-/** Finish review round's live collaborators: the process store, the queue, the decision dialog. */
-export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.ExtensionContext): FinishReviewDeps {
+/**
+ * Finish review round's live collaborators: the process store, the queue, the decision dialog — all on `run`,
+ * the run of the prompt that asked (vscimpb89; default the window's), whichever run the window shows.
+ */
+export function liveFinishReviewDeps(store: ProcessStateStore, context?: vscode.ExtensionContext, run?: string): FinishReviewDeps {
     const queue = (): PromptQueueManager | undefined => { try { return PromptQueueManager.instance; } catch { return undefined; } };
     return {
-        definition: () => store.currentDefinition(),
-        state: () => store.state,
-        runningStepTarget: () => {
-            const run = queue()?.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
-            const marker = run ? queue()?.items.find((i) => i.id === run.markerId) : undefined;
+        definition: () => inRun(store, run, () => store.currentDefinition()) ?? null,
+        state: () => inRun(store, run, () => store.state) ?? { ...store.state, process: '' },
+        runningStepTarget: () => inRun(store, run, () => {
+            const progress = queue()?.stepRunProgress(store.activeQuest, store.levelIndex, store.currentRun);
+            const marker = progress ? queue()?.items.find((i) => i.id === progress.markerId) : undefined;
             const spec = marker?.processMove;
             return spec ? store.findMove(spec.kind, spec.level)?.target : undefined;
-        },
-        completeRunningStep: async () => moveOnFromHeldStep(),
-        proceed: () => confirmProcessAction('proceed', undefined, ''),
+        }),
+        completeRunningStep: async () => moveOnFromHeldStep(run),
+        proceed: () => confirmProcessAction('proceed', undefined, '', undefined, undefined, run),
         decide: async () => {
-            const { picked, result } = await decideInDialog(context);
+            const { picked, result } = await decideInDialog(context, run);
             if (result && !result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
             return picked;
         },
-        where: (state) => { const def = store.currentDefinition(); return def ? positionText(def, state) : ''; },
+        where: (state) => { const def = inRun(store, run, () => store.currentDefinition()); return def ? positionText(def, state) : ''; },
     };
 }
 
-/** The gate decision's live collaborators (vscimpb85): the running step as Finish review round reads it, Decide…'s move. */
-export function liveGateDecisionDeps(store: ProcessStateStore): GateDecisionDeps {
-    const review = liveFinishReviewDeps(store);
+/** The gate decision's live collaborators (vscimpb85), on `run` like Finish review round's. */
+export function liveGateDecisionDeps(store: ProcessStateStore, run?: string): GateDecisionDeps {
+    const review = liveFinishReviewDeps(store, undefined, run);
     return {
-        definition: () => store.currentDefinition(),
-        state: () => store.state,
-        conditions: () => store.conditionOptions(),
+        definition: review.definition,
+        state: review.state,
+        conditions: () => inRun(store, run, () => store.conditionOptions()) ?? {},
         runningStepTarget: review.runningStepTarget,
         completeRunningStep: review.completeRunningStep,
         take: async (label) => {
-            const taken = await takeDecisionOption(label);
+            const taken = await takeDecisionOption(label, run);
             return taken.ok ? { ok: true } : taken;
         },
         where: review.where,
     };
 }
 
-/** Why the gate decision cannot be offered now (undefined: it can). */
-export function gateDecisionUnavailableNow(): string | undefined {
+/** Why the gate decision cannot be offered now in `run` (undefined: it can). */
+export function gateDecisionUnavailableNow(run?: string): string | undefined {
     const store = ProcessStateStore.instance;
-    return store ? gateDecisionUnavailable(liveGateDecisionDeps(store)) : 'the process store is not initialised';
+    return store ? gateDecisionUnavailable(liveGateDecisionDeps(store, run)) : 'the process store is not initialised';
 }
 
-/** The choices of the decision after the running gate (or of the gate's decision), as Decide… shows them. */
-export function gateDecisionOptionLabels(): string[] {
+/** The choices of the decision after the running gate (or of the gate's decision) in `run`, as Decide… shows them. */
+export function gateDecisionOptionLabels(run?: string): string[] {
     const store = ProcessStateStore.instance;
-    return store ? gateDecisionOptions(liveGateDecisionDeps(store)) : [];
+    return store ? gateDecisionOptions(liveGateDecisionDeps(store, run)) : [];
 }
 
-/** A gate decision's click: end the gate's step, take the choice. */
-export async function runGateDecision(label: string): Promise<GateDecisionOutcome> {
-    return takeGateDecision(liveGateDecisionDeps(await ProcessStateStore.ready), label);
+/** A gate decision's click in `run`: end the gate's step, take the choice. */
+export async function runGateDecision(label: string, run?: string): Promise<GateDecisionOutcome> {
+    return takeGateDecision(liveGateDecisionDeps(await ProcessStateStore.ready, run), label);
 }
 
-/** Why Finish review round cannot be offered now (undefined: it can). */
-export function finishReviewUnavailableNow(): string | undefined {
+/** Why Finish review round cannot be offered now in `run` (undefined: it can). */
+export function finishReviewUnavailableNow(run?: string): string | undefined {
     const store = ProcessStateStore.instance;
-    return store ? finishReviewUnavailable(liveFinishReviewDeps(store)) : 'the process store is not initialised';
+    return store ? finishReviewUnavailable(liveFinishReviewDeps(store, undefined, run)) : 'the process store is not initialised';
 }
 
-/** The Finish review round click. */
-export async function runFinishReviewRound(context?: vscode.ExtensionContext): Promise<FinishReviewOutcome> {
-    return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready, context));
+/** The Finish review round click, in `run` (the asking prompt's; default the window's). */
+export async function runFinishReviewRound(context?: vscode.ExtensionContext, run?: string): Promise<FinishReviewOutcome> {
+    return finishReviewRound(liveFinishReviewDeps(await ProcessStateStore.ready, context, run));
 }
 
-/** The options of the decision the quest is at, as the Decide… dialog shows them ([] when at none). */
-export function decisionOptionLabels(): string[] {
+/** The options of the decision `run` (default the window's) is at, as the Decide… dialog shows them ([] when at none). */
+export function decisionOptionLabels(run?: string): string[] {
     const store = ProcessStateStore.instance;
-    const def = store?.currentDefinition();
-    const decide = store && def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
+    const decide = store ? decisionOf(store, run) : undefined;
     return decide ? decide.options.map((o) => o.label) : [];
 }
 
 /**
- * Take the decision's option `label` — what picking it in the Decide… dialog
- * does (an advice note's button). A decision that has moved on, or no longer
- * offers the option, is reported and nothing is moved.
+ * Take the decision's option `label` in `run` (default the window's) — what
+ * picking it in the Decide… dialog does (an advice note's button). A decision
+ * that has moved on, or no longer offers the option, is reported and nothing
+ * is moved.
  */
-export async function takeDecisionOption(label: string): Promise<ProcessActionResult> {
+export async function takeDecisionOption(label: string, run?: string): Promise<ProcessActionResult> {
     const store = await ProcessStateStore.ready;
-    const def = store.currentDefinition();
-    const decide = def ? decisionDialog(def, store.state, store.conditionOptions()) : null;
+    const decide = decisionOf(store, run);
     const option = decide?.options.find((o) => o.label === label);
     const result: ProcessActionResult = option
-        ? await confirmProcessAction(option.kind, option.level, '', undefined, option.followUp?.key)
+        ? await confirmProcessAction(option.kind, option.level, '', undefined, option.followUp?.key, run)
         : { ok: false, error: decide ? `the decision no longer offers "${label}"` : 'the process is not at a decision any more' };
     if (!result.ok) { void vscode.window.showWarningMessage(`Process: ${result.error}`); }
     return result;
 }
 
-/** Why the decision cannot be reopened from a note now (undefined: it can). */
-export function reopenDecisionUnavailableNow(): string | undefined {
+/** Why the decision of `run` (default the window's) cannot be reopened from a note now (undefined: it can). */
+export function reopenDecisionUnavailableNow(run?: string): string | undefined {
     const store = ProcessStateStore.instance;
-    const def = store?.currentDefinition();
-    if (!store || !def) { return 'the quest has no process set'; }
-    return decisionDialog(def, store.state, store.conditionOptions()) ? undefined : 'the process is not at a decision';
+    if (!store) { return 'the quest has no process set'; }
+    const def = inRun(store, run, () => store.currentDefinition());
+    if (!def) { return run && inRun(store, run, () => true) === undefined ? `the quest has no run "${run}"` : 'the quest has no process set'; }
+    return decisionOf(store, run) ? undefined : 'the process is not at a decision';
 }
-

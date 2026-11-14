@@ -213,7 +213,7 @@ describe('the Assist prompt gateDecision', () => {
         const schema = JSON.parse(read('src', 'config', 'tom_vscode_extension.schema.json'));
         assert.ok(schema.properties.assistPrompts.properties.selected.properties.gateDecision);
         assert.match(read('src', 'services', 'processActionService.ts'), /values\['gate-decision'\] = buildAssistPrompt\(loadSendToChatConfig\(\)\?\.assistPrompts, 'gateDecision', \{/);
-        assert.match(read('src', 'handlers', 'markdownBrowser-handler.ts'), /gateDecision: \{\s*unavailable: \(\) => processActions\(\)\.gateDecisionUnavailableNow\(\),/);
+        assert.match(read('src', 'handlers', 'markdownBrowser-handler.ts'), /gateDecision: \{\s*unavailable: \(run\) => processActions\(\)\.gateDecisionUnavailableNow\(run\),/);
         assert.match(read('doc', 'llm_tools.md'), /gateDecision/);
         assert.match(read('doc', 'user_guide.md'), /\$\{gate-decision\}/);
         assert.match(read('README.md'), /\$\{gate-decision\}/);

@@ -1339,21 +1339,21 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     log: (entry) => appendQuestionLogEntry(entry),
     // Finish review round: the process service, loaded on first use (it pulls in the queue and the stores).
     finishReview: {
-        unavailable: () => processActions().finishReviewUnavailableNow(),
-        run: () => processActions().runFinishReviewRound(mdBrowserContext),
+        unavailable: (run) => processActions().finishReviewUnavailableNow(run),
+        run: (run) => processActions().runFinishReviewRound(mdBrowserContext, run),
     },
     // Back to the decision: an advice note's button (the decision helpers).
     reopenDecision: {
-        unavailable: () => (mdBrowserContext ? processActions().reopenDecisionUnavailableNow() : 'the extension is not ready'),
-        run: async () => { if (mdBrowserContext) { await processActions().reopenDecision(mdBrowserContext); } },
-        options: () => processActions().decisionOptionLabels(),
-        take: async (label) => { await processActions().takeDecisionOption(label); },
+        unavailable: (run) => (mdBrowserContext ? processActions().reopenDecisionUnavailableNow(run) : 'the extension is not ready'),
+        run: async (run) => { if (mdBrowserContext) { await processActions().reopenDecision(mdBrowserContext, run); } },
+        options: (run) => processActions().decisionOptionLabels(run),
+        take: async (label, run) => { await processActions().takeDecisionOption(label, run); },
     },
     // The gate decision: a gate's prompt shows its result with the choices of the decision after the gate.
     gateDecision: {
-        unavailable: () => processActions().gateDecisionUnavailableNow(),
-        options: () => processActions().gateDecisionOptionLabels(),
-        take: (label) => processActions().runGateDecision(label),
+        unavailable: (run) => processActions().gateDecisionUnavailableNow(run),
+        options: (run) => processActions().gateDecisionOptionLabels(run),
+        take: (label, run) => processActions().runGateDecision(label, run),
     },
 };
 

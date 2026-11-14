@@ -83,19 +83,19 @@ export interface AskInMdBrowserDeps {
      * offered now, and the click — confirm the review, move the process on,
      * queue the next step's prompt or open the decision.
      */
-    finishReview?: { unavailable(): string | undefined; run(): Promise<FinishReviewOutcome> };
+    finishReview?: { unavailable(run?: string): string | undefined; run(run?: string): Promise<FinishReviewOutcome> };
     /**
      * Back to the decision (`reopenDecision`): why it cannot be offered now,
      * reopening the decision, the decision's options (one button each, before
      * Back to the decision) and taking one of them.
      */
-    reopenDecision?: { unavailable(): string | undefined; run(): Promise<void>; options?(): string[]; take?(label: string): Promise<void> };
+    reopenDecision?: { unavailable(run?: string): string | undefined; run(run?: string): Promise<void>; options?(run?: string): string[]; take?(label: string, run?: string): Promise<void> };
     /**
      * The gate decision (`gateDecision`, vscimpb85): why it cannot be offered
      * now, the choices of the decision after the gate, and the click — end the
      * gate's step, then take the choice as Decide… does.
      */
-    gateDecision?: { unavailable(): string | undefined; options(): string[]; take(label: string): Promise<GateDecisionOutcome> };
+    gateDecision?: { unavailable(run?: string): string | undefined; options(run?: string): string[]; take(label: string, run?: string): Promise<GateDecisionOutcome> };
 }
 
 interface OpenAsk {
@@ -384,13 +384,16 @@ export async function askInMdBrowserImpl(
     if (!root || !isInsideWorkspace(abs, root)) { return err(`Path is outside the workspace: ${input.filePath}`); }
     if (!deps.exists(abs)) { return err(`File not found: ${abs}`); }
 
+    // The process run the asking turn works in (vscimpb81): one open ask per run, and the process
+    // buttons check and move that run, whichever run the window shows (vscimpb89).
+    const run = currentInteractionRun();
     const raw = Array.isArray(input.buttons) ? input.buttons : [];
     const buttons = raw.map((b) => ({ id: String(b?.id ?? '').trim(), label: String(b?.label ?? '').trim() }));
     const finishReview = input.finishReviewRound === true;
     if (finishReview) {
         if (buttons.some((b) => b.id === FINISH_REVIEW_BUTTON.id)) { return err('With `finishReviewRound` the button id `finish` is the Finish review round button; name yours otherwise.'); }
         if (!deps.finishReview) { return err('Finish review round is not available here.'); }
-        const unavailable = deps.finishReview.unavailable();
+        const unavailable = deps.finishReview.unavailable(run);
         if (unavailable) { return err(`Finish review round cannot be offered: ${unavailable}. Open the document with tomAi_openInMdBrowser instead.`); }
         buttons.push({ ...FINISH_REVIEW_BUTTON });
     }
@@ -399,10 +402,10 @@ export async function askInMdBrowserImpl(
     if (reopenDecision) {
         if (buttons.some((b) => /^decide(-\d+)?$/.test(b.id))) { return err('With `reopenDecision` the button ids `decide` and `decide-<n>` are the decision\'s; name yours otherwise.'); }
         if (!deps.reopenDecision) { return err('Back to the decision is not available here.'); }
-        const unavailable = deps.reopenDecision.unavailable();
+        const unavailable = deps.reopenDecision.unavailable(run);
         if (unavailable) { return err(`Back to the decision cannot be offered: ${unavailable}.`); }
         if (deps.reopenDecision.take) {
-            (deps.reopenDecision.options?.() ?? []).forEach((label, i) => {
+            (deps.reopenDecision.options?.(run) ?? []).forEach((label, i) => {
                 const id = decisionOptionButtonId(i);
                 buttons.push({ id, label });
                 decisionOptions.set(id, label);
@@ -416,9 +419,9 @@ export async function askInMdBrowserImpl(
         if (reopenDecision) { return err('`gateDecision` and `reopenDecision` both offer the decision\'s choices; set one.'); }
         if (buttons.some((b) => /^decide(-\d+)?$/.test(b.id))) { return err('With `gateDecision` the button ids `decide-<n>` are the decision\'s; name yours otherwise.'); }
         if (!deps.gateDecision) { return err('The gate decision is not available here.'); }
-        const unavailable = deps.gateDecision.unavailable();
+        const unavailable = deps.gateDecision.unavailable(run);
         if (unavailable) { return err(`The gate decision cannot be offered: ${unavailable}. Open the document with tomAi_openInMdBrowser instead; the user decides in the PROCESS view (Decide…).`); }
-        deps.gateDecision.options().forEach((label, i) => {
+        deps.gateDecision.options(run).forEach((label, i) => {
             const id = decisionOptionButtonId(i);
             buttons.push({ id, label });
             gateOptions.set(id, label);
@@ -431,7 +434,6 @@ export async function askInMdBrowserImpl(
     if (new Set(buttons.map((b) => b.id)).size !== buttons.length) { return err('Button ids must be unique.'); }
 
     // One open ask per process run (vscimpb81): another run's ask does not stand in the way.
-    const run = currentInteractionRun();
     if (slot.hasOpen(run)) {
         return err(`An askInMdBrowser request of run "${run}" is already open — one per process run; wait for its answer before asking again.`);
     }
@@ -453,10 +455,10 @@ export async function askInMdBrowserImpl(
     return whileWaitingForUser('mdBrowser', () => new Promise<string>((resolve) => {
         const ask: OpenAsk = {
             bar, panelId: '', absPath: abs, file, keepFile: bar.keepFile, askedAt, timer: undefined, deps, resolve, run,
-            ...(finishReview ? { finishReview: () => deps.finishReview!.run() } : {}),
-            ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run() } : {}),
-            ...(decisionOptions.size && deps.reopenDecision?.take ? { decisionOptions, takeDecision: (label: string) => deps.reopenDecision!.take!(label) } : {}),
-            ...(gateOptions.size ? { gateOptions, takeGate: (label: string) => deps.gateDecision!.take(label) } : {}),
+            ...(finishReview ? { finishReview: () => deps.finishReview!.run(run) } : {}),
+            ...(reopenDecision ? { reopenDecision: () => deps.reopenDecision!.run(run) } : {}),
+            ...(decisionOptions.size && deps.reopenDecision?.take ? { decisionOptions, takeDecision: (label: string) => deps.reopenDecision!.take!(label, run) } : {}),
+            ...(gateOptions.size ? { gateOptions, takeGate: (label: string) => deps.gateDecision!.take(label, run) } : {}),
         };
         // In the slot before the panel opens, so a fast answer finds it.
         slot.begin(ask);

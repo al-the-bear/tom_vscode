@@ -163,8 +163,8 @@ describe('decision helpers', () => {
         assert.match(service, /const buttons = context \? decisionDialogButtons\(labels\) : labels;/);
         assert.match(service, /void runDecisionHelper\(liveDecisionHelperDeps\(context\), pick\.use\)/);
         assert.match(src('handlers/processPanel-handler.ts'), /await decideInDialog\(this\.context\)/, 'the PROCESS view\'s Decide… offers the helpers');
-        assert.match(src('handlers/markdownBrowser-handler.ts'), /reopenDecision: \{[\s\S]*?processActions\(\)\.reopenDecision\(mdBrowserContext\)/);
-        assert.match(src('handlers/markdownBrowser-handler.ts'), /runFinishReviewRound\(mdBrowserContext\)/, 'Finish review round\'s decision offers them too');
+        assert.match(src('handlers/markdownBrowser-handler.ts'), /reopenDecision: \{[\s\S]*?processActions\(\)\.reopenDecision\(mdBrowserContext, run\)/);
+        assert.match(src('handlers/markdownBrowser-handler.ts'), /runFinishReviewRound\(mdBrowserContext, run\)/, 'Finish review round\'s decision offers them too');
         assert.equal(DECISION_HELPER_LABELS.grillMeDecision, 'Grill me');
         for (const use of ['explainDecision', 'grillMeDecision'] as const) {
             const body = ASSIST_PROMPT_INFO[use].defaultBody;
@@ -231,6 +231,6 @@ describe('decision helpers', () => {
         ensureDefaultAssistPrompts(config);
         assert.deepEqual(config.assistPrompts!.templates!.slice(0, 2).map((t) => t.template), [ASSIST_PROMPT_INFO.explainDecision.defaultBody, ASSIST_PROMPT_INFO.grillMeDecision.defaultBody]);
         const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
-        assert.match(src, /options: \(\) => processActions\(\)\.decisionOptionLabels\(\),\s*take: async \(label\) => \{ await processActions\(\)\.takeDecisionOption\(label\); \}/);
+        assert.match(src, /options: \(run\) => processActions\(\)\.decisionOptionLabels\(run\),\s*take: async \(label, run\) => \{ await processActions\(\)\.takeDecisionOption\(label, run\); \}/);
     });
 });

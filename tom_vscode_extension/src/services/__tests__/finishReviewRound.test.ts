@@ -149,9 +149,9 @@ describe('Finish review round', () => {
         const src = (rel: string) => fs.readFileSync(path.join(EXT, 'src', rel), 'utf8');
         const service = src('services/processActionService.ts');
         assert.match(service, /values\['finish-review-round'\] = buildAssistPrompt\(loadSendToChatConfig\(\)\?\.assistPrompts, 'finishReviewRound'/);
-        assert.match(service, /export async function decideInDialog\(context\?: vscode\.ExtensionContext\)/);
+        assert.match(service, /export async function decideInDialog\(context\?: vscode\.ExtensionContext, run\?: string\)/);
         assert.match(src('handlers/processPanel-handler.ts'), /const \{ result \} = await decideInDialog\(this\.context\);/, 'the PROCESS view\'s Decide… is the same dialog');
-        assert.match(src('handlers/markdownBrowser-handler.ts'), /run: \(\) => processActions\(\)\.runFinishReviewRound\(mdBrowserContext\)/);
+        assert.match(src('handlers/markdownBrowser-handler.ts'), /unavailable: \(run\) => processActions\(\)\.finishReviewUnavailableNow\(run\),\s*run: \(run\) => processActions\(\)\.runFinishReviewRound\(mdBrowserContext, run\)/);
         const proc = path.join(EXT, '..', '..', '..', '_ai', 'processes', 'tom_specs');
         if (fs.existsSync(proc)) {
             const yaml = fs.readFileSync(path.join(proc, 'tom_specs.process.yaml'), 'utf8');
