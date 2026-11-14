@@ -177,7 +177,7 @@
     /** Icon and short text of each move kind in the action bar. */
     var MOVE_ICON = {
         proceed: 'play', finish: 'check', repeat: 'debug-restart', 'gate-passed': 'pass',
-        'gate-failed': 'error', 'finish-process': 'check-all', 'follow-up': 'arrow-swap', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left', 'back-phase': 'arrow-circle-left',
+        'gate-failed': 'error', 'finish-process': 'check-all', 'follow-up': 'arrow-swap', skip: 'debug-step-over', 'leave-out': 'debug-step-out', back: 'arrow-left', 'back-phase': 'arrow-circle-left', 'phase-start': 'debug-restart-frame',
     };
     var LEVEL_SHORT = { phase: 'phase', step: 'step', substep: 'sub' };
 

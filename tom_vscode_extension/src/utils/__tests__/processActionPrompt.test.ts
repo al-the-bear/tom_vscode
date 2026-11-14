@@ -217,7 +217,7 @@ phases:
         assert.match(dialog.message, /^Decide how the process goes on after /);
         assert.match(dialog.detail, /nothing is queued/);
         assert.deepEqual(dialog.options.map((o) => [o.kind, o.label]),
-            [['gate-passed', 'Gate passed — go on to two › c'], ['gate-failed', 'Gate failed — run g again'], ['repeat', 'Repeat the phase one']],
+            [['gate-passed', 'Gate passed — go on to two › c'], ['gate-failed', 'Gate failed — run g again'], ['repeat', 'Repeat the phase one'], ['phase-start', 'Gate failed — back to the start of the current phase (one)']],
             'the phase is repeatable and ends at its gate');
     });
 

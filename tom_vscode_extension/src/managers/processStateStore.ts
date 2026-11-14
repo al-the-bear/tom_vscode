@@ -691,7 +691,7 @@ export class ProcessStateStore {
         if (kind === 'proceed' && this.state.leaveOut) { kind = 'leave-out'; level = this.state.leaveOut.level; }
         const move = this.findMove(kind, level, followUp?.key);
         if (!move) { return { ok: false, error: `"${kind}${level ? ` ${level}` : ''}" is not possible at the current position` }; }
-        if (move.kind === 'back-phase') {
+        if (move.kind === 'back-phase' || move.kind === 'phase-start') {
             const from = this.state;
             const moved = this.commit(repo, from, move.target, source);
             if (moved.ok) { this.journalMove(backPhaseJournalEntry, move.label, from, moved.state); }

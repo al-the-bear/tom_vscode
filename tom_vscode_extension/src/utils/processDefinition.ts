@@ -1521,10 +1521,10 @@ export function skippedInPhase(state: ProcessState): ProcessSkipRecord[] {
 // Moves — what the PROCESS view's action bar offers
 // ============================================================================
 
-export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back' | 'back-phase';
+export type ProcessMoveKind = 'proceed' | 'finish' | 'repeat' | 'gate-passed' | 'gate-failed' | 'finish-process' | 'follow-up' | 'skip' | 'leave-out' | 'back' | 'back-phase' | 'phase-start';
 
 /** The move kinds, in the order the action bar shows them. */
-export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back', 'back-phase'];
+export const PROCESS_MOVE_KINDS: readonly ProcessMoveKind[] = ['proceed', 'finish', 'repeat', 'gate-passed', 'gate-failed', 'finish-process', 'follow-up', 'skip', 'leave-out', 'back', 'back-phase', 'phase-start'];
 
 export interface ProcessMove {
     kind: ProcessMoveKind;
@@ -1661,6 +1661,24 @@ function previousPhaseStart(def: ProcessDefinition, here: ProcessState, pos: Pos
 }
 
 /**
+ * The start of the current phase (vscimpb94): its first step (past what its
+ * conditions leave out) in the same phase iteration — a move, not a phase
+ * repeat, so a phase not marked repeatable has it too — the step's iteration
+ * counted on (the one after its last in this phase iteration, bounded by what
+ * the step allows), so its round folders continue; the steps after it count on
+ * as they come round again. Null at the phase's very start (its first step
+ * and sub-step, not yet run).
+ */
+function currentPhaseStart(def: ProcessDefinition, here: ProcessState, pos: Position, atDecision: boolean, options: ConditionOptions): { name: string; target: ProcessState } | null {
+    const first = firstStepOf(pos.phase);
+    if (pos.stepIndex === 0 && pos.substepIndex <= 0 && !atDecision) { return null; }
+    const iteration = first.id === here.step
+        ? clampIteration(repeatView(pos.phase, first), here.stepIteration + 1)
+        : reentryIteration(here, pos.phase, first);
+    return { name: nameOf(pos.phase), target: passExcluded(def, here, withStep(here, first, iteration), options) };
+}
+
+/**
  * The options at the decision position after `pos`: go on (gate passed after
  * a gate; finish the process at its end), a repeat of each repeatable level
  * that ends there (below its maxIterations), and after a gate, gate failed —
@@ -1688,8 +1706,6 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
         moves.push(back
             ? { kind: 'gate-failed', label: `Gate failed — back to ${nameOf(back)}`, target: withStep(here, back, reentryIteration(here, pos.phase, back)) }
             : { kind: 'gate-failed', label: `Gate failed — run ${nameOf(gate)} again`, target: changeIteration(here, def, 'step', 1) });
-        const previous = previousPhaseStart(def, here, pos, options);
-        if (previous) { moves.push({ kind: 'back-phase', label: `Gate failed — back to the start of ${previous.name}`, target: previous.target }); }
     }
     const sub = subs[pos.substepIndex];
     if (sub && canRepeat(sub, here.substepIteration)) {
@@ -1701,6 +1717,13 @@ function decisionOptions(def: ProcessDefinition, here: ProcessState, pos: Positi
     if (phaseEnds && canRepeat(pos.phase, here.phaseIteration)) {
         moves.push({ kind: 'repeat', level: 'phase', label: `Repeat the phase ${nameOf(pos.phase)}`, target: passExcluded(def, here, changeIteration(here, def, 'phase', 1), options) });
     }
+    // Back to the start of the current phase: at every decision inside the phase, after a gate as a way to fail it.
+    const restart = currentPhaseStart(def, here, pos, true, options);
+    if (restart) {
+        moves.push({ kind: 'phase-start', label: `${isGate && stepEnds ? 'Gate failed — back' : 'Back'} to the start of the current phase (${restart.name})`, target: restart.target });
+    }
+    const previous = isGate && stepEnds ? previousPhaseStart(def, here, pos, options) : null;
+    if (previous) { moves.push({ kind: 'back-phase', label: `Gate failed — back to the start of the previous phase (${previous.name})`, target: previous.target }); }
     moves.push(...followUpOptions(def, here, pos, stepEnds, phaseEnds, isGate, options));
     return moves.map((o) => ({ ...o, branchOption: true as const }));
 }
@@ -1793,7 +1816,7 @@ export function followUpJournalEntry(from: ProcessState, fromPosition: string, t
     ].join('\n');
 }
 
-/** The decisions journal entry of a move back to the start of the previous phase (vscimpb93). */
+/** The decisions journal entry of a move back to the start of the previous phase (vscimpb93) or of the current one (vscimpb94). */
 export function backPhaseJournalEntry(label: string, from: ProcessState, fromPosition: string, to: ProcessState, toPosition: string, run: string, at: Date = new Date()): string {
     return [
         `## ${at.toISOString()} — ${label}`,
@@ -1823,11 +1846,14 @@ export function originChainText(state: ProcessState): string {
  *   which follow as moves marked `branchOption` — go on (`finish`;
  *   `gate-passed` after a gate; `finish-process` at the end), `gate-failed`
  *   (back to the gate's `onFail` step, or the gate again), `repeat` of each
- *   repeatable level ending there; after a gate also `back-phase`, back to
- *   the start of the previous phase — then `back` (to the position itself).
- * - `back-phase` ("Back to the start of <phase>") after `back`, everywhere
- *   but in the first phase: the previous phase's first step, its iteration
- *   counted on.
+ *   repeatable level ending there; `phase-start`, back to the start of the
+ *   current phase; after a gate also `back-phase`, back to the start of the
+ *   previous phase — then `back` (to the position itself).
+ * - after `back`: `phase-start` ("Back to the start of the current phase
+ *   (<phase>)") everywhere but at the phase's very start — its first step, the
+ *   step's iteration counted on, the phase iteration kept — and `back-phase`
+ *   ("Back to the start of the previous phase (<phase>)") everywhere but in the
+ *   first phase: the previous phase's first step, its iteration counted on.
  *
  * Only a decision position repeats or decides. A finished process offers only
  * `back` ("Reopen"); no process, nothing.
@@ -1846,6 +1872,7 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
         moves.push({ kind: 'proceed', label: 'Decide…', target: state });
         moves.push(...decisionOptions(def, here, pos, forward, options));
         moves.push({ kind: 'back', label: 'Back', target: here });
+        moves.push(...phaseStartMove(def, here, pos, true, options));
         moves.push(...backPhaseMove(def, here, pos, options));
         return moves;
     }
@@ -1858,6 +1885,7 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
         const prev = positionOf(def, backRaw);
         moves.push({ kind: 'back', label: 'Back', target: prev && isDecisionPoint(prev) ? { ...notRun(backRaw), decision: true } : notRun(backRaw) });
     }
+    moves.push(...phaseStartMove(def, here, pos, false, options));
     moves.push(...backPhaseMove(def, here, pos, options));
     return moves;
 }
@@ -1865,7 +1893,13 @@ export function availableMoves(def: ProcessDefinition | null, state: ProcessStat
 /** "Back to the start of the previous phase" for the action bar (vscimpb93); nothing in the first phase. */
 function backPhaseMove(def: ProcessDefinition, here: ProcessState, pos: Position, options: ConditionOptions): ProcessMove[] {
     const previous = previousPhaseStart(def, here, pos, options);
-    return previous ? [{ kind: 'back-phase', label: `Back to the start of ${previous.name}`, target: previous.target }] : [];
+    return previous ? [{ kind: 'back-phase', label: `Back to the start of the previous phase (${previous.name})`, target: previous.target }] : [];
+}
+
+/** "Back to the start of the current phase" for the action bar (vscimpb94); nothing at the phase's very start. */
+function phaseStartMove(def: ProcessDefinition, here: ProcessState, pos: Position, atDecision: boolean, options: ConditionOptions): ProcessMove[] {
+    const restart = currentPhaseStart(def, here, pos, atDecision, options);
+    return restart ? [{ kind: 'phase-start', label: `Back to the start of the current phase (${restart.name})`, target: restart.target }] : [];
 }
 
 /**

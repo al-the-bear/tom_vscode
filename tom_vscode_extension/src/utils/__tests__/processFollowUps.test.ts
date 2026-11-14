@@ -161,8 +161,8 @@ describe('follow-up processes', () => {
     test('PF-3: the decision offers them', () => {
         // The phase's, at the decision after its gate: beside Gate passed / failed.
         const gate = decisionAt(change, at('intent', 'gate1', { decision: true }), options())!.options;
-        assert.deepEqual(gate.map((o) => o.kind), ['gate-passed', 'gate-failed', 'follow-up']);
-        const toDraft = gate[2];
+        assert.deepEqual(gate.map((o) => o.kind), ['gate-passed', 'gate-failed', 'phase-start', 'follow-up']);
+        const toDraft = gate[3];
         assert.equal(toDraft.label, 'Gate passed — Continue in Specs › Phase 2 › Draft (the change in the specification)');
         assert.deepEqual([toDraft.target.process, toDraft.target.phase, toDraft.target.step, toDraft.target.phaseIteration, toDraft.target.stepIteration], ['specs', 'p2', 'draft', 1, 1]);
         assert.equal(toDraft.target.decision, undefined);
@@ -172,13 +172,13 @@ describe('follow-up processes', () => {
         const proceed = (decisionAt(change, at('intent', 'impact'), options()) ?? null);
         assert.equal(proceed, null, 'at the step itself: no decision yet');
         const impact = decisionAt(change, at('intent', 'impact', { decision: true }), options())!.options;
-        assert.deepEqual(impact.map((o) => [o.kind, o.label]), [['finish', 'Go on to Gate1'], ['follow-up', 'Continue in Specs › p1']].map(([k, l]) => [k, l.replace('Gate1', 'gate1')]));
-        assert.deepEqual([impact[1].target.process, impact[1].target.phase, impact[1].target.step], ['specs', 'p1', 's1'], 'the first phase and step');
+        assert.deepEqual(impact.map((o) => [o.kind, o.label]), [['finish', 'Go on to Gate1'], ['phase-start', 'Back to the start of the current phase (Intent)'], ['follow-up', 'Continue in Specs › p1']].map(([k, l]) => [k, l.replace('Gate1', 'gate1')]));
+        assert.deepEqual([impact[2].target.process, impact[2].target.phase, impact[2].target.step], ['specs', 'p1', 's1'], 'the first phase and step');
         // The process's, at the end of its last phase, beside finishing.
         const end = decisionAt(change, at('close', 'gate2', { decision: true }), options())!.options;
-        assert.deepEqual(end.map((o) => o.kind), ['finish-process', 'gate-failed', 'back-phase', 'follow-up']);
-        assert.equal(end[3].label, 'Gate passed — Continue in Specs › p3 (implement the change)');
-        assert.equal(end[3].followUp?.key, 'process:0');
+        assert.deepEqual(end.map((o) => o.kind), ['finish-process', 'gate-failed', 'phase-start', 'back-phase', 'follow-up']);
+        assert.equal(end[4].label, 'Gate passed — Continue in Specs › p3 (implement the change)');
+        assert.equal(end[4].followUp?.key, 'process:0');
         // Past what the target's conditions leave out: Phase 2 starts at prep unless mode is full.
         const viaPhase = { ...parse(CHANGE) };
         viaPhase.phases[0].followUps = [{ process: 'specs', phase: 'p2' }];

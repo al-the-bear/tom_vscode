@@ -370,17 +370,18 @@ describe('process definitions', () => {
         assert.deepEqual(move(start, 'skip').target, move(start, 'proceed').target, 'skip moves on without running');
 
         const read = selectStep(start, def, 'review');
-        assert.deepEqual(kinds(read), ['proceed', 'skip', 'back'], 'no decision inside a step');
+        assert.deepEqual(kinds(read), ['proceed', 'skip', 'back', 'phase-start'], 'no decision inside a step');
+        assert.equal(at(move(read, 'phase-start')), 'draft#1/write#1/#1', 'the phase\'s first step: not run yet in this phase iteration, at 1');
         assert.equal(at(move(read, 'proceed')), 'draft#1/review#1/comment#1');
         assert.equal(at(move(read, 'back')), 'draft#1/write#1/#1');
 
         const comment = selectSubstep(read, def, 'comment');
-        assert.deepEqual(kinds(comment), ['proceed', 'skip', 'back'], 'a decision point decides nothing itself');
+        assert.deepEqual(kinds(comment), ['proceed', 'skip', 'back', 'phase-start'], 'a decision point decides nothing itself');
         const decision = move(comment, 'proceed').target;
         assert.equal(at(move(comment, 'proceed')), 'draft#1/review#1/comment#1 (decision)', 'on to the decision after it');
-        assert.deepEqual(kinds(decision), ['proceed', 'finish', 'repeat:substep', 'repeat:step', 'back']);
+        assert.deepEqual(kinds(decision), ['proceed', 'finish', 'repeat:substep', 'repeat:step', 'phase-start', 'back', 'phase-start']);
         assert.equal(move(decision, 'proceed').label, 'Decide…');
-        assert.deepEqual(options(decision), ['finish Go on to Draft gate', 'repeat:substep Repeat Comment', 'repeat:step Repeat the step Review']);
+        assert.deepEqual(options(decision), ['finish Go on to Draft gate', 'repeat:substep Repeat Comment', 'repeat:step Repeat the step Review', 'phase-start Back to the start of the current phase (Draft)']);
         assert.equal(at(move(decision, 'finish')), 'draft#1/gate#1/#1');
         assert.equal(at(move(decision, 'repeat', 'substep')), 'draft#1/review#1/comment#2');
         assert.equal(at(move(decision, 'repeat', 'step')), 'draft#1/review#2/read#1', 'a new step iteration starts at its first sub-step');
@@ -388,24 +389,24 @@ describe('process definitions', () => {
         assert.equal(availableMoves(def, decision).find((m) => m.kind === 'skip'), undefined, 'a decision is decided, not skipped');
 
         const gate = selectStep(start, def, 'gate');
-        assert.deepEqual(kinds(gate), ['proceed', 'skip', 'back']);
+        assert.deepEqual(kinds(gate), ['proceed', 'skip', 'back', 'phase-start']);
         assert.equal(at(move(gate, 'back')), 'draft#1/review#1/comment#1 (decision)', 'back across a decision point: its decision');
         const verdict = move(gate, 'proceed').target;
-        assert.deepEqual(options(verdict), ['gate-passed Gate passed — go on to Tidy up', 'gate-failed Gate failed — run Draft gate again']);
+        assert.deepEqual(options(verdict), ['gate-passed Gate passed — go on to Tidy up', 'gate-failed Gate failed — run Draft gate again', 'phase-start Gate failed — back to the start of the current phase (Draft)']);
         assert.equal(at(move(verdict, 'gate-passed')), 'draft#1/tidy#1/#1');
         assert.equal(at(move(verdict, 'gate-failed')), 'draft#1/gate#2/#1');
 
         const tidy = selectStep(start, def, 'tidy');
         const end = move(tidy, 'proceed').target;
         assert.equal(at({ target: end }), 'draft#1/tidy#1/#1 (decision)', 'the end of a phase is a decision point');
-        assert.deepEqual(options(end), ['finish Go on to Ship › Release', 'repeat:phase Repeat the phase Draft']);
+        assert.deepEqual(options(end), ['finish Go on to Ship › Release', 'repeat:phase Repeat the phase Draft', 'phase-start Back to the start of the current phase (Draft)']);
         assert.equal(at(move(end, 'repeat', 'phase')), 'draft#2/write#1/#1', 'a new phase iteration starts at its first step');
-        assert.deepEqual(options({ ...end, phaseIteration: 3 }), ['finish Go on to Ship › Release'], 'maxIterations reached: only on');
+        assert.deepEqual(options({ ...end, phaseIteration: 3 }), ['finish Go on to Ship › Release', 'phase-start Back to the start of the current phase (Draft)'], 'maxIterations reached: no phase repeat');
 
         const release = selectPhase(start, def, 'ship');
         assert.equal(at(move(release, 'back')), 'draft#1/tidy#1/#1 (decision)', 'back across a phase boundary: the previous phase\'s end');
         const shipVerdict = move(selectStep(release, def, 'gate'), 'proceed').target;
-        assert.deepEqual(options(shipVerdict), ['finish-process Gate passed — finish the process', 'gate-failed Gate failed — run Ship gate again', 'back-phase Gate failed — back to the start of Draft']);
+        assert.deepEqual(options(shipVerdict), ['finish-process Gate passed — finish the process', 'gate-failed Gate failed — run Ship gate again', 'phase-start Gate failed — back to the start of the current phase (Ship)', 'back-phase Gate failed — back to the start of the previous phase (Draft)']);
         assert.equal(move(shipVerdict, 'finish-process').target.completed, true);
         assert.deepEqual(availableMoves(def, EMPTY_PROCESS_STATE), [], 'no process, no moves');
     });
@@ -603,7 +604,7 @@ describe('decisions', () => {
         assert.deepEqual([failed.target.step, failed.target.substep, failed.target.decision], ['review', 'read', undefined], 'back to that step, at its start');
 
         const block = processContextBlock(def, decision, '');
-        assert.match(block, /\*\*Decision\*\* — this position has run; the user decides here how the process goes on: Gate passed — go on to Tidy up; Gate failed — back to Review\. An agent does not decide it/);
+        assert.match(block, /\*\*Decision\*\* — this position has run; the user decides here how the process goes on: Gate passed — go on to Tidy up; Gate failed — back to Review; Gate failed — back to the start of the current phase \(Draft\)\. An agent does not decide it/);
         assert.doesNotMatch(processContextBlock(def, gate, ''), /\*\*Decision\*\*/);
 
         const errors = (raw: unknown): string[] => validateProcessDefinition(raw).errors.map((e) => `${e.path}: ${e.message}`);
@@ -856,7 +857,7 @@ describe('back to the start of the previous phase (vscimpb93)', () => {
         const moves = availableMoves(definition(), ship).map((m) => m.kind);
         assert.deepEqual(moves.slice(-2), ['back', 'back-phase'], 'after Back');
         const move = backPhase(ship)!;
-        assert.equal(move.label, 'Back to the start of Draft');
+        assert.equal(move.label, 'Back to the start of the previous phase (Draft)');
         assert.deepEqual([move.target.phase, move.target.phaseIteration, move.target.step, move.target.stepIteration, move.target.substep, move.target.completed],
             ['draft', 3, 'write', 1, '', false]);
         assert.equal(move.target.stepIterations, undefined, 'no step record of another phase iteration');
@@ -871,7 +872,7 @@ describe('back to the start of the previous phase (vscimpb93)', () => {
     test('BP-2: a choice of the decision after a failed gate', () => {
         const options = decisionAt(definition(), at('ship', 'gate', { decision: true, phaseIterations: { draft: 1 } }))!.options;
         const choice = options.find((o) => o.kind === 'back-phase')!;
-        assert.equal(choice.label, 'Gate failed — back to the start of Draft');
+        assert.equal(choice.label, 'Gate failed — back to the start of the previous phase (Draft)');
         assert.equal(choice.branchOption, true);
         assert.deepEqual([choice.target.phase, choice.target.phaseIteration, choice.target.step], ['draft', 2, 'write']);
         assert.equal(decisionAt(definition(), at('draft', 'gate', { decision: true }))!.options.some((o) => o.kind === 'back-phase'), false, 'not after the first phase\'s gate');
@@ -889,5 +890,52 @@ describe('back to the start of the previous phase (vscimpb93)', () => {
         assert.equal(trackStepIterations(again, { ...EMPTY_PROCESS_STATE, process: 'other', phase: 'a', step: 's' }).phaseIterations, undefined, 'another process starts without one');
         assert.deepEqual(parseProcessState(stringifyProcessState(again, '2026-11-14T10:00:00Z')).phaseIterations, { draft: 3, ship: 1 });
         assert.equal(parseProcessState('process: x\nphaseIterations: { a: 0, b: two }').phaseIterations, undefined, 'unreadable counts are dropped');
+    });
+});
+
+describe('back to the start of the current phase (vscimpb94)', () => {
+    const repeatableWrite = (): ProcessDefinition => {
+        const def = definition();
+        def.phases[0].steps[0].repeatable = true;
+        return def;
+    };
+    const at = (def: ProcessDefinition, phase: string, step: string, extra: Partial<ReturnType<typeof selectProcess>> = {}): ReturnType<typeof selectProcess> =>
+        normalizeState({ ...selectProcess(def), phase, step, ...extra }, def);
+    const restart = (def: ProcessDefinition, state: ReturnType<typeof selectProcess>) => availableMoves(def, state).find((m) => m.kind === 'phase-start' && !m.branchOption);
+    const pos = (s: ReturnType<typeof selectProcess>): string => `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}/${s.substep}#${s.substepIteration}`;
+
+    test('PS-1: beside Back; the first step again, its iteration counted on, the phase iteration kept', () => {
+        const def = repeatableWrite();
+        assert.equal(restart(def, selectProcess(def)), undefined, 'at the phase\'s very start: nowhere to go back to');
+        const write = selectProcess(def);
+        const review = trackStepIterations(write, at(def, 'draft', 'review', { phaseIteration: 1 }));
+        assert.deepEqual(review.stepIterations?.steps, { write: 1 });
+        const move = restart(def, review)!;
+        assert.equal(move.label, 'Back to the start of the current phase (Draft)');
+        assert.deepEqual(availableMoves(def, review).map((m) => m.kind).slice(-2), ['back', 'phase-start'], 'after Back (no previous phase here)');
+        assert.equal(pos(move.target), 'draft#1/write#2/#1', 'write ran once in this phase iteration: its next iteration');
+        // The steps after it count on as they come round again.
+        const again = trackStepIterations(review, move.target);
+        const on = availableMoves(def, again).find((m) => m.kind === 'proceed')!.target;
+        assert.equal(on.decision, true, 'write is repeatable: its end is a decision');
+        const goOn = decisionAt(def, on)!.options.find((o) => o.kind === 'finish')!.target;
+        assert.equal(pos(goOn), 'draft#1/review#2/read#1', 'review counts on too');
+        // A step that is not repeatable is entered again at 1; a phase that is not repeatable has the move too.
+        assert.equal(pos(restart(definition(), review)!.target), 'draft#1/write#1/#1');
+        const ship = at(definition(), 'ship', 'gate');
+        assert.equal(pos(restart(definition(), ship)!.target), 'ship#1/release#1/#1');
+        assert.deepEqual(availableMoves(definition(), ship).map((m) => m.kind).slice(-3), ['back', 'phase-start', 'back-phase'], 'the current phase before the previous one');
+    });
+
+    test('PS-2: a choice of every decision inside the phase, and after a gate', () => {
+        const def = repeatableWrite();
+        const afterWrite = { ...selectProcess(def), decision: true as const };
+        const choice = decisionAt(def, afterWrite)!.options.find((o) => o.kind === 'phase-start')!;
+        assert.equal(choice.label, 'Back to the start of the current phase (Draft)');
+        assert.equal(pos(choice.target), 'draft#1/write#2/#1', 'at the first step\'s own decision: that step again, counted on');
+        const gate = decisionAt(def, at(def, 'draft', 'gate', { decision: true }))!.options.find((o) => o.kind === 'phase-start')!;
+        assert.equal(gate.label, 'Gate failed — back to the start of the current phase (Draft)');
+        assert.equal(gate.target.phaseIteration, 1, 'not a phase repeat');
+        assert.ok(restart(def, afterWrite), 'and in the action bar at a decision');
     });
 });

@@ -4,12 +4,14 @@
  * tomAi_askInMdBrowser's `reopenDecision` choices — both take the option by its label), the state file and the
  * decisions journal. The window works on `default`; `r2` is another run.
  *
- *   BPQ-1 the decision after P2's gate offers "Gate failed — back to the start of P1"; taking it moves `default` to
+ *   BPQ-1 the decision after P2's gate offers "Gate failed — back to the start of the previous phase (P1)"; taking it moves `default` to
  *         P1's first step with P1's iteration counted on (2), records P2's iteration, drops the run's open
  *         process-move marker and writes the decisions journal
  *   BPQ-2 the action-bar move in r2 (not the window's run): r2 goes back to P1 (iteration 2), `default` stays
  *   BPQ-3 counted on again: back in P1 at iteration 2, on to P2 and back once more gives iteration 3
  *   BPQ-4 the PROCESS view shows the move with its own icon
+ *   BPQ-5 "Back to the start of the current phase" (vscimpb94) in r2: the action-bar move and the decision's choice each
+ *         go to P1's first step with its iteration counted on (2, then 3), P1's iteration kept, both journalled
  */
 
 import test, { after, describe } from 'node:test';
@@ -32,7 +34,7 @@ put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n');
 put('_ai/processes/two/two.process.yaml', [
     'id: two', 'name: two', 'phases:',
     '  - id: p1', '    name: P1', '    repeatable: true', '    steps:',
-    '      - id: start', '        name: Start', '        prompt: Start the work.',
+    '      - id: start', '        name: Start', '        repeatable: true', '        prompt: Start the work.',
     '      - id: work', '        name: Work', '        prompt: Work on it.',
     '    gate:', '      id: g1', '      name: G1',
     '  - id: p2', '    name: P2', '    steps:',
@@ -131,15 +133,15 @@ describe('Back to the start of the previous phase', () => {
         assert.equal(where('default'), 'p2#1/g2#1 (decision)');
         assert.deepEqual(stateOf('default').phaseIterations, { p1: 1 }, 'P1\'s iteration recorded when it was left');
         const labels = store().moves().filter((m) => m.branchOption).map((m) => m.label);
-        assert.deepEqual(labels, ['Gate passed — finish the process', 'Gate failed — run G2 again', 'Gate failed — back to the start of P1']);
+        assert.deepEqual(labels, ['Gate passed — finish the process', 'Gate failed — run G2 again', 'Gate failed — back to the start of the current phase (P2)', 'Gate failed — back to the start of the previous phase (P1)']);
         assert.deepEqual(decisionOptionLabels(), labels, 'Decide… and the reopenDecision choices offer it');
-        const taken = await takeDecisionOption('Gate failed — back to the start of P1');
+        const taken = await takeDecisionOption('Gate failed — back to the start of the previous phase (P1)');
         assert.equal(taken.ok, true, JSON.stringify(taken));
         assert.equal(where('default'), 'p1#2/start#1');
         assert.deepEqual(stateOf('default').phaseIterations, { p1: 1, p2: 1 });
         assert.equal(markers(), 0, 'the run\'s open marker went');
         assert.equal(queue().items.filter((i) => i.processRun && !i.processMove).length, 1, 'the step\'s prompt stays');
-        assert.match(journal(), /## \S+ — Gate failed — back to the start of P1\n\n- \*\*From:\*\* two › .*G2.*\n- \*\*To:\*\* two › .*Start.* \(phase iteration 2\)\n/);
+        assert.match(journal(), /## \S+ — Gate failed — back to the start of the previous phase \(P1\)\n\n- \*\*From:\*\* two › .*G2.*\n- \*\*To:\*\* two › .*Start.* \(phase iteration 2\)\n/);
     });
 
     test('BPQ-2: the action-bar move in another run', async () => {
@@ -150,19 +152,34 @@ describe('Back to the start of the previous phase', () => {
         assert.equal(moved.ok, true, JSON.stringify(moved));
         assert.equal(where('r2'), 'p1#2/start#1');
         assert.equal(where('default'), before, 'the window\'s run did not move');
-        assert.match(journal(), /— Back to the start of P1\n\n- \*\*From:\*\* two › .*Check.*\n- \*\*To:\*\* .*\(phase iteration 2\)\n- \*\*Run:\*\* r2\n/);
+        assert.match(journal(), /— Back to the start of the previous phase \(P1\)\n\n- \*\*From:\*\* two › .*Check.*\n- \*\*To:\*\* .*\(phase iteration 2\)\n- \*\*Run:\*\* r2\n/);
     });
 
     test('BPQ-3: counted on again', async () => {
         toP2Gate('default');
         toDecision('default');
         assert.deepEqual(stateOf('default').phaseIterations, { p1: 2, p2: 1 });
-        assert.equal((await takeDecisionOption('Gate failed — back to the start of P1')).ok, true);
+        assert.equal((await takeDecisionOption('Gate failed — back to the start of the previous phase (P1)')).ok, true);
         assert.equal(where('default'), 'p1#3/start#1');
         assert.equal((await confirmProcessAction('back-phase', undefined, '')).ok, false, 'P1 is the first phase: no move');
     });
 
     test('BPQ-4: the PROCESS view shows the move with its own icon', () => {
         assert.match(fs.readFileSync(path.join(EXT_ROOT, 'media', 'processPanel', 'main.js'), 'utf8'), /'back-phase': 'arrow-circle-left'/);
+    });
+
+    test('BPQ-5: back to the start of the current phase', async () => {
+        assert.equal((store().withRun('r2', () => store().apply({ step: 'work' }, 'user')) as { ok: boolean }).ok, true);
+        assert.equal(where('r2'), 'p1#2/work#1');
+        const moved = await confirmProcessAction('phase-start', undefined, '', undefined, undefined, 'r2');
+        assert.equal(moved.ok, true, JSON.stringify(moved));
+        assert.equal(where('r2'), 'p1#2/start#2', 'start ran once in this phase iteration; P1 stays at 2');
+        assert.match(journal(), /— Back to the start of the current phase \(P1\)\n\n- \*\*From:\*\* two › .*Work.*\n- \*\*To:\*\* .*Start.*\(phase iteration 2\)\n- \*\*Run:\*\* r2\n/);
+        // Start is repeatable: its end is a decision, which offers the same choice.
+        assert.equal((store().withRun('r2', () => store().move('skip', undefined, 'user')) as { ok: boolean }).ok, true);
+        assert.equal(where('r2'), 'p1#2/start#2 (decision)');
+        assert.ok(decisionOptionLabels('r2').includes('Back to the start of the current phase (P1)'));
+        assert.equal((await takeDecisionOption('Back to the start of the current phase (P1)', 'r2')).ok, true);
+        assert.equal(where('r2'), 'p1#2/start#3');
     });
 });

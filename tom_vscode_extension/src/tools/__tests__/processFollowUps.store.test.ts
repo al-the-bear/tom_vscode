@@ -111,8 +111,8 @@ describe('follow-up processes: the store', () => {
         assert.equal(store().apply({ step: 'gate1' }, 'user').ok, true);
         assert.equal(store().move('proceed', undefined, 'user').ok, true, 'to the decision after the gate');
         const labels = decisionOptionLabels();
-        assert.deepEqual(labels, ['Gate passed — finish the process', 'Gate failed — run gate1 again', 'Gate passed — Continue in Specs › Phase 2 › Draft']);
-        const taken = await takeDecisionOption(labels[2]);
+        assert.deepEqual(labels, ['Gate passed — finish the process', 'Gate failed — run gate1 again', 'Gate failed — back to the start of the current phase (Intent)', 'Gate passed — Continue in Specs › Phase 2 › Draft']);
+        const taken = await takeDecisionOption(labels[3]);
         assert.equal(taken.ok, true, JSON.stringify(taken));
         // The run moved, into its own state file; the quest's own position did not.
         const run = repo().readState(QUEST, 'chg7');

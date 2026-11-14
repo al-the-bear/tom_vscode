@@ -513,11 +513,14 @@ gate's step and takes the decision as the PROCESS view's Decide… does.
 The PROCESS view's Runs list also resets a run: **Reset Process** puts it
 back to the start of its process and clears the run parameters the process
 declares; **Reset Run** clears everything process-related.
-Beside Back, **Back to the start of <phase>** takes the process to the
-first step of the phase before the current one, that phase's iteration
-counted on so its round folders continue; after a gate it is also a choice
-of the decision (*Gate failed — back to the start of …*), which suits a
-gate that is a phase of its own. The move goes to the decisions journal.
+Beside Back, **Back to the start of the current phase** runs the phase's
+cycle again from its first step (the steps' iterations counted on, the
+phase iteration kept), and **Back to the start of the previous phase** takes
+the process to the first step of the phase before, that phase's iteration
+counted on, so the round folders continue either way. Both are choices of
+the decision too: the current phase's at every decision inside the phase,
+and after a gate both (*Gate failed — back to the start of …*), which suits a
+gate that is a phase of its own. The moves go to the decisions journal.
 
 ### @TOM VSC: resource-hungry extensions
 

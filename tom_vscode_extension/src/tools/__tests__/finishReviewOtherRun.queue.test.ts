@@ -202,7 +202,7 @@ describe('Finish review round in another process run', () => {
         assert.equal(gateDecisionUnavailableNow('r2'), undefined);
         assert.match(gateDecisionUnavailableNow() ?? '', /not at a gate/, 'default is not at a gate');
         const gate = gateDecisionOptionLabels('r2');
-        assert.deepEqual(gate, ['Gate passed — finish the process', 'Gate failed — run g1 again']);
+        assert.deepEqual(gate, ['Gate passed — finish the process', 'Gate failed — run g1 again', 'Gate failed — back to the start of the current phase (p1)']);
         const outcome = await runGateDecision(gate[0], 'r2');
         assert.equal(outcome.ok, true, JSON.stringify(outcome));
         assert.equal(stateOf('r2').completed, true, 'r2 finished');
