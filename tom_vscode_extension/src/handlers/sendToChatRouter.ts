@@ -21,16 +21,14 @@ import { resolveBusySession } from './busySessionChoice';
 import * as vscode from 'vscode';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveAnthropicTargets } from '../utils/resolveAnthropicTargets';
-import { resolveProfileTools, ALL_SHARED_TOOLS } from '../tools/tool-executors';
+import { resolveProfileTools } from '../tools/tool-executors';
+import { askCopilotForScript } from '../services/copilotRoundTrip';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import {
     AnthropicHandler,
     ANTHROPIC_CHAT_SESSION_KEY,
 } from './anthropic-handler';
-import {
-    ACTIVE_ANTHROPIC_PROFILE_KEY,
-    invokeAllowedTool,
-} from '../tools/scripting-tools-bridge';
+import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { showAnthropicResultInPanel } from './chatPanel-handler';
 import {
     tryBeginAnthropicSend,
@@ -268,7 +266,7 @@ export async function dispatchToLlm(
  * Scripting-API entry (`sendToChatVce`). Sends to the ANTHROPIC/LLM panel's
  * profile, or with `target: 'copilot'` to Copilot, and returns the answer for
  * both, so a script sees the same shape either way:
- *   - copilot   → the `tomAi_askCopilot` answer-file round-trip.
+ *   - copilot   → the Copilot answer-file round trip (services/copilotRoundTrip.ts).
  *   - anthropic → the Anthropic transport's answer text.
  */
 export async function sendToChatForScript(
@@ -277,16 +275,9 @@ export async function sendToChatForScript(
     target: SendToChatTarget = 'anthropic',
 ): Promise<SendToChatOutcome> {
     if (target === 'copilot') {
-        // Trusted internal routing: deliberately invoke the Copilot bridge tool
-        // even though no profile gate lists it. The permitted tool is named
-        // explicitly here, so this call site stays narrow rather than reopening
-        // an ungated invoke path.
-        const answer = await invokeAllowedTool(
-            new Set(['tomAi_askCopilot']),
-            ALL_SHARED_TOOLS,
-            'tomAi_askCopilot',
-            { prompt },
-        );
+        // The Copilot answer-file round trip (services/copilotRoundTrip.ts):
+        // the prompt in the Copilot Queue Wrapper, then its answer file.
+        const answer = await askCopilotForScript({ prompt });
         return { target: 'copilot', ok: true, answer };
     }
     return runAnthropicSend(context, prompt, { source: 'script' });

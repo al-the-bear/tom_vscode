@@ -171,7 +171,8 @@ describe('removed panels: Local LLM profiles and files', () => {
         assert.match(listed[0].detail, /localLlm\.ollamaUrl.*localLlm\.models/);
         assert.match(fs.readFileSync(s.cfg, 'utf8'), /"ollamaUrl": "http:\/\/localhost/, 'a dry run writes nothing');
         run(true);
-        assert.deepEqual(JSON.parse(fs.readFileSync(s.cfg, 'utf8')), { localLlm: { configurations: [configuration], tools } });
+        // `tools` (the removed askCopilot / askBigBrother settings) goes too, in format version 8 (removedAskTools.ts).
+        assert.deepEqual(JSON.parse(fs.readFileSync(s.cfg, 'utf8')), { localLlm: { configurations: [configuration] } });
         assert.match(fs.readFileSync(s.cfg, 'utf8'), /^\{\n {2}"localLlm"/, 'indentation kept');
         assert.deepEqual(parse(fs.readFileSync(overlay, 'utf8')), { localLlm: {}, userName: 'me' });
         assert.equal(readAiFormatStamp(s.ai)?.version, AI_FORMAT_VERSION);

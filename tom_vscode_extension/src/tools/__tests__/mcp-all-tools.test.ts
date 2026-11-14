@@ -302,8 +302,6 @@ function inputs(): Record<string, Input> {
         tomAi_gitWrite: { subcommand: 'commit', args: ['--allow-empty', '-qm', 'written by the MCP test'] },
         tomAi_askUser: { questions: ['Is this the sandbox?'] },
         tomAi_askUserPicker: { items: ['yes', 'no'] },
-        tomAi_askCopilot: { prompt: 'sandbox', waitForAnswer: false },
-        tomAi_askBigBrother: { operation: 'list' },
         tomAi_notifyUser: { message: 'from the MCP test', channel: 'vscode' },
         tomAi_waitFor: { reason: 'the MCP test waits a moment', minutes: 0.002 },
         tomAi_fetchWebpage: { url: 'https://example.invalid/' },

@@ -1,11 +1,13 @@
 /**
- * tomAi_askCopilot waits for the file its prompt tells Copilot to write (vscimpb28): the registered tool with its
- * live deps (template expansion, the Copilot Queue Wrapper, the answer folder), Copilot played by the stubbed
+ * The Copilot answer-file round trip of a script (services/copilotRoundTrip.ts; until vscimpb108 the tool
+ * tomAi_askCopilot, vscimpb28) waits for the file its prompt tells Copilot to write: the live deps (template
+ * expansion, the Copilot Queue Wrapper, the answer folder), Copilot played by the stubbed
  * `workbench.action.chat.open`, which writes the answer file the prompt names.
  *
  *   AF-1 with no `copilot.answerFolder` the prompt names `_ai/answers/copilot/<requestId>_answer.json` for the
- *        `${requestId}` it carries; writing that file answers the tool (the wrapper's `generatedMarkdown`)
- *   AF-2 a configured `copilot.answerFolder` is where the prompt points and where the tool reads
+ *        `${requestId}` it carries; writing that file answers it (the wrapper's `generatedMarkdown`)
+ *   AF-2 a configured `copilot.answerFolder` is where the prompt points and where it reads
+ *   AF-3 the scripting API's `sendToChatVce` with `target: 'copilot'` goes through it (sendToChatForScript)
  */
 
 import test, { after, describe } from 'node:test';
@@ -19,7 +21,7 @@ const CONFIG = path.join(WS, '.tom', 'tom_vscode_extension.json');
 fs.mkdirSync(path.dirname(CONFIG), { recursive: true });
 fs.writeFileSync(CONFIG, '{}\n');
 
-import { installVscodeStub } from './_vscode-stub.js';
+import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const stubbed = installVscodeStub({ workspaceFolders: [WS] });
 const commands = stubbed.stub.commands as Record<string, unknown>;
 
@@ -39,8 +41,8 @@ commands.executeCommand = async (id: string, arg?: { query?: string }) => {
     return undefined;
 };
 
-import { ASK_COPILOT_TOOL } from '../tool-executors.js';
-import { TrailService } from '../../services/trailService.js';
+import { askCopilotForScript } from '../copilotRoundTrip.js';
+import { TrailService } from '../trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 
 TrailService.init({} as never);
@@ -50,9 +52,9 @@ after(() => { stubbed.restore(); fs.rmSync(WS, { recursive: true, force: true })
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
-const ask = async (): Promise<Json> => JSON.parse(await ASK_COPILOT_TOOL.execute({ prompt: 'what is 2+2?', timeoutMs: 15_000 }));
+const ask = async (): Promise<Json> => JSON.parse(await askCopilotForScript({ prompt: 'what is 2+2?', timeoutMs: 15_000 }));
 
-describe('tomAi_askCopilot reads the file its prompt names', () => {
+describe('the Copilot round trip reads the file its prompt names', () => {
     test('AF-1: the default answer folder', async () => {
         seen.length = 0;
         const r = await ask();
@@ -74,5 +76,11 @@ describe('tomAi_askCopilot reads the file its prompt names', () => {
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.response, `answer to ${requestId}`);
         fs.writeFileSync(CONFIG, '{}\n');
+    });
+
+    test('AF-3: the scripting API\'s copilot target goes through it', () => {
+        const router = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'sendToChatRouter.ts'), 'utf8');
+        assert.match(router, /if \(target === 'copilot'\) \{[\s\S]*?const answer = await askCopilotForScript\(\{ prompt \}\);/);
+        assert.doesNotMatch(router, /tomAi_askCopilot/);
     });
 });

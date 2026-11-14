@@ -120,8 +120,9 @@ export function removedPanelPaths(aiRoot: string, quests: string[]): string[] {
 /**
  * The top-level `localLlm` keys only the removed Local LLM panel read (format
  * version 7). What stays: `configurations` (the Local LLM transport behind the
- * Anthropic profiles on Local LLM configurations) and `tools` (the
- * askCopilot / askBigBrother tool settings, src/tools/local-llm-tools-config.ts).
+ * Anthropic profiles on Local LLM configurations); `tools` (the removed
+ * askCopilot / askBigBrother settings) goes in format version 8
+ * (removedAskTools.ts).
  * A configuration's own keys of the same names are its settings and stay.
  */
 export const LOCAL_LLM_PANEL_KEYS: readonly string[] = [

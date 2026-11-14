@@ -65,12 +65,12 @@ describe('the migration keeps the overlay\'s own text', () => {
     test('OC-1 and OC-2: comments, order and untouched values kept; changes applied', () => {
         const s = sandbox();
         const listed = s.run(true).changes.filter((c) => c.detail.includes('user.yaml'));
-        assert.deepEqual(listed.map((c) => c.step).sort(), ['expressions', 'local-llm-keys', 'templates'], 'three steps changed the overlay');
+        assert.deepEqual(listed.map((c) => c.step).sort(), ['expressions', 'local-llm-keys', 'removed-ask-tools', 'templates'], 'four steps changed the overlay');
         const text = fs.readFileSync(s.overlay, 'utf8');
         assert.deepEqual(parse(text), {
             userName: 'me',
             promptQueue: { defaultMessageTemplateId: 'explain-todo', responseTimeoutMinutes: 30 },
-            localLlm: { tools: { askCopilot: { enabled: true } } },
+            localLlm: {},
             anthropic: { userMessageTemplates: [{ id: 'mine', template: '${{ file.name || "(none)" }}' }, { id: 'other', template: 'plain' }] },
             favourites: ['a', 'b'],
         });
@@ -79,7 +79,6 @@ describe('the migration keeps the overlay\'s own text', () => {
             'userName: me # who I am\n',
             '# the queue\npromptQueue:\n',
             '  # keep it short\n  responseTimeoutMinutes: 30\n',
-            '      enabled: true # on\n',
         ]) {
             assert.ok(text.includes(kept), `kept: ${JSON.stringify(kept)}\n--- file ---\n${text}`);
         }
@@ -87,6 +86,7 @@ describe('the migration keeps the overlay\'s own text', () => {
             && text.indexOf('localLlm') < text.indexOf('anthropic') && text.indexOf('anthropic') < text.indexOf('favourites'), 'key order kept');
         assert.ok(text.includes('favourites:\n- a\n- b\n'), `OC-2: the sequence at its key's indent\n${text}`);
         assert.doesNotMatch(text, /ollamaUrl|qwen3/, 'the removed keys are gone');
+        assert.doesNotMatch(text, /askCopilot/, 'format 8: the removed tools\' settings are gone');
     });
 
     test('OC-3: a second run lists nothing and writes nothing', () => {

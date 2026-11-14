@@ -1,54 +1,34 @@
 /**
- * `tomAi_askCopilot` — send a prompt to GitHub Copilot Chat and wait
- * for an answer file written back by a guidance-following Copilot
- * session.  Carved out of `tool-executors.ts` for coverage entry #25.
+ * The Copilot answer-file round trip for a caller that is no queue item: the
+ * scripting API's `sendToChatVce` with `target: 'copilot'`
+ * (handlers/sendToChatRouter.ts sendToChatForScript). It opens Copilot Chat
+ * with the prompt wrapped in the Copilot Queue Wrapper
+ * (utils/copilotTemplates.ts), which tells Copilot to write its answer to
+ * `<copilot.answerFolder>/<requestId>_answer.json`, and waits for that file.
  *
- * ## How it works
+ * This was the tool `tomAi_askCopilot` until vscimpb108 removed it; the round
+ * trip stayed because scripts use it. Its timing is fixed (two minutes, a poll
+ * every two seconds); the template is the wrapper alone.
  *
- *   1. Render the user's prompt through the configured template chain
- *      (optional `promptTemplate` → required `__answer_file__`
- *      wrapper).  The wrapper instructs Copilot to dump its final
- *      answer into a JSON file.
- *      The ask has a request id of its own; the wrapper's `${requestId}`
- *      and `${copilotAnswerFile}` are that id and the answer file it
- *      names (`<copilot.answerFolder>/<requestId>_answer.json`), so the
- *      file Copilot is told to write is the file the tool waits for.
- *   2. Clear the previous answer file (so a stale read doesn't masquerade
- *      as fresh).
- *   3. Open Copilot Chat with the expanded prompt via the VS Code
- *      command surface.
- *   4. Poll the answer-file path at `pollInterval` until it appears
- *      OR the per-call timeout elapses.
- *
- * ## Coverage entry #25 (audit notes)
- *
- *   - Old impl reached into `vscode.commands`, `vscode.env`, `fs`, and
- *     the template engine directly — untestable.  Carve-out introduces:
- *       - `CopilotChatOpener`            : open chat + record query
- *       - `AnswerFileSink`               : clear / poll / read the file
- *       - `TemplateExpander`             : pure async fn over the prompt
- *       - `CopilotConfigSnapshot`        : config + workspace + session ids
- *     Tests pass a fake sink whose `read()` queues canned content per
- *     poll, plus an in-memory expander, so the whole flow runs in <10 ms.
- *   - Mixed envelope (success → "**Copilot Response:**\n\n…" strings,
- *     failure → "Error opening Copilot Chat: …" strings) replaced with
- *     `{ok, ...}` / `{ok: false, error, ...}` everywhere.  The actual
- *     response text moves into a `response` field so callers can pipe
- *     it to other tools.
- *   - JSON vs plain-text answer file: both supported; the envelope
- *     surfaces `format: "json" | "text"` so the model knows what it
- *     got.  When the file is JSON with `responseValues`, those flow
- *     to the chat-variable store via the `onResponseValues` callback.
+ * The pure part (`copilotRoundTripImpl`, narrow deps) is vscode-free and
+ * tested with fakes; `askCopilotForScript` wires the live deps.
  */
 
-import { SharedToolDefinition } from './shared-tool-registry';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { copilotQueueWrapper } from '../utils/copilotTemplates';
+import { updateChatResponseValues, loadSendToChatConfig, getWorkspaceRoot } from '../handlers/handler_shared';
+import { expandTemplate } from '../handlers/promptTemplate';
+import { generateShortUUID, getCopilotAnswerFile } from '../utils/variableResolver';
+import { logPrompt, logResponse } from './trailLogging';
+import { WsPaths } from '../utils/workspacePaths';
 
-// ===========================================================================
-// Narrow deps (the seam between vscode/fs and the impl)
-// ===========================================================================
+/** How long a script waits for Copilot's answer file, and how often it looks. */
+export const COPILOT_ROUND_TRIP_TIMEOUT_MS = 120_000;
+export const COPILOT_ROUND_TRIP_POLL_MS = 2_000;
 
 export interface CopilotConfigSnapshot {
-    enabled: boolean;
     /** Default polling timeout when input.timeoutMs is omitted. */
     answerFileTimeoutMs: number;
     pollIntervalMs: number;
@@ -110,13 +90,13 @@ function err(message: string, extra: Record<string, unknown> = {}): string {
 // Inputs
 // ===========================================================================
 
-export interface AskCopilotInput {
+export interface CopilotRoundTripInput {
     prompt: string;
     waitForAnswer?: boolean;
     timeoutMs?: number;
 }
 
-export interface AskCopilotDeps {
+export interface CopilotRoundTripDeps {
     config: () => CopilotConfigSnapshot;
     opener: CopilotChatOpener;
     /** A fresh request id for one ask. */
@@ -126,7 +106,7 @@ export interface AskCopilotDeps {
     expander: TemplateExpander;
     onResponseValues?: ResponseValuesSink;
     clock?: PollClock;
-    /** True once the prompt that called the tool has ended or was cancelled: the polling stops (vscimpb78). */
+    /** True once the caller gave up: the polling stops. */
     promptEnded?: () => boolean;
 }
 
@@ -139,15 +119,12 @@ function promptEndedAnswer(answerFile: string, elapsedMs: number): string {
 // Impl
 // ===========================================================================
 
-export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInput): Promise<string> {
+export async function copilotRoundTripImpl(deps: CopilotRoundTripDeps, input: CopilotRoundTripInput): Promise<string> {
     try {
         if (!input.prompt || !input.prompt.trim()) {
             return err('`prompt` is required.');
         }
         const config = deps.config();
-        if (!config.enabled) {
-            return err('Ask Copilot tool is disabled.', { hint: 'Enable it in the status page settings.' });
-        }
         const clock = deps.clock ?? realClock;
         const waitForAnswer = input.waitForAnswer ?? true;
         const timeoutMs = input.timeoutMs ?? config.answerFileTimeoutMs;
@@ -249,31 +226,62 @@ export async function askCopilotImpl(deps: AskCopilotDeps, input: AskCopilotInpu
             answerFile: sink.absolutePath(),
         });
     } catch (e) {
-        return err(`askCopilot failed: ${(e as Error).message}`);
+        return err(`Copilot round trip failed: ${(e as Error).message}`);
     }
 }
 
+
 // ===========================================================================
-// Tool def
+// Live
 // ===========================================================================
 
-export const ASK_COPILOT_DESCRIPTION =
-    'Send a prompt to GitHub Copilot Chat and, by default, wait until Copilot writes its answer file (the answer wrapper asks it to). Answers `{format: "json", response, requestId}` (its `responseValues` go to the chat variables) or `{format: "text", response}`; a timeout answers `timedOut: true` while Copilot may still be working. `waitForAnswer: false` returns at once with the answer-file path. Takes seconds.';
-
-export const ASK_COPILOT_TOOL: SharedToolDefinition<AskCopilotInput> = {
-    name: 'tomAi_askCopilot',
-    displayName: 'Ask Copilot',
-    description: ASK_COPILOT_DESCRIPTION,
-    tags: ['ai', 'copilot', 'local-llm', 'local-llm-bridge'],
-    readOnly: true,
-    inputSchema: {
-        type: 'object',
-        required: ['prompt'],
-        properties: {
-            prompt: { type: 'string', description: 'The question/instruction for Copilot.' },
-            waitForAnswer: { type: 'boolean', description: 'Block until the answer file appears. Default true. When false, returns immediately with the answer-file path.' },
-            timeoutMs: { type: 'number', description: 'Max milliseconds to poll for the answer file. Default from config.' },
+/** The answer file of a request, where the Copilot Queue Wrapper tells Copilot to write it. */
+function liveSink(requestId: string): AnswerFileSink {
+    const absPath = getCopilotAnswerFile(requestId);
+    const folder = path.dirname(absPath);
+    return {
+        absolutePath() { return absPath; },
+        clear() {
+            if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
+            if (fs.existsSync(absPath)) { fs.unlinkSync(absPath); }
         },
-    },
-    execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
-};
+        read() {
+            if (!fs.existsSync(absPath)) { return null; }
+            const content = fs.readFileSync(absPath, 'utf-8').trim();
+            return content ? content : null;
+        },
+    };
+}
+
+/**
+ * Send `prompt` to Copilot Chat and wait for its answer file. Answers the JSON
+ * envelope: `{ok: true, format, response, requestId, elapsedMs}`, or
+ * `{ok: false, error, …}` (a timeout: `timedOut: true`).
+ */
+export async function askCopilotForScript(input: CopilotRoundTripInput): Promise<string> {
+    if (!getWorkspaceRoot()) {
+        return JSON.stringify({ ok: false, error: 'No workspace folder open.' });
+    }
+    const questId = WsPaths.getWorkspaceQuestId();
+    logPrompt('copilot', 'github_copilot', input.prompt, undefined, { questId, source: 'script' });
+    const raw = await copilotRoundTripImpl({
+        config: () => ({
+            answerFileTimeoutMs: COPILOT_ROUND_TRIP_TIMEOUT_MS,
+            pollIntervalMs: COPILOT_ROUND_TRIP_POLL_MS,
+            selectedTemplateId: '__none__',
+            answerFileTemplate: copilotQueueWrapper(loadSendToChatConfig()),
+        }),
+        opener: { async open(query) { await vscode.commands.executeCommand('workbench.action.chat.open', { query }); } },
+        newRequestId: generateShortUUID,
+        sinkFor: liveSink,
+        expander: { expand: (template, values) => expandTemplate(template, { values }) },
+        onResponseValues(values) { updateChatResponseValues(values); },
+    }, input);
+    try {
+        const parsed = JSON.parse(raw) as { response?: string; requestId?: string };
+        if (parsed.response) {
+            logResponse('copilot', 'github_copilot', parsed.response, true, { questId, source: 'script', requestId: parsed.requestId });
+        }
+    } catch { /* the log only */ }
+    return raw;
+}

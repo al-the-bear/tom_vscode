@@ -13,8 +13,8 @@
  *        answers that it was closed unanswered; a denial without a cancel still reads "denied by the user"
  *   CE-5 tomAi_exitPlanMode: a plan closed by the ended prompt answers promptEnded with the note, plan mode stays on;
  *        the chat panel's plan registers its cancel with the owner and unregisters when decided
- *   CE-6 tomAi_askCopilot stops polling and tomAi_askBigBrother stops its request on the owner's cancel (reason
- *        prompt-ended); a plain timeout still says timeout; the executors register with the owner
+ *   CE-6 the Copilot answer-file round trip (services/copilotRoundTrip.ts, what tomAi_askCopilot was until
+ *        vscimpb108) stops polling once its caller gave up (reason prompt-ended), long before its timeout
  *   CE-7 the direct transport through the real handler (a stub client): a turn blocked in tomAi_askUser ends within
  *        a second of the cancel, its question closes, no further model round is sent, and nothing more happens after
  *        it ended; the Agent SDK path is the same owner (sendMessage hands it the token)
@@ -45,8 +45,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
 import { PROMPT_ENDED_TOOL_RESULT, raceCancellation } from '../../utils/cancelRace.js';
 import { exitPlanModeImpl, enterPlanModeImpl, isPlanModeActive, PLAN_PROMPT_ENDED_NOTE, registerPlanDecider, resetPlanModeForTests } from '../../tools/planning-tools.js';
-import { askCopilotImpl, type AskCopilotDeps } from '../../tools/ask-copilot-tool.js';
-import { askBigBrotherImpl, type CancelSignal, type LanguageModelBridge } from '../../tools/ask-big-brother-tool.js';
+import { copilotRoundTripImpl, type CopilotRoundTripDeps } from '../../services/copilotRoundTrip.js';
 import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
 
 TrailService.init({} as never);
@@ -181,12 +180,12 @@ describe('a cancelled send ends the tool call it is blocked in', () => {
         assert.match(chat, /settled = true;\s*this\._planProposals\.delete\(id\);\s*unregisterOwner\(\);\s*remove\(\);/);
     });
 
-    test('CE-6: askCopilot and askBigBrother', async () => {
+    test('CE-6: the Copilot round trip stops when its caller gave up', async () => {
         let ended = false;
         let reads = 0;
         let t = 0;
-        const deps: AskCopilotDeps = {
-            config: () => ({ enabled: true, answerFileTimeoutMs: 60_000, pollIntervalMs: 100, selectedTemplateId: '__none__', selectedTemplateBody: undefined, answerFileTemplate: '${originalPrompt}' }) as never,
+        const deps: CopilotRoundTripDeps = {
+            config: () => ({ answerFileTimeoutMs: 60_000, pollIntervalMs: 100, selectedTemplateId: '__none__', selectedTemplateBody: undefined, answerFileTemplate: '${originalPrompt}' }),
             opener: { open: async () => undefined },
             newRequestId: () => 'r1',
             sinkFor: () => ({ absolutePath: () => '/ws/answer.json', clear: () => undefined, read: () => { reads++; if (reads === 3) { ended = true; } return null; } }),
@@ -194,32 +193,12 @@ describe('a cancelled send ends the tool call it is blocked in', () => {
             clock: { now: () => t, sleep: async (ms: number) => { t += ms; } },
             promptEnded: () => ended,
         };
-        const copilot = JSON.parse(await askCopilotImpl(deps, { prompt: 'hi' }));
+        const copilot = JSON.parse(await copilotRoundTripImpl(deps, { prompt: 'hi' }));
         assert.equal(copilot.ok, false);
         assert.equal(copilot.reason, 'prompt-ended');
         assert.equal(copilot.cancelled, true);
         assert.equal(reads, 3, 'no poll after the cancel');
         assert.ok(t < 1000, 'long before the 60-s timeout');
-
-        const signal: CancelSignal = { cancelled: false };
-        const bridge: LanguageModelBridge = {
-            listAllModels: async () => [],
-            selectModels: async () => [{ id: 'm1', name: 'M1', family: 'f', vendor: 'v' }] as never,
-            listAvailableTools: () => [],
-            sendRequest: async () => { signal.reason = 'prompt-ended'; signal.cancelled = true; return [{ kind: 'text', text: 'partial' }]; },
-            invokeTool: async () => '',
-            summarise: async (s: string) => s,
-            getConfig: () => ({ enabled: true, defaultModel: 'm1', enableToolsByDefault: false, maxIterations: 3, responseTimeoutMs: 1000, summarisation: { enabled: false, thresholdChars: 1 }, modelRecommendations: '' }),
-        };
-        const bb = JSON.parse(await askBigBrotherImpl(bridge, { operation: 'query', prompt: 'hi', modelId: 'm1' }, signal));
-        assert.equal(bb.reason, 'prompt-ended');
-        assert.match(bb.error, /^cancelled: the prompt was ended/);
-        const timeoutSignal: CancelSignal = { cancelled: false };
-        const timedOut = JSON.parse(await askBigBrotherImpl({ ...bridge, sendRequest: async () => { timeoutSignal.cancelled = true; return []; } }, { operation: 'query', prompt: 'hi', modelId: 'm1' }, timeoutSignal));
-        assert.equal(timedOut.reason, 'timeout');
-        const executors = src('tools', 'tool-executors.ts');
-        assert.match(executors, /const unregisterOwner = registerAskCancel\(\(\) => \{ signal\.reason = 'prompt-ended'; signal\.cancelled = true; \}\);/);
-        assert.match(executors, /const unregisterOwner = registerAskCancel\(\(\) => \{ promptEnded = true; \}\);/);
     });
 
     test('CE-7: the direct transport through the real handler', async () => {

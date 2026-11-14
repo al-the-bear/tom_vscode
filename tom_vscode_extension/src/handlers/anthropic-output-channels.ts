@@ -163,9 +163,6 @@ export function formatToolSummary(
             return `chatvar_read(${i.name || i.key})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_writeChatVariable':
             return `chatvar_write(${i.name || i.key}=${truncate(String(i.value), 60)})${failedTag}`;
-        case 'tomAi_askBigBrother':
-        case 'tomAi_askCopilot':
-            return `${name.slice('tomAi_'.length)}(${truncate(i.prompt || i.question || '', 80)})${result ? arrow + truncate(result, 120) : ''}${failedTag}`;
         case 'tomAi_notifyUser':
             return `notifyUser(${i.urgency || 'info'}: "${truncate(i.message || '', 80)}")${failedTag}`;
         case 'tomAi_askUser':

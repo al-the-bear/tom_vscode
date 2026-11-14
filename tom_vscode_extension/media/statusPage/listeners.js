@@ -78,25 +78,10 @@ function attachStatusPanelListeners(skipEditorInit) {
                     maxWaitMinutes: parseInt((document.getElementById('sp-cq-maxWaitMinutes') || {}).value || '0'),
                     fallbackPrompt: (document.getElementById('sp-cq-fallbackPrompt') || {}).value || ''
                 };
-            } else if (action === 'updateAskCopilot') {
+            } else if (action === 'updateCopilotAnswerFolder') {
+                // The folder Copilot writes its answer files to (copilot.answerFolder): the queue's Copilot stages and scripts read it.
                 msgData.settings = {
-                    enabled: (document.getElementById('sp-ac-enabled') || {}).value === 'true',
-                    answerFileTimeout: parseInt((document.getElementById('sp-ac-answerFileTimeout') || {}).value || '120000'),
-                    pollInterval: parseInt((document.getElementById('sp-ac-pollInterval') || {}).value || '2000'),
-                    copilotAnswerFolder: (document.getElementById('sp-ac-copilotAnswerFolder') || {}).value || '',
-                    promptTemplate: (document.getElementById('sp-ac-promptTemplate') || {}).value || ''
-                };
-            } else if (action === 'updateAskBigBrother') {
-                msgData.settings = {
-                    enabled: (document.getElementById('sp-abb-enabled') || {}).value === 'true',
-                    defaultModel: (document.getElementById('sp-abb-defaultModel') || {}).value || 'GPT-5.2',
-                    temperature: parseFloat((document.getElementById('sp-abb-temperature') || {}).value || '0.7'),
-                    maxIterations: parseInt((document.getElementById('sp-abb-maxIterations') || {}).value || '5'),
-                    enableToolsByDefault: (document.getElementById('sp-abb-enableToolsByDefault') || {}).value === 'true',
-                    summarizationEnabled: (document.getElementById('sp-abb-summarizationEnabled') || {}).value === 'true',
-                    summarizationModel: (document.getElementById('sp-abb-summarizationModel') || {}).value || 'gpt-4o',
-                    maxResponseChars: parseInt((document.getElementById('sp-abb-maxResponseChars') || {}).value || '20000'),
-                    promptTemplate: (document.getElementById('sp-abb-promptTemplate') || {}).value || ''
+                    copilotAnswerFolder: (document.getElementById('sp-copilot-answerFolder') || {}).value || ''
                 };
             } else if (action === 'saveSchedule') {
                 msgData.schedule = collectAllScheduleData();
@@ -1004,7 +989,7 @@ function addLlmConfiguration() {
         maxRounds: 10,
         maxTokens: 8192,
         toolsEnabled: true,
-        enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readGlobalGuideline', 'tomAi_listGlobalGuidelines', 'tomAi_askBigBrother', 'tomAi_askCopilot']
+        enabledTools: ['tomAi_readFile', 'tomAi_listDirectory', 'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_fetchWebpage', 'tomAi_webSearch', 'tomAi_getErrors', 'tomAi_readGlobalGuideline', 'tomAi_listGlobalGuidelines']
     };
     __llmConfigs.push(cfg);
     renderLlmConfigurations();

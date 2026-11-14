@@ -56,6 +56,12 @@
  *     toolsEnabled, models) are removed from that config and the user
  *     overlay; `configurations` and `tools` stay (localLlmProfileMigration.ts).
  *     Format version 7;
+ *   - the removed tools tomAi_askCopilot / tomAi_askBigBrother
+ *     (removedAskTools.ts): `localLlm.tools` is removed from that config and
+ *     the user overlay, and their names (and the old `tom_ask…` ones) from
+ *     every tool list there, in the quests' `extension_config.<quest>.yaml`
+ *     (the MCP server's `enabledTools`) and in the role types'
+ *     `role-type.yaml`. Format version 8;
  *   - every `${{ … }}` JavaScript placeholder of that config, the user overlay
  *     and the process definitions (`_ai/processes/<id>/<id>.process.yaml`)
  *     is written in the expression language (templateExpression.ts); a
@@ -98,6 +104,7 @@ import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeA
 import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
 import { mergeYamlLayout } from './yamlLayoutMerge';
+import { dropAskToolNamesFromYaml, dropAskToolSettings } from './removedAskTools';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
 /**
@@ -133,7 +140,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'format-version';
     detail: string;
 }
 
@@ -537,6 +544,30 @@ class Run {
         });
     }
 
+    /**
+     * The removed tools tomAi_askCopilot / tomAi_askBigBrother: `localLlm.tools`
+     * and their names in every tool list of the workspace config and the user
+     * overlay; their names in the quests' extension configs and the role types.
+     */
+    removedAskTools(quests: string[]): void {
+        this.editConfigFiles('removed-ask-tools', (parsed) => ({ config: parsed, done: dropAskToolSettings(parsed) }));
+        const files = [
+            ...quests.map((q) => path.join(this.opts.aiRoot, 'quests', q, `extension_config.${q}.yaml`)),
+            ...list(path.join(this.opts.aiRoot, 'role-types')).filter((e) => e.isDirectory())
+                .map((e) => path.join(this.opts.aiRoot, 'role-types', e.name, 'role-type.yaml')),
+        ];
+        for (const file of files) {
+            if (!fs.existsSync(file)) { continue; }
+            const text = fs.readFileSync(file, 'utf8');
+            const doc = parseDocument(text);
+            const removed = dropAskToolNamesFromYaml(doc);
+            if (removed === 0) { continue; }
+            this.change(this.questOf(file), 'removed-ask-tools', `${this.rel(file)}: remove tomAi_askCopilot / tomAi_askBigBrother, ${removed} entr${removed === 1 ? 'y' : 'ies'}`);
+            if (!this.opts.apply) { continue; }
+            fs.writeFileSync(file, doc.toString({ indentSeq: indentSeqOf(text) }), 'utf8');
+        }
+    }
+
     /** The Local LLM panel's top-level `localLlm` keys removed; `configurations` and `tools` stay. */
     localLlmKeys(): void {
         this.editConfigFiles('local-llm-keys', (parsed) => {
@@ -720,6 +751,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.localLlmProfiles();
     run.removedPanelConfig();
     run.localLlmKeys();
+    run.removedAskTools(all);
     run.expressions();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);

@@ -17,10 +17,6 @@
  * surface it in the profile editor.
  */
 export const CATEGORY_MAP: Record<string, string[]> = {
-    'Ask AI': [
-        'tomAi_askBigBrother',
-        'tomAi_askCopilot',
-    ],
     'Chat Variables': [
         'tomAi_readChatVariable',
         'tomAi_writeChatVariable',

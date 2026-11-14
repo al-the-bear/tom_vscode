@@ -159,7 +159,7 @@
             "properties": {
                 "queueWrapper": {
                     "type": "string",
-                    "description": "The Copilot Queue Wrapper: goes around every Copilot send that waits for an answer (queue items, the todo buttons, tomAi_askCopilot, the Copilot panel's Send when Wrap is on) and makes Copilot write an answer file. ${originalPrompt} is the prompt after its template; ${copilotAnswerFile} and ${requestId} name the answer file. Not set: the built-in default. Edited in the template editor (Copilot — Queue Wrapper)."
+                    "description": "The Copilot Queue Wrapper: goes around every Copilot send that waits for an answer (queue items, the todo buttons, scripts sending to Copilot, the Copilot panel's Send when Wrap is on) and makes Copilot write an answer file. ${originalPrompt} is the prompt after its template; ${copilotAnswerFile} and ${requestId} name the answer file. Not set: the built-in default. Edited in the template editor (Copilot — Queue Wrapper)."
                 },
                 "answerFolder": {
                     "type": "string",

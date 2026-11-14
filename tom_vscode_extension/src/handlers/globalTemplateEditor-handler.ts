@@ -277,7 +277,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
         case 'copilotQueueWrapper': {
             if (itemId !== QUEUE_WRAPPER_ITEM_ID) break;
             fields.push(
-                { name: 'template', label: 'Wrapper', type: 'textarea', value: copilotQueueWrapper(config), help: PLACEHOLDER_HELP + '<br><br>Goes around every Copilot send that waits for an answer: queue items, the todo buttons, <code>tomAi_askCopilot</code>, and the Copilot panel\'s Send when its Wrap box is on. <strong>Use ${originalPrompt}</strong> for the prompt (after its template), <code>${copilotAnswerFile}</code> and <code>${requestId}</code> for the answer file Copilot writes. Saving it empty, or Delete, returns it to the default.' },
+                { name: 'template', label: 'Wrapper', type: 'textarea', value: copilotQueueWrapper(config), help: PLACEHOLDER_HELP + '<br><br>Goes around every Copilot send that waits for an answer: queue items, the todo buttons, scripts sending to Copilot, and the Copilot panel\'s Send when its Wrap box is on. <strong>Use ${originalPrompt}</strong> for the prompt (after its template), <code>${copilotAnswerFile}</code> and <code>${requestId}</code> for the answer file Copilot writes. Saving it empty, or Delete, returns it to the default.' },
             );
             break;
         }

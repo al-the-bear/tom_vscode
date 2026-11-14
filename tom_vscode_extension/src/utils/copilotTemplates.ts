@@ -8,10 +8,11 @@
  *
  * The **Copilot Queue Wrapper** (`copilot.queueWrapper`, body with
  * `${originalPrompt}`; default {@link DEFAULT_ANSWER_FILE_TEMPLATE}) makes
- * Copilot write an answer file — how the queue and `tomAi_askCopilot` know the
- * answer has come. It goes around every Copilot send that waits for an answer:
- * a queue item's stages (unless the item sets `answerWrapper: false`, waiting a
- * fixed time instead), the todo panel's buttons and `tomAi_askCopilot`. The
+ * Copilot write an answer file — how the queue and a script's Copilot send
+ * (services/copilotRoundTrip.ts) know the answer has come. It goes around every
+ * Copilot send that waits for an answer: a queue item's stages (unless the item
+ * sets `answerWrapper: false`, waiting a fixed time instead), the todo panel's
+ * buttons and the scripting API's `target: 'copilot'`. The
  * Copilot panel's own Send wraps only when its Wrap checkbox is on.
  *
  * The template id `__answer_file__` (the wrapper's entry in the former

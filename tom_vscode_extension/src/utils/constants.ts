@@ -50,9 +50,6 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_webSearch',
     'tomAi_getErrors',
     // Guidelines — global + project
-    // Ask-AI tools
-    'tomAi_askBigBrother',
-    'tomAi_askCopilot',
     // Write / mutating file tools
     'tomAi_createFile',
     'tomAi_editFile',

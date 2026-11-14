@@ -10,8 +10,7 @@
  * send is cancelled (Stop, the queue's Continue / Resend) they are cancelled
  * at once, not only when it settles — a tool call blocked in a question would
  * otherwise keep the send from settling. The same holds for every other wait
- * that registers (the tool approval, tomAi_exitPlanMode's plan, askCopilot's
- * polling, askBigBrother's request, tomAi_waitFor).
+ * that registers (the tool approval, tomAi_exitPlanMode's plan, tomAi_waitFor).
  *
  * The owner is an `AsyncLocalStorage` context, as in `services/userWaits.ts`:
  * a question asked outside any send (a tool called by an MCP client) has no

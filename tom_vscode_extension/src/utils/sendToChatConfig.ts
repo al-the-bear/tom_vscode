@@ -26,11 +26,6 @@ import type { AssistPromptsSection } from './assistPrompts';
 
 export interface SendToChatConfig {
     localLlm: {
-        /** Settings of the askCopilot / askBigBrother tools (src/tools/local-llm-tools-config.ts), edited on the Status Page. */
-        tools?: {
-            askCopilot?: unknown;
-            askBigBrother?: unknown;
-        };
         configurations?: Array<{
             id: string;
             name: string;

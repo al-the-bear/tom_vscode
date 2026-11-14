@@ -43,13 +43,6 @@ import { isTrailEnabled, setTrailEnabled, loadTrailConfig, toggleTrail } from '.
 import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
 import { readChatQuestionsConfig, writeChatQuestionsConfig, getChatQuestionsConfigPath } from './chatQuestions-config';
-import { 
-    loadLocalLlmToolsConfig,
-    saveLocalLlmToolsConfig,
-    clearLocalLlmToolsConfigCache,
-    AskCopilotConfig,
-    AskBigBrotherConfig,
-} from '../tools/local-llm-tools-config';
 import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
@@ -82,7 +75,6 @@ function getMcpReadOnlyToolNames(): ReadonlySet<string> {
     return _mcpReadOnlyToolNames;
 }
 import { loadWebviewHtml, readMediaText } from '../utils/webviewLoader';
-import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { maxProcessDepth } from '../services/nestedProcessCommands';
 import { REVIEW_MEMBER_ID_PATTERN, reviewMemberId } from '../utils/reviewAuthors';
 import { DEFAULT_MAX_PROCESS_DEPTH } from '../utils/processStack';
@@ -313,35 +305,16 @@ async function updateChatQuestionsSettings(settings: any): Promise<void> {
     }
 }
 
-async function updateAskCopilotSettings(settings: any): Promise<void> {
-    // Save local-LLM tools config (askCopilot settings)
-    const localLlmToolsConfig = loadLocalLlmToolsConfig();
-    // The answer folder is Copilot's (copilot.answerFolder), not the tool's: the tool reads where the wrapper points.
-    const { copilotAnswerFolder, answerFolder: _toolFolder, ...askCopilotSettings } = settings;
-    localLlmToolsConfig.askCopilot = { ...localLlmToolsConfig.askCopilot, ...askCopilotSettings };
-    if (saveLocalLlmToolsConfig(localLlmToolsConfig)) {
-        clearLocalLlmToolsConfigCache();
+/** The folder Copilot writes its answer files to (`copilot.answerFolder`); empty = the default `_ai/answers/copilot`. */
+async function updateCopilotAnswerFolder(settings: { copilotAnswerFolder?: unknown }): Promise<void> {
+    if (typeof settings.copilotAnswerFolder !== 'string') { return; }
+    const sendToChatConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
+    if (!sendToChatConfig.copilot) {
+        sendToChatConfig.copilot = {};
     }
-    
-    // Save copilot answer folder to tom_vscode_extension config
-    if (copilotAnswerFolder !== undefined) {
-        const sendToChatConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-        if (!sendToChatConfig.copilot) {
-            sendToChatConfig.copilot = {};
-        }
-        sendToChatConfig.copilot.answerFolder = copilotAnswerFolder;
-        saveSendToChatConfig(sendToChatConfig);
-    }
-    
-    vscode.window.showInformationMessage('Ask Copilot settings updated');
-}
-
-async function updateAskBigBrotherSettings(settings: any): Promise<void> {
-    const config = loadLocalLlmToolsConfig();
-    config.askBigBrother = { ...config.askBigBrother, ...settings };
-    if (saveLocalLlmToolsConfig(config)) {
-        clearLocalLlmToolsConfigCache();
-        vscode.window.showInformationMessage('Ask Big Brother settings updated');
+    sendToChatConfig.copilot.answerFolder = settings.copilotAnswerFolder;
+    if (saveSendToChatConfig(sendToChatConfig)) {
+        vscode.window.showInformationMessage('Copilot answer folder updated');
     }
 }
 
@@ -1316,11 +1289,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'updateChatQuestions':
             await updateChatQuestionsSettings(message.settings || {});
             break;
-        case 'updateAskCopilot':
-            await updateAskCopilotSettings(message.settings || {});
-            break;
-        case 'updateAskBigBrother':
-            await updateAskBigBrotherSettings(message.settings || {});
+        case 'updateCopilotAnswerFolder':
+            await updateCopilotAnswerFolder(message.settings || {});
             break;
         case 'updateCompactionSettings': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
@@ -1836,11 +1806,7 @@ export interface StatusData {
         maxWaitMinutes: number;
         fallbackPrompt: string;
     };
-    askCopilot: AskCopilotConfig;
     copilotAnswerFolder: string;
-    askBigBrother: AskBigBrotherConfig;
-    /** The prompt templates (the one store) for the template dropdowns. */
-    templateOptions: Array<{ id: string; label: string }>;
     schedule: TimerScheduleSlot[];
     executables: { [name: string]: { [platform: string]: string } };
     binaryPath: { [platform: string]: string };
@@ -2142,9 +2108,7 @@ export async function gatherStatusData(): Promise<StatusData> {
                 fallbackPrompt: cq.fallbackPrompt,
             };
         })(),
-        ...loadLocalLlmToolsConfig(),
         copilotAnswerFolder: getCopilotChatAnswerFolder(),
-        templateOptions: userMessageTemplateOptions(sendToChatConfig),
         schedule,
         executables: sendToChatConfig?.bridge?.executables || {},
         binaryPath: sendToChatConfig?.bridge?.binaryPath || {},
@@ -3242,92 +3206,18 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
          memory injection cap live with the rest of the compaction +
          memory extraction configuration). -->
 
-    <!-- Ask Copilot Settings Section -->
+    <!-- Copilot answers: where Copilot writes its answer files (the queue's Copilot stages, scripts) -->
     <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="askCopilot">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Ask Copilot</span>
+        <div class="sp-section-header sp-collapsible" data-collapse="copilotAnswers">
+            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Copilot answers</span>
         </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-askCopilot-content">
-            <div class="sp-settings-row">
-                <label>Enabled:</label>
-                <select id="sp-ac-enabled">
-                    <option value="true" ${status.askCopilot.enabled ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.askCopilot.enabled ? 'selected' : ''}>No</option>
-                </select>
-                <label>Timeout:</label>
-                <input type="number" id="sp-ac-answerFileTimeout" value="${status.askCopilot.answerFileTimeout}">
-            </div>
-            <div class="sp-settings-row">
-                <label>Poll Interval:</label>
-                <input type="number" id="sp-ac-pollInterval" value="${status.askCopilot.pollInterval}">
-            </div>
+        <div class="sp-collapse-content sp-collapsed" id="sp-copilotAnswers-content">
             <div class="sp-settings-row">
                 <label>Copilot Answer Folder:</label>
-                <input type="text" id="sp-ac-copilotAnswerFolder" value="${status.copilotAnswerFolder}">
+                <input type="text" id="sp-copilot-answerFolder" value="${escapeHtml(status.copilotAnswerFolder)}">
             </div>
             <div class="sp-settings-row">
-                <label>Template:</label>
-                <select id="sp-ac-promptTemplate">
-                    <option value="">(None)</option>
-                    ${status.templateOptions.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === status.askCopilot.promptTemplate ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
-                </select>
-            </div>
-            <div class="sp-settings-row">
-                <button class="sp-btn primary" data-status-action="updateAskCopilot">Save Ask Copilot Settings</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Ask Big Brother Settings Section -->
-    <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="askBigBrother">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🧠 Ask Big Brother</span>
-        </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-askBigBrother-content">
-            <div class="sp-settings-row">
-                <label>Enabled:</label>
-                <select id="sp-abb-enabled">
-                    <option value="true" ${status.askBigBrother.enabled ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.askBigBrother.enabled ? 'selected' : ''}>No</option>
-                </select>
-                <label>Model:</label>
-                <input type="text" id="sp-abb-defaultModel" value="${status.askBigBrother.defaultModel}">
-            </div>
-            <div class="sp-settings-row">
-                <label>Temp:</label>
-                <input type="number" id="sp-abb-temperature" value="${status.askBigBrother.temperature}" step="0.1" min="0" max="2">
-                <label>Iterations:</label>
-                <input type="number" id="sp-abb-maxIterations" value="${status.askBigBrother.maxIterations}" min="1" max="20">
-            </div>
-            <div class="sp-settings-row">
-                <label>Tools Default:</label>
-                <select id="sp-abb-enableToolsByDefault">
-                    <option value="true" ${status.askBigBrother.enableToolsByDefault ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.askBigBrother.enableToolsByDefault ? 'selected' : ''}>No</option>
-                </select>
-                <label>Summarize:</label>
-                <select id="sp-abb-summarizationEnabled">
-                    <option value="true" ${status.askBigBrother.summarizationEnabled ? 'selected' : ''}>Yes</option>
-                    <option value="false" ${!status.askBigBrother.summarizationEnabled ? 'selected' : ''}>No</option>
-                </select>
-            </div>
-            <div class="sp-settings-row">
-                <label>Summary Model:</label>
-                <input type="text" id="sp-abb-summarizationModel" value="${status.askBigBrother.summarizationModel || ''}">
-            </div>
-            <div class="sp-settings-row">
-                <label>Max Chars:</label>
-                <input type="number" id="sp-abb-maxResponseChars" value="${status.askBigBrother.maxResponseChars}">
-            </div>
-            <div class="sp-settings-row">
-                <label>Template:</label>
-                <select id="sp-abb-promptTemplate">
-                    <option value="">(None)</option>
-                    ${status.templateOptions.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === status.askBigBrother.promptTemplate ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
-                </select>
-            </div>
-            <div class="sp-settings-row">
-                <button class="sp-btn primary" data-status-action="updateAskBigBrother">Save Big Brother Settings</button>
+                <button class="sp-btn primary" data-status-action="updateCopilotAnswerFolder">Save</button>
             </div>
         </div>
     </div>

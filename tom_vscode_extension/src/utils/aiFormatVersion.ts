@@ -33,8 +33,11 @@ import { parse, stringify } from 'yaml';
  *   7  the Local LLM panel's top-level localLlm keys removed; the Telegram
  *      notification settings nothing reads removed from the quest configs
  *      and the ${{ … }} placeholders in the expression language, not JavaScript
+ *   8  the removed tools tomAi_askCopilot / tomAi_askBigBrother: localLlm.tools
+ *      dropped, their names taken out of every tool list (config, user overlay,
+ *      the quests' extension_config, the role types)
  */
-export const AI_FORMAT_VERSION = 7;
+export const AI_FORMAT_VERSION = 8;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

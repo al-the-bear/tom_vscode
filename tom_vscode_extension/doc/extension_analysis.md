@@ -378,7 +378,7 @@ Tools are registered with `tomAi_` prefix.
 | Session Todos | `tomAi_sessionTodo_add`, `tomAi_sessionTodo_update`, `tomAi_sessionTodo_delete`, `tomAi_sessionTodo_list`, `tomAi_sessionTodo_getAll` |
 | Queue | `tomAi_queue_list`, `tomAi_queue_update_item`, `tomAi_queue_remove_item`, `tomAi_queue_update_followup`, `tomAi_queue_remove_followup`, `tomAi_queue_send_now`, `tomAi_queue_set_status` |
 | Timed | `tomAi_timed_list`, `tomAi_timed_update_entry`, `tomAi_timed_remove_entry`, `tomAi_timed_set_engine_state` |
-| Integration | `tomAi_fetchWebpage`, `tomAi_webSearch`, `tomAi_notifyUser`, `tomAi_askBigBrother`, `tomAi_askCopilot` |
+| Integration | `tomAi_fetchWebpage`, `tomAi_webSearch`, `tomAi_notifyUser` |
 | Advanced | `tomAi_reminders_manage`, `tomAi_templates_manage`, `tomAi_readGuideline`, `tomAi_readLocalGuideline` |
 
 ### Chat Variable Resolvers (5)

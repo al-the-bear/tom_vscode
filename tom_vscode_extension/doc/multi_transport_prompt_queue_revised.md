@@ -969,7 +969,6 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
   - Anthropic API error (any leaf) → item status `'error'`, error message surfaced, **auto-send flipped off** (anti-cascade), item held at the front for "Resend" / "Set to Pending" (§4.18).
   - `vscode.lm.selectChatModels` returns no entry matching the configuration's stored `modelId` → surface "VS Code LM model not available", pause queue, do not retry. (The stored model was valid at configure-time but the provider extension may have been uninstalled.)
   - `anthropicConfigId` references a config that no longer exists in either the Anthropic or Local LLM config store → dispatcher returns a clear error without touching the transport.
-- **`tomAi_askCopilot` inside an Anthropic queue item**: valid — the Anthropic call can still use the `askCopilot` tool which bounces a sub-question into Copilot Chat. That's pre-existing behaviour, just not the queue's main-prompt transport.
 
 ## 6. Step-by-step implementation order
 
