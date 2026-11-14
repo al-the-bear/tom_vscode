@@ -14,6 +14,8 @@
  *         path, a guest included"): an unnamed guest refused (`guestUnnamed`), a dry run writes nothing, the
  *         merge writes merged/ and merge-report.json exactly as the runtime pins them, keeps the guest in
  *         round.yaml; an invalid copy refuses the merge (`structureMismatch`); an unchanged copy is left out
+ *   RR-3b round.yaml's `nextRound` (team_document_review PD-11: the guests accepted for the next round only,
+ *         written by 03 Hand Back) is kept through a merge; a `nextRound` that is no list is not read
  *   RR-4  conflicts in plain Markdown: two members change one sentence differently → X-1; tomAi_specDecideConflicts
  *         writes the decision (a letter, `base`, text; "" reopens), refuses an unknown conflict or letter
  *   RR-5  a SOM document with its own team: the round takes the document's team (owner = author), the merged
@@ -191,6 +193,25 @@ describe('Team review rounds', () => {
         const mismatch = await run(specMergeReviewsImpl, { round: 'md3/round', dryRun: true });
         assert.equal(mismatch.code, 'structureMismatch');
         assert.equal(mismatch.copies[0].memberId, 'bob');
+    });
+
+    test('RR-3b: nextRound is kept through a merge', async () => {
+        put('md3b/payment.md', MD_CASE.base);
+        await run(specReviewRoundCreateImpl, { file: 'md3b/payment.md', round: 'md3b/round', members: TEAM, date: '2026-11-05', author: 'Alice Owner' });
+        // 03 Hand Back of a round before: the guests accepted for the next round only.
+        const nextRound = [{ memberId: 'frank', displayName: 'Frank Field', role: 'Field service' }];
+        put('md3b/round/round.yaml', `${read('md3b/round/round.yaml')}nextRound:\n  - memberId: frank\n    displayName: Frank Field\n    role: Field service\n`);
+        assert.deepEqual(parseRound(read('md3b/round/round.yaml')).nextRound, nextRound);
+        put('md3b/round/alice.md', ALICE.document);
+        const r = await run(specMergeReviewsImpl, { round: 'md3b/round' });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        const round = parseRound(read('md3b/round/round.yaml'));
+        assert.equal(round.merged?.file, 'merged/payment.md', 'round.yaml was rewritten by the merge');
+        assert.deepEqual(round.nextRound, nextRound, 'nextRound is kept');
+        assert.match(read('md3b/round/round.yaml'), /nextRound:\n {2}- memberId: frank/);
+        // A round without it stays without it; one that is not a list is not read.
+        assert.equal('nextRound' in parseRound(read('md3/round/round.yaml')), false);
+        assert.equal('nextRound' in parseRound(read('md3b/round/round.yaml').replace(/nextRound:[\s\S]*?(?=\n\S|$)/, 'nextRound: frank')), false);
     });
 
     test('RR-4: conflicts in plain Markdown and their decisions', async () => {

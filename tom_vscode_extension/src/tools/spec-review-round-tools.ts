@@ -552,7 +552,7 @@ const MEMBER_SCHEMA = {
     required: ['memberId', 'displayName', 'role'],
 };
 const FOLDER =
-    ' The round folder (files only): `round.yaml` (document, base, team, guests, last merge), `base.<ext>` (the document as sent out), one copy per member named by member id (`alice.<ext>`, nothing written into it), `merged/` (the merged document and `merge-report.json`). TomSpecs documents and plain annotated Markdown alike; for a TomSpecs document look first with tomAi_specOutline or tomAi_specReflect.';
+    ' The round folder (files only): `round.yaml` (document, base, team, guests, `nextRound`, last merge), `base.<ext>` (the document as sent out), one copy per member named by member id (`alice.<ext>`, nothing written into it), `merged/` (the merged document and `merge-report.json`). TomSpecs documents and plain annotated Markdown alike; for a TomSpecs document look first with tomAi_specOutline or tomAi_specReflect.';
 
 export const SPEC_REVIEW_ROUND_CREATE_TOOL: SharedToolDefinition<SpecReviewRoundCreateInput> = {
     name: 'tomAi_specReviewRoundCreate',

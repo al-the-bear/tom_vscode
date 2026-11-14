@@ -672,7 +672,9 @@ mark delimiters, and the new text was written unmarked.
 
 **Team review rounds** (SOM §11.9.8, §11.9.9). A round is files only: the
 round folder holds `round.yaml` (document, base, date, author, team, guests,
-the last merge), `base.<ext>` (the document as sent out), one copy per member
+`nextRound` — the guests accepted for the next round only, which
+team_document_review's Hand Back writes and every round tool keeps — and the
+last merge), `base.<ext>` (the document as sent out), one copy per member
 named by member id (`alice.docspecs.yaml`, `alice.md`; nothing is written into
 a copy) and `merged/` (the merged document and `merge-report.json`). They work
 on TomSpecs documents and on plain annotated Markdown through the runtime's

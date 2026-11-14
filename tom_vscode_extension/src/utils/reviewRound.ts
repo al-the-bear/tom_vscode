@@ -5,7 +5,7 @@
  * over its own file, and the merge writes `merged/`.
  *
  *     <round folder>/
- *       round.yaml          the round: document, base, team, guests, merge
+ *       round.yaml          the round: document, base, team, guests, nextRound, merge
  *       base.<ext>          the document as sent out
  *       alice.<ext>         a member's copy (returned when it differs from the base)
  *       merged/<file>       the merged document; merged/merge-report.json
@@ -53,6 +53,12 @@ export interface ReviewRound {
     team: RoundMember[];
     /** Copies from people not on the team, as named when they came back. */
     guests: RoundMember[];
+    /**
+     * Guests accepted for the next round only (team_document_review's 03 Hand
+     * Back, design decision PD-11): the next round's 01 Prepare offers them at
+     * its team question. Written by the process, kept by every round tool.
+     */
+    nextRound?: RoundMember[];
     /** The last merge: when, and the merged file (round-folder relative). */
     merged?: { at: string; file: string; report: string };
 }
@@ -120,6 +126,8 @@ export function parseRound(text: string): ReviewRound {
         author: String(raw.author ?? ''),
         team: raw.team as RoundMember[],
         guests: Array.isArray(raw.guests) ? raw.guests as RoundMember[] : [],
+        // Kept as written when it is a list, as `guests` is; a merge rewrites round.yaml from this value.
+        ...(Array.isArray(raw.nextRound) ? { nextRound: raw.nextRound as RoundMember[] } : {}),
         ...(raw.merged ? { merged: raw.merged } : {}),
     };
 }

@@ -166,7 +166,8 @@ same for a TomSpecs document and for plain annotated Markdown.
 1. **Start it.** `tomAi_specReviewRoundCreate` with the document creates the
    round folder (default `<document folder>/review-rounds/<stem>-<YYYYMMDD-HHMM>`):
    `base.<ext>`, one copy per member named by member id (`alice.docspecs.yaml`,
-   `alice.md`) and `round.yaml` (document, base, date, author, team, guests).
+   `alice.md`) and `round.yaml` (document, base, date, author, team, guests;
+   later `nextRound`, the guests accepted for the next round only, which a merge keeps).
    The team is `members` if given, else the document's own review team, else
    the solution blueprint's team for its document type, else the blueprint's
    default team — the most specific one replaces the others. The blueprint is
