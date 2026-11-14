@@ -92,6 +92,12 @@
         }
       }
     },
+    "runParameters": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+      "uniqueItems": true,
+      "description": "The custom chat variables a run of this process keeps as its run parameters (e.g. `design`, `design-mode`). The PROCESS view's Reset Process (and tomAi_resetProcess with mode `process`) clears these and puts the run back to the process's first position."
+    },
     "followUps": {
       "$ref": "#/$defs/followUps"
     },

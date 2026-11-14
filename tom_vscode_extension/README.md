@@ -510,6 +510,9 @@ in a step's prompt). A gate's result carries the buttons of the decision
 after the gate, gate passed or gate failed (`${gate-decision}` in a gate's
 prompt, `tomAi_askInMdBrowser` with `gateDecision`). One click ends the
 gate's step and takes the decision as the PROCESS view's Decide… does.
+The PROCESS view's Runs list also resets a run: **Reset Process** puts it
+back to the start of its process and clears the run parameters the process
+declares; **Reset Run** clears everything process-related.
 
 ### @TOM VSC: resource-hungry extensions
 

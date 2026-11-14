@@ -39,7 +39,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 import { conditionText, evaluateCondition, findPhase, findStep, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
-import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog } from '../services/processActionService';
+import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog, resetProcessRun } from '../services/processActionService';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
@@ -216,7 +216,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
         this.send();
     }
 
-    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind; run?: string; index?: number }): Promise<void> {
+    private async handle(msg: { type: string; change?: ProcessChange; level?: ProcessLevel; delta?: number; id?: string; kind?: ProcessMoveKind; run?: string; index?: number; mode?: string }): Promise<void> {
         const store = await ProcessStateStore.ready;
         // The run list: select, create (+), delete (trash).
         const runs = await handleRunMessage(msg, liveRunStore(store), LIVE_RUN_UI);
@@ -300,6 +300,13 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                     this.report(result.ok ? { ok: true } : result);
                 }
                 break;
+            case 'resetRun': {
+                // Reset Run / Reset Process of the window's run (vscimpb91): asks first, naming what is reset.
+                const outcome = await resetProcessRun(msg.mode === 'process' ? 'process' : 'run', store.currentRun, { confirm: true });
+                if (outcome.ok) { vscode.window.setStatusBarMessage(`$(discard) Run ${outcome.run} reset`, 4000); }
+                this.report(outcome.ok || ('cancelled' in outcome && outcome.cancelled) ? { ok: true } : outcome);
+                break;
+            }
             case 'openTemplates':
                 openProcessTemplateEditor(this.context);
                 break;

@@ -466,6 +466,39 @@ export const DELETE_PROCESS_RUNS_TOOL: SharedToolDefinition<{ runs: string[]; de
     execute: async (input) => deleteProcessRunsImpl(liveDeps(), input),
 };
 
+/** The reset of a run, as tomAi_resetProcess asks for it (processActionService.resetProcessRun without the dialog). */
+export type ProcessResetCall = (mode: 'run' | 'process', run: string | undefined) => Promise<
+    { ok: true; mode: string; run: string; lines: string[]; markersRemoved: number } | { ok: false; error: string }>;
+
+export async function resetProcessImpl(reset: ProcessResetCall, input: { mode?: string; run?: string }): Promise<string> {
+    const mode = input.mode === 'process' ? 'process' : input.mode === 'run' || input.mode === undefined ? 'run' : undefined;
+    if (!mode) { return JSON.stringify({ ok: false, error: '`mode` is `run` (Reset Run) or `process` (Reset Process)' }); }
+    const outcome = await reset(mode, input.run?.trim() || undefined);
+    if (!outcome.ok) { return JSON.stringify(outcome, null, 2); }
+    return JSON.stringify({ ok: true, mode: outcome.mode, run: outcome.run, reset: outcome.lines, markersRemoved: outcome.markersRemoved }, null, 2);
+}
+
+export const RESET_PROCESS_TOOL: SharedToolDefinition<{ mode?: string; run?: string }> = {
+    name: 'tomAi_resetProcess',
+    displayName: 'Reset Process Run',
+    description: 'Reset a run of the active quest, as the PROCESS view\'s buttons do (vscimpb91): `mode: "run"` (Reset Run, the default) clears everything process-related — the run goes to no process yet (`default` keeps its process, from its first position), every level of its process stack and its open process-move markers go, every custom chat variable of the run is cleared; `mode: "process"` (Reset Process) puts the run back to its process\'s first position and clears only the chat variables the process declares as `runParameters`. `run` defaults to the window\'s run. Answers what was reset; it is written to the quest\'s decisions journal. Only when the user asked for it.' + RUNS_NOTE,
+    tags: ['process', 'quest', 'tom-ai-chat'],
+    readOnly: false,
+    requiresApproval: true,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            mode: { type: 'string', enum: ['run', 'process'], description: '`run` (Reset Run, default) or `process` (Reset Process).' },
+            run: { type: 'string', description: 'The run to reset (tomAi_listProcessRuns). Default: the window\'s run.' },
+        },
+    },
+    execute: async (input) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const svc = require('../services/processActionService.js') as typeof import('../services/processActionService');
+        return resetProcessImpl((mode, run) => svc.resetProcessRun(mode, run, { confirm: false, source: getCurrentToolContext()?.source ?? 'anthropic' }), input);
+    },
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const QUEST_PROCESS_TOOLS: SharedToolDefinition<any>[] = [
     LIST_PROCESSES_TOOL,
@@ -476,4 +509,5 @@ export const QUEST_PROCESS_TOOLS: SharedToolDefinition<any>[] = [
     CREATE_PROCESS_RUN_TOOL,
     SELECT_PROCESS_RUN_TOOL,
     DELETE_PROCESS_RUNS_TOOL,
+    RESET_PROCESS_TOOL,
 ];

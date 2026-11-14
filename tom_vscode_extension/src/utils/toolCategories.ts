@@ -34,6 +34,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_createProcessRun',
         'tomAi_selectProcessRun',
         'tomAi_deleteProcessRuns',
+        'tomAi_resetProcess',
         'tomAi_getProcessStack',
         'tomAi_listSubprocessCandidates',
         'tomAi_suggestSubprocess',

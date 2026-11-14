@@ -301,6 +301,8 @@
             + '<span class="spacer"></span>'
             + '<button class="icon" data-run-create="1" title="New run: a name, then the process it follows (optional); it becomes this window\'s run"><span class="codicon codicon-add"></span></button>'
             + '<button class="icon" data-run-delete="1" title="Delete runs (default is never deleted)"' + (deletable ? '' : ' disabled') + '><span class="codicon codicon-trash"></span></button>'
+            + '<button class="icon" data-run-reset="process" title="Reset Process: this run back to the first position of its process; the run parameters the process declares are cleared (asks first)"' + (current && current.state && current.state.process ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
+            + '<button class="icon" data-run-reset="run" title="Reset Run: everything process-related of this run goes — no process yet (default keeps its process, from its first position), every custom chat variable cleared (asks first)"><span class="codicon codicon-discard"></span></button>'
             + '</div>'
             + '<div class="run-list">' + (rows || '<span class="muted">No runs.</span>') + '</div>'
             + '</div>';
@@ -439,6 +441,8 @@
             post({ type: 'createRun' });
         } else if (btn.dataset.runDelete) {
             post({ type: 'deleteRuns' });
+        } else if (btn.dataset.runReset) {
+            post({ type: 'resetRun', mode: btn.dataset.runReset });
         } else if (btn.dataset.move) {
             post({ type: 'action', kind: btn.dataset.move, level: btn.dataset.level || undefined });
         } else if (btn.dataset.templates) {

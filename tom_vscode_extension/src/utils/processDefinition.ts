@@ -248,6 +248,12 @@ export interface ProcessDefinition extends ProcessFollowUps {
     inputs?: ProcessIoDecl[];
     /** What it hands back to the step that started it as a subprocess (`${sub.<process>.<name>}`). */
     outputs?: ProcessIoDecl[];
+    /**
+     * The custom chat variables a run of this process keeps as its run
+     * parameters (e.g. process_design's `design`, `design-mode`): what the
+     * PROCESS view's Reset Process clears (vscimpb91).
+     */
+    runParameters?: string[];
     phases: ProcessPhase[];
 }
 
@@ -295,7 +301,7 @@ function isSessionName(v: string): boolean {
     return ID_PATTERN.test(v.replace(SESSION_PLACEHOLDER, '1'));
 }
 
-const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'followUps', 'phases'];
+const DEFINITION_KEYS = ['id', 'name', 'summary', 'session', 'inputs', 'outputs', 'runParameters', 'followUps', 'phases'];
 const FOLLOW_UP_KEYS = ['process', 'phase', 'step', 'description', 'carry', 'context'];
 const IO_KEYS = ['name', 'kind', 'description', 'required'];
 const IO_KINDS: readonly ProcessIoKind[] = ['document', 'documents', 'folder'];
@@ -534,6 +540,14 @@ export function validateProcessDefinition(raw: unknown, context: ProcessValidati
     checkText(raw, 'summary', '');
     checkSession(raw, '');
     checkFollowUps(raw, '');
+    if (raw.runParameters !== undefined) {
+        const list = raw.runParameters;
+        if (!Array.isArray(list) || list.some((v) => typeof v !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(v))) {
+            err('runParameters', 'a list of chat variable names (`design`, `design-mode`)');
+        } else if (new Set(list).size !== list.length) {
+            err('runParameters', 'a variable is named twice');
+        }
+    }
     for (const key of ['inputs', 'outputs']) {
         const list = raw[key];
         if (list === undefined) { continue; }
@@ -683,6 +697,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         ...pick(def, ['id', 'name', 'summary', 'session']),
         ...(def.inputs?.length ? { inputs: def.inputs.map((d) => pick(d, IO_KEYS)) } : {}),
         ...(def.outputs?.length ? { outputs: def.outputs.map((d) => pick(d, [...IO_KEYS, 'value'])) } : {}),
+        ...(def.runParameters?.length ? { runParameters: [...def.runParameters] } : {}),
         ...(def.followUps?.length ? { followUps: def.followUps.map(followUp) } : {}),
         phases: def.phases.map((p) => {
             const gate = step(p.gate);

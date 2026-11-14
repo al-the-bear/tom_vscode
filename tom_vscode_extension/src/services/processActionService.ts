@@ -47,7 +47,9 @@ import {
 } from '../utils/processActionPrompt';
 import { decisionAt, samePosition, userActionAt, type ProcessLevel, type ProcessMove, type ProcessMoveKind } from '../utils/processDefinition';
 import { positionText, reviewFileName } from '../utils/processActionPrompt';
-import { markerText, newProceedId, type ProcessMoveSpec } from '../utils/processMoveMarker';
+import { markerText, newProceedId, openMarkerIds, type ProcessMoveSpec } from '../utils/processMoveMarker';
+import { processResetConfirmation, processResetLines, type ProcessResetMode, type ProcessResetPlan } from '../utils/processReset';
+import type { ChangeSource } from '../managers/chatVariablesStore';
 import type { QueuedPrompt } from '../managers/promptQueueManager';
 
 const templatesChanged = new vscode.EventEmitter<void>();
@@ -276,6 +278,36 @@ export function suggestionsDue(): void {
 /** Let the queue's process-move markers move the process (called once at activation). */
 export function installProcessMoveMarkers(): void {
     PromptQueueManager.instance.setProcessMoveHandler(applyProcessMoveMarker);
+}
+
+export type ProcessResetOutcome =
+    | { ok: true; mode: ProcessResetMode; run: string; lines: string[]; markersRemoved: number; plan: ProcessResetPlan }
+    | { ok: false; error: string; cancelled?: boolean };
+
+/**
+ * Reset a run (vscimpb91): the PROCESS view's Reset Run (`run`) and Reset
+ * Process (`process`), and tomAi_resetProcess. `run`: the run to reset
+ * (default the window's). With `confirm` the user is asked first, the dialog
+ * naming what is reset; Cancel changes nothing. The run's open process-move
+ * markers go with it (its prompts stay in the queue).
+ */
+export async function resetProcessRun(mode: ProcessResetMode, run?: string, opts: { confirm?: boolean; source?: ChangeSource } = {}): Promise<ProcessResetOutcome> {
+    const store = await ProcessStateStore.ready;
+    let queue: PromptQueueManager | undefined;
+    try { queue = PromptQueueManager.instance; } catch { queue = undefined; }
+    const runName = normalizeRun(run ?? store.currentRun);
+    const markers = queue ? openMarkerIds(queue.items, store.activeQuest, runName).length : 0;
+    const plan = store.resetPlan(mode, runName, markers);
+    if ('ok' in plan) { return plan; }
+    if (opts.confirm) {
+        const dialog = processResetConfirmation(plan);
+        const picked = await vscode.window.showWarningMessage(dialog.message, { modal: true, detail: dialog.detail }, dialog.confirm);
+        if (picked !== dialog.confirm) { return { ok: false, error: 'cancelled', cancelled: true }; }
+    }
+    const result = store.resetRun(plan, opts.source ?? 'user');
+    if (!result.ok) { return result; }
+    const markersRemoved = queue ? queue.dropProcessMoveMarkers(store.activeQuest, `${mode === 'run' ? 'Reset Run' : 'Reset Process'}`, runName) : 0;
+    return { ok: true, mode, run: runName, lines: processResetLines(plan), markersRemoved, plan };
 }
 
 /** A held step: repeat it — the marker goes, and the action page queues the step again. */

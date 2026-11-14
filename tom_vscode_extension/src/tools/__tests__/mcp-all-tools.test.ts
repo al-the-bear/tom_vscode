@@ -354,6 +354,8 @@ function inputs(): Record<string, Input> {
         tomAi_getProcessState: { level: -1 },
         // A run of its own, not selected: the tools after it keep working on the quest's own position.
         tomAi_createProcessRun: { run: 'mcpRun', process: 'flow', select: false },
+        // Reset Run of that run: back to no process, its chat variables cleared (not the window's run).
+        tomAi_resetProcess: { mode: 'run', run: 'mcpRun' },
         tomAi_selectProcessRun: { run: 'default' },
         tomAi_deleteProcessRuns: { runs: ['mcpRun'] },
         tomAi_getSubprocessRuns: { all: true },

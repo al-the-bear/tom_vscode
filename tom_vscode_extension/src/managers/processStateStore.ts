@@ -34,6 +34,7 @@ import type { ProcessRunEntry } from '../utils/processRepository';
 import * as fs from 'fs';
 import * as path from 'path';
 import { decisionsJournalHeader } from '../utils/decisionsJournalFormat';
+import { processResetJournalEntry, processResetPlan, processResetRefused, type ProcessResetMode, type ProcessResetPlan } from '../utils/processReset';
 import { positionText } from '../utils/processActionPrompt';
 import {
     abortedLevelJournalEntry,
@@ -234,6 +235,69 @@ export class ProcessStateStore {
             if (!set.ok) { repo.deleteRun(this.quest, run); return set; }
         }
         return select ? this.selectRun(run) : { ok: true, state: repo.readState(this.quest, run) };
+    }
+
+    /**
+     * What a reset of `mode` would clear in `run` (default the window's;
+     * vscimpb91, utils/processReset.ts). `markers`: the run's open
+     * process-move markers, counted by the caller (the queue holds them).
+     */
+    resetPlan(mode: ProcessResetMode, run: string | undefined, markers: number): ProcessResetPlan | { ok: false; error: string } {
+        if (!this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        const name = normalizeRun(run ?? this.run);
+        const r = this.withRun(name, () => {
+            const state = this.state;
+            const def = this.currentDefinition();
+            const refused = processResetRefused(mode, state.process, def ? def.runParameters ?? [] : undefined);
+            if (refused) { return { ok: false as const, error: refused }; }
+            let custom: Readonly<Record<string, string>> = {};
+            try { custom = ChatVariablesStore.instance.withRun(name, () => ChatVariablesStore.instance.custom); } catch { /* not initialised */ }
+            return {
+                plan: processResetPlan({
+                    mode, run: name, process: state.process,
+                    position: def && state.process ? positionText(def, state) : '',
+                    custom, runParameters: def?.runParameters, nestedLevels: Math.max(0, this.rawLevels.length - 1), markers,
+                }),
+            };
+        });
+        return 'plan' in r && r.plan ? r.plan : r as { ok: false; error: string };
+    }
+
+    /**
+     * Reset `run` as `plan` says (vscimpb91): every level of its stack goes;
+     * it follows `plan.processAfter` from its first position, or no process;
+     * the plan's chat variables are cleared; the reset is journalled. The
+     * open markers are the caller's to drop.
+     */
+    resetRun(plan: ProcessResetPlan, source: ChangeSource): ProcessChangeResult {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return { ok: false, error: 'no quest is active; runs belong to a quest' }; }
+        const result = this.withRun(plan.run, () => {
+            const cleared = this.writeLevels(repo, this.state, [{ ...EMPTY_PROCESS_STATE }], source);
+            if (!cleared.ok || !plan.processAfter) { return cleared; }
+            return this.apply({ process: plan.processAfter }, source);
+        });
+        if (!result.ok) { return result; }
+        try {
+            ChatVariablesStore.instance.withRun(plan.run, () => {
+                for (const v of plan.variables) { ChatVariablesStore.instance.set(v.name, '', source); }
+            });
+        } catch { /* not initialised */ }
+        this.journalReset(plan);
+        this.reload();
+        return { ok: true, state: plan.run === this.run ? this.state : (result as { state: ProcessState }).state };
+    }
+
+    /** A reset goes to the quest's decisions journal (best effort). */
+    private journalReset(plan: ProcessResetPlan): void {
+        try {
+            const quests = WsPaths.ai('quests');
+            if (!quests) { return; }
+            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
+            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, `${head}${processResetJournalEntry(plan)}\n`, 'utf-8');
+        } catch { /* the journal is a record, not a participant */ }
     }
 
     /** The sessions runs of the quest use (`<session>@<run>`, src/utils/runSessions.ts), by name. */

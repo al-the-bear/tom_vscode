@@ -450,6 +450,8 @@
             + '<div class="card-head top process-session"><label>Session of every prompt</label>' + sessionFields('', def.session) + '</div>'
             + ioSection('inputs', def.inputs)
             + ioSection('outputs', def.outputs)
+            + '<div class="section-title">Run parameters <span class="muted">— the custom chat variables a run of this process keeps (e.g. design, design-mode); Reset Process in the PROCESS view clears them</span></div>'
+            + '<input type="text" class="run-parameters" data-path="runParameters" data-kind="list" value="' + esc((def.runParameters || []).join(', ')) + '" placeholder="chat variables, comma-separated">'
             + followUpsBlock('', def, 'process (its last phase)')
             + '<div class="section-title">Description <span class="muted">(' + esc(doc.files ? doc.files.description.split(/[\\/]/).pop() : '') + ', Markdown)</span></div>'
             + '<textarea id="process-description" rows="8" placeholder="What this process is for and how it is worked through.">' + esc(doc.description) + '</textarea>'
