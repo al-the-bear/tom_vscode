@@ -1459,7 +1459,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtGetScopeData': {
-            const projs = scanWorkspaceProjects();
+            const projs = await scanWorkspaceProjects();
             const scopeVals = collectScopeValues();
             // Merge scanned project names with existing scope values
             const projNames = new Set(scopeVals.projects);
@@ -1489,7 +1489,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtPickProjects': {
-            const projects = scanWorkspaceProjects().map((p) => p.name);
+            const projects = (await scanWorkspaceProjects()).map((p) => p.name);
             const selected = Array.isArray(msg.selected) ? msg.selected : [];
             const picked = await vscode.window.showQuickPick(
                 projects.map((name) => ({ label: name, picked: selected.includes(name) })),

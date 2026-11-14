@@ -20,7 +20,7 @@ import { spawnSync } from 'child_process';
 import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 'yaml';
 import { WsPaths } from '../utils/workspacePaths';
 import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
-import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { coarseProjectType, listedProjects } from '../services/workspaceProjects';
 import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as deleteTodosInFile, type TodoMoveResult as TodoFileMoveResult } from '../utils/todoArchive';
 import { ALL_TODO_FILES, deletedTodoFileName, matchesTodoFileScope, type TodoFileScope } from '../utils/todoArchiveNames';
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
@@ -1832,26 +1832,19 @@ export interface ScannedProject {
 }
 
 /**
- * Scan workspace for projects by looking for pubspec.yaml and package.json.
- * Returns project names with their relative paths.
+ * The workspace's projects with their relative paths and a coarse kind, from
+ * the extension's one project discovery: buildkit's listing
+ * (services/workspaceProjects.ts; the JavaScript port where no buildkit is
+ * found).
  */
-export function scanWorkspaceProjects(): ScannedProject[] {
-    const detected = scanWorkspaceProjectsByDetectors(4);
-    return detected
-        .map((project) => {
-            const types = project.attributes.types || [];
-            let type: 'dart' | 'node' | 'other' = 'other';
-            if (types.some((item) => item.includes('dart') || item.includes('flutter'))) {
-                type = 'dart';
-            } else if (types.some((item) => item.includes('node') || item.includes('vscode_extension'))) {
-                type = 'node';
-            }
-            return {
-                name: project.name,
-                relativePath: project.relativePath,
-                type,
-            };
-        })
+export async function scanWorkspaceProjects(): Promise<ScannedProject[]> {
+    const projects = await listedProjects(getWorkspaceRoot());
+    return projects
+        .map((project) => ({
+            name: project.name,
+            relativePath: project.path,
+            type: coarseProjectType(project),
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 

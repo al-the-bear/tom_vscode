@@ -2977,16 +2977,6 @@
             "type": "string"
           },
           "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
-        },
-        "tomAi.projectDetection.excludeGlobs": {
-          "type": "array",
-          "default": [
-            "tom/zom_*/**"
-          ],
-          "items": {
-            "type": "string"
-          },
-          "description": "Glob patterns excluded from full-workspace project detection scans."
         }
       }
     },

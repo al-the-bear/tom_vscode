@@ -228,7 +228,7 @@ function _persistYaml(store: ChatVariablesStore): void {
 async function _pickProjects(): Promise<void> {
     if (!_panel) return;
 
-    const projects = scanWorkspaceProjects().map(p => p.name);
+    const projects = (await scanWorkspaceProjects()).map(p => p.name);
 
     let currentProjects: string[] = [];
     try {

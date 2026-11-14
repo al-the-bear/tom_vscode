@@ -25,7 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getConfigPath, getWorkspaceRoot, resolvePathVariables, getExtensionPath } from './handler_shared';
-import { findNearestDetectedProject } from '../utils/projectDetector';
+import { listedProjects, nearestListedProject } from '../services/workspaceProjects';
 import { resolveNamedExecutable, buildConfigContext, expandConfigPlaceholders, expandExecutablePlaceholders, type ExecutablesConfig } from '../utils/executableResolver';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 
@@ -197,13 +197,14 @@ function findAncestorWithMarker(startDir: string, markers: string[]): string | u
 }
 
 /**
- * Find the project root by detecting the nearest configured project from the active editor file.
+ * The project root of the active editor file: the innermost listed project
+ * holding it (buildkit's listing, the extension's one project discovery).
  */
-function findProjectRoot(): string | undefined {
+async function findProjectRoot(): Promise<string | undefined> {
     const startDir = getActiveFileDir();
-    if (!startDir) { return undefined; }
-    const project = findNearestDetectedProject(startDir);
-    return project?.absolutePath;
+    const wsRoot = getWorkspaceRoot();
+    if (!startDir || !wsRoot) { return undefined; }
+    return nearestListedProject(await listedProjects(wsRoot), startDir)?.absolutePath;
 }
 
 /**
@@ -594,7 +595,7 @@ async function resolveExecutionCwd(entry: CommandlineEntry): Promise<string | un
             return root;
         }
         case 'project': {
-            const root = findProjectRoot();
+            const root = await findProjectRoot();
             if (!root) {
                 await showError(
                     'Project root could not be determined.\n\nOpen a file inside a detected project first.',

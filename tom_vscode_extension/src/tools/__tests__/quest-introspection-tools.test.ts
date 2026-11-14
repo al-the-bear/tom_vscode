@@ -295,6 +295,7 @@ describe('listProjectsImpl', () => {
                 fresh: true,
                 config: { binaryPath: { '*': w('no-layer') } }, // eslint-disable-line @typescript-eslint/naming-convention -- the '*' platform key
                 env: { PATH: w('no-path') }, // eslint-disable-line @typescript-eslint/naming-convention -- PATH
+                extensionRoot: null, // not the extension's own bundled buildkit
                 jsLister: () => ({ projects: [] }),
             }),
         };

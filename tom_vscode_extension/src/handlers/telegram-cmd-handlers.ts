@@ -35,7 +35,7 @@ import {
     ParsedTelegramCommand,
 } from './telegram-cmd-parser';
 import { escapeMarkdownV2 } from './telegram-markdown';
-import { findNearestDetectedProject, scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { listedProjects, nearestListedProject } from '../services/workspaceProjects';
 import {
     parseSendPromptArgs,
     isSendPromptParseError,
@@ -96,17 +96,16 @@ interface ProjectInfo {
     absPath: string;
 }
 
-/** Discover workspace projects via configurable detector rules. */
-function discoverProjects(): ProjectInfo[] {
-    return scanWorkspaceProjectsByDetectors(5).map((project) => ({
-        name: project.name,
-        absPath: project.absolutePath,
-    }));
+/** The workspace's projects (buildkit's listing, the extension's one project discovery). */
+async function discoverProjects(): Promise<ProjectInfo[]> {
+    const root = getWorkspaceRoot();
+    if (!root) { return []; }
+    return (await listedProjects(root)).map((project) => ({ name: project.name, absPath: project.absolutePath }));
 }
 
 /** Find a project by name (case-insensitive, partial match). */
-function findProject(name: string): ProjectInfo | undefined {
-    const projects = discoverProjects();
+async function findProject(name: string): Promise<ProjectInfo | undefined> {
+    const projects = await discoverProjects();
     const lower = name.toLowerCase();
 
     // Exact match first
@@ -117,9 +116,10 @@ function findProject(name: string): ProjectInfo | undefined {
     return projects.find(p => p.name.toLowerCase().startsWith(lower));
 }
 
-/** Detect the closest configured project from a directory. */
-function detectProject(fromDir: string): ProjectInfo | undefined {
-    const project = findNearestDetectedProject(fromDir);
+/** The innermost listed project holding a directory. */
+async function detectProject(fromDir: string): Promise<ProjectInfo | undefined> {
+    const root = getWorkspaceRoot();
+    const project = root ? nearestListedProject(await listedProjects(root), fromDir) : undefined;
     if (!project) {
         return undefined;
     }
@@ -215,7 +215,7 @@ async function cdHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandRes
 // --- /cwd ---
 async function cwdHandler(_cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const cwd = getCwd();
-    const project = detectProject(cwd);
+    const project = await detectProject(cwd);
     let text = `📂 *Current directory:*\n${esc(displayPath(cwd))}`;
     if (project) {
         text += `\n📦 *Project:* ${esc(project.name)}`;
@@ -227,7 +227,7 @@ async function cwdHandler(_cmd: ParsedTelegramCommand): Promise<TelegramCommandR
 async function projectHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     if (cmd.args.length === 0) {
         // List all projects
-        const projects = discoverProjects();
+        const projects = await discoverProjects();
         if (projects.length === 0) {
             return { text: '❌ No projects found in workspace.' };
         }
@@ -242,7 +242,7 @@ async function projectHandler(cmd: ParsedTelegramCommand): Promise<TelegramComma
     }
 
     const name = cmd.args.join(' ');
-    const project = findProject(name);
+    const project = await findProject(name);
 
     if (!project) {
         return { text: `❌ Project not found: ${name}\nUse /project to list all projects.` };
@@ -262,7 +262,7 @@ async function dartHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandR
 
     // If a project name is provided as an arg, use it
     if (cmd.args.length > 0) {
-        const project = findProject(cmd.args[0]);
+        const project = await findProject(cmd.args[0]);
         if (project) {
             targetDir = project.absPath;
         } else {
@@ -271,7 +271,7 @@ async function dartHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandR
     }
 
     // Verify it's a Dart project
-    const project = detectProject(targetDir);
+    const project = await detectProject(targetDir);
     if (!project) {
         return { text: `❌ No Dart project found at ${displayPath(targetDir)}.\nUse /project <name> to switch to a project first.` };
     }
@@ -531,7 +531,7 @@ async function cliIntegrationHandler(cmd: ParsedTelegramCommand): Promise<Telegr
 async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const wsRoot = getWorkspaceRoot();
     const cwd = getCwd();
-    const project = detectProject(cwd);
+    const project = await detectProject(cwd);
 
     const lines = [
         `📊 *Status*\n`,

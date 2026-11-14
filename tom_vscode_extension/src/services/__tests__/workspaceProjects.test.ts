@@ -141,7 +141,7 @@ describe('workspaceProjects', () => {
             const jsLister = (): { projects: Array<typeof project> } => ({ projects: [project] });
             const root = path.join(tmp, 'ws5');
             const missing = await listWorkspaceProjects(root, {
-                fresh: true, jsLister, env: { PATH: '' },
+                fresh: true, jsLister, env: { PATH: '' }, extensionRoot: null,
                 config: { binaryPath: { [platform]: '${env:TOM_BINARY_PATH}/' + platform + '/' } },
             });
             assert.ok(missing.ok && missing.source === 'javascript');
@@ -178,7 +178,7 @@ describe('workspaceProjects', () => {
         setProjectListingNotifier((f) => told.push(f));
         resetProjectListingNotices();
         try {
-            const opts = { fresh: true, jsLister: () => ({ projects: [] }), env: { PATH: '' }, config: { binaryPath: { '*': path.join(tmp, 'nothing6') } } };
+            const opts = { fresh: true, jsLister: () => ({ projects: [] }), env: { PATH: '' }, extensionRoot: null, config: { binaryPath: { '*': path.join(tmp, 'nothing6') } } };
             await listWorkspaceProjects(path.join(tmp, 'ws6'), opts);
             await listWorkspaceProjects(path.join(tmp, 'ws6'), opts);
             assert.equal(told.length, 1, 'once per reason and window');

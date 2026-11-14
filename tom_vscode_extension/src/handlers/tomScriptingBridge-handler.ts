@@ -18,7 +18,7 @@ import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { TimerEngine, TimedRequest } from '../managers/timerEngine';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
-import { scanWorkspaceProjectsByDetectors } from '../utils/projectDetector';
+import { listedProjects, scriptingProjectInfo, scriptingProjectType } from '../services/workspaceProjects';
 
 // ============================================================================
 // Singleton Manager
@@ -996,11 +996,23 @@ export class TomScriptingBridgeHandler {
         }
     }
 
+    /** The workspace root the project calls list (the first folder). */
+    private projectsRoot(): string {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    }
+
+    /** The workspace's projects as the scripting API reads them (buildkit's listing, services/workspaceProjects.ts). */
+    private async scriptingProjects(): Promise<Array<Record<string, unknown>>> {
+        const root = this.projectsRoot();
+        if (!root) { return []; }
+        return (await listedProjects(root)).map((p) => scriptingProjectInfo(p, root));
+    }
+
     private async getWorkspaceInfo(): Promise<any> {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         const wsFile = vscode.workspace.workspaceFile?.fsPath;
         const questIds = questTodo.listQuestIds();
-        const projects = await scanWorkspaceProjectsByDetectors();
+        const projects = await this.scriptingProjects();
         const activeQuest = WsPaths.getWorkspaceQuestId();
         const windowId = vscode.env.sessionId;
 
@@ -1016,69 +1028,33 @@ export class TomScriptingBridgeHandler {
     }
 
     private async listProjects(type?: string, includeSubWorkspaces?: boolean): Promise<any> {
-        const projects = await scanWorkspaceProjectsByDetectors();
-
-        // DetectedWorkspaceProject has: name, relativePath, absolutePath, attributes, detectorNames
-        const mapped = projects
-            .filter(p => {
-                if (!type) return true;
-                // Check if any detector matches the type
-                return p.detectorNames.includes(type) || 
-                       p.attributes['type']?.includes(type);
-            })
-            .map(p => ({
-                id: p.name,
-                name: p.name,
-                path: p.absolutePath,
-                relativePath: p.relativePath,
-                type: p.detectorNames[0] || 'other',
-                detectors: p.detectorNames,
-                attributes: p.attributes,
-                isSubWorkspace: p.attributes['subWorkspace']?.includes('true') ?? false,
-            }));
+        const root = this.projectsRoot();
+        const listed = root ? await listedProjects(root) : [];
+        // `type` names the scripting API's type (dart, flutter, node, python, other), or a nature, a language or a
+        // listing type (dart_package, typescript, ...).
+        const mapped = listed
+            .filter((p) => !type || scriptingProjectType(p) === type || p.type === type || p.language === type || p.natures.includes(type))
+            .map((p) => scriptingProjectInfo(p, root));
 
         return {
             projects: includeSubWorkspaces === false
-                ? mapped.filter(p => !p.isSubWorkspace)
+                ? mapped.filter((p) => p.isSubWorkspace !== true)
                 : mapped,
             totalCount: mapped.length,
         };
     }
 
     private async getProject(projectId: string): Promise<any> {
-        const projects = await scanWorkspaceProjectsByDetectors();
-
-        const project = projects.find(p => p.name === projectId);
-        if (!project) { return null; }
-
-        return {
-            id: project.name,
-            name: project.name,
-            path: project.absolutePath,
-            relativePath: project.relativePath,
-            type: project.detectorNames[0] || 'other',
-            detectors: project.detectorNames,
-            attributes: project.attributes,
-            isSubWorkspace: project.attributes['subWorkspace']?.includes('true') ?? false,
-        };
+        const projects = await this.scriptingProjects();
+        // By the project id (buildkit.yaml project_id, else the name), then by the name.
+        return projects.find((p) => p.id === projectId) ?? projects.find((p) => p.name === projectId) ?? null;
     }
 
     private async findProjects(pattern: string): Promise<any> {
-        const projects = await scanWorkspaceProjectsByDetectors();
+        const projects = await this.scriptingProjects();
         const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
 
-        const filtered = projects
-            .filter(p => regex.test(p.name) || regex.test(p.absolutePath))
-            .map(p => ({
-                id: p.name,
-                name: p.name,
-                path: p.absolutePath,
-                relativePath: p.relativePath,
-                type: p.detectorNames[0] || 'other',
-                detectors: p.detectorNames,
-                attributes: p.attributes,
-                isSubWorkspace: p.attributes['subWorkspace']?.includes('true') ?? false,
-            }));
+        const filtered = projects.filter((p) => regex.test(String(p.name)) || regex.test(String(p.path)));
 
         return { projects: filtered, totalCount: filtered.length };
     }

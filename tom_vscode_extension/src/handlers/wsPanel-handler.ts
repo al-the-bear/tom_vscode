@@ -43,7 +43,8 @@ import {
     handleStatusAction,
 } from './statusPage-handler.js';
 import { WsPaths } from '../utils/workspacePaths.js';
-import { matchesExcludeGlob, scanWorkspaceProjectsCached } from '../utils/projectDetector.js';
+import { matchesExcludeGlob } from '../utils/workspaceFolders.js';
+import { listedProjects } from '../services/workspaceProjects.js';
 import { guidelinesExcludeGlobs } from '../utils/vscodeSettings.js';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview.js';
 import { openInExternalApplication } from './handler_shared.js';
@@ -418,10 +419,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     }
 
     private async _collectGuidelinesProjects(): Promise<{ id: string; label: string }[]> {
-        // Asynchronous and shared with the other groups' and panels' scans:
-        // the synchronous walk held the extension host for seconds while the
-        // window opened, so every other panel waited for @WS.
-        const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true });
+        // The extension's one project discovery (buildkit's listing, cached and shared
+        // with the other panels; services/workspaceProjects.ts).
+        const wsRootForProjects = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const projects = (wsRootForProjects ? await listedProjects(wsRootForProjects) : [])
+            .map((p) => ({ name: p.name, relativePath: p.path, absolutePath: p.absolutePath }));
         const result: { id: string; label: string }[] = [];
         // `tomAi.guidelines.excludeGlobs`: projects the Project list leaves out.
         const exclude = guidelinesExcludeGlobs((key) => vscode.workspace.getConfiguration('tomAi').get(key));
@@ -664,10 +666,11 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     }
 
     private async _collectDocsProjects(): Promise<{ id: string; label: string }[]> {
-        // Asynchronous and shared with the other groups' and panels' scans:
-        // the synchronous walk held the extension host for seconds while the
-        // window opened, so every other panel waited for @WS.
-        const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true });
+        // The extension's one project discovery (buildkit's listing, cached and shared
+        // with the other panels; services/workspaceProjects.ts).
+        const wsRootForProjects = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const projects = (wsRootForProjects ? await listedProjects(wsRootForProjects) : [])
+            .map((p) => ({ name: p.name, relativePath: p.path, absolutePath: p.absolutePath }));
         const result: { id: string; label: string }[] = [];
 
         for (const proj of projects) {

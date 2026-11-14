@@ -34,6 +34,7 @@
  * vscode-free.
  */
 
+import * as fs from 'fs';
 import { listProjectsJs } from './projectListingJs';
 import { getCurrentPlatform } from '../utils/executableResolver';
 import { currentDartBinariesConfig, dartBinariesExtensionRoot, runBinaryFile, type DartBinariesConfig } from './dartBinariesStatus';
@@ -240,6 +241,8 @@ export function listWorkspaceProjects(
         now?: () => number;
         env?: NodeJS.ProcessEnv;
         jsLister?: JsLister;
+        /** The extension whose bundled buildkit is the last place (default the installed one; null: not looked at). */
+        extensionRoot?: string | null;
     } = {},
 ): Promise<ProjectListing> {
     const now = (options.now ?? Date.now)();
@@ -254,10 +257,12 @@ export function listWorkspaceProjects(
 
 async function runListing(
     workspaceRoot: string,
-    options: { config?: DartBinariesConfig; runner?: BuildkitRunner; env?: NodeJS.ProcessEnv; jsLister?: JsLister },
+    options: { config?: DartBinariesConfig; runner?: BuildkitRunner; env?: NodeJS.ProcessEnv; jsLister?: JsLister; extensionRoot?: string | null },
 ): Promise<ProjectListing> {
     const config = options.config ?? currentDartBinariesConfig();
-    const { binary, searched } = resolveBuildkitBinary(workspaceRoot, config, options.env);
+    const { binary, searched } = options.extensionRoot === undefined
+        ? resolveBuildkitBinary(workspaceRoot, config, options.env)
+        : resolveBuildkitBinary(workspaceRoot, config, options.env, undefined, options.extensionRoot);
     if (!binary) {
         return fallBack(workspaceRoot, options.jsLister, {
             kind: 'notFound',
@@ -300,4 +305,95 @@ function fallBack(workspaceRoot: string, jsLister: JsLister | undefined, fallbac
         notifyFallback(fallback);
         return { ok: false, error: `${fallback.reason} The JavaScript listing failed too: ${(e as Error).message}`, ...(fallback.binary ? { binary: fallback.binary } : {}), searched: fallback.searched };
     }
+}
+
+// ── The listing for the extension's own callers (vscimpb84) ───────────────────
+// The one project discovery of the extension: the todo panel's project scopes,
+// the prompt scopes, the active-project picker, the @WS guideline and document
+// projects, the scripting bridge and the Telegram / command-line project lookups
+// all read this listing (buildkit's, the JavaScript port where no buildkit is
+// found). Everything they need is derived from a listed project here: its
+// path, language, natures and type.
+
+/** The listing's options, for callers that pass them through. */
+export type ListingOptions = Parameters<typeof listWorkspaceProjects>[1];
+
+/**
+ * The listed projects of [workspaceRoot] (cached as listWorkspaceProjects is),
+ * sorted by name; no listing (neither buildkit's nor the JavaScript port's)
+ * gives none.
+ */
+export async function listedProjects(workspaceRoot: string, options: ListingOptions = {}): Promise<WorkspaceProject[]> {
+    const listing = await listWorkspaceProjects(workspaceRoot, options);
+    if (!listing.ok) { return []; }
+    return [...listing.projects].sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
+}
+
+/** The innermost listed project holding [dir] (the folder itself or one above it), if any. */
+export function nearestListedProject(projects: readonly WorkspaceProject[], dir: string): WorkspaceProject | undefined {
+    const target = pathKey(dir);
+    let best: WorkspaceProject | undefined;
+    for (const p of projects) {
+        const root = pathKey(p.absolutePath);
+        if (target === root || target.startsWith(`${root}/`)) {
+            if (!best || root.length > pathKey(best.absolutePath).length) { best = p; }
+        }
+    }
+    return best;
+}
+
+function isFileOnDisk(file: string): boolean {
+    try { return fs.statSync(file).isFile(); } catch { return false; }
+}
+
+function pathKey(p: string): string {
+    const normalized = p.replace(/\\/g, '/').replace(/\/+$/, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+/** The todo panel's coarse project kind: Dart (Flutter included), Node (TypeScript / JavaScript), other. */
+export function coarseProjectType(p: WorkspaceProject): 'dart' | 'node' | 'other' {
+    if (p.language === 'dart') { return 'dart'; }
+    if (p.language === 'typescript' || p.language === 'javascript') { return 'node'; }
+    return 'other';
+}
+
+/** The scripting API's `ProjectType` (tom_vscode_scripting_api): dart, flutter, node, python, other. */
+export function scriptingProjectType(p: WorkspaceProject): 'dart' | 'flutter' | 'node' | 'python' | 'other' {
+    if (p.natures.includes('flutter') || p.type.startsWith('flutter')) { return 'flutter'; }
+    const coarse = coarseProjectType(p);
+    if (coarse !== 'other') { return coarse; }
+    return p.language === 'python' ? 'python' : 'other';
+}
+
+/**
+ * Whether the project's folder is a workspace of its own (it holds a
+ * `buildkit_master.yaml`) below the listed root: the scripting API's
+ * `isSubWorkspace`.
+ */
+export function isSubWorkspace(p: WorkspaceProject, workspaceRoot: string, exists: (file: string) => boolean = isFileOnDisk): boolean {
+    if (pathKey(p.absolutePath) === pathKey(workspaceRoot)) { return false; }
+    return exists(`${p.absolutePath.replace(/[\\/]+$/, '')}/buildkit_master.yaml`);
+}
+
+/**
+ * A listed project as the scripting bridge answers it (tom_vscode_scripting_api
+ * `ProjectInfo.fromJson`): id, name, path, relativePath, type, description,
+ * version, tags (the natures), isSubWorkspace; plus language and natures as the
+ * listing has them.
+ */
+export function scriptingProjectInfo(p: WorkspaceProject, workspaceRoot: string, exists?: (file: string) => boolean): Record<string, unknown> {
+    return {
+        id: p.id,
+        name: p.name,
+        path: p.absolutePath,
+        relativePath: p.path,
+        type: scriptingProjectType(p),
+        ...(p.description ? { description: p.description } : {}),
+        ...(p.version ? { version: p.version } : {}),
+        tags: [...p.natures],
+        language: p.language,
+        natures: [...p.natures],
+        isSubWorkspace: isSubWorkspace(p, workspaceRoot, exists),
+    };
 }

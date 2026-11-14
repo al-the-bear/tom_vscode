@@ -10,7 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { isIgnoredWorkspaceFolder, scanWorkspaceProjectsCached } from './projectDetector';
+import { isIgnoredWorkspaceFolder } from './workspaceFolders';
+import { listedProjects } from '../services/workspaceProjects';
 import { TtlPromiseCache } from './ttlPromiseCache';
 
 export interface PromptScopeItem {
@@ -106,12 +107,18 @@ export async function scanPromptScopes(wsRoot: string, fresh = false): Promise<P
     }));
 }
 
+/** The listed projects of a workspace (services/workspaceProjects.ts); a seam for tests. */
+export type ProjectLister = (wsRoot: string, fresh: boolean) => Promise<Array<{ name: string; absolutePath: string }>>;
+
+const defaultProjectLister: ProjectLister = (wsRoot, fresh) => listedProjects(wsRoot, { fresh });
+
 /**
- * The project scopes: each detected project's `prompt/` folder. Without
- * detected projects, every folder holding a `prompt/` folder outside `_ai`.
+ * The project scopes: each listed project's `prompt/` folder (buildkit's
+ * listing, the extension's one project discovery). Without listed projects,
+ * every folder holding a `prompt/` folder outside `_ai`.
  */
-export async function projectPromptScopes(wsRoot: string, fresh = false): Promise<PromptScopeItem[]> {
-    const projects = await scanWorkspaceProjectsCached({ traverseWholeWorkspace: true }, fresh);
+export async function projectPromptScopes(wsRoot: string, fresh = false, lister: ProjectLister = defaultProjectLister): Promise<PromptScopeItem[]> {
+    const projects = await lister(wsRoot, fresh);
     if (projects.length > 0) {
         return projects
             .map((project) => ({

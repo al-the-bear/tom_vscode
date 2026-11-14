@@ -797,7 +797,6 @@ Most of the extension's configuration is in its config file (`@T: Open Config Fi
 | `tomAi.timedRequests.tickInterval` | How often the timed-request engine looks for due entries, ms (default 30 000, at least 1 000; read when the engine starts) |
 | `tomAi.todo.workspaceTodoFile`, `tomAi.todo.questTodoPattern`, `tomAi.notes.questNotesPattern` | The files of the WORKSPACE TODOS, QUEST TODOS and quest-notes views |
 | `tomAi.guidelines.excludeGlobs` | Projects the Guidelines panel's Project list leaves out (default `tom/zom_*/**`) |
-| `tomAi.projectDetection.excludeGlobs` | Folders the workspace's project scan skips (default `tom/zom_*/**`) |
 
 The trail is switched on and off on the Status Page (the config file's `trail.raw.enabled`), not by a VS Code setting.
 
