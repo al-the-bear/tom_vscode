@@ -582,6 +582,15 @@ function knownRuns() {
   return Object.keys(set).sort(function(a, b) { return a === 'default' ? -1 : b === 'default' ? 1 : a < b ? -1 : a > b ? 1 : 0; });
 }
 
+/**
+ * Whether `run`'s tab belongs to a deleted run (vscimpb86): it is not among the quest's runs any more and
+ * shows only because items still name it. `default` never is. Decided on every render, so a run created
+ * again under the same name is a live tab again.
+ */
+function isOrphanedRun(run) {
+  return run !== 'default' && processRuns.indexOf(run) < 0;
+}
+
 /** Whether a run sends, waits or is paused (its tab shows it): sending / paused / waiting / idle. */
 function runTabState(run) {
   const items = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'chat' && i.status !== 'chat-sent'; });
@@ -618,16 +627,29 @@ function renderRunTabs() {
     const state = runTabState(run);
     const n = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'sent' && i.status !== 'chat-sent'; }).length;
     const active = run === selectedRun;
-    return '<button class="run-tab run-tab-' + state + (active ? ' active' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '"'
-      + ' data-run="' + escapeHtml(run) + '" data-state="' + state + '"'
-      + ' title="Run ' + escapeHtml(run) + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + runTabWaitNote(run) + '">'
+    const orphaned = isOrphanedRun(run);
+    const tab = '<button class="run-tab run-tab-' + state + (active ? ' active' : '') + (orphaned ? ' run-tab-orphaned' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '"'
+      + ' data-run="' + escapeHtml(run) + '" data-state="' + state + '"' + (orphaned ? ' data-orphaned="true"' : '')
+      + ' title="Run ' + escapeHtml(run) + (orphaned ? ' (deleted run: its items are kept until you remove its queue)' : '') + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + runTabWaitNote(run) + '">'
       + '<span class="codicon ' + runTabStateView(state).icon + '"></span> ' + escapeHtml(run)
+      + (orphaned ? ' <span class="muted run-tab-deleted">(deleted run)</span>' : '')
       + (run === currentRun ? ' <span class="muted">(this window)</span>' : '')
       + (n ? ' <span class="run-tab-count">' + n + '</span>' : '')
       + '</button>';
+    // A deleted run's tab: remove its queue (the host confirms and deletes its items).
+    const remove = orphaned
+      ? '<button class="run-tab-remove" data-run="' + escapeHtml(run) + '" title="Remove this deleted run\'s queue: delete its items" aria-label="Remove the queue of the deleted run ' + escapeHtml(run) + '"><span class="codicon codicon-trash"></span></button>'
+      : '';
+    return '<span class="run-tab-wrap">' + tab + remove + '</span>';
   }).join('');
   row.querySelectorAll('.run-tab').forEach(function(btn) {
     btn.addEventListener('click', function() { selectRunTab(btn.dataset.run); });
+  });
+  row.querySelectorAll('.run-tab-remove').forEach(function(btn) {
+    btn.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'removeRunQueue', run: btn.dataset.run });
+    });
   });
 }
 

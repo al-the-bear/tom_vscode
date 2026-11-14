@@ -717,6 +717,23 @@ named session to the new run (`runSessionName(sessionBaseName(session), run)`), 
 `yieldAfterIteration` (both refer to the old lane) and puts the item at the end of the queue, behind the
 run's items. Refused for a sending item, an item of a Proceed run (`processRun`) and a process-move marker.
 
+**The queue of a deleted run** (vscimpb86): the editor's tabs are the quest's runs plus every run that still
+has items (`knownRuns()` in `media/queueEditor/main.js`), so a run deleted while it had items keeps its tab.
+On every render a tab whose run is not among the state's `processRuns` (and is not `default`) is orphaned
+(`isOrphanedRun`): muted (`run-tab-orphaned`), `(deleted run)` in its label and tooltip, and a remove button
+beside it (codicon trash, *Remove this deleted run's queue: delete its items*) that posts `removeRunQueue`
+with the run. A run created again under the same name is in `processRuns` again, so its tab is live, with
+its old items, and has no button. The host (`case 'removeRunQueue'` in `queueEditor-handler.ts`) refuses
+`default` and live runs (`runQueueRemovalRefused`), plans the removal (`runQueueRemovalPlan` in
+`src/utils/runQueueRemoval.ts`: the finished items — `sent`, `chat-sent`, `error` — and the others per
+status) and asks in a modal (`runQueueRemovalDialog`): with only finished items one *Delete N items*; with
+items not finished also *Delete only the N finished items*, the detail naming the counts per status and that
+a sending item is stopped. It checks the run is still deleted, then calls the manager's
+`removeRunQueue(run, mode)`: `all` removes every item of the run through `remove(id)` (a sending one is
+stopped, as removing it stops it), `finished` only the finished ones; when no item of the run is left its
+settings entry (`runs.<run>`) is deleted too, so a run created later under that name starts from the start
+values. The tab goes once its items are gone, and the selection falls back to the window's run.
+
 **Let the next item go first** (`src/utils/queueYield.ts`) is the reverse: the
 iteration item yields. `letNextGoFirst(id)` on a pending iteration item moves
 it directly behind the next pending item of its lane (`orderForYield`); on a

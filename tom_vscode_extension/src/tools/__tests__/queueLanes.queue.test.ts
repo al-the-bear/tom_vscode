@@ -30,6 +30,10 @@
  *   QM-12 a staged or pending item moves into another run's queue (the editor's run chip): its run, its session
  *        `<session>@<run>`, behind the run's items, a between-iterations mark dropped; it sends in the new lane; a
  *        sending item and an item of a Proceed run are refused
+ *   QM-14 a deleted run's queue removed (vscimpb86): `finished` deletes only its sent and failed items and keeps
+ *        the others and its settings; `all` deletes every item (a sending one is stopped) and its `runs.<run>`
+ *        settings; another run's items and settings are untouched; the editor's plan and dialog: the counts per
+ *        status, both choices only while items are not finished, `default` and live runs refused
  *   QM-5 the editor, the tool, Telegram, the Status Page and the window status take or show a run: the editor's
  *        toolbar settings are those of its tab's run (messages name it); tomAi_listQueue reports a run's settings and every run's auto-send; Telegram's pause / continue
  *        take a run (default the window's)
@@ -83,6 +87,7 @@ import { ProcessRepository } from '../../utils/processRepository.js';
 import { DEFAULT_RUN } from '../../utils/processRuns.js';
 import { getQueueFolder, readQueueSettings } from '../../storage/queueFileStorage.js';
 import { listQueueImpl, type PromptQueueAccess } from '../prompt-queue-tools.js';
+import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../../utils/runQueueRemoval.js';
 
 let context: never;
 const subscriptions: Array<{ dispose(): void }> = [];
@@ -473,6 +478,51 @@ describe('lanes and settings per run', () => {
         await finish(a);
         const p = await queue().enqueue({ originalText: 'p', transport: 'anthropic', deferSend: true, initialStatus: 'pending', processRun: { quest: 'q', state: {}, run: 'r1' } } as never);
         assert.match(String((queue().moveItemToRun(p.id, 'r2') as Json).reason), /Proceed run/);
+        clean();
+    });
+
+    test('QM-14: a deleted run\'s queue removed', async () => {
+        clean();
+        queue().setRunQueueSettings('r1', { autoSend: false });
+        queue().setRunQueueSettings('r2', { autoSend: false, autoPause: false });
+        const a = await add('a', 'r1', 'sa');
+        const b = await queue().enqueue({ originalText: 'b', run: 'r1', transport: 'anthropic', deferSend: true, initialStatus: 'staged' } as never);
+        const c = await add('c', 'r1', 'sc');
+        const e = await add('e', 'r1', 'se');
+        (queue().getById(c.id) as Json).status = 'sent';
+        (queue().getById(e.id) as Json).status = 'error';
+        const x = await add('x', 'r2', 'sx');
+        // The editor's plan and dialog.
+        const plan = runQueueRemovalPlan(queue().items, 'r1');
+        assert.deepEqual([plan.total, plan.finished.sort(), plan.open.sort(), plan.openByStatus, plan.sending],
+            [4, [c.id, e.id].sort(), [a.id, b.id].sort(), { pending: 1, staged: 1 }, false]);
+        const dialog = runQueueRemovalDialog(plan);
+        assert.equal(dialog.message, 'Remove the queue of the deleted run r1?');
+        assert.match(dialog.detail, /4 items: 2 sent or failed, and 2 not finished \(1 pending, 1 staged\)/);
+        assert.deepEqual(dialog.choices, [{ label: 'Delete all 4 items', mode: 'all' }, { label: 'Delete only the 2 finished items', mode: 'finished' }]);
+        assert.match(runQueueRemovalRefused('default', ['default'])!, /default run/);
+        assert.match(runQueueRemovalRefused('r1', ['default', 'r1'])!, /one of the quest's runs/);
+        assert.equal(runQueueRemovalRefused('r1', ['default']), undefined);
+        // Only the finished ones: the others and the settings stay.
+        assert.deepEqual(queue().removeRunQueue('r1', 'finished'), { removed: 2, kept: 2, settingsRemoved: false });
+        assert.deepEqual([statusOf(a), statusOf(b), statusOf(c), statusOf(e), statusOf(x)], ['pending', 'staged', undefined, undefined, 'pending']);
+        assert.ok((readQueueSettings() as Json).runs.r1, 'r1 keeps its settings while it has items');
+        const left = runQueueRemovalDialog(runQueueRemovalPlan(queue().items, 'r1'));
+        assert.deepEqual(left.choices.map((ch) => ch.mode), ['all'], 'nothing finished left: only Delete all');
+        // All: a sending item is stopped, the settings go.
+        queue().setRunAutoSend('r1', true);
+        await wait(60);
+        assert.equal(statusOf(a), 'sending');
+        assert.equal(runQueueRemovalPlan(queue().items, 'r1').sending, true);
+        assert.match(runQueueRemovalDialog(runQueueRemovalPlan(queue().items, 'r1')).detail, /the sending one is stopped/);
+        assert.deepEqual(queue().removeRunQueue('r1', 'all'), { removed: 2, kept: 0, settingsRemoved: true });
+        assert.deepEqual([statusOf(a), statusOf(b)], [undefined, undefined]);
+        assert.equal((readQueueSettings() as Json).runs.r1, undefined, 'runs.r1 removed: a run created later starts from the defaults');
+        assert.equal(statusOf(x), 'pending', 'r2\'s item untouched');
+        assert.ok((readQueueSettings() as Json).runs.r2, 'r2\'s settings untouched');
+        const only = runQueueRemovalDialog({ run: 'z', total: 3, finished: ['1', '2', '3'], open: [], openByStatus: {}, sending: false });
+        assert.deepEqual(only.choices, [{ label: 'Delete 3 items', mode: 'all' }], 'all finished: one confirmation');
+        inFlight.clear();
         clean();
     });
 

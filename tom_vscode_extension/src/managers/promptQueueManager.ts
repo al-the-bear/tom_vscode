@@ -10,6 +10,7 @@ import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
 import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, defaultSettingsDiff, readRunQueueSettings, runQueueSettingsToFile, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
+import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
 import * as vscode from 'vscode';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
@@ -2371,6 +2372,32 @@ export class PromptQueueManager {
 
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Remove a deleted run's queue (vscimpb86): `all` deletes every item of the
+     * run — a sending one is stopped, as {@link remove} stops it — and the run's
+     * queue settings (`runs.<run>`), so a run created again under that name
+     * starts from the defaults; `finished` deletes only its sent and failed
+     * items, and the settings too when nothing is left. `default` and the
+     * quest's live runs are the caller's to refuse (utils/runQueueRemoval.ts).
+     */
+    removeRunQueue(run: string, mode: RunQueueRemovalMode = 'all'): { removed: number; kept: number; settingsRemoved: boolean } {
+        const plan = runQueueRemovalPlan(this._items, run);
+        const ids = mode === 'all' ? [...plan.finished, ...plan.open] : plan.finished;
+        for (const id of ids) { this.remove(id); }
+        const kept = this._items.filter((i) => itemRun(i) === run).length;
+        let settingsRemoved = false;
+        if (kept === 0 && run !== DEFAULT_RUN && this._runSettings.has(run)) {
+            this._runSettings.delete(run);
+            const timer = this._autoContinueTimers.get(run);
+            if (timer) { clearTimeout(timer); this._autoContinueTimers.delete(run); }
+            this.persistSettings();
+            settingsRemoved = true;
+        }
+        logQueue(`Run queue removed: run=${run}, mode=${mode}, removed=${ids.length}, kept=${kept}${settingsRemoved ? ', settings removed' : ''}`);
+        this._onDidChange.fire();
+        return { removed: ids.length, kept, settingsRemoved };
     }
 
     /**

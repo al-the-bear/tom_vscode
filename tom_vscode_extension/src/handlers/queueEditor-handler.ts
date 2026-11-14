@@ -48,6 +48,7 @@ import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs
 import { questTrailFolder } from '../utils/questPaths';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
+import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -668,6 +669,25 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             if (!picked) { break; }
             const r = qm.moveItemToRun(id, picked.label);
             if (!r.ok) { vscode.window.showInformationMessage(`Move to another run: ${r.reason}.`); }
+            sendState();
+            break;
+        }
+        case 'removeRunQueue': {
+            // The remove button of a deleted run's tab (vscimpb86): confirmed here, removed by the manager.
+            const run = String(msg.run ?? '');
+            const refused = runQueueRemovalRefused(run, queueRunState().processRuns);
+            if (refused) { vscode.window.showInformationMessage(`Remove the run's queue: ${refused}.`); sendState(); break; }
+            const plan = runQueueRemovalPlan(qm.items, run);
+            if (plan.total === 0) { sendState(); break; }
+            const dialog = runQueueRemovalDialog(plan);
+            const picked = await vscode.window.showWarningMessage(dialog.message, { modal: true, detail: dialog.detail }, ...dialog.choices.map((c) => c.label));
+            const choice = dialog.choices.find((c) => c.label === picked);
+            if (!choice) { break; }
+            // The run may have been created again while the dialog was open: then it keeps its queue.
+            const late = runQueueRemovalRefused(run, queueRunState().processRuns);
+            if (late) { vscode.window.showInformationMessage(`Remove the run's queue: ${late}.`); sendState(); break; }
+            const r = qm.removeRunQueue(run, choice.mode);
+            vscode.window.setStatusBarMessage(`$(trash) Run ${run}: ${r.removed} item${r.removed === 1 ? '' : 's'} deleted${r.kept ? `, ${r.kept} kept` : ''}`, 4000);
             sendState();
             break;
         }

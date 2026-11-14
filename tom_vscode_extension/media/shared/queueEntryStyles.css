@@ -189,6 +189,12 @@
 .run-tab-sending .codicon { color: var(--vscode-charts-green, #3fb950); }
 .run-tab-waiting .codicon { color: var(--vscode-charts-blue, #3794ff); }
 .run-tab-paused .codicon { color: var(--vscode-charts-yellow, #d29922); }
+.run-tab-wrap { display: inline-flex; align-items: flex-end; }
+/* A deleted run's tab (vscimpb86): muted, with a remove button beside it. */
+.run-tab-orphaned { opacity: 0.55; font-style: italic; }
+.run-tab-orphaned.active { opacity: 0.8; }
+.run-tab-remove { background: transparent; border: none; color: var(--vscode-foreground); opacity: 0.6; cursor: pointer; padding: 3px 4px; }
+.run-tab-remove:hover { opacity: 1; color: var(--vscode-errorForeground); }
 
 /* A turn waiting in tomAi_waitFor (renderWaitFor). */
 .wait-for { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #3794ff; background: rgba(55,148,255,0.08); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }

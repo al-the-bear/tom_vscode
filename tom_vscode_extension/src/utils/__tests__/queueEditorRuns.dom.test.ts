@@ -27,6 +27,12 @@
  *        from the start values (the state's `startQueueSettings`; unset equals ""), its tooltip naming what differs;
  *        a click posts `makeRunSettingsDefault` with the tab's run; the host calls the manager's
  *        setDefaultQueueSettings and confirms in the status bar
+ *   QR-10 a deleted run's tab (vscimpb86): a run that is no longer among the quest's runs and still has items keeps
+ *        its tab, muted and marked `(deleted run)` in its label and tooltip, with a remove button beside it (codicon
+ *        trash, "Remove this deleted run's queue: delete its items"); live runs and `default` never have it; a click
+ *        posts `removeRunQueue` with the run and does not switch the tab; the run created again under the same name
+ *        (it is back in `processRuns`) makes the tab live again, its items in it, without the button; once the host
+ *        has removed the items the tab is gone and the selection falls back to the window's run
  */
 
 import test, { describe } from 'node:test';
@@ -269,4 +275,48 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.match(host, /setStatusBarMessage\(/);
         assert.match(host, /startQueueSettings: \{ \.\.\.qm\.startQueueSettings\(\) \}/);
     });
+    test('QR-10: a deleted run\'s tab', (t) => {
+        // chg2 was deleted: the quest's runs are default and chg1, chg2 still has items a, d, g.
+        const { w, posted } = setup(t, ITEMS, { queueTab: 'chg2' }, { runQueueSettings: SETTINGS, processRuns: ['default', 'chg1'] });
+        const row = w.document.getElementById('runTabs');
+        assert.deepEqual(tabs(w), ['default 3', 'chg1 (this window) 1', 'chg2 (deleted run) 2'], 'the deleted run keeps its tab, marked');
+        const orphan = row.querySelector('.run-tab[data-run="chg2"]');
+        assert.ok(orphan.classList.contains('run-tab-orphaned'), 'muted');
+        assert.equal(orphan.dataset.orphaned, 'true');
+        assert.match(orphan.title, /^Run chg2 \(deleted run: its items are kept until you remove its queue\)/);
+        const removes = [...row.querySelectorAll('.run-tab-remove')].map((b: Win) => b.dataset.run);
+        assert.deepEqual(removes, ['chg2'], 'the button only on the deleted run\'s tab');
+        const btn = row.querySelector('.run-tab-remove');
+        assert.ok(btn.querySelector('.codicon-trash'));
+        assert.equal(btn.title, 'Remove this deleted run\'s queue: delete its items');
+        for (const live of ['default', 'chg1']) {
+            assert.ok(!row.querySelector(`.run-tab[data-run="${live}"]`).classList.contains('run-tab-orphaned'), `${live} is live`);
+        }
+        clickTab(w, 'chg1');
+        posted.length = 0;
+        btn.click();
+        assert.deepEqual(posted.filter((m) => m.type === 'removeRunQueue'), [{ type: 'removeRunQueue', run: 'chg2' }]);
+        assert.equal(row.querySelector('.run-tab.active').dataset.run, 'chg1', 'the click does not switch the tab');
+        assert.equal(posted.filter((m) => m.type === 'setSettingsRun').length, 0);
+
+        // The run is created again under the same name: the tab is live, its items in it, no button.
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: ITEMS, autoSend: false, processRuns: ['default', 'chg1', 'chg2'], currentRun: 'chg1', runQueueSettings: SETTINGS } }));
+        assert.deepEqual(tabs(w), ['default 3', 'chg1 (this window) 1', 'chg2 2']);
+        assert.equal(w.document.querySelectorAll('#runTabs .run-tab-remove').length, 0, 'no button once the run is back');
+        assert.ok(!w.document.querySelector('#runTabs .run-tab[data-run="chg2"]').classList.contains('run-tab-orphaned'));
+        clickTab(w, 'chg2');
+        assert.deepEqual(runChips(w), ['chg2', 'chg2'], 'its old items are back in it');
+
+        // Deleted again, then its items removed by the host: the tab goes, the selection falls back to the window's run.
+        const rest = ITEMS.filter((i) => !['a', 'd', 'g'].includes(i.id));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: rest, autoSend: false, processRuns: ['default', 'chg1'], currentRun: 'chg1', runQueueSettings: SETTINGS } }));
+        assert.deepEqual(tabs(w), ['default 3', 'chg1 (this window) 1']);
+        assert.equal(w.document.querySelector('#runTabs .run-tab.active').dataset.run, 'chg1');
+        assert.equal(w.document.querySelectorAll('#runTabs .run-tab-remove').length, 0);
+
+        // The host confirms and removes (handler source): refused for default and live runs, the manager removes.
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        assert.match(host, /case 'removeRunQueue': \{[\s\S]*runQueueRemovalRefused\(run, queueRunState\(\)\.processRuns\)[\s\S]*showWarningMessage\(dialog\.message, \{ modal: true, detail: dialog\.detail \}[\s\S]*qm\.removeRunQueue\(run, choice\.mode\)/);
+    });
 });
+
