@@ -25,6 +25,7 @@ installVscodeStub({});
 
 import type * as vscode from 'vscode';
 import { ALL_SHARED_TOOLS, resolveProfileTools } from '../tool-executors.js';
+import { ALWAYS_ON_TOOLS } from '../../utils/roleTypes.js';
 import { toAnthropicTools } from '../shared-tool-registry.js';
 import type { SharedToolDefinition } from '../shared-tool-registry.js';
 import type { SendToChatConfig } from '../../utils/sendToChatConfig.js';
@@ -103,13 +104,13 @@ describe('activeProfileToolNames — single source for list + gate', () => {
         assert.equal(implied.size, ALL_SHARED_TOOLS.length);
     });
 
-    test('enabledTools allow-list → subset', () => {
+    test('enabledTools allow-list → subset, with the always-on tools (vscimpb87, as the chat panel)', () => {
         const pick = ALL_SHARED_TOOLS[0].name;
         const names = activeProfileToolNames(
             cfgWith([{ id: 'p1', toolsEnabled: false, enabledTools: [pick, '__nope__'] }]),
             'p1',
         );
-        assert.deepEqual([...names], [pick]);
+        assert.deepEqual([...names].sort(), [...new Set([pick, ...ALWAYS_ON_TOOLS])].sort());
     });
 
     test('empty allow-list (or missing) → empty set', () => {
@@ -140,7 +141,7 @@ describe('activeProfileToolNames — single source for list + gate', () => {
             ]),
             'subset',
         );
-        assert.deepEqual([...names], [pick]);
+        assert.deepEqual([...names].sort(), [...new Set([pick, ...ALWAYS_ON_TOOLS])].sort());
     });
 
     test('unmatched active id falls back to isDefault, then first', () => {
@@ -152,7 +153,7 @@ describe('activeProfileToolNames — single source for list + gate', () => {
             ]),
             'missing',
         );
-        assert.deepEqual([...byDefault], [pick]);
+        assert.deepEqual([...byDefault].sort(), [...new Set([pick, ...ALWAYS_ON_TOOLS])].sort());
 
         const byFirst = activeProfileToolNames(
             cfgWith([
@@ -161,7 +162,7 @@ describe('activeProfileToolNames — single source for list + gate', () => {
             ]),
             'missing',
         );
-        assert.deepEqual([...byFirst], [pick]);
+        assert.deepEqual([...byFirst].sort(), [...new Set([pick, ...ALWAYS_ON_TOOLS])].sort());
     });
 });
 

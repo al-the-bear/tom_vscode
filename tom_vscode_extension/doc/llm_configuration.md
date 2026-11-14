@@ -340,7 +340,7 @@ are its settings and stay.
 | `model`, `temperature`, `keepAlive` | Request builder | Forwarded to the backend. `keepAlive` is Ollama-only — ignored when `apiStyle: 'openai'`. |
 | `stripThinkingTags` | Post-processor | Strip `<think>…</think>` from the cleaned text. |
 | `toolsEnabled` | Request builder | When `false`, omit the `tools` array entirely (vLLM without tool-call parser). |
-| `enabledTools` | Request builder | Tool subset when `toolsEnabled === false`. |
+| `enabledTools` | Request builder | Tool subset when `toolsEnabled === false`. On an Anthropic profile the always-on tools join a non-empty subset (§6.1). |
 | `maxRounds` | Tool loop | Tool rounds cap. Set ≥ 2 to allow any tool use. |
 | `maxTokens` | Anthropic profile only | Mapped onto the synthesised AnthropicConfiguration. |
 | `historyMode` | Inter-turn history | `none` / `last` / `full` / `summary` / `trim_and_summary` / `llm_extract` — see §3. |
@@ -493,6 +493,33 @@ The numbers are an example of the shape, not current prices: take them from Anth
 **`anthropic.parallelToolCallsReminder`** (on the section) is the reminder the direct transport appends after each round's tool results — a text block after the `tool_result` blocks of the same user message — asking the model to make tool calls that do not depend on each other in the same turn. Unset, the built-in text is used (`DEFAULT_PARALLEL_CALLS_REMINDER`, `src/utils/parallelToolCalls.ts`); `""` turns it off. Every round's message keeps its own copy as sent, so the prompt cache and signed thinking blocks stay valid. A direct send's usage block says how many of its assistant turns made more than one tool call (`- parallel calls: 2 of 9 turns made more than one tool call (22 %); 8 called tools`).
 
 ---
+
+### 6.1 Tools by role (role types)
+
+What tools a send offers is decided in this order (`AnthropicHandler.sendMessageOwned`, before the external MCP tools and the tool plan; `src/services/roleTools.ts`, `src/utils/roleTypes.ts`):
+
+1. **The caller's list.** The chat panel and Send to Chat use the profile's selection (`resolveProfileTools`: `toolsEnabled !== false` → every tool; else `enabledTools` with the always-on tools; an empty list → none). The prompt queue passes every tool. A sub-agent passes its own list.
+2. **The role's type replaces it** when it selects tools. The role is the running Proceed's step role (`ProcessStateStore.runRole()`), else the chat variable `role`. Its folder's `role-config.yaml` names the type (`roleType`), and `_ai/role-types/<type>/role-type.yaml` gives:
+
+   ```yaml
+   # yaml-language-server: $schema=../../../.tom/json-schema/roles/role-type.schema.json
+   name: Document author
+   description: Writes and revises documents for review.
+   tools:
+     mode: selected        # or profileDefault
+     enabled:
+       - tomAi_readFile
+       - tomAi_editFile
+   ```
+
+   With `mode: selected` the send gets exactly those tools from the tool registry plus the always-on ones (`ALWAYS_ON_TOOLS`), whatever the caller passed. With `profileDefault`, a role without `role-config.yaml`, a type that does not exist or does not validate, no role, or the role `default`, the caller's list stays. An isolated send (a sub-agent) keeps its own list.
+3. **External MCP servers' tools** are added (direct and Local LLM), then **the tool plan** narrows or defers per transport (§ toolSelection).
+
+The same list then reaches every transport: the direct request's `tools`, the Agent SDK's in-process MCP server, VS Code LM's `tools` option and the Local LLM request. On the Agent SDK, Claude Code's built-in tools follow the profile's *Use Built-In Agent SDK Tools*, not the role type.
+
+**Always-on tools:** `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, `tomAi_notifyUser`, `tomAi_getProcessState`, `tomAi_setProcessState`, `tomAi_listQuestTodos`, `tomAi_getQuestTodo`, `tomAi_createQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_waitFor`. A role type cannot switch them off. A profile with a selection of its own gets them too, and the Prompt Template Editor shows them greyed and on.
+
+The two files are validated against `src/config/role-type.schema.json` and `role-config.schema.json`, which are copied into the workspace's `.tom/json-schema/roles/`. The Role Editor and the Role Type Editor (`tomAi.editor.roles`, `tomAi.editor.roleTypes`; `src/handlers/rolesEditor-handler.ts`, `src/services/roleStore.ts`) write only valid files. A `role-config.yaml` holds only `roleType` for now.
 
 ## 7. History Compaction (`compaction` section) — defaults & system-wide flags
 

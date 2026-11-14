@@ -97,6 +97,7 @@ import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { runAgentSdkQuery, selectTransportRetryTemplateBody, DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE } from './agent-sdk-transport';
 import * as anthropicOutput from './anthropic-output-channels';
 import { WsPaths } from '../utils/workspacePaths';
+import { roleScopedTools } from '../services/roleTools';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver';
 import { debugLog } from '../utils/debugLogger';
 import { extractTodoResponseValues } from '../utils/responseValues';
@@ -586,6 +587,19 @@ function withToolPlan(options: AnthropicSendOptions): AnthropicSendOptions {
         tools: options.tools.filter((t) => keep.has(t.name)),
         toolPlan: plan,
     };
+}
+
+/**
+ * The tools of the role the send runs as (vscimpb87, services/roleTools.ts):
+ * a role whose type selects tools gets exactly those (and the always-on
+ * ones) from the tool registry, whatever the profile or the caller passed;
+ * otherwise the list stays. An isolated send (a sub-agent) keeps its own.
+ */
+function withRoleTools(options: AnthropicSendOptions): AnthropicSendOptions {
+    const scoped = roleScopedTools(options.tools, ALL_SHARED_TOOLS, options.isolated === true);
+    if (!scoped.resolution?.tools) { return options; }
+    debugLog(`[roles] role ${scoped.resolution.role} (type ${scoped.resolution.roleType}): ${scoped.tools.length} tools`, 'INFO', 'anthropic');
+    return { ...options, tools: scoped.tools };
 }
 
 /** The client of the external MCP servers (CC-16), created on first use. */
@@ -2130,6 +2144,9 @@ export class AnthropicHandler {
     }
 
     private async sendMessageOwned(options: AnthropicSendOptions): Promise<AnthropicSendResult> {
+        // The role the send runs as decides its tools when its role type selects them (vscimpb87):
+        // they replace the profile's selection, on every transport.
+        options = withRoleTools(options);
         // External MCP servers' tools join the direct and Local LLM loops (CC-16), before the plan.
         options = await this.withExternalMcpTools(options);
         options = withToolPlan(options);

@@ -59,6 +59,10 @@ const SOURCES = [
     { path: 'CLAUDE.md', kind: 'file' },
     { path: '.github/copilot-instructions.md', kind: 'file' },
     { path: '_ai/roles', kind: 'dir' },
+    // Role types (vscimpb87): optional, so a workspace without any still builds.
+    { path: '_ai/role-types', kind: 'dir', optional: true },
+    // The schemas of role-type.yaml and role-config.yaml their `$schema` lines point at.
+    { path: '.tom/json-schema/roles', kind: 'dir' },
     { path: '_ai/processes', kind: 'dir' },
     { path: '_ai/schemas', kind: 'dir' },
     { path: '_ai/prompt', kind: 'dir' },

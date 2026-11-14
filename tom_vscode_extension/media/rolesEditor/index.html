@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Role Editor / Role Type Editor (vscimpb87; src/handlers/rolesEditor-handler.ts).
+  One shell, two modes (window.__INIT__.kind: 'roles' | 'roleTypes'). Every
+  interaction is wired with addEventListener, so the loader's default
+  nonce-only CSP applies. Data arrives by postMessage after 'ready'.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<h2 id="headline"></h2>
+<p id="intro" class="muted"></p>
+<div class="layout">
+    <div class="list-pane">
+        <div class="action-bar">
+            <button class="icon-btn" id="btnAdd" title="Add"><span class="codicon codicon-add"></span></button>
+            <button class="icon-btn" id="btnDelete" title="Delete the selected role type (only when no role names it)"><span class="codicon codicon-trash"></span></button>
+            <button class="icon-btn" id="btnRefresh" title="Read the files again"><span class="codicon codicon-refresh"></span></button>
+        </div>
+        <ul id="itemList" class="item-list" role="listbox"></ul>
+    </div>
+    <div class="form-pane" id="form"></div>
+</div>
+</body>
+</html>

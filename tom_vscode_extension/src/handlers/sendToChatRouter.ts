@@ -196,6 +196,7 @@ export async function runAnthropicSend(
         const userMessageTemplate = opts?.userMessageTemplate ?? defaultUserMessageTemplate();
         const tools: SharedToolDefinition[] = resolveProfileTools(
             profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
+            true,
         );
 
         // No session picker on this path (the editor's Send to Anthropic/LLM, Telegram): the chat

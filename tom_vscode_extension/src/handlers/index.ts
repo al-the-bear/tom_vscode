@@ -61,6 +61,7 @@ export { registerQueueEditorCommand } from './queueEditor-handler';
 export { registerQueueTemplateEditorCommand } from './queueTemplateEditor-handler';
 export { registerTimedRequestsEditorCommand } from './timedRequestsEditor-handler';
 export { registerGlobalTemplateEditorCommand, openGlobalTemplateEditor } from './globalTemplateEditor-handler';
+export { registerRolesEditorCommands, openRolesEditor } from './rolesEditor-handler';
 export { registerReusablePromptEditorCommand, openReusablePromptEditor } from './reusablePromptEditor-handler';
 export { toggleTrail, setTrailEnabled, isTrailEnabled, loadTrailConfig } from '../services/trailLogging';
 export { showStatusPageHandler, toggleTrailHandler, registerStatusPageSerializer } from './statusPage-handler';

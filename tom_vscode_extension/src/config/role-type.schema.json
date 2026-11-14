@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://tom.ai/schemas/roles/role-type.schema.json",
+    "title": "Role type (_ai/role-types/<type>/role-type.yaml)",
+    "description": "The configuration of a kind of role. A role names its type in its role-config.yaml; a prompt run as that role gets the type's tools. Edited in the Role Type Editor (@T: Open Role Type Editor).",
+    "type": "object",
+    "required": ["tools"],
+    "additionalProperties": false,
+    "properties": {
+        "name": { "type": "string", "description": "A display name; default the folder's name." },
+        "description": { "type": "string", "description": "What kind of role this is." },
+        "tools": {
+            "type": "object",
+            "description": "The tools a prompt run as a role of this type gets.",
+            "required": ["mode"],
+            "additionalProperties": false,
+            "properties": {
+                "mode": {
+                    "enum": ["profileDefault", "selected"],
+                    "description": "profileDefault: the profile's own tool selection, unchanged. selected: exactly the tools listed in `enabled` (they replace the profile's selection), plus the extension's always-on tools."
+                },
+                "enabled": {
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+                    "uniqueItems": true,
+                    "description": "With mode selected: the tool names (tomAi_*). The always-on tools need not be listed."
+                }
+            }
+        }
+    }
+}

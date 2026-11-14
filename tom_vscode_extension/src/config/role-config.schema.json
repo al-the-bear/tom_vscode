@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://tom.ai/schemas/roles/role-config.schema.json",
+    "title": "Role configuration (_ai/roles/<role>/role-config.yaml)",
+    "description": "A role's configuration beside its role.md. Edited in the Role Editor (@T: Open Role Editor).",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "roleType": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+            "description": "The role type (a folder of _ai/role-types/) whose configuration the role takes, e.g. its tools. Absent: the profile's defaults."
+        }
+    }
+}

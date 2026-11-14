@@ -92,7 +92,7 @@ export function activeProfileToolNames(
     activeProfileId: string,
 ): Set<string> {
     const profile = pickActiveProfile(config, activeProfileId);
-    return new Set(resolveProfileTools(profile).map((t) => t.name));
+    return new Set(resolveProfileTools(profile, true).map((t) => t.name));
 }
 
 /**

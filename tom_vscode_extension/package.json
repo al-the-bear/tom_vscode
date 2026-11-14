@@ -433,6 +433,16 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.editor.roles",
+        "title": "@T: Open Role Editor",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.editor.roleTypes",
+        "title": "@T: Open Role Type Editor",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.editor.queueTemplates",
         "title": "@T: Open Queue-Template Editor",
         "category": "@Tom"

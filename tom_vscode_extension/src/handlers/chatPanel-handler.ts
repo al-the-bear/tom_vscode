@@ -1680,6 +1680,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // scripting-API bridge (tools.getJsonVce) stay in lockstep.
         const tools: SharedToolDefinition[] = resolveProfileTools(
             profile as unknown as { enabledTools?: string[]; toolsEnabled?: boolean },
+            true,
         );
 
         this._ensureAnthropicApprovalListener();

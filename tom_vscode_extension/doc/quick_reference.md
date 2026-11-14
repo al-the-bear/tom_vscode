@@ -150,6 +150,7 @@
 | Prompt Template Editor | `tomAi.globalTemplateEditor` | `tomAi.editor.promptTemplates` |
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
+| Role Editor / Role Type Editor | `tomAi.rolesEditor` | `tomAi.editor.roles` / `tomAi.editor.roleTypes` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |
 | Group Prompt Editor | `tomAi.groupPromptEditor` | `tomAi.editor.groupPrompts`, or the last entry of a todo group's Queue Group Prompt picker (🔁) |

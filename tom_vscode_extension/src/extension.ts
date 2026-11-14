@@ -54,6 +54,7 @@ import {
     registerQueueEditorCommand,
     registerTimedRequestsEditorCommand,
     registerGlobalTemplateEditorCommand,
+    registerRolesEditorCommands,
     registerReusablePromptEditorCommand,
     registerQueueTemplateEditorCommand,
     telegramTestHandler,
@@ -533,6 +534,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Global Template Editor command
     stepStart = performance.now();
     registerGlobalTemplateEditorCommand(context);
+    registerRolesEditorCommands(context);
     timeStep('globalTemplateEditor', stepStart);
 
     // Register Reusable Prompt Editor command

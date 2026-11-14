@@ -160,12 +160,16 @@ function renderFields(fields) {
             if (!Array.isArray(checked)) { checked = []; }
             var disabledWhen = f.disabledWhen || null;
             var disabledAttr = disabledWhen ? ' data-disabled-when-field="' + escapeAttr(disabledWhen.field) + '" data-disabled-when-equals="' + escapeAttr(disabledWhen.equals) + '"' : '';
+            // Locked options (the always-on tools, vscimpb87): shown on and greyed, never saved in the list.
+            var locked = Array.isArray(f.lockedOptions) ? f.lockedOptions : [];
             function renderMultiCheckOption(o) {
                 var id = 'field_' + f.name + '__' + o.value.replace(/[^a-zA-Z0-9_-]/g, '_');
-                var isChecked = checked.indexOf(o.value) >= 0;
+                var isLocked = locked.indexOf(o.value) >= 0;
+                var isChecked = isLocked || checked.indexOf(o.value) >= 0;
                 var roAttr = o.readOnly ? ' data-readonly="true"' : '';
-                return '<label class="multi-checkbox-row" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-weight:normal">' +
-                    '<input type="checkbox" class="field-multi-option" data-field="' + f.name + '" value="' + escapeAttr(o.value) + '" id="' + id + '"' + roAttr + (isChecked ? ' checked' : '') + '>' +
+                var lockAttr = isLocked ? ' data-locked="true" disabled' : '';
+                return '<label class="multi-checkbox-row' + (isLocked ? ' locked' : '') + '" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-weight:normal' + (isLocked ? ';opacity:0.55' : '') + '"' + (isLocked ? ' title="Always on: the extension needs it whatever the profile or role"' : '') + '>' +
+                    '<input type="checkbox" class="field-multi-option" data-field="' + f.name + '" value="' + escapeAttr(o.value) + '" id="' + id + '"' + roAttr + lockAttr + (isChecked ? ' checked' : '') + '>' +
                     escapeText(o.label) + '</label>';
             }
             if (Array.isArray(f.optionGroups) && f.optionGroups.length > 0) {
@@ -226,6 +230,7 @@ function renderFields(fields) {
             var isDisabled = srcVal === srcEquals;
             group.style.opacity = isDisabled ? '0.45' : '';
             group.querySelectorAll('input.field-multi-option').forEach(function(cb) {
+                if (cb.getAttribute('data-locked') === 'true') { return; }
                 cb.disabled = isDisabled;
             });
         });
@@ -244,7 +249,7 @@ function renderFields(fields) {
         field.addEventListener('click', function(e) {
             var target = e.target;
             if (!target || target.tagName !== 'BUTTON') return;
-            var checks = field.querySelectorAll('input.field-multi-option');
+            var checks = field.querySelectorAll('input.field-multi-option:not([data-locked="true"])');
             if (target.classList.contains('mc-btn-all')) {
                 checks.forEach(function(c) { c.checked = true; });
             } else if (target.classList.contains('mc-btn-none')) {
@@ -257,7 +262,7 @@ function renderFields(fields) {
                 var on = target.classList.contains('mc-group-all');
                 sections.forEach(function(s) {
                     if (s.getAttribute('data-group-name') !== groupName) return;
-                    s.querySelectorAll('input.field-multi-option').forEach(function(c) { c.checked = on; });
+                    s.querySelectorAll('input.field-multi-option:not([data-locked="true"])').forEach(function(c) { c.checked = on; });
                 });
             } else {
                 return;
@@ -277,7 +282,7 @@ function saveCurrentItem() {
             // regardless of ordering.
             const picked = [];
             document.querySelectorAll('input.field-multi-option[data-field="' + f.name + '"]').forEach(function(cb) {
-                if (cb.checked) { picked.push(cb.value); }
+                if (cb.checked && cb.getAttribute('data-locked') !== 'true') { picked.push(cb.value); }
             });
             values[f.name] = JSON.stringify(picked);
             return;

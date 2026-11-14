@@ -80,6 +80,8 @@ function fakeWorkspace(): string {
     put('CLAUDE.md', '# Rules\n');
     put('.github/copilot-instructions.md', '# Rules\n');
     put('_ai/roles/default/role.md', '# Role\n');
+    put('.tom/json-schema/roles/role-type.schema.json', '{}\n');
+    put('_ai/role-types/coder/role-type.yaml', 'tools:\n  mode: profileDefault\n');
     put('_ai/processes/README.md', '# Processes\n');
     put('_ai/schemas/todo.schema.json', '{}\n');
     put('_ai/prompt/p.md', 'prompt\n');
@@ -112,7 +114,7 @@ describe('the workspace template', () => {
             const expected = tpl.templateFileData(e.path, fs.readFileSync(path.join(WS, e.path)));
             assert.ok(e.data.equals(expected), `${e.path} byte for byte as templateFileData makes it`);
         }
-        assert.ok(entries.every((e) => !e.path.startsWith('_ai/') || /^_ai\/(roles|processes|schemas|prompt|quests\/tomai_introduction)\/|^_ai\/format-version\.yaml$/.test(e.path)),
+        assert.ok(entries.every((e) => !e.path.startsWith('_ai/') || /^_ai\/(roles|role-types|processes|schemas|prompt|quests\/tomai_introduction)\/|^_ai\/format-version\.yaml$/.test(e.path)),
             'nothing else of _ai');
         const info = JSON.parse(entries.find((e) => e.path === tpl.TEMPLATE_INFO_PATH)!.data.toString('utf8'));
         assert.equal(info.type, 'dart');

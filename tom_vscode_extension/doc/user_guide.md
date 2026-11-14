@@ -404,6 +404,22 @@ The hooks you set up for Claude Code (`~/.claude/settings.json`, the workspace's
 
 The MCP servers you set up for Claude Code — in the workspace's `.mcp.json`, or with `claude mcp add` (they land in `~/.claude.json`) — give their tools to direct and Local LLM profiles too, named `mcp__<server>__<tool>`. Project servers from `.mcp.json` run only once approved (as Claude Code asks you to; or list them in `enabledMcpjsonServers` in `.claude/settings.local.json`). Their tools ask for approval like the extension's write tools, unless the server marks them read-only. Details: [llm_tools.md §4.11c](llm_tools.md#411c-tools-of-external-mcp-servers).
 
+### Tools by role: roles and role types
+
+A prompt can run with the tools of the role it runs as: the role of the process step while a Proceed prompt runs, else the chat variable `role`. The tools come from the role's **role type**:
+
+- **Role types** live in `_ai/role-types/<type>/role-type.yaml`. A type's tools are either **the profile's default** (the profile's own tool selection, unchanged) or **a selection**. A selection replaces the profile's tools on every transport — direct, Agent SDK, VS Code LM and Local LLM.
+- **Roles** live in `_ai/roles/<role>/`: the role's `role.md`, and a `role-config.yaml` that names its type (`roleType: document-author`).
+- A role without `role-config.yaml`, a role whose type keeps the profile's default, and a run without a role keep the profile's tools, as before.
+- **Always on:** some tools every prompt keeps, whatever the role type or the profile selects. These are asking you (`tomAi_askUser`, the picker, the MD Browser ask), notifications, the process position (`tomAi_getProcessState` / `tomAi_setProcessState`), the quest todo tools a walk reports with, ids and `tomAi_waitFor`. Both editors show them greyed and on, and a profile with a tool selection of its own gets them too.
+- **Not affected:** Claude Code's own tools on the Agent SDK (the profile's *Use Built-In Agent SDK Tools*), the tools of external MCP servers, and a sub-agent's tools.
+
+Two editors edit them, both in the Extension Tools overview:
+- **@T: Open Role Editor** (`tomAi.editor.roles`) lists the roles. You edit `role.md` and pick the role type (*none* keeps the profile's tools); **+** adds a role. Roles are not deleted here: retire one by archiving it first.
+- **@T: Open Role Type Editor** (`tomAi.editor.roleTypes`) lists the role types with the roles that use them. You set the name, the description, and the tools: the profile's default, or a selection by tool group (all / none per group). **+** adds a type and the trash deletes one no role names.
+
+Both editors check every file against its JSON schema before writing it (`.tom/json-schema/roles/role-type.schema.json` and `role-config.schema.json`; each file's first line names its schema). The workspace comes with two example types, neither assigned to a role: `document-author` (reading, editing files and documents, questions, specs, todos; no commands, git writes, queue or process control) and `coder` (everything but the process and queue controls). Details: [llm_configuration.md §6.1](llm_configuration.md#61-tools-by-role-role-types).
+
 ### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:

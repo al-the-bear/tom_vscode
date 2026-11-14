@@ -31,6 +31,7 @@ import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { getCurrentToolContext } from '../services/tool-execution-context';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { WsPaths } from '../utils/workspacePaths';
+import { withAlwaysOnTools } from '../utils/roleTypes';
 
 // ============================================================================
 // Helpers
@@ -1663,20 +1664,25 @@ export const READ_ONLY_TOOLS: SharedToolDefinition<any>[] = ALL_SHARED_TOOLS.fil
  *
  *  1. `toolsEnabled !== false`  → ALL tools (`ALL_SHARED_TOOLS`)
  *  2. `toolsEnabled === false`  → the `enabledTools` allow-list subset
- *     (an empty/missing list → no tools)
+ *     (an empty/missing list → no tools); with `withAlwaysOn` (an Anthropic
+ *     profile's send) a non-empty subset gets the always-on tools too
  *
  * Extracted here so both the chat panel and the scripting-API bridge apply
  * identical filtering.
  */
 export function resolveProfileTools(
     profile: { toolsEnabled?: boolean; enabledTools?: string[] } | undefined,
+    /** An Anthropic profile's send: a selection of its own gets the always-on tools (vscimpb87); the MCP server's custom list does not. */
+    withAlwaysOn = false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): SharedToolDefinition<any>[] {
     const allToolsEnabled = profile?.toolsEnabled !== false;
     if (allToolsEnabled) {
         return [...ALL_SHARED_TOOLS];
     }
-    const enabledIds = Array.isArray(profile?.enabledTools) ? profile!.enabledTools! : [];
+    // The always-on tools (utils/roleTypes.ts) join a selection of its own (vscimpb87).
+    const own = Array.isArray(profile?.enabledTools) ? profile!.enabledTools! : [];
+    const enabledIds = withAlwaysOn ? withAlwaysOnTools(own) : own;
     return enabledIds.length > 0
         ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
         : [];
