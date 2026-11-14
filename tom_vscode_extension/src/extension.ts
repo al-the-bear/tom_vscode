@@ -6,6 +6,7 @@
  * handler files in the handlers/ directory.
  */
 
+import { registerQuestNotesPanel } from './handlers/questNotesPanel-handler';
 import { registerSendToLlmCommands } from './handlers/sendToLlm-handler';
 import { setToolCallLogSink } from './utils/toolCallLog';
 import { getToolLogChannel } from './utils/toolLog';
@@ -504,6 +505,11 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerDsNotesViews(context);
     timeStep('dsNotesViews', stepStart);
+
+    // The QUEST NOTES side panel (@NOTES activity-bar container)
+    stepStart = performance.now();
+    registerQuestNotesPanel(context);
+    timeStep('questNotesPanel', stepStart);
 
     // Register Unified Notepad (T2) panel
     stepStart = performance.now();
@@ -1211,6 +1217,13 @@ function registerCommands(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.view.extension.tomAi-vsc-sidebar');
         }
     );
+    // Focus @NOTES: the active quest's notes, Edit and View tabs
+    const focusNotesSidebarCmd = vscode.commands.registerCommand(
+        'tomAi.notesSidebar.focus',
+        async () => {
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-notes-sidebar');
+        }
+    );
 
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
@@ -1332,6 +1345,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         focusTomSidebarCmd,
         focusTomWsSidebarCmd,
         focusTomVscSidebarCmd,
+        focusNotesSidebarCmd,
         openInMdViewerCmd,
         openExtensionSettingsCmd,
         migrateCompactionFormatCmd

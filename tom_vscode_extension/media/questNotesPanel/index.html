@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  QUEST NOTES side panel (@NOTES, view tomAi.questNotesPanel) —
+  src/handlers/questNotesPanel-handler.ts. Two tabs on the active quest's
+  notes file: Edit (a text area) and View (the MD Browser's renderer:
+  media/markdownBrowser/blocks.js, teamReview.js, main.js, loaded by main.js
+  from window.__INIT__.scripts, read-only). The ids in the View tab's bar and
+  #contentArea are the ones the MD Browser's main.js wires.
+-->
+<link rel="stylesheet" href="{{sharedUri}}/questHint.css">
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body class="qnp mdb-read-only">
+<div id="tomQuestHint"></div>
+<div class="qnp-bar">
+    <div class="qnp-tabs" role="tablist" aria-label="Quest notes">
+        <button class="qnp-tab" role="tab" id="tabEdit" data-tab="edit" aria-selected="true">Edit</button>
+        <button class="qnp-tab" role="tab" id="tabView" data-tab="view" aria-selected="false">View</button>
+    </div>
+    <span class="qnp-file" id="qnpFile"></span>
+    <button class="qnp-icon" id="openMdBrowserBtn" title="Open the quest notes in the MD Browser"><span class="codicon codicon-book"></span></button>
+    <button class="qnp-icon" id="openEditorBtn" title="Open the quest notes in an editor (more space)"><span class="codicon codicon-go-to-file"></span></button>
+</div>
+<div id="qnpEmpty" class="qnp-empty" hidden>No quest is open: open a quest's .code-workspace file to see its notes here.</div>
+<div id="conflictBar" class="qnp-conflict" role="alert" hidden>
+    <span>The notes changed on disk while you were editing.</span>
+    <button id="loadDiskBtn" title="Replace your text with the file as it is now">Load the file</button>
+    <button id="keepMineBtn" title="Write your text over the file">Keep my text</button>
+</div>
+<section id="editPane" class="qnp-pane" role="tabpanel" aria-labelledby="tabEdit">
+    <textarea id="notesText" spellcheck="false" data-completion="on" aria-label="Quest notes"></textarea>
+    <div class="qnp-status" id="qnpStatus"></div>
+</section>
+<section id="viewPane" class="qnp-pane" role="tabpanel" aria-labelledby="tabView" hidden>
+    <div class="qnp-view-bar">
+        <button class="icon-btn" id="foldAllBtn" title="Fold all sections"><span class="codicon codicon-collapse-all"></span></button>
+        <select id="foldLevelSelect" class="fold-level-select" title="Heading level to fold or unfold"></select>
+        <button class="icon-btn" id="foldLevelBtn" title="Fold all headings of the selected level"><span class="codicon codicon-fold"></span></button>
+        <span class="search-box">
+            <input id="searchInput" class="search-input" type="search" placeholder="Search" title="Search in the notes (Enter: next, Shift+Enter: previous, Esc: clear)" />
+            <button class="search-clear" id="searchClearBtn" title="Clear search"><span class="codicon codicon-close"></span></button>
+        </span>
+        <span id="searchCount" class="search-count"></span>
+        <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)"><span class="codicon codicon-arrow-up"></span></button>
+        <button class="icon-btn" id="searchNextBtn" disabled title="Next match (Enter)"><span class="codicon codicon-arrow-down"></span></button>
+    </div>
+    <div class="content-area markdown-body" id="contentArea"></div>
+</section>
+<script src="{{baseUri}}/main.js"></script>
+<script src="{{sharedUri}}/completion.js"></script>
+<script src="{{sharedUri}}/questHint.js"></script>
+</body>
+</html>

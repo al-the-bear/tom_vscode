@@ -1,0 +1,139 @@
+/* QUEST NOTES side panel (@NOTES). The View tab also loads the MD Browser's
+   style.css (body as a full-height column, .content-area, the folding and
+   review annotation styles); these rules lay out the tabs and the Edit tab. */
+
+body.qnp {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+}
+.qnp-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.qnp-tabs { display: flex; gap: 2px; }
+.qnp-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    padding: 3px 8px;
+    font: inherit;
+}
+.qnp-tab:hover { color: var(--vscode-foreground); }
+.qnp-tab[aria-selected="true"] {
+    color: var(--vscode-foreground);
+    border-bottom-color: var(--vscode-focusBorder);
+}
+.qnp-tab:focus-visible, .qnp-icon:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.qnp-file {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+.qnp-icon {
+    background: transparent;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.qnp-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+.qnp-empty {
+    padding: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+.qnp-conflict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    background: var(--vscode-inputValidation-warningBackground);
+    border-bottom: 1px solid var(--vscode-inputValidation-warningBorder);
+    flex-shrink: 0;
+}
+.qnp-conflict[hidden], .qnp-empty[hidden], .qnp-pane[hidden] { display: none; }
+.qnp-conflict button {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.qnp-pane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+#notesText {
+    flex: 1;
+    min-height: 0;
+    resize: none;
+    border: none;
+    outline: none;
+    padding: 6px 8px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 12px);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    tab-size: 4;
+}
+#notesText:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.qnp-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    color: var(--vscode-descriptionForeground);
+    border-top: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.qnp-view-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.qnp-view-bar .search-box { flex: 1; min-width: 80px; }
+#viewPane .content-area { flex: 1; min-height: 0; overflow: auto; }
+
+/* The View tab is read-only: the MD Browser's writing controls are not shown
+   (the host does not take their messages either). Reading controls — folding,
+   links, comment overlays, search — stay. */
+body.mdb-read-only .mdb-block-actions,
+body.mdb-read-only .mdb-rm-actions,
+body.mdb-read-only .mdb-rm-btn,
+body.mdb-read-only .mdb-inline-btn,
+body.mdb-read-only .mdb-answer-btn,
+body.mdb-read-only .mdb-proposal-btn,
+body.mdb-read-only .mdb-assist-btn,
+body.mdb-read-only .mdb-comment-edit-btn,
+body.mdb-read-only .mdb-keep-open-btn,
+body.mdb-read-only .mdb-option-write,
+body.mdb-read-only .mdb-conflict-decide,
+body.mdb-read-only .mdb-conflict-choice,
+body.mdb-read-only .mdb-conflict-rewrite,
+body.mdb-read-only .mdb-conflict-open,
+body.mdb-read-only .mdb-team-decide { display: none !important; }
+.qnp-bar[hidden] { display: none; }

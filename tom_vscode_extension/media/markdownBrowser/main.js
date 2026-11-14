@@ -11,7 +11,9 @@
 // (which uses a bare `vscode`) resolves to the same handle. marked + mermaid are
 // loaded as external <script>s before this file and used as globals.
 (function () {
-    var vscode = acquireVsCodeApi();
+    // A page that embeds this renderer (the QUEST NOTES side panel) has
+    // acquired the API already and published it.
+    var vscode = window.__tomVscodeApi || acquireVsCodeApi();
     window.vscode = vscode; // shared with the document-picker inline <script>
     var __mdBrowserBooted = false;
 
@@ -154,19 +156,19 @@
         }, 10);
 
         // ---- Navigation Buttons ----
-        backBtn.addEventListener('click', function() {
+        if (backBtn) backBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'goBack', filePath: currentFilePath, position: readingPosition() });
         });
-        forwardBtn.addEventListener('click', function() {
+        if (forwardBtn) forwardBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'goForward', filePath: currentFilePath, position: readingPosition() });
         });
-        openInEditorBtn.addEventListener('click', function() {
+        if (openInEditorBtn) openInEditorBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'openInEditor' });
         });
-        openExternalBtn.addEventListener('click', function() {
+        if (openExternalBtn) openExternalBtn.addEventListener('click', function() {
             vscode.postMessage({ type: 'openExternal' });
         });
-        reloadBtn.addEventListener('click', function() {
+        if (reloadBtn) reloadBtn.addEventListener('click', function() {
             // The next content is rendered whatever it holds: an explicit reload
             // is not skipped for unchanged text, nor held for an open editor.
             forceRender = true;
@@ -3223,7 +3225,7 @@
                     + '<span class="codicon codicon-error"></span>'
                     + '<div>' + escapeHtml(msg.error) + '</div>'
                     + '</div>';
-                filePathEl.textContent = 'Error';
+                if (filePathEl) { filePathEl.textContent = 'Error'; }
             } else {
                 var prevFilePath = currentFilePath;
                 var incomingFilePath = msg.filePath || '';
@@ -3249,7 +3251,7 @@
                 // (the backend's WebviewPanelSerializer reads filePath +
                 // liveMode back from here in deserializeWebviewPanel).
                 if (incomingFilePath) {
-                    vscode.setState({ filePath: incomingFilePath, liveMode: liveMode });
+                    vscode.setState(Object.assign({}, (vscode.getState && vscode.getState()) || {}, { filePath: incomingFilePath, liveMode: liveMode }));
                 }
                 // The backend is authoritative for CR/LF state; sync the
                 // local flag + button so a reload/restore renders correctly.
@@ -3258,7 +3260,7 @@
                     crlfMode = msg.crlf;
                     if (crlfBtn) crlfBtn.classList.toggle('active', crlfMode);
                 }
-                filePathEl.textContent = msg.relativePath || msg.fileName || '';
+                if (filePathEl) { filePathEl.textContent = msg.relativePath || msg.fileName || ''; }
                 if (typeof msg.author === 'string') { commentAuthor = msg.author; }
                 reviewMemberId = typeof msg.memberId === 'string' ? msg.memberId : '';
                 // Also when the text is the same and is not rendered again (the setting changed).

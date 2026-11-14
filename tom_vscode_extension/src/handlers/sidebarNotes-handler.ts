@@ -357,6 +357,25 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
     }
 }
 
+/**
+ * The active quest's notes file (`tomAi.notes.questNotesPattern`), or null
+ * while no quest is open (no `.code-workspace`, or its quest folder is
+ * missing). The @TOM QUEST NOTES view and the QUEST NOTES side panel
+ * (questNotesPanel-handler.ts) read and write it.
+ */
+export function activeQuestNotesFile(): { questId: string; filePath: string } | null {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot || !vscode.workspace.workspaceFile) { return null; }
+    const questId = getQuestIdFromWorkspaceFile();
+    if (!questId || !questFolderExists(questId)) { return null; }
+    return { questId, filePath: resolveQuestNotesPath(questId, wsRoot) };
+}
+
+/** A new quest notes file's first line. */
+export function questNotesHeader(questId: string): string {
+    return `# Quest Notes — ${questId}\n\n`;
+}
+
 class QuestNotesProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     /**
@@ -373,12 +392,7 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
     }
 
     private _resolveQuestFile(): string | null {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!wsRoot || !vscode.workspace.workspaceFile) { return null; }
-        const questId = getQuestIdFromWorkspaceFile();
-        if (!questId) { return null; }
-        if (!questFolderExists(questId)) { return null; }
-        return resolveQuestNotesPath(questId, wsRoot);
+        return activeQuestNotesFile()?.filePath ?? null;
     }
 
     private _load(): void {
@@ -398,9 +412,8 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
         // Seed the file with a header on first creation so the user
         // sees something when they open the view on a fresh quest.
         if (!fs.existsSync(filePath)) {
-            const questId = getQuestIdFromWorkspaceFile() || 'quest';
             this._storage.ensureFile();
-            this._storage.save(`# Quest Notes — ${questId}\n\n`);
+            this._storage.save(questNotesHeader(getQuestIdFromWorkspaceFile() || 'quest'));
         }
         this._storage.load();
     }

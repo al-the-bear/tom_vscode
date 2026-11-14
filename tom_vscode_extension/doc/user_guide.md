@@ -266,6 +266,15 @@ The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Ses
 
 VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application the workspace config maps to `.md` files in `externalApplications.mappings`; without such a mapping it warns that none is configured); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
 
+#### @NOTES: the quest notes side panel
+
+The **@NOTES** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @TOM VSC; `@T: Focus @NOTES Sidebar`) holds one view, **QUEST NOTES — <quest>**, on the active quest's notes file (`quest-notes.<quest>.md`, the same file as the @TOM QUEST NOTES view). Drag the icon into the secondary side bar to keep the notes open beside the editor. Two tabs on top, the last one used kept for the window:
+
+- **Edit** — a text area on the file (monospace, the panel's full height), saved half a second after you stop typing and when you leave it; `/` and `@` completion as in the other notes. A change made elsewhere (an editor, a reconcile) is taken in at once; while you have unsaved text, a bar asks instead: **Load the file** (your text is replaced) or **Keep my text** (written over the file).
+- **View** — the file rendered as the MD Browser renders it: headings with folding (fold all, fold one level, the +/− beside a heading), search, links (another Markdown file opens in the MD Browser, a file at a line in an editor), comments and questions shown read-only. It follows the file.
+
+The bar's 📖 opens the notes in the MD Browser, the file icon in an editor for more space. With no quest open the view says so.
+
 ### Issues Panel
 
 The @WS **Issues** section lists the issues of the repositories it finds in the workspace's git remotes, plus the ones the panel configuration adds (`issuePanels`; **Tests** works the same for test reports). The repository dropdown offers one repository, **All Repos**, or **My Repos (`<account>`)**: the repositories of the GitHub account VS Code is signed in with, without forks and without clones of other people's repositories. The choice appears once the account's repositories are known (it asks GitHub whether each is a fork) and only when an account is signed in. New issues need one repository chosen.

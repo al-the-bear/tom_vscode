@@ -267,18 +267,19 @@ describe('The no-quest hint', () => {
     test('QH-4: the panels', () => {
         const read = (...p: string[]): string => fs.readFileSync(path.join(EXT, ...p), 'utf8');
         // Pages loaded from media/: the CSS, and the helper after the panel's script.
-        for (const page of ['chatPanel', 'processPanel', 'sessionsView', path.join('sidebarNotes', 'questNotes')]) {
+        for (const page of ['chatPanel', 'processPanel', 'sessionsView', path.join('sidebarNotes', 'questNotes'), 'questNotesPanel']) {
             const html = read('media', page, 'index.html');
             assert.ok(html.includes('<link rel="stylesheet" href="{{sharedUri}}/questHint.css">'), `${page}: css`);
             assert.ok(html.indexOf('{{sharedUri}}/questHint.js') > html.indexOf('{{baseUri}}/main.js'), `${page}: after main.js`);
         }
-        for (const page of ['processPanel', 'sessionsView']) {
+        for (const page of ['processPanel', 'sessionsView', 'questNotesPanel']) {
             assert.match(read('media', page, 'main.js'), /window\.__tomVscodeApi = vscode;/, `${page} publishes its API`);
         }
         // The host side of each.
         for (const handler of ['chatPanel', 'processPanel', 'sessionsView', 'wsPanel']) {
             assert.match(read('src', 'handlers', `${handler}-handler.ts`), /subscriptions\.push\(wireQuestHintMessages\(webviewView\.webview\)\)/, handler);
         }
+        assert.match(read('src', 'handlers', 'questNotesPanel-handler.ts'), /_disposables\.push\(wireQuestHintMessages\(webviewView\.webview\)\)/, 'questNotesPanel');
         const notes = read('src', 'handlers', 'sidebarNotes-handler.ts');
         assert.match(notes, /sidebarNotes\/questNotes'\);\n\s+wireCompletionMessages\(webviewView\.webview\);\n\s+\/\/ The "no quest is open" banner[^\n]*\n\s+this\._context\.subscriptions\.push\(wireQuestHintMessages/);
         // @WS inlines the helper after main.js and completion.js.

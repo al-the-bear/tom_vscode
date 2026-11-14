@@ -64,6 +64,11 @@
           "id": "tomAi-vsc-sidebar",
           "title": "@TOM VSC",
           "icon": "resources/tom-vsc-sidebar.svg"
+        },
+        {
+          "id": "tomAi-notes-sidebar",
+          "title": "@NOTES",
+          "icon": "resources/tom-notes-sidebar.svg"
         }
       ],
       "panel": [
@@ -364,6 +369,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.notesSidebar.focus",
+        "title": "@T: Focus @NOTES Sidebar (quest notes)",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.sessions.add",
         "title": "@T: New Session",
         "category": "@Tom",
@@ -563,6 +573,14 @@
           "id": "tomAi.vscResources",
           "name": "RESOURCES",
           "icon": "$(server-process)"
+        }
+      ],
+      "tomAi-notes-sidebar": [
+        {
+          "type": "webview",
+          "id": "tomAi.questNotesPanel",
+          "name": "QUEST NOTES",
+          "icon": "$(book)"
         }
       ],
       "explorer": [

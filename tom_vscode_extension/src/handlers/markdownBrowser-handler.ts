@@ -626,64 +626,6 @@ class MdBrowserPanel {
         }
     }
 
-    // ---- Special link handling ---------------------------------------------
-
-    private _handleSpecialLink(resolved: ResolvedLink): void {
-        switch (resolved.type) {
-            case 'issue':
-                vscode.window.showInformationMessage(`Issue link: ${resolved.identifier}`);
-                break;
-
-            case 'todo':
-                if (resolved.identifier) {
-                    const parts = resolved.identifier.split('/');
-                    if (parts.length >= 2) {
-                        const questId = parts[0];
-                        const todoId = parts.slice(1).join('/');
-                        vscode.commands.executeCommand('tomAi.showTodo', questId, todoId);
-                    }
-                }
-                break;
-
-            case 'trail':
-                if (resolved.identifier) {
-                    vscode.window.showInformationMessage(`Trail link: ${resolved.identifier}`);
-                }
-                break;
-
-            case 'quest':
-                // Navigate to quest overview within this panel
-                if (resolved.filePath) {
-                    this._navigateToFile(resolved.filePath, 'other');
-                } else if (resolved.identifier) {
-                    vscode.commands.executeCommand('tomAi.showQuest', resolved.identifier);
-                }
-                break;
-
-            case 'test':
-                if (resolved.identifier) {
-                    const [filePath, testName] = resolved.identifier.split('::');
-                    if (testName) {
-                        vscode.window.showInformationMessage(`Test link: ${filePath} :: ${testName}`);
-                    } else {
-                        const wsRoot = WsPaths.wsRoot;
-                        if (wsRoot) {
-                            const fullPath = path.join(wsRoot, filePath);
-                            if (fs.existsSync(fullPath)) {
-                                vscode.window.showTextDocument(vscode.Uri.file(fullPath), { viewColumn: vscode.ViewColumn.Beside });
-                            }
-                        }
-                    }
-                }
-                break;
-
-            default:
-                if (resolved.identifier) {
-                    vscode.window.showInformationMessage(`Special link: ${resolved.type}:${resolved.identifier}`);
-                }
-        }
-    }
-
     /** Store the reading position a webview message carries on the current history entry. */
     private _recordPosition(msg: { filePath?: unknown; position?: ReadingPosition }): void {
         if (typeof msg.filePath === 'string' && msg.position) {
@@ -819,73 +761,17 @@ class MdBrowserPanel {
                     const currentFile = this._history.current?.filePath || '';
                     if (!linkHref) break;
 
-                    const context: LinkContext = {
-                        currentFilePath: currentFile,
-                        workspaceRoot: WsPaths.wsRoot,
-                    };
-
-                    const resolved = resolveLink(linkHref, context);
-                    if (MD_BROWSER_DEBUG) {
-                        debugLog(`[MdBrowser] resolveLink href=${linkHref} => type=${resolved.type} action=${resolved.action}`, 'INFO', 'mdBrowser');
-                    }
-
-                    switch (resolved.action) {
-                        case 'scroll-to-anchor':
-                            this._panel.webview.postMessage({
-                                type: 'scrollToAnchor',
-                                anchor: resolved.anchor,
-                            });
-                            break;
-
-                        case 'navigate-md':
-                        case 'navigate-md-anchor': {
-                            if (!resolved.filePath) { break; }
-                            const anchor = resolved.action === 'navigate-md-anchor' ? resolved.anchor : undefined;
-                            if (msg.newPanel === true) {
+                    followMdLink(linkHref, currentFile, {
+                        scrollToAnchor: (anchor) => { void this._panel.webview.postMessage({ type: 'scrollToAnchor', anchor }); },
+                        openMarkdown: (filePath, anchor, newPanel) => {
+                            if (newPanel) {
                                 // The link popup's "Open in new MD Browser".
-                                openMarkdownBrowser(this._context, resolved.filePath, { anchor });
+                                openMarkdownBrowser(this._context, filePath, { anchor });
                             } else {
-                                this._navigateToFile(resolved.filePath, 'other', anchor);
+                                this._navigateToFile(filePath, 'other', anchor);
                             }
-                            break;
-                        }
-
-                        case 'open-in-editor':
-                            if (resolved.filePath) {
-                                vscode.window.showTextDocument(
-                                    vscode.Uri.file(resolved.filePath),
-                                    { viewColumn: vscode.ViewColumn.Beside },
-                                );
-                            }
-                            break;
-
-                        case 'open-in-editor-line':
-                            if (resolved.filePath) {
-                                const lineNumber = resolved.lineNumber || 1;
-                                vscode.window.showTextDocument(
-                                    vscode.Uri.file(resolved.filePath),
-                                    {
-                                        viewColumn: vscode.ViewColumn.Beside,
-                                        selection: new vscode.Range(lineNumber - 1, 0, lineNumber - 1, 0),
-                                    },
-                                );
-                            }
-                            break;
-
-                        case 'open-external':
-                            if (resolved.identifier) {
-                                vscode.env.openExternal(vscode.Uri.parse(resolved.identifier));
-                            }
-                            break;
-
-                        case 'run-command':
-                            this._handleSpecialLink(resolved);
-                            break;
-
-                        case 'error':
-                            vscode.window.showWarningMessage(resolved.error || 'Link could not be resolved');
-                            break;
-                    }
+                        },
+                    }, msg.newPanel === true);
                     break;
                 }
 
@@ -1617,6 +1503,122 @@ function detectProjects(wsRoot: string): Array<{ name: string; relPath: string }
         return results.sort((a, b) => a.name.localeCompare(b.name));
     } catch {
         return [];
+    }
+}
+
+// ============================================================================
+// Links
+// ============================================================================
+
+/** Where a followed link goes: the panel showing the document decides. */
+export interface MdLinkTarget {
+    /** An anchor in the shown document. */
+    scrollToAnchor(anchor: string): void;
+    /** A Markdown file (at an anchor); `newPanel` when the link asked for a panel of its own. */
+    openMarkdown(filePath: string, anchor?: string, newPanel?: boolean): void;
+}
+
+/**
+ * Follow a link of a rendered document (`currentFilePath`): resolved by
+ * utils/linkResolver.ts, Markdown targets through `target`, everything else
+ * (files at a line, URLs, todo / quest / test links) opened here. The MD
+ * Browser and the quest notes panel's View tab share it.
+ */
+export function followMdLink(href: string, currentFilePath: string, target: MdLinkTarget, newPanel = false): void {
+    const context: LinkContext = { currentFilePath, workspaceRoot: WsPaths.wsRoot };
+    const resolved = resolveLink(href, context);
+    if (MD_BROWSER_DEBUG) {
+        debugLog(`[MdBrowser] resolveLink href=${href} => type=${resolved.type} action=${resolved.action}`, 'INFO', 'mdBrowser');
+    }
+    switch (resolved.action) {
+        case 'scroll-to-anchor':
+            if (resolved.anchor) { target.scrollToAnchor(resolved.anchor); }
+            break;
+        case 'navigate-md':
+        case 'navigate-md-anchor':
+            if (resolved.filePath) {
+                target.openMarkdown(resolved.filePath, resolved.action === 'navigate-md-anchor' ? resolved.anchor : undefined, newPanel);
+            }
+            break;
+        case 'open-in-editor':
+            if (resolved.filePath) {
+                void vscode.window.showTextDocument(vscode.Uri.file(resolved.filePath), { viewColumn: vscode.ViewColumn.Beside });
+            }
+            break;
+        case 'open-in-editor-line':
+            if (resolved.filePath) {
+                const lineNumber = resolved.lineNumber || 1;
+                void vscode.window.showTextDocument(vscode.Uri.file(resolved.filePath), {
+                    viewColumn: vscode.ViewColumn.Beside,
+                    selection: new vscode.Range(lineNumber - 1, 0, lineNumber - 1, 0),
+                });
+            }
+            break;
+        case 'open-external':
+            if (resolved.identifier) { void vscode.env.openExternal(vscode.Uri.parse(resolved.identifier)); }
+            break;
+        case 'run-command':
+            followSpecialLink(resolved, target);
+            break;
+        case 'error':
+            void vscode.window.showWarningMessage(resolved.error || 'Link could not be resolved');
+            break;
+    }
+}
+
+function followSpecialLink(resolved: ResolvedLink, target: MdLinkTarget): void {
+    switch (resolved.type) {
+        case 'issue':
+            vscode.window.showInformationMessage(`Issue link: ${resolved.identifier}`);
+            break;
+
+        case 'todo':
+            if (resolved.identifier) {
+                const parts = resolved.identifier.split('/');
+                if (parts.length >= 2) {
+                    const questId = parts[0];
+                    const todoId = parts.slice(1).join('/');
+                    vscode.commands.executeCommand('tomAi.showTodo', questId, todoId);
+                }
+            }
+            break;
+
+        case 'trail':
+            if (resolved.identifier) {
+                vscode.window.showInformationMessage(`Trail link: ${resolved.identifier}`);
+            }
+            break;
+
+        case 'quest':
+            // Navigate to quest overview within this panel
+            if (resolved.filePath) {
+                target.openMarkdown(resolved.filePath);
+            } else if (resolved.identifier) {
+                vscode.commands.executeCommand('tomAi.showQuest', resolved.identifier);
+            }
+            break;
+
+        case 'test':
+            if (resolved.identifier) {
+                const [filePath, testName] = resolved.identifier.split('::');
+                if (testName) {
+                    vscode.window.showInformationMessage(`Test link: ${filePath} :: ${testName}`);
+                } else {
+                    const wsRoot = WsPaths.wsRoot;
+                    if (wsRoot) {
+                        const fullPath = path.join(wsRoot, filePath);
+                        if (fs.existsSync(fullPath)) {
+                            vscode.window.showTextDocument(vscode.Uri.file(fullPath), { viewColumn: vscode.ViewColumn.Beside });
+                        }
+                    }
+                }
+            }
+            break;
+
+        default:
+            if (resolved.identifier) {
+                vscode.window.showInformationMessage(`Special link: ${resolved.type}:${resolved.identifier}`);
+            }
     }
 }
 

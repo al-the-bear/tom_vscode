@@ -1,11 +1,13 @@
 /**
  * The activity-bar containers (package.json contributes.viewsContainers / views).
  *
- *   SB-1 three containers: @TOM (the quest: PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS), @TOM WS
- *        (the workspace: VS CODE NOTES, WORKSPACE NOTES, WORKSPACE TODOS, TODO LOG, WINDOW STATUS) and @TOM VSC
- *        (RESOURCES: resource-hungry extensions), in that order, each with its icon on disk
+ *   SB-1 four containers: @TOM (the quest: PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS), @TOM WS
+ *        (the workspace: VS CODE NOTES, WORKSPACE NOTES, WORKSPACE TODOS, TODO LOG, WINDOW STATUS), @TOM VSC
+ *        (RESOURCES: resource-hungry extensions) and @NOTES (the quest notes side panel, vscimpb101), in that
+ *        order, each with its icon on disk
  *   SB-2 the moved views keep their ids, and nothing opens a moved view through the @TOM container
- *   SB-3 each container has a focus command (`tomAi.tomSidebar.focus`, `tomAi.tomWsSidebar.focus`, `tomAi.tomVscSidebar.focus`)
+ *   SB-3 each container has a focus command (`tomAi.tomSidebar.focus`, `tomAi.tomWsSidebar.focus`, `tomAi.tomVscSidebar.focus`,
+ *        `tomAi.notesSidebar.focus`)
  */
 
 import test, { describe } from 'node:test';
@@ -26,9 +28,9 @@ function sources(dir: string): string[] {
 }
 
 describe('activity-bar containers', () => {
-    test('SB-1: @TOM, @TOM WS and @TOM VSC with their views', () => {
+    test('SB-1: @TOM, @TOM WS, @TOM VSC and @NOTES with their views', () => {
         const containers = pkg.contributes.viewsContainers.activitybar as Array<{ id: string; title: string; icon: string }>;
-        assert.deepEqual(containers.map((c) => [c.id, c.title]), [['tomAi-sidebar', '@TOM'], ['tomAi-ws-sidebar', '@TOM WS'], ['tomAi-vsc-sidebar', '@TOM VSC']]);
+        assert.deepEqual(containers.map((c) => [c.id, c.title]), [['tomAi-sidebar', '@TOM'], ['tomAi-ws-sidebar', '@TOM WS'], ['tomAi-vsc-sidebar', '@TOM VSC'], ['tomAi-notes-sidebar', '@NOTES']]);
         for (const c of containers) { assert.ok(existsSync(join(ROOT, c.icon)), `${c.icon} exists`); }
         const views = (id: string): string[][] => (pkg.contributes.views[id] as Array<{ id: string; name: string }>).map((v) => [v.id, v.name]);
         assert.deepEqual(views('tomAi-sidebar'), [
@@ -40,6 +42,7 @@ describe('activity-bar containers', () => {
             ['tomAi.todoLogTom', 'TODO LOG'], ['tomAi.windowStatusTom', 'WINDOW STATUS'],
         ]);
         assert.deepEqual(views('tomAi-vsc-sidebar'), [['tomAi.vscResources', 'RESOURCES']]);
+        assert.deepEqual(views('tomAi-notes-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES']]);
     });
 
     test('SB-2: the moved views are reached by their own ids', () => {
@@ -56,7 +59,7 @@ describe('activity-bar containers', () => {
     test('SB-3: a focus command per container', () => {
         const declared = (pkg.contributes.commands as Array<{ command: string }>).map((c) => c.command);
         const ext = readFileSync(join(ROOT, 'src', 'extension.ts'), 'utf-8');
-        for (const [cmd, container] of [['tomAi.tomSidebar.focus', 'tomAi-sidebar'], ['tomAi.tomWsSidebar.focus', 'tomAi-ws-sidebar'], ['tomAi.tomVscSidebar.focus', 'tomAi-vsc-sidebar']]) {
+        for (const [cmd, container] of [['tomAi.tomSidebar.focus', 'tomAi-sidebar'], ['tomAi.tomWsSidebar.focus', 'tomAi-ws-sidebar'], ['tomAi.tomVscSidebar.focus', 'tomAi-vsc-sidebar'], ['tomAi.notesSidebar.focus', 'tomAi-notes-sidebar']]) {
             assert.ok(declared.includes(cmd), `${cmd} declared`);
             assert.match(ext, new RegExp(`'${cmd.replace(/\./g, '\\.')}',\\s*async \\(\\) => \\{\\s*await vscode\\.commands\\.executeCommand\\('workbench\\.view\\.extension\\.${container}'\\)`));
         }
