@@ -162,7 +162,7 @@ export class ProcessRepository {
         try {
             const { dir, yamlPath, mdPath } = this.paths(def.id);
             fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(yamlPath, stringifyProcessDefinition(def), 'utf-8');
+            fs.writeFileSync(yamlPath, stringifyProcessDefinition(def, readText(yamlPath)), 'utf-8');
             fs.writeFileSync(mdPath, description, 'utf-8');
             return { ok: true };
         } catch (e) {

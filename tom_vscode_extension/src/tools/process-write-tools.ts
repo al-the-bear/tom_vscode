@@ -217,7 +217,8 @@ export const WRITE_PROCESS_TOOL: SharedToolDefinition<WriteProcessInput> = {
     description:
         'Create a process: writes `_ai/processes/<id>/<id>.process.yaml` (the definition, `yaml` or `file`) and `<id>.md` (`description`) ' +
         'when the draft passes everything tomAi_validateProcess checks — otherwise nothing is written and the findings are answered. An ' +
-        'existing id is refused unless `replace: true`. Opens the result in the process editor (`open: false` not to). Answers ' +
+        'existing id is refused unless `replace: true`, which keeps the file\'s text — key order, quoting, block scalars, comments — where ' +
+        'the definition did not change. Opens the result in the process editor (`open: false` not to). Answers ' +
         '`{ok, id, replaced, files, openedInEditor}`.',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,

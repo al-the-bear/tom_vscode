@@ -8,7 +8,8 @@
  *        user-action step; an unknown key; a role that neither exists nor is drafted (`draftRoles` makes it pass);
  *        an unknown session profile; `yaml` and `file` both or neither; a draft read from a file
  *   PW-3 write: both files written (the definition reads back the same), the editor opened; an invalid draft writes
- *        nothing; an existing id is refused unless `replace`; `description` is required
+ *        nothing; an existing id is refused unless `replace`; `description` is required; `replace` keeps the
+ *        file's comments, quoting and flow maps where the definition did not change
  *   PW-4 registration, approval and the documentation rows
  */
 
@@ -111,6 +112,13 @@ describe('process creation tools', () => {
         const replaced = JSON.parse(await writeProcessImpl(deps, { yaml: VALID.replace('Shape the idea', 'Shape it'), description: 'x', replace: true, open: false }));
         assert.deepEqual([replaced.ok, replaced.replaced, replaced.openedInEditor], [true, true, false]);
         assert.match(fs.readFileSync(path.join(processesDir, 'idea_flow', 'idea_flow.process.yaml'), 'utf8'), /Shape it/);
+        // Replacing keeps the file's own text where the definition did not change (vscimpb92).
+        const file = path.join(processesDir, 'idea_flow', 'idea_flow.process.yaml');
+        const handWritten = `# Written by hand.\n${VALID.replace('name: Idea to todos', "name: 'Idea to todos'")}`;
+        fs.writeFileSync(file, handWritten);
+        const revised = handWritten.replace('prompt: Write the idea down.', 'prompt: Write the idea down in full.');
+        assert.equal(JSON.parse(await writeProcessImpl(deps, { yaml: revised.replace('# Written by hand.\n', ''), description: 'x', replace: true, open: false })).ok, true);
+        assert.equal(fs.readFileSync(file, 'utf8'), revised, 'only the changed prompt differs: comment, quotes and the flow session stay');
         // Invalid: nothing written.
         const invalid = JSON.parse(await writeProcessImpl(deps, { yaml: VALID.replace('idea_flow', 'other_flow').replace('role: author', 'role: planner'), description: 'x' }));
         assert.equal(invalid.ok, false);

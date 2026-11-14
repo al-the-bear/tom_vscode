@@ -24,7 +24,7 @@
  * variable values and the block the system prompt is given.
  */
 
-import { parse, stringify } from 'yaml';
+import { Document, isMap, isScalar, isSeq, parse, parseDocument, Scalar, stringify, visit, type Node as YamlNode, type Pair, type YAMLMap, type YAMLSeq } from 'yaml';
 import { runSessionName } from './runSessions';
 
 // ============================================================================
@@ -651,8 +651,124 @@ export function parseProcessYaml(text: string, context: ProcessValidationContext
     return validateProcessDefinition(raw, context);
 }
 
-/** The text of a `.process.yaml` for `def`, keys in their documented order. */
-export function stringifyProcessDefinition(def: ProcessDefinition): string {
+/**
+ * The text of a `.process.yaml` for `def`, keys in their documented order.
+ *
+ * With `previous` — the text of the file it replaces — the changes are made
+ * in that file's YAML document instead (vscimpb92): what did not change keeps
+ * its text, key order, quoting, block scalars and comments, so a revision
+ * diffs as itself. Text that is not a readable mapping is written anew.
+ * Either way a string a YAML 1.1 reader would take for a bool, null or number
+ * (`yes`, `off`, `1:30`) is quoted.
+ */
+export function stringifyProcessDefinition(def: ProcessDefinition, previous?: string): string {
+    const ordered = orderedProcessDefinition(def);
+    let doc: Document | undefined;
+    if (previous !== undefined && previous.trim() !== '') {
+        const old = parseDocument(previous);
+        if (old.errors.length === 0 && isMap(old.contents)) {
+            mergeYamlNode(old, old.contents, ordered);
+            doc = old;
+        }
+    }
+    doc ??= new Document(ordered);
+    quoteYaml11Ambiguous(doc);
+    return doc.toString({ lineWidth: 0 });
+}
+
+/** A plain object (not an array, not null). */
+const isPlainObject = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Deep equality of JSON-like values, key order ignored. */
+function sameJson(a: unknown, b: unknown): boolean {
+    if (a === b) { return true; }
+    if (Array.isArray(a) || Array.isArray(b)) {
+        return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+    }
+    if (isPlainObject(a) && isPlainObject(b)) {
+        const ka = Object.keys(a).filter((k) => a[k] !== undefined);
+        const kb = Object.keys(b).filter((k) => b[k] !== undefined);
+        return ka.length === kb.length && ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameJson(a[k], b[k]));
+    }
+    return false;
+}
+
+const pairKey = (p: Pair): unknown => (isScalar(p.key) ? p.key.value : p.key);
+
+/** `node` changed in place to hold `value` where it can; the node to put in its place. */
+function mergeYamlNode(doc: Document, node: unknown, value: unknown): unknown {
+    const current = node && typeof (node as YamlNode).toJSON === 'function' ? (node as YamlNode).toJSON() : node;
+    if (sameJson(current, value)) { return node; }
+    if (isMap(node) && isPlainObject(value)) { mergeYamlMap(doc, node, value); return node; }
+    if (isSeq(node) && Array.isArray(value)) { mergeYamlSeq(doc, node, value); return node; }
+    if (isScalar(node) && typeof node.value === 'string' && typeof value === 'string') {
+        // The scalar keeps its style; a flow style cannot hold a line break nicely, so it gives it up then.
+        const flow = node.type === Scalar.PLAIN || node.type === Scalar.QUOTE_SINGLE || node.type === Scalar.QUOTE_DOUBLE;
+        if (flow && value.includes('\n')) { delete node.type; }
+        node.value = value;
+        return node;
+    }
+    return doc.createNode(value);
+}
+
+/** The pairs of `map` brought to `value`: changed in place, removed, new ones after their predecessor in `value`'s order. */
+function mergeYamlMap(doc: Document, map: YAMLMap, value: Raw): void {
+    const wanted = Object.keys(value).filter((k) => value[k] !== undefined);
+    map.items = map.items.filter((p) => wanted.includes(String(pairKey(p))));
+    wanted.forEach((key, i) => {
+        const pair = map.items.find((p) => String(pairKey(p)) === key);
+        if (pair) { pair.value = mergeYamlNode(doc, pair.value, value[key]); return; }
+        const fresh = doc.createPair(key, value[key]) as Pair;
+        let at = 0;
+        for (let j = i - 1; j >= 0; j--) {
+            const before = map.items.findIndex((p) => String(pairKey(p)) === wanted[j]);
+            if (before >= 0) { at = before + 1; break; }
+        }
+        map.items.splice(at, 0, fresh);
+    });
+}
+
+/** The items of `seq` brought to `value`: entries with an `id` matched by it, the others by position. */
+function mergeYamlSeq(doc: Document, seq: YAMLSeq, value: unknown[]): void {
+    const idOf = (v: unknown): string | undefined => {
+        const id = isMap(v) ? v.get('id') : isPlainObject(v) ? v.id : undefined;
+        return typeof id === 'string' ? id : undefined;
+    };
+    const byId = value.length > 0 && value.every((v) => idOf(v) !== undefined) && seq.items.every((n) => idOf(n) !== undefined);
+    const used = new Set<unknown>();
+    seq.items = value.map((v, i) => {
+        const old = byId ? seq.items.find((n) => !used.has(n) && idOf(n) === idOf(v)) : seq.items[i];
+        if (old === undefined) { return doc.createNode(v); }
+        used.add(old);
+        return mergeYamlNode(doc, old, v);
+    });
+}
+
+/** True when a YAML 1.1 reader takes the plain scalar `text` for something other than a string. */
+export function yaml11ReadsAsNonString(text: string): boolean {
+    if (text === '' || text.includes('\n')) { return false; }
+    try {
+        const v: unknown = parse(text, { version: '1.1' });
+        return v === null || typeof v === 'boolean' || typeof v === 'number' || typeof v === 'bigint';
+    } catch {
+        return false;
+    }
+}
+
+/** Every string value a YAML 1.1 reader would take for a bool, null or number is double-quoted. */
+function quoteYaml11Ambiguous(doc: Document): void {
+    visit(doc, {
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the yaml visitor's node-kind key
+        Scalar(key, node) {
+            if (key === 'key' || typeof node.value !== 'string') { return; }
+            if (node.type !== undefined && node.type !== Scalar.PLAIN) { return; }
+            if (yaml11ReadsAsNonString(node.value)) { node.type = Scalar.QUOTE_DOUBLE; }
+        },
+    });
+}
+
+/** `def` as a plain object, keys in their documented order and empty ones left out. */
+function orderedProcessDefinition(def: ProcessDefinition): Raw {
     const pick = (obj: object, keys: string[]): Raw => {
         const out: Raw = {};
         for (const key of keys) {
@@ -693,7 +809,7 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
         if (s.substeps && s.substeps.length) { out.substeps = s.substeps.map(substep); }
         return out;
     };
-    const ordered = {
+    return {
         ...pick(def, ['id', 'name', 'summary', 'session']),
         ...(def.inputs?.length ? { inputs: def.inputs.map((d) => pick(d, IO_KEYS)) } : {}),
         ...(def.outputs?.length ? { outputs: def.outputs.map((d) => pick(d, [...IO_KEYS, 'value'])) } : {}),
@@ -713,7 +829,6 @@ export function stringifyProcessDefinition(def: ProcessDefinition): string {
             return out;
         }),
     };
-    return stringify(ordered, { lineWidth: 0 });
 }
 
 // ============================================================================

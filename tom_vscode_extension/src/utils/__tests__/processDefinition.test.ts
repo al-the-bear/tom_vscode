@@ -77,6 +77,7 @@ import {
     selectSubstep,
     validateProcessDefinition,
     stringifyProcessDefinition,
+    yaml11ReadsAsNonString,
     roleAfterMove,
     availableMoves,
     userActionAt,
@@ -742,5 +743,103 @@ describe('process-level session', () => {
         assert.match(editor, /errors: validateInWindow\(msg\.definition\)\.errors/);
         assert.equal((editor.match(/const refusal = windowRefusal\(msg\.definition\);/g) ?? []).length, 2, 'both saves refuse an unknown profile');
         assert.match(editor, /case 'pickSession':[\s\S]*?pickDefinitionSession\(/, 'the editor\'s picker edits the definition only');
+    });
+});
+
+describe('writing over an existing file (vscimpb92)', () => {
+    // Non-default key order (name before id, a phase's description after repeatable), comments,
+    // quoted and unquoted strings, block scalars, a plain `yes` a YAML 1.1 reader takes for true.
+    const FIXTURE = [
+        '# The fixture process.',
+        'name: \'Fixture flow\'',
+        'id: fixture_flow',
+        'summary: A process "kept as written".',
+        'phases:',
+        '  # The only phase.',
+        '  - id: draft',
+        '    name: Draft',
+        '    repeatable: true',
+        '    description: "Write it, then check it."',
+        '    steps:',
+        '      - id: write',
+        '        name: Write',
+        '        prompt: |',
+        '          Write the first version.',
+        '          Keep it short.',
+        '      - id: deepen # optional',
+        '        name: Deepen',
+        '        when:',
+        '          var: deepen',
+        '          equals: yes',
+        '        prompt: |-',
+        '          Deepen every part.',
+        '    gate:',
+        '      id: g1',
+        '      name: \'G1 — Draft done\'',
+        '      prompt: >-',
+        '        Run the checklist.',
+        '',
+    ].join('\n');
+
+    const read = (text: string): ProcessDefinition => {
+        const r = parseProcessYaml(text);
+        assert.deepEqual(r.errors, []);
+        return r.definition!;
+    };
+
+    test('WF-1: an unchanged definition keeps the file as it is, but for the 1.1 bool', () => {
+        const out = stringifyProcessDefinition(read(FIXTURE), FIXTURE);
+        assert.equal(out, FIXTURE.replace('equals: yes', 'equals: "yes"'));
+    });
+
+    test('WF-2: a single changed prompt changes only its lines', () => {
+        const before = FIXTURE.replace('equals: yes', 'equals: "yes"');
+        const def = read(before);
+        def.phases[0].steps[0].prompt = 'Write the first version.\nKeep it short and plain.\n';
+        const a = before.split('\n');
+        const b = stringifyProcessDefinition(def, before).split('\n');
+        assert.equal(b.length, a.length);
+        const changed = a.map((line, i) => (line === b[i] ? -1 : i)).filter((i) => i >= 0);
+        assert.deepEqual(changed, [a.indexOf('          Keep it short.')], 'only the prompt\'s changed line');
+        assert.equal(b[changed[0]], '          Keep it short and plain.');
+    });
+
+    test('WF-3: added, removed and changed keys stay in place; comments stay', () => {
+        const def = read(FIXTURE);
+        def.phases[0].steps[0].role = 'senior_developer';
+        def.phases[0].steps = [def.phases[0].steps[0]];
+        def.summary = 'A shorter summary.';
+        const out = stringifyProcessDefinition(def, FIXTURE);
+        assert.deepEqual(read(out), def, 'reads back as the definition');
+        assert.match(out, /^# The fixture process\.\nname: 'Fixture flow'\nid: fixture_flow\nsummary: A shorter summary\.\n/, 'the head keeps its order and quotes');
+        assert.match(out, /  # The only phase\.\n/, 'the phase comment stays');
+        assert.match(out, /repeatable: true\n    description: "Write it, then check it\."/, 'the phase keeps its key order and quotes');
+        assert.match(out, /prompt: \|\n {10}Write the first version\.\n {10}Keep it short\.\n {8}role: senior_developer\n/, 'a new key after its predecessor in the documented order');
+        assert.doesNotMatch(out, /deepen/, 'the removed step is gone');
+        assert.match(out, /prompt: >-\n {8}Run the checklist\./, 'a folded block stays folded');
+    });
+
+    test('WF-4: strings a YAML 1.1 reader takes for bools, nulls or numbers are quoted', () => {
+        for (const text of ['yes', 'No', 'on', 'OFF', 'y', 'n', '~', 'null', '1:30', '0b101', '1_000']) {
+            assert.equal(yaml11ReadsAsNonString(text), true, text);
+        }
+        for (const text of ['yesterday', 'only', 'a: b', 'Draft', '', 'two\nlines']) {
+            assert.equal(yaml11ReadsAsNonString(text), false, text);
+        }
+        const def = read(FIXTURE);
+        def.phases[0].steps[1].name = 'off';
+        const fresh = stringifyProcessDefinition(def);
+        assert.match(fresh, /equals: "yes"/);
+        assert.match(fresh, /name: "off"/);
+        const as11 = parse(fresh, { version: '1.1' }) as { phases: Array<{ steps: Array<{ name: unknown; when?: { equals: unknown } }> }> };
+        assert.equal(as11.phases[0].steps[1].when?.equals, 'yes', 'a YAML 1.1 reader reads a string');
+        assert.equal(as11.phases[0].steps[1].name, 'off');
+        assert.deepEqual(read(fresh), def);
+    });
+
+    test('WF-5: text that is not a readable mapping is written anew', () => {
+        const def = read(FIXTURE);
+        assert.equal(stringifyProcessDefinition(def, ': not [ yaml'), stringifyProcessDefinition(def));
+        assert.equal(stringifyProcessDefinition(def, '- a list\n'), stringifyProcessDefinition(def));
     });
 });

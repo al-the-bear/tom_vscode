@@ -7,7 +7,8 @@
  * `qtTodoPrefix`) and its TS mirror (`todoIdPrefix`) give the group the old rule gave, and the number after it is
  * the old number. Skipped where no corpus is mounted.
  *
- *   TG-1 every corpus id keeps its group and number; the panel and the TS mirror agree
+ *   TG-1 every corpus id keeps its group and number; the panel and the TS mirror agree; an id starting with a digit
+ *        (a group named with a leading number, which the old rule could not group) has a group and a number
  */
 
 import test, { describe } from 'node:test';
@@ -61,6 +62,11 @@ describe('the leading-number group rule over the corpus', () => {
             assert.equal(qt(id), prefix, `panel and TS agree on ${id}`);
             const before = oldGroup(id);
             const number = prefix ? Number(/^[0-9]+/.exec(id.slice(prefix.length))?.[0]) : undefined;
+            if (/^[0-9]/.test(id)) {
+                // A group named with a leading number: the old rule had no group for it, so there is nothing to keep.
+                if (!prefix || number === undefined || Number.isNaN(number)) { changed.push(`${id}: no group and number → ${prefix}/${number}`); }
+                continue;
+            }
             if (prefix !== before.prefix || number !== before.number) { changed.push(`${id}: ${before.prefix}/${before.number} → ${prefix}/${number}`); }
         }
         assert.deepEqual(changed, []);
