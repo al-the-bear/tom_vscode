@@ -248,8 +248,8 @@ BUNDLED_BINARIES="tom_bs"
 BIN_STAGE="$SCRIPT_DIR/bin.staging"
 rm -rf "$BIN_STAGE"
 mkdir -p "$BIN_STAGE"
-# The node steps (binaries-layer.cjs, build-validate-codespecs.cjs,
-# check-tom-bs-provenance.cjs) write and read there too.
+# The node steps (the layer bundle and publish, the CodeSpecs CLIs, the build
+# tools, the tom_bs provenance check) write and read there too.
 export TOM_BINARIES_EXT_BIN="$BIN_STAGE"
 tom_bin_kept_on_failure() {
     if [ "$1" != "0" ] && [ -d "$BIN_STAGE" ]; then

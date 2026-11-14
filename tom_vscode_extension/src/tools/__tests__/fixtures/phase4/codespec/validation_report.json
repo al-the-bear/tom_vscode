@@ -239,7 +239,7 @@
     {
       "number": 45,
       "definedIn": "§3.3.1",
-      "title": "Every @CsTable class carries @tomReflector and a @TomDbTable agreeing with @CsTable and its identifying @CsTableKey"
+      "title": "Every @CsTable class carries @tomReflector and a @TomDbTable agreeing with @CsTable and its identifying @CsTableKey, and a tenant table its @TomTenantTable"
     },
     {
       "number": 46,
