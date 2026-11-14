@@ -180,8 +180,13 @@ describe('Dart-built binaries on this platform', () => {
     });
 
     test('DB-9: the summary', () => {
-        const s = summarizeDartBinaries(dartBinariesStatus(fakeRoot({ [HOST]: [`validate_codespecs${EXE}`] })));
-        assert.deepEqual(s, { platform: HOST, binaries: { tom_bs: 'missing', validate_codespecs: 'bundled', spec_checks: 'missing' }, missing: ['tom_bs', 'spec_checks'] }); // eslint-disable-line @typescript-eslint/naming-convention
+        const s = summarizeDartBinaries(dartBinariesStatus(fakeRoot({ [HOST]: [`validate_codespecs${EXE}`, `buildkit${EXE}`] }), {}, { PATH: '' }));
+        assert.deepEqual(s, {
+            platform: HOST,
+            binaries: { tom_bs: 'missing', validate_codespecs: 'bundled', spec_checks: 'missing' }, // eslint-disable-line @typescript-eslint/naming-convention
+            missing: ['tom_bs', 'spec_checks'],
+            buildTools: { buildkit: 'bundled', d4rtgen: 'missing', reflectiongenerator: 'missing', testkit: 'missing' },
+        }, 'a missing build tool is not in `missing` (it does not open the page)');
         assert.equal(dartBinariesHelp(EXT_ROOT).help, HELP_HINT);
         assert.equal(HELP_HINT, 'Run command tomAi.showDartBinariesHelp');
     });

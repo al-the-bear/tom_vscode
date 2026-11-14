@@ -132,17 +132,28 @@ It runs end to end:
    multi-platform VSIXes take (below). A push the remote refuses (the layer is
    behind it) leaves the commit local and the install goes on; nothing pulls
    the layer on its own.
-6. Builds the workspace template (`npm run template:build`): the workspace's
+6. Bundles the tom build tools for this host from the binaries layer
+   (`scripts/binaries-layer.cjs tools`): `buildkit` (builds, the versioner as
+   `buildkit :versioner`, the project list as `buildkit :projects`), `d4rtgen`,
+   `reflectiongenerator` and `testkit` (which the TomSpecs process records its
+   test runs with), each with a `<tool>.bundle.json` stamp (size, sha256, the
+   layer commit; not packaged). They are built by their own repositories, so
+   every VSIX takes them from the layer; without a layer the VSIX goes without
+   them, with a warning. The extension looks for each tool in the configured
+   places, the workspace's layer, `$TOM_BINARY_PATH` and PATH first, and uses
+   its bundled copy only when none has it, so a tom repository works with the
+   extension alone.
+7. Builds the workspace template (`npm run template:build`): the workspace's
    config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
    personal files and literal secrets, as `resources/workspace_template.zip`
    (in the VSIX) and a copy beside it.
-7. Packages the VSIX (bundling only the host `tom_bs`, `validate_codespecs` and `spec_checks`),
+8. Packages the VSIX (bundling only the host `tom_bs`, `validate_codespecs`, `spec_checks` and the build tools),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM
    packages present as real files, no symlinks; the install stops otherwise;
-   which of `tom_bs` / `validate_codespecs` / `spec_checks` it carries per platform is listed,
+   which of `tom_bs` / `validate_codespecs` / `spec_checks` and of the build tools it carries per platform is listed,
    and for which platforms it carries the Agent SDK CLI),
    and installs it via the VS Code CLI (`code` on PATH, else the installation's own; without one it is only packaged).
-8. Prints the VSIX's path, to install the same file on other machines with
+9. Prints the VSIX's path, to install the same file on other machines with
    `code --install-extension <file>`.
 
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
@@ -359,6 +370,12 @@ SDKs are installed. When something is missing:
   `tomAi_specCodeSpecsValidate` answers `binaryMissing` with how to get the
   binary; Trace and Status skip validation and warn, the user once per tool
   and window session.
+- **The tom build tools** (`buildkit`, `d4rtgen`, `reflectiongenerator`,
+  `testkit`): bundled for the same platforms as the binaries, and used only
+  when no configured file, workspace binaries layer, `$TOM_BINARY_PATH` or
+  PATH has the tool. Without one the project list comes from the extension's
+  own JavaScript listing; the page and the Status Page's **Dart binaries**
+  section say where each tool was found.
 - **Provider SDK:** an Anthropic prompt fails before it runs, naming the
   missing SDK (or the Agent SDK's CLI for this platform), with **Install
   provider SDKs** (the Provider SDKs page) and **What does this mean?**

@@ -49,6 +49,9 @@ import {
     QUEUE_DELETE_USAGE,
 } from '../utils/telegramQueueCommands';
 import type { LiveConversationStatus } from './telegramTrailForwarder';
+import { resolveBuildTool, type BuildToolName } from '../services/buildTools';
+import { currentDartBinariesConfig, dartBinariesExtensionRoot } from '../services/dartBinariesStatus';
+import { getCurrentPlatform } from '../utils/executableResolver';
 import type { SendToChatOutcome } from './sendToChatRouter';
 
 // ============================================================================
@@ -131,9 +134,9 @@ function detectProject(fromDir: string): ProjectInfo | undefined {
 // ============================================================================
 
 /** Run a shell command and return stdout + stderr. Pass timeoutMs=0 for no timeout. */
-function execShell(cmd: string, cwd: string, timeoutMs: number = 30000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+function execShell(cmd: string, cwd: string, timeoutMs: number = 30000, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
-        exec(cmd, { cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
+        exec(cmd, { cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024 * 5, ...(env ? { env } : {}) }, (error, stdout, stderr) => {
             resolve({
                 stdout: stdout?.toString() ?? '',
                 stderr: stderr?.toString() ?? '',
@@ -383,14 +386,29 @@ function normalizeArgs(args: string): string {
         .replace(/"/g, '"');   // smart double quote
 }
 
+/**
+ * The shell command for a tom build tool: the file the extension's lookup
+ * finds (configured, the binaries layer, PATH, else the bundled copy;
+ * services/buildTools.ts), quoted; the bare name when none is found.
+ */
+export function buildToolShellCommand(name: BuildToolName, args: string, workspaceRoot: string): { command: string; env?: NodeJS.ProcessEnv } {
+    const tool = resolveBuildTool(name, workspaceRoot, currentDartBinariesConfig(), process.env, getCurrentPlatform(), dartBinariesExtensionRoot());
+    const bin = tool.path ? `"${tool.path}"` : name;
+    // The bundled tools find each other (buildkit runs d4rtgen, reflectiongenerator) on PATH: their folder goes first.
+    const env = tool.source === 'bundled' && tool.path
+        ? { ...process.env, PATH: `${path.dirname(tool.path)}${path.delimiter}${process.env.PATH ?? ''}` }
+        : undefined;
+    return { command: args ? `${bin} ${args}` : bin, ...(env ? { env } : {}) };
+}
+
 // --- bk (buildkit) ---
 async function bkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const cwd = getCwd();
     const args = normalizeArgs(cmd.rawArgs);
-    const fullCmd = args ? `buildkit ${args}` : 'buildkit';
+    const shell = buildToolShellCommand('buildkit', args, getWorkspaceRoot() ?? cwd);
 
-    bridgeLog(`[Telegram] Running: ${fullCmd} in ${cwd}`);
-    const { stdout, stderr, exitCode } = await execShell(fullCmd, cwd, 0);
+    bridgeLog(`[Telegram] Running: ${shell.command} in ${cwd}`);
+    const { stdout, stderr, exitCode } = await execShell(shell.command, cwd, 0, shell.env);
     const output = (stdout + '\n' + stderr).trim();
     const icon = exitCode === 0 ? '✅' : '❌';
 
@@ -404,10 +422,10 @@ async function bkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandRes
 async function tkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const cwd = getCwd();
     const args = normalizeArgs(cmd.rawArgs);
-    const fullCmd = args ? `testkit ${args}` : 'testkit';
+    const shell = buildToolShellCommand('testkit', args, getWorkspaceRoot() ?? cwd);
 
-    bridgeLog(`[Telegram] Running: ${fullCmd} in ${cwd}`);
-    const { stdout, stderr, exitCode } = await execShell(fullCmd, cwd, 0);
+    bridgeLog(`[Telegram] Running: ${shell.command} in ${cwd}`);
+    const { stdout, stderr, exitCode } = await execShell(shell.command, cwd, 0, shell.env);
     const output = (stdout + '\n' + stderr).trim();
     const icon = exitCode === 0 ? '✅' : '❌';
 

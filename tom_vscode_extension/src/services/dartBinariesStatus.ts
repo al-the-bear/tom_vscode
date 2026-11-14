@@ -17,6 +17,13 @@
  * Otherwise it is missing; a configured path that names no file is reported
  * as `configuredPath`.
  *
+ * The status also lists the tom build tools the VSIX bundles as the last
+ * fallback — buildkit, d4rtgen, reflectiongenerator, testkit
+ * (services/buildTools.ts) — each with where the full lookup found it:
+ * configured, the binaries layer, PATH, bundled or missing. A missing build
+ * tool does not open the page at activation: the tools have places of their
+ * own (the workspace's layer, PATH) and most windows do not need them.
+ *
  * The explanation page (`resources/dart_binaries/missing_dart_binaries.md`)
  * says what is lost and how to get the binaries; {@link fillHelpPage} fills
  * its placeholders for this platform. The command tomAi.showDartBinariesHelp
@@ -37,6 +44,7 @@ import {
     type ExecutableConfig,
     type ExecutablesConfig,
 } from '../utils/executableResolver';
+import { BUILD_TOOL_PURPOSE, buildToolFileName, buildToolsStatus, type BuildToolName, type BuildToolSource, type BuildToolState } from './buildTools';
 
 export const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'] as const;
 export type DartBinaryName = typeof DART_BINARIES[number];
@@ -85,6 +93,8 @@ export interface DartBinariesStatus {
     binaries: DartBinaryState[];
     /** The names of the missing binaries, in DART_BINARIES order. */
     missing: DartBinaryName[];
+    /** The tom build tools (buildkit, d4rtgen, reflectiongenerator, testkit) and where each was found. */
+    buildTools: BuildToolState[];
 }
 
 /** The configuration the lookup reads (the `bridge` section of tom_vscode_extension.json). */
@@ -120,12 +130,13 @@ export function resolveDartBinary(name: DartBinaryName, extensionRoot: string, c
     return { name, source: 'missing', ...(configuredPath ? { configuredPath } : {}) };
 }
 
-export function dartBinariesStatus(extensionRoot: string, config: DartBinariesConfig = {}): DartBinariesStatus {
+export function dartBinariesStatus(extensionRoot: string, config: DartBinariesConfig = {}, env: NodeJS.ProcessEnv = process.env): DartBinariesStatus {
     const binaries = DART_BINARIES.map((name) => resolveDartBinary(name, extensionRoot, config));
     return {
         platform: getCurrentPlatform(),
         binaries,
         missing: binaries.filter((b) => b.source === 'missing').map((b) => b.name),
+        buildTools: buildToolsStatus(config.workspaceRoot ?? '', config, extensionRoot, env),
     };
 }
 
@@ -134,12 +145,16 @@ export interface DartBinariesSummary {
     platform: string;
     binaries: Record<DartBinaryName, DartBinarySource>;
     missing: DartBinaryName[];
+    /** Where each tom build tool was found (configured, layer, path, bundled, missing). */
+    buildTools: Record<BuildToolName, BuildToolSource>;
 }
 
 export function summarizeDartBinaries(status: DartBinariesStatus): DartBinariesSummary {
     const binaries = {} as Record<DartBinaryName, DartBinarySource>;
     for (const b of status.binaries) { binaries[b.name] = b.source; }
-    return { platform: status.platform, binaries, missing: status.missing };
+    const buildTools = {} as Record<BuildToolName, BuildToolSource>;
+    for (const t of status.buildTools ?? []) { buildTools[t.name] = t.source; }
+    return { platform: status.platform, binaries, missing: status.missing, buildTools };
 }
 
 function isFile(p: string): boolean {
@@ -210,11 +225,21 @@ const SOURCE_LABEL: Record<DartBinarySource, string> = {
     missing: '**missing**',
 };
 
+/** How the page and the Status Page name where a build tool was found. */
+export const BUILD_TOOL_SOURCE_LABEL: Record<BuildToolSource, string> = {
+    configured: 'configured',
+    layer: 'the binaries layer',
+    path: 'PATH',
+    bundled: 'bundled',
+    missing: '**missing**',
+};
+
 /**
  * Fill the page's placeholders: `{{platform}}`, `{{missing}}` (the missing
  * binaries and what they give, or "none"), `{{statusTable}}` (a Markdown
- * table of the binaries) and `{{binDir}}` (this platform's folder in the
- * installed extension).
+ * table of the binaries), `{{buildToolsTable}}` (the build tools and where
+ * each was found) and `{{binDir}}` (this platform's folder in the installed
+ * extension).
  */
 export function fillHelpPage(template: string, status: DartBinariesStatus, extensionRoot: string): string {
     const missing = status.missing.length === 0
@@ -225,7 +250,11 @@ export function fillHelpPage(template: string, status: DartBinariesStatus, exten
         return `| \`${binaryFileName(b.name, status.platform)}\` | ${DART_BINARY_FEATURE[b.name]} | ${SOURCE_LABEL[b.source]} | ${where} |`;
     });
     const table = ['| Binary | Gives | Status | File |', '| --- | --- | --- | --- |', ...rows].join('\n');
+    const toolRows = (status.buildTools ?? []).map((t) =>
+        `| \`${buildToolFileName(t.name, status.platform)}\` | ${BUILD_TOOL_PURPOSE[t.name]} | ${BUILD_TOOL_SOURCE_LABEL[t.source]} | ${t.path ? `\`${t.path}\`` : '—'} |`);
+    const toolsTable = ['| Tool | For | Found | File |', '| --- | --- | --- | --- |', ...toolRows].join('\n');
     return template
+        .replace(/\{\{buildToolsTable\}\}/g, toolsTable)
         .replace(/\{\{platform\}\}/g, status.platform)
         .replace(/\{\{missing\}\}/g, missing)
         .replace(/\{\{statusTable\}\}/g, table)

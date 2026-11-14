@@ -4,6 +4,7 @@
  *
  *   node scripts/binaries-layer.cjs publish [--ff] [--no-push]
  *   node scripts/binaries-layer.cjs bundle [--platforms a,b,...]
+ *   node scripts/binaries-layer.cjs tools [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs report [--platforms a,b,...]
  *   node scripts/binaries-layer.cjs unpushed
  *   node scripts/binaries-layer.cjs sync
@@ -34,6 +35,17 @@
  *   they say what the binaries were built from — `npm run codespecs:check`,
  *   the CV-8 test). Default platforms: the ones the binaries are built for
  *   (DEFAULT_PLATFORMS: darwin-arm64, linux-x64, win32-x64) that the layer has.
+ * tools — copy the tom build tools the VSIX bundles as the last fallback
+ *   (BUILD_TOOLS: buildkit, d4rtgen, reflectiongenerator, testkit;
+ *   src/services/buildTools.ts) from the layer into bin/<platform>/, each with
+ *   a `<name>.bundle.json` stamp: the file, its size and sha256, and the layer
+ *   commit that last changed it (.vscodeignore keeps the stamps out of the
+ *   VSIX). They are built by their own repositories (tom_build_kit,
+ *   tom_d4rt_generator, tom_reflection_generator, tom_test_kit), not here, so
+ *   every VSIX — from source or from the layer — takes them from the layer.
+ *   Default platforms: DEFAULT_PLATFORMS. A tool or a platform the layer does
+ *   not have, or no layer at all, is named and passed: the VSIX goes without
+ *   it (exit 0).
  * report — per platform: each binary's build stamp and whether it is older
  *   than the sources here (tom_bs: the bridge files changed since the commit
  *   it was built from, check-tom-bs-provenance.cjs; a clitool binary: the
@@ -79,6 +91,10 @@ const DEFAULT_PLATFORMS = ['darwin-arm64', 'linux-x64', 'win32-x64'];
 const CLITOOL_BINARIES = codespecsStamp.CLITOOL_BINARIES;
 const BINARIES = ['tom_bs', ...CLITOOL_BINARIES];
 const TOM_BS_STAMP = 'tom_bs.build.json';
+/** The tom build tools a VSIX bundles from the layer as the last fallback (src/services/buildTools.ts BUILD_TOOLS). */
+const BUILD_TOOLS = ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit'];
+/** A bundled build tool's stamp file. */
+function toolStampName(name) { return `${name}.bundle.json`; }
 const CLITOOL_STAMPS = CLITOOL_BINARIES.map((name) => codespecsStamp.stampName(name));
 
 function layerDir() {
@@ -461,7 +477,69 @@ function firstLine(e) {
     return String((e && (e.stderr || e.message)) || e).split('\n').map((l) => l.trim()).find(Boolean) || 'error';
 }
 
-module.exports = { DEFAULT_PLATFORMS, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed, sync };
+/** The layer commit that last changed `rel` (relative to the layer folder): {commit, committedAt}, or null. */
+function layerCommitOf(layer, rel) {
+    try {
+        const line = git(['log', '-1', '--format=%H %cI', '--', rel], layer);
+        if (!line) { return null; }
+        const [commit, committedAt] = line.split(' ');
+        return { commit, committedAt };
+    } catch { return null; }
+}
+
+/** The stamp of a build tool copied from the layer: what it is and where it came from. */
+function toolStamp(layer, platform, name, now = new Date()) {
+    const file = exe(platform, name);
+    const abs = path.join(layer, platform, file);
+    const data = fs.readFileSync(abs);
+    const from = layerCommitOf(layer, `${platform}/${file}`);
+    return {
+        format: 'tom-build-tool-bundle',
+        formatVersion: 1,
+        name,
+        platform,
+        file,
+        size: data.length,
+        sha256: crypto.createHash('sha256').update(data).digest('hex'),
+        source: 'binaries layer',
+        ...(from ? { layerCommit: from.commit, layerCommittedAt: from.committedAt } : {}),
+        bundledAt: now.toISOString(),
+    };
+}
+
+/** Copy the build tools of `platforms` from the layer into bin/<platform>/ with their stamps; always 0. */
+function tools(platforms) {
+    const layer = layerDir();
+    const list = platforms || DEFAULT_PLATFORMS;
+    if (!fs.existsSync(layer)) {
+        console.log(`  ⚠️  No binaries layer at ${layer}: the VSIX carries no build tools (${BUILD_TOOLS.join(', ')}).`);
+        return 0;
+    }
+    let count = 0;
+    for (const platform of list) {
+        const srcDir = path.join(layer, platform);
+        const found = BUILD_TOOLS.filter((t) => fs.existsSync(path.join(srcDir, exe(platform, t))));
+        const missing = BUILD_TOOLS.filter((t) => !found.includes(t));
+        if (found.length === 0) {
+            console.log(`  ⚠️  ${platform}: none of the build tools (${BUILD_TOOLS.join(', ')}) in the binaries layer`);
+            continue;
+        }
+        const dstDir = path.join(extBinDir(), platform);
+        fs.mkdirSync(dstDir, { recursive: true });
+        for (const name of found) {
+            const file = exe(platform, name);
+            fs.copyFileSync(path.join(srcDir, file), path.join(dstDir, file));
+            if (!platform.startsWith('win32')) { fs.chmodSync(path.join(dstDir, file), 0o755); }
+            fs.writeFileSync(path.join(dstDir, toolStampName(name)), `${JSON.stringify(toolStamp(layer, platform, name), null, 2)}\n`);
+            count++;
+        }
+        console.log(`  ✔ ${platform}: ${found.map((t) => exe(platform, t)).join(', ')}${missing.length ? ` (not in the layer: ${missing.join(', ')})` : ''}`);
+    }
+    console.log(`  Bundled ${count} build tools from the binaries layer`);
+    return 0;
+}
+
+module.exports = { DEFAULT_PLATFORMS, BUILD_TOOLS, toolStampName, toolStamp, tools, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed, sync };
 
 if (require.main === module) {
     const [cmd, ...argv] = process.argv.slice(2);
@@ -469,6 +547,8 @@ if (require.main === module) {
         process.exitCode = publish({ ff: argv.includes('--ff'), push: !argv.includes('--no-push') });
     } else if (cmd === 'bundle') {
         process.exitCode = bundle(platformsArg(argv));
+    } else if (cmd === 'tools') {
+        process.exitCode = tools(platformsArg(argv));
     } else if (cmd === 'report') {
         process.exitCode = report(platformsArg(argv));
     } else if (cmd === 'unpushed') {
@@ -477,7 +557,7 @@ if (require.main === module) {
         sync();
         process.exitCode = 0;
     } else {
-        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | report [--platforms a,b] | unpushed | sync');
+        console.error('usage: binaries-layer.cjs publish [--ff] [--no-push] | bundle [--platforms a,b] | tools [--platforms a,b] | report [--platforms a,b] | unpushed | sync');
         process.exitCode = 2;
     }
 }

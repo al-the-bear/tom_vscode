@@ -184,6 +184,42 @@ describe('binaries layer', () => {
         assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'linux-x64', 'win32-x64'], "the fleet's build platforms only");
     });
 
+    test('BL-8: tools copies the build tools with a stamp each, and goes on without them', () => {
+        const t = makeLayer();
+        const dir = path.join(t.layerDir, 'win32-x64');
+        fs.mkdirSync(dir, { recursive: true });
+        for (const f of ['buildkit.exe', 'testkit.exe', 'tom_bs.exe']) { fs.writeFileSync(path.join(dir, f), `bytes of ${f}`); }
+        git(t.repo, 'add', '.');
+        git(t.repo, 'commit', '--quiet', '-m', 'win32 tools');
+        const head = git(t.repo, 'rev-parse', 'HEAD');
+        const r = runLayer(t, 'tools', '--platforms', 'win32-x64,darwin-x64');
+        assert.equal(r.status, 0, r.stderr);
+        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['buildkit.bundle.json', 'buildkit.exe', 'testkit.bundle.json', 'testkit.exe'], 'the tools only, not tom_bs');
+        const stamp = JSON.parse(fs.readFileSync(path.join(t.bin, 'win32-x64', 'buildkit.bundle.json'), 'utf8'));
+        assert.equal(stamp.format, 'tom-build-tool-bundle');
+        assert.equal(stamp.file, 'buildkit.exe');
+        assert.equal(stamp.size, 'bytes of buildkit.exe'.length);
+        assert.equal(stamp.layerCommit, head, 'the layer commit that last changed it');
+        assert.match(stamp.sha256, /^[0-9a-f]{64}$/);
+        assert.match(r.stdout, /win32-x64: buildkit\.exe, testkit\.exe \(not in the layer: d4rtgen, reflectiongenerator\)/);
+        assert.match(r.stdout, /darwin-x64: none of the build tools \(buildkit, d4rtgen, reflectiongenerator, testkit\) in the binaries layer/);
+        assert.match(r.stdout, /Bundled 2 build tools from the binaries layer/);
+        assert.match(fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8'), /^bin\/\*\/\*\.bundle\.json$/m, 'the stamps stay out of the VSIX');
+        assert.deepEqual(layer.BUILD_TOOLS, ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit']);
+        // No layer at all: named, exit 0, nothing copied.
+        const none = spawnSync('node', [LAYER_SCRIPT, 'tools'], { encoding: 'utf8', env: { ...process.env, TOM_BINARIES_LAYER: path.join(t.root, 'no-layer'), TOM_BINARIES_EXT_BIN: path.join(t.root, 'bin2') } });
+        assert.equal(none.status, 0);
+        assert.match(none.stdout, /No binaries layer at .*: the VSIX carries no build tools/);
+        assert.equal(fs.existsSync(path.join(t.root, 'bin2')), false);
+        // Both installers run it, for this host or the layer's platforms.
+        const sh = fs.readFileSync(path.join(EXT, 'install_extension.sh'), 'utf8');
+        assert.match(sh, /node scripts\/binaries-layer\.cjs tools "\$\{TOOL_ARGS\[@\]\}"/);
+        const ps1 = fs.readFileSync(path.join(EXT, 'install_extension.ps1'), 'utf8');
+        assert.match(ps1, /node scripts\/binaries-layer\.cjs tools --platforms \$HostPlatform/);
+        assert.match(ps1, /node scripts\/binaries-layer\.cjs tools --platforms \$env:TOM_LAYER_PLATFORMS/);
+        fs.rmSync(t.root, { recursive: true, force: true });
+    });
+
     test('BL-4: report verdicts', () => {
         const t = makeLayer();
         const dir = path.join(t.layerDir, PLATFORM);

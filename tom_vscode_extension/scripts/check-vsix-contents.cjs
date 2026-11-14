@@ -22,7 +22,8 @@
  *     carries them.
  *
  * Reported, not checked: which Dart-built binaries (tom_bs, validate_codespecs,
- * spec_checks)
+ * spec_checks) and which tom build tools bundled as the last fallback
+ * (buildkit, d4rtgen, reflectiongenerator, testkit; src/services/buildTools.ts)
  * the VSIX carries for which platform. A VSIX built without a Dart SDK has none
  * for its host and is still a valid package: the extension then runs without
  * DartScript and CodeSpecs validation on that platform.
@@ -39,6 +40,8 @@ const EXT_ROOT = path.resolve(__dirname, '..');
 
 /** The Dart-built binaries under bin/<platform>/, reported per platform. */
 const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks'];
+/** The tom build tools under bin/<platform>/ (scripts/binaries-layer.cjs tools), reported per platform. */
+const BUILD_TOOLS = ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit'];
 const HOST_PLATFORM = `${process.platform}-${process.arch}`;
 
 /** Entries the SOM and CodeSpecs tools load at run time. */
@@ -136,7 +139,7 @@ function readCentralDirectory(buf) {
  * Which Dart-built binaries the VSIX carries, per platform: the platforms that
  * have a `extension/bin/<platform>/` entry, plus `host` (always listed).
  *
- * @returns {Array<{ platform: string, binaries: Record<string, boolean> }>}
+ * @returns {Array<{ platform: string, binaries: Record<string, boolean>, buildTools: Record<string, boolean> }>}
  */
 function dartBinaryReport(names, host = HOST_PLATFORM) {
     const platforms = new Set([host]);
@@ -148,7 +151,9 @@ function dartBinaryReport(names, host = HOST_PLATFORM) {
         const exe = platform.startsWith('win32') ? '.exe' : '';
         const binaries = {};
         for (const bin of DART_BINARIES) { binaries[bin] = names.has(`extension/bin/${platform}/${bin}${exe}`); }
-        return { platform, binaries };
+        const buildTools = {};
+        for (const tool of BUILD_TOOLS) { buildTools[tool] = names.has(`extension/bin/${platform}/${tool}${exe}`); }
+        return { platform, binaries, buildTools };
     });
 }
 
@@ -156,6 +161,11 @@ function printDartBinaryReport(report, host = HOST_PLATFORM) {
     console.log('   Dart-built binaries (informational):');
     for (const { platform, binaries } of report) {
         const cells = DART_BINARIES.map((bin) => `${bin} ${binaries[bin] ? '✔' : '— missing'}`).join(', ');
+        console.log(`     ${platform}${platform === host ? ' (this host)' : ''}: ${cells}`);
+    }
+    console.log('   Build tools, the last fallback (informational):');
+    for (const { platform, buildTools } of report) {
+        const cells = BUILD_TOOLS.map((tool) => `${tool} ${buildTools && buildTools[tool] ? '✔' : '— missing'}`).join(', ');
         console.log(`     ${platform}${platform === host ? ' (this host)' : ''}: ${cells}`);
     }
 }
@@ -211,4 +221,4 @@ if (require.main === module) {
     main();
 }
 
-module.exports = { readCentralDirectory, dartBinaryReport, providerSdkEntries, REQUIRED };
+module.exports = { readCentralDirectory, dartBinaryReport, providerSdkEntries, REQUIRED, BUILD_TOOLS };

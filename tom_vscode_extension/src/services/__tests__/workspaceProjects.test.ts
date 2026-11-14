@@ -14,6 +14,8 @@
  *        the diagnostic `fallback` {kind, reason, searched, binary?, buildkitError?, hint}; the hint names the unset
  *        variable and launchctl, or tom_build_kit 1.19.0; a buildkit that lists: `source: 'buildkit'`
  *   WP-6 the notifier is told once per reason and window; the notice's line and details (searched, answer, hint)
+ *   WP-7 the extension's own copy (`<extension>/bin/<platform>/buildkit`, vscimpb83) is the last place: used when
+ *        no other has buildkit, passed over when any other does; the listing runs it (`source: 'buildkit'`)
  */
 
 import test, { describe } from 'node:test';
@@ -37,9 +39,13 @@ import {
     type ListingFallback,
 } from '../workspaceProjects.js';
 import { getCurrentPlatform } from '../../utils/executableResolver.js';
+import { setDartBinariesExtensionRoot } from '../dartBinariesStatus.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsprojects-'));
 const platform = getCurrentPlatform();
+// An installed extension of its own: the checkout's bin/ (which may hold a bundled buildkit) is not looked at.
+const EXT = path.join(tmp, 'ext');
+setDartBinariesExtensionRoot(EXT);
 
 function file(rel: string): string {
     const abs = path.join(tmp, rel);
@@ -79,7 +85,34 @@ describe('workspaceProjects', () => {
             `${path.join(tmp, 'ws-none', 'tom_binaries', 'tom', platform, 'buildkit')} (the workspace's binaries layer)`,
             `${path.join('$TOM_BINARY_PATH', platform, 'buildkit')} (TOM_BINARY_PATH not set in this process)`,
             'buildkit on PATH',
+            `${path.join(EXT, 'bin', platform, 'buildkit')} (bundled with the extension)`,
         ]);
+    });
+
+    test('WP-7: the extension\'s own copy, the last place', async () => {
+        const ws = path.join(tmp, 'ws7');
+        const bundled = file(`ext/bin/${platform}/buildkit`);
+        try {
+            const none = { PATH: path.join(tmp, 'empty7') };
+            assert.equal(resolveBuildkitBinary(ws, {}, none, platform).binary, bundled, 'no other place has it: the bundled copy');
+            assert.match(resolveBuildkitBinary(ws, {}, none, platform).searched.at(-1)!, /\(bundled with the extension\)$/);
+            const onPath = file('path7/buildkit');
+            assert.equal(resolveBuildkitBinary(ws, {}, { PATH: path.dirname(onPath) }, platform).binary, onPath, 'PATH wins over it');
+            const layer = file(`ws7/tom_binaries/tom/${platform}/buildkit`);
+            assert.equal(resolveBuildkitBinary(ws, {}, none, platform).binary, layer, 'the workspace layer wins over it');
+            fs.rmSync(layer);
+            assert.equal(resolveBuildkitBinary(ws, {}, none, platform, null).binary, undefined, 'without an extension root: not looked at');
+            clearProjectListingCache();
+            const ran: string[] = [];
+            const listed = await listWorkspaceProjects(ws, {
+                fresh: true, config: {}, env: none,
+                runner: async (binary) => { ran.push(binary); return { exitCode: 0, stdout: doc([]), stderr: '' }; },
+            });
+            assert.equal(listed.ok && listed.source, 'buildkit');
+            assert.deepEqual(ran, [bundled], 'the listing runs the bundled buildkit');
+        } finally {
+            fs.rmSync(bundled);
+        }
     });
 
     test('WP-4: a binaryPath whose variable is unset still finds buildkit in the workspace layer', () => {

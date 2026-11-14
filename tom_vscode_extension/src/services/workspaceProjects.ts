@@ -9,16 +9,17 @@
  * identity from each project's `buildkit.yaml` and the natures the build
  * commands select by. There is no generated workspace manifest to read.
  *
- * buildkit is a tom binary, not bundled with the extension (yet: vscimpb83).
+ * buildkit is a tom binary, bundled with the extension as the last fallback.
  * It is looked for in every place in turn, the first that has the file wins
- * (qrfix14):
+ * (services/buildTools.ts `resolveBuildTool`, qrfix14 / vscimpb83):
  *   1. configured: `bridge.executables.buildkit` names a file;
  *   2. the configured binaries folder `bridge.binaryPath` — unless it names an
  *      environment variable this process does not have (`${env:TOM_BINARY_PATH}`
  *      in a VS Code started from the Dock), which is noted and passed;
  *   3. the workspace's binaries layer `<workspace>/tom_binaries/tom/<platform>/`;
  *   4. `$TOM_BINARY_PATH/<platform>/` (`~/.tom/bin` is never looked at);
- *   5. `buildkit` on PATH.
+ *   5. `buildkit` on PATH;
+ *   6. the extension's own copy, `<extension>/bin/<platform>/`.
  *
  * Without a buildkit, or when it cannot list (exits non-zero, e.g. a build
  * older than tom_build_kit 1.19.0 without `:projects`, or answers no
@@ -33,16 +34,12 @@
  * vscode-free.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { listProjectsJs } from './projectListingJs';
-import {
-    buildConfigContext,
-    expandHomePath,
-    getCurrentPlatform,
-    resolveNamedExecutable,
-} from '../utils/executableResolver';
-import { currentDartBinariesConfig, runBinaryFile, type DartBinariesConfig } from './dartBinariesStatus';
+import { getCurrentPlatform } from '../utils/executableResolver';
+import { currentDartBinariesConfig, dartBinariesExtensionRoot, runBinaryFile, type DartBinariesConfig } from './dartBinariesStatus';
+import { resolveBuildTool } from './buildTools';
+
+export { unsetEnvVariables } from './buildTools';
 
 /** One project of the listing (`ListedProject.toJson()` in tom_build_base). */
 export interface WorkspaceProject {
@@ -104,104 +101,21 @@ export const CACHE_MS = 30_000;
 
 const TIMEOUT_MS = 120_000;
 
-function isFile(p: string): boolean {
-    try { return fs.statSync(p).isFile(); } catch { return false; }
-}
-
-function exeName(name: string, platform: string): string {
-    return platform.startsWith('win32') ? `${name}.exe` : name;
-}
-
-/** The `${env:NAME}` variables `value` names that `env` does not have (or has empty). */
-export function unsetEnvVariables(value: string, env: NodeJS.ProcessEnv): string[] {
-    const names: string[] = [];
-    for (const m of value.matchAll(/\$\{env:([^}]+)\}/g)) {
-        if (!env[m[1]]) { names.push(m[1]); }
-    }
-    return names;
-}
-
-/** `${env:NAME}` expanded from `env` (left as it is when unset). */
-function expandEnv(value: string, env: NodeJS.ProcessEnv): string {
-    return value.replace(/\$\{env:([^}]+)\}/g, (whole, name: string) => env[name] || whole);
-}
-
-/** The configured value for `platform` of a per-platform map (exact, then os prefix, then `*`). */
-function forPlatform(config: unknown, platform: string): string | undefined {
-    if (typeof config === 'string') { return config; }
-    if (!config || typeof config !== 'object') { return undefined; }
-    const map = config as Record<string, unknown>;
-    const os = platform.split('-')[0];
-    const pick = map[platform] ?? Object.entries(map).find(([k]) => k === os || k.startsWith(`${os}-`))?.[1] ?? map['*'];
-    return typeof pick === 'string' ? pick : undefined;
-}
-
 /**
  * Where buildkit is, for [workspaceRoot] and the `bridge` configuration
  * [config]: the file to run (the first place that has it), and every place
- * looked at, with notes.
+ * looked at, with notes. The last place is the extension's own copy
+ * (`extensionRoot`, default the installed extension's; null: not looked at).
  */
 export function resolveBuildkitBinary(
     workspaceRoot: string,
     config: DartBinariesConfig = {},
     env: NodeJS.ProcessEnv = process.env,
     platform: string = getCurrentPlatform(),
+    extensionRoot: string | null = dartBinariesExtensionRoot(),
 ): { binary?: string; searched: string[] } {
-    const searched: string[] = [];
-    const name = exeName('buildkit', platform);
-    const tryFile = (file: string, note?: string): string | undefined => {
-        searched.push(note ? `${file} (${note})` : file);
-        return isFile(file) ? file : undefined;
-    };
-
-    // 1. bridge.executables.buildkit
-    if (config.executables?.buildkit) {
-        const ctx = buildConfigContext(config.binaryPath, workspaceRoot);
-        const resolved = resolveNamedExecutable('buildkit', config.executables, ctx);
-        if (resolved && path.dirname(resolved) !== '.') {
-            const unset = unsetEnvVariables(resolved, env);
-            if (unset.length) {
-                searched.push(`${resolved} (bridge.executables.buildkit: ${unset.map((n) => `\${env:${n}}`).join(', ')} not set in this process)`);
-            } else {
-                const hit = tryFile(expandHomePath(expandEnv(resolved, env)), 'bridge.executables.buildkit');
-                if (hit) { return { binary: hit, searched }; }
-            }
-        }
-    }
-
-    // 2. bridge.binaryPath, when its variables are set
-    const configured = forPlatform(config.binaryPath, platform);
-    if (configured) {
-        const unset = unsetEnvVariables(configured, env);
-        if (unset.length) {
-            searched.push(`${path.join(configured, name)} (bridge.binaryPath: ${unset.map((n) => `\${env:${n}}`).join(', ')} not set in this process)`);
-        } else {
-            const hit = tryFile(path.join(expandHomePath(expandEnv(configured, env)), name), 'bridge.binaryPath');
-            if (hit) { return { binary: hit, searched }; }
-        }
-    }
-
-    // 3. the workspace's binaries layer
-    const inLayer = tryFile(path.join(workspaceRoot, 'tom_binaries', 'tom', platform, name), 'the workspace\'s binaries layer');
-    if (inLayer) { return { binary: inLayer, searched }; }
-
-    // 4. $TOM_BINARY_PATH/<platform>/ - the binaries layer as the shell names it. ~/.tom/bin is not looked at:
-    // binaries are not installed there, and an old copy left there must not run (build_tom build_cleanup1002).
-    if (env.TOM_BINARY_PATH) {
-        const hit = tryFile(path.join(expandHomePath(env.TOM_BINARY_PATH), platform, name), '$TOM_BINARY_PATH/<platform>');
-        if (hit) { return { binary: hit, searched }; }
-    } else {
-        searched.push(`${path.join('$TOM_BINARY_PATH', platform, name)} (TOM_BINARY_PATH not set in this process)`);
-    }
-
-    // 5. PATH
-    for (const dir of (env.PATH ?? env.Path ?? '').split(path.delimiter)) {
-        if (!dir) { continue; }
-        const candidate = path.join(dir, name);
-        if (isFile(candidate)) { return { binary: candidate, searched: [...searched, `${candidate} (PATH)`] }; }
-    }
-    searched.push(`${name} on PATH`);
-    return { searched };
+    const state = resolveBuildTool('buildkit', workspaceRoot, config, env, platform, extensionRoot ?? undefined);
+    return state.path ? { binary: state.path, searched: state.searched } : { searched: state.searched };
 }
 
 /** How to fix a listing that did not come from buildkit. */

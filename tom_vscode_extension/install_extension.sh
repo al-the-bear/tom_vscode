@@ -389,6 +389,24 @@ else
     }
 fi
 
+# ── The tom build tools (buildkit, d4rtgen, reflectiongenerator, testkit) ───
+# Bundled as the last fallback (src/services/buildTools.ts): built by their own
+# repositories, so every VSIX takes them from the binaries layer — this host's
+# platform for a from-source or no-Dart build, the layer's platforms
+# (TOM_LAYER_PLATFORMS) for --layer-binaries. A layer without them: the VSIX
+# goes without them, with a warning (scripts/binaries-layer.cjs tools).
+if [ "$BINARIES_ONLY" != "1" ]; then
+    echo ""
+    echo "📦 Bundling the tom build tools from the binaries layer..."
+    TOOL_ARGS=()
+    if [ "$LAYER_BINARIES" = "1" ]; then
+        [ -n "${TOM_LAYER_PLATFORMS:-}" ] && TOOL_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")
+    else
+        TOOL_ARGS=(--platforms "$(node -e 'process.stdout.write(process.platform + "-" + process.arch)')")
+    fi
+    ( cd "$SCRIPT_DIR" && node scripts/binaries-layer.cjs tools "${TOOL_ARGS[@]}" ) || true
+fi
+
 # ── Put the binaries built from source into the binaries layer ──────────────
 # tom_binaries/tom/<platform>/ always holds the latest build of the host that
 # built it, so a VSIX for several platforms can take theirs from there

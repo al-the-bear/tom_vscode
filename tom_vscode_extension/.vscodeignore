@@ -32,6 +32,8 @@ media/types/**
 # tom_bs.build.json, scripts/binaries-layer.cjs): they describe the machine that
 # built the binary, for the freshness checks.
 bin/*/*.build.json
+# The bundled build tools' stamps (buildkit.bundle.json, …; scripts/binaries-layer.cjs tools).
+bin/*/*.bundle.json
 
 # The TomSpecs SOM tarballs (scripts/build-som-packages.cjs). They are installed
 # into node_modules, which is what ships; the tarballs themselves are build input.

@@ -22,7 +22,7 @@ const SCRIPT = path.join(EXT_ROOT, 'scripts', 'check-vsix-contents.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { REQUIRED, dartBinaryReport } = require(SCRIPT) as {
     REQUIRED: string[]; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
-    dartBinaryReport(names: Set<string>, host?: string): Array<{ platform: string; binaries: Record<string, boolean> }>;
+    dartBinaryReport(names: Set<string>, host?: string): Array<{ platform: string; binaries: Record<string, boolean>; buildTools: Record<string, boolean> }>;
 };
 const HOST = `${process.platform}-${process.arch}`;
 
@@ -85,15 +85,32 @@ describe('check-vsix-contents', () => {
             'extension/bin/win32-x64/tom_bs.exe', 'extension/bin/win32-x64/spec_checks.exe', 'extension/bin/linux-x64/validate_codespecs',
         ]);
         assert.deepEqual(dartBinaryReport(names, 'linux-arm64'), [
-            { platform: 'darwin-arm64', binaries: { tom_bs: true, validate_codespecs: true, spec_checks: true } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-arm64', binaries: { tom_bs: false, validate_codespecs: false, spec_checks: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-x64', binaries: { tom_bs: false, validate_codespecs: true, spec_checks: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'win32-x64', binaries: { tom_bs: true, validate_codespecs: false, spec_checks: true } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'darwin-arm64', binaries: { tom_bs: true, validate_codespecs: true, spec_checks: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-arm64', binaries: { tom_bs: false, validate_codespecs: false, spec_checks: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-x64', binaries: { tom_bs: false, validate_codespecs: true, spec_checks: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'win32-x64', binaries: { tom_bs: true, validate_codespecs: false, spec_checks: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
         ]);
         const exe = process.platform === 'win32' ? '.exe' : '';
         const r = check('host.vsix', [...required(), { name: `extension/bin/${HOST}/validate_codespecs${exe}` }]);
         assert.equal(r.status, 0, r.stderr);
         assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): tom_bs — missing, validate_codespecs ✔`));
+    });
+
+    test('CVX-5: the build tools, per platform', () => {
+        const names = new Set([
+            'extension/bin/darwin-arm64/buildkit', 'extension/bin/darwin-arm64/d4rtgen', 'extension/bin/darwin-arm64/reflectiongenerator', 'extension/bin/darwin-arm64/testkit',
+            'extension/bin/win32-x64/buildkit.exe', 'extension/bin/win32-x64/testkit.exe',
+        ]);
+        const report = dartBinaryReport(names, 'darwin-arm64');
+        assert.deepEqual(report.map((r) => [r.platform, r.buildTools]), [
+            ['darwin-arm64', { buildkit: true, d4rtgen: true, reflectiongenerator: true, testkit: true }],
+            ['win32-x64', { buildkit: true, d4rtgen: false, reflectiongenerator: false, testkit: true }],
+        ]);
+        const exe = process.platform === 'win32' ? '.exe' : '';
+        const r = check('tools.vsix', [...required(), { name: `extension/bin/${HOST}/buildkit${exe}` }]);
+        assert.equal(r.status, 0, r.stderr);
+        assert.match(r.stdout, /Build tools, the last fallback \(informational\):/);
+        assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): buildkit ✔, d4rtgen — missing, reflectiongenerator — missing, testkit — missing`));
     });
 
     test('CVX-3: a missing required entry fails', () => {

@@ -488,6 +488,26 @@ if ($Result -match "^[Yy]") {
     }
     Write-Host ""
 
+    # ── The tom build tools (buildkit, d4rtgen, reflectiongenerator, testkit) ─
+    # Bundled as the last fallback (src/services/buildTools.ts): built by their
+    # own repositories, so every VSIX takes them from the binaries layer - this
+    # host's platform for a from-source or no-Dart build, the layer's platforms
+    # (TOM_LAYER_PLATFORMS) for -LayerBinaries. A layer without them: the VSIX
+    # goes without them, with a warning (scripts/binaries-layer.cjs tools).
+    if (-not $BinariesOnlyMode) {
+        Write-Host "Bundling the tom build tools from the binaries layer..."
+        Push-Location $ExtensionDir
+        if ($LayerBinariesMode) {
+            if ($env:TOM_LAYER_PLATFORMS) { Invoke-Native { node scripts/binaries-layer.cjs tools --platforms $env:TOM_LAYER_PLATFORMS } }
+            else { Invoke-Native { node scripts/binaries-layer.cjs tools } }
+        } else {
+            $HostPlatform = "$(Invoke-Native { node -p 'process.platform' })-$(Invoke-Native { node -p 'process.arch' })"
+            Invoke-Native { node scripts/binaries-layer.cjs tools --platforms $HostPlatform }
+        }
+        Pop-Location
+        Write-Host ""
+    }
+
     # ── Put the binaries built from source into the binaries layer ───────
     # tom_binaries/tom/<platform>/ always holds the latest build of the host
     # that built it, so a VSIX for several platforms can take theirs from

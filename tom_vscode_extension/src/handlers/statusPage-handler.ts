@@ -16,6 +16,7 @@ import { checkBuildStatus } from '../services/buildStatusService';
 import { CREATE_QUEST_COMMAND, SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 import { installedProviders, PROVIDER_SDKS_COMMAND } from '../services/providerRuntime';
 import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_COMMAND, type DartBinariesStatus } from '../services/dartBinariesStatus';
+import { BUILD_TOOL_PURPOSE, buildToolFileName, type BuildToolSource } from '../services/buildTools';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
 import { parseReminderTimeout, reminderSettingsHtml, type ReminderSettingsModel } from '../utils/reminderSettingsSection';
@@ -2372,6 +2373,8 @@ export function setupWorkspaceSectionHtml(providers: readonly string[] = install
 }
 
 const DART_SOURCE_LABEL = { configured: 'configured', bundled: 'bundled', missing: 'missing' } as const;
+/** Where a tom build tool was found (services/buildTools.ts). */
+const BUILD_TOOL_LABEL: Record<BuildToolSource, string> = { configured: 'configured', layer: 'binaries layer', path: 'PATH', bundled: 'bundled', missing: 'missing' };
 
 /**
  * The Dart binaries section: this platform, and for tom_bs (DartScript),
@@ -2389,10 +2392,16 @@ export function dartBinariesSectionHtml(status: DartBinariesStatus | undefined):
         return `<div class="sp-settings-row"><label>${escapeHtmlContent(binaryFileName(b.name, status.platform))} (${escapeHtmlContent(DART_BINARY_FEATURE[b.name])}):</label>`
             + `<span title="${escapeHtmlContent(where).replace(/"/g, '&quot;')}">${b.source === 'missing' ? '⚠️ ' : ''}${DART_SOURCE_LABEL[b.source]}</span></div>`;
     }).join('\n        ');
+    // The tom build tools the VSIX bundles as the last fallback (vscimpb83): where each was found.
+    const toolRows = (status.buildTools ?? []).map((t) =>
+        `<div class="sp-settings-row" data-build-tool="${t.name}"><label>${escapeHtmlContent(buildToolFileName(t.name, status.platform))} (${escapeHtmlContent(BUILD_TOOL_PURPOSE[t.name])}):</label>`
+        + `<span title="${escapeHtmlContent(t.path ?? t.searched.join('\n')).replace(/"/g, '&quot;')}">${t.source === 'missing' ? '⚠️ ' : ''}${BUILD_TOOL_LABEL[t.source]}</span></div>`,
+    ).join('\n        ');
     return `<div class="sp-section" data-section="dartBinaries"${warn}>
         <div class="sp-section-header"><span class="sp-section-title">🎯 Dart binaries</span></div>
         <div class="sp-settings-row"><label>Platform:</label><span>${escapeHtmlContent(status.platform)}</span></div>
         ${rows}
+        ${toolRows ? `<div class="sp-settings-row"><label><b>Build tools</b> (bundled as the last fallback):</label><span></span></div>\n        ${toolRows}` : ''}
         <div class="sp-settings-row"><label>${status.missing.length > 0 ? 'What is missing and how to add it:' : 'About these binaries:'}</label>
             <div class="sp-controls"><button class="sp-btn${status.missing.length > 0 ? ' primary' : ''}" data-status-action="showDartBinariesHelp" title="Open the page about the Dart-built binaries">Open the page</button></div></div>
     </div>`;

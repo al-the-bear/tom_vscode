@@ -20,6 +20,25 @@ Run **@T: Missing Dart Binaries (DartScript / CodeSpecs validation)** from the
 Command Palette to see this page again; the Status Page has the same table in
 its **Dart binaries** section.
 
+## The tom build tools
+
+The VSIX also carries four tom build tools as the last fallback, so a tom
+repository works with the extension alone: `buildkit` (builds, the versioner as
+`buildkit :versioner`, the project list as `buildkit :projects`), `d4rtgen`
+(D4rt bridges), `reflectiongenerator` (reflection code) and `testkit` (test runs
+and baselines, which the TomSpecs process records). Each is looked for in turn,
+and the first place that has it wins: `bridge.executables.<tool>`, the folder
+`bridge.binaryPath`, the workspace's binaries layer
+(`tom_binaries/tom/<platform>/`), `$TOM_BINARY_PATH/<platform>/`, PATH, and
+last the copy bundled with the extension (`{{binDir}}`).
+
+{{buildToolsTable}}
+
+A VSIX takes them from the binaries layer of the machine that built it; one
+built where no layer was checked out has none. Without them the project list
+comes from the extension's own JavaScript listing, and the Telegram `bk` / `tk`
+commands need the tool on one of the other places.
+
 ## What does not work without them
 
 Without `tom_bs` (DartScript):
