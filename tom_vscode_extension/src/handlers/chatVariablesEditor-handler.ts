@@ -218,7 +218,7 @@ function _persistYaml(store: ChatVariablesStore): void {
         todoFile: store.todoFile || '',
         custom: store.custom || {},
     };
-    writePanelYaml('chatvars', data, '../../.tom/json-schema/panels/chatvars.schema.json').catch(() => { /* best effort */ });
+    writePanelYaml('chatvars', data, '.tom/json-schema/panels/chatvars.schema.json').catch(() => { /* best effort */ });
 }
 
 // ============================================================================

@@ -2881,6 +2881,11 @@
           "default": "",
           "description": "Queue folder path (absolute or workspace-relative). Empty defaults to ${aiFolder}/queue."
         },
+        "tomAi.panelStoragePath": {
+          "type": "string",
+          "default": "",
+          "description": "Folder of the panels' local state files (absolute or workspace-relative): the timed requests (<host>_<workspace>.timed.yaml), the chat variables (<workspace>.chatvars.yaml) and the chat panels' drafts (<workspace>.<section>.prompt-panel.yaml). Empty defaults to ${aiFolder}/local."
+        },
         "tomAi.bridge.requestTimeout": {
           "type": "number",
           "default": 30000,

@@ -634,7 +634,7 @@ export class TimerEngine {
                 timerActivated: this._timerActivated,
                 schedule: this._schedule,
                 entries: this._entries,
-            }, '../../_ai/schemas/yaml/timed.schema.json');
+            }, '.tom/json-schema/panels/timed.schema.json');
         } catch { /* best effort */ }
     }
 }

@@ -8,7 +8,11 @@
  * e.g. `tom_agent_container.queue.yaml`.
  *
  * Default storage folder: `_ai/local/` in the workspace root.
- * Configurable via `tomAi.panelStoragePath` setting.
+ * Configurable via the `tomAi.panelStoragePath` setting (package.json; absolute
+ * or workspace-relative; empty: the default). Every reader and writer of these
+ * files goes through this module, so a configured folder holds all of them.
+ * Each file's `$schema` names its schema relative to the folder it is in
+ * ({@link schemaRefFrom}).
  */
 
 import * as vscode from 'vscode';
@@ -38,7 +42,7 @@ export function getStorageFolder(): string | undefined {
         .get<string>('panelStoragePath');
 
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!wsRoot) return undefined;
+    if (!wsRoot) {return undefined;}
 
     if (configPath) {
         // Resolve relative paths against workspace root
@@ -50,13 +54,30 @@ export function getStorageFolder(): string | undefined {
 }
 
 /**
+ * The `$schema` of a panel file kept in `folder`: the workspace-relative schema
+ * path `schemaWsPath`, written relative to the folder (`../../.tom/…` from the
+ * default `_ai/local/`), so it resolves wherever `tomAi.panelStoragePath` puts
+ * the files.
+ */
+export function schemaRefFrom(folder: string, wsRoot: string, schemaWsPath: string): string {
+    return path.relative(folder, path.join(wsRoot, schemaWsPath)).split(path.sep).join('/');
+}
+
+/** The `$schema` value for a panel file in the storage folder; undefined without a workspace. */
+function schemaRef(schemaWsPath: string | undefined): string | undefined {
+    const folder = getStorageFolder();
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return schemaWsPath && folder && wsRoot ? schemaRefFrom(folder, wsRoot, schemaWsPath) : undefined;
+}
+
+/**
  * Build the full file path for a panel YAML file.
  * @param type File type suffix, e.g. 'queue', 'timed', 'context', 'chatvars'
  * @returns Full path or undefined if no workspace is open
  */
 export function getPanelFilePath(type: string): string | undefined {
     const folder = getStorageFolder();
-    if (!folder) return undefined;
+    if (!folder) {return undefined;}
     const name = getWorkspaceName();
     if (type === 'timed' || type === 'queue') {
         return path.join(folder, buildHostPrefixedPanelFileName(os.hostname(), name, type));
@@ -67,7 +88,7 @@ export function getPanelFilePath(type: string): string | undefined {
 /** Build a per-section prompt state file path (e.g. workspace.copilot.prompt-panel.yaml). */
 export function getPromptPanelFilePath(section: string): string | undefined {
     const folder = getStorageFolder();
-    if (!folder) return undefined;
+    if (!folder) {return undefined;}
     const name = getWorkspaceName();
     return path.join(folder, `${name}.${section}.prompt-panel.yaml`);
 }
@@ -82,8 +103,8 @@ export function getPromptPanelFilePath(section: string): string | undefined {
  */
 export async function readPanelYaml<T = any>(type: string): Promise<T | undefined> {
     const filePath = getPanelFilePath(type);
-    if (!filePath) return undefined;
-    if (!fs.existsSync(filePath)) return undefined;
+    if (!filePath) {return undefined;}
+    if (!fs.existsSync(filePath)) {return undefined;}
     try {
         const yaml = await import('yaml');
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -99,8 +120,8 @@ export async function readPanelYaml<T = any>(type: string): Promise<T | undefine
  */
 export function readPanelYamlSync<T = any>(type: string): T | undefined {
     const filePath = getPanelFilePath(type);
-    if (!filePath) return undefined;
-    if (!fs.existsSync(filePath)) return undefined;
+    if (!filePath) {return undefined;}
+    if (!fs.existsSync(filePath)) {return undefined;}
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const yaml = require('yaml');
@@ -118,10 +139,11 @@ export function readPanelYamlSync<T = any>(type: string): T | undefined {
 export async function writePanelYaml(
     type: string,
     data: Record<string, unknown>,
-    schemaRelPath?: string,
+    /** The schema, workspace-relative (e.g. `.tom/json-schema/panels/chatvars.schema.json`). */
+    schemaWsPath?: string,
 ): Promise<string | undefined> {
     const filePath = getPanelFilePath(type);
-    if (!filePath) return undefined;
+    if (!filePath) {return undefined;}
 
     try {
         const dir = path.dirname(filePath);
@@ -133,8 +155,9 @@ export async function writePanelYaml(
 
         // Build the document with schema reference
         const doc: Record<string, unknown> = {};
-        if (schemaRelPath) {
-            doc['$schema'] = schemaRelPath;
+        const schema = schemaRef(schemaWsPath);
+        if (schema) {
+            doc['$schema'] = schema;
         }
         doc['updated'] = new Date().toISOString();
         Object.assign(doc, data);
@@ -151,7 +174,7 @@ export async function writePanelYaml(
 export async function readPromptPanelYaml<T = any>(section: string): Promise<T | undefined> {
     const filePath = getPromptPanelFilePath(section);
     const pathToRead = filePath && fs.existsSync(filePath) ? filePath : undefined;
-    if (!pathToRead) return undefined;
+    if (!pathToRead) {return undefined;}
     try {
         const yaml = await import('yaml');
         const content = fs.readFileSync(pathToRead, 'utf-8');
@@ -164,10 +187,11 @@ export async function readPromptPanelYaml<T = any>(section: string): Promise<T |
 export async function writePromptPanelYaml(
     section: string,
     data: Record<string, unknown>,
-    schemaRelPath: string = '../../.tom/json-schema/panels/prompt.schema.json',
+    /** The schema, workspace-relative. */
+    schemaWsPath: string = '.tom/json-schema/panels/prompt.schema.json',
 ): Promise<string | undefined> {
     const filePath = getPromptPanelFilePath(section);
-    if (!filePath) return undefined;
+    if (!filePath) {return undefined;}
 
     try {
         const dir = path.dirname(filePath);
@@ -176,8 +200,9 @@ export async function writePromptPanelYaml(
         }
 
         const yaml = await import('yaml');
+        const schema = schemaRef(schemaWsPath);
         const doc: Record<string, unknown> = {
-            $schema: schemaRelPath,
+            ...(schema ? { $schema: schema } : {}),
             updated: new Date().toISOString(),
             section,
             ...data,

@@ -854,6 +854,7 @@ Most of the extension's configuration is in its config file (`@T: Open Config Fi
 | `tomAi.configPath` | The extension config file (`~` and `${workspaceFolder}` resolved) |
 | `tomAi.aiFolder` | The AI folder's name (default `_ai`) |
 | `tomAi.queueFolder` | The prompt queue's folder (default `${aiFolder}/queue`) |
+| `tomAi.panelStoragePath` | The folder of the panels' local state files (default `${aiFolder}/local`, absolute or workspace-relative): the timed requests (`<host>_<workspace>.timed.yaml`), the chat variables (`<workspace>.chatvars.yaml`) and the chat panels' drafts (`<workspace>.<section>.prompt-panel.yaml`). The window state files stay in `${aiFolder}/local` (the config file's `windowStatus.localFolder`) |
 | `tomAi.bridge.requestTimeout` | How long a Dart bridge request may take, ms (default 30 000, at least 1 000) |
 | `tomAi.bridge.restartDelay` | The wait before the bridge restarts after it stopped, ms (default 5 000) |
 | `tomAi.bridge.maxRestarts` | Automatic restarts in a row before the extension gives up (default 10; 0: none); the count starts again when the bridge answers, or when you start it |

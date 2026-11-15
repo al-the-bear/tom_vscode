@@ -2,8 +2,7 @@
  * The extension's VS Code settings (`tomAi.*`, package.json `contributes.configuration`) and their readers.
  *
  *   SR-1 every contributed setting has a reader in `src/` (`.get('<key>')` / `get<…>('<key>')`)
- *   SR-2 every `tomAi.*` key the code reads is contributed — except `panelStoragePath`, read but not contributed
- *        (qrfix8 decides it)
+ *   SR-2 every `tomAi.*` key the code reads is contributed (`panelStoragePath` too since qrfix8)
  *   SR-3 the settings the extension tunes with (src/utils/vscodeSettings.ts): the bridge's request timeout, restart
  *        delay and restart limit, the timer tick, the Guidelines exclusions — their defaults, bounds and the
  *        restart rule (restarts in a row below the limit: the delay; at the limit: none)
@@ -66,7 +65,7 @@ describe('VS Code settings and their readers', () => {
         // Files reading `tomAi` settings also call `.get` on other objects; only dotted or known setting keys count.
         const notContributed = [...readKeys()].filter((k) => !declared.has(k)).filter((k) => sources().some(({ text }) =>
             new RegExp(`getConfiguration\\('tomAi'\\)\\s*\\.get(?:<[^>()]*>)?\\(\\s*'${k.replace(/\./g, '\\.')}'`).test(text)));
-        assert.deepEqual(notContributed, ['panelStoragePath'], 'read but not contributed (qrfix8 decides panelStoragePath)');
+        assert.deepEqual(notContributed, [], `read but not contributed: ${notContributed.join(', ')}`);
     });
 
     test('SR-3: defaults, bounds and the restart rule', () => {

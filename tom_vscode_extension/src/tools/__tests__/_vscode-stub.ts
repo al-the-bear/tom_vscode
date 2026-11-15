@@ -704,7 +704,9 @@ function buildDefaultStub(record: (method: string, args: unknown[]) => void, opt
             __fileWatchers: fileWatchers,
             getConfiguration(section: string) {
                 record('workspace.getConfiguration', [section]);
-                const sec = (configStore[section] ?? {}) as Record<string, unknown>;
+                // A later installVscodeStub({ configuration }) replaces the store (applyConfiguration).
+                const store = (stub.workspace as { __cfg?: Record<string, Record<string, unknown>> }).__cfg ?? configStore;
+                const sec = (store[section] ?? {}) as Record<string, unknown>;
                 return {
                     get<T = unknown>(key: string, defaultValue?: T): T {
                         return (sec[key] as T | undefined) ?? (defaultValue as T);

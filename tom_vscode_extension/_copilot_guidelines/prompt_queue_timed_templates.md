@@ -219,7 +219,7 @@ A due timed request is enqueued into the prompt queue as a `pending` item of typ
 
 ### Persistence
 
-Stored in the panel storage folder (`_ai/local/`) as `<hostname>_<workspace>.timed.yaml`, alongside a `timerActivated` flag and optional `schedule` slots (global schedule overrides). Managed by `panelYamlStore.ts`.
+Stored in the panel storage folder (`_ai/local/` by default, or the folder the `tomAi.panelStoragePath` setting names) as `<hostname>_<workspace>.timed.yaml`, alongside a `timerActivated` flag and optional `schedule` slots (global schedule overrides), with `$schema` pointing at `.tom/json-schema/panels/timed.schema.json` relative to that folder. Managed by `panelYamlStore.ts`.
 
 ### Tool surface
 
