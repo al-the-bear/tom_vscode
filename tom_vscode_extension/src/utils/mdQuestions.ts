@@ -28,6 +28,18 @@ export interface MdProposedAnswer {
     line: number;
 }
 
+/** One line of the members' individual answers above the team answer, `**Answer (alice, bob):** (a) …` (SOM §11.9.8). */
+export interface MdIndividualAnswer {
+    /** The members who gave it, in the order written (a trailing change time is not a member). */
+    members: string[];
+    /** The answer, continuation lines kept. */
+    answer: string;
+    /** The option letter it starts with, or null. */
+    letter: string | null;
+    /** 1-based line of its `**Answer (…):**`. */
+    line: number;
+}
+
 export interface MdQuestion {
     id: string;
     topic: string;
@@ -45,6 +57,8 @@ export interface MdQuestion {
     /** 1-based line of the `**Answer:**` marker; null when the question has none. */
     answerLine: number | null;
     proposed?: MdProposedAnswer;
+    /** The members' individual answers above the team answer (a merged team review); absent when there are none. */
+    answers?: MdIndividualAnswer[];
 }
 
 /** The parser's declarations (media/shared/mdQuestions.js). */
@@ -60,17 +74,25 @@ interface Parser {
     mdbProposedAnswerAt(lines: string[], line: number): { source: string; date: string; text: string; line: number; endLine: number } | null;
     mdbProposedAnswerLines(prefix: string, source: string, date: string, text: string): string[];
     mdbProposalEdit(lines: string[], proposalLine: number, action: 'accept' | 'discard', text?: string, at?: string): { startLine: number; endLine: number; expected: string; replacement: string } | null;
+    /** media/markdownBrowser/teamReview.js: the individual answers above the team answer on `teamLine` (0-based). */
+    mdbIndividualAnswers(lines: string[], teamLine: number): Array<{ line: number; members: string[]; answer: string; letter: string }>;
 }
 
 let parser: Parser | undefined;
 
-/** The shared parser, loaded once. `out/utils/` and `src/utils/` are both two levels below the extension root. */
+/**
+ * The shared parser, loaded once: the question parser and the team review
+ * notation the MD Browser reads individual answers with. `out/utils/` and
+ * `src/utils/` are both two levels below the extension root.
+ */
 function load(): Parser {
     if (!parser) {
-        const file = path.join(__dirname, '..', '..', 'media', 'shared', 'mdQuestions.js');
+        const media = path.join(__dirname, '..', '..', 'media');
         const sandbox: Record<string, unknown> = {};
         vm.createContext(sandbox);
-        vm.runInContext(fs.readFileSync(file, 'utf8'), sandbox, { filename: file });
+        for (const file of [path.join(media, 'shared', 'mdQuestions.js'), path.join(media, 'markdownBrowser', 'teamReview.js')]) {
+            vm.runInContext(fs.readFileSync(file, 'utf8'), sandbox, { filename: file });
+        }
         parser = sandbox as unknown as Parser;
     }
     return parser;
@@ -135,6 +157,10 @@ function locate(doc: Lines): Located[] {
             question.open = answer.text.trim() === '';
             question.answerLine = m.line + 1;
             located.marker = { line: m.line, column: m.column, endLine: answer.endLine };
+            const individual = plain(p.mdbIndividualAnswers(doc.lines, m.line)).filter((a) => a.line >= h.line);
+            if (individual.length) {
+                question.answers = individual.map((a) => ({ members: a.members, answer: a.answer, letter: a.letter || null, line: a.line + 1 }));
+            }
             // The proposal follows the answer, after one bare quote (or blank) line.
             let k = answer.endLine;
             if (k < doc.lines.length && isSeparator(doc.lines[k])) { k++; }

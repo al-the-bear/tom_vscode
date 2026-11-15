@@ -6,7 +6,7 @@
  * recommended option, and two inline marks.
  *
  *   SA-1  tomAi_specAnnotations lists comments (id, author, text, the paragraph before), questions (topic,
- *         options, recommended, answer, open) and marks (M-<n>, kind, old / new text) with counts and the
+ *         options, recommended, answer, open) and marks (M-<n>, kind, old / new text, authors and votes) with counts and the
  *         marks revision; `kinds`, `openOnly` and `path` narrow it; a path that does not resolve is refused
  *   SA-2  insertComment after a paragraph: the next free id (or the one given), the author and the change time
  *         (SOM §11.9.10; the listing answers it as `changedAt`); dryRun
@@ -149,6 +149,11 @@ describe('TomSpecs annotation tools', () => {
         assert.deepEqual([q.id, q.topic, q.open, q.answer, q.recommended], ['BQ-01', 'retention', true, '', 'b']);
         assert.deepEqual(q.options.map((o: Json) => [o.letter, o.text, o.bold]), [['a', 'one year', false], ['b', 'three years', true]]);
         assert.deepEqual(r.marks.map((m: Json) => [m.id, m.markKind, m.oldText, m.newText]), [['M-1', 'insertion', '', 'always'], ['M-2', 'substitution', 'two', 'three']]);
+        assert.deepEqual(r.marks.map((m: Json) => [m.authors, m.votes]), [[[], []], [[], []]], 'the team form: authors and votes, here none (qrfix10)');
+        const attributed = await annotated();
+        await run(specSetContentImpl, { file: attributed, path: VALUE, text: ANNOTATED.replace('{~~ two ~> three ~~}', '{~~ two ~> three ~~}{@alice +bob}') });
+        assert.deepEqual((await list(attributed)).marks.map((m: Json) => [m.id, m.authors, m.votes]),
+            [['M-1', [], []], ['M-2', ['alice'], [{ member: 'bob', vote: 'accept' }]]], 'a mark\'s author and votes are listed');
 
         const onlyQuestions = await list(file, { kinds: ['question'] });
         assert.deepEqual([onlyQuestions.comments.length, onlyQuestions.questions.length, onlyQuestions.marks.length], [0, 1, 0]);

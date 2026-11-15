@@ -203,7 +203,12 @@ same for a TomSpecs document and for plain annotated Markdown.
 4. **Decide the conflicts.** `tomAi_specDecideConflicts` writes each decision —
    a letter (`(a)`), `base` (`(base)`), or rewritten text; `open: …` hands it
    back — into the merged document. `tomAi_specAnnotations` lists the open
-   ones; `tomAi_specRemoveAllAnnotations` applies the decisions at the end.
+   ones — also for a merged plain Markdown file, read whole: its conflicts
+   (base, alternatives with their members, decision), the members' individual
+   answers and the marks with their authors, each with its file line.
+   `tomAi_mdQuestions` lists a plain file's questions with their individual
+   `answers` too. `tomAi_specRemoveAllAnnotations` applies the decisions at the
+   end.
    The user consolidates the merged Markdown in the MD Browser instead: chips
    per member, a choice per alternative with **Decide**, *Keep open*, and a
    counter of what is left (user guide, *Consolidating a team review*). A

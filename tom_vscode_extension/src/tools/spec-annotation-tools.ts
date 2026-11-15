@@ -26,6 +26,7 @@
  */
 
 import {
+    SpecDocument,
     SpecMarkDecision,
     SpecNodeKind,
     SpecQuestionDraft,
@@ -35,7 +36,7 @@ import {
 } from 'tom_som_typescript_runtime';
 
 import { SharedToolDefinition } from './shared-tool-registry';
-import { FILE_PARAM, FIRST_LOOK, PATH_PARAM_HINT, SpecToolDeps, documentHeader, failure, json, liveDeps, loadDocument, memberAuthorFor } from './spec-tool-common';
+import { FILE_PARAM, FIRST_LOOK, PATH_PARAM_HINT, SpecToolDeps, documentHeader, failure, json, liveDeps, loadDocument, memberAuthorFor, resolveInput, toWorkspacePath } from './spec-tool-common';
 import {
     EDIT_PARAMS,
     RESULT_NOTE,
@@ -348,12 +349,71 @@ async function annotationsAcrossFolder(deps: SpecToolDeps, input: SpecAnnotation
     });
 }
 
+/** The value a plain Markdown file is read as: the whole text, one value of a document of its own. */
+const PLAIN_VALUE = 'MD/content';
+
+/** A plain annotated Markdown file: not a `*.docspecs.yaml`, and the store does not read it as a SOM document. */
+function isPlainMarkdown(deps: SpecToolDeps, absolute: string): boolean {
+    return /\.(md|markdown)$/i.test(absolute) && !/\.docspecs\.yaml$/i.test(absolute) && deps.store.peek(absolute) === null;
+}
+
+/**
+ * An annotation view of a plain Markdown file: no document path or field, and
+ * `line` the file's line (1-based; the runtime counts the one value from 0).
+ */
+function plainView(view: Record<string, unknown>): Record<string, unknown> {
+    const { path: _path, field: _field, line, ...rest } = view;
+    return { ...rest, line: typeof line === 'number' ? line + 1 : line };
+}
+
+/**
+ * The review annotations of a plain annotated Markdown file — what a team
+ * review round of one merges into it (SOM §11.9.8): comments, questions with
+ * the team answer and the members' individual answers, inline marks with
+ * their authors and votes, conflict blocks with base, alternatives (their
+ * members) and decision. Read by the runtime's SpecReviewAnnotations over the
+ * whole text as one value, as tomAi_specMergeReviews merges such a file.
+ */
+function plainAnnotations(deps: SpecToolDeps, absolute: string, input: SpecAnnotationsInput): string {
+    if (input.path) {
+        return json({ ok: false, code: 'invalidInput', error: 'A plain Markdown file has no document paths; leave out `path`.' });
+    }
+    const { text, revision } = deps.store.readText(absolute);
+    const doc = new SpecDocument();
+    doc.loadJson({ content: { [PLAIN_VALUE]: text } });
+    const notes = new SpecReviewAnnotations(doc);
+    const all = notes.list();
+    const counts = countList(all);
+    const kinds = new Set<AnnotationKind>(input.kinds && input.kinds.length ? input.kinds : ['comment', 'question', 'mark', 'conflict']);
+    const limit = input.limit && input.limit > 0 ? input.limit : DEFAULT_LIMIT;
+    const comments = kinds.has('comment') ? all.filter((a) => a.kind === 'comment').map((a) => plainView(commentView(a))) : [];
+    const questions = kinds.has('question') ? all.filter((a) => a.kind === 'question' && (!input.openOnly || a.open)).map((a) => plainView(questionView(a))) : [];
+    const marks = kinds.has('mark') ? notes.listMarks().map((m) => plainView(m.toJson({ team: true }))) : [];
+    const conflicts = kinds.has('conflict')
+        ? all.filter((a) => a.kind === 'conflict' && (!input.openOnly || a.open || a.unresolved)).map((a) => plainView(conflictView(a))) : [];
+    const truncated = [comments, questions, marks, conflicts].some((l) => l.length > limit);
+    const findings = notes.validate().map((e) => ({ code: e.code, message: e.message }));
+    return json({
+        ok: true,
+        document: { file: toWorkspacePath(deps, absolute), format: 'markdown', plainMarkdown: true, revision },
+        counts,
+        comments: comments.slice(0, limit),
+        questions: questions.slice(0, limit),
+        marks: marks.slice(0, limit),
+        conflicts: conflicts.slice(0, limit),
+        findings,
+        ...(truncated ? { truncated: true } : {}),
+    });
+}
+
 export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotationsInput): Promise<string> {
     try {
         if ((input.file && input.dir) || (!input.file && !input.dir)) {
             return json({ ok: false, code: 'invalidInput', error: 'Pass `file` (one document, its annotations listed) or `dir` (a folder, counts per document), not both.' });
         }
         if (input.dir) { return await annotationsAcrossFolder(deps, input); }
+        const absolute = resolveInput(deps, input.file as string);
+        if (isPlainMarkdown(deps, absolute)) { return plainAnnotations(deps, absolute, input); }
         const loaded = loadDocument(deps, input.file as string);
         const scope = input.path || null;
         if (scope) { new SomSpecInspector(deps.service, loaded.document).resolve(scope); }
@@ -366,7 +426,8 @@ export async function specAnnotationsImpl(deps: SpecToolDeps, input: SpecAnnotat
         const limit = input.limit && input.limit > 0 ? input.limit : DEFAULT_LIMIT;
         const comments = kinds.has('comment') ? all.filter((a) => a.kind === 'comment').map(commentView) : [];
         const shownQuestions = kinds.has('question') ? questions.filter((q) => !input.openOnly || q.open).map(questionView) : [];
-        const marks = kinds.has('mark') ? notes.listMarks({ path: scope }).map((m) => m.toJson()) : [];
+        // The team form (SOM §11.9.8): each mark with its `authors` and `votes`.
+        const marks = kinds.has('mark') ? notes.listMarks({ path: scope }).map((m) => m.toJson({ team: true })) : [];
         const conflicts = kinds.has('conflict')
             ? all.filter((a) => a.kind === 'conflict' && (!input.openOnly || a.open || a.unresolved)).map(conflictView) : [];
         const truncated = [comments, shownQuestions, marks, conflicts].some((l) => l.length > limit);
@@ -665,7 +726,7 @@ export const SPEC_ANNOTATIONS_TOOL: SharedToolDefinition<SpecAnnotationsInput> =
     name: 'tomAi_specAnnotations',
     displayName: 'Spec: Annotations',
     description:
-        'The review annotations of a TomSpecs document: `comments` (with author), `questions` (the team `answer` and the members\' individual `answers`, §11.9.8), `marks` (`M-<n>` with `authors` and `votes`, and `marksRevision` for tomAi_specDecideMarks), `conflicts` (`X-<n>`: base, alternatives with their members, decision — tomAi_specDecideConflicts), their `counts` and the runtime\'s `findings`. `path`, `kinds`, `openOnly` and `limit` (default 200) narrow it. With `dir` instead of `file`: the counts of every SOM document under the folder, no lists.' + NOTATION + FIRST_LOOK,
+        'The review annotations of a TomSpecs document or a plain annotated Markdown file: `comments` (with author), `questions` (the team `answer` and the members\' individual `answers`, §11.9.8), `marks` (`M-<n>` with `authors` and `votes`, and `marksRevision` for tomAi_specDecideMarks), `conflicts` (`X-<n>`: base, alternatives with their members, decision — tomAi_specDecideConflicts), their `counts` and the runtime\'s `findings`. `path`, `kinds`, `openOnly` and `limit` (default 200) narrow it. With `dir` instead of `file`: the counts of every SOM document under the folder, no lists. A plain Markdown file (e.g. a merged team review round, tomAi_specMergeReviews) is read whole, as one value: no `path`, no `marksRevision`, each entry\'s `line` the file line (1-based).' + NOTATION + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

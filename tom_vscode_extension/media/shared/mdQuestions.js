@@ -305,6 +305,9 @@ function mdbQuestionHeads(text) {
         if (fence !== null) { continue; }
         var h = MDB_QUESTION_HEAD.exec(lines[i]);
         if (!h) { continue; }
+        // A conflict block's header (`> ⚖️ **X-1 — topic:**`, SOM §11.9.8) has the shape of a question of a
+        // block of several, but is no question.
+        if (lines[i].slice(0, h.index).indexOf('\u2696') >= 0) { continue; }
         var after = lines[i].slice(h.index);
         var t = MDB_QUESTION_TOPIC.exec(after);
         var rest = t ? t[2] : '';

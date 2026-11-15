@@ -19,6 +19,12 @@
  *         written by 03 Hand Back) is kept through a merge; a `nextRound` that is no list is not read
  *   RR-4  conflicts in plain Markdown: two members change one sentence differently → X-1; tomAi_specDecideConflicts
  *         writes the decision (a letter, `base`, text; "" reopens), refuses an unknown conflict or letter
+ *   RR-4b (qrfix10) reading a merged plain Markdown file: tomAi_specAnnotations lists its conflicts (base, the
+ *         alternatives with their members, the decision — open, then decided), its questions with the members'
+ *         individual answers, its marks with their authors and its comments, each with its file line (1-based), no
+ *         `path` (refused when given) and no `marksRevision`; a block in fenced code is not an annotation.
+ *         tomAi_mdQuestions gives each question its individual `answers` (members, answer, letter, line; a trailing
+ *         change time is not a member), absent when there are none
  *   RR-5  a SOM document with its own team: the round takes the document's team (owner = author), the merged
  *         document has a conflict listed by tomAi_specAnnotations (base, alternatives, members), individual
  *         answers on its question, counts with conflicts; tomAi_specRemoveAllAnnotations refuses while the conflict
@@ -259,6 +265,71 @@ describe('Team review rounds', () => {
         const reopened = await run(specDecideConflictsImpl, { file: merged, decisions: { 'X-1': '' } });
         assert.deepEqual(reopened.openConflicts, ['X-1']);
         assert.match(read(merged), /^> \*\*Decision:\*\*$/m);
+    });
+
+    test('RR-4b: reading a merged plain Markdown file', async () => {
+        // A merged conflict (as RR-4 merges it), read before and after its decision.
+        put('md4b/limits.md', '# Limits\n\nThe limit is 100 EUR.\n');
+        await run(specReviewRoundCreateImpl, { file: 'md4b/limits.md', round: 'md4b/round', members: TEAM, date: '2026-11-05', author: 'Alice Owner' });
+        put('md4b/round/alice.md', '# Limits\n\nThe limit is 200 EUR.\n');
+        put('md4b/round/bob.md', '# Limits\n\nThe limit is 300 EUR.\n');
+        assert.equal((await run(specMergeReviewsImpl, { round: 'md4b/round' })).ok, true);
+        const merged = 'md4b/round/merged/limits.md';
+        const headLine = read(merged).split('\n').findIndex((l) => l.startsWith('> ⚖️ **X-1')) + 1;
+        const open = await withTiming('tomAi_specAnnotations:plainMarkdown', () => run(specAnnotationsImpl, { file: merged }));
+        assert.equal(open.ok, true, JSON.stringify(open));
+        assert.deepEqual(open.document.plainMarkdown, true);
+        assert.equal(open.document.file, merged);
+        assert.equal('marksRevision' in open, false, 'tomAi_specDecideMarks does not take a plain Markdown file');
+        assert.equal(open.conflicts.length, 1);
+        const x1 = open.conflicts[0];
+        assert.equal(x1.id, 'X-1');
+        assert.equal(x1.base, 'The limit is 100 EUR.');
+        assert.deepEqual(x1.alternatives, [
+            { letter: 'a', members: ['alice'], text: 'The limit is 200 EUR.' },
+            { letter: 'b', members: ['bob'], text: 'The limit is 300 EUR.' },
+        ]);
+        assert.equal(x1.decision, '');
+        assert.equal(x1.open, true);
+        assert.equal(x1.line, headLine, 'the file line of its header');
+        assert.equal('path' in x1, false);
+        assert.equal(open.counts.conflicts, 1);
+        assert.equal(open.counts.openConflicts, 1);
+        await run(specDecideConflictsImpl, { file: merged, decisions: { 'X-1': 'b' } });
+        const decided = await run(specAnnotationsImpl, { file: merged });
+        assert.equal(decided.conflicts[0].decision, '(b)');
+        assert.equal(decided.conflicts[0].open, false);
+        assert.equal(decided.counts.openConflicts, 0);
+        assert.deepEqual((await run(specAnnotationsImpl, { file: merged, openOnly: true })).conflicts, []);
+        assert.equal((await run(specAnnotationsImpl, { file: merged, path: 'MD/content' })).code, 'invalidInput');
+
+        // The merged guest case (RR-3's result): individual answers, the mark's author, the guest question.
+        const payment = put('md4b/payment.md', `${MD_CASE.expect.merged}\n\n\`\`\`\n> ⚖️ **X-9 — In code:** not a conflict\n> - (a) **alice:** x\n>\n> **Decision:**\n\`\`\`\n`);
+        const lines = read(payment).split('\n');
+        const lineOf = (start: string): number => lines.findIndex((l) => l.startsWith(start)) + 1;
+        const a = await run(specAnnotationsImpl, { file: payment });
+        assert.equal(a.ok, true, JSON.stringify(a));
+        assert.deepEqual(a.conflicts, [], 'a block in fenced code is not an annotation');
+        const q1 = a.questions.find((q: Json) => q.id === 'Q-1');
+        assert.deepEqual(q1.answers.map((x: Json) => [x.members, x.answer, x.answerLetter]), [[['alice'], '(a)', 'a'], [['erin'], '(b) — Swiss customers', 'b']]);
+        assert.equal(q1.answer, '');
+        assert.equal(q1.line, lineOf('> **❓ Q-1'));
+        assert.deepEqual(a.questions.map((q: Json) => q.id), ['RQ-1', 'Q-1']);
+        assert.deepEqual(a.marks.map((m: Json) => [m.authors, m.line]), [[['alice'], lineOf('The limit is {~~')]]);
+        assert.equal(a.counts.questions, 2);
+        assert.equal(a.counts.marks, 1);
+
+        // tomAi_mdQuestions: the individual answers beside the team answer.
+        const md = await run(mdQuestionsImpl, { file: payment });
+        const mq1 = md.questions.find((q: Json) => q.id === 'Q-1');
+        assert.deepEqual(mq1.answers, [
+            { members: ['alice'], answer: '(a)', letter: 'a', line: lineOf('> **Answer (alice):**') },
+            { members: ['erin'], answer: '(b) — Swiss customers', letter: 'b', line: lineOf('> **Answer (erin):**') },
+        ]);
+        assert.equal('answers' in md.questions.find((q: Json) => q.id === 'RQ-1'), false, 'none: no key');
+        const timed = put('md4b/timed.md', '# T\n\n> **❓ Q-2 — Size:** Big?\n> - (a) yes\n> - (b) no\n>\n> **Answer (alice, bob, 2026-11-07T14:05+01:00):** (b) small\n> because it fits\n>\n> **Answer:**\n');
+        const t2 = (await run(mdQuestionsImpl, { file: timed })).questions[0];
+        assert.deepEqual(t2.answers, [{ members: ['alice', 'bob'], answer: '(b) small\nbecause it fits', letter: 'b', line: 7 }]);
     });
 
     test('RR-5c: a SOM document round with a guest copy', async () => {

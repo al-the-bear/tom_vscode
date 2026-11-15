@@ -231,8 +231,10 @@ export const MD_QUESTIONS_TOOL: SharedToolDefinition<MdQuestionsInput> = {
     description:
         'The question blocks of a Markdown file, in order: each with `id`, `topic`, `text`, `line` (1-based), `options` ' +
         '(`{letter, text, bold}`), `recommended` (a letter or null), `answer` (as written), `open` (no answer yet), `answerLine` ' +
-        '(null when the question has no Answer line) and `proposed` (`{source, date, text, line}` when a proposed answer is ' +
-        'under it). `id` and `openOnly` narrow the list; `total` and `open` count the whole document; `revision` is what the ' +
+        '(null when the question has no Answer line), `proposed` (`{source, date, text, line}` when a proposed answer is ' +
+        'under it) and `answers` (the members\' individual answers above the team answer in a merged team review, ' +
+        '`**Answer (alice, bob):**`: `{members, answer, letter, line}`; absent when there are none). Conflict blocks and marks ' +
+        'with their authors: tomAi_specAnnotations, which reads a plain Markdown file too. `id` and `openOnly` narrow the list; `total` and `open` count the whole document; `revision` is what the ' +
         'writers take as `expectedRevision`. ' + SYNTAX,
     tags: ['markdown', 'questions', 'files', 'tom-ai-chat'],
     readOnly: true,

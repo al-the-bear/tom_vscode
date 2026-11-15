@@ -41,6 +41,9 @@
  *        completed / in-progress / the user's own) is held in `error` at once, its reason in `warning`; setting its
  *        status checks again, a pre-prompt (which may create the todos) stages it again; blocked todos count as work;
  *        an item queued with pre-prompts is not judged
+ *   MA-13 (qrfix10) a merged plain Markdown team review through the server: tomAi_specAnnotations lists its
+ *        conflict (base, alternatives with members) and the members' individual answers, tomAi_mdQuestions the
+ *        individual answers too
  *   MA-0 before the stores start: a queue tool answers the error, not `ok` — tomAi_removeQueueItem answered
  *        `ok` and left a rejection unhandled (found by this suite)
  */
@@ -87,6 +90,15 @@ function seedFixture(): void {
     put('README.md', '# Demo workspace\n\nThe fixture of the all-tools MCP test.\n');
     put('src/greeting.ts', 'export function greet(name: string): string {\n    return `hello ${name}`;\n}\n');
     put('notes/plain.md', '# Notes\n\nalpha beta gamma\n');
+    // A merged plain Markdown team review: a conflict and a question with individual answers.
+    put('notes/merged-review.md', [
+        '# Limits', '', 'The limit is 100 EUR.', '',
+        '> ⚖️ **X-1 — Conflicting changes:** Limits, paragraph 0',
+        '> - (base) The limit is 100 EUR.', '> - (a) **alice:** The limit is 200 EUR.', '> - (b) **bob:** The limit is 300 EUR.',
+        '>', '> **Decision:**', '',
+        '> **❓ Q-1 — Currency:** EUR only?', '> - **(a)** yes', '> - (b) also CHF', '>',
+        '> **Answer (alice):** (a)', '> **Answer (bob):** (b)', '>', '> **Answer:**', '',
+    ].join('\n'));
     put('notebook.ipynb', JSON.stringify({ cells: [{ cell_type: 'code', source: 'print(1)', metadata: {}, outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
     put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Quest Overview: Demo\n\n**Quest ID:** demo\n');
     // A second quest, for tomAi_sendItemToQuest.
@@ -378,6 +390,7 @@ function inputs(): Record<string, Input> {
         tomAi_specReflect: { path: 'SBP' },
         tomAi_specSearch: { file: SPEC, text: 'order', pageSize: 1 },
         tomAi_specAnnotations: { file: SPEC },
+        tomAi_mdQuestions: { file: 'notes/merged-review.md' },
         tomAi_specExtractAnswers: { file: SPEC },
         tomAi_specWriteAnswers: { file: SPEC, output: 'specs/answers.md' },
         // A team review round of a plain Markdown file: created, nobody has returned a copy yet.
@@ -1011,5 +1024,21 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.equal(back.state.stepIteration, 4, 'entered again: the iteration after its last');
         const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.yaml`), 'utf8');
         assert.match(file, /stepIterations:[\s\S]*review: 3/, 'the record is in the state file');
+    });
+
+    test('MA-13: a merged plain Markdown team review read through the server', async () => {
+        const call = async (name: string, args: Record<string, unknown>): Promise<Json> => {
+            const r = await client.callTool({ name, arguments: args });
+            return JSON.parse((r.content as Array<{ text: string }>)[0].text);
+        };
+        const notes = await call('tomAi_specAnnotations', { file: 'notes/merged-review.md' });
+        assert.equal(notes.ok, true, JSON.stringify(notes));
+        assert.equal(notes.document?.plainMarkdown, true, JSON.stringify(notes).slice(0, 600));
+        assert.deepEqual(notes.conflicts.map((c: Json) => [c.id, c.base, c.alternatives.map((a: Json) => [a.letter, a.members]), c.open]),
+            [['X-1', 'The limit is 100 EUR.', [['a', ['alice']], ['b', ['bob']]], true]]);
+        assert.deepEqual(notes.questions[0].answers.map((a: Json) => [a.members, a.answer]), [[['alice'], '(a)'], [['bob'], '(b)']]);
+        const md = await call('tomAi_mdQuestions', { file: 'notes/merged-review.md' });
+        assert.deepEqual(md.questions.map((q: Json) => q.id), ['Q-1'], 'the conflict block is no question');
+        assert.deepEqual(md.questions[0].answers.map((a: Json) => [a.members, a.letter]), [[['alice'], 'a'], [['bob'], 'b']]);
     });
 });

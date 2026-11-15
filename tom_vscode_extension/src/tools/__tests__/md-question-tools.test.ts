@@ -19,6 +19,9 @@
  *   MQ-6 change times (SOM §11.9.2, §11.9.10, tom_specs annot10): a header `**❓ BQ-1 (<time>) — topic:**` and a
  *        team answer `**Answer (<time>):**` are read like the untimed forms; an individual answer
  *        `**Answer (alice, <time>):**` is no team answer; writing records the new time; proposing keeps the label
+ *   MQ-7 (qrfix10) a merged team review: a conflict block `> ⚖️ **X-1 — topic:**` is no question (its alternatives
+ *        and Decision line stay out of the list); a question's individual answers `**Answer (alice, bob):**` are
+ *        its `answers` (members, answer, letter, line), absent on a question without them
  */
 
 import * as fs from 'fs';
@@ -252,5 +255,29 @@ describe('Markdown question tools', () => {
             assert.match(src('utils/constants.ts'), new RegExp(`'${name}'`));
             assert.match(doc, new RegExp(`^\\| \`${name}\` \\|`, 'm'), `${name}: llm_tools.md row`);
         }
+    });
+
+    test('MQ-7: a merged team review: conflicts are no questions, individual answers are listed', async () => {
+        const text = [
+            '# Limits', '', 'The limit is 100 EUR.', '',
+            '> ⚖️ **X-1 — Conflicting changes:** Limits, paragraph 0',
+            '> - (base) The limit is 100 EUR.', '> - (a) **alice:** The limit is 200 EUR.', '> - (b) **bob:** The limit is 300 EUR.',
+            '>', '> **Decision:**', '',
+            '> **❓ Q-1 — Currency:** EUR only?', '> - **(a)** yes', '> - (b) also CHF', '>',
+            '> **Answer (alice):** (a)', '> **Answer (bob):** (b)', '>', '> **Answer:**', '',
+            '> **❓ Q-2 — Later:** Later?', '>', '> **Answer:**', '',
+        ].join('\n');
+        const r = await run(mdQuestionsImpl, { file: put('merged.md', text) });
+        assert.deepEqual(r.questions.map((x: Json) => x.id), ['Q-1', 'Q-2'], 'the conflict block is no question');
+        assert.equal(r.total, 2);
+        assert.deepEqual(q(r, 'Q-1').answers, [
+            { members: ['alice'], answer: '(a)', letter: 'a', line: 16 },
+            { members: ['bob'], answer: '(b)', letter: 'b', line: 17 },
+        ]);
+        assert.equal(q(r, 'Q-1').open, true, 'the team has not answered');
+        assert.equal('answers' in q(r, 'Q-2'), false);
+        // The block-of-several form still reads (its header has no ⚖️).
+        const several = await run(mdQuestionsImpl, { file: put('several.md', '> **❓ Open questions on these fields**\n>\n> **BQ-1 — size:** Big?\n> **Answer:**\n') });
+        assert.deepEqual(several.questions.map((x: Json) => x.id), ['BQ-1']);
     });
 });
