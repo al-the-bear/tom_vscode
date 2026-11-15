@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-11-15T05:20:49.368506 by tom_d4rt_generator 1.65.0
+// Generated: 2026-11-15T05:34:21.159855 by tom_d4rt_generator 1.65.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -17468,6 +17468,29 @@ BridgedClass _createTomTodoBridge() {
         );
         final nextRepeat = D4.getOptionalNamedArg<String?>(named, 'nextRepeat');
         final repeatCount = D4.getOptionalNamedArg<int?>(named, 'repeatCount');
+        final onDone = D4.getOptionalNamedArg<$tom_todo_model_1.TomTodoOnDone?>(
+          named,
+          'onDone',
+        );
+        final filedBy = D4
+            .getOptionalNamedArg<$tom_todo_model_1.TomTodoFiledBy?>(
+              named,
+              'filedBy',
+            );
+        final resources = D4.coerceListOrNull<String>(
+          named['resources'],
+          'resources',
+        );
+        final claimHold = D4.getNamedArgWithDefault<bool>(
+          named,
+          'claimHold',
+          false,
+        );
+        final claimFree = D4.getNamedArgWithDefault<bool>(
+          named,
+          'claimFree',
+          false,
+        );
         return $tom_todo_model_1.TomTodo(
           id: id,
           title: title,
@@ -17503,6 +17526,11 @@ BridgedClass _createTomTodoBridge() {
           repeat: repeat,
           nextRepeat: nextRepeat,
           repeatCount: repeatCount,
+          onDone: onDone,
+          filedBy: filedBy,
+          resources: resources,
+          claimHold: claimHold,
+          claimFree: claimFree,
         );
       },
     },
@@ -17586,6 +17614,21 @@ BridgedClass _createTomTodoBridge() {
       'repeatCount': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .repeatCount,
+      'onDone': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .onDone,
+      'filedBy': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .filedBy,
+      'resources': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .resources,
+      'claimHold': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .claimHold,
+      'claimFree': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .claimFree,
       'isRepeated': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .isRepeated,
@@ -17808,6 +17851,42 @@ BridgedClass _createTomTodoBridge() {
             value,
             'repeatCount',
           ),
+      'onDone': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .onDone = D4
+              .extractBridgedArgOrNull<$tom_todo_model_1.TomTodoOnDone>(
+                value,
+                'onDone',
+              ),
+      'filedBy': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .filedBy = D4
+              .extractBridgedArgOrNull<$tom_todo_model_1.TomTodoFiledBy>(
+                value,
+                'filedBy',
+              ),
+      'resources': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .resources = value == null
+          ? null
+          : D4.coerceList<String>(value, 'resources'),
+      'claimHold': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .claimHold = D4.extractBridgedArg<bool>(
+            value,
+            'claimHold',
+          ),
+      'claimFree': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .claimFree = D4.extractBridgedArg<bool>(
+            value,
+            'claimFree',
+          ),
       'due': (visitor, target, value) =>
           D4.validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo').due =
               D4.extractBridgedArgOrNull<DateTime>(value, 'due'),
@@ -17960,7 +18039,7 @@ BridgedClass _createTomTodoBridge() {
       },
     },
     constructorSignatures: {
-      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false, TomTodoRepeat? repeat, String? nextRepeat, int? repeatCount})',
+      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false, TomTodoRepeat? repeat, String? nextRepeat, int? repeatCount, TomTodoOnDone? onDone, TomTodoFiledBy? filedBy, List<String>? resources, bool claimHold = false, bool claimFree = false})',
     },
     methodSignatures: {
       'recordCreation':
@@ -18000,6 +18079,11 @@ BridgedClass _createTomTodoBridge() {
       'repeat': 'TomTodoRepeat? get repeat',
       'nextRepeat': 'String? get nextRepeat',
       'repeatCount': 'int? get repeatCount',
+      'onDone': 'TomTodoOnDone? get onDone',
+      'filedBy': 'TomTodoFiledBy? get filedBy',
+      'resources': 'List<String>? get resources',
+      'claimHold': 'bool get claimHold',
+      'claimFree': 'bool get claimFree',
       'isRepeated': 'bool get isRepeated',
       'due': 'DateTime? get due',
       'created': 'DateTime? get created',
@@ -18040,6 +18124,11 @@ BridgedClass _createTomTodoBridge() {
       'repeat': 'set repeat(dynamic value)',
       'nextRepeat': 'set nextRepeat(dynamic value)',
       'repeatCount': 'set repeatCount(dynamic value)',
+      'onDone': 'set onDone(dynamic value)',
+      'filedBy': 'set filedBy(dynamic value)',
+      'resources': 'set resources(dynamic value)',
+      'claimHold': 'set claimHold(dynamic value)',
+      'claimFree': 'set claimFree(dynamic value)',
       'due': 'set due(DateTime? value)',
       'created': 'set created(DateTime? value)',
       'updated': 'set updated(DateTime? value)',

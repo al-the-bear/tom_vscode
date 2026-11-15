@@ -14,7 +14,7 @@ environment:
 
 # One dependency: the shared todo model the todo API speaks.
 dependencies:
-  tom_todo_model: ^2.0.0
+  tom_todo_model: ^2.2.0
 
 dev_dependencies:
   lints: ^6.0.0
