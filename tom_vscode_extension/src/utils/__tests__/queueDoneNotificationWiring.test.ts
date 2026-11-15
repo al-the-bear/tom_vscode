@@ -41,9 +41,12 @@ describe('queue done-notification wiring', () => {
         const finished = body(queue, 'private async _itemFinished(');
         assert.match(finished, /planDoneNotification\(/);
         assert.match(finished, /applyPlanToItem\(/);
-        assert.match(finished, /position: plan\.position/);
-        assert.match(finished, /notificationOf: plan\.notificationOf/);
+        assert.match(finished, /this\._deliverDoneNotification\(item, plan, outcome\)/);
         assert.match(finished, /_deleteTemporarySession\(item\.session\)/);
+        assert.match(finished, /if \(item\.doneNotificationTodo && !item\.doneNotificationDisabled\) \{\s*await this\._finishTodoNotification\(item, outcome\);/, 'a todo done notification (ww_a_collab-6)');
+        const deliver = body(queue, 'private async _deliverDoneNotification(');
+        assert.match(deliver, /position: plan\.position/);
+        assert.match(deliver, /notificationOf: plan\.notificationOf/);
         const deletion = body(queue, 'private _deleteTemporarySession(');
         assert.match(deletion, /deleteSession\(folder, name\)/, 'the session file');
         assert.match(deletion, /removeSessionStorage\(folder, /, 'and its whole storage: history, trails, memory (vbs12)');

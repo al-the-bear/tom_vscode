@@ -112,11 +112,11 @@ describe('todo detail: Send and Queue buttons', () => {
         const cases = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
         assert.match(cases, /case 'qtGuideUserAction':\s*case 'qtTodoButton':/);
         assert.match(cases, /_runTodoButton\(todo, questId, msg\.sourceFile, use, msg\.target === 'queue' \? 'queue' : 'chat'\)/);
-        const run = host.slice(host.indexOf('async function _runTodoButton('), host.indexOf('async function _runTodoButton(') + 2600);
+        const run = host.slice(host.indexOf('async function _runTodoButton('), host.indexOf('async function _runTodoButton(') + 3400);
         assert.match(run, /resolveTodoButtonTemplate\(anthropic\?\.todoButtonTemplates, anthropic\?\.userMessageTemplates, use\)/);
         assert.match(run, /if \(tpl\.missing \|\| !tpl\.body\) \{\s*vscode\.window\.showWarningMessage[\s\S]{0,300}return;/, 'a missing template warns');
         assert.match(run, /todoIdPattern: todo\.id,\s*template: tpl\.id,\s*transport: 'anthropic',\s*deferSend: true/);
-        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{ userMessageTemplate: tpl\.body/);
+        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body/);
         assert.doesNotMatch(run, /_queueSendTarget/, 'never the queue\'s transport');
     });
 

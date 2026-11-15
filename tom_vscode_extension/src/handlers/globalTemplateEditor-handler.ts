@@ -7,6 +7,7 @@
  *
  * Categories:
  *   1. Copilot — Queue Wrapper       — config.copilot.queueWrapper (one item)
+ *   1b. Todo — Done Notification     — config.todoPanel.doneNotificationTemplate (one item)
  *   2. Reminder Templates            — config.reminders.templates
  *   3. Timed Requests                — config.timedRequests
  *   4. Anthropic — Profiles          — config.anthropic.profiles
@@ -41,9 +42,12 @@ import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copi
 import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, assistPromptsHelp } from '../utils/assistPrompts';
 import { ALWAYS_ON_TOOLS } from '../utils/roleTypes';
+import { TODO_DONE_NOTIFICATION_DEFAULT, TODO_DONE_NOTIFICATION_PLACEHOLDERS, todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 
 /** The one item of the Copilot — Queue Wrapper category. */
 const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
+/** The one item of the Todo — Done Notification category. */
+const TODO_DONE_NOTIFICATION_ITEM_ID = 'todoDoneNotification';
 
 // ============================================================================
 // Types
@@ -51,6 +55,7 @@ const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
 
 export type TemplateCategory =
     | 'copilotQueueWrapper'
+    | 'todoDoneNotification'
     | 'reminder'
     | 'timedRequests'
     | 'anthropicProfiles'
@@ -63,6 +68,7 @@ export type TemplateCategory =
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilotQueueWrapper: 'Copilot — Queue Wrapper',
+    todoDoneNotification: 'Todo — Done Notification',
     reminder: 'Reminder',
     timedRequests: 'Timed Requests',
     anthropicProfiles: 'Anthropic — Profiles',
@@ -237,6 +243,8 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
     switch (category) {
         case 'copilotQueueWrapper':
             return [{ id: QUEUE_WRAPPER_ITEM_ID, label: 'Copilot Queue Wrapper' }];
+        case 'todoDoneNotification':
+            return [{ id: TODO_DONE_NOTIFICATION_ITEM_ID, label: 'Todo Done Notification' }];
         case 'reminder':
             return ((config as any).reminders?.templates || [])
                 .map((t: any) => ({ id: t.id, label: t.name || t.id }));
@@ -278,6 +286,14 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             if (itemId !== QUEUE_WRAPPER_ITEM_ID) break;
             fields.push(
                 { name: 'template', label: 'Wrapper', type: 'textarea', value: copilotQueueWrapper(config), help: PLACEHOLDER_HELP + '<br><br>Goes around every Copilot send that waits for an answer: queue items, the todo buttons, scripts sending to Copilot, and the Copilot panel\'s Send when its Wrap box is on. <strong>Use ${originalPrompt}</strong> for the prompt (after its template), <code>${copilotAnswerFile}</code> and <code>${requestId}</code> for the answer file Copilot writes. Saving it empty, or Delete, returns it to the default.' },
+            );
+            break;
+        }
+        case 'todoDoneNotification': {
+            if (itemId !== TODO_DONE_NOTIFICATION_ITEM_ID) { break; }
+            const placeholders = TODO_DONE_NOTIFICATION_PLACEHOLDERS.map(([p, what]) => `<code>${p}</code> ${what}`).join('<br>');
+            fields.push(
+                { name: 'template', label: 'Notification', type: 'textarea', value: todoDoneNotificationTemplate(config), help: 'Queued when a queue item or chat send the todo panel made for a todo finishes (its <strong>Done notification</strong> box on): a single todo when the item ends, a group walk for each todo as its turn ends. It goes to the todo\'s After done quest and run (on_done), else the item\'s own. A todo without After done gets none; its After done notify prompt replaces this text. When it is set, the extension\'s own After done notify (a todo completed outside such an item) uses it too instead of its built-in report.<br><br>' + placeholders + '<br><br>Saving it empty, or Delete, returns it to the default.' },
             );
             break;
         }
@@ -615,6 +631,15 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             }
             break;
         }
+        case 'todoDoneNotification': {
+            const body = values.template ?? '';
+            if (!body.trim() || body === TODO_DONE_NOTIFICATION_DEFAULT) {
+                if (config.todoPanel) { delete config.todoPanel.doneNotificationTemplate; }
+            } else {
+                config.todoPanel = { ...(config.todoPanel ?? {}), doneNotificationTemplate: body };
+            }
+            break;
+        }
         case 'reminder': {
             if (!(config as any).reminders) (config as any).reminders = {};
             const templates: any[] = (config as any).reminders.templates || [];
@@ -921,6 +946,10 @@ async function _addItem(category: TemplateCategory): Promise<void> {
         vscode.window.showInformationMessage('There is one Copilot Queue Wrapper: edit it. Templates are added under Anthropic — User Message.');
         return;
     }
+    if (category === 'todoDoneNotification') {
+        vscode.window.showInformationMessage('There is one Todo Done Notification: edit it.');
+        return;
+    }
     const name = await vscode.window.showInputBox({
         prompt: `New ${CATEGORY_LABELS[category]} name`,
         placeHolder: 'my_template',
@@ -1067,6 +1096,7 @@ function _uniqueIdFromBase(base: string, existingIds: Set<string>): string {
 function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, category: TemplateCategory): Set<string> {
     switch (category) {
         case 'copilotQueueWrapper':   return new Set([QUEUE_WRAPPER_ITEM_ID]);
+        case 'todoDoneNotification':  return new Set([TODO_DONE_NOTIFICATION_ITEM_ID]);
         case 'reminder':              return new Set(((config as any).reminders?.templates ?? []).map((t: any) => t.id));
         case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
         case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
@@ -1088,7 +1118,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
  * every category except `selfTalk` (fixed-slot Person A / Person B).
  */
 async function _copyItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'copilotQueueWrapper') { return; }
+    if (category === 'copilotQueueWrapper' || category === 'todoDoneNotification') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1207,7 +1237,7 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
  * display label follows the rename) unless it was already distinct.
  */
 async function _renameItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'copilotQueueWrapper') { return; }
+    if (category === 'copilotQueueWrapper' || category === 'todoDoneNotification') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1320,6 +1350,9 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
     switch (category) {
         case 'copilotQueueWrapper':
             if (config.copilot) { delete config.copilot.queueWrapper; }
+            break;
+        case 'todoDoneNotification':
+            if (config.todoPanel) { delete config.todoPanel.doneNotificationTemplate; }
             break;
         case 'reminder': {
             const templates: any[] = (config as any).reminders?.templates || [];

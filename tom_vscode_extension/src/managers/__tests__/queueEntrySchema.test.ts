@@ -76,7 +76,7 @@ const ITEM: Required<QueuedPrompt> = {
     todoClaim: { questId: 'q1', todoId: 'x1_a', priorStatus: 'not-started', claimedAt: AT, released: true } as never,
     todoIdPattern: 'x*',
     repetitionAnswers: [{ key: 'x1_a', text: 'done', at: AT, backgroundLeft: true, continuations: 1, earlier: ['first'] }],
-    doneNotificationPrompt: 'tell me', doneNotificationDisabled: true, doneNotificationQueuedFor: 'chg1', doneNotificationQuest: 'q2', doneNotificationRun: 'r2',
+    doneNotificationPrompt: 'tell me', doneNotificationDisabled: true, doneNotificationTodo: true, doneNotificationQueuedFor: 'chg1', doneNotificationQuest: 'q2', doneNotificationRun: 'r2',
     doneNotificationPosted: { quest: 'q2', run: 'r2', file: 'f.yaml', waiting: true, at: AT },
     notificationOf: 'item-0',
     from: { quest: 'q0', run: 'r0', windowId: 'w-0', host: 'mbp', sentAt: AT },

@@ -357,6 +357,36 @@ The Blocked By entry of an **unblock** target is kept for you, by the todo panel
 - **Instructions** are the agent's part: the walk's group prompt tells the
   agent to carry them out when it completes the todo.
 
+**The todo done notification.** A **Done notification** box sits in front of the
+todo panel's Template dropdown. It is on by default and kept per quest. While it
+is on, the items the panel makes for todos report back when they finish:
+- **Which items:**
+  - Add to queue, Queue the stack, a row's queue button, Guide me (queue) and
+    Queue Group Prompt;
+  - the Send and Guide me chat sends of the panel's buttons.
+  - Anything you type into the chat yourself does not get it.
+- **What it says:** the **Todo — Done Notification** template of the Prompt
+  Template Editor, filled from the todo as it is when the item ends:
+  - `${todoId}`, `${todoTitle}`, `${todoFile}`, `${todoStatus}`;
+  - `${itemOutcome}` (`done` or `error: …`), `${itemAnswer}`,
+    `${todoLastAnswer}`;
+  - `${todoOnDone}`, `${filedBy}`, `${senderQuest}`, `${senderRun}`.
+
+  By default it reads: "Todo … is done. Its follow-up: … Do what it says; if it
+  says nothing, there is nothing to do. If it is not done, report that and do
+  not carry out the follow-up."
+- **When:** a single todo's notification is queued when the item ends, also
+  after an error. A group walk sends one for each todo as that todo's turn
+  ends, and none for the walk as a whole.
+- **Where:** at the todo's After done quest and run, else in the item's own
+  queue and run. Another quest gets it through its inbox; a run that quest
+  does not have means its `default` run.
+- **One per todo:**
+  - a todo without After done gets none;
+  - its After done notify prompt replaces the template;
+  - the extension's own After done notify is left out for that completion.
+- **Box off:** the panel makes its items as before.
+
 **Filed by**, below the group, is read-only. It holds:
 - the quest of the window, or of the quest that asked for the todo when another quest's item filed it;
 - the process run and the session;

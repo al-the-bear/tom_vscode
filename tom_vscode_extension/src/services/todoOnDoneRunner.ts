@@ -4,6 +4,10 @@
  * this window's queue for its own quest, through the quest inbox for another —
  * and notes skipped targets on the todo.
  *
+ * The extension's `notify` is left out (`skipNotify`) when the queue item or
+ * chat send that ran the todo carries the todo done notification
+ * (utils/todoDoneNotification.ts): one notification per todo.
+ *
  * Two places call it, once per completion:
  * - the todo writer (questTodoManager.updateTodo) when an update completes a
  *   todo — unless the prompt queue holds that todo's claim (a walk runs it):
@@ -22,6 +26,8 @@ export interface TodoOnDonePorts {
     windowQuest(): string | undefined;
     findTodo(quest: string, id: string): OnDoneTarget | undefined;
     groupPrompt(quest: string): string;
+    /** The configured todo done-notification template (todoPanel.doneNotificationTemplate), when one is set. */
+    notifyTemplate?(): string | undefined;
     /** Write a target's `blocked_by` (and status). */
     writeTarget(quest: string, id: string, blockedBy: string[], status?: string): void;
     /** Append lines to a todo's notes. */
@@ -58,7 +64,7 @@ export function takeDeferredTodoOnDone(quest: string, id: string): boolean {
  * plan it carried out (undefined without a runner or a block). Each step is
  * tried on its own: a failing send is logged and the others still run.
  */
-export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: string): Promise<OnDonePlan | undefined> {
+export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: string, opts: { skipNotify?: boolean } = {}): Promise<OnDonePlan | undefined> {
     const p = ports;
     if (!p || !todo.on_done) { return undefined; }
     const ctx: OnDoneContext = {
@@ -66,8 +72,14 @@ export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: str
         findTodo: (q, id) => p.findTodo(q, id),
         groupPrompt: (q) => p.groupPrompt(q),
         today: p.today(),
+        ...(p.notifyTemplate?.() ? { notifyTemplate: p.notifyTemplate() } : {}),
     };
     const plan = planOnDoneRun(todo, ctx);
+    // The todo done notification of the item that ran it covers this completion: one notification per todo.
+    if (opts.skipNotify && plan.notify) {
+        p.log(`on_done of ${quest}/${todo.id}: notify left to the item's todo done notification`);
+        plan.notify = undefined;
+    }
     const step = async (what: string, fn: () => unknown): Promise<void> => {
         try { await fn(); } catch (e) { p.log(`on_done of ${quest}/${todo.id}: ${what} failed: ${(e as Error).message}`); }
     };

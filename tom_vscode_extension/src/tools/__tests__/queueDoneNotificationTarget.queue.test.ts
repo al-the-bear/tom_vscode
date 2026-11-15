@@ -15,6 +15,10 @@
  *        repeat count and todo pattern; into a run this quest lacks it is an error in `default`, no run created
  *   DT-7 a walk's claim (ww_a_collab-5): a sending item holds it; its settle carries out a completed todo's
  *        on_done once, and a completion left to the claim runs at its release too
+ *   DT-8 the todo done notification (ww_a_collab-6): a single todo's at the item's end at on_done's run, filled; none
+ *        without on_done; another quest through its inbox with notify_prompt, a run it lacks → default; a walk per
+ *        todo as each settles, its end adds none; a chat send by the panel's buttons; an item without the fields none;
+ *        a running item or chat send covers its todo (the extension's own notify is left out)
  *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
  *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
@@ -317,6 +321,76 @@ describe('the done notification\'s quest and run', () => {
             assert.equal(takeDeferredTodoOnDone(QUEST, 'wk-1'), false);
         } finally {
             setTodoOnDonePorts(undefined);
+            fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
+            clean();
+        }
+    });
+
+    test('DT-8: the todo done notification (ww_a_collab-6)', async () => {
+        clean();
+        assert.equal(store().createRun('r2', 'review', 'user', false).ok, true);
+        put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
+            `quest: ${QUEST}`, 'todos:',
+            '  - id: s1', '    title: Single', '    description: d', '    status: completed',
+            '    on_done:', '      run: r2', '      instructions: note it',
+            '  - id: s2', '    description: no follow-up', '    status: completed',
+            '  - id: s3', '    description: elsewhere', '    status: completed',
+            '    on_done:', '      quest: q9', '      run: chg7', '      notify_prompt: s3 for ${senderQuest}',
+            '  - id: wk-1', '    description: first', '    status: completed', '    on_done:', '      instructions: x',
+            '  - id: wk-2', '    description: second', '    status: completed', '    on_done:', '      instructions: y', '',
+        ].join('\n'));
+        const posted: Array<Record<string, unknown>> = [];
+        queue().setDoneNotificationPoster((n) => { posted.push(n as never); return { delivered: '/x', file: 'x.inbox.queue.yaml', targetRunning: true, windows: [] }; });
+        const template = 'Todo ${todoId} (${todoTitle}) is ${itemOutcome}. Its follow-up: ${todoOnDone}.';
+        const marked = { doneNotificationPrompt: template, doneNotificationTodo: true };
+        try {
+            // A single todo: at the item's end, at on_done's run, filled from the todo.
+            const one = await add({ originalText: 'do s1', todoIdPattern: 's1', ...marked });
+            (one as Json).status = 'sending';
+            assert.equal(queue().todoNotificationCovers(QUEST, 's1'), true, 'its own notify is left out while it runs');
+            assert.equal(queue().todoNotificationCovers(QUEST, 's2'), false);
+            (one as Json).status = 'sent';
+            await (queue() as Json)._itemFinished(one, { kind: 'done' });
+            const n1 = notificationOf(one);
+            assert.ok(n1, 'notified');
+            assert.equal(n1.run, 'r2', 'at on_done\'s run');
+            assert.match(n1.originalText, /^Todo s1 \(Single\) is done\. Its follow-up: run: r2\ninstructions: note it\.$/);
+            // No on_done: none (-3).
+            const two = await add({ originalText: 'do s2', todoIdPattern: 's2', ...marked });
+            await (queue() as Json)._itemFinished(two, { kind: 'done' });
+            assert.equal(notificationOf(two), undefined);
+            // Another quest: its inbox, notify_prompt in place of the template (-4).
+            const three = await add({ originalText: 'do s3', todoIdPattern: 's3', ...marked });
+            await (queue() as Json)._itemFinished(three, { kind: 'error', message: 'quota' });
+            assert.equal(posted.length, 1);
+            assert.equal(posted[0].quest, 'q9');
+            assert.equal(posted[0].run, 'default', 'q9 has no run chg7: its default run');
+            assert.equal(posted[0].text, `s3 for ${QUEST}`);
+            // A walk: per todo as each settles (-2), its own end adds none.
+            const walk = await add({ originalText: 'walk', repeatCount: 'wk-*', ...marked });
+            for (const id of ['wk-1', 'wk-2']) {
+                await (queue() as Json)._settleTodoOnDone({ questId: QUEST, todoId: id, priorStatus: 'not-started', claimedAt: '' }, walk);
+            }
+            const walkNotes = queue().items.filter((i) => i.notificationOf === walk.id).map((i) => i.originalText);
+            assert.equal(walkNotes.length, 2);
+            assert.match(walkNotes.join('|'), /Todo wk-1 .*\|Todo wk-2 /s);
+            await (queue() as Json)._itemFinished(walk, { kind: 'done' });
+            assert.equal(queue().items.filter((i) => i.notificationOf === walk.id).length, 2, 'the walk\'s end adds none');
+            // A chat send by the panel's buttons (DP-part-done-notification-1).
+            const chatId = queue().addChatItem({ text: 'send s1', session: 'chat', source: 'todo panel', run: 'default' });
+            queue().markChatTodoNotification(chatId, ['s1'], template);
+            assert.equal(queue().todoNotificationCovers(QUEST, 's1'), true, 'a running chat send covers it');
+            queue().completeChatItem(chatId, { answerText: 'done it' });
+            await wait(80);
+            const nc = queue().items.find((i) => i.notificationOf === chatId);
+            assert.ok(nc, 'the chat send\'s todo notified');
+            assert.equal(nc.run, 'r2');
+            // The box off: an item without the fields gets no todo notification.
+            const plain = await add({ originalText: 'do s1 again', todoIdPattern: 's1', allowDuplicateTodo: true });
+            await (queue() as Json)._itemFinished(plain, { kind: 'done' });
+            assert.equal(notificationOf(plain), undefined);
+        } finally {
+            queue().setDoneNotificationPoster(undefined);
             fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
             clean();
         }

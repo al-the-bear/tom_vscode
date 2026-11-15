@@ -71,6 +71,8 @@ describe('planOnDoneRun', () => {
         const named = planOnDoneRun({ ...done, on_done: { quest: 'r', run: 'chg7', action: ['notify' as const] } }, ctx({}));
         assert.equal(named.notify?.run, 'chg7');
         assert.match(fillTodoPlaceholders(TODO_NOTIFY_DEFAULT, { id: 'n2' }, { quest: 'q', run: 'r' }), /\(no answer recorded\)/);
+        const templated = planOnDoneRun({ ...done, on_done: { action: ['notify' as const] } }, ctx({}, { notifyTemplate: 'T ${todoId} ${todoStatus}: ${itemAnswer}' }));
+        assert.equal(templated.notify?.text, 'T n1 completed: All $${green}.', 'the configured todo done-notification template (ww_a_collab-6)');
     });
 
     test('OR-3: queue', () => {

@@ -436,6 +436,12 @@ function qtNavPush(todoId) {
     // The panel's session and run (vscimpb60d): the host answers qtRunSession, and again on every change.
     vscode.postMessage({ type: 'qtGetRunSession' });
     qtRenderRunSessionControls();
+    var qtDoneNotificationBox = document.getElementById('qt-done-notification');
+    if (qtDoneNotificationBox) {
+        qtDoneNotificationBox.addEventListener('change', function() {
+            vscode.postMessage({ type: 'qtSetDoneNotification', on: this.checked });
+        });
+    }
     if (qtViewConfig.mode === 'session') {
         qtCurrentQuestId = '__session__';
         qtCurrentFile = 'all';
@@ -3132,6 +3138,9 @@ function qtHandleMessage(msg) {
                 runs: Array.isArray(msg.runs) && msg.runs.length ? msg.runs : [{ run: 'default', label: 'default' }],
             };
             qtRenderRunSessionControls();
+            // The Done notification box, kept per quest by the host (unset: on).
+            var dnBox = document.getElementById('qt-done-notification');
+            if (dnBox) dnBox.checked = msg.doneNotification !== false;
             break;
         case 'qtTemplates': {
             var templateSel = document.getElementById('qt-template-select');

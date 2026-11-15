@@ -10,6 +10,8 @@
  *        the other actions
  *   OC-5 cancelling runs nothing of on_done
  *   OC-6 the built-in group prompt tells the agent to carry out only the instructions
+ *   OC-7 with skipNotify (the item's todo done notification covers the completion) no notify is sent, the other
+ *        actions run; without a configured template the built-in report
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -159,6 +161,18 @@ describe('on_done at completion', () => {
         updateTodo(Q, 'n1', { status: 'cancelled' });
         await settle();
         assert.equal(local.length + posted.length, 0);
+    });
+
+    test('OC-7: one notification per todo; the configured template (ww_a_collab-6)', async () => {
+        add(main, 't1');
+        add(main, 'n1', { status: 'completed', on_done: { todos: ['t1'], action: ['queue', 'notify'] } });
+        const t = findTodoById(Q, 'n1')!;
+        const plan = await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile }, 'r1', { skipNotify: true });
+        assert.equal(plan?.notify, undefined, 'the item\'s todo done notification covers it');
+        assert.deepEqual(local.map((x) => x.todoId), ['t1'], 'the queue action still runs');
+        local = [];
+        await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile, on_done: { action: ['notify'] } }, 'r1');
+        assert.match(local[0].text, /^Todo n1 \(T n1\) of quest cq is completed\./, 'without a template: the built-in report');
     });
 
     test('OC-6: the walk line', () => {

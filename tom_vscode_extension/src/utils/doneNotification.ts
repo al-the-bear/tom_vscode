@@ -126,6 +126,8 @@ export interface DoneNotificationItem {
     doneNotificationPrompt?: string;
     /** The prompt is kept but not queued. */
     doneNotificationDisabled?: boolean;
+    /** A todo done notification (utils/todoDoneNotification.ts): the prompt is filled from the item's todo when it finishes. */
+    doneNotificationTodo?: boolean;
     /** The send-run the notification was queued for (no second one for the same send-run). */
     doneNotificationQueuedFor?: string;
     /** The quest the notification is posted to; unset: the item's own. */
@@ -271,11 +273,12 @@ export function deletesTemporarySession(item: DoneNotificationItem, plan: DoneNo
 /** The meta keys of these fields; unset ones left out, so an untouched entry round-trips unchanged. */
 export function doneNotificationMetaToYaml(item: DoneNotificationMetaFields): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    if (item.doneNotificationPrompt !== undefined || item.doneNotificationDisabled || item.doneNotificationQuest
+    if (item.doneNotificationPrompt !== undefined || item.doneNotificationDisabled || item.doneNotificationTodo || item.doneNotificationQuest
         || item.doneNotificationRun || item.doneNotificationPosted) {
         out['done-notification'] = {
             prompt: item.doneNotificationPrompt ?? '',
             ...(item.doneNotificationDisabled ? { disabled: true } : {}),
+            ...(item.doneNotificationTodo ? { todo: true } : {}),
             ...(item.doneNotificationQueuedFor ? { 'queued-for-run': item.doneNotificationQueuedFor } : {}),
             ...(item.doneNotificationQuest ? { quest: item.doneNotificationQuest } : {}),
             ...(item.doneNotificationRun ? { run: item.doneNotificationRun } : {}),
@@ -303,7 +306,7 @@ export function doneNotificationMetaToYaml(item: DoneNotificationMetaFields): Re
 
 /** The fields an entry's meta stores for this module. */
 export type DoneNotificationMetaFields = Pick<DoneNotificationItem,
-    'doneNotificationPrompt' | 'doneNotificationDisabled' | 'doneNotificationQueuedFor' | 'doneNotificationQuest'
+    'doneNotificationPrompt' | 'doneNotificationDisabled' | 'doneNotificationTodo' | 'doneNotificationQueuedFor' | 'doneNotificationQuest'
     | 'doneNotificationRun' | 'doneNotificationPosted' | 'notificationOf' | 'from' | 'temporarySession'>;
 
 /** The fields read back from an entry's meta. */
@@ -314,6 +317,7 @@ export function doneNotificationMetaFromYaml(meta: Record<string, unknown>): Don
         const d = dn as Record<string, unknown>;
         if (typeof d.prompt === 'string') { out.doneNotificationPrompt = d.prompt; }
         if (d.disabled === true) { out.doneNotificationDisabled = true; }
+        if (d.todo === true) { out.doneNotificationTodo = true; }
         if (typeof d['queued-for-run'] === 'string') { out.doneNotificationQueuedFor = d['queued-for-run']; }
         if (typeof d.quest === 'string' && d.quest) { out.doneNotificationQuest = d.quest; }
         if (typeof d.run === 'string' && d.run) { out.doneNotificationRun = d.run; }

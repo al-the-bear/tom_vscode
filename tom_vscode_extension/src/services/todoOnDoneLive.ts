@@ -18,6 +18,7 @@ import { effectiveGroupDefault } from '../utils/groupPrompts';
 import { logQueue } from '../utils/queueLogger';
 import { todayLocalDate } from '../utils/todoDates';
 import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { WsPaths } from '../utils/workspacePaths';
 import { currentProcessRun } from './processRunContext';
 import { groupPromptDirs } from './groupPromptDirs';
@@ -48,6 +49,7 @@ export function installTodoOnDone(): void {
                 where: where(t._sourceFile), record: t as unknown as Record<string, unknown>, sourceFile: t._sourceFile, title: t.title,
             };
         },
+        notifyTemplate: () => loadSendToChatConfig()?.todoPanel?.doneNotificationTemplate?.trim() || undefined,
         groupPrompt: (quest) => {
             const dirs = groupPromptDirs(quest);
             return effectiveGroupDefault(dirs ? readGroupPrompts(dirs) : []).text;
@@ -96,6 +98,8 @@ export function installTodoOnDone(): void {
             return;
         }
         const run = currentProcessRun()?.run ?? ProcessStateStore.instance?.currentRun ?? 'default';
-        void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run);
+        // The item or chat send running the todo notifies it itself (its todo done notification): no second one.
+        const skipNotify = !!queue?.todoNotificationCovers(questId, todo.id);
+        void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run, { skipNotify });
     });
 }

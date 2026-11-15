@@ -226,3 +226,6 @@
 /* After done (on_done) */
 .qt-od-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .qt-od-actions label { display: inline-flex; gap: 3px; align-items: center; font-weight: normal; }
+
+/* The Done notification box in front of the Template dropdown */
+.qt-done-notification { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; white-space: nowrap; }

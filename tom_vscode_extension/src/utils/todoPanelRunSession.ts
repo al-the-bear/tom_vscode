@@ -29,6 +29,16 @@ export function todoPanelRunKey(quest: string): string {
     return `tomAi.todoPanel.run.${quest || '(none)'}`;
 }
 
+/** The workspaceState key of the panel's Done notification box in a quest (unset: on). */
+export function todoPanelDoneNotificationKey(quest: string): string {
+    return `tomAi.todoPanel.doneNotification.${quest || '(none)'}`;
+}
+
+/** The box as stored: unset reads as on (BP-3). */
+export function todoPanelDoneNotificationOn(stored: unknown): boolean {
+    return stored !== false;
+}
+
 /** What the panel is on: the session picked (as named), the run, and the session its sends run in. */
 export interface TodoPanelSelection {
     /** The session as picked (no run suffix). */

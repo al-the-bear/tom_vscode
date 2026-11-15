@@ -68,6 +68,8 @@ export interface OnDoneContext {
     groupPrompt(quest: string): string;
     /** For the notes line. */
     today: string;
+    /** The configured todo done-notification template: replaces {@link TODO_NOTIFY_DEFAULT} when set. */
+    notifyTemplate?: string;
 }
 
 /** A target's `blocked_by` rewritten, and its status when it changes. */
@@ -117,7 +119,9 @@ export function fillTodoPlaceholders(text: string, todo: CompletedTodo, ctx: { q
         todoId: todo.id,
         todoTitle: todo.title ?? '',
         todoFile: todo.sourceFile ?? '',
+        todoStatus: 'completed',
         itemOutcome: 'completed',
+        itemAnswer: todo.last_answer?.trim() || '(no answer recorded)',
         todoLastAnswer: todo.last_answer?.trim() || '(no answer recorded)',
         todoOnDone: onDoneYaml,
         filedBy,
@@ -192,7 +196,7 @@ export function planOnDoneRun(todo: CompletedTodo, ctx: OnDoneContext): OnDonePl
         }
     }
     if (actions.includes('notify')) {
-        const text = onDone.notify_prompt?.trim() ? onDone.notify_prompt : TODO_NOTIFY_DEFAULT;
+        const text = onDone.notify_prompt?.trim() ? onDone.notify_prompt : (ctx.notifyTemplate?.trim() ? ctx.notifyTemplate : TODO_NOTIFY_DEFAULT);
         plan.notify = { quest: targetQuest, run: targetRun, text: fillTodoPlaceholders(text, todo, { quest: ctx.quest, run: ctx.run }) };
     }
     return plan;

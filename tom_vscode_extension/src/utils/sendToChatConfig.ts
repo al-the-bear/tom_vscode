@@ -78,6 +78,14 @@ export interface SendToChatConfig {
             autostart?: boolean;
         };
     };
+    todoPanel?: {
+        /**
+         * The todo done notification (src/utils/todoDoneNotification.ts):
+         * queued when an item or chat send the todo panel made for a todo
+         * finishes. Unset: the built-in default.
+         */
+        doneNotificationTemplate?: string;
+    };
     copilot?: {
         /**
          * The Copilot Queue Wrapper: the body (`${originalPrompt}`) put around

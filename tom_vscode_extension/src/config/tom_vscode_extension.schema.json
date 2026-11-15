@@ -153,6 +153,17 @@
             },
             "additionalProperties": false
         },
+        "todoPanel": {
+            "type": "object",
+            "description": "The todo panel's queue items and chat sends.",
+            "properties": {
+                "doneNotificationTemplate": {
+                    "type": "string",
+                    "description": "The todo done notification: queued when a queue item or chat send the todo panel made for a todo finishes (its Done notification box on), at the todo's on_done quest and run, else the item's own. A todo without on_done gets none; its on_done.notify_prompt replaces this text. Placeholders: ${todoId}, ${todoTitle}, ${todoFile}, ${todoStatus}, ${itemOutcome}, ${itemAnswer}, ${todoLastAnswer}, ${todoOnDone}, ${filedBy}, ${senderQuest}, ${senderRun}. Not set: the built-in default. Edited in the template editor (Todo — Done Notification)."
+                }
+            },
+            "additionalProperties": false
+        },
         "copilot": {
             "type": "object",
             "description": "GitHub Copilot sends. Their templates are the user-message templates (anthropic.userMessageTemplates), the one template store.",
