@@ -11,7 +11,8 @@
  *   RR-2  tomAi_specReviewRoundStatus: nothing returned at first; a returned copy with its counts; a guest's
  *         copy listed unnamed; a copy whose headings do not fit the base is invalid with its problem (CC-65)
  *   RR-3  tomAi_specMergeReviews, plain Markdown (the conformance case "plain Markdown is merged by heading
- *         path, a guest included"): an unnamed guest refused (`guestUnnamed`), a dry run writes nothing, the
+ *         path, a guest included"): the guest question offers the three answers (from now on / the next round
+ *         only / no, tdrguest2); an unnamed guest refused (`guestUnnamed`), a dry run writes nothing, the
  *         merge writes merged/ and merge-report.json exactly as the runtime pins them, keeps the guest in
  *         round.yaml; an invalid copy refuses the merge (`structureMismatch`); an unchanged copy is left out
  *   RR-3b round.yaml's `nextRound` (team_document_review PD-11: the guests accepted for the next round only,
@@ -23,6 +24,8 @@
  *         answers on its question, counts with conflicts; tomAi_specRemoveAllAnnotations refuses while the conflict
  *         is undecided (`conflictUndecided`), applies it once decided; tomAi_specExtractAnswers lists the
  *         individual answers beside the team answer
+ *   RR-5c a SOM document round with a guest copy: the merged document's guest question offers the three answers
+ *         ((a) yes, from now on — recommended; (b) yes, the next round only; (c) no)
  *   RR-6  a SOM document without a team takes the blueprint's: its entry for the document type, else its
  *         default team
  *   RR-7  tomAi_mdInsertQuestion: the agent's proposal question in plain Markdown, after a paragraph or at the
@@ -178,6 +181,10 @@ describe('Team review rounds', () => {
         assert.deepEqual(r.mergedCopies, ['alice', 'erin']);
         assert.deepEqual(r.notReturned, ['bob']);
         assert.equal(read('md3/round/merged/payment.md'), MD_CASE.expect.merged);
+        // The guest question offers PD-11's three answers (tom_specs tdrguest2, vscimpb115), not the old two.
+        const merged = read('md3/round/merged/payment.md');
+        assert.match(merged, /> - \*\*\(a\)\*\* yes, from now on\n> - \(b\) yes, the next round only\n> - \(c\) no\n/);
+        assert.doesNotMatch(merged, /yes, from the next round on|no, this round only/);
         assert.deepEqual(r.report, MD_CASE.expect.report);
         assert.deepEqual(JSON.parse(read('md3/round/merged/merge-report.json')), MD_CASE.expect.report);
         assert.equal(r.summary.guestQuestions, 1);
@@ -252,6 +259,26 @@ describe('Team review rounds', () => {
         const reopened = await run(specDecideConflictsImpl, { file: merged, decisions: { 'X-1': '' } });
         assert.deepEqual(reopened.openConflicts, ['X-1']);
         assert.match(read(merged), /^> \*\*Decision:\*\*$/m);
+    });
+
+    test('RR-5c: a SOM document round with a guest copy', async () => {
+        const file = 'som5c/req.docspecs.yaml';
+        fs.mkdirSync(path.join(ws, 'som5c'), { recursive: true });
+        assert.equal((await run(specCreateDocumentImpl, { file, root: 'RSP' })).ok, true);
+        assert.equal((await run(specSetContentImpl, { file, path: 'RSP/content', text: 'Orders are kept two years.' })).ok, true);
+        assert.equal((await run(specReviewRoundCreateImpl, { file, round: 'som5c/round', members: TEAM, date: '2026-11-05', author: 'Alice Owner' })).ok, true);
+        // A guest's copy: not on the team, named at the merge.
+        fs.copyFileSync(path.join(ws, 'som5c/round/base.docspecs.yaml'), path.join(ws, 'som5c/round/erin.docspecs.yaml'));
+        assert.equal((await run(specSetContentImpl, { file: 'som5c/round/erin.docspecs.yaml', path: 'RSP/content', text: 'Orders are kept two years, archived after one.' })).ok, true);
+        const m = await run(specMergeReviewsImpl, { round: 'som5c/round', guests: [{ memberId: 'erin', displayName: 'Erin Ops', role: 'Operations' }] });
+        assert.equal(m.ok, true, JSON.stringify(m));
+        assert.equal(m.summary.guestQuestions, 1);
+        const notes = await run(specAnnotationsImpl, { file: 'som5c/round/merged/req.docspecs.yaml', kinds: ['question'] });
+        const guestQuestion = notes.questions.find((q: Json) => /Erin Ops/.test(`${q.topic} ${q.text}`));
+        assert.ok(guestQuestion, JSON.stringify(notes.questions));
+        // PD-11's three answers (tom_specs tdrguest2, vscimpb115), the first recommended.
+        assert.deepEqual(guestQuestion.options.map((o: Json) => [o.letter, o.text, o.bold]),
+            [['a', 'yes, from now on', true], ['b', 'yes, the next round only', false], ['c', 'no', false]]);
     });
 
     test('RR-5: a SOM document with its own team', async () => {
