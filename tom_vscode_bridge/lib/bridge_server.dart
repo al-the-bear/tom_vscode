@@ -118,6 +118,16 @@ class VSCodeBridgeServer implements VSCodeAdapter {
     }
   }
 
+  /// Test-only seam: handle one stdin line exactly as [start]'s listener
+  /// does, so tests can drive requests without a process. Not used in
+  /// production.
+  void debugHandleLine(String line) => _handleMessage(line);
+
+  /// Test-only seam: the messages the bridge writes to stdout (responses,
+  /// errors, requests to VS Code), when [start] is not running. Listen once.
+  /// Not used in production.
+  Stream<String> get debugOutput => _outputController.stream;
+
   /// Methods the extension pushes to the bridge as Agent SDK server→client
   /// traffic. `agentSdk.chunk` is a notification (no `id`); `agentSdk.toolCall`
   /// and `agentSdk.canUseTool` are reverse-RPC requests (with `id`). All three
@@ -541,18 +551,28 @@ void main() {}
     );
   }
 
+  /// A request from VS Code (stdin): its one answer goes back here — the
+  /// result, or the error when the handler throws. The handler itself sends
+  /// nothing, so a request is answered exactly once, and a request from a CLI
+  /// client (handleCliRequest, answered over its socket) never writes to
+  /// stdout.
   Future<void> _handleRequestInternal(
     String method,
     Map<String, dynamic> params,
     Object? id,
   ) async {
-    final result = await _handleRequestInternalWithResult(method, params, id);
-    // Response is sent inside for executeScript/executeFile/executeExpression, otherwise send here
-    if (id != null &&
-        result != null &&
-        method != 'executeScript' &&
-        method != 'executeFile' &&
-        method != 'executeExpression') {
+    Map<String, dynamic>? result;
+    try {
+      result = await _handleRequestInternalWithResult(method, params, id);
+    } catch (e, stackTrace) {
+      if (id != null) {
+        _sendErrorResponse(id, e.toString(), stackTrace);
+      } else {
+        print('[REQERR] $method (notification) failed: $e');
+      }
+      return;
+    }
+    if (id != null && result != null) {
       _sendResponse(id, result);
     }
   }
@@ -653,10 +673,9 @@ void main() {}
         return result;
       }
       return result != null ? {'result': result} : null;
-    } catch (e, stackTrace) {
-      if (id != null) {
-        _sendErrorResponse(id, e.toString(), stackTrace);
-      }
+    } catch (e) {
+      // The caller answers: _handleRequestInternal (stdin) with an error
+      // response, the CLI server with an error frame on the client's socket.
       rethrow;
     }
   }
@@ -1272,9 +1291,6 @@ void main() {}
                 'stackTrace': stackTrace.toString(),
                 'logs': executionContext.logs,
               };
-              if (id != null) {
-                _sendResponse(id, errorPayload);
-              }
               if (!completer.isCompleted) {
                 completer.complete(errorPayload);
               }
@@ -1310,9 +1326,6 @@ void main() {}
                 'stackTrace': stackTrace.toString(),
                 'logs': executionContext.logs,
               };
-              if (id != null) {
-                _sendResponse(id, errorPayload);
-              }
               if (!completer.isCompleted) {
                 completer.complete(errorPayload);
               }
@@ -1342,9 +1355,6 @@ void main() {}
                 'exceptionStackTrace': executionContext.exceptionStackTrace,
             };
 
-            if (id != null) {
-              _sendResponse(id, responsePayload);
-            }
 
             if (!completer.isCompleted) {
               completer.complete(responsePayload);
@@ -1360,9 +1370,6 @@ void main() {}
               'stackTrace': stackTrace.toString(),
               'logs': executionContext.logs,
             };
-            if (id != null) {
-              _sendResponse(id, errorPayload);
-            }
             if (!completer.isCompleted) {
               completer.complete(errorPayload);
             }
@@ -1398,9 +1405,6 @@ void main() {}
         'stackTrace': stackTrace.toString(),
         'logs': executionContext.logs,
       };
-      if (id != null) {
-        _sendResponse(id, errorPayload);
-      }
       return errorPayload;
     }
   }
