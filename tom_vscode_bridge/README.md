@@ -117,12 +117,11 @@ const result = await bridgeClient.sendRequest('executeFileVcb', {
 
 ## Example scripts
 
-Runnable example scripts and a verification suite live alongside the package:
+Example scripts and a verification suite:
 
 | Location | What it is |
 | --- | --- |
-| [`doc/examples.md`](doc/examples.md) | Annotated example index — "Helper" samples use `VsCodeHelper`; "Direct" samples use `VSCode` and its namespaces. |
-| [`doc/examples_scripts.md`](doc/examples_scripts.md) | The example script catalogue. |
+| [`doc/USER_GUIDE.md`](doc/USER_GUIDE.md#examples) | Complete example scripts for `@T: Execute File`, each run through `tom_bs` as written; [`doc/examples.md`](doc/examples.md) indexes them. |
 | [`test_scripts/scripting_api_suite.dart`](test_scripts/) | End-to-end verification suite — connects to a running window and exercises the scripting API over TCP. Use it after rebuilding `tom_bs` or bumping the scripting API. |
 
 The client-side learning-path samples (connect → advanced → tools → Agent SDK)
@@ -306,9 +305,9 @@ meet at the CLI Integration Server.
 | --- | --- |
 | [doc/PROJECT.md](doc/PROJECT.md) | Project overview and getting started. |
 | [doc/USER_GUIDE.md](doc/USER_GUIDE.md) | Writing Dart scripts that control VS Code through the bridge. |
-| [doc/API_REFERENCE.md](doc/API_REFERENCE.md) | Complete API reference. |
+| [doc/API_REFERENCE.md](doc/API_REFERENCE.md) | The bridge's requests (both directions), what a script gets, the CLI integration server, `VSCodeBridgeServer`. |
 | [doc/IMPLEMENTATION.md](doc/IMPLEMENTATION.md) | Server-side implementation and architecture detail. |
-| [doc/examples.md](doc/examples.md) · [doc/examples_scripts.md](doc/examples_scripts.md) | Example index and scripts. |
+| [doc/examples.md](doc/examples.md) | The index of the User Guide's example scripts. |
 
 For the VS Code API surface itself, see the
 [scripting API guides](../tom_vscode_scripting_api/doc/vscode_api_intro.md).

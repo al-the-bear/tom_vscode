@@ -311,7 +311,7 @@ final text = await VsCodeHelper.inputBox(prompt: 'Name?');
 await VsCodeHelper.openFile('lib/main.dart');
 await VsCodeHelper.executeCommand('workbench.action.files.saveAll');
 await VsCodeHelper.setStatus('Working…');
-final cfg = await VsCodeHelper.getConfig('editor', 'tabSize');
+final cfg = await VsCodeHelper.getConfig('editor', key: 'tabSize');
 await VsCodeHelper.setConfig('editor', 'tabSize', 2);
 ```
 
@@ -364,8 +364,8 @@ await VsCodeHelper.setBreakpoint('lib/main.dart', 42);
 ### Progress — `VsProgress`
 
 ```dart
-final p = await VsProgress.create('Indexing');
-await p.report(message: 'Scanning files', increment: 25);
+final p = await VsProgress.create('Indexing');   // an output channel of that name
+await p.report('Scanning files');
 await p.complete();
 // or p.error('failed') on failure
 ```
@@ -373,11 +373,11 @@ await p.complete();
 ### Batched file work — `FileBatch`
 
 ```dart
-final batch = await FileBatch.fromPattern('lib/**/*.dart');
-final count = await batch.count();
-final dartFiles = batch.filter((path) => !path.endsWith('.g.dart'));
-await batch.process((path) async {
-  // do something per file
+final batch = await FileBatch.fromPattern(include: 'lib/**/*.dart');
+final count = batch.count;
+final sources = await batch.filter((path) => !path.endsWith('.g.dart'));
+final lengths = await sources.process<int>((path, content) async {
+  return content.length; // one result per file
 });
 ```
 

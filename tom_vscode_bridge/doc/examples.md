@@ -1,26 +1,23 @@
-# VS Code Bridge Examples Overview
+# VS Code Bridge Examples
 
-Use these examples to explore the API. Files marked "Helper" use `VsCodeHelper`; files marked "Direct" use the `VSCode` class and its namespaces. The minimal and script samples remain unchanged for quick smoke checks.
+The example scripts for the bridge are in the [User Guide](USER_GUIDE.md#examples):
+complete scripts, each run through `tom_bs` as written. Run one with
+`@T: Execute File` (or `@T: Execute as Script`) on its file.
 
-## Helper-driven examples
-- [example/d4rt_helpers_demo.dart](example/d4rt_helpers_demo.dart): Window/status, workspace, diagnostics/commands, and Copilot helper flows in one run.
-- [example/copilot_example.dart](example/copilot_example.dart): Focused Copilot helper tasks (models, Q&A, explain/review, generate/fix).
-- [example/test_helper_methods.dart](example/test_helper_methods.dart): Class-based smoke suite for helper window/workspace/command usage (Explorer runnable).
+| Example | Shows |
+| --- | --- |
+| [The smallest script](USER_GUIDE.md#the-smallest-script) | `main()`, its result and `print` output |
+| [Messages and input](USER_GUIDE.md#messages-and-input) | notifications with buttons, an input box, a quick pick |
+| [Files in the workspace](USER_GUIDE.md#files-in-the-workspace) | finding, reading and writing files, opening one |
+| [Commands and settings](USER_GUIDE.md#commands-and-settings) | running a command, reading a setting, the status bar |
+| [VsCodeHelper](USER_GUIDE.md#vscodehelper) | the convenience layer of the scripting API |
+| [Progress and batches of files](USER_GUIDE.md#progress-and-batches-of-files) | `VsProgress`, `FileBatch` |
+| [Running a program](USER_GUIDE.md#running-a-program) | `dart:io` in the bridge process |
+| [Errors](USER_GUIDE.md#errors) | ending with a message, an uncaught exception |
+| [A document as the result](USER_GUIDE.md#a-document-as-the-result) | `action: showDocument` |
+| [Copilot](USER_GUIDE.md#copilot) | `VsCodeHelper.askCopilot` |
 
-## Direct VSCode API examples
-- [example/test_vscode_api.dart](example/test_vscode_api.dart): Window, workspace, commands/extensions, and language model flows using `VSCode` namespaces.
-- [example/code_analysis_demo.dart](example/code_analysis_demo.dart): Workspace scanning and reporting example using direct APIs.
-- [example/d4rt_bridge_demo.dart](example/d4rt_bridge_demo.dart): Strongly typed bridge demo with bridged VS Code types.
-- [example/nested_execution_example.dart](example/nested_execution_example.dart): Nested request pattern across Dart ↔ VS Code.
-- [example/test_context_menu.dart](example/test_context_menu.dart): Class-based direct API smoke tests for window/workspace/commands (Explorer runnable).
-
-## Language Model / Chat focused
-- [example/test_inline_context_menu.dart](example/test_inline_context_menu.dart): LM and chat smoke suite using `VSCode.lm` (Explorer runnable).
-
-## Minimal runners (kept as-is)
-- [example/example_dart_minimal.dart](example/example_dart_minimal.dart)
-- [example/example_dart_script.dart](example/example_dart_script.dart)
-
-### Running
-- From VS Code Explorer: right-click a file → choose the DartScript run option to execute the script.
-- From Dart: `dart run example/<file>.dart` (helper scripts will no-op if the bridge is absent).
+Programs that drive a window from outside VS Code (over the CLI integration
+server) are shown by `tom_vscode_scripting_api`'s
+[examples](../../tom_vscode_scripting_api/example/) and checked end to end by
+[`test_scripts/scripting_api_suite.dart`](../test_scripts/).

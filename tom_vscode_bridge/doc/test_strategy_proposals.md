@@ -56,36 +56,37 @@ Located in `tom_vscode_extension/src/`:
 
 **Output:** Results logged to `tom_vscode_bridge/bridge_test_results_vscode.jsonl`
 
-### Explorer-Triggered Test Scripts (tom_vscode_bridge) - ✅ Implemented
+### Scripts run in the bridge (tom_vscode_bridge)
 
-Located in `tom_vscode_bridge/example/`:
+There are no Explorer-triggered example scripts in the repository. What runs
+against a live window is `test_scripts/scripting_api_suite.dart` (a CLI client
+of a running window; see `test_scripts/README.md`), and the bridge's own
+behaviour is covered by the unit tests in `test/` (`testkit :test`). Scripts for
+`@T: Execute File` follow the examples of the [User Guide](USER_GUIDE.md#examples),
+each run through `tom_bs`.
 
-| File | Description | API Style |
-|------|-------------|-----------|
-| `test_helper_methods.dart` | Window, workspace, files, clipboard, editor helpers | VsCodeHelper |
-| `test_context_menu.dart` | Direct API smoke tests | VSCode direct |
-| `test_inline_context_menu.dart` | Language model/Copilot features | VSCode direct |
-| `test_advanced_features.dart` | Terminal, dialogs, extensions, LM | VSCode direct |
-| `test_testing_debugging.dart` | Diagnostics, breakpoints, batch processing | VsCodeHelper |
-| `test_vscode_api.dart` | Direct VSCode API examples (6 categories) | VSCode direct |
-| `d4rt_helpers_demo.dart` | VsCodeHelper demos (7 categories) | VsCodeHelper |
+**Script structure for a check script:** one class collects the results by
+category, and `main()` — which the bridge calls with no arguments — returns
+them.
 
-**Script Structure Pattern:**
 ```dart
+import 'package:tom_vscode_scripting_api/script_globals.dart';
+
 class MyScriptTests {
   Future<Map<String, dynamic>> runAll() async {
     final results = <String, dynamic>{};
-    results['category1'] = await testCategory1();
-    results['category2'] = await testCategory2();
+    results['workspace'] = await testWorkspace();
     return results;
   }
 
-  Future<Map<String, dynamic>> testCategory1() async { ... }
+  Future<Map<String, dynamic>> testWorkspace() async {
+    final root = await workspace.getRootPath();
+    return {'ok': root != null, 'root': root};
+  }
 }
 
-// The bridge runs the script's top-level main() (no arguments) and returns its result.
 Future<Map<String, dynamic>> main() async {
-  final suite = MyScriptTests(...);
+  final suite = MyScriptTests();
   return await suite.runAll();
 }
 ```
