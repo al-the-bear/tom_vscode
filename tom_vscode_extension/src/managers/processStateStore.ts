@@ -77,6 +77,7 @@ import {
     trackStepIterations,
     roleAfterMove,
     processContextBlock,
+    PROCESS_SUBJECT_VARIABLE,
     processVariableValues,
     type ProcessChange,
     type ProcessChangeResult,
@@ -203,14 +204,20 @@ export class ProcessStateStore {
     }
 
     /** The quest's runs, the last changed first, each with its process and position. */
-    runs(): Array<ProcessRunEntry & { process: string; position: string; levels: number; current: boolean }> {
+    runs(): Array<ProcessRunEntry & { process: string; position: string; levels: number; current: boolean; subject?: string }> {
         const repo = this.repo();
         if (!repo || !this.quest) { return []; }
         return repo.listRuns(this.quest).map((r) => {
             const levels = repo.readStateStack(this.quest, r.run).levels;
             const top = topLevel(levels);
-            return { ...r, process: top.process, position: top.process ? this.positionOf(top) : '', levels: levels.length, current: r.run === this.run };
+            const subject = this.subjectOf(r.run);
+            return { ...r, process: top.process, position: top.process ? this.positionOf(top) : '', levels: levels.length, current: r.run === this.run, ...(subject ? { subject } : {}) };
         });
+    }
+
+    /** What run `run` (default: the window's) works on: its `process-subject` chat variable, undefined when unset (vscimpb118). */
+    subjectOf(run: string = this.run): string | undefined {
+        try { return ChatVariablesStore.instance.customOf(run, PROCESS_SUBJECT_VARIABLE)?.trim() || undefined; } catch { return undefined; }
     }
 
     /** Work on `run` in this window from now on (it must exist; `default` always does). */
@@ -521,7 +528,7 @@ export class ProcessStateStore {
     contextBlock(): string {
         const v = this.viewed();
         const run = currentProcessRun();
-        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest, this.conditionOptions(v.state), this.viewedRun());
+        const block = processContextBlock(v.def, v.state, v.description, !!run?.proceedId && run.quest === this.quest, this.conditionOptions(v.state), this.viewedRun(), this.subjectOf(this.viewedRun()));
         if (!block) { return block; }
         const parents = parentProcessLines(this.levels, (l) => this.positionOf(l));
         return [...(parents.length ? [...parents, ''] : []), block, ...this.suggestionLines(v.def, v.state)].join('\n');

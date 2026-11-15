@@ -44,8 +44,12 @@ export function needsRunContext(panelRun: string, windowRun: string): boolean {
 }
 
 /** The picker's options: `default` first, then the other runs by name; the window's run marked. */
-export function chatRunOptions(runs: readonly string[], windowRun: string): Array<{ run: string; label: string }> {
+export function chatRunOptions(runs: readonly string[], windowRun: string, subjects: Readonly<Record<string, string>> = {}): Array<{ run: string; label: string }> {
     const names = [...new Set([DEFAULT_RUN, ...runs.map(normalizeRun)])];
     const ordered = [DEFAULT_RUN, ...names.filter((r) => r !== DEFAULT_RUN).sort((a, b) => a.localeCompare(b))];
-    return ordered.map((run) => ({ run, label: `${run}${run === normalizeRun(windowRun) ? ' (PROCESS view)' : ''}` }));
+    // A run that names what it works on (its process-subject chat variable, vscimpb118) shows it after its name.
+    return ordered.map((run) => {
+        const subject = subjects[run]?.trim();
+        return { run, label: `${run}${subject ? ` — ${subject}` : ''}${run === normalizeRun(windowRun) ? ' (PROCESS view)' : ''}` };
+    });
 }

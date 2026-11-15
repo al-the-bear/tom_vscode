@@ -36,7 +36,7 @@ import * as vscode from 'vscode';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { conditionText, evaluateCondition, findPhase, findStep, phaseGraph, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
+import { conditionText, declaresProcessSubject, evaluateCondition, findPhase, findStep, phaseGraph, phaseSteps, type ConditionLookup, type ProcessChange, type ProcessConditional, type ProcessDefinition, type ProcessLevel, type ProcessMoveKind, type ProcessState } from '../utils/processDefinition';
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog, resetProcessRun } from '../services/processActionService';
@@ -118,7 +118,10 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
             // The run this window works on, and how many the quest has (vscimpb29): the view names it when there are several.
             run: store.currentRun,
             // The run list at the top: the last changed first, the current one marked (vscimpb42).
-            runs: store.runs().map((r) => ({ run: r.run, process: r.process, position: r.position, changed: r.changed, current: r.current })),
+            runs: store.runs().map((r) => ({ run: r.run, process: r.process, position: r.position, changed: r.changed, current: r.current, subject: r.subject ?? '' })),
+            // What this run works on (vscimpb118): its `process-subject` chat variable; whether the process declares it.
+            subject: store.subjectOf() ?? '',
+            subjectDeclared: declaresProcessSubject(entry?.definition),
             // Every level of the quest's process stack, bottom first (the running one is the last).
             levels: levels.map((l, i) => {
                 const def = store.entry(l.process)?.definition ?? null;

@@ -37,6 +37,9 @@
             $('label').textContent = msg.label;
             $('title').textContent = msg.title;
             $('process').textContent = msg.process + (msg.quest ? ' — quest ' + msg.quest : '');
+            // What the run works on (its process-subject chat variable); the row only when it is named.
+            $('subject').textContent = msg.subject || '';
+            $('subject-row').hidden = !msg.subject;
             $('from').textContent = msg.from;
             $('to').textContent = msg.to;
             var s = msg.session || {};

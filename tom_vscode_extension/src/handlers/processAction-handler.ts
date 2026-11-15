@@ -86,6 +86,8 @@ async function send(): Promise<void> {
         title: PROCESS_ACTION_TITLES.proceed,
         quest: store.activeQuest,
         process: def.name || def.id,
+        // What the run works on (its process-subject chat variable, vscimpb118); '' when not named.
+        subject: store.subjectOf() ?? '',
         from: positionText(def, store.state),
         to: move.target.decision ? 'the decision after it — you decide how the process goes on' : positionText(def, move.target),
         startedPrompts: positionPrompts(def, store.state),

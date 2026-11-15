@@ -100,6 +100,7 @@ import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { getQuestLogsClientConfig, getQuestLogsHtmlFragment, handleQuestLogsMessage } from './questLogs-handler';
 import { isPlanModeActive, leavePlanModeByUser, onPlanModeChanged, registerPlanDecider, type PlanDecision } from '../tools/planning-tools';
 import { usageSummaryLine } from '../utils/usageCost';
+import { PROCESS_SUBJECT_VARIABLE } from '../utils/processDefinition';
 import { CHAT_RUN_SECTIONS, chatRunKey, chatRunOptions, chatRunSession, effectiveChatRun, needsRunContext, type ChatRunSection } from '../utils/chatPanelRuns';
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { DEFAULT_RUN } from '../utils/processRuns';
@@ -874,13 +875,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     // ----- the run pickers (vscimpb48, src/utils/chatPanelRuns.ts) ---------------
 
     /** The quest's runs and the window's run (the PROCESS view's); `default` alone without a process store. */
-    private _questRuns(): { runs: string[]; windowRun: string } {
+    private _questRuns(): { runs: string[]; windowRun: string; subjects: Record<string, string> } {
         try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
-            if (store) { return { runs: store.runs().map((r) => r.run), windowRun: store.currentRun }; }
+            if (store) {
+                const list = store.runs();
+                // What each run works on (its process-subject chat variable): the Run selects name it.
+                const subjects = Object.fromEntries(list.filter((r) => r.subject).map((r) => [r.run, r.subject as string]));
+                return { runs: list.map((r) => r.run), windowRun: store.currentRun, subjects };
+            }
         } catch { /* no process store */ }
-        return { runs: [DEFAULT_RUN], windowRun: DEFAULT_RUN };
+        return { runs: [DEFAULT_RUN], windowRun: DEFAULT_RUN, subjects: {} };
     }
 
     /** The run a subpanel is on: its pick while the quest has it, else `default` (the pick is then forgotten). */
@@ -923,10 +929,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /** Tell the webview the runs each subpanel can pick and the one it is on. */
     private _sendChatRuns(): void {
-        const { runs, windowRun } = this._questRuns();
+        const { runs, windowRun, subjects } = this._questRuns();
         void this._view?.webview.postMessage({
             type: 'chatRuns',
-            options: chatRunOptions(runs, windowRun),
+            options: chatRunOptions(runs, windowRun, subjects),
             windowRun,
             selected: Object.fromEntries(CHAT_RUN_SECTIONS.map((section) => [section, this._chatRun(section)])),
         });
@@ -941,6 +947,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             this._summaryListener?.dispose();
             this._summaryListener = ChatVariablesStore.instance.onDidChange((e) => {
                 if (this._view === view && (e.key === 'quest' || e.key === 'role')) { this._sendContextSummary(); }
+                // A run named what it works on: the Run selects show it.
+                if (this._view === view && e.key === PROCESS_SUBJECT_VARIABLE) { this._sendChatRuns(); }
             });
             view.onDidDispose(() => { this._summaryListener?.dispose(); this._summaryListener = undefined; });
         } catch { /* the store is not initialised */ }

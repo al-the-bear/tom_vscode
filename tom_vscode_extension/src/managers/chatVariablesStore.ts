@@ -207,6 +207,12 @@ export class ChatVariablesStore {
         return set;
     }
 
+    /** Custom variable `key` of run `run` (not the active run's): undefined when unset. */
+    customOf(run: string, key: string): string | undefined {
+        const v = this.customSet(normalizeRun(run))[key];
+        return v === undefined || v === '' ? undefined : v;
+    }
+
     /** The file of run `run`'s custom variables (`default`: the window file). */
     runFilePath(run: string): string {
         const name = normalizeRun(run);

@@ -334,11 +334,14 @@
         var deletable = runs.some(function (r) { return r.run !== 'default'; });
         var rows = runs.map(function (r) {
             var where = r.process ? r.process + (r.position ? ' — ' + r.position : '') : 'no process yet';
+            // What the run works on (its process-subject chat variable), before where it stands.
+            var subject = r.subject ? '<span class="run-subject">' + esc(r.subject) + '</span>' : '';
             var when = changedText(r.changed);
             return '<button class="run-item' + (r.current ? ' current' : '') + '" data-run-select="' + esc(r.run) + '"'
                 + ' title="' + esc(r.current ? 'This window works on this run' : 'Work on this run in this window') + (when ? ' — last changed ' + esc(when) : '') + '">'
                 + '<span class="codicon codicon-' + (r.current ? 'circle-filled' : 'circle-outline') + '"></span>'
                 + '<span class="run-name">' + esc(r.run) + '</span>'
+                + subject
                 + '<span class="run-where">' + esc(where) + '</span>'
                 + (when ? '<span class="run-when">' + esc(when) + '</span>' : '')
                 + '</button>';
@@ -416,6 +419,14 @@
             ? row('Process', '<span class="lv-name">' + esc(running.name) + '</span> <code>' + esc(running.process) + '</code>', help('process') + edit, 'process', c.description)
             : row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),
                 (c.state.process ? help('process') : '') + edit, 'process', c.description);
+        // What this run works on (vscimpb118): the process-subject chat variable its first step sets.
+        if (c.state.process && (c.subject || c.subjectDeclared)) {
+            html += '<div class="row subject-row"><label>Working on</label><div class="control">'
+                + (c.subject
+                    ? '<span class="subject" title="The run\'s process-subject chat variable">' + esc(c.subject) + '</span>'
+                    : '<span class="muted" title="The process declares process-subject; its first step sets it">not named yet</span>')
+                + '</div></div>';
+        }
         if (c.processInvalid) {
             html += '<div class="warn">The definition of "' + esc(c.state.process) + '" has errors — fix it in the process editor.</div>';
         }

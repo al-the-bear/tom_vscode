@@ -528,7 +528,14 @@ describe('process action page', () => {
         send(w, MOVE);
         const text = (id: string): string => w.document.getElementById(id).textContent;
         assert.deepEqual([text('label'), text('from'), text('to'), text('started')], ['Proceed', 'Build #2 › Review #1 › Note', 'Build #2 › Review #2 › Read', 'Review it.']);
-        assert.deepEqual([...w.document.querySelectorAll('table.move th')].map((th: Win) => th.textContent), ['Process', 'Runs', 'Then', 'Session']);
+        const shownRows = (): string[] => [...w.document.querySelectorAll('table.move tr')].filter((tr: Win) => !tr.hidden).map((tr: Win) => tr.querySelector('th').textContent);
+        assert.deepEqual(shownRows(), ['Process', 'Runs', 'Then', 'Session'], 'no Working on row while the run names no subject');
+        // What the run works on (its process-subject chat variable, vscimpb118): a row of its own when named.
+        send(w, { ...MOVE, subject: 'Revision of tom_specs' });
+        assert.deepEqual(shownRows(), ['Process', 'Working on', 'Runs', 'Then', 'Session']);
+        assert.equal(text('subject'), 'Revision of tom_specs');
+        send(w, MOVE);
+        assert.deepEqual(shownRows(), ['Process', 'Runs', 'Then', 'Session']);
         assert.equal(text('confirm'), 'Add to queue');
         assert.match(text('preview'), /Review it\./);
         assert.equal(text('session'), 'per-review — from build-work for every prompt (from the process)', 'fork-from-base reads as per-prompt');

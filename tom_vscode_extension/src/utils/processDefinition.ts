@@ -2423,6 +2423,35 @@ export function decisionAt(def: ProcessDefinition | null, state: ProcessState, c
 }
 
 // ============================================================================
+// What a run works on (vscimpb118)
+// ============================================================================
+
+/**
+ * The chat variable that names what a process run works on — "Revision of
+ * tom_specs", "Idea2Todos on Secrets Manager", "Change chg3 on tom_uam". A
+ * custom variable of the run, set by the process's first step
+ * (tomAi_writeChatVariable) once the subject is clear; a process that sets it
+ * lists it in its `runParameters`, so Reset Process clears it. The PROCESS
+ * view, the run selects and the system prompt's process context show it.
+ */
+export const PROCESS_SUBJECT_VARIABLE = 'process-subject';
+
+/** Whether `def` declares that its runs set {@link PROCESS_SUBJECT_VARIABLE}. */
+export function declaresProcessSubject(def: ProcessDefinition | null | undefined): boolean {
+    return !!def?.runParameters?.includes(PROCESS_SUBJECT_VARIABLE);
+}
+
+/** The process context's line on the run's subject: what it works on, or — a process that declares it — that it is not set yet. */
+export function subjectContextLines(def: ProcessDefinition, subject: string | undefined): string[] {
+    const text = subject?.trim();
+    if (text) { return [`Working on: ${text} (\`\${${PROCESS_SUBJECT_VARIABLE}}\`)`]; }
+    if (declaresProcessSubject(def)) {
+        return [`Working on: not named yet — once it is clear what this run works on, set the run's \`${PROCESS_SUBJECT_VARIABLE}\` chat variable to a short title (tomAi_writeChatVariable), e.g. "Revision of tom_specs"`];
+    }
+    return [];
+}
+
+// ============================================================================
 // What chat variables and the system prompt see
 // ============================================================================
 
@@ -2561,12 +2590,13 @@ function ioContextLines(def: ProcessDefinition, state: ProcessState): string[] {
     return lines;
 }
 
-export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}, run?: string): string {
+export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}, run?: string, subject?: string): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
     const head = (node: { id: string; name?: string }, extra: string): string =>
         node.name ? `**${node.name}** (\`${node.id}\`${extra})` : `\`${node.id}\`${extra ? ` (${extra.replace(/^, /, '')})` : ''}`;
     lines.push(`Process: ${head(def, '')}${def.summary ? ` — ${def.summary}` : ''}`);
+    lines.push(...subjectContextLines(def, subject));
     // Switched to as a follow-up process (vscimpb47): where from, and what the switch took along.
     const origin = state.origins?.[state.origins.length - 1];
     if (origin) {

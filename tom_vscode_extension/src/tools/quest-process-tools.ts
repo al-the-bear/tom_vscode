@@ -442,7 +442,7 @@ export async function deleteProcessRunsImpl(deps: ProcessToolDeps, input: { runs
 export const LIST_PROCESS_RUNS_TOOL: SharedToolDefinition<Record<string, never>> = {
     name: 'tomAi_listProcessRuns',
     displayName: 'List Process Runs',
-    description: 'The runs of the active quest, the last changed first: each `{run, process, position, levels, changed, current}` (`current`: the run this window works on, also `currentRun`).' + RUNS_NOTE,
+    description: 'The runs of the active quest, the last changed first: each `{run, process, position, levels, changed, current, subject?}` (`current`: the run this window works on, also `currentRun`; `subject`: what the run works on, its `process-subject` chat variable, when set).' + RUNS_NOTE,
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: {} },
