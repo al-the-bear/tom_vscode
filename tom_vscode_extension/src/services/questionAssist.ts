@@ -9,8 +9,10 @@
  * services/assistProgress.ts); Cancel stops the turn and nothing more is
  * written. The temporary session is removed when the
  * turn ends. When the question is still open then, the question panel offers
- * the question's own choices — its options (the recommended one marked), the
- * proposed answer when the turn left one, Leave it open — and takes a typed
+ * the question's own choices — the proposed answer when the turn left one
+ * (preselected, its text in the input to edit in place; in a TomSpecs document
+ * the reviewer comment `Proposed answer:`), its options (the recommended one
+ * marked, preselected without a proposal), Leave it open — and takes a typed
  * answer too; the choice is written into the Answer line. Then the user is told
  * where it went (vscimpb63): a notification naming the file, the question and
  * the line of its Answer, and the same words under the turn's answer in its
@@ -60,8 +62,11 @@ export interface QuestionAssistDeps {
     /** The question panel's timeout answer, which is no answer. */
     fallbackPrompt?(): string | undefined;
     askAnswer?(input: { questions: string[]; title: string; choices: AskChoice[] }): Promise<string>;
-    /** Write the Answer line (`option`: a letter) or accept the proposal; answers an error text, '' when written. */
-    writeAnswer?(filePath: string, question: MdQuestion, answer: AnswerPick): Promise<string>;
+    /**
+     * Write the Answer line (`option`: a letter) or accept the proposal; answers an error text, '' when written.
+     * `doc.tomSpecs`: a TomSpecs document (written through the spec tools); `doc.proposal`: the proposal the panel offered.
+     */
+    writeAnswer?(filePath: string, question: MdQuestion, answer: AnswerPick, doc: { tomSpecs: boolean; proposal?: ClosingProposal }): Promise<string>;
     now?(): Date;
 }
 
@@ -212,11 +217,69 @@ export function closingNotice(use: QuestionAssistUse, c: ClosingResult, filePath
     return undefined;
 }
 
-/** What the closing answer step chose: an option, the proposal, a typed answer, or nothing. */
+/**
+ * What the closing answer step chose: an option (`text`: the user's words beside it), the proposal
+ * (`text`: the proposal as the user edited it in place — it replaces the proposal's text), a typed
+ * answer, or nothing.
+ */
 export type AnswerPick =
     | { kind: 'option'; letter: string; text?: string }
     | { kind: 'proposal'; text?: string }
     | { kind: 'text'; text: string };
+
+/**
+ * The proposed answer under a question: in plain Markdown the `> **Proposed answer** (…)` block
+ * (tomAi_mdProposeAnswer); in a TomSpecs document a reviewer comment whose text starts
+ * `Proposed answer:` (tomAi_specInsertComment — the SOM review syntax has no proposal form), after
+ * the question block and before the next question or heading.
+ */
+export interface ClosingProposal {
+    kind: 'markdown' | 'comment';
+    text: string;
+    /** Who proposed it: the Markdown block's source, the comment's author. */
+    source?: string;
+    /** kind comment: the comment's id (`C-12`), resolved once the proposal is accepted; none when it has no id. */
+    commentId?: string;
+    /** 1-based line of the block / comment. */
+    line: number;
+}
+
+const COMMENT_HEAD = /^>\s?⬆️\s?(?:\*\*((?:[A-Za-z][\w-]* )?C-\d+)\*\*)?\s*(?:\(([^)]*)\))?\s*:?\s?(.*)$/u;
+const PROPOSAL_PREFIX = /^proposed answer\s*:\s*/i;
+
+/** The `Proposed answer:` reviewer comment under a question of a TomSpecs document, or undefined. */
+export function commentProposalOf(text: string, question: MdQuestion): ClosingProposal | undefined {
+    const lines = text.split(/\r\n|\r|\n/);
+    let fence = false;
+    for (let i = question.answerLine ?? question.line; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^(```|~~~)/.test(line)) { fence = !fence; continue; }
+        if (fence) { continue; }
+        if (/^#{1,6} /.test(line) || /^>\s?\*\*❓/.test(line)) { return undefined; }
+        const head = COMMENT_HEAD.exec(line);
+        if (!head) { continue; }
+        const body = [head[3]];
+        for (let j = i + 1; j < lines.length && /^>/.test(lines[j]) && !COMMENT_HEAD.test(lines[j]) && !/^>\s?\*\*/.test(lines[j]); j++) {
+            body.push(lines[j].replace(/^>\s?/, ''));
+        }
+        const said = body.join('\n').trim();
+        if (!PROPOSAL_PREFIX.test(said)) { continue; }
+        const author = head[2]?.split(',')[0]?.trim();
+        return {
+            kind: 'comment', text: said.replace(PROPOSAL_PREFIX, '').trim(), line: i + 1,
+            ...(author ? { source: author } : {}), ...(head[1] ? { commentId: head[1] } : {}),
+        };
+    }
+    return undefined;
+}
+
+/** The question's proposal: its Markdown proposal block, else (in a TomSpecs document) its `Proposed answer:` comment. */
+export function closingProposalOf(text: string, question: MdQuestion): ClosingProposal | undefined {
+    if (question.proposed) {
+        return { kind: 'markdown', text: question.proposed.text, source: question.proposed.source, line: question.proposed.line };
+    }
+    return isTomSpecsMarkdown(text) ? commentProposalOf(text, question) : undefined;
+}
 
 const ACCEPT_PROPOSAL_ID = 'accept-proposal';
 const LEAVE_OPEN_ID = 'leave-open';
@@ -230,39 +293,73 @@ function shortLabel(text: string, max = 70): string {
 
 /**
  * The question panel at the end of an assist: the question, its proposed
- * answer, and its own choices — the proposal first when there is one, then
- * each option (the recommended one marked), then Leave it open. A typed reply
+ * answer, and its own choices, one selectable per question — the proposal
+ * first when there is one (preselected, its text in the question's input to
+ * edit in place), then each option (the recommended one marked, and
+ * preselected when there is no proposal), then Leave it open. A typed reply
  * is an answer of its own.
  */
-export function closingAnswerAsk(question: MdQuestion, file: string): { questions: string[]; title: string; choices: AskChoice[] } {
+export function closingAnswerAsk(question: MdQuestion, file: string, proposal: ClosingProposal | undefined = closingProposalFromQuestion(question)): { questions: string[]; title: string; choices: AskChoice[] } {
     const lines = [`${question.id}${question.topic ? ` — ${question.topic}` : ''}: ${question.text}`.trim()];
-    if (question.proposed) { lines.push(`Proposed answer (${question.proposed.source}): ${question.proposed.text}`); }
-    lines.push('Select one and Send answers — add your own words beside it, or type an answer without one. It is written into the Answer line.');
+    if (proposal) { lines.push(`Proposed answer${proposal.source ? ` (${proposal.source})` : ''}: ${proposal.text}`); }
+    lines.push(proposal
+        ? 'The proposed answer is selected and in the box below: Send answers accepts it as it stands there — edit it first to change it. Or select another choice (your words beside it), or clear the selection and type an answer of your own. It is written into the Answer line.'
+        : 'Select one and Send answers — add your own words beside it, or type an answer without one. It is written into the Answer line.');
     const choices: AskChoice[] = [];
-    if (question.proposed) { choices.push({ id: ACCEPT_PROPOSAL_ID, label: 'Accept the proposed answer', kind: 'answer' }); }
+    if (proposal) { choices.push({ id: ACCEPT_PROPOSAL_ID, label: 'Accept the proposed answer', kind: 'answer', selected: true, edit: proposal.text }); }
     for (const o of question.options) {
-        const recommended = question.recommended === o.letter ? ' (recommended)' : '';
-        choices.push({ id: optionChoiceId(o.letter), label: `(${o.letter}) ${shortLabel(o.text)}${recommended}`, kind: 'answer' });
+        const isRecommended = question.recommended === o.letter;
+        const recommended = isRecommended ? ' (recommended)' : '';
+        choices.push({ id: optionChoiceId(o.letter), label: `(${o.letter}) ${shortLabel(o.text)}${recommended}`, kind: 'answer', ...(isRecommended && !proposal ? { selected: true } : {}) });
     }
     choices.push({ id: LEAVE_OPEN_ID, label: 'Leave it open', kind: 'answer' });
     return { questions: [lines.join('\n\n')], title: `Answer ${question.id} in ${file}`, choices };
 }
 
 /** The reply of the closing panel read back: a choice clicked (choiceAnswer's text), a typed answer, or nothing. */
-export function interpretClosingReply(reply: string, question: MdQuestion, fallbackPrompt?: string): AnswerPick | undefined {
+export function interpretClosingReply(reply: string, question: MdQuestion, fallbackPrompt?: string, proposal: ClosingProposal | undefined = closingProposalFromQuestion(question)): AnswerPick | undefined {
     const text = reply.trim();
     if (!text || text.startsWith('askUser error') || (fallbackPrompt && text === fallbackPrompt.trim())) { return undefined; }
     // A choice selected and sent (with the user's words beside it), a click, or text typed alone.
     const { choiceId: id, text: own } = readSingleAnswer(text);
     const words = own ? { text: own } : {};
     if (id !== undefined) {
-        if (id === ACCEPT_PROPOSAL_ID) { return question.proposed ? { kind: 'proposal', ...words } : undefined; }
+        if (id === ACCEPT_PROPOSAL_ID) {
+            if (!proposal) { return undefined; }
+            // The box held the proposal: unchanged (or emptied) it is accepted as it is, edited it replaces it.
+            return own && own.trim() !== proposal.text.trim() ? { kind: 'proposal', text: own } : { kind: 'proposal' };
+        }
         const option = question.options.find((o) => optionChoiceId(o.letter) === id);
         if (option) { return { kind: 'option', letter: option.letter, ...words }; }
         // Leave it open: the words alone, if any, are the answer.
         return own ? { kind: 'text', text: own } : undefined;
     }
     return own ? { kind: 'text', text: own } : undefined;
+}
+
+/** The Answer line's text for a pick: `(b)` / `(b) words`, the proposal (as edited), or the typed answer. */
+export function answerTextOf(pick: AnswerPick, proposal?: ClosingProposal): string {
+    if (pick.kind === 'option') { return pick.text ? `(${pick.letter}) ${pick.text}` : `(${pick.letter})`; }
+    if (pick.kind === 'proposal') { return pick.text ?? proposal?.text ?? ''; }
+    return pick.text;
+}
+
+/**
+ * A pick written into a TomSpecs document, as one tomAi_specApplyEdits batch: the team answer
+ * (setAnswer, author '') and, for an accepted `Proposed answer:` comment with an id, the comment
+ * resolved (resolveAnnotation) — the proposal is taken in, so it goes.
+ */
+export function specAnswerEdits(question: MdQuestion, pick: AnswerPick, proposal?: ClosingProposal): Array<Record<string, unknown>> {
+    const edits: Array<Record<string, unknown>> = [{ op: 'setAnswer', questionId: question.id, answer: answerTextOf(pick, proposal), author: '' }];
+    if (pick.kind === 'proposal' && proposal?.kind === 'comment' && proposal.commentId) {
+        edits.push({ op: 'resolveAnnotation', id: proposal.commentId });
+    }
+    return edits;
+}
+
+/** The Markdown proposal of a question, when only the question is at hand. */
+function closingProposalFromQuestion(question: MdQuestion): ClosingProposal | undefined {
+    return question.proposed ? { kind: 'markdown', text: question.proposed.text, source: question.proposed.source, line: question.proposed.line } : undefined;
 }
 
 /** The question as the file holds it now (by id, near its old Answer line), or undefined. */
@@ -278,10 +375,14 @@ async function closingAnswer(deps: QuestionAssistDeps, req: QuestionAssistReques
     if (!question) { return {}; }
     const at = (q: MdQuestion | undefined): ClosingResult['at'] => ({ file: rel, id: req.questionId, ...(q?.answerLine ? { line: q.answerLine } : {}) });
     if (!question.open) { return { answeredInTurn: true, at: at(question) }; }
-    const reply = await deps.askAnswer(closingAnswerAsk(question, rel));
-    const pick = interpretClosingReply(reply, question, deps.fallbackPrompt?.());
+    let text = '';
+    try { text = deps.readText(req.filePath); } catch { /* read just above; an empty text has no proposal */ }
+    const tomSpecs = isTomSpecsMarkdown(text);
+    const proposal = closingProposalOf(text, question);
+    const reply = await deps.askAnswer(closingAnswerAsk(question, rel, proposal));
+    const pick = interpretClosingReply(reply, question, deps.fallbackPrompt?.(), proposal);
     if (!pick) { return { leftOpen: true, at: at(question) }; }
-    const error = await deps.writeAnswer(req.filePath, question, pick);
+    const error = await deps.writeAnswer(req.filePath, question, pick, { tomSpecs, ...(proposal ? { proposal } : {}) });
     if (error) { return { answerError: `the answer to ${question.id} could not be written: ${error}`, at: at(question) }; }
     // Read back where the answer is now (the write may have moved the Answer line, e.g. a removed proposal).
     const after = readQuestionNow(deps, req, typeof question.answerLine === 'number' ? question.answerLine - 1 : undefined);

@@ -217,7 +217,7 @@ export function journal(
 
 export const ASK_USER_DESCRIPTION =
     'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One open ask per process run; logged to the quest questions journal. ' +
-    '`choices` adds buttons, each `{id, label, kind, target?, question?}`: placed at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `kind` `answer` is selected per question; Send answers answers once, each question numbered with its choice and words; `move` moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) — the extension makes the move on the click and the answer says so; do not move it yourself; `branch` / `subprocess` name an entry of the current step\'s `branches:` / `subprocesses:` list — on the click the extension starts it on the process stack (the user picks the follow-up) and the answer says what started. Any other position or process is refused before anything is shown.';
+    '`choices` adds buttons `{id, label, kind, target?, question?, selected?, edit?}` at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `answer`: selected, one per question (`selected: true` preselects it; `edit` is text put into its question\'s field to edit in place); Send answers answers once, each question numbered with its choice and words. `move`: moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) on the click and the answer says so; do not move it yourself. `branch` / `subprocess`: an entry of the current step\'s `branches:` / `subprocesses:`, started on the click (the user picks the follow-up); the answer says what started. Anything else is refused before anything is shown.';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
     name: 'tomAi_askUser',
@@ -258,6 +258,8 @@ export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {
                         kind: { type: 'string', enum: [...ASK_CHOICE_KINDS] },
                         target: { type: 'string', description: 'answer: the text answered (default the label); move: `step`, `phase/step` or `phase/step/substep` of the current process; branch / subprocess: an entry of the step\'s list.' },
                         question: { type: 'number', description: 'The question (1-based) a choice without a marker goes under; default the last.' },
+                        selected: { type: 'boolean', description: 'answer only: selected when the panel opens (the recommended answer); at most one per question.' },
+                        edit: { type: 'string', description: 'answer only: text put into the question\'s input when the choice is selected, to be edited in place and sent as its words.' },
                     },
                 },
             },

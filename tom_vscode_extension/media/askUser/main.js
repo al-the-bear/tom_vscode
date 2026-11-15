@@ -8,7 +8,9 @@
 // older shape { requestId, questions, ... } is one question of run `default`.
 // Then { type: 'state', interactions, run?, focusId? } on every change.
 //
-// A question card: answer choices SELECT an answer for their question (click
+// A question card: answer choices SELECT an answer for their question (one per
+// question, wherever its buttons sit; `selected` preselects one, `edit` puts
+// its text into the question's input for editing in place) (click
 // again to clear, another to change), each such question gets a note field, and
 // nothing is sent until "Send answers" posts
 // { type: 'answers', requestId, answers: [{ choiceId?, text }], text }; a
@@ -91,6 +93,21 @@
         const selected = [];
         const notes = [];
 
+        // A choice's `edit` text goes into its question's input when it is selected (to edit in place);
+        // it comes out again when another choice is selected, unless the user changed it.
+        const filled = [];
+        function applyEdit(qi) {
+            const note = notes[qi];
+            if (!note) { return; }
+            const choice = choices.find(function (c) { return c.id === selected[qi]; });
+            const text = choice && typeof choice.edit === 'string' ? choice.edit : '';
+            if (note.value === '' || note.value === filled[qi]) {
+                note.value = text;
+                filled[qi] = text;
+                note.rows = text ? Math.max(2, Math.min(8, text.split('\n').length + Math.floor(text.length / 90))) : 2;
+            }
+        }
+
         function showSelection(qi) {
             choiceButtons.forEach(function (b) {
                 if (b.getAttribute('data-question') !== String(qi) || b.getAttribute('data-kind') !== 'answer') { return; }
@@ -121,6 +138,7 @@
                     if (submitted) { return; }
                     selected[qi] = selected[qi] === choice.id ? undefined : choice.id;
                     showSelection(qi);
+                    applyEdit(qi);
                 });
             } else {
                 btn.title = choice.kind === 'move' ? 'Moves the process to ' + choice.target + ' when clicked' : choice.label + ' (acts when clicked)';
@@ -160,6 +178,20 @@
                 li.textContent = String(q);
             }
             listQ.appendChild(li);
+        });
+
+        // Preselected answers (`selected`, e.g. the recommended one), with their edit text.
+        questions.forEach(function (_q, qi) {
+            const pre = choiceButtons.find(function (b) {
+                if (b.getAttribute('data-question') !== String(qi) || b.getAttribute('data-kind') !== 'answer') { return false; }
+                const c = choices.find(function (x) { return x.id === b.getAttribute('data-choice-id'); });
+                return !!(c && c.selected);
+            });
+            if (pre) {
+                selected[qi] = pre.getAttribute('data-choice-id');
+                showSelection(qi);
+                applyEdit(qi);
+            }
         });
 
         if (selectsAnswers) {

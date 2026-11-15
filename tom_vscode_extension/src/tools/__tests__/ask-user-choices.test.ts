@@ -15,6 +15,9 @@
  *        an unknown choice id answers nothing
  *   CH-5 the Agent SDK's AskUserQuestion: its `choices`, the questions as the panel shows them, and the route
  *        through the question panel
+ *   CH-7 (qrfix6) an answer choice may be `selected` (preselected; at most one per question, wherever its buttons
+ *        sit) and carry `edit` (text for its question's input); both are refused on a move / branch / subprocess
+ *        and with a wrong type; the schema and the description name them; Telegram marks the preselected one
  */
 
 import test, { describe } from 'node:test';
@@ -184,5 +187,27 @@ describe('choices in questions', () => {
         const transport = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'agent-sdk-transport.ts'), 'utf8');
         assert.match(transport, /const choices = askUserQuestionChoices\(input\);\n\s+if \(choices && interactiveQuestions\?\.enabled\) \{\n\s+const \{ askUserWithChoices \} = await import\('\.\/askUser-handler\.js'\);/);
         assert.ok(transport.indexOf('askUserQuestionChoices(input)') < transport.indexOf('collectInteractiveAnswers(liveUserPrompter, parsed)'), 'before the QuickPicks');
+    });
+
+    test('CH-7: preselected and editable answer choices', () => {
+        const ok = check([
+            { id: 'p', label: 'Accept', kind: 'answer', selected: true, edit: 'the proposal' },
+            { id: 'a', label: 'A', kind: 'answer' },
+            { id: 'b', label: 'B', kind: 'answer', question: 1, selected: true },
+        ]);
+        assert.ok(ok.ok);
+        assert.deepEqual(ok.ok && ok.choices.map((c) => [c.id, c.selected ?? false, c.edit ?? '']), [['p', true, 'the proposal'], ['a', false, ''], ['b', true, '']], 'one per question: p under Q2, b under Q1');
+        assert.match(err(check([{ id: 'a', label: 'A', kind: 'answer', selected: true }, { id: 'b', label: 'B', kind: 'answer', selected: true }])), /question 2: more than one choice is `selected` \(a, b\)/);
+        assert.match(err(check([{ id: 'a', label: 'A', kind: 'answer', selected: true }, { id: 'b', label: 'B', kind: 'answer', selected: true }], ['Q1 {{choice:a}}', 'Q2 {{choice:b}}'])).trim(), /^$/, 'markers in different questions: one each');
+        assert.match(err(check([{ id: 'a', label: 'A', kind: 'answer', selected: true }, { id: 'b', label: 'B', kind: 'answer', selected: true }], ['Q1 {{choice:a}} or {{choice:b}}'])), /question 1: more than one/, 'two markers in one question count together');
+        assert.match(err(check([{ id: 'go', label: 'Go', kind: 'move', target: 'review', selected: true }])), /`selected` and `edit` are for answer choices only/);
+        assert.match(err(check([{ id: 'a', label: 'A', kind: 'answer', selected: 'yes' }])), /`selected` must be true or false/);
+        assert.match(err(check([{ id: 'a', label: 'A', kind: 'answer', edit: 3 }])), /`edit` must be a string/);
+        const tool = readFileSync(join(__dirname, '..', '..', '..', 'src', 'tools', 'ask-user-tool.ts'), 'utf8');
+        assert.match(tool, /selected: \{ type: 'boolean'/);
+        assert.match(tool, /edit: \{ type: 'string'/);
+        assert.match(tool, /`selected: true` preselects it/);
+        const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'askUser-handler.ts'), 'utf8');
+        assert.match(handler, /c\.selected \? `\$\{c\.label\} \(suggested\)` : c\.label/, 'Telegram names the preselected choice');
     });
 });

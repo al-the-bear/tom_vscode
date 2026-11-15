@@ -74,7 +74,7 @@ import {
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
 import { readChatQuestionsConfig } from './chatQuestions-config.js';
-import { runQuestionAssist, type AssistNotice, type QuestionAssistDeps } from '../services/questionAssist.js';
+import { answerTextOf, runQuestionAssist, specAnswerEdits, type AssistNotice, type QuestionAssistDeps } from '../services/questionAssist.js';
 import { assistProgress } from '../services/assistProgress.js';
 import { onDocumentWritten } from '../services/documentWrites.js';
 import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
@@ -1251,11 +1251,23 @@ function liveQuestionAssistDeps(context: vscode.ExtensionContext): QuestionAssis
         // The closing answer step: the question panel with the question's choices, the answer written as tomAi_mdSetAnswer writes it.
         askAnswer: async (input) => (await import('./askUser-handler.js')).askUserWithChoices(input),
         fallbackPrompt: () => readChatQuestionsConfig().fallbackPrompt,
-        writeAnswer: async (filePath, question, pick) => {
+        writeAnswer: async (filePath, question, pick, doc) => {
             const target = { file: filePath, id: question.id, line: question.line };
-            // An option with the user's words: `(b) words`; the proposal with words: accepted, the words added.
+            // A TomSpecs document: through the spec tools — the team answer, and an accepted `Proposed answer:` comment resolved.
+            const markdownProposal = pick.kind === 'proposal' && doc.proposal?.kind === 'markdown';
+            if (doc.tomSpecs && !markdownProposal) {
+                const { specApplyEditsImpl } = await import('../tools/spec-edit-tools.js');
+                const { liveDeps } = await import('../tools/spec-tool-common.js');
+                const raw = await specApplyEditsImpl(liveDeps(), { file: filePath, edits: specAnswerEdits(question, pick, doc.proposal) as never });
+                let refused: string;
+                try { const r = JSON.parse(raw) as { ok?: boolean; error?: string }; if (r.ok) { return ''; } refused = r.error ?? 'refused'; } catch { refused = raw; }
+                // The spec tools refused (e.g. a document they read as read-only): the Answer line as plain Markdown, the comment left.
+                const md = await liveMdAnswerWriter.setAnswer({ ...target, answer: answerTextOf(pick, doc.proposal) });
+                try { const r = JSON.parse(md) as { ok?: boolean; error?: string }; return r.ok ? '' : `${refused}; as Markdown: ${r.error ?? 'refused'}`; } catch { return `${refused}; as Markdown: ${md}`; }
+            }
+            // An option with the user's words: `(b) words`; the proposal as edited in the panel replaces its text.
             const raw = pick.kind === 'proposal'
-                ? await liveMdAnswerWriter.acceptProposal({ ...target, ...(pick.text && question.proposed ? { text: `${question.proposed.text}\n${pick.text}` } : {}) })
+                ? await liveMdAnswerWriter.acceptProposal({ ...target, ...(pick.text ? { text: pick.text } : {}) })
                 : await liveMdAnswerWriter.setAnswer(pick.kind === 'option'
                     ? { ...target, option: pick.letter, ...(pick.text ? { answer: pick.text } : {}) }
                     : { ...target, answer: pick.text });

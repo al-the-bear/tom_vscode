@@ -38,6 +38,14 @@ export interface AskChoice {
     target?: string;
     /** The question (1-based) a choice without a marker goes under; default the last one. */
     question?: number;
+    /** answer only: shown selected when the panel opens (at most one per question) — e.g. the recommended answer. */
+    selected?: boolean;
+    /**
+     * answer only: text put into its question's input when the choice is selected (the input then
+     * holds it for editing in place, and sends it as the question's words); selecting another
+     * choice takes it out again unless the user changed it.
+     */
+    edit?: string;
 }
 
 /** What a choice is checked against: the quest's process and where it is. */
@@ -137,6 +145,11 @@ export function validateChoices(raw: unknown, questions: string[], context: () =
                 return { ok: false, error: `${name}: \`question\` must be a question number from 1 to ${questions.length}` };
             }
         }
+        const selected = c.selected === true;
+        const edit = typeof c.edit === 'string' && c.edit.trim() ? c.edit : undefined;
+        if (c.selected !== undefined && typeof c.selected !== 'boolean') { return { ok: false, error: `${name}: \`selected\` must be true or false` }; }
+        if (c.edit !== undefined && typeof c.edit !== 'string') { return { ok: false, error: `${name}: \`edit\` must be a string` }; }
+        if (kind !== 'answer' && (selected || edit)) { return { ok: false, error: `${name}: \`selected\` and \`edit\` are for answer choices only` }; }
         if (kind !== 'answer') {
             ctx ??= context();
             if (!ctx.def || !ctx.state.process) { return { ok: false, error: `${name}: a ${kind} needs a process, and the quest has none set` }; }
@@ -158,10 +171,16 @@ export function validateChoices(raw: unknown, questions: string[], context: () =
                 }
             }
         }
-        choices.push({ id, label, kind, ...(target ? { target } : {}), ...(question ? { question } : {}) });
+        choices.push({ id, label, kind, ...(target ? { target } : {}), ...(question ? { question } : {}), ...(selected ? { selected } : {}), ...(edit ? { edit } : {}) });
     }
     const unknown = markers.filter((m) => !choices.some((c) => c.id === m));
     if (unknown.length) { return { ok: false, error: `the questions name choices that are not in \`choices\`: ${unknown.join(', ')}` }; }
+    // At most one preselected answer per question (where the choice shows: its marker, else its question).
+    const where = choiceQuestionIndex(questions, choices);
+    for (let qi = 0; qi < questions.length; qi++) {
+        const pre = choices.filter((c) => c.selected && where.get(c.id) === qi);
+        if (pre.length > 1) { return { ok: false, error: `question ${qi + 1}: more than one choice is \`selected\` (${pre.map((c) => c.id).join(', ')})` }; }
+    }
     return { ok: true, choices };
 }
 

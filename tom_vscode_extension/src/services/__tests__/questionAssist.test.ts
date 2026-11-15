@@ -22,6 +22,13 @@
  *        under the turn's answer in its queue entry (the send's chat item); answered by the turn itself, left
  *        open, a refused write (a warning) each have their notice; no notice when the turn failed; the live wiring
  *        (notify with Open file, noteChatItem, only a failed run warned by the panel)
+ *   QA-7 (qrfix6) the proposal in the panel: preselected, its text in the question's input to edit in place (sent
+ *        unchanged it is accepted, edited it replaces the proposal); without a proposal the recommended option is
+ *        preselected. In a TomSpecs document the proposal is the reviewer comment `Proposed answer:` after the
+ *        question (author, id, several lines; not one before the question, after the next heading or question,
+ *        or in plain Markdown); the pick is written through tomAi_specApplyEdits — the team answer, and the
+ *        accepted comment resolved — run here on a real document's Markdown rendition; the live writer's wiring
+ *        (spec batch, plain Markdown fallback)
  */
 
 import * as fs from 'fs';
@@ -33,11 +40,17 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 installVscodeStub({});
 
 import {
+    answerTextOf, closingProposalOf, commentProposalOf, specAnswerEdits,
     closingAnswerAsk, closingNotice, explanationFileFor, findQuestion, interpretClosingReply, isTomSpecsMarkdown, questionAssistValues, runQuestionAssist, type AnswerPick, type QuestionAssistDeps,
 } from '../questionAssist.js';
 import { choiceAnswer, composeChoiceAnswers } from '../../utils/askChoices.js';
 import { proposeMdAnswer, readMdQuestions, settleProposedAnswer } from '../../utils/mdQuestions.js';
 import type { AssistNotice } from '../questionAssist.js';
+import { SomModelService } from '../som-model-service.js';
+import { SomDocumentStore } from '../som-document-store.js';
+import { specApplyEditsImpl, specSetContentImpl } from '../../tools/spec-edit-tools.js';
+import { specConvertImpl } from '../../tools/spec-validate-tools.js';
+import { specAnnotationsImpl } from '../../tools/spec-annotation-tools.js';
 import { ASSIST_PROMPT_INFO, ensureDefaultAssistPrompts, type AssistPromptsSection } from '../../utils/assistPrompts.js';
 
 const EXT = path.join(__dirname, '..', '..', '..');
@@ -210,7 +223,7 @@ describe('Grill me / Explain in detail', () => {
         assert.equal(asked.length, before, 'no panel for an answered question');
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
         assert.match(src, /askAnswer: async \(input\) => \(await import\('\.\/askUser-handler\.js'\)\)\.askUserWithChoices\(input\)/);
-        assert.match(src, /liveMdAnswerWriter\.acceptProposal\(\{ \.\.\.target, \.\.\.\(pick\.text && question\.proposed \? \{ text: `\$\{question\.proposed\.text\}\\n\$\{pick\.text\}` \} : \{\}\) \}\)/);
+        assert.match(src, /liveMdAnswerWriter\.acceptProposal\(\{ \.\.\.target, \.\.\.\(pick\.text \? \{ text: pick\.text \} : \{\}\) \}\)/, 'the proposal as edited replaces its text');
         assert.match(src, /option: pick\.letter, \.\.\.\(pick\.text \? \{ answer: pick\.text \} : \{\}\)/, 'an option with the user\'s words: (b) words');
     });
 
@@ -269,5 +282,98 @@ describe('Grill me / Explain in detail', () => {
         assert.match(handler, /if \(!outcome\.ok\) \{ void vscode\.window\.showWarningMessage/);
         const live = fs.readFileSync(path.join(EXT, 'src', 'services', 'assistLiveDeps.ts'), 'utf8');
         assert.match(live, /chatItemId: outcome\.chatItemId/);
+    });
+
+    test('QA-7: the proposal in the panel; TomSpecs documents', async () => {
+        const questions = readMdQuestions(FIXTURE);
+        const pr1 = findQuestion(questions, 'PR-1')!;
+        const cc2 = findQuestion(questions, 'CC-2')!;
+        // Markdown: the proposal preselected with its text to edit; the recommended option not preselected then.
+        const ask = closingAnswerAsk(pr1, 'specs/review.md');
+        assert.deepEqual(ask.choices[0], { id: 'accept-proposal', label: 'Accept the proposed answer', kind: 'answer', selected: true, edit: pr1.proposed!.text });
+        assert.equal(ask.choices.filter((c) => c.selected).length, 1);
+        assert.match(ask.questions[0], /The proposed answer is selected and in the box below/);
+        const plain = closingAnswerAsk(cc2, 'specs/review.md');
+        assert.deepEqual(plain.choices.filter((c) => c.selected).map((c) => c.id), ['option-b'], 'no proposal: the recommended option preselected');
+        const sent = (a: typeof ask, choiceId: string | undefined, text: string) => composeChoiceAnswers(a.questions, a.choices, [{ ...(choiceId ? { choiceId } : {}), text }], '');
+        assert.deepEqual(interpretClosingReply(sent(ask, 'accept-proposal', pr1.proposed!.text), pr1), { kind: 'proposal' }, 'unchanged: accepted');
+        assert.deepEqual(interpretClosingReply(sent(ask, 'accept-proposal', ''), pr1), { kind: 'proposal' }, 'emptied: accepted');
+        assert.deepEqual(interpretClosingReply(sent(ask, 'accept-proposal', '(a) keep it for a year'), pr1), { kind: 'proposal', text: '(a) keep it for a year' }, 'edited: replaces it');
+
+        // TomSpecs: the `Proposed answer:` comment after the question.
+        const spec = [
+            '# Solution Blueprint <!--[SBP]-->', '',
+            '> ⬆️ **C-1** (ann): Proposed answer: not this one, it is above the question', '',
+            '> **❓ BQ-1 — kiosks:** Kiosks only?', '> - (a) yes', '> - **(b)** no', '> **Answer:**', '',
+            '> ⬆️ **C-2** (bob): Why ask?', '',
+            '> ⬆️ **C-3** (agent_idea_author, 2026-11-15T03:00+01:00): Proposed answer: (b) no,', '> because the web app is used too.', '',
+            '## Next <!--[SBP-NEXT]-->', '',
+            '> **❓ BQ-2 — later:** Later?', '> **Answer:**', '',
+            '```', '> ⬆️ **C-9** (x): Proposed answer: in a fence', '```', '',
+            '> ⬆️ (carl): proposed answer:   yes',
+        ].join('\n');
+        const [bq1, bq2] = readMdQuestions(spec);
+        assert.deepEqual(closingProposalOf(spec, bq1), { kind: 'comment', text: '(b) no,\nbecause the web app is used too.', line: 12, source: 'agent_idea_author', commentId: 'C-3' });
+        assert.deepEqual(commentProposalOf(spec, bq2), { kind: 'comment', text: 'yes', line: 24, source: 'carl' }, 'no id; the fenced one is not read');
+        assert.equal(commentProposalOf(spec.replace('## Next <!--[SBP-NEXT]-->', '## Next <!--[SBP-NEXT]-->\n\n> **❓ BQ-3 — x:** X?\n> **Answer:**'), bq2), undefined, 'not past the next question');
+        assert.equal(closingProposalOf(spec.replace(/<!--\[[A-Z-]+\]-->/g, ''), bq1), undefined, 'plain Markdown: comments are not proposals');
+        const p3 = closingProposalOf(spec, bq1)!;
+        const specAsk = closingAnswerAsk(bq1, 'specs/sbp.md', p3);
+        assert.match(specAsk.questions[0], /Proposed answer \(agent_idea_author\): \(b\) no,\nbecause the web app is used too\./);
+        assert.deepEqual(specAsk.choices.filter((c) => c.selected).map((c) => [c.id, c.edit]), [['accept-proposal', p3.text]]);
+        assert.deepEqual(specAnswerEdits(bq1, { kind: 'proposal' }, p3), [
+            { op: 'setAnswer', questionId: 'BQ-1', answer: p3.text, author: '' }, { op: 'resolveAnnotation', id: 'C-3' }]);
+        assert.deepEqual(specAnswerEdits(bq1, { kind: 'proposal', text: '(b) no' }, p3)[0].answer, '(b) no');
+        assert.deepEqual(specAnswerEdits(bq1, { kind: 'option', letter: 'a', text: 'kiosks only' }, p3), [{ op: 'setAnswer', questionId: 'BQ-1', answer: '(a) kiosks only', author: '' }], 'an option leaves the comment');
+        assert.equal(specAnswerEdits(bq2, { kind: 'proposal' }, closingProposalOf(spec, bq2)).length, 1, 'a comment without an id stays');
+        assert.equal(answerTextOf({ kind: 'text', text: 'maybe' }), 'maybe');
+        assert.equal(answerTextOf({ kind: 'option', letter: 'b' }), '(b)');
+
+        // The run hands the writer the document kind and the proposal.
+        const docs: unknown[] = [];
+        const f = fake({
+            askAnswer: async (input) => composeChoiceAnswers(input.questions, input.choices, [{ choiceId: 'accept-proposal', text: p3.text }], ''),
+            writeAnswer: async (_file, _q, pick, doc) => { docs.push({ pick, doc }); return ''; },
+        }, spec);
+        const out = await runQuestionAssist(f.deps, { use: 'grillMe', filePath: '/ws/specs/sbp.md', questionId: 'BQ-1' });
+        assert.equal(out.ok && out.answered?.kind, 'proposal');
+        assert.deepEqual(docs, [{ pick: { kind: 'proposal' }, doc: { tomSpecs: true, proposal: p3 } }]);
+
+        // The batch on a real document's Markdown rendition: answered, the comment resolved.
+        const ws = fs.mkdtempSync(path.join(EXT, '..', '..', '..', 'ztmp', 'vscode_extension_261115_qrfix6_spec-'));
+        try {
+            const service = SomModelService.instance;
+            const sdeps = { wsRoot: ws, store: new SomDocumentStore(service), service };
+            const samples = path.resolve(EXT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
+            fs.writeFileSync(path.join(ws, 'sbp.docspecs.yaml'), fs.readFileSync(path.join(samples, 'meridian_order_management.docspecs.yaml'), 'utf8'));
+            const value = ['Kiosks are planned.', '', '> **❓ BQ-1 — kiosks:** Kiosks only?', '> - (a) yes', '> - **(b)** no', '> **Answer:**', '',
+                '> ⬆️ **C-3** (agent_idea_author): Proposed answer: (b) no, the web app is used too.'].join('\n');
+            const set = JSON.parse(await specSetContentImpl(sdeps, { file: 'sbp.docspecs.yaml', path: 'SBP/content', text: value }));
+            assert.equal(set.ok, true, JSON.stringify(set));
+            const conv = JSON.parse(await specConvertImpl(sdeps, { file: 'sbp.docspecs.yaml', target: 'sbp.md' }));
+            assert.equal(conv.ok, true, JSON.stringify(conv));
+            const md = fs.readFileSync(path.join(ws, 'sbp.md'), 'utf8');
+            assert.ok(isTomSpecsMarkdown(md));
+            const q = findQuestion(readMdQuestions(md), 'BQ-1')!;
+            const proposal = closingProposalOf(md, q)!;
+            assert.equal(proposal.commentId, 'C-3');
+            assert.equal(proposal.text, '(b) no, the web app is used too.');
+            const r = JSON.parse(await specApplyEditsImpl(sdeps, { file: 'sbp.md', edits: specAnswerEdits(q, { kind: 'proposal' }, proposal) as never }));
+            assert.equal(r.ok, true, JSON.stringify(r));
+            const after = JSON.parse(await specAnnotationsImpl(sdeps, { file: 'sbp.md' }));
+            const bq = after.questions.find((x: { id: string }) => x.id === 'BQ-1');
+            assert.equal(bq.answer, '(b) no, the web app is used too.');
+            assert.equal(after.comments.filter((c: { id?: string }) => c.id === 'C-3').length, 0, 'the proposal comment is resolved');
+            const back = findQuestion(readMdQuestions(fs.readFileSync(path.join(ws, 'sbp.md'), 'utf8')), 'BQ-1')!;
+            assert.equal(back.open, false);
+        } finally {
+            fs.rmSync(ws, { recursive: true, force: true });
+        }
+
+        // The live writer: TomSpecs through the spec batch (a Markdown proposal still through its own accept), a refusal falls back to plain Markdown.
+        const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
+        assert.match(src, /writeAnswer: async \(filePath, question, pick, doc\) =>/);
+        assert.match(src, /if \(doc\.tomSpecs && !markdownProposal\) \{[\s\S]*specApplyEditsImpl\(liveDeps\(\), \{ file: filePath, edits: specAnswerEdits\(question, pick, doc\.proposal\)/);
+        assert.match(src, /liveMdAnswerWriter\.setAnswer\(\{ \.\.\.target, answer: answerTextOf\(pick, doc\.proposal\) \}\)/, 'the plain Markdown fallback');
     });
 });

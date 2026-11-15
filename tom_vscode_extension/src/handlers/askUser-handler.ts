@@ -134,7 +134,7 @@ function sendAskTelegram(pending: PendingAsk): void {
     lines.push('');
     pending.questions.forEach((q, i) => lines.push(`${i + 1}. ${questionText(q, pending.choices)}`));
     if (pending.choices.length) {
-        lines.push('', `Choices (buttons in VS Code; a move is made there on the click): ${pending.choices.map((c) => c.label).join(' · ')}`);
+        lines.push('', `Choices (buttons in VS Code; a move is made there on the click): ${pending.choices.map((c) => (c.selected ? `${c.label} (suggested)` : c.label)).join(' · ')}`);
     }
     // Several runs may ask at once (vscimpb81): a question of another run than `default` names it, and the
     // reply names the run when more than one question is open.

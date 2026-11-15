@@ -10,6 +10,10 @@
  *        changed by another; nothing is posted until Send answers, which posts every question's selection and
  *        own words (a note field under each question with answer choices) and the general text; a question
  *        without answer choices has no note field
+ *   AQ-4 (qrfix6) a `selected` choice is selected when the panel opens; one per question even when its buttons sit
+ *        at different markers; a choice's `edit` text fills its question's note when selected (also when
+ *        preselected) and goes out again when another is selected or the choice is cleared — unless the user
+ *        changed it, which then stays; Send answers sends the note as edited
  */
 
 import test, { describe } from 'node:test';
@@ -114,5 +118,37 @@ describe('question panel: choice buttons', () => {
         }], 'once, with every question');
         assert.equal(btn('a1').disabled, true, 'locked after sending');
         assert.equal(doc.querySelector('.ask-note').disabled, true);
+    });
+
+    test('AQ-4: preselected answers and edit text', (t) => {
+        const choices: AskChoice[] = [
+            { id: 'p', label: 'Accept the proposed answer', kind: 'answer', selected: true, edit: '(a) keep it' },
+            { id: 'a', label: '(a) keep', kind: 'answer' },
+            { id: 'b', label: '(b) drop', kind: 'answer' },
+        ];
+        const p = panel(t, ['Which? {{choice:a}} … or {{choice:b}}'], choices);
+        const doc = p.w.document;
+        const btn = (id: string): Win => doc.querySelector(`[data-choice-id="${id}"]`);
+        const note = doc.querySelector('.ask-note');
+        assert.ok(btn('p').classList.contains('selected'), 'preselected');
+        assert.equal(btn('p').getAttribute('aria-pressed'), 'true');
+        assert.equal(note.value, '(a) keep it', 'its edit text in the note');
+        btn('b').click();
+        assert.deepEqual(['p', 'a', 'b'].filter((id) => btn(id).classList.contains('selected')), ['b'], 'one per question, markers apart');
+        assert.equal(note.value, '', 'the unchanged edit text goes');
+        btn('p').click();
+        assert.equal(note.value, '(a) keep it');
+        note.value = '(a) keep it, for now';
+        btn('a').click();
+        assert.equal(note.value, '(a) keep it, for now', 'changed by the user: it stays');
+        btn('p').click();
+        assert.equal(note.value, '(a) keep it, for now');
+        doc.getElementById('btnSubmit').click();
+        assert.deepEqual(p.posted, [{ type: 'answers', requestId: 'req-1', answers: [{ text: '(a) keep it, for now', choiceId: 'p' }], text: '' }]);
+        // Cleared by a second click: the unchanged text goes with it.
+        const q = panel(t, ['Which?'], choices);
+        q.w.document.querySelector('[data-choice-id="p"]').click();
+        assert.equal(q.w.document.querySelector('.ask-note').value, '');
+        assert.ok(!q.w.document.querySelector('[data-choice-id="p"]').classList.contains('selected'));
     });
 });
