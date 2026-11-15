@@ -2963,6 +2963,7 @@
     "providers:check": "node scripts/build-provider-manifest.cjs --check",
     "binaries:report": "node scripts/binaries-layer.cjs report",
     "som:pack": "node scripts/build-som-packages.cjs",
+    "check:module-catalogue": "node scripts/check-module-catalogue.cjs",
     "codespecs:build": "node scripts/build-lock.cjs run --command \"npm run codespecs:build\" -- node scripts/build-validate-codespecs.cjs",
     "template:build": "node scripts/build-workspace-template.cjs",
     "codespecs:check": "node scripts/codespecs-binary-stamp.cjs",
