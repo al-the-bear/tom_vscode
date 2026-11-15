@@ -15,9 +15,11 @@
  *     the next request.
  * An item without a requested soft interrupt passes straight through.
  *
- * The request arms a timer (15 s): when nothing was held by then, the queue
- * decides — a turn waiting in an ask* tool or tomAi_waitFor counts as held, any
- * other turn gets the hard interrupt.
+ * The request arms a timer (15 s), but a turn already waiting counts as held at
+ * once — in an ask* tool, in tomAi_waitFor, or for its background work (its
+ * answer given, the turn waits for its background tasks). When nothing was
+ * held by then, the queue decides the same way, and any other turn gets the
+ * hard interrupt.
  *
  * The class is `vscode`-free; timers and the clock are injectable.
  */
@@ -27,6 +29,9 @@ export const SOFT_INTERRUPT_TIMEOUT_MS = 15_000;
 
 /** A held result is marked when it was held longer than this. */
 export const HELD_FOR_NOTE_THRESHOLD_MS = 60_000;
+
+/** The `tool` of a hold of kind `wait` while the turn waits for its background work (not in tomAi_waitFor). */
+export const BACKGROUND_WORK_HOLD = 'background work';
 
 /** What holds the turn. */
 export type SoftHoldKind = 'tool' | 'question' | 'wait';

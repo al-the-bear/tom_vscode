@@ -822,9 +822,10 @@ item's own row). It interrupts **softly first**:
   without anything in flight. Auto-send of the item's run switches off. The row
   says `INTERRUPTING` (with the seconds left) and then `HELD` (*held since 14:05
   at the result of Bash*); the run's tab shows the disconnect icon.
-- A prompt waiting for your answer to a question, or waiting in
-  `tomAi_waitFor`, counts as held at once; the question stays open (an answer
-  you give is kept until you resume), the wait goes on.
+- A prompt waiting for your answer to a question, waiting in
+  `tomAi_waitFor`, or done with its answer and waiting for its background work,
+  counts as held at once; the question stays open (an answer you give is kept
+  until you resume), the wait goes on.
 - If the prompt ends its turn within 15 seconds, that stage is simply done and
   the run stays paused.
 - Re-enabling Auto-send (the play toggle, Auto-start on reload, Auto-continue,

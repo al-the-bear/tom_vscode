@@ -823,10 +823,12 @@ first** (vscimpb112):
 - **The wait.** Nothing held within `SOFT_INTERRUPT_TIMEOUT_MS` (15 s, counted
   from the press): `_softInterruptTimedOut` — a turn waiting in an ask* tool
   (`AskUserRegistry.pendingForQueueItem`, `waitingForUserOf`) or in
-  `tomAi_waitFor` (`item.waitingFor`) counts as held (`markHeld`, kind
-  `question` / `wait`; the question stays open, the wait goes on), any other —
-  a tool still running, text without a tool call — gets the hard interrupt. A
-  turn already waiting in either when the button is pressed is held at once.
+  `tomAi_waitFor` (`item.waitingFor`), or for its background work after its
+  answer (`item.backgroundWait`, tool `background work`), counts as held
+  (`markHeld`, kind `question` / `wait`; the question stays open, the wait goes
+  on), any other — a tool still running, text without a tool call — gets the
+  hard interrupt. A turn already waiting in any of them when the button is
+  pressed is held at once.
   An answer given while the item is held is accepted: it passes the hold point
   of its tool and is kept until the release.
 - **The turn ends within the wait**: `dispatchStage` clears the request; the

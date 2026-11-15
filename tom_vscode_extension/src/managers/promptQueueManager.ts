@@ -85,7 +85,7 @@ import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { WAIT_RESUME_NOTE, waitForFromYaml, waitForToYaml, type WaitForState } from '../utils/waitFor';
 import { runStatusBarText } from '../utils/queueRunStatus';
-import { heldForLine, heldResultResendLine, prefixHeldConversation, SoftInterruptRegistry, softInterruptFromYaml, softInterruptToYaml, type SoftInterruptState } from '../services/softInterrupt';
+import { BACKGROUND_WORK_HOLD, heldForLine, heldResultResendLine, prefixHeldConversation, SoftInterruptRegistry, softInterruptFromYaml, softInterruptToYaml, type SoftInterruptState } from '../services/softInterrupt';
 import { WaitForRegistry } from '../services/waitForRegistry';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
@@ -3516,8 +3516,8 @@ export class PromptQueueManager {
      * is held (services/softInterrupt.ts), so the turn stays open without a
      * request in flight; the run's auto-send goes off. Re-arming auto-send (or
      * Resume) releases the result and the turn goes on — nothing is resent.
-     * Nothing held within 15 s: a turn waiting in an ask* tool or tomAi_waitFor
-     * counts as held, any other gets the HARD interrupt. A second press (or
+     * Nothing held within 15 s: a turn waiting in an ask* tool, tomAi_waitFor or
+     * for its background work counts as held, any other gets the HARD interrupt. A second press (or
      * `hard`), a Copilot item, or a turn that cannot hold: the hard interrupt
      * now — the dispatch is cancelled, the item `interrupted`, and its resend
      * starts with RESEND_INTERRUPTED_NOTE in the conversation it ran in.
@@ -3550,7 +3550,7 @@ export class PromptQueueManager {
             return true;
         }
         SoftInterruptRegistry.instance.request(sending.id, () => this._softInterruptTimedOut(sending.id));
-        // A turn already waiting for the user or in tomAi_waitFor counts as held.
+        // A turn already waiting for the user, in tomAi_waitFor or for its background work counts as held.
         this._markHeldIfWaiting(sending);
         this._pauseRunOf(sending, `${sending.id} soft-interrupted for continuation`);
         this.persist();
@@ -3584,7 +3584,7 @@ export class PromptQueueManager {
         logQueue(`interruptActiveItemForContinuation: ${sending.id} hard-interrupted (${why}; ${result.canResend ? 'will resend its last dispatch with the interrupted note' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
     }
 
-    /** No hold point within the wait: a turn waiting for the user or in tomAi_waitFor counts as held, any other is hard-interrupted. */
+    /** No hold point within the wait: a turn waiting for the user, in tomAi_waitFor or for its background work counts as held, any other is hard-interrupted. */
     private _softInterruptTimedOut(id: string): void {
         const item = this._items.find(i => i.id === id && i.status === 'sending');
         if (!item) { SoftInterruptRegistry.instance.clear(id); return; }
@@ -3592,7 +3592,12 @@ export class PromptQueueManager {
         this._hardInterrupt(item, 'no tool result to hold within 15 s');
     }
 
-    /** Mark `item`'s soft interrupt held when its turn waits for the user (a question) or in tomAi_waitFor. */
+    /**
+     * Mark `item`'s soft interrupt held when its turn waits for the user (a
+     * question), in tomAi_waitFor, or for its background work (the model has
+     * ended its answer and the turn waits for its background tasks: no tool
+     * result comes until one of them reports).
+     */
     private _markHeldIfWaiting(item: QueuedPrompt): boolean {
         const question = AskUserRegistry.instance.pendingForQueueItem(item.id);
         if (question || this.waitingForUserOf(item.id).length > 0) {
@@ -3600,6 +3605,9 @@ export class PromptQueueManager {
         }
         if (item.waitingFor) {
             return SoftInterruptRegistry.instance.markHeld(item.id, 'wait', 'tomAi_waitFor');
+        }
+        if (item.backgroundWait) {
+            return SoftInterruptRegistry.instance.markHeld(item.id, 'wait', BACKGROUND_WORK_HOLD);
         }
         return false;
     }

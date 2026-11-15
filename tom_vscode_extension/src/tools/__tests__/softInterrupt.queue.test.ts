@@ -17,7 +17,8 @@
  *   SQ-6  a held direct-API turn lost: the conversation was saved; resume continues it exactly — no resend, no note
  *   SQ-7  a Copilot item: the hard interrupt at once
  *   SQ-8  a turn waiting in a question counts as held; the answer given while held is kept until Resume
- *   SQ-9  a turn waiting in tomAi_waitFor counts as held
+ *   SQ-9  a turn waiting in tomAi_waitFor counts as held; so does a turn waiting for its background work (its answer
+ *         given), at once — no hard interrupt after the wait
  *   SQ-10 between two stages: the button only pauses the run; the next stage goes out on resume
  *   SQ-11 Continue on a held item offers Resume and Hard interrupt only; Resume releases it (auto-send back on);
  *         Hard interrupt interrupts it
@@ -321,6 +322,22 @@ describe('interrupt for continuation — soft first', () => {
         assert.equal(soft.stateOf(item.id)?.kind, 'wait');
         assert.equal(soft.stateOf(item.id)?.tool, 'tomAi_waitFor');
         delete live(item).waitingFor;
+        queue().autoSendEnabled = true;
+        await wait(30);
+        turns[0].end('done');
+        await wait(150);
+    });
+
+    test('SQ-9b: a turn waiting for its background work counts as held', async () => {
+        const item = await startItem('task nine b');
+        soft.timeoutMs = 120;
+        live(item).backgroundWait = { since: new Date().toISOString(), limitMinutes: 360, items: [{ id: 'b1', kind: 'task', description: 'npm test' }] } as never;
+        queue().interruptActiveItemForContinuation(item.id);
+        assert.equal(soft.stateOf(item.id)?.kind, 'wait', 'held at once');
+        assert.equal(soft.stateOf(item.id)?.tool, 'background work');
+        await wait(300);
+        assert.equal(live(item).status, 'sending', 'no hard interrupt after the wait');
+        delete live(item).backgroundWait;
         queue().autoSendEnabled = true;
         await wait(30);
         turns[0].end('done');

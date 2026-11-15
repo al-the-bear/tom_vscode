@@ -30,7 +30,7 @@ function clock(at: string | number): string {
 export function runStatusBarText(input: RunStatusInput): { text: string; tooltip: string } | undefined {
     const s = input.softInterrupt;
     if (s && s.heldAt !== undefined) {
-        const what = s.kind === 'question' ? 'answer' : s.kind === 'wait' ? 'tomAi_waitFor' : (s.tool ?? 'tool');
+        const what = s.kind === 'question' ? 'answer' : s.kind === 'wait' ? (s.tool ?? 'tomAi_waitFor') : (s.tool ?? 'tool');
         return {
             text: `$(debug-disconnect) held: ${what}`,
             tooltip: `Run ${input.run}: held for continuation since ${clock(s.heldAt)}${s.kind === 'tool' || !s.kind ? ` at the result of ${s.tool ?? 'a tool'}` : ''} — resume to go on`,

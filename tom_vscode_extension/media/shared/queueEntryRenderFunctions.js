@@ -1099,7 +1099,7 @@ function softInterruptText(view, now) {
     return 'Soft interrupt requested: the next tool result is held; hard interrupt in ' + left + ' s (at ' + softClockSeconds(hardAt) + ') unless it is held';
   }
   var at = view.kind === 'question' ? 'while it waits for your answer'
-    : view.kind === 'wait' ? 'while it waits in tomAi_waitFor'
+    : view.kind === 'wait' ? (view.tool === 'background work' ? 'while it waits for its background work' : 'while it waits in tomAi_waitFor')
     : 'at the result of ' + (view.tool || 'a tool');
   return 'held since ' + softClock(view.heldAt) + ' ' + at;
 }
