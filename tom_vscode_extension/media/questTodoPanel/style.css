@@ -222,3 +222,7 @@
 .qt-session-btn .qt-session-name { font-size: 0.9em; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-run-select { font-size: 0.9em; }
 .qt-run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }
+
+/* After done (on_done) */
+.qt-od-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.qt-od-actions label { display: inline-flex; gap: 3px; align-items: center; font-weight: normal; }

@@ -307,6 +307,39 @@ Work that has to wait for you — a check that can only run after you reload the
 
 A todo's **Blocked By** names the todos it waits for. The other end is kept for you: each todo carries a **`blocking`** list — the todos whose Blocked By names it (by id in the same quest, as `quest/id` from another quest) — which every save keeps in step, whether it comes from the todo panel, a todo tool or a script. A todo that blocks at least one open todo shows **⛓️** next to its status icon; hover it to see which. Its detail form shows a read-only **Blocking** row whose entries open the blocked todo. To change the relation, edit Blocked By on the blocked todo; Blocking follows. The filter has a **Blocking** section: the todos that block open todos, the others, or (nothing ticked) both.
 
+#### After done and Filed by
+
+A todo can say what happens when it is completed (`on_done`), and records who filed it (`filed_by`). Both are in the detail form's **After done** group:
+
+- **Quest** and **Run**: where the targets are. The default is this quest; the Run field suggests that quest's process runs.
+- **Targets**: the todo ids it acts on, comma-separated.
+- **Actions**:
+  - **unblock**: this todo is written into each target's Blocked By;
+  - **notify**: queues the notify prompt, or a default report, in the target quest and run;
+  - **queue**: queues the targets there;
+  - **none**.
+- **Instructions**: what the agent does when the todo is completed.
+- **Notify prompt**.
+- **Report to**: where the result is recorded, a `path#section`.
+
+A change is saved when you leave the field. An unblock or queue target must exist in its quest; archived and deleted todos count. Otherwise the save is refused with a warning.
+
+The Blocked By entry of an **unblock** target is kept for you, by the todo panel, the todo tools (`tomAi_createQuestTodo`, `tomAi_updateQuestTodo`) and a script alike:
+
+- **Entry form:** the bare id in the same quest, `quest/id` from another quest.
+- **Written** when the todo is filed or its After done names the target, while the target is open.
+- **Moved** when After done is replaced; removed when After done no longer names the target.
+- **Cancelling** the todo removes its entries and runs nothing else of After done; reopening it writes them back.
+- **Renaming** a target, or the todo that filed this one, rewrites the ids in After done and Filed by.
+
+**Filed by**, below the group, is read-only. It holds:
+- the quest of the window, or of the quest that asked for the todo when another quest's item filed it;
+- the process run and the session;
+- the todo whose queue walk filed it;
+- the time.
+
+The todo panel and the todo tools write it when a todo is filed. `_bin/check_todo_blocks.py` reports an **ON_DONE** finding when an unblock target lacks its entry, and when a target no longer exists.
+
 #### Filtering by date
 
 The filter's **Date Ranges** rows — **Created**, **Updated** and **Completed** — each take a from and a to date, both inclusive, either one optional. A Completed range shows only todos whose `completed_date` lies inside it, so a todo that was never completed is hidden while a Completed bound is set.

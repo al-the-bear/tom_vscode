@@ -13,6 +13,8 @@ var qtCurrentFile = 'all';
 var qtSelectedTodoId = '';
 var qtTodos = [];
 var qtDetailTodo = null;
+// The quests of the quest select (qtQuests), for the After done group's quest picker.
+var qtQuestList = [];
 var qtFormScope = null;
 var qtFormRefs = [];
 var qtFormTags = [];
@@ -1390,6 +1392,7 @@ function qtRenderDetail(todo) {
         qtRenderDecisionsSection() +
         qtRenderScopeSection(qtFormScope) +
         qtRenderRefsSection(qtFormRefs) +
+        qtOnDoneSection(todo) +
         qtRenderDatesSection(todo) +
         '<div class="qt-form-actions">' +
         '<button class="icon-btn" id="qt-btn-delete" style="color:var(--vscode-errorForeground);">🗑️ Delete</button>' +
@@ -1402,6 +1405,7 @@ function qtRenderDetail(todo) {
 
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
     document.getElementById('qt-d-user-action').addEventListener('change', qtAutoSave);
+    qtAttachOnDoneHandlers(todo);
     qtRepeatFormSync();
     // A rule is saved once it is complete (a weekly rule needs a weekday).
     document.getElementById('qt-rp').addEventListener('change', function() {
@@ -2373,6 +2377,8 @@ function qtCollectFormData() {
         user_action: document.getElementById('qt-d-user-action') ? document.getElementById('qt-d-user-action').checked : undefined,
         // null clears a rule; absent (no Repeat section) leaves it as it is.
         repeat: qtReadRepeatForm(),
+        // null removes it; absent (no After done group: the new-todo form) leaves it.
+        on_done: qtReadOnDoneForm(),
     };
 }
 
@@ -2471,6 +2477,97 @@ function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + l
  * Page's Todo buttons template for user-action todos (default "Guide me through
  * a user action", qtGuideUserAction).
  */
+// ── After done: the todo's on_done, and filed_by read-only ──
+var QT_OD_ACTIONS = [
+    ['unblock', 'unblock', 'Remove this todo from the targets\' Blocked By (written there now, while this todo is open)'],
+    ['notify', 'notify', 'Queue the notify prompt (or a default report) in the target quest and run'],
+    ['queue', 'queue', 'Queue the targets in the target quest and run'],
+    ['none', 'none', 'Nothing but the instructions'],
+];
+
+/**
+ * The After done group: the quest and run the targets are in (default this
+ * quest; the run picker lists that quest's process runs), the targets, the
+ * actions, instructions for the agent, the notify prompt and where the result
+ * is reported. Saved as `on_done` (replaced as a whole); `filed_by` is shown
+ * below it, read-only.
+ */
+function qtOnDoneSection(todo) {
+    var od = (todo && todo.on_done) || {};
+    var acts = od.action || [];
+    var quests = qtQuestList.filter(function(q) { return q && q.indexOf('__') !== 0; });
+    if (od.quest && quests.indexOf(od.quest) < 0) quests = quests.concat([od.quest]);
+    var questOpts = '<option value="">(this quest)</option>' + quests.map(function(q) {
+        return '<option value="' + qtEsc(q) + '"' + (q === od.quest ? ' selected' : '') + '>' + qtEsc(q) + '</option>';
+    }).join('');
+    var fb = (todo && todo.filed_by) || null;
+    var filedBy = fb
+        ? [fb.quest ? 'quest ' + fb.quest : '', fb.run ? 'run ' + fb.run : '', fb.session ? 'session ' + fb.session : '', fb.todo ? 'todo ' + fb.todo : '', fb.at ? fb.at.replace('T', ' ') : '']
+            .filter(Boolean).join(' · ')
+        : '';
+    return '<div class="qt-section-header" data-qt-section="ondone">' +
+        '<span class="codicon codicon-chevron-down"></span> After done</div>' +
+        '<div class="qt-section-body" data-qt-section-body="ondone" id="qt-od">' +
+        '<div class="qt-inline-row">' +
+        qtFormRow('Quest', '<select id="qt-od-quest" title="The quest the targets are in">' + questOpts + '</select>') +
+        qtFormRow('Run', '<input id="qt-od-run" list="qt-od-runs" placeholder="default" value="' + qtEsc(od.run || '') + '"><datalist id="qt-od-runs"></datalist>') +
+        '</div>' +
+        qtFormRow('Targets', '<input id="qt-od-todos" placeholder="todo ids, comma-separated" value="' + qtEsc((od.todos || []).join(', ')) + '">') +
+        qtFormRow('Actions', '<span class="qt-od-actions">' + QT_OD_ACTIONS.map(function(a) {
+            return '<label title="' + qtEsc(a[2]) + '"><input type="checkbox" data-od-action="' + a[0] + '"' + (acts.indexOf(a[0]) >= 0 ? ' checked' : '') + '>' + a[1] + '</label>';
+        }).join('') + '</span>') +
+        qtFormRow('Instructions', '<textarea id="qt-od-instructions" placeholder="What the agent does when the todo is completed">' + qtEsc(od.instructions || '') + '</textarea>') +
+        qtFormRow('Notify prompt', '<textarea id="qt-od-notify" placeholder="The prompt notify queues (empty: the default report)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
+        qtFormRow('Report to', '<input id="qt-od-report" placeholder="path#section" value="' + qtEsc(od.report_to || '') + '">') +
+        qtFormRow('Filed by', '<input id="qt-od-filed-by" readonly class="qt-readonly" value="' + qtEsc(filedBy || '(not recorded)') + '" title="Written when the todo was filed; not editable">') +
+        '</div>';
+}
+
+/** The After done group as `on_done`: null when it holds nothing, undefined when the form has no such group. */
+function qtReadOnDoneForm() {
+    var root = document.getElementById('qt-od');
+    if (!root) return undefined;
+    var val = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+    var od = {};
+    if (val('qt-od-quest').trim()) od.quest = val('qt-od-quest').trim();
+    if (val('qt-od-run').trim()) od.run = val('qt-od-run').trim();
+    var todos = val('qt-od-todos').split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+    if (todos.length) od.todos = todos;
+    var acts = [];
+    root.querySelectorAll('input[data-od-action]').forEach(function(cb) { if (cb.checked) acts.push(cb.dataset.odAction); });
+    if (acts.length) od.action = acts;
+    if (val('qt-od-instructions').trim()) od.instructions = val('qt-od-instructions');
+    if (val('qt-od-notify').trim()) od.notify_prompt = val('qt-od-notify');
+    if (val('qt-od-report').trim()) od.report_to = val('qt-od-report').trim();
+    return Object.keys(od).length ? od : null;
+}
+
+/** Ask the host for the process runs of the quest the targets are in. */
+function qtRequestOnDoneRuns() {
+    var q = document.getElementById('qt-od-quest');
+    var quest = (q && q.value) || (qtDetailTodo && qtDetailTodo._resolvedQuestId) || qtCurrentQuestId;
+    if (quest && quest.indexOf('__') !== 0) vscode.postMessage({ type: 'qtGetRuns', questId: quest });
+}
+
+function qtFillOnDoneRuns(questId, runs) {
+    var list = document.getElementById('qt-od-runs');
+    if (!list) return;
+    list.innerHTML = runs.map(function(r) { return '<option value="' + qtEsc(r) + '"></option>'; }).join('');
+}
+
+function qtAttachOnDoneHandlers() {
+    var root = document.getElementById('qt-od');
+    if (!root) return;
+    // Saved on change (leaving a field), not per keystroke: a target id is checked when it is written.
+    root.querySelectorAll('input, textarea, select').forEach(function(el) {
+        if (el.readOnly) return;
+        el.addEventListener('change', qtAutoSave);
+    });
+    var q = document.getElementById('qt-od-quest');
+    if (q) q.addEventListener('change', qtRequestOnDoneRuns);
+    qtRequestOnDoneRuns();
+}
+
 // ── Repeated todos: the Repeat section of the detail form ──
 var QT_RP_WEEKDAYS = [['mon','Mo'],['tue','Tu'],['wed','We'],['thu','Th'],['fri','Fr'],['sat','Sa'],['sun','Su']];
 var QT_RP_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2778,6 +2875,7 @@ function qtPriorityOptions(cur) {
 function qtHandleMessage(msg) {
     switch(msg.type) {
         case 'qtQuests':
+            qtQuestList = (msg.quests || []).slice();
             var sel = document.getElementById('qt-quest-select');
             if (sel) {
                 sel.innerHTML = msg.quests.map(function(q) { return '<option value="' + q + '"' + (q === msg.activeQuest ? ' selected' : '') + '>' + q + '</option>'; }).join('') +
@@ -2839,6 +2937,9 @@ function qtHandleMessage(msg) {
             break;
         case 'qtSaved':
             if (msg.success) qtRenderList();
+            break;
+        case 'qtRuns':
+            qtFillOnDoneRuns(msg.questId, msg.runs || []);
             break;
         case 'qtGroupRenamed':
             // A group renamed by its separator's button: keep the selection under its new id, load the list again.

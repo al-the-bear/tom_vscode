@@ -57,6 +57,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
 import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
+import { onDoneShapeError, onDoneTargetRefusal, TODO_ON_DONE_ACTIONS, type TodoFiledBy, type TodoOnDone } from '../utils/todoOnDone';
 
 export type { QuestTodoStatus, TodoDecision };
 
@@ -103,6 +104,10 @@ export interface QuestTodoFull {
     repeat?: TodoRepeat | null;
     next_repeat?: string;
     repeat_count?: number;
+    /** What happens when the todo is completed (utils/todoOnDone.ts). */
+    on_done?: TodoOnDone | null;
+    /** Who filed the todo; written by the manager, read-only here. */
+    filed_by?: TodoFiledBy;
     /** Runtime: which file the item was loaded from. */
     sourceFile?: string;
 }
@@ -224,6 +229,25 @@ export function validateNoLastAnswer(record: unknown): string | undefined {
     return undefined;
 }
 
+/** `filed_by` is written from the call's context when a todo is filed; a caller cannot set it. */
+export function validateNoFiledBy(record: unknown): string | undefined {
+    if (record && typeof record === 'object' && 'filed_by' in (record as Record<string, unknown>)) {
+        return '`filed_by` is written by the todo tools from the call\'s context (quest, run, session, the walk\'s todo, the time) when the todo is filed; it cannot be set.';
+    }
+    return undefined;
+}
+
+/**
+ * Why an `on_done` cannot be written, or `undefined`: its shape (closed keys,
+ * the four actions, `unblock` / `queue` with `todos`) and, for `unblock` /
+ * `queue`, targets that exist in its quest (archived and deleted included).
+ */
+export function validateOnDone(deps: QuestTodoToolsDeps, questId: string, onDone: unknown): string | undefined {
+    const shape = onDoneShapeError(onDone);
+    if (shape || !onDone) { return shape; }
+    return onDoneTargetRefusal(onDone as TodoOnDone, questId, (q, id) => !!deps.store.findById(q, id));
+}
+
 export function validateBlockedUntil(blockedUntil: unknown): string | undefined {
     if (blockedUntil === undefined) { return undefined; }
     if (!Array.isArray(blockedUntil)) {
@@ -255,6 +279,24 @@ const USER_ACTION_SCHEMA = {
     repeat: {
         type: ['object', 'null'],
         description: 'A repeated todo\'s rule (marked 🔁): set to `completed`, it goes to `waiting-for-repeat` with `next_repeat` instead, and the Timed Requests list\'s repeated-todo controller moves it back to `not-started` when due. `{rule: manual}` (repeated by hand; a walk runs it again), `{rule: after, every, unit: days|weeks|months|years}`, `{rule: daily, every}`, `{rule: weekly, every, weekdays: [mon…sun]}`, `{rule: monthly|yearly, every, day: 1-31|last | nth: 1-5|last + weekday | working_day: first|last}` (yearly adds `month` 1-12); optional `time` HH:MM, `until` YYYY-MM-DD, `count`. null removes it.',
+    },
+} as const;
+
+/** `on_done`, shared by create and update (todo.schema.json; utils/todoOnDone.ts). */
+const ON_DONE_SCHEMA = {
+    on_done: {
+        type: ['object', 'null'],
+        description: 'What happens when the todo is completed: `todos` (ids in `quest`, default this quest; `run`), `action` (list of unblock / notify / queue / none; unblock and queue need todos, which must exist), `instructions` for the agent, `notify_prompt`, `report_to` (`path#section`). An unblock target gets this todo in its `blocked_by` (removed when on_done stops naming it or this todo is cancelled). null removes it.',
+        properties: {
+            quest: { type: 'string' },
+            run: { type: 'string' },
+            todos: { type: 'array', items: { type: 'string' } },
+            action: { type: 'array', items: { type: 'string', enum: TODO_ON_DONE_ACTIONS } },
+            instructions: { type: 'string' },
+            notify_prompt: { type: 'string' },
+            report_to: { type: 'string' },
+        },
+        additionalProperties: false,
     },
 } as const;
 
@@ -358,7 +400,7 @@ export const GET_QUEST_TODO_DESCRIPTION =
     '`id`, `title`, `description`, `status`, `priority`, `tags`, `scope` ' +
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
     '`dependencies`/`blocked_by`, `blocking` (the todos this one blocks, derived), `decisions[]` (the open questions behind a ' +
-    '`decision-needed` status), `notes`, `created`/`updated`/`completed_date`/' +
+    '`decision-needed` status), `on_done` (what happens when it is completed) and `filed_by` (who filed it), `notes`, `created`/`updated`/`completed_date`/' +
     '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
     'returns only the summary fields. Missing id surfaces structured ' +
@@ -414,6 +456,7 @@ export interface CreateQuestTodoInput {
         feedback_source?: string;
         user_action?: boolean;
         repeat?: TodoRepeat | null;
+        on_done?: TodoOnDone | null;
     };
 }
 
@@ -581,7 +624,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         if (!input.todo?.description) {
             return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
         }
-        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat);
+        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateOnDone(deps, input.questId, input.todo.on_done);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -607,7 +650,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
 }
 
 export const CREATE_QUEST_TODO_DESCRIPTION =
-    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an id the todo schema\'s id pattern refuses (named in the error) or an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
+    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an id the todo schema\'s id pattern refuses (named in the error) or an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `on_done`: what happens when it is completed (an unblock target gets this todo in its `blocked_by`; unblock / queue targets must exist). `filed_by` is written from the call\'s context, never by you. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',
@@ -641,6 +684,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,
                     ...BLOCKED_UNTIL_SCHEMA,
+                    ...ON_DONE_SCHEMA,
                 },
             },
         },
@@ -678,6 +722,8 @@ export interface UpdateQuestTodoInput {
         feedback_source?: string;
         user_action?: boolean;
         repeat?: TodoRepeat | null;
+        /** Replaces the block as a whole; null removes it. */
+        on_done?: TodoOnDone | null;
     };
 }
 
@@ -735,7 +781,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
@@ -757,7 +803,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
 }
 
 export const UPDATE_QUEST_TODO_DESCRIPTION =
-    'Update fields of a quest todo. **Every field you pass REPLACES the stored value as a whole; nothing is merged or appended**: `notes` and `description` are overwritten, never appended to (read with tomAi_getQuestTodo and send the old text plus the new); `tags`, `dependencies`, `blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list; `scope` replaces the whole object; an empty string or empty list removes the field. Fields you do not pass are kept. `blocking` and `last_answer` cannot be set. `references` entries are objects; a bare string is rejected. To close a `decision-needed` todo, write the answers into `decisions[].decision` and set the status in the same call. A replacement keeping less than half of a `notes` / `description` text answers a `warning` quoting it.' + DATES_AND_ORCHESTRATION_DOC;
+    'Update fields of a quest todo. **Every field you pass REPLACES the stored value as a whole; nothing is merged or appended**: `notes` and `description` are overwritten, never appended to (read with tomAi_getQuestTodo and send the old text plus the new); `tags`, `dependencies`, `blocked_by`, `blocked_until`, `references` and `decisions` replace the whole list; `scope` replaces the whole object, and so does `on_done`; an empty string or empty list removes the field. Fields you do not pass are kept. `blocking`, `last_answer` and `filed_by` cannot be set. `references` entries are objects; a bare string is rejected. To close a `decision-needed` todo, write the answers into `decisions[].decision` and set the status in the same call. A replacement keeping less than half of a `notes` / `description` text answers a `warning` quoting it.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> = {
     name: 'tomAi_updateQuestTodo',
@@ -789,6 +835,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,
                     ...BLOCKED_UNTIL_SCHEMA,
+                    ...ON_DONE_SCHEMA,
                 },
             },
         },

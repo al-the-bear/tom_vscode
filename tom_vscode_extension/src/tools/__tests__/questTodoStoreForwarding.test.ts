@@ -61,7 +61,7 @@ describe('the live quest-todo store forwards what it was handed', () => {
         const body = methodBody('create');
         assert.match(
             body,
-            /questTodo\.createTodo\(\s*questId,\s*todo\b/,
+            /questTodo\.(?:createTodo|fileTodo)\(\s*questId,\s*todo\b/,
             'create() must hand the todo to the manager as one object. Rebuilding it from a '
             + 'field list means every field added later — `decisions` was the first — is dropped '
             + 'silently, with the tool still reporting success.',

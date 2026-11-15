@@ -12,6 +12,8 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { runOfStateFile } from '../utils/processRuns';
+import { onDoneShapeError, onDoneTargetRefusal, type TodoOnDone } from '../utils/todoOnDone';
 import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
 import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
 import type { PromptQueueManager } from '../managers/promptQueueManager';
@@ -544,6 +546,12 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             _sendTodoList(effectiveQuestId(msg.questId), effectiveFile(msg.file), post);
             return true;
+        case 'qtGetRuns': {
+            // The After done group's run picker: the process runs of a quest.
+            const runQuest = String(msg.questId || '');
+            post({ type: 'qtRuns', questId: runQuest, runs: _questRuns(runQuest) });
+            return true;
+        }
         case 'qtGetTodo':
             if (isSessionMode) {
                 const sessionQuestId = _getSessionQuestId();
@@ -2086,6 +2094,14 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
 }
 
 function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any) => void): void {
+    // `filed_by` is the record of who filed it: never written from the form.
+    if (updates && typeof updates === 'object') { delete updates.filed_by; }
+    const onDoneError = _onDoneError(questId, updates?.on_done);
+    if (onDoneError) {
+        post({ type: 'qtSaved', success: false, todoId, error: onDoneError });
+        void vscode.window.showWarningMessage(`After done: ${onDoneError}`);
+        return;
+    }
     const current = questTodo.findTodoById(questId, todoId);
     if (current) {
         // Nothing the form sends differs: answer saved without a write.
@@ -2101,9 +2117,33 @@ function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any)
     if (updated) _sendTodoList(questId, undefined, post);
 }
 
+/** The process runs of `questId` (`default` and every `process-state.<quest>.<run>.yaml`). */
+function _questRuns(questId: string): string[] {
+    const runs = new Set<string>(['default']);
+    const folder = WsPaths.ai('quests', questId);
+    if (!questId || !folder) { return [...runs]; }
+    try {
+        for (const f of fs.readdirSync(folder)) {
+            const run = runOfStateFile(questId, f);
+            if (run) { runs.add(run); }
+        }
+    } catch { /* no folder: only default */ }
+    return [...runs];
+}
+
+/** Why an `on_done` from the form cannot be written (its shape, unblock / queue targets that exist), or undefined. */
+function _onDoneError(questId: string, onDone: unknown): string | undefined {
+    if (!onDone) { return undefined; }
+    return onDoneShapeError(onDone)
+        ?? onDoneTargetRefusal(onDone as TodoOnDone, questId, (q, id) => !!questTodo.findTodoById(q, id));
+}
+
 function _createTodo(questId: string, todo: any, file: string | undefined, post: (m: any) => void): void {
     try {
-        const created = questTodo.createTodo(questId, todo, file);
+        const onDoneError = _onDoneError(questId, todo?.on_done);
+        if (onDoneError) { throw new Error(onDoneError); }
+        // `fileTodo`: `filed_by` from where the call runs, and the unblock entries.
+        const created = questTodo.fileTodo(questId, todo, file);
         post({ type: 'qtCreated', success: true, todo: created });
         _sendTodoList(questId, undefined, post);
     } catch (err: any) {
