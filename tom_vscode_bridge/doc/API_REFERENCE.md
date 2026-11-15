@@ -1143,26 +1143,29 @@ class FileStat {
 
 ## D4rt Helper Functions
 
-Convenience functions for use in D4rt scripts. Import from `vscode_api/d4rt_helpers.dart`.
+Convenience functions for use in D4rt scripts: the static methods of
+`VsCodeHelper`, imported with the VS Code globals from
+`package:tom_vscode_scripting_api/script_globals.dart` (called as
+`VsCodeHelper.showInfo(...)`).
 
-### Initialization
+### The script's entry point
 
-```dart
-/// Initialize VS Code API in D4rt script
-VSCode initializeVSCode(dynamic context);
-
-/// Get current VSCode instance
-VSCode getVSCode();
-```
+A script run through the bridge (`executeFileVcb`, `executeScriptVcb`; the
+extension's `@T: Execute File` and `@T: Execute as Script`) defines a top-level
+`main()`, called with no arguments; a script without `main` fails with
+*Undefined variable: main*. An `async` `main` is awaited, and what it returns is
+the request's `result` (`print` output comes back as `logs`). The request's
+`params` are not handed to the script, and no `initializeVSCode` call is
+needed: the globals are set up by the bridge.
 
 **Example**:
+
 ```dart
-Future<Map<String, dynamic>> execute(params, context) async {
-  final vscode = initializeVSCode(context);
-  
-  // Now use VS Code APIs...
-  await showInfo('Script started!');
-  
+import 'package:tom_vscode_scripting_api/script_globals.dart';
+
+Future<Map<String, dynamic>> main() async {
+  await VsCodeHelper.showInfo('Script started!');
+
   return {'success': true};
 }
 ```

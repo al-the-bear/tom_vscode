@@ -83,13 +83,10 @@ class MyScriptTests {
   Future<Map<String, dynamic>> testCategory1() async { ... }
 }
 
-Future<Map<String, dynamic>> execute(Map<String, dynamic> params, dynamic context) async {
+// The bridge runs the script's top-level main() (no arguments) and returns its result.
+Future<Map<String, dynamic>> main() async {
   final suite = MyScriptTests(...);
   return await suite.runAll();
-}
-
-Future<void> main() async {
-  // Dry-run mode for standalone testing
 }
 ```
 

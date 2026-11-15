@@ -66,20 +66,27 @@ Complete guide to writing Dart scripts that control VS Code through the bridge s
 
 ### Basic Script Template
 
-Every Dart script must have an `execute` function:
+Every Dart script run through the bridge (`@T: Execute File`, `@T: Execute as
+Script`, the `executeFileVcb` / `executeScriptVcb` requests) defines a
+top-level `main()`. The bridge calls it with no arguments (a
+`main(List<String> args)` gets an empty list); a script without `main` fails
+with *Undefined variable: main*. An `async` `main` is awaited, and what it
+returns is the request's result; `print` output comes back as `logs`. The
+request's `params` are not handed to the script — it asks VS Code for what it
+needs (e.g. `await vscode.workspace.getRootPath()`).
+
+Nothing is imported for the script.
+`package:tom_vscode_scripting_api/script_globals.dart` gives the VS Code globals
+(`vscode`, `window`, `workspace`, `commands`, `extensions`, `lm`, `chat`) and
+`VsCodeHelper`:
 
 ```dart
-import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  // Get VS Code API
-  final vscode = context['vscode'] as VSCode;
-  
-  // Your code here
-  
+Future<Map<String, dynamic>> main() async {
+  // Your code here, e.g.
+  await vscode.window.showInformationMessage('Script started');
+
   return {
     'success': true,
     'result': 'Script completed'
@@ -89,21 +96,14 @@ Future<Map<String, dynamic>> execute(
 
 ### Using Helper Functions
 
-Import helpers for convenience functions:
+The helpers are static methods of `VsCodeHelper`, from the same import:
 
 ```dart
-import 'package:tom_vscode_bridge/d4rt_helpers.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  // Initialize helpers
-  await initializeVSCode(context);
-  
-  // Use convenience functions
-  await showInfo('Hello from Dart!');
-  
+Future<Map<String, dynamic>> main() async {
+  await VsCodeHelper.showInfo('Hello from Dart!');
+
   return {'success': true};
 }
 ```
@@ -1043,13 +1043,9 @@ final workspaces = results[2] as List;
 ### Project Analyzer
 
 ```dart
-import 'package:tom_vscode_bridge/d4rt_helpers.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  await initializeVSCode(context);
+Future<Map<String, dynamic>> main() async {
   
   final progress = Progress();
   await progress.show('Analyzing project...', cancellable: false);
@@ -1117,15 +1113,11 @@ $insights
 ### Test Runner
 
 ```dart
-import 'package:tom_vscode_bridge/d4rt_helpers.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  await initializeVSCode(context);
+Future<Map<String, dynamic>> main() async {
   
-  final testFile = params['testFile'] as String?;
+  const String? testFile = null; // a test file to run, or null for all
   
   await showInfo('Running tests${testFile != null ? " in $testFile" : ""}...');
   
@@ -1150,15 +1142,11 @@ Future<Map<String, dynamic>> execute(
 ### Documentation Generator
 
 ```dart
-import 'package:tom_vscode_bridge/d4rt_helpers.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  await initializeVSCode(context);
+Future<Map<String, dynamic>> main() async {
   
-  final file = params['file'] as String;
+  const file = 'lib/main.dart'; // the file to document
   final content = await readFile(file);
   
   final prompt = '''

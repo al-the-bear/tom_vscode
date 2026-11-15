@@ -86,20 +86,15 @@ and `path`. Dart SDK `^3.10.4`.
 
 ## Quick start
 
-A bridge script implements an `execute(params, context)` handler. The bridge
-sets up the `context` (with the `vscode` global), runs the handler, and returns
-its result as JSON.
+A bridge script defines a top-level `main()`. The bridge runs it in D4rt with
+no arguments, waits for it when it is `async`, and returns what it returns as
+the request's `result` (its `print` output comes back as `logs`).
 
 ```dart
 // hello.dart
-import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  final vscode = context['vscode'] as VSCode;
-
+Future<Map<String, dynamic>> main() async {
   await vscode.window.showInformationMessage('Hello from Dart!');
   final files = await vscode.workspace.findFiles('**/*.dart');
 
@@ -108,11 +103,11 @@ Future<Map<String, dynamic>> execute(
 }
 ```
 
-Run it from the extension (right-click → "Execute in DartScript") or
-programmatically:
+Run it from the extension (`@T: Execute File` or `@T: Execute as Script` on the
+file) or programmatically:
 
 ```typescript
-const result = await bridgeClient.sendRequest('executeFile', {
+const result = await bridgeClient.sendRequest('executeFileVcb', {
   filePath: '/path/to/hello.dart',
   params: {},
 });
@@ -140,21 +135,22 @@ live with the client package, under
 
 ### The script execution model
 
-Scripts run through the bridge expose an `execute(params, context)` function.
-`params` carries caller-supplied arguments; `context` carries the runtime
-globals, including `vscode`. Results are JSON-encoded back to the caller; thrown
-exceptions are captured (message + stack trace) and returned as an error
-envelope rather than crashing the server.
+Scripts run through the bridge (`executeFileVcb`, `executeScriptVcb`) define a
+top-level `main()`; the bridge calls it with no arguments (a
+`main(List<String> args)` gets an empty list) and a script without `main` fails
+with *Undefined variable: main*. An `async` `main` is awaited. Its return value
+is JSON-encoded back to the caller as `result`, with the script's `print`
+output as `logs`; a thrown exception is captured (message + stack trace) and
+returned as an error envelope rather than crashing the server. The request's
+`params` are not handed to the script. Nothing is imported for it:
+`package:tom_vscode_scripting_api/script_globals.dart` gives the VS Code globals
+(`vscode`, `window`, `workspace`, `commands`, `extensions`, `lm`, `chat`) and
+`VsCodeHelper`; `dart:io` and the rest are imported as usual.
 
 ```dart
-import 'package:tom_vscode_bridge/tom_vscode_bridge.dart';
+import 'package:tom_vscode_scripting_api/script_globals.dart';
 
-Future<Map<String, dynamic>> execute(
-  Map<String, dynamic> params,
-  dynamic context,
-) async {
-  final vscode = context['vscode'] as VSCode;
-
+Future<Map<String, dynamic>> main() async {
   final wsRoot = await vscode.workspace.getRootPath();
   final dartFiles = await vscode.workspace.findFiles('**/*.dart');
 
@@ -182,39 +178,47 @@ The bridge answers a small set of built-in methods over both transports:
 | Direction | Method | Purpose |
 | --- | --- | --- |
 | → Dart | `getWorkspaceInfo` | Workspace root and project list. |
-| → Dart | `analyzeProject` | Analyze a Dart project. |
 | → Dart | `generateDocs` | Generate documentation (via the language model). |
-| → Dart | `executeFile` | Execute a Dart file, return its JSON result. |
-| → Dart | `executeScript` | Execute inline Dart code, return its JSON result. |
-| Dart → | `showInfo` / `showError` / `showWarning` | Notifications. |
-| Dart → | `readFile` / `writeFile` / `openFile` | File operations. |
-| Dart → | `askCopilot` | Query the language model. |
-| Dart → | `log` | Append to the output channel. |
+| → Dart | `executeFileVcb` | Run a Dart file in D4rt (its `main()`), return what `main` returns. |
+| → Dart | `executeScriptVcb` | Run inline Dart code in D4rt (its `main()`), return what `main` returns. |
+| → Dart | `executeExpressionVcb` | Evaluate a Dart expression, return its value. |
+| Dart → | `showInfoVce` / `showErrorVce` / `showWarningVce` | Notifications. |
+| Dart → | `readFileVce` / `writeFileVce` / `openFileVce` | File operations. |
+| Dart → | `askCopilotVce` | Query the language model. |
+| Dart → | `logVce` | Append to the output channel. |
+| Dart → | `executeFileVce` / `executeScriptVce` | Run JavaScript in the extension host. |
 
-### `executeFile` / `executeScript`
+### Running code on the other side
 
-Both run code on the *other* side of the bridge and return a structured result:
+`executeFileVcb` / `executeScriptVcb` run Dart in the bridge's D4rt
+interpreter. The script defines a top-level `main()`, called with no arguments
+(see [The script execution model](#the-script-execution-model)); the answer
+is `{success, result, logs}` — `result` what `main` returned, `logs` its
+`print` output — or `{success: false, error, stackTrace, logs}`:
 
 ```typescript
 // From the extension: run a Dart file
-const result = await bridge.sendRequest('executeFile', {
+const result = await bridge.sendRequest('executeFileVcb', {
   filePath: '/path/to/script.dart',
-  args: ['--verbose', '--output=json'],
+  params: {},
 });
-// → { exitCode, stdout, stderr, success, data }
+// → { success: true, result: <what main returned>, logs: [...] }
 ```
+
+`executeFileVce` / `executeScriptVce` go the other way: JavaScript the
+extension runs for a Dart script. There the code is an async function body (or,
+for a file, a module exporting `execute` / `default`) called with
+`(params, context)`, `context.vscode` being the VS Code API; the answer is
+`{success, result}`:
 
 ```dart
-// From a Dart script: run inline JS/TS in the extension host
-final result = await server.sendRequest('executeScript', {
-  'script': "return { fileCount: (await vscode.workspace.findFiles('**/*.dart')).length };",
-  'language': 'javascript',
+// From a Dart script: run JavaScript in the extension host
+final result = await server.sendRequest('executeScriptVce', {
+  'script': "return { fileCount: (await context.vscode.workspace.findFiles('**/*.dart')).length };",
+  'params': {},
 });
-// → { success, data, language }
+// → { success: true, result: { fileCount: 312 } }
 ```
-
-The `data` field is populated automatically by parsing `stdout` as JSON, so a
-script that prints a JSON object yields a typed result with no extra plumbing.
 
 ### D4rt bridge registration
 
