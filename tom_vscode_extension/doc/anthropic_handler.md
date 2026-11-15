@@ -265,6 +265,16 @@ The `when` column stamps the moment the accounting was recorded, in the same `YY
 
 The aggregate `usage` arrives in the wire format's snake_case while `modelUsage` uses camelCase; the transport normalises both onto the trail's single vocabulary.
 
+**Per prompt in a resumed session.** The result's `usage` and `num_turns` are the prompt's own, but `total_cost_usd`, `duration_api_ms` and `modelUsage` grow over a resumed session. Measured on four consecutive prompts of one session: $467.54 → $472.41 → $475.81 → $479.56, and the opus row's output 2,287,444 → 2,304,394, the difference being exactly that prompt's 16,950. Shown as they came, every prompt reported the session's cost, and the usage ledger added it up again.
+
+The transport therefore reports the difference to the session's previous result (`perPromptUsage`, `src/utils/agentSdkUsage.ts`). It keeps a snapshot of each session's last cumulative figures (`src/services/agentSdkUsageSnapshots.ts`), in memory and in `agent-sdk-usage.json` in the extension's global storage, machine-local like the CLI's own session totals. A model the prompt did not use drops out of the table.
+
+Without a snapshot:
+- a new session's first result is its own;
+- a resumed session's first prompt after a restart keeps its per-query tokens and shows the rest on a `- session so far (the resumed session's totals; this prompt's share is not known): …` line (`sessionSoFar`), which the ledger does not count as cost.
+
+A send that ends without a result message (a cancel) reports the model turns it saw as its rounds, not the configured maximum.
+
 ### The same block on `direct` and Local LLM
 
 The **direct** transport sums `response.usage` over the rounds of a send (cache reads and writes included) and writes the same block: the totals, one line for the configuration's model and its cost from the price table `anthropic.modelPrices` (USD per million tokens; a model matches its exact entry, else the longest entry its id starts with; cache prices default to 0.1x read and 1.25x write of the input price). A model without an entry shows its tokens and no cost: prices are configured, never guessed (`src/utils/usageCost.ts`). A **Local LLM** send (an Anthropic profile on a Local LLM configuration) sums each round's prompt and completion tokens and writes tokens only. VS Code LM reports no usage, so its sends have no block.

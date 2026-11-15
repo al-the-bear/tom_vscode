@@ -104,6 +104,7 @@ import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/
 import { loadSendToChatConfig } from './utils/sendToChatConfig';
 import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
+import { setAgentSdkUsageStoreDir } from './services/agentSdkUsageSnapshots';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
@@ -585,6 +586,8 @@ export async function activate(context: vscode.ExtensionContext) {
     void openQuestOverviewOnce(context).catch((err) => debugLog(`[QuestOverview] opening the quest overview failed: ${err}`, 'WARN', 'extension.activate'));
     // Every send's usage block, summed for the Status Page.
     registerUsageLedger(context);
+    // The Agent SDK sessions' last cumulative accounting, so a resumed session's prompt reports its own share (qrfix3).
+    setAgentSdkUsageStoreDir(context.globalStorageUri.fsPath);
     timeStep('markdownBrowser', stepStart);
 
     // Register TODO Log explorer sidebar panel

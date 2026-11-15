@@ -110,6 +110,16 @@ export interface LiveTrailUsage {
      */
     toolTurns?: LiveTrailToolTurns;
     /**
+     * Agent SDK, a resumed session with no baseline (qrfix3; utils/agentSdkUsage.ts):
+     * the session's cost, API time and per-model rows so far — cumulative, so not
+     * the prompt's own. Shown as such, and not counted by the usage ledger.
+     */
+    sessionSoFar?: {
+        totalCostUsd?: number;
+        durationApiMs?: number;
+        models?: LiveTrailModelUsage[];
+    };
+    /**
      * The usage ledger already holds this send, round by round (the direct
      * transport records each round as it arrives): the ledger's observer
      * leaves this block alone.
@@ -184,6 +194,17 @@ export function formatLiveTrailUsage(usage: LiveTrailUsage, at: Date): string {
         meta.push(`api ${(usage.durationApiMs / 1000).toFixed(1)}s`);
     }
     if (meta.length > 0) { lines.push(`- cost: ${meta.join(' · ')}`); }
+    // A resumed Agent SDK session's totals with no baseline to tell the prompt's own share (qrfix3).
+    const soFar = usage.sessionSoFar;
+    if (soFar) {
+        const parts: string[] = [];
+        if (typeof soFar.totalCostUsd === 'number' && Number.isFinite(soFar.totalCostUsd)) { parts.push(`$${soFar.totalCostUsd.toFixed(4)}`); }
+        if (typeof soFar.durationApiMs === 'number' && Number.isFinite(soFar.durationApiMs)) { parts.push(`api ${(soFar.durationApiMs / 1000).toFixed(1)}s`); }
+        const out = (soFar.models ?? []).map((m) => `${m.model} out ${formatTokenCount(m.outputTokens)}`).join(', ');
+        if (parts.length > 0 || out) {
+            lines.push(`- session so far (the resumed session's totals; this prompt's share is not known): ${[...parts, ...(out ? [out] : [])].join(' · ')}`);
+        }
+    }
 
     const turns = usage.toolTurns;
     if (turns && turns.assistantTurns > 0) {

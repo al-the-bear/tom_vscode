@@ -322,6 +322,8 @@ import {
 } from '../services/agent-sdk-input-channel';
 import { QUEUE_RUN_DISALLOWED_BUILT_INS, queueRunTools, withDetachGuard, withSoftInterruptHold } from '../utils/agentSdkQueueRun';
 import { SoftInterruptRegistry, withHeldForPrefix } from '../services/softInterrupt';
+import { perPromptUsage, snapshotOf } from '../utils/agentSdkUsage';
+import { agentSdkUsageSnapshot, recordAgentSdkUsageSnapshot } from '../services/agentSdkUsageSnapshots';
 import { currentQueueItemId } from '../services/userWaits';
 import { stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
 
@@ -1159,6 +1161,11 @@ async function runAgentSdkAttempt(
     let totalToolCalls = 0;
     let stopReason: string | undefined;
     let turnsUsed = 0;
+    /**
+     * The model turns seen (top-level assistant messages, by message id): the rounds of a send
+     * that ends without a result message (a cancel), instead of the configured maximum (qrfix3).
+     */
+    const seenTurns = new Set<string>();
     /** The turn's token counts, from the SDK's result message. */
     let usageTotals: LiveTrailTokenCounts | undefined;
 
@@ -1315,6 +1322,10 @@ async function runAgentSdkAttempt(
             failureCollector.observe(msg);
             switch (msg.type) {
                 case 'assistant': {
+                    {
+                        const m = msg as { parent_tool_use_id?: string | null; message?: { id?: unknown } };
+                        if ((m.parent_tool_use_id ?? null) === null) { seenTurns.add(typeof m.message?.id === 'string' ? m.message.id : `turn-${seenTurns.size + 1}`); }
+                    }
                     handleAssistantMessage(msg as SDKAssistantMessage, context);
                     lastText = extractAssistantText(msg as SDKAssistantMessage) || lastText;
                     totalToolCalls += countToolUses(msg as SDKAssistantMessage);
@@ -1479,7 +1490,17 @@ async function runAgentSdkAttempt(
                     }
                     // Token / cost accounting for the whole turn — the SDK only
                     // reports it here, so record it before the stream closes.
-                    const turnUsage = toLiveTrailUsage(res);
+                    // Its cost, API time and per-model rows grow over a resumed
+                    // session: the prompt's own share is the difference to the
+                    // session's previous result (qrfix3, utils/agentSdkUsage.ts).
+                    const cumulative = toLiveTrailUsage(res);
+                    const sessionId = attempt.sessionOut.capturedSessionId ?? (res as { session_id?: string }).session_id;
+                    const turnUsage = perPromptUsage(
+                        cumulative,
+                        sessionId ? agentSdkUsageSnapshot(sessionId) : undefined,
+                        !!attempt.resumeSessionId,
+                    );
+                    if (sessionId) { recordAgentSdkUsageSnapshot(sessionId, snapshotOf(cumulative)); }
                     usageTotals = turnUsage.totals;
                     params.liveTrail?.appendUsage(turnUsage);
                     break;
@@ -1545,7 +1566,8 @@ async function runAgentSdkAttempt(
 
     return {
         text: lastText,
-        turnsUsed: turnsUsed || maxTurns,
+        // Without a result message (a cancel): the turns seen, never the configured maximum.
+        turnsUsed: turnsUsed || seenTurns.size,
         toolCallCount: totalToolCalls,
         stopReason,
         sessionId: attempt.sessionOut.capturedSessionId,
