@@ -256,6 +256,49 @@ Queue entries are stored as individual YAML files (`q_<id>.yaml`) with a hostnam
 
 **Important invariant:** `_reloadFromDisk()` is debounced (300 ms) and skips entirely when any item has `status === 'sending'`. This prevents the `FileSystemWatcher` (triggered by `persist()`) from swapping in-memory item references during an async Anthropic dispatch, which would cause the queue to stall permanently.
 
+## Todo follow-ups and done notifications
+
+Stage 0 of agent collaboration, inside one window:
+- **Fields.** A todo's `on_done` (targets, actions `unblock` / `notify` /
+  `queue` / `none`, instructions, notify prompt, report_to) and `filed_by`, in
+  the todo schema and in tom_todo_model.
+- **Writing them** (`questTodoManager`, `utils/todoOnDone`):
+  - `fileTodo` writes `filed_by` from the call context registered at
+    activation;
+  - every write keeps the `blocked_by` entries of the `unblock` targets in
+    step: written, moved when `on_done` is replaced, removed on cancel;
+  - the rename tools rewrite the ids `on_done` and `filed_by` name;
+  - `_bin/check_todo_blocks.py` reports what is left out of step (ON_DONE).
+- **Carrying them out** (`utils/todoOnDoneRun`, `services/todoOnDoneRunner`,
+  `services/todoOnDoneLive`):
+  - the todo writer's completion hook runs the actions when a todo is
+    completed, a repeated todo on every completion;
+  - while a walk holds the todo's claim, the hook defers to the queue, which
+    runs them where it settles the claim, after `last_answer`, or at the
+    claim's release;
+  - `notify` and `queue` go into this window's queue for its own quest and
+    through the quest inbox (`tomAi_sendItemToQuest`'s path) for another;
+  - the agent does only the `instructions` (the built-in group prompt says
+    so).
+- **The todo done notification** (`utils/todoDoneNotification`): items and
+  chat sends the todo panel makes for todos (its Done notification box)
+  carry `doneNotificationTodo`.
+  - The queue fills the prompt from the todo when the item finishes: a single
+    todo at the item's end, a walk per todo at each settle, a chat send when
+    it completes.
+  - It queues the prompt at `on_done`'s quest and run, through
+    `planDoneNotification` and `_deliverDoneNotification`.
+  - Such an item's completion skips the runner's own `notify`: one
+    notification per todo.
+- **A walk in another quest's run:** `tomAi_sendItemToQuest` carries
+  `repeatCount` / `todoIdPattern` and `run` in the inbox file, and the target
+  window queues the walk in that run's lane.
+
+Across machines and between workspaces, the claims, messages and coordination
+backends of the later stages (`ww_c_collab`, `ww_f_collab`, `ww_g_collab`)
+take over; until then a notification for a quest without a window on this
+machine waits in its inbox.
+
 ## Template stores
 
 One store for both transports:
@@ -264,6 +307,7 @@ One store for both transports:
 |-------|-----------|-------|
 | Templates | `config.anthropic.userMessageTemplates` | array `[{ id, name, description?, template, isDefault? }]` |
 | Copilot Queue Wrapper (a setting) | `config.copilot.queueWrapper` | string; not set = the built-in default |
+| Todo done notification (a setting) | `config.todoPanel.doneNotificationTemplate` | string; not set = the built-in default (`utils/todoDoneNotification`) |
 
 Copilot sends and every Anthropic leaf path (Direct, Agent SDK, VS Code LM, Local-LLM-backed) take their templates from the one store (`utils/copilotTemplates.ts`). The Copilot Queue Wrapper goes around every Copilot send that waits for an answer — queue items (unless `answerWrapper: false`), the todo buttons, a script's send to Copilot — and around the Copilot panel's Send when its **Wrap** box is on. The template tools (`tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate`) work on the one store, keyed by `id`.
 

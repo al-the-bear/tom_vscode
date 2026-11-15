@@ -19,6 +19,9 @@
  *        without on_done; another quest through its inbox with notify_prompt, a run it lacks → default; a walk per
  *        todo as each settles, its end adds none; a chat send by the panel's buttons; an item without the fields none;
  *        a running item or chat send covers its todo (the extension's own notify is left out)
+ *   DT-9 stage 0 end to end through the live wiring (installTodoOnDone): completing a todo with on_done unblock +
+ *        notify to another quest frees the target there and writes the notification into its inbox; completing one
+ *        with queue in another run queues the target in that run's lane; saving again runs nothing twice
  *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
  *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
@@ -69,7 +72,7 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { installProcessMoveMarkers } from '../../services/processActionService.js';
 import { DEFAULT_RUN } from '../../utils/processRuns.js';
 import { getQueueFolder } from '../../storage/queueFileStorage.js';
-import { inboxFileName, writeInboxFile } from '../../utils/questInbox.js';
+import { inboxFileName, parseInboxItem, writeInboxFile } from '../../utils/questInbox.js';
 import { doneNotificationMetaFromYaml, doneNotificationMetaToYaml } from '../../utils/doneNotification.js';
 import { getWorkspaceName } from '../../utils/panelYamlStore.js';
 import { deferTodoOnDone, setTodoOnDonePorts, takeDeferredTodoOnDone } from '../../services/todoOnDoneRunner.js';
@@ -391,6 +394,64 @@ describe('the done notification\'s quest and run', () => {
             assert.equal(notificationOf(plain), undefined);
         } finally {
             queue().setDoneNotificationPoster(undefined);
+            fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
+            clean();
+        }
+    });
+
+    test('DT-9: stage 0 end to end, through the live wiring (ww_a_collab-999)', async () => {
+        clean();
+        assert.equal(store().createRun('r2', 'review', 'user', false).ok, true);
+        queue().setRunQueueSettings('r2', { autoSend: false });
+        put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
+            `quest: ${QUEST}`, 'todos:',
+            '  - id: e2e-a', '    title: Wire the vault', '    description: d', '    status: in-progress',
+            '    on_done:', '      quest: q2', '      todos: [b1]', '      action: [unblock, notify]', '      notify_prompt: e2e-a done for ${senderQuest}/${senderRun}',
+            '  - id: e2e-b', '    title: Plan', '    description: d', '    status: in-progress',
+            '    on_done:', '      run: r2', '      todos: [c1]', '      action: [queue]',
+            '  - id: c1', '    title: Follow-up', '    description: d', '    status: not-started', '',
+        ].join('\n'));
+        put('_ai/quests/q2/overview.q2.md', '# Q2\n');
+        put('_ai/quests/q2/todos.q2.todo.yaml', [
+            'quest: q2', 'todos:', '  - id: b1', '    description: waits', '    status: blocked', `    blocked_by: [${QUEST}/e2e-a]`, '',
+        ].join('\n'));
+        const folder = getQueueFolder()!;
+        const before = new Set(fs.readdirSync(folder));
+        // The live wiring the extension installs at activation: the runner's ports and the todo writer's hook.
+        const { installTodoOnDone } = await import('../../services/todoOnDoneLive.js');
+        const { setTodoOnDonePorts } = await import('../../services/todoOnDoneRunner.js');
+        const qt = await import('../../managers/questTodoManager.js');
+        installTodoOnDone();
+        try {
+            qt.updateTodo(QUEST, 'e2e-a', { status: 'completed' });
+            qt.updateTodo(QUEST, 'e2e-b', { status: 'completed' });
+            await wait(300);
+            // unblock in another quest: the entry is met, the target free.
+            const b1 = qt.readAllTodos('q2').find((t) => t.id === 'b1')!;
+            assert.deepEqual(b1.blocked_by ?? [], []);
+            assert.equal(b1.status, 'not-started');
+            // notify to another quest: an inbox file for q2 with the filled prompt.
+            const added = fs.readdirSync(folder).filter((f) => !before.has(f) && f.endsWith('.inbox.queue.yaml'));
+            assert.equal(added.length, 1, fs.readdirSync(folder).join(', '));
+            const inbox = parseInboxItem(fs.readFileSync(path.join(folder, added[0]), 'utf8'));
+            assert.ok(inbox.ok);
+            assert.equal(inbox.ok && inbox.item.text, `e2e-a done for ${QUEST}/default`);
+            assert.equal(inbox.ok && inbox.item.from.quest, QUEST);
+            // queue in another run: c1 queued in r2's lane with its record.
+            const c1 = queue().items.find((i) => i.todoIdPattern === 'c1');
+            assert.ok(c1, queue().items.map((i) => i.originalText.slice(0, 40)).join(' | '));
+            assert.equal(c1.run, 'r2');
+            assert.match(c1.originalText, /Here is the complete YAML of the todo:/);
+            assert.match(c1.originalText, /id: c1/);
+            // Saved again: nothing runs twice.
+            qt.updateTodo(QUEST, 'e2e-a', { status: 'completed', notes: 'again' });
+            await wait(200);
+            assert.equal(fs.readdirSync(folder).filter((f) => !before.has(f) && f.endsWith('.inbox.queue.yaml')).length, 1);
+        } finally {
+            qt.setTodoCompletionHook(undefined);
+            setTodoOnDonePorts(undefined);
+            for (const f of fs.readdirSync(folder)) { if (!before.has(f)) { fs.rmSync(path.join(folder, f), { force: true, recursive: true }); } }
+            fs.rmSync(path.join(WS, '_ai/quests/q2'), { recursive: true, force: true });
             fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
             clean();
         }

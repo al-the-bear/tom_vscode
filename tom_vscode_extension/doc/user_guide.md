@@ -309,6 +309,16 @@ A todo's **Blocked By** names the todos it waits for. The other end is kept for 
 
 #### After done and Filed by
 
+Todos hand work on to each other within this machine:
+- **After done:** a completed todo unblocks, notifies or queues others.
+- **The Done notification:** the panel's items report back when they finish.
+- **Items sent to another quest:** they can be todo walks in a named run (see
+  [Items from other quests](#items-from-other-quests)).
+
+Claims on repositories, messages between machines and coordination servers
+come later; until then, work in parallel by the rules of the workspace's
+parallel-work guideline.
+
 A todo can say what happens when it is completed (`on_done`), and records who filed it (`filed_by`). Both are in the detail form's **After done** group:
 
 - **Quest** and **Run**: where the targets are. The default is this quest; the Run field suggests that quest's process runs.
