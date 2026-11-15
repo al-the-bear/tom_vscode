@@ -10,7 +10,7 @@
  *   BS-4 the label: commit and time, `(dirty)` for a build of uncommitted sources
  *   BS-5 the status travels: the heartbeat writes it into the window state file, tomAi_getQuestWindowStatus
  *        answers it per window, tomAi_getWorkspaceInfo answers this window's (and nothing outside a window)
- *   BS-6 the compile writes the stamp: `npm run compile` ends with scripts/write-build-info.cjs, which writes
+ *   BS-6 the compile writes the stamp: `npm run compile` (its `compile:steps`) ends with scripts/write-build-info.cjs, which writes
  *        commit, dirty and builtAt into out/build-info.json
  */
 
@@ -110,7 +110,9 @@ describe('build stamps', () => {
     test('BS-6: the compile writes the stamp', () => {
         const root = path.join(__dirname, '..', '..', '..');
         const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
-        assert.match(pkg.scripts.compile, /node scripts\/write-build-info\.cjs$/);
+        // `compile` holds the build lock (qrfix5) and runs `compile:steps`, whose last step writes the stamp.
+        assert.match(pkg.scripts.compile, /-- npm run compile:steps$/);
+        assert.match(pkg.scripts['compile:steps'], /node scripts\/write-build-info\.cjs$/);
         const out = path.join(tmp, 'pkg');
         fs.mkdirSync(path.join(out, 'scripts'), { recursive: true });
         fs.copyFileSync(path.join(root, 'scripts', 'write-build-info.cjs'), path.join(out, 'scripts', 'write-build-info.cjs'));

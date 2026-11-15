@@ -273,6 +273,18 @@ the exit code is 1 if any failed. (A `&&` chain used to stop at the first
 failure, so a failing `test:tools` silently skipped everything after it.)
 `run-test-stages.test.ts` (RS-1 … RS-5) holds the runner to that.
 
+**One build at a time on a checkout.** `npm test`, `npm run compile`, `npm run
+codespecs:build` and the install scripts (`compile_and_install.*`,
+`install_extension.*`, `reinstall_for_testing.*`) each hold `.build.lock` in the
+extension folder (pid, command, start time; `scripts/build-lock.cjs`) for their
+whole run, because each wipes or rewrites what the others read (`out/`,
+`bin/<platform>/`). A second one stops at once: `✖ compile_and_install.sh (pid
+4242) is running on this checkout since 14:05:30 — wait for it (lock:
+.build.lock).` Their own nested steps pass (the holder's pid in
+`TOM_BUILD_LOCK_HOLDER`), a lock whose pid no longer runs is taken over with a
+line saying so, and only the holder removes it. `buildLock.test.ts` (BL-1 …
+BL-7).
+
 **What it checks** (each is an independent failure mode):
 
 1. **Coverage** — every tool in the registry, `ALL_SHARED_TOOLS`, must have

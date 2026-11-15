@@ -727,6 +727,12 @@ entries: npm keeps a `file:` tarball whose name and version did not change even
 when its content did, so the next `npm install` would otherwise keep the old
 build.
 
+One build at a time on a checkout: `npm test`, `npm run compile`, `npm run
+codespecs:build` and the install scripts hold `.build.lock` (pid, command) while
+they run, and a second one stops with a message naming the one running (`…
+(pid N) is running on this checkout — wait for it`). A lock left by a process
+that no longer runs is taken over.
+
 Run the extension host for manual testing: open this project in VS Code, press
 `F5`, and test commands in the Extension Development Host.
 

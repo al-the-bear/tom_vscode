@@ -56,5 +56,6 @@ out/vsix-split/**
 out/vsix-release/**
 # The install's staging folder for bin/ (left behind only by a failed install).
 bin.staging/**
+.build.lock
 # The CodeSpecs CLIs' scratch folder (scripts/build-validate-codespecs.cjs).
 out/codespecs-build/**

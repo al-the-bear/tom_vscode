@@ -8,6 +8,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+# One build at a time on this checkout (qrfix5): npm test, a compile or another install refuses while this runs.
+# shellcheck source=scripts/build_lock.sh
+source "$SCRIPT_DIR/scripts/build_lock.sh"
+tom_build_lock_acquire "reinstall_for_testing.sh"
+trap 'tom_build_lock_release' EXIT
 
 echo "🔧 Reinstalling tom_vscode_extension for testing..."
 

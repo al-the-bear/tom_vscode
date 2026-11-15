@@ -30,6 +30,13 @@
 #>
 param([switch]$NoDart, [switch]$BinariesOnly, [switch]$NoLayer)
 
+
+# One build at a time on this checkout (qrfix5): npm test, a compile or another install refuses while this runs.
+# The script runs itself again inside the lock, which its finally releases however it ends.
+if ($env:TOM_BUILD_LOCK_INNER -ne $PSCommandPath) {
+    . (Join-Path $PSScriptRoot 'scripts/build_lock.ps1')
+    exit (Invoke-ScriptWithBuildLock 'compile_and_install.ps1' $PSCommandPath $PSBoundParameters $args)
+}
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

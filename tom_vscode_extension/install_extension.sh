@@ -37,6 +37,11 @@ cd "$SCRIPT_DIR"
 source "$SCRIPT_DIR/scripts/install_summary.sh"
 # shellcheck source=scripts/find_code_cli.sh
 source "$SCRIPT_DIR/scripts/find_code_cli.sh"
+# One build at a time on this checkout (qrfix5): npm test, a compile or another install refuses while this runs.
+# shellcheck source=scripts/build_lock.sh
+source "$SCRIPT_DIR/scripts/build_lock.sh"
+tom_build_lock_acquire "install_extension.sh"
+trap 'tom_build_lock_release' EXIT
 
 for ARG in "$@"; do
     case "$ARG" in
@@ -258,7 +263,7 @@ tom_bin_kept_on_failure() {
         echo "   binaries and stamps are kept (the partial build is in bin.staging/, cleared by the next install)."
     fi
 }
-trap 'tom_bin_kept_on_failure $?' EXIT
+trap 'tom_bin_kept_on_failure $?; tom_build_lock_release' EXIT
 
 if [ "$LAYER_BINARIES" = "1" ]; then
     # Every platform's tom_bs and validate_codespecs from the binaries layer, as
@@ -464,7 +469,7 @@ fi
 rm -rf "$SCRIPT_DIR/bin"
 mv "$BIN_STAGE" "$SCRIPT_DIR/bin"
 unset TOM_BINARIES_EXT_BIN
-trap - EXIT
+trap 'tom_build_lock_release' EXIT
 
 if [ "$BINARIES_ONLY" = "1" ]; then
     echo ""

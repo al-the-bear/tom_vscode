@@ -14,7 +14,12 @@
  * half the tests. Now every stage runs, its output streams as before, and a
  * summary at the end lists each stage with its result and node:test's counts.
  *
- * Exit code: 0 when every stage passed, 1 otherwise.
+ * The stages hold the checkout's build lock (scripts/build-lock.cjs, qrfix5):
+ * while an install or a compile runs on this checkout, `npm test` refuses at
+ * once, naming it, instead of running against an `out/` or `bin/` being
+ * rewritten; and an install started meanwhile refuses in turn.
+ *
+ * Exit code: 0 when every stage passed, 1 otherwise (also when the lock is held).
  */
 'use strict';
 
@@ -109,12 +114,25 @@ function npmRun(stage) {
 module.exports = { stagesOf, parseCounts, runStages, exitCode, summarize };
 
 if (require.main === module) {
-    const pkg = JSON.parse(fs.readFileSync(path.join(EXT_ROOT, 'package.json'), 'utf8'));
-    runStages(stagesOf(pkg.scripts), (stage) => {
-        process.stdout.write(`\n▶▶ npm run ${stage}\n`);
-        return npmRun(stage);
-    }).then((results) => {
-        process.stdout.write(summarize(results));
-        process.exitCode = exitCode(results);
-    });
+    const lock = require('./build-lock.cjs');
+    const held = lock.acquire({ pid: process.pid, command: 'npm test' });
+    if (!held.ok) {
+        process.stderr.write(`${held.message}\n`);
+        process.exitCode = 1;
+    } else {
+        if (held.how === 'took-over') { process.stdout.write(`${lock.tookOverMessage(held.previous)}\n`); }
+        // The stages' own steps run under this lock.
+        if (held.how !== 'nested') { process.env[lock.HOLDER_ENV] = String(process.pid); }
+        const releaseLock = () => { if (held.how !== 'nested') { lock.release({ pid: process.pid }); } };
+        process.on('exit', releaseLock);
+        for (const sig of ['SIGINT', 'SIGTERM']) { process.on(sig, () => { releaseLock(); process.exit(130); }); }
+        const pkg = JSON.parse(fs.readFileSync(path.join(EXT_ROOT, 'package.json'), 'utf8'));
+        runStages(stagesOf(pkg.scripts), (stage) => {
+            process.stdout.write(`\n▶▶ npm run ${stage}\n`);
+            return npmRun(stage);
+        }).then((results) => {
+            process.stdout.write(summarize(results));
+            process.exitCode = exitCode(results);
+        });
+    }
 }

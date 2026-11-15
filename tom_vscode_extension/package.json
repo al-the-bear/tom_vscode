@@ -2938,7 +2938,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "clean": "node scripts/clean-out.cjs",
-    "compile": "npm run clean && tsc -p ./ && node scripts/copy-config.cjs && node scripts/write-build-info.cjs",
+    "compile": "node scripts/build-lock.cjs run --command \"npm run compile\" -- npm run compile:steps",
+    "compile:steps": "npm run clean && tsc -p ./ && node scripts/copy-config.cjs && node scripts/write-build-info.cjs",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run typecheck:media",
     "test:tools": "node --test --test-concurrency=1 out/tools/__tests__/*.test.js",
@@ -2957,7 +2958,7 @@
     "providers:check": "node scripts/build-provider-manifest.cjs --check",
     "binaries:report": "node scripts/binaries-layer.cjs report",
     "som:pack": "node scripts/build-som-packages.cjs",
-    "codespecs:build": "node scripts/build-validate-codespecs.cjs",
+    "codespecs:build": "node scripts/build-lock.cjs run --command \"npm run codespecs:build\" -- node scripts/build-validate-codespecs.cjs",
     "template:build": "node scripts/build-workspace-template.cjs",
     "codespecs:check": "node scripts/codespecs-binary-stamp.cjs",
     "som:check": "node scripts/check-som-installed.cjs",

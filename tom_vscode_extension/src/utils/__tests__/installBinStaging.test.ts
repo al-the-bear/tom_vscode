@@ -28,13 +28,13 @@ describe('install: bin/ kept when a binary step fails', () => {
         assert.doesNotMatch(sh, /rm -rf "\$SCRIPT_DIR\/bin"\n(?!mv "\$BIN_STAGE")/, 'bin/ is only removed right before the staging folder replaces it');
         const stage = sh.indexOf('BIN_STAGE="$SCRIPT_DIR/bin.staging"');
         const exportAt = sh.indexOf('export TOM_BINARIES_EXT_BIN="$BIN_STAGE"');
-        const trapAt = sh.indexOf("trap 'tom_bin_kept_on_failure $?' EXIT");
+        const trapAt = sh.indexOf("trap 'tom_bin_kept_on_failure $?; tom_build_lock_release' EXIT");
         assert.ok(stage > 0 && exportAt > stage && trapAt > exportAt, 'staging, its export and the trap');
         assert.ok(trapAt < sh.indexOf('node scripts/binaries-layer.cjs bundle'), 'before the layer bundle');
         assert.ok(trapAt < sh.indexOf('dart compile exe "bin/${BIN}.dart"'), 'before tom_bs is compiled');
         assert.equal((sh.match(/DST_DIR="\$SCRIPT_DIR\/bin\//g) ?? []).length, 0, 'no writer targets bin/ directly');
         assert.equal((sh.match(/DST_DIR="\$BIN_STAGE\//g) ?? []).length, 2);
-        const swap = sh.indexOf('rm -rf "$SCRIPT_DIR/bin"\nmv "$BIN_STAGE" "$SCRIPT_DIR/bin"\nunset TOM_BINARIES_EXT_BIN\ntrap - EXIT');
+        const swap = sh.indexOf('rm -rf "$SCRIPT_DIR/bin"\nmv "$BIN_STAGE" "$SCRIPT_DIR/bin"\nunset TOM_BINARIES_EXT_BIN\ntrap \'tom_build_lock_release\' EXIT');
         assert.ok(swap > sh.indexOf('node scripts/build-validate-codespecs.cjs'), 'after the CodeSpecs CLIs');
         assert.ok(swap > sh.indexOf('node scripts/binaries-layer.cjs tools'), 'after the build tools');
         assert.ok(swap > sh.indexOf('node scripts/binaries-layer.cjs publish'), 'after the layer publish');

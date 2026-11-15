@@ -52,6 +52,12 @@ elif ! ( cd "$SCRIPT_DIR" && node scripts/find-dart.cjs > /dev/null ); then
     export TOM_NO_DART_REASON="no Dart SDK found"
 fi
 
+# One build at a time on this checkout (qrfix5): npm test, a compile or another install refuses while this runs.
+# shellcheck source=scripts/build_lock.sh
+source "$SCRIPT_DIR/scripts/build_lock.sh"
+tom_build_lock_acquire "compile_and_install.sh"
+trap 'tom_build_lock_release' EXIT
+
 if [ "${TOM_BINARIES_ONLY:-0}" = "1" ] && [ "${TOM_NO_DART:-0}" = "1" ]; then
     echo "❌ --binaries-only needs a Dart SDK ($TOM_NO_DART_REASON)"
     exit 1
