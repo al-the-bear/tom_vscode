@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-11-15T05:34:21.159855 by tom_d4rt_generator 1.65.0
+// Generated: 2026-11-15T11:38:50.486128 by tom_d4rt_generator 1.66.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -1629,7 +1629,24 @@ class AllBridge {
   ///
   /// [importPath] is the package import path that D4rt scripts will use
   /// to access these classes (e.g., 'package:my_package/my_package.dart').
-  static void registerBridges(D4rt interpreter, String importPath) {
+  ///
+  /// With [onlyOwnPackage] (a sub-package barrel, [subPackageBarrels]),
+  /// only the declarations whose source is in [importPath]'s package are
+  /// registered: a script importing that barrel sees what the package
+  /// declares, not the whole module. (Without it, a module bridging one
+  /// `package:characters` extension would put all of its classes under
+  /// `package:characters/characters.dart`, which `widgets.dart` re-exports.)
+  static void registerBridges(
+    D4rt interpreter,
+    String importPath, {
+    bool onlyOwnPackage = false,
+  }) {
+    final String? ownPrefix = onlyOwnPackage
+        ? 'package:${importPath.substring('package:'.length).split('/').first}/'
+        : null;
+    bool include(String? sourceUri) =>
+        ownPrefix == null ||
+        (sourceUri != null && sourceUri.startsWith(ownPrefix));
     // Step #17 — register deferred factory thunks (not pre-built
     // BridgedClass objects): a script touching N of the M classes
     // materializes ≈N (each thunk builds its class on first resolve).
@@ -1637,6 +1654,7 @@ class AllBridge {
     final classTypes = bridgeClassTypes();
     final classSources = classSourceUris();
     for (final entry in classThunks.entries) {
+      if (!include(classSources[entry.key])) continue;
       interpreter.registerBridgedClassLazy(
         entry.key,
         classTypes[entry.key]!,
@@ -1655,6 +1673,7 @@ class AllBridge {
     final enums = bridgedEnums();
     final enumSources = enumSourceUris();
     for (final enumDef in enums) {
+      if (!include(enumSources[enumDef.name])) continue;
       interpreter.registerBridgedEnum(
         enumDef,
         importPath,
@@ -1663,13 +1682,14 @@ class AllBridge {
     }
 
     // Register global variables
-    registerGlobalVariables(interpreter, importPath);
+    registerGlobalVariables(interpreter, importPath, include: include);
 
     // Register global functions with source URIs for deduplication
     final funcs = globalFunctions();
     final funcSources = globalFunctionSourceUris();
     final funcSigs = globalFunctionSignatures();
     for (final entry in funcs.entries) {
+      if (!include(funcSources[entry.key])) continue;
       interpreter.registertopLevelFunction(
         entry.key,
         entry.value,
@@ -1682,7 +1702,9 @@ class AllBridge {
     // Register function typedefs for type resolution
     final typedefs = functionTypedefs();
     final typedefArity = functionTypedefArity();
+    // Function typedefs carry no source; a sub-package barrel gets none.
     for (final name in typedefs) {
+      if (ownPrefix != null) break;
       final arity = typedefArity[name];
       interpreter.registerFunctionTypedef(
         name,
@@ -1708,93 +1730,134 @@ class AllBridge {
   /// [importPath] is the package import path for library-scoped registration.
   /// Collects all registration errors and throws a single exception
   /// with all error details if any registrations fail.
-  static void registerGlobalVariables(D4rt interpreter, String importPath) {
+  static void registerGlobalVariables(
+    D4rt interpreter,
+    String importPath, {
+    bool Function(String? sourceUri)? include,
+  }) {
     final errors = <String>[];
 
-    try {
-      interpreter.registerGlobalVariable(
-        'defaultCliServerPort',
-        $tom_vscode_bridge_1.defaultCliServerPort,
-        importPath,
-        sourceUri: 'package:tom_vscode_bridge/bridge_server.dart',
-      );
-    } catch (e) {
-      errors.add('Failed to register variable "defaultCliServerPort": $e');
+    if (include == null ||
+        include('package:tom_vscode_bridge/bridge_server.dart')) {
+      try {
+        interpreter.registerGlobalVariable(
+          'defaultCliServerPort',
+          $tom_vscode_bridge_1.defaultCliServerPort,
+          importPath,
+          sourceUri: 'package:tom_vscode_bridge/bridge_server.dart',
+        );
+      } catch (e) {
+        errors.add('Failed to register variable "defaultCliServerPort": $e');
+      }
     }
-    try {
-      interpreter.registerGlobalVariable(
-        'vsCodeBridgeDefinition',
-        $tom_vscode_bridge_2.vsCodeBridgeDefinition,
-        importPath,
-        sourceUri: 'package:tom_vscode_bridge/script_api.dart',
-      );
-    } catch (e) {
-      errors.add('Failed to register variable "vsCodeBridgeDefinition": $e');
+    if (include == null ||
+        include('package:tom_vscode_bridge/script_api.dart')) {
+      try {
+        interpreter.registerGlobalVariable(
+          'vsCodeBridgeDefinition',
+          $tom_vscode_bridge_2.vsCodeBridgeDefinition,
+          importPath,
+          sourceUri: 'package:tom_vscode_bridge/script_api.dart',
+        );
+      } catch (e) {
+        errors.add('Failed to register variable "vsCodeBridgeDefinition": $e');
+      }
     }
-    try {
-      interpreter.registerGlobalVariable(
-        'defaultVSCodeBridgePort',
-        $tom_vscode_scripting_api_21.defaultVSCodeBridgePort,
-        importPath,
-        sourceUri:
-            'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
-      );
-    } catch (e) {
-      errors.add('Failed to register variable "defaultVSCodeBridgePort": $e');
+    if (include == null ||
+        include(
+          'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
+        )) {
+      try {
+        interpreter.registerGlobalVariable(
+          'defaultVSCodeBridgePort',
+          $tom_vscode_scripting_api_21.defaultVSCodeBridgePort,
+          importPath,
+          sourceUri:
+              'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
+        );
+      } catch (e) {
+        errors.add('Failed to register variable "defaultVSCodeBridgePort": $e');
+      }
     }
-    try {
-      interpreter.registerGlobalVariable(
-        'maxVSCodeBridgePort',
-        $tom_vscode_scripting_api_21.maxVSCodeBridgePort,
-        importPath,
-        sourceUri:
-            'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
-      );
-    } catch (e) {
-      errors.add('Failed to register variable "maxVSCodeBridgePort": $e');
+    if (include == null ||
+        include(
+          'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
+        )) {
+      try {
+        interpreter.registerGlobalVariable(
+          'maxVSCodeBridgePort',
+          $tom_vscode_scripting_api_21.maxVSCodeBridgePort,
+          importPath,
+          sourceUri:
+              'package:tom_vscode_scripting_api/src/vscode_bridge_client.dart',
+        );
+      } catch (e) {
+        errors.add('Failed to register variable "maxVSCodeBridgePort": $e');
+      }
     }
-    interpreter.registerGlobalGetter(
-      'vscode',
-      () => $tom_vscode_scripting_api_1.vscode,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'window',
-      () => $tom_vscode_scripting_api_1.window,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'workspace',
-      () => $tom_vscode_scripting_api_1.workspace,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'commands',
-      () => $tom_vscode_scripting_api_1.commands,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'extensions',
-      () => $tom_vscode_scripting_api_1.extensions,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'lm',
-      () => $tom_vscode_scripting_api_1.lm,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
-    interpreter.registerGlobalGetter(
-      'chat',
-      () => $tom_vscode_scripting_api_1.chat,
-      importPath,
-      sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
-    );
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'vscode',
+        () => $tom_vscode_scripting_api_1.vscode,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'window',
+        () => $tom_vscode_scripting_api_1.window,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'workspace',
+        () => $tom_vscode_scripting_api_1.workspace,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'commands',
+        () => $tom_vscode_scripting_api_1.commands,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'extensions',
+        () => $tom_vscode_scripting_api_1.extensions,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'lm',
+        () => $tom_vscode_scripting_api_1.lm,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
+    if (include == null ||
+        include('package:tom_vscode_scripting_api/script_globals.dart')) {
+      interpreter.registerGlobalGetter(
+        'chat',
+        () => $tom_vscode_scripting_api_1.chat,
+        importPath,
+        sourceUri: 'package:tom_vscode_scripting_api/script_globals.dart',
+      );
+    }
 
     if (errors.isNotEmpty) {
       throw StateError(
