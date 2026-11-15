@@ -2346,6 +2346,16 @@ const BUILD_TOOL_LABEL: Record<BuildToolSource, string> = { configured: 'configu
  * checks) whether each is configured, bundled
  * or missing, with a button to the page about them. Warns when one is missing.
  */
+/** The Dart SDK row (vscimpb114): the `dart` the window knows, which CodeSpecs mapping hands the dart-tom mapper as TOM_DART. */
+function dartSdkRowHtml(status: DartBinariesStatus): string {
+    if (status.dartSdk === undefined) { return ''; }
+    const sdk = status.dartSdk;
+    return `<div class="sp-settings-row" data-dart-sdk><label>Dart SDK (CodeSpecs mapping with dart-tom formats with it, as TOM_DART):</label>`
+        + (sdk
+            ? `<span title="${escapeHtmlContent(sdk.dart).replace(/"/g, '&quot;')}">${escapeHtmlContent(sdk.via)}</span></div>`
+            : `<span title="Install Dart or Flutter, set dart.sdkPath / dart.flutterSdkPath or TOM_DART, or put dart on PATH">⚠️ none found</span></div>`);
+}
+
 export function dartBinariesSectionHtml(status: DartBinariesStatus | undefined): string {
     if (!status) { return ''; }
     const warn = status.missing.length > 0
@@ -2366,6 +2376,7 @@ export function dartBinariesSectionHtml(status: DartBinariesStatus | undefined):
         <div class="sp-settings-row"><label>Platform:</label><span>${escapeHtmlContent(status.platform)}</span></div>
         ${rows}
         ${toolRows ? `<div class="sp-settings-row"><label><b>Build tools</b> (bundled as the last fallback):</label><span></span></div>\n        ${toolRows}` : ''}
+        ${dartSdkRowHtml(status)}
         <div class="sp-settings-row"><label>${status.missing.length > 0 ? 'What is missing and how to add it:' : 'About these binaries:'}</label>
             <div class="sp-controls"><button class="sp-btn${status.missing.length > 0 ? ' primary' : ''}" data-status-action="showDartBinariesHelp" title="Open the page about the Dart-built binaries">Open the page</button></div></div>
     </div>`;

@@ -44,6 +44,7 @@ import {
     type ExecutableConfig,
     type ExecutablesConfig,
 } from '../utils/executableResolver';
+import { dartSdkSettings, findDartSdk, type DartSdkFound, type DartSdkSettings } from './dartSdk';
 import { BUILD_TOOL_PURPOSE, buildToolFileName, buildToolsStatus, type BuildToolName, type BuildToolSource, type BuildToolState } from './buildTools';
 
 export const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'] as const;
@@ -96,6 +97,11 @@ export interface DartBinariesStatus {
     missing: DartBinaryName[];
     /** The tom build tools (buildkit, d4rtgen, reflectiongenerator, testkit) and where each was found. */
     buildTools: BuildToolState[];
+    /**
+     * The Dart SDK this window knows (services/dartSdk.ts), or null: the
+     * dart-tom mapper of the bundled irspecs formats with it (TOM_DART).
+     */
+    dartSdk: DartSdkFound | null;
 }
 
 /** The configuration the lookup reads (the `bridge` section of tom_vscode_extension.json). */
@@ -105,6 +111,8 @@ export interface DartBinariesConfig {
     workspaceRoot?: string;
     /** The executable the current bridge profile names (default `tom_bs`). */
     bridgeExecutable?: string;
+    /** The Dart extension's SDK settings; default: read from VS Code. */
+    dartSdkSettings?: DartSdkSettings;
 }
 
 export function binaryFileName(name: DartBinaryName, platform: string = getCurrentPlatform()): string {
@@ -138,6 +146,7 @@ export function dartBinariesStatus(extensionRoot: string, config: DartBinariesCo
         binaries,
         missing: binaries.filter((b) => b.source === 'missing').map((b) => b.name),
         buildTools: buildToolsStatus(config.workspaceRoot ?? '', config, extensionRoot, env),
+        dartSdk: findDartSdk({ env, settings: config.dartSdkSettings ?? dartSdkSettings() }) ?? null,
     };
 }
 
@@ -148,6 +157,8 @@ export interface DartBinariesSummary {
     missing: DartBinaryName[];
     /** Where each tom build tool was found (configured, layer, path, bundled, missing). */
     buildTools: Record<BuildToolName, BuildToolSource>;
+    /** The Dart SDK's `dart` this window knows (what the dart-tom mapper formats with), or null. */
+    dartSdk: string | null;
 }
 
 export function summarizeDartBinaries(status: DartBinariesStatus): DartBinariesSummary {
@@ -155,7 +166,7 @@ export function summarizeDartBinaries(status: DartBinariesStatus): DartBinariesS
     for (const b of status.binaries) { binaries[b.name] = b.source; }
     const buildTools = {} as Record<BuildToolName, BuildToolSource>;
     for (const t of status.buildTools ?? []) { buildTools[t.name] = t.source; }
-    return { platform: status.platform, binaries, missing: status.missing, buildTools };
+    return { platform: status.platform, binaries, missing: status.missing, buildTools, dartSdk: status.dartSdk?.dart ?? null };
 }
 
 function isFile(p: string): boolean {
@@ -286,9 +297,9 @@ export interface BinaryRun {
 }
 
 /** Run the file `binary` with `args`; a non-zero exit is a result, a spawn failure, timeout or signal a rejection naming `label`. */
-export function runBinaryFile(binary: string, args: string[], label: string, options: { cwd?: string; timeoutMs: number }): Promise<BinaryRun> {
+export function runBinaryFile(binary: string, args: string[], label: string, options: { cwd?: string; timeoutMs: number; env?: NodeJS.ProcessEnv }): Promise<BinaryRun> {
     return new Promise((resolve, reject) => {
-        execFile(binary, args, { maxBuffer: 256 << 20, timeout: options.timeoutMs, ...(options.cwd ? { cwd: options.cwd } : {}) }, (error, stdout, stderr) => {
+        execFile(binary, args, { maxBuffer: 256 << 20, timeout: options.timeoutMs, ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.env ? { env: options.env } : {}) }, (error, stdout, stderr) => {
             const code = (error as NodeJS.ErrnoException & { code?: unknown } | null)?.code;
             if (error && typeof code !== 'number') {
                 reject(new Error(`${label} did not run to completion: ${error.message}`));
@@ -303,7 +314,7 @@ export function runBinaryFile(binary: string, args: string[], label: string, opt
  * Run the Dart binary `name` of this window (configured, else bundled) with
  * `args`; throws {@link DartBinaryMissing} when the platform has none.
  */
-export function runDartBinary(name: DartBinaryName, args: string[], options: { cwd?: string; timeoutMs: number; extensionRoot?: string }): Promise<BinaryRun> {
+export function runDartBinary(name: DartBinaryName, args: string[], options: { cwd?: string; timeoutMs: number; extensionRoot?: string; env?: NodeJS.ProcessEnv }): Promise<BinaryRun> {
     const root = options.extensionRoot ?? defaultRoot;
     const found = currentDartBinary(name, root);
     if (!found.path) {

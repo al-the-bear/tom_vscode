@@ -182,13 +182,14 @@ describe('Dart-built binaries on this platform', () => {
     });
 
     test('DB-9: the summary', () => {
-        const s = summarizeDartBinaries(dartBinariesStatus(fakeRoot({ [HOST]: [`validate_codespecs${EXE}`, `buildkit${EXE}`] }), {}, { PATH: '' }));
+        const s = summarizeDartBinaries(dartBinariesStatus(fakeRoot({ [HOST]: [`validate_codespecs${EXE}`, `buildkit${EXE}`] }), {}, { PATH: '', TOM_FIND_DART_DISABLE: '1' }));
         assert.deepEqual(s, {
             platform: HOST,
             binaries: { tom_bs: 'missing', validate_codespecs: 'bundled', spec_checks: 'missing', irspecs: 'missing' }, // eslint-disable-line @typescript-eslint/naming-convention
             missing: ['tom_bs', 'spec_checks', 'irspecs'],
             buildTools: { buildkit: 'bundled', d4rtgen: 'missing', reflectiongenerator: 'missing', testkit: 'missing' },
-        }, 'a missing build tool is not in `missing` (it does not open the page)');
+            dartSdk: null,
+        }, 'a missing build tool is not in `missing` (it does not open the page); no Dart SDK found (vscimpb114)');
         assert.equal(dartBinariesHelp(EXT_ROOT).help, HELP_HINT);
         assert.equal(HELP_HINT, 'Run command tomAi.showDartBinariesHelp');
     });

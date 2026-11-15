@@ -115,6 +115,10 @@ describe('the missing Dart binaries page in a window', () => {
         assert.match(html, /tom_bs(\.exe)? \(DartScript\):<\/label><span title="[^"]+">bundled<\/span>/);
         assert.match(html, /validate_codespecs(\.exe)? \(CodeSpecs validation\):<\/label><span title="">⚠️ missing<\/span>/);
         assert.match(html, /data-status-action="showDartBinariesHelp"/);
+        // The Dart SDK the window knows (vscimpb114): the row names where it was found, or that none was.
+        assert.match(html, /data-dart-sdk><label>Dart SDK \(CodeSpecs mapping with dart-tom formats with it, as TOM_DART\):<\/label><span title="[^"]*">[^<]+<\/span>/);
+        assert.match(statusPage.dartBinariesSectionHtml({ ...missing, dartSdk: null }), /⚠️ none found/);
+        assert.match(statusPage.dartBinariesSectionHtml({ ...missing, dartSdk: { dart: '/sdk/bin/dart', via: 'dart.sdkPath' } }), /<span title="\/sdk\/bin\/dart">dart\.sdkPath<\/span>/);
         const complete = statusPage.dartBinariesSectionHtml(status.dartBinariesStatus(fakeExtension(['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'])));
         assert.doesNotMatch(complete, /warningBorder/);
         assert.equal(statusPage.dartBinariesSectionHtml(undefined), '');
