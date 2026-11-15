@@ -57,6 +57,8 @@ import { parseResetClause } from '../utils/queueResetClause';
 import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
+import { onDoneDueAtSettle } from '../utils/todoOnDoneRun';
+import { runTodoOnDone, takeDeferredTodoOnDone } from '../services/todoOnDoneRunner';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
 import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
 import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
@@ -938,12 +940,46 @@ export class PromptQueueManager {
     }
 
     /**
+     * Whether a sending item holds a live claim on the todo (a walk runs it):
+     * the todo writer then leaves the todo's `on_done` to that claim's settle.
+     */
+    holdsTodoClaim(questId: string, todoId: string): boolean {
+        return this._items.some((i) => i.status === 'sending' && !!i.todoClaim && !i.todoClaim.released
+            && i.todoClaim.questId === questId && i.todoClaim.todoId === todoId);
+    }
+
+    /** At a claim's settle: carry out the todo's `on_done` when its completion was left here or it is completed now. */
+    private _settleTodoOnDone(claim: TodoClaim, run: string | undefined): void {
+        const wasDeferred = takeDeferredTodoOnDone(claim.questId, claim.todoId);
+        if (onDoneDueAtSettle(wasDeferred, readQuestTodoStatus(claim.questId, claim.todoId))) {
+            this._runTodoOnDone(claim.questId, claim.todoId, run);
+        }
+    }
+
+    private _runTodoOnDone(questId: string, todoId: string, run: string | undefined): void {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { findTodoById } = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
+            const todo = findTodoById(questId, todoId);
+            if (!todo?.on_done) { return; }
+            void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run || DEFAULT_RUN)
+                .catch((err) => logQueueError(`on_done of ${questId}/${todoId} failed`, err));
+        } catch (err) {
+            logQueueError(`on_done of ${questId}/${todoId} failed`, err);
+        }
+    }
+
+    /**
      * The run ended before the claimed todo's answer arrived (stop, interrupt,
      * error, removal): put back the status the claim overwrote — only if the
      * todo still holds the runner's `in-progress`. Anything else is somebody
      * else's write and stays.
      */
     private releaseQuestTodoClaim(item: QueuedPrompt, reason: string): void {
+        // A completion the todo writer left to this claim is still carried out: the agent completed it before the stop.
+        if (item.todoClaim && !item.todoClaim.released && takeDeferredTodoOnDone(item.todoClaim.questId, item.todoClaim.todoId)) {
+            this._runTodoOnDone(item.todoClaim.questId, item.todoClaim.todoId, item.run);
+        }
         const result = releaseTodoClaim(QUEST_TODO_STATUS_PORT, item.todoClaim);
         if (result.outcome === 'none') { return; }
         item.todoClaim = result.claim;
@@ -5894,6 +5930,8 @@ export class PromptQueueManager {
             if (outcome === 'written' || outcome === 'write-failed') {
                 logQueue(`Todo answer ${outcome === 'written' ? 'kept on' : 'could not be written to'} ${item.todoClaim.questId}/${item.todoClaim.todoId} (${answer?.length ?? 0} chars)`);
             }
+            // The todo's follow-up, once its answer is on it (ww_a_collab-5).
+            if (!item.todoClaim.released) { this._settleTodoOnDone(item.todoClaim, item.run); }
             item.todoClaim = undefined;
         }
         // The pause gate (auto-send off) is checked in each stage just before

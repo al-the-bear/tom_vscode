@@ -6,6 +6,7 @@
  * handler files in the handlers/ directory.
  */
 
+import { installTodoOnDone } from './services/todoOnDoneLive';
 import { setTodoFiledByContextProvider } from './managers/questTodoManager';
 import { currentQueueItemId } from './services/userWaits';
 import { callerSession } from './tools/session-param';
@@ -839,6 +840,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();
     PromptQueueManager.init(context);
+    // A completed todo's `on_done`: carried out by the extension (ww_a_collab-5).
+    installTodoOnDone();
     // `filed_by` of a todo the tools or the todo panel file: where the call runs.
     setTodoFiledByContextProvider(() => {
         const quest = WsPaths.getWorkspaceQuestId();

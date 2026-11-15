@@ -332,6 +332,31 @@ The Blocked By entry of an **unblock** target is kept for you, by the todo panel
 - **Cancelling** the todo removes its entries and runs nothing else of After done; reopening it writes them back.
 - **Renaming** a target, or the todo that filed this one, rewrites the ids in After done and Filed by.
 
+**When the todo is completed, the extension carries out After done itself.**
+- **When it runs:**
+  - in a queue walk, once the walk has written the todo's answer;
+  - otherwise, when the todo is set to completed: from the todo panel, a tool or the editor;
+  - for a repeated todo, on every completion.
+
+  Saving a todo that is already completed runs nothing again. Cancelling a
+  todo runs nothing of After done.
+- **unblock:** this todo's entry leaves each target's Blocked By. A blocked
+  target with nothing else blocking it becomes not-started, or
+  decision-needed when it has an open decision.
+- **notify:** queues the notify prompt in the target quest and run, or, when
+  it is empty, a default report with the todo's answer and its Report to.
+  Another quest gets it through its inbox. Whoever receives it records the
+  result at Report to.
+- **queue:** queues each target todo with that quest's group prompt and the
+  todo's record. A todo that is queued already is not queued again.
+- **Run:** the default is the run the todo was completed in, for its own
+  quest, and `default` for another quest.
+- **Skipped targets:** a target that is already done is skipped. A target
+  that was deleted or no longer exists is skipped, with a line in the todo's
+  Notes.
+- **Instructions** are the agent's part: the walk's group prompt tells the
+  agent to carry them out when it completes the todo.
+
 **Filed by**, below the group, is read-only. It holds:
 - the quest of the window, or of the quest that asked for the todo when another quest's item filed it;
 - the process run and the session;

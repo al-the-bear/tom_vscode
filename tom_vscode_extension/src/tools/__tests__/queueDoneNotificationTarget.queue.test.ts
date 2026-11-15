@@ -13,6 +13,8 @@
  *        that run's lane with the sender filled in; a run this quest does not have makes it an error in `default`
  *   DT-6 a todo walk sent from another quest (`repeatCount: "wk-*"`) is queued in the named run's lane with its
  *        repeat count and todo pattern; into a run this quest lacks it is an error in `default`, no run created
+ *   DT-7 a walk's claim (ww_a_collab-5): a sending item holds it; its settle carries out a completed todo's
+ *        on_done once, and a completion left to the claim runs at its release too
  *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
  *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
@@ -66,6 +68,7 @@ import { getQueueFolder } from '../../storage/queueFileStorage.js';
 import { inboxFileName, writeInboxFile } from '../../utils/questInbox.js';
 import { doneNotificationMetaFromYaml, doneNotificationMetaToYaml } from '../../utils/doneNotification.js';
 import { getWorkspaceName } from '../../utils/panelYamlStore.js';
+import { deferTodoOnDone, setTodoOnDonePorts, takeDeferredTodoOnDone } from '../../services/todoOnDoneRunner.js';
 import * as os from 'os';
 
 let context: never;
@@ -277,6 +280,46 @@ describe('the done notification\'s quest and run', () => {
         assert.ok(!store().runs().some((r) => r.run === 'nope'), 'no run nope created');
         fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
         clean();
+    });
+
+    test('DT-7: a walk\'s claim and its on_done (ww_a_collab-5)', async () => {
+        clean();
+        put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
+            `quest: ${QUEST}`, 'todos:',
+            '  - id: wk-1', '    description: first', '    status: completed',
+            '    on_done:', '      action: [notify]', '      notify_prompt: wk-1 is done', '',
+        ].join('\n'));
+        const sent: string[] = [];
+        setTodoOnDonePorts({
+            windowQuest: () => QUEST, findTodo: () => undefined, groupPrompt: () => '', writeTarget: () => undefined,
+            appendNotes: () => undefined, enqueueLocal: async (send) => { sent.push(send.text); },
+            postToQuest: () => undefined, log: () => undefined, today: () => '2026-11-15',
+        });
+        try {
+            const item = await add({ originalText: 'walk', repeatCount: 'wk-*' });
+            const claim = { questId: QUEST, todoId: 'wk-1', priorStatus: 'not-started', claimedAt: new Date().toISOString() };
+            (item as Json).todoClaim = claim;
+            (item as Json).status = 'sending';
+            assert.equal(queue().holdsTodoClaim(QUEST, 'wk-1'), true, 'a sending item holds the claim');
+            assert.equal(queue().holdsTodoClaim(QUEST, 'wk-2'), false);
+            (item as Json).status = 'pending';
+            assert.equal(queue().holdsTodoClaim(QUEST, 'wk-1'), false, 'only while it is sent');
+            // The settle: the todo is completed now, so its on_done runs once.
+            (queue() as Json)._settleTodoOnDone(claim, 'default');
+            await wait(50);
+            assert.deepEqual(sent, ['wk-1 is done']);
+            // A completion left to the claim (deferred) runs at the release too, then is taken.
+            deferTodoOnDone(QUEST, 'wk-1');
+            (item as Json).todoClaim = { ...claim };
+            (queue() as Json).releaseQuestTodoClaim(item, 'test');
+            await wait(50);
+            assert.deepEqual(sent, ['wk-1 is done', 'wk-1 is done']);
+            assert.equal(takeDeferredTodoOnDone(QUEST, 'wk-1'), false);
+        } finally {
+            setTodoOnDonePorts(undefined);
+            fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
+            clean();
+        }
     });
 
     test('DT-5: the answer reaches the notification', async () => {

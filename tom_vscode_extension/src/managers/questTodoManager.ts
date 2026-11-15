@@ -29,6 +29,7 @@ import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } fro
 import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
+import { isCompletion } from '../utils/todoOnDoneRun';
 import {
     buildFiledBy, normaliseOnDone, unblockEntry, unblockEntryPlan, withBlockedByEntry, withoutBlockedByEntry,
     type FiledByContext, type TodoFiledBy, type TodoOnDone, type UnblockEntryPlan,
@@ -1280,6 +1281,16 @@ export function createTodo(
 // ============================================================================
 
 let filedByContextProvider: (() => FiledByContext) | undefined;
+let todoCompletionHook: ((questId: string, todo: QuestTodoItem) => void) | undefined;
+
+/**
+ * Register what happens when an update completes a todo that has an
+ * `on_done` (services/todoOnDoneRunner.ts: carried out now, or left to the
+ * queue's claim when a walk runs the todo). Set once at activation.
+ */
+export function setTodoCompletionHook(hook: ((questId: string, todo: QuestTodoItem) => void) | undefined): void {
+    todoCompletionHook = hook;
+}
 
 /**
  * Register what a call knows about where it runs (window quest, caller
@@ -1396,6 +1407,10 @@ export function updateTodo(
                 // replaced `on_done` and a cancellation (or its undoing).
                 if ('on_done' in applied || before.status !== after.status) {
                     applyUnblockEntries(questId, todoId, unblockEntryPlan(before, after, questId));
+                }
+                // Completed (a repeated todo on every completion): its follow-up (ww_a_collab-5).
+                if (after.on_done && isCompletion(before, updates.status)) {
+                    try { todoCompletionHook?.(questId, after); } catch { /* the follow-up never fails the write */ }
                 }
                 return after;
             }
