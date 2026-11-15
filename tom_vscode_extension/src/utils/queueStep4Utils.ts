@@ -35,9 +35,7 @@ export function buildAnswerFilePath(input: BuildAnswerFilePathInput): string {
     if (input.requestId && input.requestId.trim().length > 0) {
         return path.join(input.folder, `${input.requestId.trim()}_answer.json`);
     }
-    const session = input.sessionId.substring(0, 8);
-    const machine = input.machineId.substring(0, 8);
-    return path.join(input.folder, `${session}_${machine}_answer.json`);
+    return path.join(input.folder, `${windowAnswerFileStem(input.sessionId, input.machineId)}_answer.json`);
 }
 
 export function shouldWatchAnswerFile(filename?: string): boolean {
@@ -55,10 +53,71 @@ export function findMatchingAnswerFile(files: string[], expectedRequestId?: stri
     if (!expectedRequestId) {
         return undefined;
     }
-    return files.find(f => shouldWatchAnswerFile(f) && f.startsWith(expectedRequestId));
+    return files.find(f => f === `${expectedRequestId}_answer.json`);
 }
 
-export function resolveDetectedRequestId(filenameRequestId?: string, contentRequestId?: string): DetectedRequestId {
+/** The stem of this window's own answer file (`<sessionId[0..8]>_<machineId[0..8]>`), written when a prompt names no request id. */
+export function windowAnswerFileStem(sessionId: string, machineId: string): string {
+    return `${sessionId.substring(0, 8)}_${machineId.substring(0, 8)}`;
+}
+
+/**
+ * The answer folder is shared by every window, so every window sees every
+ * answer file. Whether one sending stage may take a file, from its name alone
+ * (before the file is read):
+ * - `request`: the file is the one for the stage's request
+ *   (`<expectedRequestId>_answer.json`) — the stage owns it;
+ * - `window`: the file is this window's own window-named file — the stage owns
+ *   it only when the request id in its CONTENT is the expected one
+ *   ({@link ownsAnswerFile});
+ * - `none`: not the stage's (`reason` says why) — ignore it unread.
+ * Only a Copilot stage waiting for an answer file (it has an expected request
+ * id) takes one; an Anthropic stage gets its answer from its send.
+ */
+export type AnswerFileClaim =
+    | { claim: 'request' }
+    | { claim: 'window' }
+    | { claim: 'none'; reason: string };
+
+export interface AnswerFileClaimInput {
+    /** The answer file's name (no folder). */
+    fileName: string;
+    /** The transport the sending item's current stage runs on. */
+    stageTransport: 'copilot' | 'anthropic' | undefined;
+    /** The request id the stage waits for. */
+    expectedRequestId?: string;
+    /** This window's own answer-file stem ({@link windowAnswerFileStem}). */
+    windowFileStem: string;
+}
+
+export function answerFileClaim(input: AnswerFileClaimInput): AnswerFileClaim {
+    const stem = extractRequestIdFromAnswerFilename(input.fileName);
+    if (!stem) { return { claim: 'none', reason: 'not an answer file' }; }
+    if (input.stageTransport !== 'copilot') { return { claim: 'none', reason: 'the stage does not run on Copilot' }; }
+    const expected = input.expectedRequestId?.trim();
+    if (!expected) { return { claim: 'none', reason: 'the stage waits for no answer file' }; }
+    if (stem === expected) { return { claim: 'request' }; }
+    if (stem === input.windowFileStem) { return { claim: 'window' }; }
+    return { claim: 'none', reason: `another request's or another window's file (expected ${expected})` };
+}
+
+/** The whole rule: the stage owns the file by its name, or as this window's own file whose content names the expected request. */
+export function ownsAnswerFile(input: AnswerFileClaimInput, contentRequestId: string | undefined): boolean {
+    const c = answerFileClaim(input);
+    if (c.claim === 'request') { return true; }
+    if (c.claim === 'window') { return !!contentRequestId && contentRequestId.trim() === input.expectedRequestId?.trim(); }
+    return false;
+}
+
+/**
+ * The request id an answer file is for: its name's stem, except for a
+ * window-named file (`windowFileStem`, whose name is the window, not a
+ * request), whose id is taken from its content only.
+ */
+export function resolveDetectedRequestId(filenameRequestId?: string, contentRequestId?: string, windowFileStem?: string): DetectedRequestId {
+    if (filenameRequestId && windowFileStem && filenameRequestId.trim() === windowFileStem) {
+        filenameRequestId = undefined;
+    }
     if (filenameRequestId && filenameRequestId.trim().length > 0) {
         return { requestId: filenameRequestId.trim(), source: 'filename' };
     }

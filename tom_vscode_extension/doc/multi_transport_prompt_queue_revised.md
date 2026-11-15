@@ -274,6 +274,8 @@ Implementation: `isDirectTransport(item)` / `isDirectStage(item, stage)` guard i
 
 `pollForExpectedAnswer()` already skips items with no `expectedRequestId`. Defensive belt-and-suspenders: also skip any item where `transport === 'anthropic'` so a mis-constructed item can never be matched against an unrelated answer file.
 
+The watcher path applies the same rule as the polling path (`answerFileClaim` / `ownsAnswerFile` in `queueStep4Utils.ts`): every window sees every file of the shared answer folder, and a window takes one only for its own sending Copilot stage that waits for it (the stage in flight, its last dispatch, decides the transport: an Anthropic item's Copilot follow-up takes its file) — the file of that stage's request, or the window's own window-named file whose content names that request. Another window's file, an Anthropic stage and a stage without `expectedRequestId` take none; only a taken answer fires `onAnswerReceived`.
+
 ### 4.9 Trail integration
 
 No queue-side changes — transports own it.

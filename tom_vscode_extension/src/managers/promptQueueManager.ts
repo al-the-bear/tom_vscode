@@ -69,6 +69,10 @@ import {
     findMatchingAnswerFile,
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
+    windowAnswerFileStem,
+    answerFileClaim,
+    ownsAnswerFile,
+    type AnswerFileClaimInput,
 } from '../utils/queueStep4Utils';
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
@@ -1444,7 +1448,8 @@ export class PromptQueueManager {
         // is blanked for anthropic stages in dispatchStage, but an item
         // constructed by hand or revived from older state could still
         // carry a stale id. Skip it here so it can't drive a false match.
-        if (this.resolveStageTransport(sending).transport === 'anthropic') {
+        // The stage in flight decides (its last dispatch), as on the watcher path (qrfix2).
+        if (this.stageTransportOf(sending.id) === 'anthropic') {
             return;
         }
         const dir = this.answerDirectory;
@@ -1700,13 +1705,36 @@ export class PromptQueueManager {
         this._processingAnswerFile = true;
 
         try {
-        let sending = this._answerItem();
-        const filePath = changedFilePath || this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
-        logQueue(`Watching for answer at ${filePath}`);
+        const answerItem = this._answerItem();
+        const filePath = changedFilePath || this.getAnswerFilePathForRequestId(answerItem?.expectedRequestId);
         debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
-        if (!fs.existsSync(filePath)) { 
+
+        // The answer folder is shared by every window (qrfix2): a file is taken
+        // only by a sending Copilot stage of this window that waits for it —
+        // its request's file, or this window's own window-named file (checked
+        // against its content below). Anything else is ignored unread.
+        const fileName = path.basename(filePath);
+        const windowFileStem = windowAnswerFileStem(vscode.env.sessionId, vscode.env.machineId);
+        const claimInput = (i: QueuedPrompt): AnswerFileClaimInput => ({
+            fileName,
+            // The stage in flight (its last dispatch), else the item's: a Copilot follow-up of an Anthropic item takes its file.
+            stageTransport: this.stageTransportOf(i.id),
+            expectedRequestId: i.expectedRequestId,
+            windowFileStem,
+        });
+        const claimants = this._items
+            .filter(i => i.status === 'sending')
+            .map(i => ({ item: i, claim: answerFileClaim(claimInput(i)) }))
+            .filter((c) => c.claim.claim !== 'none');
+        if (claimants.length === 0) {
+            logQueue(`Ignoring answer file ${fileName}: no sending Copilot stage of this window waits for it`);
+            return;
+        }
+
+        logQueue(`Watching for answer at ${filePath}`);
+        if (!fs.existsSync(filePath)) {
             debugLog(`[PromptQueueManager] Answer file does not exist`, 'DEBUG', 'queue');
-            return; 
+            return;
         }
 
         let answer: Record<string, unknown> | undefined;
@@ -1739,43 +1767,33 @@ export class PromptQueueManager {
             debugLog(`[PromptQueueManager] Recovered requestId from invalid answer file: ${recoveredRequestId}`, 'WARN', 'queue');
         }
 
-        this._onAnswerReceived.fire(answer);
-
         const answerRequestId = (answer && typeof answer === 'object' && typeof (answer as any).requestId === 'string')
             ? String((answer as any).requestId)
             : undefined;
 
-        const filenameRequestId = extractRequestIdFromAnswerFilename(path.basename(filePath));
-        const detectedRequest = resolveDetectedRequestId(filenameRequestId, answerRequestId);
+        // A window-named file's request id comes from its content, never from its name.
+        const filenameRequestId = extractRequestIdFromAnswerFilename(fileName);
+        const detectedRequest = resolveDetectedRequestId(filenameRequestId, answerRequestId, windowFileStem);
         const resolvedAnswerRequestId = detectedRequest.requestId;
         if (detectedRequest.source !== 'none') {
             logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
         }
-        // Several lanes send at once (Queue per run): the answer belongs to the sending item that expects it.
-        if (resolvedAnswerRequestId) {
-            sending = this._items.find(i => i.status === 'sending' && i.expectedRequestId === resolvedAnswerRequestId) ?? sending;
-        }
 
-        // Strict sequencing and ownership:
-        // - only active sending item may process an answer
-        // - already-processed files are never processed again
-        // - expected requestId must match when present
+        // The owner: the claimant whose request this file answers (several lanes may send at once).
+        const sending = claimants.find((c) => ownsAnswerFile(claimInput(c.item), answerRequestId))?.item;
         if (!sending) {
-            logQueue(`No sending item found in queue — ignoring answer file without processing. Items: ${this._items.map(i => `${i.id.substring(0, 8)}:${i.status}`).join(', ')}`);
-            debugLog(`[PromptQueueManager] No sending item found in queue, ignoring without mutation: ${filePath}`, 'INFO', 'queue');
+            logQueue(`Ignoring answer file ${fileName}: its content names request ${answerRequestId ?? '(none)'}, which no sending Copilot stage of this window waits for`);
             return;
         }
 
+        // Already-processed files are never processed again.
         if (answerAlreadyProcessed) {
             debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
             return;
         }
 
-        if (sending.expectedRequestId && sending.expectedRequestId !== resolvedAnswerRequestId) {
-            logQueue(`Answer file not matching — expected ${sending.expectedRequestId}, got ${resolvedAnswerRequestId}`);
-            debugLog(`[PromptQueueManager] Ignoring answer with requestId=${resolvedAnswerRequestId}; waiting for expectedRequestId=${sending.expectedRequestId}`, 'DEBUG', 'queue');
-            return;
-        }
+        // Only an owned, new answer is announced (the reminder system cancels its reminders on it).
+        this._onAnswerReceived.fire(answer);
 
         // At this point the answer is relevant for the active sending item.
         if (resolvedAnswerRequestId) {

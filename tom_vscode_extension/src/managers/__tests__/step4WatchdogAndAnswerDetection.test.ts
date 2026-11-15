@@ -8,6 +8,9 @@ import {
     findMatchingAnswerFile,
     resolveDetectedRequestId,
     computeHealthCheckDecisions,
+    windowAnswerFileStem,
+    answerFileClaim,
+    ownsAnswerFile,
 } from '../../utils/queueStep4Utils.js';
 
 describe('Step 4 - Issue 7: requestId-based answer detection', () => {
@@ -44,6 +47,19 @@ describe('Step 4 - Issue 7: requestId-based answer detection', () => {
     test('findMatchingAnswerFile returns file with expected requestId prefix', () => {
         const match = findMatchingAnswerFile(['x_answer.json', 'req9_answer.json'], 'req9');
         assert.equal(match, 'req9_answer.json');
+    });
+
+    test('findMatchingAnswerFile matches the whole request id, not a prefix', () => {
+        assert.equal(findMatchingAnswerFile(['req10_answer.json'], 'req1'), undefined);
+        assert.equal(findMatchingAnswerFile(['req10_answer.json', 'req1_answer.json'], 'req1'), 'req1_answer.json');
+    });
+
+    test('resolveDetectedRequestId takes a window-named file\'s id from its content only', () => {
+        const stem = windowAnswerFileStem('87dae86e-aaaa', '89f7e0a0-bbbb');
+        assert.equal(stem, '87dae86e_89f7e0a0');
+        assert.deepEqual(resolveDetectedRequestId(stem, 'req-a', stem), { requestId: 'req-a', source: 'content' });
+        assert.deepEqual(resolveDetectedRequestId(stem, undefined, stem), { requestId: undefined, source: 'none' });
+        assert.deepEqual(resolveDetectedRequestId('req-b', 'req-a', stem), { requestId: 'req-b', source: 'filename' });
     });
 
     test('resolveDetectedRequestId prefers filename requestId over content requestId', () => {
@@ -108,5 +124,50 @@ describe('Step 4 - Issue 6: health check decisions', () => {
             nowMs,
         });
         assert.equal(d.shouldRestartWatcher, true);
+    });
+});
+
+describe('qrfix2: which window takes an answer file (the folder is shared by every window)', () => {
+    const own = windowAnswerFileStem('aaaaaaaa-1111', 'mmmmmmmm-2222');
+    const foreign = windowAnswerFileStem('bbbbbbbb-3333', 'mmmmmmmm-2222');
+    const copilot = (fileName: string, expectedRequestId?: string) => ({ fileName, stageTransport: 'copilot' as const, expectedRequestId, windowFileStem: own });
+
+    test('the request\'s own file: owned, by its name alone', () => {
+        assert.deepEqual(answerFileClaim(copilot('req-1_answer.json', 'req-1')), { claim: 'request' });
+        assert.equal(ownsAnswerFile(copilot('req-1_answer.json', 'req-1'), undefined), true);
+    });
+
+    test('another request\'s file: not owned', () => {
+        assert.equal(answerFileClaim(copilot('req-2_answer.json', 'req-1')).claim, 'none');
+        assert.equal(ownsAnswerFile(copilot('req-2_answer.json', 'req-1'), 'req-1'), false);
+    });
+
+    test('this window\'s own window-named file: owned only when its content names the expected request', () => {
+        assert.deepEqual(answerFileClaim(copilot(`${own}_answer.json`, 'req-1')), { claim: 'window' });
+        assert.equal(ownsAnswerFile(copilot(`${own}_answer.json`, 'req-1'), 'req-1'), true);
+        assert.equal(ownsAnswerFile(copilot(`${own}_answer.json`, 'req-1'), 'req-9'), false, 'content id mismatch');
+        assert.equal(ownsAnswerFile(copilot(`${own}_answer.json`, 'req-1'), undefined), false, 'no content id');
+    });
+
+    test('another window\'s window-named file: never owned, whatever its content says', () => {
+        assert.equal(answerFileClaim(copilot(`${foreign}_answer.json`, 'req-1')).claim, 'none');
+        assert.equal(ownsAnswerFile(copilot(`${foreign}_answer.json`, 'req-1'), 'req-1'), false);
+    });
+
+    test('a stage that waits for no answer file takes none', () => {
+        assert.equal(answerFileClaim(copilot(`${own}_answer.json`, undefined)).claim, 'none');
+        assert.equal(answerFileClaim(copilot(`${foreign}_answer.json`, '')).claim, 'none');
+        assert.equal(ownsAnswerFile(copilot('req-1_answer.json', undefined), 'req-1'), false);
+    });
+
+    test('an Anthropic stage takes none, even with a (stale) expected id', () => {
+        const input = { fileName: 'req-1_answer.json', stageTransport: 'anthropic' as const, expectedRequestId: 'req-1', windowFileStem: own };
+        assert.equal(answerFileClaim(input).claim, 'none');
+        assert.equal(ownsAnswerFile(input, 'req-1'), false);
+        assert.equal(answerFileClaim({ ...input, stageTransport: undefined }).claim, 'none');
+    });
+
+    test('a file that is no answer file is not claimed', () => {
+        assert.equal(answerFileClaim(copilot('req-1.json', 'req-1')).claim, 'none');
     });
 });
