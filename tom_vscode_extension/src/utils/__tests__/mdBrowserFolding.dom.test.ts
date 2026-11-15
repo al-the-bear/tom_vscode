@@ -12,9 +12,13 @@
  *   MF-8  <details> blocks keep their content inside them (rendered as one group)
  *   MF-9  a large document renders in linear time, in batches that yield to the event loop; it is
  *         lexed in parts, and its blocks keep their file lines across the parts. Linear time is measured
- *         as a ratio, not a wall-clock limit (vscimpa16): twice the document may take at most 3x the time
- *         (the sizes interleaved, each the faster of two runs), so a busy machine slows both sides alike
- *         while a quadratic render (4x) still fails; MF-9b checks the rule on counted linear and quadratic work
+ *         as a ratio, not a limit (vscimpa16): twice the document may take at most 3x the time. The time is
+ *         this process's CPU time, not wall-clock time (qrfix7: a full npm test after two installs measured
+ *         3.40x on the wall clock): the sizes interleaved for three rounds, the least time of each size
+ *         compared, and a ratio at the bound measured once more (the lower counts)
+ *   MF-9b the rule tells linear from quadratic: on counted work, and measured — the real renderer made
+ *         quadratic (work per marked.parser call in proportion to the calls before it) fails the check
+ *   MF-9c the check holds on a busy machine: a CPU burner on every core for the whole measurement
  *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
  *   MF-11 a heading's +/- open / collapse every section of its level inside its parent section (vscimpb100):
  *         other sections and levels keep their flags, a collapsed section opens with its siblings, the buttons
@@ -23,7 +27,9 @@
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { transformMarkdown } from '../markdownHeadings.js';
@@ -69,6 +75,89 @@ const toggle = (window: Win, text: string): void => heading(window, text).queryS
 
 /** Twice the work in at most this many times the time: linear is about 2, quadratic about 4. */
 const LINEAR_RATIO = 3;
+
+/** A large document: `sections` level-2 sections of one paragraph each. */
+const largeDoc = (sections: number): string => {
+    const parts: string[] = [];
+    const filler = 'the quick brown fox jumps over the lazy dog and keeps on running past the fence';
+    for (let i = 0; i < sections; i++) { parts.push(`## Section ${i}`, '', `text ${i} ${filler}`, ''); }
+    return parts.join('\n');
+};
+
+/** Where injected busy work leaves its result, so it is not optimised away. */
+let burnSink = 0;
+
+/** CPU burners in other processes: one per core (every core busy), until stopped. */
+function startBurners(): () => void {
+    const kids = Array.from({ length: availableParallelism() }, () => spawn(process.execPath, ['-e', 'for(;;){}'], { stdio: 'ignore' }));
+    return () => { for (const k of kids) { k.kill('SIGKILL'); } };
+}
+
+/**
+ * Render a large document in a fresh window until it is done. Timed as this process's CPU time
+ * (process.cpuUsage), not wall-clock time: the waits between the render's batches and the turns other
+ * processes get on a busy machine are not counted.
+ */
+async function renderTimed(sections: number, patch?: (w: Win) => void, expectBatches = false): Promise<{ ms: number; wallMs: number; w: Win }> {
+    const w = setup();
+    patch?.(w);
+    const text = largeDoc(sections);
+    const area = w.document.getElementById('contentArea');
+    const cpu = process.cpuUsage();
+    const started = performance.now();
+    show(w, text);
+    if (expectBatches) { assert.equal(area.getAttribute('aria-busy'), 'true', 'not done in one task: the window gets turns'); }
+    while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
+    const used = process.cpuUsage(cpu);
+    return { ms: (used.user + used.system) / 1000, wallMs: performance.now() - started, w };
+}
+
+interface RatioOptions {
+    rounds?: number;
+    /** Changes each window before it renders. */
+    patch?: (w: Win) => void;
+    /** Asserts the render yields between batches (a large document). */
+    expectBatches?: boolean;
+}
+
+/**
+ * How much longer twice the document takes: the sizes interleaved (n, 2n, n, 2n, …) for `rounds` rounds (default
+ * 3), the least CPU time of each size compared, so a burst of load on one run does not decide it. Answers the
+ * ratio, a message naming both sizes' times, and the last window of the larger size (the caller closes it).
+ */
+async function measureRatio(n: number, opts: RatioOptions = {}): Promise<{ ratio: number; message: string; window: Win }> {
+    const once: Array<{ ms: number; wallMs: number }> = [];
+    const twice: Array<{ ms: number; wallMs: number }> = [];
+    let window: Win;
+    for (let r = 0; r < (opts.rounds ?? 3); r++) {
+        const small = await renderTimed(n, opts.patch, opts.expectBatches);
+        small.w.close();
+        once.push(small);
+        const large = await renderTimed(2 * n, opts.patch, opts.expectBatches);
+        window?.close();
+        window = large.w;
+        twice.push(large);
+    }
+    const least = (xs: Array<{ ms: number }>): number => Math.min(...xs.map((x) => x.ms));
+    const ratio = least(twice) / least(once);
+    const wall = Math.min(...twice.map((x) => x.wallMs)) / Math.min(...once.map((x) => x.wallMs));
+    const message = `twice the document took ${ratio.toFixed(2)}x the CPU time (${least(once).toFixed(0)} ms for ${n} sections, `
+        + `${least(twice).toFixed(0)} ms for ${2 * n}; wall-clock ${wall.toFixed(2)}x); linear is about 2, quadratic about 4`;
+    return { ratio, message, window };
+}
+
+/**
+ * The linear-time check: {@link measureRatio}, and when the ratio reaches {@link LINEAR_RATIO} it is measured
+ * once more and the lower of the two counts — a quadratic render fails both, a burst of load seldom hits both.
+ */
+async function linearCheck(n: number, opts: RatioOptions = {}): Promise<{ ratio: number; message: string; window: Win }> {
+    const first = await measureRatio(n, opts);
+    if (first.ratio < LINEAR_RATIO) { return first; }
+    const again = await measureRatio(n, opts);
+    const better = again.ratio < first.ratio ? again : first;
+    (better === again ? first : again).window.close();
+    return { ...better, message: `${better.message} (measured twice: ${first.ratio.toFixed(2)}x, then ${again.ratio.toFixed(2)}x)` };
+}
 
 describe('Markdown Browser folding', () => {
     test('MF-1: a triangle per heading; folding hides the section', () => {
@@ -171,55 +260,62 @@ describe('Markdown Browser folding', () => {
         assert.ok(!w.document.querySelector('details') .open, 'collapsed, as written');
     });
 
-    test('MF-9: a large document renders in linear time, in batches', async () => {
-        const doc = (sections: number): string => {
-            const parts: string[] = [];
-            const filler = 'the quick brown fox jumps over the lazy dog and keeps on running past the fence';
-            for (let i = 0; i < sections; i++) { parts.push(`## Section ${i}`, '', `text ${i} ${filler}`, ''); }
-            return parts.join('\n');
-        };
-        /** Render a document in a fresh window; the time until it is done, and the window. */
-        const render = async (sections: number): Promise<{ ms: number; w: Win }> => {
-            const w = setup();
-            const text = doc(sections);
-            const area = w.document.getElementById('contentArea');
-            const started = performance.now();
-            show(w, text);
-            assert.equal(area.getAttribute('aria-busy'), 'true', 'not done in one task: the window gets turns');
-            while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
-            return { ms: performance.now() - started, w };
-        };
+    test('MF-9: a large document renders in linear time, in batches', async (t) => {
         const N = 2000;
-        assert.ok(doc(N).length > 200000, 'both sizes are large documents: lexed in parts, laid out lazily');
-        // Interleaved (N, 2N, N, 2N) and the faster run of each size: a busy machine, or a move to another
-        // CPU core, then slows both sizes alike instead of one.
-        const runs = [await render(N), await render(2 * N), await render(N), await render(2 * N)];
-        const fastest = (a: { ms: number; w: Win }, b: { ms: number; w: Win }): { ms: number; w: Win } => (a.ms <= b.ms ? a : b);
-        const once = fastest(runs[0], runs[2]);
-        const twice = fastest(runs[1], runs[3]);
-
-        const w = twice.w;
+        assert.ok(largeDoc(N).length > 200000, 'both sizes are large documents: lexed in parts, laid out lazily');
+        const m = await linearCheck(N, { expectBatches: true });
+        const w = m.window;
         assert.equal(w.document.querySelectorAll('.mdb-fold-btn').length, 2 * N);
         const lastTitle = `Section ${2 * N - 1}`;
         assert.equal(heading(w, lastTitle).dataset.foldKey, `2|${lastTitle}#1`);
         const last = heading(w, lastTitle).closest('.mdb-block');
         assert.equal(last.__mdbBlock.startLine, 4 * (2 * N - 1), 'file lines hold across the lexed parts');
-
-        const ratio = twice.ms / once.ms;
-        assert.ok(ratio < LINEAR_RATIO,
-            `twice the document took ${ratio.toFixed(2)}x the time (${once.ms.toFixed(0)} ms for ${N} sections, `
-            + `${twice.ms.toFixed(0)} ms for ${2 * N}); linear is about 2, quadratic about 4`);
+        w.close();
+        t.diagnostic(m.message);
+        assert.ok(m.ratio < LINEAR_RATIO, m.message);
     });
 
-    test('MF-9b: the ratio rule tells linear from quadratic', () => {
-        // Counted work, not timed (a timed micro-benchmark measures the CPU's moods): a linear render does
-        // twice the work for twice the document, a quadratic one four times — the rule passes the first
-        // and fails the second whatever the machine.
+    test('MF-9b: the ratio rule tells linear from quadratic', async (t) => {
+        // Counted work: a linear render does twice the work for twice the document, a quadratic one four times.
         const work = { linear: (n: number): number => 3 * n + 40, quadratic: (n: number): number => n * n / 2 + 3 * n };
         for (const n of [2000, 4000, 12000]) {
             assert.ok(work.linear(2 * n) / work.linear(n) < LINEAR_RATIO, `linear passes at ${n}`);
             assert.ok(work.quadratic(2 * n) / work.quadratic(n) >= LINEAR_RATIO, `quadratic fails at ${n}`);
         }
+        // Measured: the real renderer made quadratic — each marked.parser call (one per token group) does work in
+        // proportion to the calls before it — fails the same measurement MF-9 passes.
+        const quadratic = (w: Win): void => {
+            let calls = 0;
+            const parser = w.marked.parser;
+            w.marked.parser = function (this: unknown, ...args: unknown[]): unknown {
+                calls++;
+                let x = 0;
+                for (let i = 0, n = calls * 300; i < n; i++) { x = (x * 31 + i) | 0; }
+                burnSink ^= x;
+                return parser.apply(this, args);
+            };
+        };
+        const m = await linearCheck(250, { patch: quadratic });
+        m.window.close();
+        t.diagnostic(`quadratic: ${m.message}`);
+        assert.ok(m.ratio >= LINEAR_RATIO, `a quadratic render must fail the check: ${m.message}`);
+    });
+
+    test('MF-9c: the check holds on a busy machine', async (t) => {
+        // Other processes keep every core busy (a CPU burner per core) for the whole measurement. The render's
+        // batches then wait for their turns, which wall-clock time counts (on mbp it measured anywhere from 1.7x
+        // to 4.9x like this) and this process's own CPU time does not.
+        const stop = startBurners();
+        let m: { ratio: number; message: string; window: Win };
+        try {
+            await new Promise((res) => setTimeout(res, 200));
+            m = await linearCheck(1000);
+        } finally {
+            stop();
+        }
+        m.window.close();
+        t.diagnostic(`under load: ${m.message}`);
+        assert.ok(m.ratio < LINEAR_RATIO, `under load: ${m.message}`);
     });
 
     test('MF-10: sections', () => {
