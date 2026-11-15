@@ -210,6 +210,14 @@ export interface QueuePromptYaml {
     'background-wait'?: unknown;
     /** What a turn of the sending item waits for in tomAi_waitFor (src/utils/waitFor.ts): reason, details, since, until. */
     'waiting-for'?: unknown;
+    /** Interrupt for continuation, soft (vscimpb112): the request, the held tool result. */
+    'soft-interrupt'?: unknown;
+    /** The conversation the item's current turn runs in (Agent SDK session id). */
+    'turn-session-id'?: string;
+    /** The resend after a hard interrupt or a lost turn carries the interrupted note. */
+    'interrupt-note'?: boolean;
+    /** The conversation a soft interrupt held (direct API / Local LLM), for a restart. */
+    'held-conversation-file'?: string;
 }
 
 /** File-level metadata block. Allows arbitrary additional properties. */

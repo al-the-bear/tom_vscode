@@ -789,45 +789,141 @@ of side effects.
 #### Interrupt for continuation
 
 The third interruption is external: the user has to pull the plug — the
-network is about to go away — and wants the running rep to *run again* once it
-is back; neither a fresh restart (**Stop**, which reverts to `staged`) nor a
-finish-first (**Pause**, which lets the in-flight rep complete). The toolbar's
+network is about to go away, the machine is about to sleep — and wants the
+running prompt to go on, or run again, once it is back; neither a fresh
+restart (**Stop**, which reverts to `staged`) nor a finish-first (**Pause**,
+which lets the in-flight rep complete). The toolbar's
 `codicon-debug-disconnect` button, and the same icon on the running item's row,
-call `interruptActiveItemForContinuation`:
+call `interruptActiveItemForContinuation(id?, run?, { hard? })`. It is **soft
+first** (vscimpb112):
 
-- The in-flight dispatch is cancelled exactly as Stop does
-  (`_cancelActiveDispatch` — epoch bump, CTS cancel, approval awaiters
-  released), so the owning frame stands down instead of erroring or advancing.
-- The item moves to **`interrupted`** via the pure `applyInterruptForContinuation`.
-  Its cursor is left untouched — counters, pre-prompt statuses, `followUpIndex`
-  and `lastDispatched` all survive — and only transient send-tracking is
-  cleared (answer-file expectation, reminders, a stale error). There is no
-  counter rollback: the loop bumped it before the send, so it already names the
-  interrupted rep, and the resume path replays that rep's frozen text.
-- **Auto-send is switched off** — not merely paused: the pause gate only
-  refuses the *next* rep, and here nothing may go out until re-armed.
+- **Soft interrupt.** `SoftInterruptRegistry.request(itemId, onTimeout)`
+  (`src/services/softInterrupt.ts`, vscode-free) asks the turn's next hold
+  point to hold the result of its next tool call: the result is not handed
+  back to the model, so the turn stays open the way it stays open while a
+  `tomAi_askUser` question waits, and no API request is in flight while it is
+  held — the hold needs no network. The run's auto-send goes off
+  (`_pauseRunOf`). The hold points call `holdAt(currentQueueItemId(), tool,
+  result, extras?)`, which answers at once unless a soft interrupt of that item
+  is requested:
+  - Agent SDK: the extension's tools in their MCP handlers (`heldAtResult`,
+    `agent-sdk-transport.ts`), Claude Code's built-ins through a `PostToolUse`
+    hook that awaits the release (`softInterruptHoldHook` / `withSoftInterruptHold`,
+    `utils/agentSdkQueueRun.ts`; queue runs only, a 30-day hook timeout,
+    the extension's own `mcp__tom-ai__*` tools passed), and the built-in
+    `AskUserQuestion` where `canUseTool` answers it;
+  - direct API, Local LLM and VS Code LM: the tool loop in
+    `anthropic-handler.ts`, after the round's tool results and before they go
+    into the next request. The direct API and Local LLM loops hand over the
+    conversation up to and including the held results (`extras.conversation`),
+    which the manager saves to `<queue folder>/held/<item>.conversation.json`
+    (`heldConversationFile`).
+- **The wait.** Nothing held within `SOFT_INTERRUPT_TIMEOUT_MS` (15 s, counted
+  from the press): `_softInterruptTimedOut` — a turn waiting in an ask* tool
+  (`AskUserRegistry.pendingForQueueItem`, `waitingForUserOf`) or in
+  `tomAi_waitFor` (`item.waitingFor`) counts as held (`markHeld`, kind
+  `question` / `wait`; the question stays open, the wait goes on), any other —
+  a tool still running, text without a tool call — gets the hard interrupt. A
+  turn already waiting in either when the button is pressed is held at once.
+  An answer given while the item is held is accepted: it passes the hold point
+  of its tool and is kept until the release.
+- **The turn ends within the wait**: `dispatchStage` clears the request; the
+  stage is done and the run stays paused — nothing held, nothing resent.
+- **Between two stages** (the item is `sending` but no dispatch is live): the
+  press only pauses the run; the next stage goes out on resume.
+- **Release.** Re-arming the run's auto-send (`_onRunResumed` →
+  `_releaseHeldItems`, before the interrupted-item resume), Continue's
+  **Resume** (`resumeHeldItem`, which switches auto-send back on) or
+  Telegram's `continue` (the same auto-send) releases the held result: the
+  turn goes on where it stopped, nothing is resent. A result held longer than
+  a minute starts with `[This result was held for <duration> by the user's
+  interrupt for continuation.]` (`heldForLine`; on the Agent SDK's built-ins it
+  goes to the model as the hook's additional context).
+- **Hard interrupt** — a second click (toolbar or row, within the wait or once
+  held), Continue's **Hard interrupt**, the wait running out, or a Copilot item
+  (no hold point; the button's tooltip says so) — is `_hardInterrupt`: the
+  in-flight dispatch is cancelled exactly as Stop does (`_cancelActiveDispatch`
+  — epoch bump, CTS cancel, approval awaiters released, the soft interrupt
+  cleared and a waiting hold point let go), the todo claim released, and the
+  item moves to **`interrupted`** via the pure
+  `applyInterruptForContinuation`. Its cursor is left untouched — counters,
+  pre-prompt statuses, `followUpIndex` and `lastDispatched` all survive — and
+  only transient send-tracking is cleared (answer-file expectation, reminders, a
+  stale error). There is no counter rollback: the loop bumped it before the
+  send, so it already names the interrupted rep, and the resume path replays
+  that rep's frozen text. The item gets `interruptNote`, keeps what a soft
+  interrupt held (`softInterrupt.heldResult`), and auto-send of its run is
+  switched off — not merely paused: the pause gate only refuses the *next* rep,
+  and here nothing may go out until re-armed.
+- **A lost turn** — the SDK process ends (`dispatchStage` catches the error of
+  a soft-interrupted item whose CTS was not cancelled: `_softTurnLost`), or a
+  reload / extension-host restart during the wait or while held (crash
+  recovery: a `sending` item with `softInterrupt` becomes `interrupted` with
+  `interruptNote`, and `_pauseLostSoftRuns` pauses its run once the run
+  settings are read, after Auto-Start) — leaves the item `interrupted` and its
+  run paused.
+
+The item records the soft interrupt as `softInterrupt` (`requestedAt`,
+`heldAt`, `kind`, `tool`, `heldResult` cut at 20 000 characters; YAML
+`soft-interrupt`), the conversation its turn runs in as `turnSessionId` (the
+Agent SDK session id from the turn's first message, `onTurnSessionId`; YAML
+`turn-session-id`), `interruptNote` (`interrupt-note`) and
+`heldConversationFile` (`held-conversation-file`).
 
 Re-arming auto-send — the play toggle, Auto-Start on load, or Auto-Continue's
-timer — runs `pickInterruptedResume` before any paused or pending work. With a
-`lastDispatched` snapshot the item is replayed through `resendLastPrompt` (same
-expanded text, counters untouched, then the loop advances naturally); without
-one (cancelled before any stage went out) it simply re-enters the backlog as
-`pending`. `sendNext` carries the same hook, guarded by auto-send, so a drain
-that does not come through the setter — a manually-sent item completing —
-resumes it too. While another item is `sending` the resume waits.
+timer — releases held items first, then runs `pickInterruptedResume` before any
+paused or pending work. With a `lastDispatched` snapshot the item is replayed
+through `resendLastPrompt` (same expanded text, counters untouched, then the
+loop advances naturally); without one (cancelled before any stage went out) it
+simply re-enters the backlog as `pending`. `sendNext` carries the same hook,
+guarded by auto-send, so a drain that does not come through the setter — a
+manually-sent item completing — resumes it too. While another item is
+`sending` the resume waits. **A resend after a hard interrupt or a lost turn**
+(`interruptNote`, also the row's Resend) starts with `RESEND_INTERRUPTED_NOTE`
+plus, when a tool result was held, `The result of your last tool call <tool>
+was: <result>` (`heldResultResendLine`), and continues the very conversation
+the turn ran in: `continueSessionId` = `turnSessionId`, which `sendMessage`
+resumes without a fork whatever the session's lifetime (per-prompt and
+per-iteration continue that prompt's own copy; whether the session file
+records it follows the lifetime as for every send). A held direct-API or Local
+LLM turn lost to a restart is not resent: `resendLastPrompt` reads the saved
+conversation (`prefixHeldConversation` puts the held-for line before its tool
+result) and dispatches it as `resumeConversation`, which the loop takes in
+place of a new prompt — the turn continues exactly where it stopped.
 
 Replaying the byte-identical text rather than re-expanding the prompt is
 deliberate: re-expansion could resolve `${todo}` to a different todo than the
 one the interrupted rep had claimed.
 
-The row is labelled **`INTERRUPTED — RESENDS ON RESUME`** and offers **Resend**
-(replay now, without re-arming) and **Move back to Staged** (abandon the
-continuation — the same reset as stopping). `interrupted` → `pending` is not a
-sanctioned transition — it would re-dispatch with the counter one ahead and
-skip the rep — so `setStatus` refuses it. `restartQueue` only resets `sending`
-and leaves a held item alone; crash recovery likewise, so the state survives a
-window reload. The status is enumerated in `queue-entry.schema.json` and on the
-MCP `listQueue` surface; a Telegram command and an MCP trigger are deferred.
+The row of a soft-interrupted item says **`INTERRUPTING`** (a spinning icon; the
+tooltip the seconds left to the hard interrupt) and then **`HELD`**
+(`codicon-debug-disconnect`; *held since 14:05 at the result of <tool>*); after
+the first click the button shows `codicon-debug-stop` with *Soft interrupt
+requested — click again for a hard interrupt now*. A hard-interrupted row is
+labelled **`INTERRUPTED — RESENDS ON RESUME`** and offers **Resend** (replay now,
+without re-arming) and **Move back to Staged** (abandon the continuation — the
+same reset as stopping). Continue on a held item offers **Resume** and **Hard
+interrupt** only. `interrupted` → `pending` is not a sanctioned transition — it
+would re-dispatch with the counter one ahead and skip the rep — so `setStatus`
+refuses it. `restartQueue` only resets `sending` and leaves a held item alone.
+The status is enumerated in `queue-entry.schema.json` and on the MCP
+`listQueue` surface.
+
+**What the run tabs and the status bar show.** A run tab's state
+(`runTabState`, `media/queueEditor/main.js`) takes this precedence: **held**
+(`codicon-debug-disconnect`) > **answer needed** (a red ❓, the turn waits for the
+user's answer) > **waiting in `tomAi_waitFor`** (⏳, a state of its own, not
+`sending`) > **sending** > **paused** (`codicon-debug-pause`: auto-send off, or a
+hard-interrupted item) > **waiting** (`codicon-clock`: pending items) > **idle**;
+the tab's tooltip gives the text (held since … at the result of …; the
+question's first line and since when; the wait's reason, until, time left and
+since when). The row shows the same states (`❓ ANSWER NEEDED`, `⏳ WAITING UNTIL
+14:20`). The host builds the views (`softInterruptViewOf`, `questionView`,
+`interruptTransport` in `queueEditor-handler.ts`). The queue's status bar item
+shows the window's run with the same icon and word (`runStatusBarText`,
+`utils/queueRunStatus.ts`): `$(debug-disconnect) held: Bash`,
+`$(loading~spin) interrupting`, `❓ answer needed`, `⏳ until 14:20`. No other
+notification is given.
 
 #### Backoff retry, deferred start, and idle signalling
 

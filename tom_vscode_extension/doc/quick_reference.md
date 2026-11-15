@@ -265,7 +265,7 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | --- | --- | --- |
 | Restart Queue | `codicon-debug-restart` | Reset stuck `sending` items to pending |
 | Stop | `codicon-debug-stop` | Cancel the running prompt, revert it to Staged |
-| Interrupt for continuation | `codicon-debug-disconnect` | Cancel now, hold the current repetition, resend it when auto-send is re-enabled |
+| Interrupt for continuation | `codicon-debug-disconnect` | Soft first: hold the next tool result (the turn goes on when auto-send is re-enabled); a hard interrupt after 15 s without one, on a second click (`codicon-debug-stop`) or for a Copilot prompt — the repetition is resent with a note |
 
 ### Queue Entry Statuses
 

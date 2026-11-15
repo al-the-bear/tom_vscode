@@ -107,6 +107,9 @@ function renderEntry(item, idx) {
   if (isInterrupted) {
     statusLabel = 'INTERRUPTED — RESENDS ON RESUME';
   }
+  // Interrupt for continuation, soft (vscimpb112), and what else holds a running turn: a state of its own each.
+  var softLabel = isSending ? softInterruptRowLabel(item) : '';
+  if (softLabel) { statusLabel = softLabel; }
 
   // Green→amber header for the head-of-queue item. The queue is "active" while
   // it will proceed on its own (auto-send on) OR a prompt is genuinely in
@@ -368,7 +371,7 @@ function renderEntry(item, idx) {
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Interrupt and move to Staged"></span>' : '') +
           // Interrupt for continuation — the disconnect icon: stop now, but hold
           // this exact rep and resend it when auto-send is re-enabled.
-          (isSending ? '<span class="codicon codicon-debug-disconnect" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="Interrupt for continuation (stop now; this prompt is resent when auto-send is re-enabled)"></span>' : '') +
+          (isSending ? '<span class="codicon ' + (item.softInterruptView ? 'codicon-debug-stop' : 'codicon-debug-disconnect') + '" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="' + escapeHtml(interruptButtonTitle(item)) + '"></span>' : '') +
           (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
@@ -1067,4 +1070,78 @@ function renderFollowUps(item, status) {
     '</div>' +
     '<div class="followup-list">' + rows + (followUps.length === 0 ? '<div style="opacity:0.75;font-size:0.8em;">No follow-up prompts yet.</div>' : '') + '</div>' +
   '</div>';
+}
+
+/* ---- Interrupt for continuation, soft (vscimpb112) ----------------------- */
+
+/** `14:05` of an epoch-ms time. */
+function softClock(ms) {
+  var d = new Date(ms);
+  if (isNaN(d.getTime())) { return ''; }
+  var p = function(n) { return (n < 10 ? '0' : '') + n; };
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+/** `14:05:30` of an epoch-ms time. */
+function softClockSeconds(ms) {
+  var d = new Date(ms);
+  if (isNaN(d.getTime())) { return ''; }
+  var p = function(n) { return (n < 10 ? '0' : '') + n; };
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
+/** What a sending item's soft interrupt says: the request (seconds left) or the hold (since when, at what). */
+function softInterruptText(view, now) {
+  if (!view) { return ''; }
+  if (view.phase === 'requested') {
+    var hardAt = view.requestedAt + (view.timeoutMs || 15000);
+    var left = Math.max(0, Math.ceil((hardAt - (now === undefined ? Date.now() : now)) / 1000));
+    return 'Soft interrupt requested: the next tool result is held; hard interrupt in ' + left + ' s (at ' + softClockSeconds(hardAt) + ') unless it is held';
+  }
+  var at = view.kind === 'question' ? 'while it waits for your answer'
+    : view.kind === 'wait' ? 'while it waits in tomAi_waitFor'
+    : 'at the result of ' + (view.tool || 'a tool');
+  return 'held since ' + softClock(view.heldAt) + ' ' + at;
+}
+
+/** The first line of the question a turn waits in, and since when. */
+function questionText(item) {
+  var q = item.questionView;
+  if (!q) { return 'The running prompt waits for your answer'; }
+  return 'Answer needed: ' + q.firstLine + ' (since ' + q.since + ')';
+}
+
+/** `reason, until 14:20 (1 h 5 min left), since 13:10` of a turn waiting in tomAi_waitFor. */
+function waitForText(view) {
+  if (!view) { return ''; }
+  var since = view.since ? softClock(Date.parse(view.since)) : '';
+  return view.reason + ', until ' + view.untilLabel + ' (' + String(view.left || '').replace(/^until [^(]*\(/, '').replace(/\)$/, '') + ')' + (since ? ', since ' + since : '');
+}
+
+/** The row's state label of a sending item a soft interrupt, a question or a wait holds; '' when none does. */
+function softInterruptRowLabel(item) {
+  var view = item.softInterruptView;
+  if (view && view.phase === 'requested') {
+    return '<span class="soft-interrupt-label" title="' + escapeHtml(softInterruptText(view)) + '"><span class="codicon codicon-loading codicon-modifier-spin"></span> INTERRUPTING</span>';
+  }
+  if (view && view.phase === 'held') {
+    return '<span class="soft-interrupt-label held" title="' + escapeHtml(softInterruptText(view) + ' — resume (auto-send on, or Continue → Resume) to go on') + '"><span class="codicon codicon-debug-disconnect"></span> HELD</span>';
+  }
+  if (Array.isArray(item.waitingForUser) && item.waitingForUser.indexOf('question') >= 0) {
+    return '<span class="answer-needed-label" title="' + escapeHtml(questionText(item)) + '"><span class="answer-needed-icon" style="color:#e51400;">\u2753</span> ANSWER NEEDED</span>';
+  }
+  if (item.waitForView) {
+    return '<span class="wait-for-label" title="' + escapeHtml(waitForText(item.waitForView)) + '">\u23f3 WAITING UNTIL ' + escapeHtml(String(item.waitForView.untilLabel)).toUpperCase() + '</span>';
+  }
+  return '';
+}
+
+/** The Interrupt for continuation button's tooltip for `item` (toolbar and row). */
+function interruptButtonTitle(item) {
+  if (item && item.softInterruptView) { return 'Soft interrupt requested — click again for a hard interrupt now'; }
+  var transport = item && (item.interruptTransport || (item.lastDispatched && item.lastDispatched.transport) || item.transport);
+  if (transport !== 'anthropic') {
+    return 'Interrupt for continuation: a Copilot prompt has no hold point — it is interrupted at once (hard) and resent when auto-send is re-enabled';
+  }
+  return 'Interrupt for continuation: soft first — the next tool result is held and the turn goes on where it stopped when auto-send is re-enabled; a hard interrupt after 15 s without a hold point, or on a second click';
 }

@@ -17,6 +17,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
+import { SOFT_INTERRUPT_TIMEOUT_MS, type SoftInterruptState } from '../services/softInterrupt';
 import type { LaneSummary } from '../utils/queueLanes';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
@@ -1168,6 +1169,37 @@ function waitingForUserOf(item: QueuedPrompt): UserWaitKind[] | undefined {
     } catch { return undefined; }
 }
 
+/** What the editor shows of a sending item's soft interrupt (vscimpb112): requested (with its timeout) or held. */
+export function softInterruptViewOf(item: QueuedPrompt): { phase: 'requested' | 'held'; requestedAt: number; timeoutMs: number; heldAt?: number; kind?: string; tool?: string } | undefined {
+    if (item.status !== 'sending') { return undefined; }
+    let state: SoftInterruptState | undefined;
+    try { state = PromptQueueManager.instance.softInterruptOf(item.id); } catch { state = undefined; }
+    state ??= item.softInterrupt;
+    if (!state) { return undefined; }
+    return {
+        phase: state.heldAt !== undefined ? 'held' : 'requested',
+        requestedAt: state.requestedAt,
+        timeoutMs: SOFT_INTERRUPT_TIMEOUT_MS,
+        ...(state.heldAt !== undefined ? { heldAt: state.heldAt } : {}),
+        ...(state.kind ? { kind: state.kind } : {}),
+        ...(state.tool ? { tool: state.tool } : {}),
+    };
+}
+
+/** The question a sending item's turn waits in: its first line and since when (the ❓ tooltip, vscimpb112). */
+function questionViewOf(item: QueuedPrompt): { firstLine: string; since: string } | undefined {
+    if (item.status !== 'sending') { return undefined; }
+    try {
+        const q = PromptQueueManager.instance.pendingQuestionOf(item.id);
+        return q ? { firstLine: q.firstLine || '(a question)', since: new Date(q.askedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : undefined;
+    } catch { return undefined; }
+}
+
+/** The transport of a sending item's stage. */
+function stageTransportOf(item: QueuedPrompt): string | undefined {
+    try { return PromptQueueManager.instance.stageTransportOf(item.id); } catch { return item.lastDispatched?.transport ?? item.transport; }
+}
+
 /** The question a sending item's turn waits in: when it was asked, as a label. */
 function pendingQuestionLabelOf(item: QueuedPrompt): string | undefined {
     if (item.status !== 'sending') { return undefined; }
@@ -1197,6 +1229,18 @@ function letNextGoFirstStateOf(item: QueuedPrompt): { canLetNextGoFirst?: boolea
 export async function continueWithChoice(qm: PromptQueueManager, id: string): Promise<void> {
     const item = qm.getById(id);
     if (!item || item.status !== 'sending') { return; }
+    // A held item (vscimpb112): Resume or Hard interrupt, nothing else.
+    const soft = qm.softInterruptOf(id) ?? item.softInterrupt;
+    if (soft) {
+        const choice = await vscode.window.showWarningMessage(
+            soft.heldAt !== undefined ? 'The prompt is held for continuation.' : 'A soft interrupt is requested for this prompt.',
+            { modal: true, detail: 'Resume: the held result goes back to the turn and it goes on where it stopped (auto-send of its run comes back on). Hard interrupt: the turn ends now; the prompt is resent, with a note, when auto-send is re-enabled.' },
+            'Resume', 'Hard interrupt',
+        );
+        if (choice === 'Resume') { qm.resumeHeldItem(id); }
+        if (choice === 'Hard interrupt') { qm.interruptActiveItemForContinuation(id, undefined, { hard: true }); }
+        return;
+    }
     const question = qm.pendingQuestionOf(id);
     const walk = walkPrefixOf(item) !== undefined;
     const background = qm.backgroundWaitOf(id);
@@ -1463,6 +1507,11 @@ function buildState(): Record<string, unknown> {
                 ...(backgroundWaitViewOf(item) ? { backgroundWaitView: backgroundWaitViewOf(item) } : {}),
                 // Its turn waits in tomAi_waitFor: the reason, until when, how long is left (vscimpb82).
                 ...(waitForViewOf(item) ? { waitForView: waitForViewOf(item) } : {}),
+                // Interrupt for continuation (vscimpb112): the soft interrupt's request or hold, the question its
+                // turn waits in (the ❓ tooltip), and the transport (a Copilot item has no hold point).
+                ...(softInterruptViewOf(item) ? { softInterruptView: softInterruptViewOf(item) } : {}),
+                ...(questionViewOf(item) ? { questionView: questionViewOf(item) } : {}),
+                ...(item.status === 'sending' ? { interruptTransport: stageTransportOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
             };

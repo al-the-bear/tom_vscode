@@ -77,6 +77,8 @@ import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { WAIT_RESUME_NOTE, waitForFromYaml, waitForToYaml, type WaitForState } from '../utils/waitFor';
+import { runStatusBarText } from '../utils/queueRunStatus';
+import { heldForLine, heldResultResendLine, prefixHeldConversation, SoftInterruptRegistry, softInterruptFromYaml, softInterruptToYaml, type SoftInterruptState } from '../services/softInterrupt';
 import { WaitForRegistry } from '../services/waitForRegistry';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
@@ -354,6 +356,26 @@ export interface QueuedPrompt {
      * merge reload; cleared when the wait ends and by crash recovery.
      */
     waitingFor?: WaitForState;
+    /**
+     * Interrupt for continuation, soft (vscimpb112; services/softInterrupt.ts):
+     * while the item is `sending`, the request and — once a hold point has it —
+     * the held tool result; on an `interrupted` item, what the lost or
+     * hard-interrupted turn held, for the resend. Persisted.
+     */
+    softInterrupt?: SoftInterruptState;
+    /** The conversation the item's current turn runs in (the Agent SDK session id, captured at its first message). */
+    turnSessionId?: string;
+    /**
+     * The item was hard-interrupted or its turn was lost (vscimpb112): its
+     * resend starts with RESEND_INTERRUPTED_NOTE (plus a held result the agent
+     * never saw) and continues the conversation `turnSessionId` names.
+     */
+    interruptNote?: true;
+    /**
+     * Direct API / Local LLM: the file holding the conversation a soft
+     * interrupt held, so the turn continues from it after a restart.
+     */
+    heldConversationFile?: string;
     /**
      * The user interrupted the item's wait and moved on: the item stepped back to
      * pending (or staged) and, when it runs again, sends its last stage again with
@@ -1099,6 +1121,9 @@ export class PromptQueueManager {
         // A turn starts or stops waiting in tomAi_waitFor: the item shows it (vscimpb82).
         const stopWaitFor = WaitForRegistry.instance.onChange((wait, phase, outcome) => m._onWaitForChange(wait.queueItemId, phase === 'begin' ? wait.state : undefined, outcome));
         ctx.subscriptions?.push({ dispose: stopWaitFor });
+        // A soft interrupt is requested, holds, is released or ends: the item records it (vscimpb112).
+        const stopSoft = SoftInterruptRegistry.instance.onDidChange((itemId) => m._onSoftInterruptChange(itemId));
+        ctx.subscriptions?.push({ dispose: stopSoft });
         // Items other quests' windows sent while this window was not running, and from now on as they arrive.
         m._inboxChangeDisposable = onInboxChanged(() => { void m.takeInbox(); });
         void m.takeInbox();
@@ -1164,6 +1189,19 @@ export class PromptQueueManager {
         const pending = this._items.filter(i => i.status === 'pending').length;
         const sending = this._items.filter(i => i.status === 'sending').length;
 
+        // The window's run held or waiting: the same icon and word as its run tab (vscimpb112).
+        const runSending = this._items.find((i) => i.status === 'sending' && itemRun(i) === this._windowRun());
+        const held = runSending ? runStatusBarText({
+            run: this._windowRun(),
+            softInterrupt: SoftInterruptRegistry.instance.stateOf(runSending.id) ?? runSending.softInterrupt,
+            ...(this.waitingForUserOf(runSending.id).includes('question') ? { question: { firstLine: this.pendingQuestionOf(runSending.id)?.firstLine } } : {}),
+            waitingFor: runSending.waitingFor,
+        }) : undefined;
+        if (held) {
+            this._statusBarItem.text = held.text;
+            this._statusBarItem.tooltip = held.tooltip;
+            return;
+        }
         if (sending > 0) {
             this._statusBarItem.text = '$(sync~spin) Queue Sending...';
             this._statusBarItem.tooltip = `Prompt Queue active: sending ${sending}, pending ${pending}`;
@@ -3218,6 +3256,10 @@ export class PromptQueueManager {
             this._cancelActiveDispatch(item);
             // Stopped before the answer: hand back a todo this dispatch claimed.
             this.releaseQuestTodoClaim(item, `stopped (${fromStatus} → staged)`);
+            // A fresh restart: nothing of an interrupt for continuation carries over (vscimpb112).
+            delete item.interruptNote;
+            delete item.softInterrupt;
+            this._dropHeldConversation(item);
             if (item.prePrompts && item.prePrompts.length > 0) {
                 for (const pp of item.prePrompts) {
                     pp.status = 'pending';
@@ -3294,6 +3336,8 @@ export class PromptQueueManager {
         // The item's dispatch (and one of no item); without an item, every dispatch.
         if (item) {
             this._itemEpochs.set(item.id, (this._itemEpochs.get(item.id) ?? 0) + 1);
+            // A soft interrupt of its turn ends with it (a held result is let go as aborted, vscimpb112).
+            SoftInterruptRegistry.instance.clear(item.id);
             // A wait its turn is in (tomAi_waitFor) ends with it.
             if (WaitForRegistry.instance.cancelForQueueItem(item.id)) {
                 logQueue(`Item ${item.id}: its wait (tomAi_waitFor) was cancelled with the dispatch`);
@@ -3393,22 +3437,23 @@ export class PromptQueueManager {
     }
 
     /**
-     * Interrupt the running item **for continuation**: cancel its in-flight
-     * dispatch now, hold it at the exact rep that was interrupted, and switch
-     * auto-send off. Re-arming auto-send replays that rep — same expanded
-     * text — before anything else moves (`_resumeInterruptedItem`, hooked
-     * into the auto-send setter and the top of `sendNext`).
-     *
-     * Sibling of `stopActiveItem`, which also cancels but reverts the item to
-     * `staged` (a fresh restart). Use this one when the interruption is
-     * external — the network is about to go away — and the prompt should
-     * simply run again once it is back.
+     * Interrupt the running item **for continuation** (vscimpb112). The first
+     * press asks for a SOFT interrupt: the result of the turn's next tool call
+     * is held (services/softInterrupt.ts), so the turn stays open without a
+     * request in flight; the run's auto-send goes off. Re-arming auto-send (or
+     * Resume) releases the result and the turn goes on — nothing is resent.
+     * Nothing held within 15 s: a turn waiting in an ask* tool or tomAi_waitFor
+     * counts as held, any other gets the HARD interrupt. A second press (or
+     * `hard`), a Copilot item, or a turn that cannot hold: the hard interrupt
+     * now — the dispatch is cancelled, the item `interrupted`, and its resend
+     * starts with RESEND_INTERRUPTED_NOTE in the conversation it ran in.
+     * Between two stages (no turn running) the press only pauses the run.
      *
      * `id` narrows the action to one item (the per-row button); omitted, the
-     * currently `sending` item is taken (the toolbar button). Returns `true`
-     * when an item was interrupted.
+     * currently `sending` item of `run` is taken (the toolbar button). Returns
+     * `true` when something was done.
      */
-    interruptActiveItemForContinuation(id?: string, run?: string): boolean {
+    interruptActiveItemForContinuation(id?: string, run?: string, opts?: { hard?: boolean }): boolean {
         const sending = id
             ? this._items.find(i => i.id === id && i.status === 'sending')
             : this._items.find(i => i.status === 'sending' && this._inRun(i, run));
@@ -3416,6 +3461,33 @@ export class PromptQueueManager {
             logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
             return false;
         }
+        const transport = sending.lastDispatched?.transport ?? this.resolveStageTransport(sending).transport;
+        const requested = SoftInterruptRegistry.instance.stateOf(sending.id) !== undefined;
+        if (opts?.hard || requested || transport === 'copilot') {
+            this._hardInterrupt(sending, opts?.hard ? 'hard interrupt' : requested ? 'second click' : 'a Copilot item has no hold point');
+            return true;
+        }
+        if (!this._activeAnthropicCts.has(sending.id)) {
+            // Between two stages: nothing runs, so the press only pauses the run; the next stage goes out on resume.
+            this._pauseRunOf(sending, `${sending.id} interrupted between two stages`);
+            this.persist();
+            this._onDidChange.fire();
+            logQueue(`interruptActiveItemForContinuation: ${sending.id} runs no turn — run paused`);
+            return true;
+        }
+        SoftInterruptRegistry.instance.request(sending.id, () => this._softInterruptTimedOut(sending.id));
+        // A turn already waiting for the user or in tomAi_waitFor counts as held.
+        this._markHeldIfWaiting(sending);
+        this._pauseRunOf(sending, `${sending.id} soft-interrupted for continuation`);
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`interruptActiveItemForContinuation: ${sending.id} soft interrupt requested — its next tool result is held; hard interrupt in 15 s unless held`);
+        return true;
+    }
+
+    /** The hard interrupt (vscimpb112): cancel the turn now; the item is `interrupted` and its run paused. */
+    private _hardInterrupt(sending: QueuedPrompt, why: string): void {
+        const soft = SoftInterruptRegistry.instance.stateOf(sending.id) ?? sending.softInterrupt;
         this._cancelActiveDispatch(sending);
         // Interrupted before the answer: hand the todo back. The resume replays
         // the same main prompt through Resend, which claims it again.
@@ -3424,13 +3496,157 @@ export class PromptQueueManager {
         // not be mistaken for the replay's answer.
         this.clearExpectedAnswerFiles(sending.expectedRequestId);
         const result = applyInterruptForContinuation(sending);
+        // The resend says the turn was interrupted, carries a result it held, and goes on in its conversation.
+        sending.interruptNote = true;
+        if (soft) { sending.softInterrupt = soft; } else { delete sending.softInterrupt; }
+        this._dropHeldConversation(sending);
+        SoftInterruptRegistry.instance.clear(sending.id);
         this.removePendingReminderFor(sending.id);
         // Off, not merely paused: the pause gate only refuses the *next* rep,
         // and the point here is that nothing at all goes out of its run until re-armed.
         this._pauseRunOf(sending, `${sending.id} interrupted for continuation`);
         this.persist();
         this._onDidChange.fire();
-        logQueue(`interruptActiveItemForContinuation: ${sending.id} held for continuation (${result.canResend ? 'will resend its last dispatch' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
+        logQueue(`interruptActiveItemForContinuation: ${sending.id} hard-interrupted (${why}; ${result.canResend ? 'will resend its last dispatch with the interrupted note' : 'nothing dispatched yet — will restart as pending'}); auto-send off`);
+    }
+
+    /** No hold point within the wait: a turn waiting for the user or in tomAi_waitFor counts as held, any other is hard-interrupted. */
+    private _softInterruptTimedOut(id: string): void {
+        const item = this._items.find(i => i.id === id && i.status === 'sending');
+        if (!item) { SoftInterruptRegistry.instance.clear(id); return; }
+        if (this._markHeldIfWaiting(item)) { return; }
+        this._hardInterrupt(item, 'no tool result to hold within 15 s');
+    }
+
+    /** Mark `item`'s soft interrupt held when its turn waits for the user (a question) or in tomAi_waitFor. */
+    private _markHeldIfWaiting(item: QueuedPrompt): boolean {
+        const question = AskUserRegistry.instance.pendingForQueueItem(item.id);
+        if (question || this.waitingForUserOf(item.id).length > 0) {
+            return SoftInterruptRegistry.instance.markHeld(item.id, 'question', question ? 'tomAi_askUser' : undefined);
+        }
+        if (item.waitingFor) {
+            return SoftInterruptRegistry.instance.markHeld(item.id, 'wait', 'tomAi_waitFor');
+        }
+        return false;
+    }
+
+    /**
+     * The soft interrupt of item `itemId` changed (registry): a sending item
+     * records the state (and a direct API conversation held with it, saved for
+     * a restart); an interrupted item keeps what it recorded for its resend.
+     */
+    private _onSoftInterruptChange(itemId: string): void {
+        const item = this._items.find(i => i.id === itemId);
+        if (!item || item.status !== 'sending') { this._onDidChange.fire(); return; }
+        const state = SoftInterruptRegistry.instance.stateOf(itemId);
+        if (state) {
+            item.softInterrupt = state;
+            const conversation = SoftInterruptRegistry.instance.extrasOf(itemId)?.conversation;
+            if (conversation && state.heldAt !== undefined && !item.heldConversationFile) {
+                item.heldConversationFile = this._saveHeldConversation(item, conversation);
+            }
+        } else {
+            delete item.softInterrupt;
+            this._dropHeldConversation(item);
+        }
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /** Write the conversation a soft interrupt held (direct API / Local LLM) beside the queue files; answers its path. */
+    private _saveHeldConversation(item: QueuedPrompt, conversation: unknown): string | undefined {
+        try {
+            const folder = getQueueFolder();
+            if (!folder) { return undefined; }
+            const dir = path.join(folder, 'held');
+            fs.mkdirSync(dir, { recursive: true });
+            const file = path.join(dir, `${item.id}.conversation.json`);
+            fs.writeFileSync(file, JSON.stringify(conversation));
+            return file;
+        } catch (err) {
+            logQueue(`Item ${item.id}: the held conversation could not be saved: ${err instanceof Error ? err.message : String(err)}`);
+            return undefined;
+        }
+    }
+
+    /** The held conversation of `item`, when it reads (a restart continues it). */
+    private _readHeldConversation(item: QueuedPrompt): { transport: 'direct' | 'localLlm'; messages: unknown[] } | undefined {
+        if (!item.heldConversationFile) { return undefined; }
+        try {
+            const c = JSON.parse(fs.readFileSync(item.heldConversationFile, 'utf8')) as { transport?: unknown; messages?: unknown };
+            if ((c.transport === 'direct' || c.transport === 'localLlm') && Array.isArray(c.messages)) { return { transport: c.transport, messages: c.messages }; }
+        } catch { /* gone or unreadable: the resend takes over */ }
+        return undefined;
+    }
+
+    private _dropHeldConversation(item: QueuedPrompt): void {
+        if (!item.heldConversationFile) { return; }
+        try { fs.rmSync(item.heldConversationFile, { force: true }); } catch { /* best effort */ }
+        delete item.heldConversationFile;
+    }
+
+    /**
+     * The turn of a soft-interrupted item is gone (the SDK process ended, the
+     * window reloaded): the item becomes `interrupted`, its run stays paused,
+     * and its resume continues a saved conversation or resends with the note.
+     */
+    private _softTurnLost(item: QueuedPrompt, why: string): void {
+        const soft = SoftInterruptRegistry.instance.stateOf(item.id) ?? item.softInterrupt;
+        this.releaseQuestTodoClaim(item, 'interrupted for continuation');
+        // Interrupted first: the registry's change then leaves the item's record (and its saved conversation) alone.
+        applyInterruptForContinuation(item);
+        item.interruptNote = true;
+        if (soft) { item.softInterrupt = soft; }
+        SoftInterruptRegistry.instance.clear(item.id);
+        this._pauseRunOf(item, `${item.id}: its held turn was lost (${why})`);
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Item ${item.id}: its soft-interrupted turn was lost (${why}) — interrupted; resume ${item.heldConversationFile ? 'continues the saved conversation' : 'resends with the interrupted note'}`);
+    }
+
+    /**
+     * Release the held items of `run`: their turns go on (vscimpb112). A soft
+     * interrupt still waiting for its hold point is withdrawn. Answers whether
+     * an item was released.
+     */
+    private _releaseHeldItems(run: string): boolean {
+        let released = false;
+        for (const item of this._items.filter((i) => i.status === 'sending' && itemRun(i) === run)) {
+            if (SoftInterruptRegistry.instance.stateOf(item.id) === undefined) { continue; }
+            SoftInterruptRegistry.instance.release(item.id);
+            delete item.softInterrupt;
+            this._dropHeldConversation(item);
+            released = true;
+            logQueue(`Item ${item.id}: released — its turn goes on where the soft interrupt held it`);
+        }
+        if (released) { this.persist(); this._onDidChange.fire(); }
+        return released;
+    }
+
+    /** What item `id`'s soft interrupt is: requested (waiting for a hold point), held, or none. */
+    softInterruptOf(id: string): SoftInterruptState | undefined {
+        return SoftInterruptRegistry.instance.stateOf(id);
+    }
+
+    /**
+     * Resume a soft-interrupted item (Continue's Resume, Telegram `continue`):
+     * the run's auto-send comes back on, which releases the held result. A held
+     * item whose turn cannot go on is hard-interrupted and resent with the note.
+     * Answers whether the item was held.
+     */
+    resumeHeldItem(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending' || (!item.softInterrupt && !SoftInterruptRegistry.instance.stateOf(id))) { return false; }
+        if (!SoftInterruptRegistry.instance.stateOf(id)) {
+            // Recorded as held, but no turn holds it any more: resend with the note.
+            this._hardInterrupt(item, 'the held turn cannot be resumed');
+        }
+        const run = itemRun(item);
+        if (this._settingsOf(run).autoSend) {
+            if (!this._releaseHeldItems(run)) { this._onRunResumed(run); }
+        } else {
+            this.setRunAutoSend(run, true);
+        }
         return true;
     }
 
@@ -3602,9 +3818,19 @@ export class PromptQueueManager {
     }
 
     /** The tomAi_askUser question item `id`'s turn waits in: its request id and when it was asked. */
-    pendingQuestionOf(id: string): { requestId: string; askedAt: number; title?: string } | undefined {
+    pendingQuestionOf(id: string): { requestId: string; askedAt: number; title?: string; firstLine: string } | undefined {
         const pending = AskUserRegistry.instance.pendingForQueueItem(id);
-        return pending ? { requestId: pending.requestId, askedAt: pending.createdAt, ...(pending.title ? { title: pending.title } : {}) } : undefined;
+        if (!pending) { return undefined; }
+        // The first line of what it asks (its title, else its first question): the run tab's tooltip (vscimpb112).
+        const firstLine = (pending.title || pending.questions[0] || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+        return { requestId: pending.requestId, askedAt: pending.createdAt, ...(pending.title ? { title: pending.title } : {}), firstLine };
+    }
+
+    /** The transport item `id`'s running stage went out on (its last dispatch, else as resolved now). */
+    stageTransportOf(id: string): QueuedTransport | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return undefined; }
+        return item.lastDispatched?.transport ?? this.resolveStageTransport(item).transport;
     }
 
     /**
@@ -4117,11 +4343,32 @@ export class PromptQueueManager {
             // queue invites, and replaying the snapshot there sent the very
             // text the user had just cancelled. See `resolveResendText`.
             const resendText = override?.text ?? resolveResendText(last, item.expandedText);
+            // After a hard interrupt or a lost turn (vscimpb112): a held direct / Local LLM conversation goes on
+            // where it stopped (no resend); else the resend says the turn was interrupted, carries a result the
+            // agent never saw, and continues the conversation the turn ran in.
+            const interrupted = item.interruptNote === true && !override;
+            const heldConversation = interrupted && last.transport === 'anthropic' ? this._readHeldConversation(item) : undefined;
+            const soft = item.softInterrupt;
+            const resumeConversation = heldConversation
+                ? prefixHeldConversation(heldConversation, soft?.heldAt !== undefined ? heldForLine(Date.now() - soft.heldAt) : undefined)
+                : undefined;
+            const continueSessionId = interrupted && !resumeConversation ? item.turnSessionId : undefined;
+            delete item.interruptNote;
+            delete item.softInterrupt;
+            if (!resumeConversation) { this._dropHeldConversation(item); }
             // A running turn resent: the agent is told its turn was interrupted (not recorded as the stage's text).
             // A stage sent again after an interrupted wait carries its own note (vscimpb82).
-            const note = interruptRunning ? RESEND_INTERRUPTED_NOTE : opts?.note;
+            const note = interruptRunning || (interrupted && !resumeConversation)
+                ? [RESEND_INTERRUPTED_NOTE, interrupted ? heldResultResendLine(soft) : undefined].filter(Boolean).join('\n\n')
+                : opts?.note;
             const sentText = note ? `${note}\n\n${resendText}` : resendText;
-            const dispatchResult = await this.dispatchStage(sentText, resolved, container);
+            if (resumeConversation) { logQueue(`resendLastPrompt(${item.id}): continuing the held conversation (${resumeConversation.transport})`); }
+            const dispatchResult = await this.dispatchStage(sentText, {
+                ...resolved,
+                ...(continueSessionId ? { continueSessionId } : {}),
+                ...(resumeConversation ? { resumeConversation } : {}),
+            }, container);
+            if (resumeConversation) { this._dropHeldConversation(item); }
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
                 logQueue(`resendLastPrompt(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
@@ -4788,7 +5035,12 @@ export class PromptQueueManager {
      */
     private async dispatchStage(
         expandedText: string,
-        resolved: ReturnType<typeof this.resolveStageTransport>,
+        resolved: ReturnType<typeof this.resolveStageTransport> & {
+            /** Continue exactly this Agent SDK conversation (a resend after a hard interrupt, vscimpb112). */
+            continueSessionId?: string;
+            /** Go on with this saved conversation (a held direct / Local LLM turn lost to a restart). */
+            resumeConversation?: { transport: 'direct' | 'localLlm'; messages: unknown[] };
+        },
         stageForAnswer: { answerText?: string } | undefined,
         // Quest Refresh exemption forwarded to `sendMessage`. Only the **main**
         // queue stage counts toward the refresh interval; pre-prompts,
@@ -4860,6 +5112,8 @@ export class PromptQueueManager {
         // stage's answer, and the frame that sent it must not go on (vscimpb54).
         const sendEpoch = this._epochOf(waitItem);
         this._activeAnthropicCts.set(ctsKey, cts);
+        // The conversation this turn runs in is captured anew at its first message (vscimpb112).
+        if (waitItem) { delete waitItem.turnSessionId; }
         try {
             // The prompt runs as the process position it belongs to (processRunContext).
             // Its tool calls run as this item: a wait for the user they open is shown on it (userWaits).
@@ -4884,7 +5138,32 @@ export class PromptQueueManager {
                     if (!waitItem) { return; }
                     if (control) { this._backgroundControls.set(waitItem.id, control); } else { this._backgroundControls.delete(waitItem.id); }
                 },
-            })), waitItem ? itemRun(waitItem) : undefined);
+                // The conversation the turn runs in: a resend after a hard interrupt continues it (vscimpb112).
+                onTurnSessionId: (sid) => {
+                    if (!waitItem || waitItem.turnSessionId === sid) { return; }
+                    waitItem.turnSessionId = sid;
+                    this.persist();
+                },
+                ...(resolved.continueSessionId ? { continueSessionId: resolved.continueSessionId } : {}),
+                ...(resolved.resumeConversation ? { resumeConversation: resolved.resumeConversation } : {}),
+            })), waitItem ? itemRun(waitItem) : undefined).catch((err: unknown) => {
+                // The turn of a soft-interrupted item ended without our cancel (the SDK process ended):
+                // the item becomes interrupted, its run stays paused (vscimpb112).
+                if (waitItem && waitItem.status === 'sending' && !cts.token.isCancellationRequested
+                    && SoftInterruptRegistry.instance.stateOf(waitItem.id) !== undefined) {
+                    this._softTurnLost(waitItem, err instanceof Error ? err.message : String(err));
+                    return undefined;
+                }
+                throw err;
+            });
+            if (result === undefined) {
+                return { mode: 'direct', answerText: '', superseded: true };
+            }
+            // The turn ended by itself within the soft interrupt's wait: the stage is done, the run stays paused.
+            if (waitItem && SoftInterruptRegistry.instance.stateOf(waitItem.id) !== undefined && !SoftInterruptRegistry.instance.hasLiveHold(waitItem.id)) {
+                SoftInterruptRegistry.instance.clear(waitItem.id);
+                logQueue(`Item ${waitItem.id}: its turn ended within the soft interrupt's wait — the stage is done, the run stays paused`);
+            }
             if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
                 logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
                 if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
@@ -6043,6 +6322,8 @@ export class PromptQueueManager {
         this.restoreSettings();
 
         this._applyActivationRunSettings();
+        // Runs whose soft-interrupted turn the reload lost stay paused, whatever Auto-Start says (vscimpb112).
+        this._pauseLostSoftRuns();
 
         if (this._anyRunMayStart() && this._mayDrain()) {
             void this.sendNext();
@@ -6236,6 +6517,8 @@ export class PromptQueueManager {
      * (a second frame beside it would send the walk twice, vscimpb53).
      */
     private _onRunResumed(run: string): void {
+        // A held turn goes on first: nothing is resent (vscimpb112).
+        if (this._releaseHeldItems(run)) { return; }
         if (this._resumeInterruptedItem(run)) { return; }
         this._resumePausedLanes(run);
         const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
@@ -6458,6 +6741,7 @@ export class PromptQueueManager {
             // mid-send and must keep their `sending` status.
             const recoverable = this._items.filter(i => !preservedIds.has(i.id));
             const recovered = this._applyCrashRecoveryTo(recoverable);
+            this._pauseLostSoftRuns();
             if (recovered > 0) {
                 this._persistToFiles();
             }
@@ -6545,7 +6829,30 @@ export class PromptQueueManager {
      * which must exclude live `sending` references that are legitimately
      * mid-send). Mutates the given objects in place; returns the count reset.
      */
+    /** Runs whose soft-interrupted turn a reload lost: paused once the run settings are read (vscimpb112). */
+    private readonly _lostSoftRuns = new Set<string>();
+
+    private _pauseLostSoftRuns(): void {
+        for (const run of this._lostSoftRuns) {
+            const item = this._items.find((i) => itemRun(i) === run && i.status === 'interrupted');
+            this._pauseRunOf(item, 'its soft-interrupted turn was lost to a reload');
+        }
+        this._lostSoftRuns.clear();
+    }
+
     private _applyCrashRecoveryTo(items: QueuedPrompt[]): number {
+        // A turn held (or about to be held) by a soft interrupt is gone with the reload (vscimpb112): the item
+        // becomes interrupted — its resume continues a saved conversation or resends with the note — and its run
+        // stays paused. Its todo claim stays: the resume works on the same todo.
+        for (const item of items) {
+            if (item.status !== 'sending' || !item.softInterrupt) { continue; }
+            applyInterruptForContinuation(item);
+            item.interruptNote = true;
+            item.backgroundWait = undefined;
+            item.waitingFor = undefined;
+            this._lostSoftRuns.add(itemRun(item));
+            logQueue(`Crash recovery: item ${item.id} was soft-interrupted — interrupted, its run stays paused (resume ${item.heldConversationFile ? 'continues the saved conversation' : 'resends with the interrupted note'})`);
+        }
         // Snapshot ids that will be recovered so we can log each one
         // (applyCrashRecovery is pure and only returns the count).
         const toRecover = items
@@ -6671,6 +6978,10 @@ export class PromptQueueManager {
                 ...(validLimit(main['background-wait-limit-minutes']) !== undefined ? { backgroundWaitLimitMinutes: validLimit(main['background-wait-limit-minutes']) } : {}),
                 ...(backgroundWaitFromYaml(main['background-wait']) ? { backgroundWait: backgroundWaitFromYaml(main['background-wait']) } : {}),
                 ...(waitForFromYaml(main['waiting-for']) ? { waitingFor: waitForFromYaml(main['waiting-for']) } : {}),
+                ...(softInterruptFromYaml(main['soft-interrupt']) ? { softInterrupt: softInterruptFromYaml(main['soft-interrupt']) } : {}),
+                ...(typeof main['turn-session-id'] === 'string' && main['turn-session-id'] ? { turnSessionId: main['turn-session-id'] } : {}),
+                ...(main['interrupt-note'] === true ? { interruptNote: true as const } : {}),
+                ...(typeof main['held-conversation-file'] === 'string' && main['held-conversation-file'] ? { heldConversationFile: main['held-conversation-file'] } : {}),
                 // Multi-transport — absence means "inherit queue default"
                 // at dispatch time; existing YAMLs without these fields
                 // continue to resolve to 'copilot' so the round-trip is
@@ -6830,6 +7141,10 @@ export class PromptQueueManager {
             ...(item.backgroundWaitLimitMinutes !== undefined ? { 'background-wait-limit-minutes': item.backgroundWaitLimitMinutes } : {}),
             ...(item.backgroundWait ? { 'background-wait': backgroundWaitToYaml(item.backgroundWait) } : {}),
             ...(item.waitingFor ? { 'waiting-for': waitForToYaml(item.waitingFor) } : {}),
+            ...(item.softInterrupt ? { 'soft-interrupt': softInterruptToYaml(item.softInterrupt) } : {}),
+            ...(item.turnSessionId ? { 'turn-session-id': item.turnSessionId } : {}),
+            ...(item.interruptNote ? { 'interrupt-note': true } : {}),
+            ...(item.heldConversationFile ? { 'held-conversation-file': item.heldConversationFile } : {}),
             // Multi-transport round-trip (spec §4.14). Omit fields when
             // they're falsy so the YAML stays clean for Copilot items.
             ...(item.transport ? { transport: item.transport } : {}),

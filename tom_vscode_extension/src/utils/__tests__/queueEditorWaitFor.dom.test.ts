@@ -6,7 +6,7 @@
  *        and Interrupt the wait and move on, which posts `interruptWaitFor` with the item; a pending item or one without
  *        a view shows no line
  *   QE-2 the time left moves on without a redraw (tickWaitForLines)
- *   QE-3 the run tab's title names the wait
+ *   QE-3 the run tab shows the wait as a state of its own (⏳, vscimpb112): reason, until, time left and since when
  *   QE-4 the host: waitForViewOf builds the view of a sending item only; the `interruptWaitFor` message reaches the
  *        manager (handler source)
  */
@@ -82,7 +82,11 @@ describe('Prompt Queue editor — a turn waiting in tomAi_waitFor', () => {
 
     test('QE-3: the run tab names the wait', (t) => {
         const { w } = setup(t, [{ ...base, id: 'a', status: 'sending', originalText: 'a', expandedText: 'a', waitForView: VIEW }]);
-        assert.match(w.document.querySelector('#runTabs .run-tab[data-run="default"]').title, /; waiting: pub\.dev limit: 12 versions in 24 h until 14:20$/);
+        // A state of its own since vscimpb112: ⏳, with the reason, until, the time left and since when.
+        const tab = w.document.querySelector('#runTabs .run-tab[data-run="default"]');
+        assert.equal(tab.dataset.state, 'wait');
+        assert.equal(tab.querySelector('.run-tab-emoji').textContent, '\u23f3');
+        assert.match(tab.title, /: waiting \(tomAi_waitFor\), 1 open item; waiting: pub\.dev limit: 12 versions in 24 h, until 14:20 \(1 h 5 min left\), since \d\d:\d\d$/);
     });
 
     test('QE-4: the host', (t) => {

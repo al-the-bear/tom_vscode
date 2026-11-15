@@ -164,7 +164,8 @@ describe('queueTodoClaim', () => {
         assert.match(body('private claimQuestTodo('), /claimTodo\(/);
         for (const exit of [
             'setStatus(id: string',                       // stop
-            'interruptActiveItemForContinuation(',        // interrupt
+            'private _hardInterrupt(',                    // interrupt for continuation (the hard one; a soft one goes on)
+            'private _softTurnLost(',                     // a soft-interrupted turn lost
             'private _markItemError(',                    // error
             'remove(id: string)',                         // removal
             'private _releaseClaimsOfDroppedItems(',      // clear

@@ -495,7 +495,8 @@ describe('agent-sdk-transport background-wait wiring (BG-10)', () => {
     test('a queue run is guarded: detach hook, Monitor disallowed, no command streams', () => {
         assert.match(handler, /queueRun: options\.source === 'queue'/);
         assert.match(src, /params\.queueRun === true \? queueRunTools\(tools\) : tools/);
-        assert.match(src, /hooks: withDetachGuard\(/);
+        // The detach guard, and the soft interrupt's hold for Claude Code's built-ins (vscimpb112).
+        assert.match(src, /hooks: withSoftInterruptHold\(withDetachGuard\(/);
         assert.match(src, /disallowedTools: \[\.\.\.QUEUE_RUN_DISALLOWED_BUILT_INS\]/);
     });
 });

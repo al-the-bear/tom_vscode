@@ -513,12 +513,18 @@ function render() {
   const interruptBtn = document.getElementById('interruptForContinuationBtn');
   if (interruptBtn) {
     const canInterrupt = sending > 0;
+    // The tab's sending item (vscimpb112): after the first click it shows the stop icon — a second click is the hard interrupt.
+    const sendingItem = runItems.find(i => i.status === 'sending');
     interruptBtn.disabled = !canInterrupt;
     interruptBtn.style.opacity = canInterrupt ? '1' : '0.4';
     interruptBtn.style.cursor = canInterrupt ? 'pointer' : 'not-allowed';
     interruptBtn.title = canInterrupt
-      ? 'Interrupt for continuation (stop now; the running prompt is resent when auto-send is re-enabled)'
+      ? interruptButtonTitle(sendingItem)
       : 'Interrupt for continuation — no prompt is currently running';
+    const icon = interruptBtn.querySelector('.codicon');
+    if (icon) {
+      icon.className = 'codicon ' + (sendingItem && sendingItem.softInterruptView ? 'codicon-debug-stop' : 'codicon-debug-disconnect');
+    }
   }
   document.getElementById('countLabel').textContent =
     'Sending: ' + sending + '  |  Pending: ' + pending + '  |  Staged: ' + staged + '  |  Sent: ' + sent
@@ -591,30 +597,58 @@ function isOrphanedRun(run) {
   return run !== 'default' && processRuns.indexOf(run) < 0;
 }
 
-/** Whether a run sends, waits or is paused (its tab shows it): sending / paused / waiting / idle. */
+/**
+ * What a run's tab shows (vscimpb112), in this precedence: `held` (a soft interrupt holds its sending item),
+ * `question` (its turn waits for the user's answer), `wait` (its turn waits in tomAi_waitFor), `sending`, `paused`
+ * (auto-send off, or a hard-interrupted item), `waiting` (pending items), `idle`.
+ */
 function runTabState(run) {
   const items = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'chat' && i.status !== 'chat-sent'; });
-  if (items.some(function(i) { return i.status === 'sending'; })) { return 'sending'; }
+  const sendingItems = items.filter(function(i) { return i.status === 'sending'; });
+  if (sendingItems.some(function(i) { return i.softInterruptView && i.softInterruptView.phase === 'held'; })) { return 'held'; }
+  if (sendingItems.some(function(i) { return Array.isArray(i.waitingForUser) && i.waitingForUser.indexOf('question') >= 0; })) { return 'question'; }
+  if (sendingItems.some(function(i) { return i.waitForView; })) { return 'wait'; }
+  if (sendingItems.length > 0) { return 'sending'; }
   const settings = runQueueSettings[run];
-  if (settings && settings.autoSend === false) { return 'paused'; }
+  if ((settings && settings.autoSend === false) || items.some(function(i) { return i.status === 'interrupted'; })) { return 'paused'; }
   if (items.some(function(i) { return i.status === 'pending'; })) { return 'waiting'; }
   return 'idle';
 }
 
-/** `; waiting: <reason> until 14:20` when the run's sending item waits in tomAi_waitFor (vscimpb82). */
-function runTabWaitNote(run) {
-  const waiting = currentItems.find(function(i) { return tabRunOf(i) === run && i.status === 'sending' && i.waitForView; });
-  return waiting ? '; waiting: ' + escapeHtml(String(waiting.waitForView.reason)) + ' until ' + escapeHtml(String(waiting.waitForView.untilLabel)) : '';
+/** The tab's tooltip text beyond its state word: what holds or waits (vscimpb112; tomAi_waitFor, vscimpb82). */
+function runTabNote(run, state) {
+  const sendingItem = currentItems.find(function(i) {
+    if (tabRunOf(i) !== run || i.status !== 'sending') { return false; }
+    if (state === 'held') { return i.softInterruptView && i.softInterruptView.phase === 'held'; }
+    if (state === 'question') { return Array.isArray(i.waitingForUser) && i.waitingForUser.indexOf('question') >= 0; }
+    if (state === 'wait') { return !!i.waitForView; }
+    return !!(i.softInterruptView);
+  });
+  if (!sendingItem) { return ''; }
+  if (state === 'held') { return '; ' + escapeHtml(softInterruptText(sendingItem.softInterruptView)); }
+  if (state === 'question') { return '; ' + escapeHtml(questionText(sendingItem)); }
+  if (state === 'wait') { return '; waiting: ' + escapeHtml(waitForText(sendingItem.waitForView)); }
+  return sendingItem.softInterruptView ? '; ' + escapeHtml(softInterruptText(sendingItem.softInterruptView)) : '';
 }
 
-/** A run tab's state: its icon and word (a function, so the first render — before this point of the script — can use it). */
+/** A run tab's state: its icon (a codicon, or an emoji) and word (a function, so the first render — before this point of the script — can use it). */
 function runTabStateView(state) {
   return {
+    held: { icon: 'codicon-debug-disconnect', label: 'held for continuation' },
+    question: { emoji: '\u2753', label: 'answer needed' },
+    wait: { emoji: '\u23f3', label: 'waiting (tomAi_waitFor)' },
     sending: { icon: 'codicon-sync', label: 'sending' },
     waiting: { icon: 'codicon-clock', label: 'waiting' },
     paused: { icon: 'codicon-debug-pause', label: 'paused' },
     idle: { icon: 'codicon-circle-outline', label: 'idle' },
   }[state];
+}
+
+/** The tab's icon markup. */
+function runTabIconHtml(view) {
+  return view.emoji
+    ? '<span class="run-tab-emoji"' + (view.emoji === '\u2753' ? ' style="color:#e51400;"' : '') + '>' + view.emoji + '</span>'
+    : '<span class="codicon ' + view.icon + '"></span>';
 }
 
 /** The tab row: one tab per run, the selected one marked; a click switches to that run's queue. */
@@ -630,8 +664,8 @@ function renderRunTabs() {
     const orphaned = isOrphanedRun(run);
     const tab = '<button class="run-tab run-tab-' + state + (active ? ' active' : '') + (orphaned ? ' run-tab-orphaned' : '') + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '"'
       + ' data-run="' + escapeHtml(run) + '" data-state="' + state + '"' + (orphaned ? ' data-orphaned="true"' : '')
-      + ' title="Run ' + escapeHtml(run) + (orphaned ? ' (deleted run: its items are kept until you remove its queue)' : '') + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + runTabWaitNote(run) + '">'
-      + '<span class="codicon ' + runTabStateView(state).icon + '"></span> ' + escapeHtml(run)
+      + ' title="Run ' + escapeHtml(run) + (orphaned ? ' (deleted run: its items are kept until you remove its queue)' : '') + (run === currentRun ? ' (this window\'s run)' : '') + ': ' + runTabStateView(state).label + (n ? ', ' + n + ' open item' + (n === 1 ? '' : 's') : '') + runTabNote(run, state) + '">'
+      + runTabIconHtml(runTabStateView(state)) + ' ' + escapeHtml(run)
       + (orphaned ? ' <span class="muted run-tab-deleted">(deleted run)</span>' : '')
       + (run === currentRun ? ' <span class="muted">(this window)</span>' : '')
       + (n ? ' <span class="run-tab-count">' + n + '</span>' : '')

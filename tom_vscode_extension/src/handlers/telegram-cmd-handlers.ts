@@ -904,8 +904,9 @@ async function queueRunHandler(deps: CommandRegistryDeps, running: boolean, cmd?
     }
     deps.queue.setRunning(running, run);
     return {
+        // Resuming releases a prompt an interrupt for continuation holds: it goes on where it stopped (vscimpb112).
         text: running
-            ? `▶️ Run ${name} resumed — its pending prompts will be sent.`
+            ? `▶️ Run ${name} resumed — a held prompt goes on, its pending prompts will be sent.`
             : `⏸ Run ${name} paused — its running prompt finishes, no new prompts of it are sent. Send continue to resume.`,
         rawText: true,
     };

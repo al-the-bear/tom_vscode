@@ -711,19 +711,45 @@ run.
 running prompt and reverts the item to Staged (a fresh restart from repetition
 1); Pause lets the running repetition finish and holds before the *next* one.
 Neither fits the case where *you* have to interrupt — the network is about to
-go away — and want the running repetition to simply run again once you are
-back. That is the **Interrupt for continuation** button (`codicon-debug-disconnect`,
-next to Stop in the toolbar, and on the running item's own row):
+go away, the machine is about to sleep — and want the running prompt to go on
+once you are back. That is the **Interrupt for continuation** button
+(`codicon-debug-disconnect`, next to Stop in the toolbar, and on the running
+item's own row). It interrupts **softly first**:
 
-- The running prompt is cancelled immediately; any partial answer is discarded.
-- The item is held at its **current repetition** with the status
-  `INTERRUPTED — RESENDS ON RESUME`, and Auto-send switches off.
-- Re-enabling Auto-send (the play toggle, Auto-start on reload, or
-  Auto-continue's timer) re-sends **that same repetition** with the same text
-  first, then the loop carries on. The held row also offers **Resend** (replay
-  now) and **Move back to Staged** (abandon the continuation).
+- The running prompt is stopped at the next possible point: the result of its
+  next tool call is **held** — not handed to the model — so the turn stays open
+  without anything in flight. Auto-send of the item's run switches off. The row
+  says `INTERRUPTING` (with the seconds left) and then `HELD` (*held since 14:05
+  at the result of Bash*); the run's tab shows the disconnect icon.
+- A prompt waiting for your answer to a question, or waiting in
+  `tomAi_waitFor`, counts as held at once; the question stays open (an answer
+  you give is kept until you resume), the wait goes on.
+- If the prompt ends its turn within 15 seconds, that stage is simply done and
+  the run stays paused.
+- Re-enabling Auto-send (the play toggle, Auto-start on reload, Auto-continue,
+  Telegram `continue`), or **Continue → Resume** on the item, hands the held
+  result back: the prompt goes on where it stopped — nothing is sent again. A
+  result held longer than a minute tells the model how long it was held.
+- **Hard interrupt**: when nothing could be held within 15 seconds (a long
+  command still running, text without a tool call), when you click the button a
+  second time (after the first click it shows a stop icon: *click again for a
+  hard interrupt now*), when you choose **Continue → Hard interrupt**, and always
+  for a Copilot prompt (it has no hold point). The running prompt is cancelled;
+  the item is held at its **current repetition** as `INTERRUPTED — RESENDS ON
+  RESUME`. Re-enabling Auto-send re-sends that repetition first — with a note
+  that it was interrupted (and a tool result it never saw) — in the same
+  conversation it ran in; the held row also offers **Resend** (replay now) and
+  **Move back to Staged** (abandon the continuation).
+- A window reload or restart while the prompt is held leaves the item
+  `INTERRUPTED` with its run paused. Resuming continues a direct-API or Local
+  LLM prompt exactly where it stopped; an Agent SDK prompt is resent with the
+  note and the result it was holding.
 
-The state survives a window reload; Restart Queue leaves a held item alone.
+Between two stages (no turn running) the button only pauses the run. Each run
+tab shows what its run does: held, ❓ (an answer is needed), ⏳ (waiting in
+`tomAi_waitFor`), sending, paused, waiting or idle — hover for the details. The
+queue's status bar item shows the same for the window's run (e.g. `held: Bash`,
+`❓ answer needed`, `⏳ until 14:20`). Restart Queue leaves a held item alone.
 
 ### Watchdog and Health Check
 
@@ -742,7 +768,7 @@ Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 - **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue, **Stop** (cancel the running prompt and revert it to Staged) and **Interrupt for continuation** (see above)
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts; the prompt and the repeat prefix/suffix take `Ctrl+Shift+Space` completion — slash commands, skills, files (see [Keyboard productivity](#10-keyboard-productivity))
-- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item); an interrupted item offers Resend and Move back to Staged
+- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item: soft first, a second click for the hard interrupt); a held item's Continue offers Resume and Hard interrupt; an interrupted item offers Resend and Move back to Staged
 - **Out of budget**: when a prompt stops because the API credit balance is too low, the item shows an *Out of budget* panel — the profile and session that stopped, a profile picker, **Continue on profile** (sends it on the picked profile with a note pointing to the stopped session's live trail — the *Out of budget* Assist prompt, see [Assist prompts](#assist-prompts)) and **Resend** (the last request again, once there is credit). A profile can name the profile to continue on and switch to it by itself (profile editor: *Out of Budget: Continue On*, *Switch Automatically*); the picker then starts on that profile. An agent can do the same (also when you ask it from Telegram): `tomAi_resendQueueItem` with `profileId`.
 - **Sessions**: an Anthropic item shows the session it runs in (speech-bubble chip in its header), with a `*` after the name when that session is based on another; its tooltip names the base and the lifetime (new for every prompt or every queue iteration), and a session the item will create when it is sent reads from the item's spec. A click on a staged or pending item opens the session picker (an existing session, a new one, one based on another, or the queue default). The transport gear asks for the session as its last step. The context bar at the top of a run's tab reads *Quest: … | Run: … | Position: … | Role: … | Session: … | Variables: …*, all of that tab's run: **Position** is the run's process position (a click opens its state file, `process-state.<quest>.<run>.yaml`); **Role** is the role chat variable for the window's run, and for another run the role its step names (shown, not picked); **Session** is the run's default session, the one every item of the run that names none runs in (unset: the run's own `default`), shown with its base and lifetime, e.g. *Session: walk based on prep (per iteration)*; **Variables** counts the run's own chat variables (they are listed in its tooltip) and opens the Chat Variables editor for the run. The Chat Variables button opens its editor for the tab's run too; the editor names the run in its title (*Chat Variables — run collab*) and in a run line. The bell beside it opens the Status Page's reminder settings (the alive check and the window's run's default reminder template). The Chat Variables editor then shows and edits that run's custom variables and shows its process position; the built-in variables (quest, role, projects, todo) are the window's, shared by every run. Both are underlined links: a click opens a VS Code picker — the roles under `_ai/roles/` (or none), or the session picker. Agents set it with `session` on `tomAi_addQueueItem` / `tomAi_updateQueueItem` and create sessions with `tomAi_createSession` — see [Named sessions](#named-sessions).
 - **Process runs, one tab each**: right below the headline and the shared compaction / memory-extraction models, the editor has a tab per process run — the quest's runs and any run that has items, `default` first. Each tab is that run's queue: its items only, its toolbar (Add, auto-send play / pause, Auto-Start, Auto-Pause, Auto-Continue, Restart, Stop, Interrupt, Send All Staged, Retry / Delete Errors, Clear Sent / All, Collapse / Expand — each acting on the run's items) and its defaults row (transport, profile, prompt template, session; the answer timeout and reminder template only while the run's default transport is Copilot). The tab says whether its run sends, waits or is paused and how many open items it has; the window's run is marked and selected first, and the selected tab is kept over a reload. Every item belongs to a run (the chip `run chg1` in its header, beside the todos chip): the run of the Proceed it was queued from, else the tab it was added in; its sessions are that run's (`<session>@<run>`). On a staged or pending item the run chip is a button: it lists the quest's other runs, and the item moves into the one you pick — to the end of that run's queue, its session becoming that run's (`<session>@<run>`), a *between iterations* or *let the next item go first* mark dropped. An item of a Proceed run stays in its run. A chat send shows in the tab of the run it ran in, else the default run's. A run deleted in the PROCESS view while it still has items keeps its tab, so you can still look at them: the tab is greyed and says **(deleted run)**, and a trash button beside it (*Remove this deleted run's queue: delete its items*) removes it. It asks first, with the number of items. When some items are not finished yet (staged, pending, sending), you choose: **Delete all** (a sending item is stopped) or **Delete only the finished items** (sent and failed; the others and the tab stay). Once the run's items are gone, its queue settings go too and the tab disappears. Creating a run with the same name again makes its tab a normal one again, with its old items and without the button.

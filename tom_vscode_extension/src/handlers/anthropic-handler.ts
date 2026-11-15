@@ -414,6 +414,21 @@ export interface AnthropicSendOptions {
     onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
     /** The controls of the background wait while it runs (Wait without limit, Keep waiting, Stop waiting); `undefined` once it is over. */
     onBackgroundWaitControl?: (control: BackgroundWaitControl | undefined) => void;
+    /**
+     * Agent SDK: continue exactly this conversation (no fork), whatever the
+     * session's lifetime — a resend after a hard interrupt or a lost turn goes
+     * on in the conversation the turn ran in (vscimpb112). Whether the session
+     * file records it follows the lifetime as for every send.
+     */
+    continueSessionId?: string;
+    /** Agent SDK: the conversation the turn runs in, as soon as its first message names it. */
+    onTurnSessionId?: (sessionId: string) => void;
+    /**
+     * Direct API / Local LLM: go on with this saved conversation instead of
+     * building a new one — a turn held by a soft interrupt and lost to a
+     * restart continues where it stopped, without a resend (vscimpb112).
+     */
+    resumeConversation?: { transport: 'direct' | 'localLlm'; messages: unknown[] };
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
@@ -441,6 +456,7 @@ import { boundPayloadHistory } from '../services/historyPayloadBound';
 import { applyToolTrailRetention, conversationHasThinking, resolveRetentionCaps, type RetentionMessage } from '../services/toolTrailRetention';
 import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compactionQuestOverride';
 import { localLlmEndpointText } from '../utils/localLlmEndpoint';
+import { prefixedToolResultContent, SoftInterruptRegistry, toolResultText } from '../services/softInterrupt';
 import { readQuestSection } from '../managers/extensionConfigStore';
 import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 export { temperatureField };
@@ -2481,9 +2497,13 @@ export class AnthropicHandler {
             // A named session decides what this prompt resumes: its own
             // conversation, a fork of its base (a session based on another),
             // or — per-prompt — a fork of the base that is never saved; per-iteration: the iteration's own conversation.
-            const sessionStart = useSdkManagedContinuity
+            const plannedStart = useSdkManagedContinuity
                 ? planSessionStartIn(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), sessionKey, options.iterationKey)
                 : { fork: false, persist: false };
+            // A resend after a hard interrupt continues the very conversation its turn ran in (vscimpb112).
+            const sessionStart = options.continueSessionId
+                ? { ...plannedStart, resume: options.continueSessionId, fork: false }
+                : plannedStart;
             const resumeSessionId = sessionStart.resume;
             if (sessionStart.note) { debugLog(`[AgentSDK] session "${sessionKey}": ${sessionStart.note}`, 'WARN', 'anthropic'); }
             debugLog(
@@ -2499,7 +2519,7 @@ export class AnthropicHandler {
             // stream leaves the on-disk id stale and the NEXT turn forks
             // a brand-new Claude Code session (the symptom we chased —
             // session selector filling up one-per-prompt).
-            const onSessionIdCaptured = useSdkManagedContinuity && sessionStart.persist
+            const saveSessionId = useSdkManagedContinuity && sessionStart.persist
                 ? (sid: string) => {
                     TwoTierMemoryService.instance.saveAgentSdkSessionId(
                         sid,
@@ -2516,6 +2536,9 @@ export class AnthropicHandler {
                         );
                     }
                 }
+                : undefined;
+            const onSessionIdCaptured = saveSessionId || options.onTurnSessionId
+                ? (sid: string) => { saveSessionId?.(sid); options.onTurnSessionId?.(sid); }
                 : undefined;
 
             // Transport retry (spec §18, "Anthropic Transport Retry"):
@@ -2776,11 +2799,14 @@ export class AnthropicHandler {
                 },
             ]
             : [];
-        const messages: AnthropicMessageParam[] = [
-            ...rollingHistory,
-            ...summaryBlock,
-            { role: 'user', content: userContent },
-        ];
+        // A held turn lost to a restart goes on with its saved conversation (vscimpb112).
+        const messages: AnthropicMessageParam[] = options.resumeConversation?.transport === 'direct'
+            ? [...options.resumeConversation.messages as AnthropicMessageParam[]]
+            : [
+                ...rollingHistory,
+                ...summaryBlock,
+                { role: 'user', content: userContent },
+            ];
 
         // Profile-level overrides: prompt caching defaults to on when the
         // profile omits it; extended thinking is off unless the profile
@@ -2987,6 +3013,19 @@ export class AnthropicHandler {
                         liveTrail,
                     );
                     toolResults.push(toolResultBlock);
+                }
+
+                // A soft interrupt holds the round's results here, before they go into the next request
+                // (vscimpb112): the conversation so far is handed over, so a restart can go on from it.
+                const lastToolName = [...response.content].reverse().find((b) => b.type === 'tool_use') as { name?: string } | undefined;
+                const held = await SoftInterruptRegistry.instance.holdAt(
+                    currentQueueItemId(),
+                    lastToolName?.name ?? 'tool',
+                    toolResults.map((r) => toolResultText(r.content)).join('\n\n'),
+                    { conversation: { transport: 'direct', messages: [...messages, { role: 'user', content: roundResultContent(toolResults, parallelReminder) }] } },
+                );
+                if (held.prefix && toolResults.length > 0) {
+                    toolResults[0] = { ...toolResults[0], content: prefixedToolResultContent(toolResults[0].content, held.prefix) } as AnthropicToolResultBlockParam;
                 }
 
                 // The tool results, then the parallel-calls reminder as a text
@@ -3293,6 +3332,10 @@ export class AnthropicHandler {
                             : '';
                     roundResults.push({ type: 'tool_result', tool_use_id: tc.callId, content: resultText });
                 }
+                // A soft interrupt holds the round's results before the next request (vscimpb112).
+                const lmHeld = await SoftInterruptRegistry.instance.holdAt(
+                    currentQueueItemId(), toolCalls[toolCalls.length - 1]?.name ?? 'tool', roundResults.map((r) => r.content).join('\n\n'));
+                if (lmHeld.prefix && roundResults.length > 0) { roundResults[0] = { ...roundResults[0], content: `${lmHeld.prefix}\n\n${roundResults[0].content}` }; }
                 lmToolRounds.push({ messageIndex: chatMessages.length, results: roundResults });
                 chatMessages.push(vscode.LanguageModelChatMessage.User([]));
 
@@ -3436,6 +3479,10 @@ export class AnthropicHandler {
             }
         }
         messages.push({ role: 'user', content: userContent });
+        // A held turn lost to a restart goes on with its saved conversation (vscimpb112).
+        if (options.resumeConversation?.transport === 'localLlm') {
+            messages.splice(0, messages.length, ...options.resumeConversation.messages as OllamaMsg[]);
+        }
 
         const { getLocalLlmManager } = await import('./localLlm-handler.js');
         const localLlmManager = getLocalLlmManager();
@@ -3623,6 +3670,22 @@ export class AnthropicHandler {
                     resultMessageIndex.set(toolResult, messages.length);
                     roundResults.push(toolResult);
                     messages.push({ role: 'tool', content: resultText });
+                }
+                // A soft interrupt holds the round's results before the next request; the conversation
+                // so far is handed over, so a restart can go on from it (vscimpb112).
+                if (roundResults.length > 0) {
+                    const localHeld = await SoftInterruptRegistry.instance.holdAt(
+                        currentQueueItemId(),
+                        localHeldToolName(messages),
+                        roundResults.map((r) => r.content).join('\n\n'),
+                        { conversation: { transport: 'localLlm', messages: messages.map((m) => ({ ...m })) } },
+                    );
+                    if (localHeld.prefix) {
+                        const first = roundResults[0];
+                        first.content = `${localHeld.prefix}\n\n${first.content}`;
+                        const at = messages.length - roundResults.length;
+                        if (messages[at]?.role === 'tool') { messages[at] = { ...messages[at], content: first.content }; }
+                    }
                 }
                 localToolRounds.push({ messageIndex: -1, results: roundResults });
                 // The tool-trail retention of the direct and VS Code LM loops
@@ -4504,4 +4567,13 @@ function scheduleToolResultRetention(): void {
             debugLog(`[AnthropicHandler] tool-result retention skipped: ${e instanceof Error ? e.message : String(e)}`, 'WARN', 'extension');
         }
     }, 0);
+}
+
+/** The tool the last assistant message of a Local LLM conversation called last (the held result's tool). */
+function localHeldToolName(messages: ReadonlyArray<{ role: string; tool_calls?: Array<{ function: { name: string } }> }>): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const calls = messages[i].tool_calls;
+        if (messages[i].role === 'assistant' && calls && calls.length > 0) { return calls[calls.length - 1].function.name; }
+    }
+    return 'tool';
 }

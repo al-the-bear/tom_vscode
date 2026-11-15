@@ -320,7 +320,9 @@ import {
     type BackgroundTaskInfo,
     type BackgroundWaitSnapshot,
 } from '../services/agent-sdk-input-channel';
-import { QUEUE_RUN_DISALLOWED_BUILT_INS, queueRunTools, withDetachGuard } from '../utils/agentSdkQueueRun';
+import { QUEUE_RUN_DISALLOWED_BUILT_INS, queueRunTools, withDetachGuard, withSoftInterruptHold } from '../utils/agentSdkQueueRun';
+import { SoftInterruptRegistry, withHeldForPrefix } from '../services/softInterrupt';
+import { currentQueueItemId } from '../services/userWaits';
 import { stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
 
 /** A CLI background task as the background wait names it. */
@@ -633,7 +635,7 @@ function buildMcpServer(
             // Plan mode is checked here too: under bypassPermissions (Tool
             // Approval "Never", every queued prompt) the SDK runs these
             // handlers without asking canUseTool.
-            planModeGated(def, wrapToolWithTrail(
+            heldAtResult(def.name, planModeGated(def, wrapToolWithTrail(
                 def,
                 {
                     writeRequest: (name, input) => {
@@ -664,7 +666,7 @@ function buildMcpServer(
                 },
                 () => ({ source: 'anthropic', requestId: ctx.requestId }),
                 'agentSdk',
-            )),
+            ))),
         ),
     );
 
@@ -679,6 +681,28 @@ function buildMcpServer(
         tools: mcpTools,
         alwaysLoad: true,
     });
+}
+
+/**
+ * An MCP tool handler whose result a soft interrupt holds (vscimpb112): the
+ * extension's tools are hold points in their handlers; the held-for line goes
+ * before the result's text when it was held longer than a minute.
+ */
+export function heldAtResult<H extends (...args: never[]) => Promise<unknown>>(toolName: string, handler: H): H {
+    return (async (...args: Parameters<H>) => {
+        const result = await handler(...args) as { content?: Array<{ type?: string; text?: string }> } | undefined;
+        const text = Array.isArray(result?.content) ? result!.content.map((c) => (c?.type === 'text' ? String(c.text ?? '') : '')).join('') : result;
+        const release = await SoftInterruptRegistry.instance.holdAt(currentQueueItemId(), toolName, text);
+        if (release.prefix && result && Array.isArray(result.content)) {
+            return { ...result, content: [{ type: 'text', text: release.prefix }, ...result.content] };
+        }
+        return result;
+    }) as unknown as H;
+}
+
+/** The answer canUseTool hands back for AskUserQuestion, held by a soft interrupt like any tool result (vscimpb112). */
+async function heldAnswer(answer: string): Promise<string> {
+    return withHeldForPrefix(answer, await SoftInterruptRegistry.instance.holdAt(currentQueueItemId(), 'AskUserQuestion', answer));
 }
 
 /** An MCP tool handler that answers the plan-mode refusal instead of running while plan mode forbids it. */
@@ -741,13 +765,13 @@ function makeCanUseTool(
                 if (choices && interactiveQuestions?.enabled) {
                     const { askUserWithChoices } = await import('./askUser-handler.js');
                     const answer = await askUserWithChoices({ questions: questionsForPanel(parsed), choices: choices as AskChoice[] });
-                    return { behavior: 'deny', message: answer };
+                    return { behavior: 'deny', message: await heldAnswer(answer) };
                 }
                 if (interactiveQuestions?.enabled) {
                     const answers = await collectInteractiveAnswers(liveUserPrompter, parsed);
                     if (answers !== null) {
                         journal({ kind: 'answered', text: answers });
-                        return { behavior: 'deny', message: answers };
+                        return { behavior: 'deny', message: await heldAnswer(answers) };
                     }
                     journal({ kind: 'dismissed' });
                     // User dismissed → fall through to the autonomous fallback.
@@ -757,7 +781,7 @@ function makeCanUseTool(
                 const fallback = interactiveQuestions
                     ? interactiveQuestions.buildFallbackText(summarizeQuestions(parsed))
                     : DEFAULT_INTERACTIVE_QUESTIONS_TEMPLATE.replace('${questions}', summarizeQuestions(parsed));
-                return { behavior: 'deny', message: fallback };
+                return { behavior: 'deny', message: await heldAnswer(fallback) };
             }
             // Unrecognised payload — let the SDK handle it as before.
             return { behavior: 'allow', updatedInput: input };
@@ -1188,7 +1212,7 @@ async function runAgentSdkAttempt(
             ...(params.agents && Object.keys(params.agents).length > 0 ? { agents: params.agents } : {}),
             // A queue run refuses detaching Bash commands (a hook: canUseTool is not asked in bypass mode).
             ...(params.queueRun === true
-                ? { hooks: withDetachGuard(sdkHooks as Parameters<typeof withDetachGuard>[0]), disallowedTools: [...QUEUE_RUN_DISALLOWED_BUILT_INS] }
+                ? { hooks: withSoftInterruptHold(withDetachGuard(sdkHooks as Parameters<typeof withDetachGuard>[0]), `mcp__${MCP_SERVER_NAME}__`), disallowedTools: [...QUEUE_RUN_DISALLOWED_BUILT_INS] }
                 : (Object.keys(sdkHooks).length > 0 ? { hooks: sdkHooks } : {})),
             // The installed Anthropic provider's Claude CLI for this platform.
             ...cliOption(),
