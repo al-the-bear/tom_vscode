@@ -352,6 +352,10 @@ machine you install on:
 | Linux x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-linux-x64.vsix> |
 | Windows x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-win32-x64.vsix> |
 
+Until a multi-platform create script has published (`create_currentbinaries_vsix`,
+`create_fleetcompiled_vsix` or `create_layerbinaries_vsix`), the release holds
+only `tom-ai-extension.vsix` (below), and the three links above answer 404.
+
 VS Code refuses a VSIX packed for another platform (`vsce package
 --target`); each carries that platform's Dart binaries and build tools.
 `tom-ai-extension.vsix` stays in the release too: the newest
