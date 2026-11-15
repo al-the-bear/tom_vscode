@@ -176,6 +176,40 @@ describe('archiveTodos', () => {
     });
 });
 
+/**
+ * vscimpb117: the new sibling takes the schema line from among the source's leading comment
+ * lines, not only from line 1 — webwork's todo file opens with a title comment and carries it
+ * second — and writes it as its first line; a source without one gives a sibling without one.
+ */
+describe('the schema line of a new sibling', () => {
+    const body = SOURCE_YAML.slice(SCHEMA_LINE.length + 1);
+    const cases: Array<[string, string, boolean]> = [
+        ['second, after a title comment', `# Webwork Quest - Todo List\n${SCHEMA_LINE}\n\n${body}`, true],
+        ['first', `${SCHEMA_LINE}\n${body}`, true],
+        ['absent', `# Just a title\n${body}`, false],
+    ];
+    for (const [name, source, hasSchema] of cases) {
+        test(`schema line ${name}: the archived and the deleted sibling ${hasSchema ? 'start with it' : 'have none'}`, () => {
+            fs.writeFileSync(sourceFile, source);
+            for (const res of [archiveTodos(sourceFile, ['t1']), deleteTodos(sourceFile, ['t2'])]) {
+                const raw = fs.readFileSync(res.targetFile, 'utf8');
+                if (hasSchema) {
+                    assert.ok(raw.startsWith(`${SCHEMA_LINE}\n`), raw.slice(0, 200));
+                    assert.equal(raw.split(SCHEMA_LINE).length - 1, 1, 'once');
+                } else {
+                    assert.doesNotMatch(raw, /yaml-language-server/);
+                }
+            }
+        });
+    }
+
+    test('a schema line after the first YAML line is not taken (it is no header)', () => {
+        fs.writeFileSync(sourceFile, `quest: "myquest"\n${SCHEMA_LINE}\n${body.replace(/^quest: "myquest"\n/, '')}`);
+        const raw = fs.readFileSync(archiveTodos(sourceFile, ['t1']).targetFile, 'utf8');
+        assert.doesNotMatch(raw.split('\n')[0], /yaml-language-server/);
+    });
+});
+
 describe('deleteTodos', () => {
     test('moves non-completed todos to the -deleted sibling with a deleted stamp', () => {
         const res = deleteTodos(sourceFile, ['t2', 't3']);

@@ -153,10 +153,20 @@ function stampUpdated(doc: Document): void {
     }
 }
 
-/** Extract the `# yaml-language-server:` schema comment line, if any. */
-function schemaCommentOf(raw: string): string {
-    const firstLine = raw.split('\n', 1)[0] ?? '';
-    return firstLine.startsWith('# yaml-language-server:') ? firstLine + '\n' : '';
+/**
+ * The `# yaml-language-server:` schema comment of a todo file, if any, with its newline: looked for
+ * among the leading comment lines — before the first line that is neither a comment nor blank — so
+ * a file that opens with a title comment and carries the schema line second keeps it (vscimpb117).
+ * The new sibling gets it as its first line.
+ */
+export function schemaCommentOf(raw: string): string {
+    for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed === '') { continue; }
+        if (!trimmed.startsWith('#')) { break; }
+        if (trimmed.startsWith('# yaml-language-server:')) { return `${trimmed}\n`; }
+    }
+    return '';
 }
 
 // ============================================================================
