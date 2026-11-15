@@ -11,6 +11,8 @@
  *        meta
  *   DT-4 the other side, the inbox: a notification posted from another quest into this quest's run is queued in
  *        that run's lane with the sender filled in; a run this quest does not have makes it an error in `default`
+ *   DT-6 a todo walk sent from another quest (`repeatCount: "wk-*"`) is queued in the named run's lane with its
+ *        repeat count and todo pattern; into a run this quest lacks it is an error in `default`, no run created
  *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
  *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
@@ -242,6 +244,38 @@ describe('the done notification\'s quest and run', () => {
         assert.equal(missing.status, 'error');
         assert.equal(missing.run, 'default');
         assert.match(String(missing.error), /no process run "nope"/);
+        clean();
+    });
+
+    test('DT-6: a todo walk sent into a run (ww_a_collab-4)', async () => {
+        clean();
+        put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
+            `quest: ${QUEST}`, 'todos:',
+            '  - id: wk-1', '    description: first', '    status: not-started',
+            '  - id: wk-2', '    description: second', '    status: not-started', '',
+        ].join('\n'));
+        assert.equal(store().createRun('r2', 'review', 'user', false).ok, true);
+        queue().setRunQueueSettings('r2', { autoSend: false });
+        const folder = getQueueFolder()!;
+        const from = { quest: 'q2', run: 'rx', windowId: 'w9', host: os.hostname(), sentAt: new Date().toISOString() };
+        writeInboxFile(folder, inboxFileName(os.hostname(), getWorkspaceName(), new Date(), 'dt6a'), {
+            text: 'walk ${repeatTodoId}', run: 'r2', repeatCount: 'wk-*', from,
+        });
+        writeInboxFile(folder, inboxFileName(os.hostname(), getWorkspaceName(), new Date(), 'dt6b'), {
+            text: 'walk into a missing run', run: 'nope', repeatCount: 'wk-*', from,
+        });
+        assert.equal(await queue().takeInbox(), 2);
+        const walk = queue().items.find((i) => i.originalText === 'walk ${repeatTodoId}');
+        assert.ok(walk, queue().items.map((i) => i.originalText).join(' | '));
+        assert.equal(walk.run, 'r2', 'that run\'s lane');
+        assert.equal(walk.repeatCount, 'wk-*', 'a todo walk');
+        assert.equal(walk.todoIdPattern, 'wk-*', 'its todos marked queued');
+        assert.equal(walk.status, 'pending');
+        const missing = queue().items.find((i) => i.originalText === 'walk into a missing run')!;
+        assert.equal(missing.status, 'error');
+        assert.equal(missing.run, 'default', 'the run is not created');
+        assert.ok(!store().runs().some((r) => r.run === 'nope'), 'no run nope created');
+        fs.rmSync(path.join(WS, `_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`), { force: true });
         clean();
     });
 

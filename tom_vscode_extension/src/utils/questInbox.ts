@@ -76,6 +76,10 @@ export interface InboxItem {
     newSession?: InboxNewSession;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
+    /** The item's repeat count in the target queue: a number, a chat variable, or `<prefix>*` (a todo walk there). */
+    repeatCount?: number | string;
+    /** The target quest's todos the item runs (QueuedPrompt.todoIdPattern). */
+    todoIdPattern?: string;
     /** The item is a done notification of an item in the sender's quest (its id there). */
     notificationOf?: string;
     from: InboxSender;
@@ -130,6 +134,8 @@ export function serializeInboxItem(item: InboxItem): string {
         text: item.text,
     };
     if (item.run) { doc.run = item.run; }
+    if (item.repeatCount !== undefined) { doc['repeat-count'] = item.repeatCount; }
+    if (item.todoIdPattern) { doc['todo-id-pattern'] = item.todoIdPattern; }
     if (item.notificationOf) { doc['notification-of'] = item.notificationOf; }
     if (item.doneNotificationQuest) { doc['done-notification-quest'] = item.doneNotificationQuest; }
     if (item.doneNotificationRun) { doc['done-notification-run'] = item.doneNotificationRun; }
@@ -170,6 +176,9 @@ export function parseInboxItem(content: string): ParsedInboxItem {
         from: { quest, ...(str(f.run) ? { run: str(f.run) } : {}), windowId: str(f['window-id']) ?? '', host: str(f.host) ?? '', sentAt: str(f['sent-at']) ?? '' },
     };
     if (str(r.run)) { item.run = str(r.run); }
+    const repeatCount = r['repeat-count'];
+    if (typeof repeatCount === 'number' && Number.isInteger(repeatCount) && repeatCount > 0) { item.repeatCount = repeatCount; } else if (str(repeatCount)) { item.repeatCount = str(repeatCount); }
+    if (str(r['todo-id-pattern'])) { item.todoIdPattern = str(r['todo-id-pattern']); }
     if (str(r['notification-of'])) { item.notificationOf = str(r['notification-of']); }
     if (str(r['done-notification-quest'])) { item.doneNotificationQuest = str(r['done-notification-quest']); }
     if (str(r['done-notification-run'])) { item.doneNotificationRun = str(r['done-notification-run']); }
@@ -301,6 +310,9 @@ export interface InboxConversion {
         doneNotificationRun?: string;
         /** The process run the item is queued in. */
         run?: string;
+        /** A todo walk (`<prefix>*`) or a plain repeat count. */
+        repeatCount?: number | string;
+        todoIdPattern?: string;
         notificationOf?: string;
         from: InboxSender;
         temporarySession?: boolean;
@@ -335,6 +347,8 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
         ...(item.doneNotificationQuest ? { doneNotificationQuest: item.doneNotificationQuest } : {}),
         ...(item.doneNotificationRun ? { doneNotificationRun: item.doneNotificationRun } : {}),
         ...(item.run ? { run: item.run } : {}),
+        ...(item.repeatCount !== undefined ? { repeatCount: item.repeatCount } : {}),
+        ...(item.todoIdPattern ? { todoIdPattern: item.todoIdPattern } : {}),
         ...(item.notificationOf ? { notificationOf: item.notificationOf } : {}),
         from: item.from,
     };

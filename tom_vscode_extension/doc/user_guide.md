@@ -734,7 +734,10 @@ temporary session deleted when the item and its notification are done; the
 SESSIONS view lists it last, tagged *temporary*), and a
 done-notification prompt, typically one that sends a message back, and where
 that notification is queued (back in the sender's quest and run, so it hears
-back directly). The item can go into a process run of the target quest. In
+back directly). The item can go into a process run of the target quest, and
+it can be a todo walk there: `repeatCount: "<prefix>*"` walks the target
+quest's todos with that prefix in that run's lane. A run the target quest does
+not have is refused when the item is sent; a sent item never creates a run. In
 those prompts `${senderQuest}` and `${senderRun}` are the sending quest and
 run.
 

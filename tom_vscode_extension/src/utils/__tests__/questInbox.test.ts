@@ -223,6 +223,27 @@ describe('queue inbox', () => {
         assert.equal(planInboxConversion({ text: 'x', run: 'gone', from: FROM }, { ...ctx, runExists: undefined }).error, undefined, 'unchecked without runExists');
     });
 
+    test('QB-10: a todo walk in a run (ww_a_collab-4)', () => {
+        const item: InboxItem = { text: 'Do ${repeatTodoId}', run: 'review', repeatCount: 'tsm_a*', todoIdPattern: 'tsm_a*', from: FROM };
+        const text = serializeInboxItem(item);
+        assert.match(text, /repeat-count: tsm_a\*/);
+        assert.match(text, /todo-id-pattern: tsm_a\*/);
+        const parsed = parseInboxItem(text);
+        assert.ok(parsed.ok);
+        if (!parsed.ok) { return; }
+        assert.deepEqual(parsed.item, item, 'round-trips');
+        const numeric = parseInboxItem(serializeInboxItem({ text: 'x', repeatCount: 3, from: FROM }));
+        assert.ok(numeric.ok && numeric.item.repeatCount === 3, 'a number stays a number');
+        const ctx = { profileExists: () => true, readSession: sessions(), now: NOW, token: 't1', runExists: (run: string) => run === 'default' || run === 'review' };
+        const c = planInboxConversion(parsed.item, ctx);
+        assert.equal(c.error, undefined);
+        assert.equal(c.enqueue.run, 'review');
+        assert.equal(c.enqueue.repeatCount, 'tsm_a*');
+        assert.equal(c.enqueue.todoIdPattern, 'tsm_a*');
+        const missing = planInboxConversion({ ...item, run: 'gone' }, ctx);
+        assert.match(missing.error ?? '', /no process run "gone"/, 'never created: an error item');
+    });
+
     test('QB-8: a file written while no window ran', () => {
         const folder = tempFolder();
         const file = inboxFileName('mbp', 'tom_uam', NOW, 't1');

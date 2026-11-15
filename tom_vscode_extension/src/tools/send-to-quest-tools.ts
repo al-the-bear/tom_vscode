@@ -17,6 +17,7 @@
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isValidSessionName, normalizeSessionMode, type SessionRecord } from '../utils/agentSdkSessions';
 import type { InboxItem, InboxNewSession } from '../utils/questInbox';
+import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 
 export interface SendItemToQuestInput {
     quest: string;
@@ -33,6 +34,10 @@ export interface SendItemToQuestInput {
     newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
+    /** How often the target repeats the item: a number, a chat variable there, or `<prefix>*` (a walk over the target quest's todos). */
+    repeatCount?: number | string;
+    /** The target quest's todos the item runs (an id, `<prefix>*`, several comma-separated); a `<prefix>*` repeatCount gives it when omitted. */
+    todoIdPattern?: string;
 }
 
 /** A window of the target quest, as its state file says. */
@@ -121,6 +126,8 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
         if (run && !access.runExists(quest, run)) {
             return err(`The quest "${quest}" has no process run "${run}".`, { code: 'unknownRun' });
         }
+        const walk = walkFields(input);
+        if ('error' in walk) { return err(walk.error, { code: walk.code }); }
         const dnQuest = input.doneNotificationQuest?.trim() || undefined;
         if (dnQuest && (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(dnQuest) || !access.questExists(dnQuest))) {
             return err(`There is no quest "${dnQuest}" for the done notification.`, { code: 'unknownQuest' });
@@ -139,6 +146,8 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             ...(input.session ? { session: input.session } : {}),
             ...(newSession ? { newSession } : {}),
             ...(run ? { run } : {}),
+            ...(walk.repeatCount !== undefined ? { repeatCount: walk.repeatCount } : {}),
+            ...(walk.todoIdPattern ? { todoIdPattern: walk.todoIdPattern } : {}),
             ...(dnQuest ? { doneNotificationQuest: dnQuest } : {}),
             ...(dnRun ? { doneNotificationRun: dnRun } : {}),
             from: {
@@ -160,6 +169,40 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
 }
 
 /**
+ * The item's repeat count and todo pattern, checked: a whole number of 1 or
+ * more, a chat-variable name, or `<prefix>*` (whose prefix must not end in a
+ * digit); a pattern of todo ids and `<prefix>*` entries. The walk runs over
+ * the target quest's todos, in the item's run.
+ */
+function walkFields(input: SendItemToQuestInput): { repeatCount?: number | string; todoIdPattern?: string } | { error: string; code: string } {
+    let repeatCount: number | string | undefined;
+    const rc = input.repeatCount;
+    if (typeof rc === 'number') {
+        if (!Number.isInteger(rc) || rc < 1) { return { error: '`repeatCount` must be a whole number of 1 or more, a chat-variable name or `<prefix>*`.', code: 'invalidRepeatCount' }; }
+        repeatCount = rc;
+    } else if (typeof rc === 'string' && rc.trim()) {
+        repeatCount = rc.trim();
+        const prefixError = todoPrefixPatternError(repeatCount);
+        if (prefixError) { return { error: prefixError, code: 'invalidTodoPrefix' }; }
+    } else if (rc !== undefined && rc !== null && rc !== '') {
+        return { error: '`repeatCount` must be a number or a string.', code: 'invalidRepeatCount' };
+    }
+    let todoIdPattern: string | undefined;
+    if (input.todoIdPattern !== undefined && input.todoIdPattern !== null && input.todoIdPattern !== '') {
+        if (typeof input.todoIdPattern !== 'string') { return { error: '`todoIdPattern` must be a string.', code: 'invalidTodoPattern' }; }
+        const parts = input.todoIdPattern.split(',').map((p) => p.trim()).filter(Boolean);
+        const bad = parts.find((p) => !/^[A-Za-z0-9][A-Za-z0-9_.-]*\*?$/.test(p));
+        if (bad !== undefined || parts.length === 0) {
+            return { error: `\`todoIdPattern\` must be todo ids or \`<prefix>*\`, comma-separated${bad ? `, not "${bad}"` : ''}.`, code: 'invalidTodoPattern' };
+        }
+        const prefixError = parts.map((p) => todoPrefixPatternError(p)).find(Boolean);
+        if (prefixError) { return { error: prefixError, code: 'invalidTodoPrefix' }; }
+        todoIdPattern = parts.join(',');
+    }
+    return { ...(repeatCount !== undefined ? { repeatCount } : {}), ...(todoIdPattern ? { todoIdPattern } : {}) };
+}
+
+/**
  * Write `item` into the inbox of `quest`'s windows on this machine: the
  * workspace a running window reads, else the quest's own. Also how a queue
  * item's done notification reaches another quest (promptQueueManager).
@@ -173,7 +216,7 @@ export function postInboxItem(access: Pick<QuestSendAccess, 'liveWindows' | 'del
 }
 
 export const SEND_ITEM_TO_QUEST_DESCRIPTION =
-    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`). `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${itemAnswer}` — what the item answered —, `${itemTitle}`, `${itemTodos}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
+    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`; a run the target lacks is refused, `unknownRun`). `repeatCount` / `todoIdPattern` make it a todo walk there, e.g. `repeatCount: "tsm_a*"` walks the target quest\'s `tsm_a*` todos in that run. `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${itemAnswer}` — what the item answered —, `${itemTitle}`, `${itemTodos}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
 
 export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
     name: 'tomAi_sendItemToQuest',
@@ -192,7 +235,9 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
             doneNotificationPrompt: { type: 'string', description: 'Queued when the item is done or fails for good: in the target queue, or in `doneNotificationQuest`. `${itemOutcome}`, `${itemAnswer}` (the item\'s answer), `${itemTitle}`, `${itemTodos}`.' },
             doneNotificationQuest: { type: 'string', description: 'The quest the done notification is posted to (e.g. your own, to hear back). Default: the target quest.' },
             doneNotificationRun: { type: 'string', description: 'The process run the done notification is queued in. Default: the item\'s run in the target quest, `default` in another.' },
-            run: { type: 'string', description: 'The target quest\'s process run the item is queued in (tomAi_listProcessRuns there). Default: `default`.' },
+            run: { type: 'string', description: 'The target quest\'s process run the item is queued in (tomAi_listProcessRuns there). Default: `default`. A run the target lacks is refused.' },
+            repeatCount: { type: ['number', 'string'], description: 'A number, a chat-variable name of the target, or `<prefix>*`: a walk over the target quest\'s todos with that prefix, lowest number first, in `run` (the prefix must not end in a digit).' },
+            todoIdPattern: { type: 'string', description: 'The target quest\'s todos the item runs: an id, `<prefix>*`, or several comma-separated. Default: from a `<prefix>*` repeatCount.' },
             pauseAfter: { type: 'boolean' },
             session: { type: 'string', description: 'An existing session of the target quest.' },
             newSession: {

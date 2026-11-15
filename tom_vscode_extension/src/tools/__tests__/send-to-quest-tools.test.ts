@@ -107,7 +107,7 @@ describe('tomAi_sendItemToQuest', () => {
         assert.equal(SEND_ITEM_TO_QUEST_TOOL.readOnly, false, 'a write tool: the MCP read-only floor does not serve it');
         const props = Object.keys((SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: object }).properties);
         assert.deepEqual(props.sort(), ['anthropicProfileId', 'doneNotificationPrompt', 'doneNotificationQuest', 'doneNotificationRun',
-            'newSession', 'pauseAfter', 'quest', 'run', 'session', 'template', 'text']);
+            'newSession', 'pauseAfter', 'quest', 'repeatCount', 'run', 'session', 'template', 'text', 'todoIdPattern']);
     });
 
     test('SQ-4: runs and the notification\'s target', async () => {
@@ -135,5 +135,35 @@ describe('tomAi_sendItemToQuest', () => {
         await refused({ doneNotificationQuest: 'missing' }, 'unknownQuest', /no quest "missing" for the done notification/);
         await refused({ doneNotificationRun: 'collab' }, 'unknownRun', /"tom_uam" has no process run "collab" for the done notification/);
         await refused({ doneNotificationQuest: 'vscode_extension', doneNotificationRun: 'review' }, 'unknownRun', /"vscode_extension" has no process run "review"/);
+    });
+
+    test('SQ-5: a todo walk in a named run of the target (ww_a_collab-4)', async () => {
+        const f = fakeAccess();
+        const r = await call(f.access, { quest: 'tom_uam', text: 'Do ${repeatTodoId}', run: 'review', repeatCount: 'tsm_a*' });
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.equal(f.delivered[0].item.run, 'review');
+        assert.equal(f.delivered[0].item.repeatCount, 'tsm_a*');
+        assert.equal(f.delivered[0].item.todoIdPattern, undefined, 'the target derives it from the repeat count');
+        const g = fakeAccess();
+        assert.equal((await call(g.access, { quest: 'tom_uam', text: 'x', todoIdPattern: ' t1 , grp_* ', repeatCount: 2 })).ok, true);
+        assert.equal(g.delivered[0].item.todoIdPattern, 't1,grp_*');
+        assert.equal(g.delivered[0].item.repeatCount, 2);
+
+        const refused = async (input: Record<string, unknown>, code: string, message: RegExp): Promise<void> => {
+            const h = fakeAccess();
+            const answer = await call(h.access, { quest: 'tom_uam', text: 'x', ...input });
+            assert.equal(answer.ok, false, JSON.stringify(input));
+            assert.equal(answer.code, code);
+            assert.match(String(answer.error), message);
+            assert.equal(h.delivered.length, 0, 'nothing delivered');
+        };
+        await refused({ repeatCount: 'tsm_a*', run: 'nope' }, 'unknownRun', /has no process run "nope"/);
+        await refused({ repeatCount: 'tsm3*' }, 'invalidTodoPrefix', /ends in a digit/);
+        await refused({ repeatCount: 0 }, 'invalidRepeatCount', /whole number/);
+        await refused({ todoIdPattern: 'a b' }, 'invalidTodoPattern', /todo ids or/);
+        await refused({ todoIdPattern: 'grp2*' }, 'invalidTodoPrefix', /ends in a digit/);
+        const schema = SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: Record<string, unknown> };
+        assert.ok(schema.properties.repeatCount && schema.properties.todoIdPattern);
+        assert.match(SEND_ITEM_TO_QUEST_TOOL.description, /todo walk there/);
     });
 });
