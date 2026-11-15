@@ -439,15 +439,21 @@ export class LiveTrailWriter {
         }
     }
 
-    appendThinking(text: string): void {
+    /**
+     * Thinking: a whole block, or with `delta: true` a streamed chunk (vscimpb116). A delta is
+     * appended as it came — no newline of its own — so the chunks of one paragraph stay one
+     * paragraph; the next block that is not a continuation closes the line first.
+     */
+    appendThinking(text: string, opts?: { delta?: boolean }): void {
         if (!text) { return; }
         try {
-            const body = this.currentlyInThinking
+            const continuing = this.currentlyInThinking;
+            const body = continuing
                 ? text
                 : `\n### 🧠 thinking\n\n${text}`;
             this.currentlyInThinking = true;
             this.currentlyInAssistantText = false;
-            this.append(body);
+            this.append(body, { keepOpen: opts?.delta === true, continuing });
             this.emit({ kind: 'thinking', text });
         } catch { /* swallowed */ }
     }
@@ -484,15 +490,17 @@ export class LiveTrailWriter {
         } catch { /* swallowed */ }
     }
 
-    appendAssistantText(text: string): void {
+    /** Assistant text: a whole block, or with `delta: true` a streamed chunk (see {@link appendThinking}). */
+    appendAssistantText(text: string, opts?: { delta?: boolean }): void {
         if (!text) { return; }
         try {
-            const body = this.currentlyInAssistantText
+            const continuing = this.currentlyInAssistantText;
+            const body = continuing
                 ? text
                 : `\n### 💬 assistant\n\n${text}`;
             this.currentlyInAssistantText = true;
             this.currentlyInThinking = false;
-            this.append(body);
+            this.append(body, { keepOpen: opts?.delta === true, continuing });
             this.emit({ kind: 'assistant', text });
         } catch { /* swallowed */ }
     }
@@ -646,11 +654,19 @@ export class LiveTrailWriter {
         fs.writeFileSync(this.filePath, body.endsWith('\n') ? body : body + '\n', 'utf-8');
     }
 
-    private append(content: string): void {
+    /**
+     * Append `content`. A block ends with a newline; a streamed delta (`keepOpen`) does not, so the
+     * next chunk of the same paragraph continues its line. Anything that does not continue that
+     * stream (`continuing` false: a new heading, a tool call, DONE / ERROR, …) closes the open line
+     * first, so a block starts where it always did and the file ends in a newline at turn end.
+     */
+    private append(content: string, opts: { keepOpen?: boolean; continuing?: boolean } = {}): void {
         const current = this.readFileSafe();
-        const next = (current.length > 0 ? current : `${HEADER_COMMENT}\n\n`) + content;
+        let base = current.length > 0 ? current : `${HEADER_COMMENT}\n\n`;
+        if (!opts.continuing && !base.endsWith('\n')) { base += '\n'; }
+        const next = base + content;
         this.ensureParentDir();
-        fs.writeFileSync(this.filePath, next.endsWith('\n') ? next : next + '\n', 'utf-8');
+        fs.writeFileSync(this.filePath, opts.keepOpen || next.endsWith('\n') ? next : next + '\n', 'utf-8');
     }
 
     /**

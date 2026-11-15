@@ -306,3 +306,58 @@ describe('LiveTrailWriter.appendUsage', () => {
         assert.equal(after, before);
     });
 });
+
+/**
+ * Streamed deltas (vscimpb116): a chunk passed with `delta: true` is appended as
+ * it came, so one paragraph streamed in several chunks stays one unbroken
+ * paragraph; the next block closes the open line, so headings start where they
+ * always did and the file ends in a newline after DONE / ERROR. Whole blocks
+ * (no `delta`) are written as before.
+ */
+describe('LiveTrailWriter streamed deltas', () => {
+    let quest: string;
+    beforeEach(() => { quest = `q_${Math.random().toString(36).slice(2)}`; });
+    const read = (w: LiveTrailWriter): string => fs.readFileSync(w.getFilePath(), 'utf-8');
+
+    it('LT-D1: thinking and text deltas each stay one unbroken paragraph; DONE closes with a newline', () => {
+        const w = newWriter(quest);
+        for (const chunk of ['The user wants ', 'the num', 'bers summed, ', 'so I add them.']) { w.appendThinking(chunk, { delta: true }); }
+        for (const chunk of ['The sum ', 'of 2 and 3 ', 'is 5.']) { w.appendAssistantText(chunk, { delta: true }); }
+        assert.ok(!read(w).endsWith('\n'), 'mid-stream the line stays open');
+        w.endPrompt({ rounds: 1, toolCalls: 0, durationMs: 7 });
+        const body = read(w);
+        assert.ok(body.includes('### 🧠 thinking\n\nThe user wants the numbers summed, so I add them.\n\n### 💬 assistant\n\nThe sum of 2 and 3 is 5.\n\n\n### ✅ DONE (rounds=1, toolCalls=0, 7ms)\n'), body);
+        assert.ok(body.endsWith('\n'));
+    });
+
+    it('LT-D2: a tool call after streamed text, and ERROR, close the open line', () => {
+        const w = newWriter(quest);
+        w.appendAssistantText('Let me ', { delta: true });
+        w.appendAssistantText('look.', { delta: true });
+        w.beginToolCall('tomAi_readFile', { path: 'a' }, 't1');
+        w.appendAssistantText('Still ', { delta: true });
+        w.appendAssistantText('going', { delta: true });
+        w.endPromptWithError('boom');
+        const body = read(w);
+        assert.ok(body.includes('### 💬 assistant\n\nLet me look.\n\n### 🔧 tomAi_readFile [t1]'), body);
+        assert.ok(body.includes('### 💬 assistant\n\nStill going\n\n\n### ⚠️ ERROR\n\n```text\nboom\n```\n'), body);
+        assert.ok(body.endsWith('\n'));
+    });
+
+    it('LT-D3: whole blocks are written as before (a line each), so two whole text blocks never run together', () => {
+        const w = newWriter(quest);
+        w.appendAssistantText('First block.');
+        w.appendAssistantText('Second block.');
+        w.endPrompt({ rounds: 1, toolCalls: 0, durationMs: 1 });
+        assert.ok(read(w).includes('### 💬 assistant\n\nFirst block.\nSecond block.\n\n\n### ✅ DONE'), read(w));
+    });
+
+    it('LT-D4: the next prompt after a stream left open starts its block on a line of its own', () => {
+        const w = newWriter(quest);
+        w.appendAssistantText('cut ', { delta: true });
+        w.appendAssistantText('off', { delta: true });
+        w.beginPrompt({ transport: 'agentSdk', config: 'default', userText: 'next' });
+        const body = read(w);
+        assert.match(body, /cut off\n\n## 🚀 PROMPT \d{8}_\d{6} \[agentSdk \/ default\]\n\n> User: next\n$/);
+    });
+});

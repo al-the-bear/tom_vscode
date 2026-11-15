@@ -72,7 +72,7 @@ Each block is delimited by a heading-level-2 `## 🚀 PROMPT <ts> [...]` marker 
 | `### 🧠 thinking` | extended-thinking block received (direct path) or SDK emits a thinking event | plain text, one block per received thinking chunk |
 | `### 🔧 <toolName> [tN]` | tool_use block encountered; `tN` is the replay key from ToolTrail | fenced JSON of the tool input |
 | `<details>📤 result (<N> chars)</details>` | tool_result written | fenced preview (first ~800 chars); "…" when truncated |
-| `### 💬 assistant` | assistant text block completes (streaming concatenates until the next event arrives) | raw text, markdown-escaped if it'd otherwise break the outer markdown |
+| `### 💬 assistant` | assistant text block completes (streaming concatenates until the next event arrives: the direct API and the Agent SDK write whole blocks, a line each; the Local LLM's tokens and VS Code LM's stream parts are deltas, appended without a newline of their own, so a paragraph stays one paragraph) | raw text, markdown-escaped if it'd otherwise break the outer markdown |
 | `### ✅ DONE (rounds=N, toolCalls=M, <N>ms)` | `finalize()` or the agent-SDK return | one-line summary |
 | `### ⚠️ ERROR` | try/catch in the new always-write-answer path fires | diagnostic text |
 
@@ -98,14 +98,18 @@ class LiveTrailWriter {
     constructor(questId: string);
     /** Start a new prompt block. Trims to last 5 blocks first. */
     beginPrompt(info: { transport: string; config: string; userText: string }): void;
-    /** Append a thinking chunk. Streaming-friendly — multiple calls fold into one heading. */
-    appendThinking(text: string): void;
+    /**
+     * Append thinking: a whole block, or with `delta: true` a streamed chunk. Calls fold into one
+     * heading; a delta adds no newline of its own, so one paragraph streamed in several chunks
+     * stays one paragraph, and the next block closes the open line.
+     */
+    appendThinking(text: string, opts?: { delta?: boolean }): void;
     /** A tool_use block was emitted; record the JSON input and the replay key. */
     beginToolCall(toolName: string, input: unknown, replayKey: string): void;
     /** A tool_result was written; append the preview body (will be collapsed in <details>). */
     appendToolResult(resultPreview: string, fullLength: number): void;
-    /** Stream-friendly assistant text append. */
-    appendAssistantText(text: string): void;
+    /** Append assistant text: a whole block, or with `delta: true` a streamed chunk (as appendThinking). */
+    appendAssistantText(text: string, opts?: { delta?: boolean }): void;
     /** Mark the block done with the per-turn summary. */
     endPrompt(summary: { rounds: number; toolCalls: number; durationMs: number }): void;
     /** Record an error (from the always-write-answer catch branches). */

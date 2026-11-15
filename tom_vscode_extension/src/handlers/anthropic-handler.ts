@@ -3259,7 +3259,8 @@ export class AnthropicHandler {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         turnText += part.value;
                         assistantParts.push(part);
-                        liveTrail?.appendAssistantText(part.value);
+                        // A streamed part: one paragraph stays one paragraph in the trail (vscimpb116).
+                        liveTrail?.appendAssistantText(part.value, { delta: true });
                     } else {
                         assistantParts.push(part);
                         toolCalls.push(part);
@@ -3561,7 +3562,8 @@ export class AnthropicHandler {
                     apiStyle: llm.apiStyle,
                     apiKeyEnv: llm.apiKeyEnv,
                     cancellationToken: options.cancellationToken,
-                    onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment),
+                    // A streamed token: appended as it came, no line of its own (vscimpb116).
+                    onToken: (fragment: string) => liveTrail?.appendAssistantText(fragment, { delta: true }),
                     // Profile carries the retry budget (in minutes); the
                     // Local LLM dispatcher converts to ms. Same field, same
                     // semantics as the Anthropic direct path.
