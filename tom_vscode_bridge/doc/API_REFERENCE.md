@@ -81,8 +81,12 @@ The answer:
 script recorded an exception it caught itself. The extension's commands open a
 result `{action: 'showDocument', filename, content}` in a new editor.
 
-`executeExpressionVcb` evaluates the expression with D4rt's `eval`, which first
-runs the interpreter's init source (`VSCodeBridgeServer.defaultInitSource`).
+`executeExpressionVcb` evaluates the expression with D4rt's `eval`, after the
+interpreter's init source has run once: `VSCodeBridgeServer.defaultInitSource`
+without the `package:` imports this bridge has no bridges for
+(`initSourceFor`). In the plain `tom_bs` an expression sees the `dart:`
+libraries, `tom_dcli`, `tom_d4rt_dcli` and the scripting API (`1 + 2`,
+`max(2, 5)`, `Directory.current.path`).
 
 ## Requests the bridge sends to the extension
 
@@ -120,13 +124,14 @@ constructs it with them.
 
 | Member | What it does |
 | --- | --- |
-| `VSCodeBridgeServer({List<BridgeRegistrar>? additionalBridgeRegistrars, String? initSource})` | Sets up the D4rt interpreter with every permission, the DCli bridges, `VsCodeBridge` and the VS Code globals; `additionalBridgeRegistrars` register more bridges; `initSource` replaces `defaultInitSource`. |
+| `VSCodeBridgeServer({List<BridgeRegistrar>? additionalBridgeRegistrars, String? initSource})` | Sets up the D4rt interpreter with every permission, the DCli bridges, `VsCodeBridge` and the VS Code globals; `additionalBridgeRegistrars` register more bridges; `initSource` replaces `defaultInitSource` and is used as given. |
 | `void start()` | Reads requests from stdin, writes answers and requests to stdout. |
 | `Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {String? scriptName, Duration timeout})` | Sends a request to the extension and waits for its answer (default timeout 30 s). |
 | `void sendNotification(String method, Map<String, dynamic> params)` | Sends a notification (no answer). |
 | `Future<Map<String, dynamic>?> handleCliRequest(String method, Map<String, dynamic> params, Object? id, void Function(String) sendLogToSocket)` | Answers a CLI client's request (used by the CLI integration server). |
 | `Stream<Map<String, dynamic>> get extensionPushMessages` | Agent SDK traffic the extension pushes, relayed to CLI clients. |
-| `static String defaultInitSource` | The source run before an expression is evaluated: imports of the packages a full bridge registers. |
+| `static String defaultInitSource` | The source run once before the first expression is evaluated: the imports an expression sees; those this interpreter has no bridges for are left out. |
+| `static String initSourceFor(String source, Set<String> registered)` | `source` without its `package:` imports not in `registered`. |
 | `debugInjectExtensionPush`, `debugHandleLine`, `debugOutput` | Test-only seams. |
 
 `VSCodeBridgeServer.params` and `VSCodeBridgeServer.setResult` read and set

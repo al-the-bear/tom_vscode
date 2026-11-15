@@ -92,10 +92,8 @@ void main() {
   test('executeExpressionVcb: one response', () async {
     final answers = await request(3, 'executeExpressionVcb', {'expression': '1 + 2'});
     expect(answers, hasLength(1));
-    // Its outcome is qrfix18's: the plain bridge's init source imports packages it has no bridges for, so the
-    // evaluation fails today (success: false). The answer is one either way.
-    expect(answers.single['result'], isA<Map<String, dynamic>>());
-    expect(answers.single['result'].containsKey('success'), isTrue);
+    expect(answers.single['result']['success'], isTrue);
+    expect(answers.single['result']['result'], 3);
   });
 
   test('a plain method: one response', () async {

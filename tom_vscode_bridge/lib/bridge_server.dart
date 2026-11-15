@@ -242,9 +242,15 @@ class VSCodeBridgeServer implements VSCodeAdapter {
 
   /// Default initialization source for the D4rt interpreter.
   ///
-  /// This script is executed before user scripts to pre-import commonly used
-  /// packages. Override via the [initSource] constructor parameter when
-  /// additional or different imports are needed.
+  /// Run once before the first expression is evaluated
+  /// (`executeExpressionVcb`), so an expression sees these libraries. The
+  /// `package:` imports this interpreter has no bridges for are left out
+  /// ([initSourceFor]): the plain `tom_bs` serves the `dart:` libraries,
+  /// `tom_d4rt_dcli`, `tom_dcli` and `tom_vscode_scripting_api`; an embedder
+  /// that registers more bridges gets more of the list. Override via the
+  /// [initSource] constructor parameter (used as given) when other imports
+  /// are needed. Scripts (`executeFileVcb` / `executeScriptVcb`) import what
+  /// they use themselves.
   static const String defaultInitSource = '''
 import 'dart:async';
 import 'dart:io';
@@ -279,8 +285,33 @@ void main() {}
       return;
     }
 
-    _interpreter.execute(source: _initSource ?? defaultInitSource);
+    _interpreter.execute(
+      source:
+          _initSource ??
+          initSourceFor(
+            defaultInitSource,
+            _interpreter
+                .getConfiguration()
+                .imports
+                .map((i) => i.importPath)
+                .toSet(),
+          ),
+    );
     _hasExecutionContext = true;
+  }
+
+  /// [source] without its `package:` imports that are not in [registered]
+  /// (the libraries the interpreter has bridges for): loading one of them
+  /// would fail the whole source. `dart:` imports are built in and kept.
+  static String initSourceFor(String source, Set<String> registered) {
+    final import = RegExp(r'''^\s*import\s+'(package:[^']+)'\s*;''');
+    return source
+        .split('\n')
+        .where((line) {
+          final m = import.firstMatch(line);
+          return m == null || registered.contains(m.group(1));
+        })
+        .join('\n');
   }
 
   /// Logs the interpreter configuration in concise format for startup.
