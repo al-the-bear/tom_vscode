@@ -1,0 +1,39 @@
+/* @TOM INFO › NOTIFICATIONS — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 2px 6px 6px;
+}
+.muted { color: var(--vscode-descriptionForeground); }
+.bar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 2px 0 4px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.bar .grow { flex: 1 1 auto; }
+.icon {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.9em;
+}
+.icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+.icon.off { opacity: 0.4; }
+.icon.on { border-color: var(--vscode-focusBorder, #007fd4); }
+.windows { padding: 4px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.windows label { display: flex; align-items: center; gap: 4px; padding: 1px 0; }
+.event { padding: 2px 0; cursor: pointer; border-radius: 3px; }
+.event:hover { background: var(--vscode-list-hoverBackground); }
+.event-line { display: flex; align-items: center; gap: 5px; }
+.event-line .time { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; font-size: 0.85em; white-space: nowrap; }
+.event-line .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.count { font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.type-itemQueued { color: var(--vscode-charts-green, #3fb950); }
+.type-itemDeleted { color: var(--vscode-editorError-foreground, #f14c4c); }
+.type-todoCreated { color: var(--vscode-charts-blue, #3794ff); }
+.type-todoUpdated { color: var(--vscode-descriptionForeground); }
+.type-todoChanged { color: var(--vscode-charts-purple, #b180d7); }
+.details { margin: 2px 0 4px 18px; padding: 3px 6px; border-left: 2px solid var(--vscode-panel-border, #555); font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; }

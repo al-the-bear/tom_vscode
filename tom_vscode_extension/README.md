@@ -549,7 +549,10 @@ the active quest's notes on their own (`tomAi.questNotesPanel`, with an
 renders it; you can drag it into the secondary side bar), and **RUNS**
 (`tomAi.runsOverview`): every process run of every window on this machine with
 its subject, position and state (running, paused, idle, or waiting for you, an
-event or a task, with what it waits for).
+event or a task, with what it waits for), and **NOTIFICATIONS**
+(`tomAi.notifications`): what agents and you did to queues and todos in every
+window — items queued and deleted, todos created, edited and moved on —, merged
+and filterable.
 
 A quest's process can also be moved from a document in the MD Browser.
 A review's results carry **Finish review round** (`${finish-review-round}`

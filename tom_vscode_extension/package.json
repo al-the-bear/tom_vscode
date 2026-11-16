@@ -370,7 +370,7 @@
       },
       {
         "command": "tomAi.tomInfoSidebar.focus",
-        "title": "@T: Focus @TOM INFO Sidebar (quest notes, runs)",
+        "title": "@T: Focus @TOM INFO Sidebar (quest notes, runs, notifications)",
         "category": "@Tom"
       },
       {
@@ -587,6 +587,12 @@
           "id": "tomAi.runsOverview",
           "name": "RUNS",
           "icon": "$(run-all)"
+        },
+        {
+          "type": "webview",
+          "id": "tomAi.notifications",
+          "name": "NOTIFICATIONS",
+          "icon": "$(bell)"
         }
       ],
       "explorer": [

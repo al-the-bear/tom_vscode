@@ -27,7 +27,9 @@ import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecision
 import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
-import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
+import { setTodoQuestsRoot, todoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
+import { emitNotifications } from '../services/notificationLog';
+import { todoCreatedDraft, todoUpdateDraft } from '../utils/notificationDrafts';
 // Registers the hook by which blocked todos follow their blockers on every write (vscimpb121).
 import '../utils/todoBlockingCascade';
 import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
@@ -1087,6 +1089,7 @@ export function updateTodoInFile(
         if (!isMap(item)) { continue; }
         if (String(item.get('id')) !== todoId) { continue; }
 
+        const before = nodeToTodo(item as YAMLMap, path.basename(filePath));
         // Collected as it is applied, so the read-back below compares the set
         // the writer touched. SCD202 covers this function for the same reason
         // it covers `updateTodo`: a lost update leaves the todo present with
@@ -1098,7 +1101,10 @@ export function updateTodoInFile(
         saveDocument(filePath, doc);
         assertTodoPersisted(filePath, todoId, 'present', 'updateTodoInFile');
         assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodoInFile');
-        return nodeToTodo(item as YAMLMap, path.basename(filePath));
+        const after = nodeToTodo(item as YAMLMap, path.basename(filePath));
+        const quest = questOfTodoFile(filePath);
+        if (quest) { notifyTodoUpdated(quest, before, after); }
+        return after;
     }
 
     return undefined;
@@ -1311,6 +1317,29 @@ export function currentTodoFiledBy(now: Date = new Date()): TodoFiledBy {
     return buildFiledBy(ctx, now);
 }
 
+// ============================================================================
+// @TOM INFO › NOTIFICATIONS (vscimpb124)
+// ============================================================================
+
+/** The quest of a quest todo file (`<quests root>/<quest>/<file>.todo.yaml`); undefined for any other todo file. */
+export function questOfTodoFile(filePath: string): string | undefined {
+    const root = todoQuestsRoot();
+    if (!root) { return undefined; }
+    const dir = path.dirname(path.resolve(filePath));
+    return path.dirname(dir) === path.resolve(root) ? path.basename(dir) : undefined;
+}
+
+/** NOTIFICATIONS: a todo was filed (or imported) in `questId`. */
+export function notifyTodoCreated(questId: string, todo: QuestTodoItem): void {
+    emitNotifications([todoCreatedDraft(questId, todo as unknown as Record<string, unknown> & { id: string })]);
+}
+
+/** NOTIFICATIONS: a todo of `questId` was updated; one event per call, its status change or its edit. */
+export function notifyTodoUpdated(questId: string, before: QuestTodoItem, after: QuestTodoItem): void {
+    const draft = todoUpdateDraft(questId, before as unknown as Record<string, unknown> & { id: string }, after as unknown as Record<string, unknown> & { id: string });
+    if (draft) { emitNotifications([draft]); }
+}
+
 /**
  * File a NEW todo (the todo tools, the todo panel): {@link createTodo} with
  * `filed_by` written from the call's context (a caller's own value is
@@ -1325,6 +1354,7 @@ export function fileTodo(
 ): QuestTodoItem {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     const created = createTodo(questId, { ...todo, filed_by: currentTodoFiledBy() }, targetFile);
+    notifyTodoCreated(questId, created);
     applyUnblockEntries(questId, created.id, unblockEntryPlan(undefined, created, questId));
     return created;
 }
@@ -1405,6 +1435,7 @@ export function updateTodo(
                 assertTodoPersisted(filePath, todoId, 'present', 'updateTodo');
                 assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodo');
                 const after = nodeToTodo(item, fileName);
+                notifyTodoUpdated(questId, before, after);
                 // BP-2 / DP-part-todo-followups-2: the unblock targets follow a
                 // replaced `on_done` and a cancellation (or its undoing).
                 if ('on_done' in applied || before.status !== after.status) {

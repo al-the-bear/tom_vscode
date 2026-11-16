@@ -43,7 +43,7 @@ describe('activity-bar containers', () => {
             ['tomAi.todoLogTom', 'TODO LOG'], ['tomAi.windowStatusTom', 'WINDOW STATUS'],
         ]);
         assert.deepEqual(views('tomAi-vsc-sidebar'), [['tomAi.vscResources', 'RESOURCES']]);
-        assert.deepEqual(views('tomAi-info-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES'], ['tomAi.runsOverview', 'RUNS']]);
+        assert.deepEqual(views('tomAi-info-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES'], ['tomAi.runsOverview', 'RUNS'], ['tomAi.notifications', 'NOTIFICATIONS']]);
     });
 
     test('SB-2: the moved views are reached by their own ids', () => {

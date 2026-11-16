@@ -8,7 +8,10 @@
 
 import { installTodoOnDone } from './services/todoOnDoneLive';
 import { setTodoFiledByContextProvider } from './managers/questTodoManager';
-import { currentQueueItemId } from './services/userWaits';
+import { currentInteractionRun, currentQueueItemId } from './services/userWaits';
+import { configureNotificationLog } from './services/notificationLog';
+import { getCurrentToolContext } from './services/tool-execution-context';
+import { registerNotificationsView } from './handlers/notifications-handler';
 import { callerSession } from './tools/session-param';
 import { currentProcessRun } from './services/processRunContext';
 import { registerQuestNotesPanel } from './handlers/questNotesPanel-handler';
@@ -523,6 +526,11 @@ export async function activate(context: vscode.ExtensionContext) {
     registerRunsOverviewView(context);
     timeStep('runsOverview', stepStart);
 
+    // @TOM INFO › NOTIFICATIONS: queue and todo events of every window on this machine
+    stepStart = performance.now();
+    registerNotificationsView(context);
+    timeStep('notifications', stepStart);
+
     // Register Unified Notepad (T2) panel
     stepStart = performance.now();
     registerChatPanel(context);
@@ -852,6 +860,32 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize Queue & Automation (§3.2–§3.4)
     stepStart = performance.now();
+    // @TOM INFO › NOTIFICATIONS: the machine's event log, and who a change is from (vscimpb124).
+    configureNotificationLog(path.join(context.globalStorageUri.fsPath, 'notifications', 'events.jsonl'), {
+        windowId: `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`,
+        quest: () => WsPaths.getWorkspaceQuestId(),
+        run: () => currentInteractionRun(),
+        who: () => {
+            const tool = getCurrentToolContext();
+            const itemId = currentQueueItemId();
+            let item: ReturnType<typeof PromptQueueManager.prototype.getById> | undefined;
+            try { item = itemId ? PromptQueueManager.instance.getById(itemId) : undefined; } catch { item = undefined; }
+            if (!tool || tool.source === 'user') {
+                // Outside a tool call: the queue acting for an item, else the user (the UI).
+                return itemId ? { kind: 'extension' as const, label: `queue item ${itemId}` } : { kind: 'user' as const };
+            }
+            const profile = item?.lastDispatched?.anthropicProfileId ?? item?.anthropicProfileId;
+            const session = callerSession() ?? item?.session;
+            return {
+                kind: 'agent' as const,
+                transport: tool.source,
+                ...(profile ? { profile } : {}),
+                ...(session ? { session } : {}),
+                ...(itemId ? { queueItemId: itemId } : {}),
+                ...(item?.todoClaim ? { todo: `${item.todoClaim.questId}/${item.todoClaim.todoId}` } : {}),
+            };
+        },
+    });
     PromptQueueManager.init(context);
     // A completed todo's `on_done`: carried out by the extension (ww_a_collab-5).
     installTodoOnDone();

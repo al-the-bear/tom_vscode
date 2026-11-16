@@ -955,7 +955,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 const file = effectiveFile(msg.file);
                 for (const t of todos) {
                     try {
-                        questTodo.createTodo(qid, t, file);
+                        questTodo.notifyTodoCreated(qid, questTodo.createTodo(qid, t, file));
                         created++;
                     } catch { /* skip */ }
                 }
@@ -1084,7 +1084,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     const file = effectiveFile(msg.file);
                     for (const t of items) {
                         try {
-                            questTodo.createTodo(qid, t, file);
+                            questTodo.notifyTodoCreated(qid, questTodo.createTodo(qid, t, file));
                             imported++;
                         } catch { /* skip */ }
                     }

@@ -269,9 +269,9 @@ The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Ses
 
 VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application the workspace config maps to `.md` files in `externalApplications.mappings`; without such a mapping it warns that none is configured); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
 
-#### @TOM INFO: the quest notes and the runs
+#### @TOM INFO: the quest notes, the runs and the notifications
 
-The **@TOM INFO** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @TOM VSC; `@T: Focus @TOM INFO Sidebar`) holds two views. **QUEST NOTES — <quest>** is on the active quest's notes file (`quest-notes.<quest>.md`, the same file as the @TOM QUEST NOTES view). Drag the icon into the secondary side bar to keep the notes open beside the editor. Two tabs on top, the last one used kept for the window:
+The **@TOM INFO** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @TOM VSC; `@T: Focus @TOM INFO Sidebar`) holds three views. **QUEST NOTES — <quest>** is on the active quest's notes file (`quest-notes.<quest>.md`, the same file as the @TOM QUEST NOTES view). Drag the icon into the secondary side bar to keep the notes open beside the editor. Two tabs on top, the last one used kept for the window:
 
 - **Edit** — a text area on the file (monospace, the panel's full height), saved half a second after you stop typing and when you leave it; `/` and `@` completion as in the other notes. A change made elsewhere (an editor, a reconcile) is taken in at once; while you have unsaved text, a bar asks instead: **Load the file** (your text is replaced) or **Keep my text** (written over the file).
 - **View** — the file rendered as the MD Browser renders it: headings with folding (fold all, fold one level, the +/− beside a heading), search, links (another Markdown file opens in the MD Browser, a file at a line in an editor), comments and questions shown read-only. It follows the file.
@@ -288,6 +288,10 @@ The bar's 📖 opens the notes in the MD Browser, the file icon in an editor for
 - **idle** — nothing pending.
 
 When several apply, the first of this list wins. Click a run of this window to work on it here (as selecting it in PROCESS › Runs does); click another window's run to see its details. Each window writes its runs with its heartbeat (every 30 s) and soon after a change, and the view follows those writes; agents read the same entries from `tomAi_getQuestWindowStatus` (`runs`).
+
+**NOTIFICATIONS** — the last section: what agents, you and the extension do to queues and todos across the VS Code windows of this machine. Five kinds of event: an item **queued** or **deleted** (a queue item of any run), a todo **created**, a todo **edited** (fields or text) and a todo's **status** changed. One line per event — its time, an icon for the kind, a short text (*todo vscimpb121 → completed · vscode_extension*). Events of one kind from the same agent (or from you) in the same quest within 60 seconds are merged into one line (*5 todos created by default@another · vscode_extension*). Hover a line for its details, click it to keep them open: who did it — an agent with its transport, profile and session and the queue item and todo it was working on, you (the UI), or the extension on its own (a timed request, a reminder, a done notification, *blocked todos follow their blockers*) —, the window and run, the fields changed (old → new) and the members of a merged line.
+
+The bar on top: one toggle per kind; the window button lists the windows the events come from (tick one or several; none ticked shows every window); **Clear** hides the events there are now (in this window only — the log stays; a history button shows them again). The filters are kept per window. Every window writes its events into one log for the machine (the extension's global storage, the last 1000 events), and every NOTIFICATIONS view shows it as it changes.
 
 ### Issues Panel
 

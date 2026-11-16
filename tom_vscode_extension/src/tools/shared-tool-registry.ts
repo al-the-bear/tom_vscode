@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import { runWithToolContext } from '../services/tool-execution-context';
 
 // ============================================================================
 // Core interfaces
@@ -236,7 +237,8 @@ export function toVsCodeTool<TInput>(
             options: vscode.LanguageModelToolInvocationOptions<TInput>,
             _token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> {
-            const result = await tool.execute(options.input);
+            // Copilot calls it: what it changes is an agent's (e.g. @TOM INFO › NOTIFICATIONS).
+            const result = await runWithToolContext({ source: 'copilot' }, () => tool.execute(options.input));
             return new vscode.LanguageModelToolResult([
                 new vscode.LanguageModelTextPart(result),
             ]);

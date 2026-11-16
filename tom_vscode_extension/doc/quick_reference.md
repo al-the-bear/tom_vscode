@@ -55,10 +55,11 @@
 
 - RESOURCES (the window's extension helper processes: Pause / Resume / Kill; Lean / Full profiles; heavy workspace settings)
 
-**@TOM INFO** (the quest notes on their own, and the runs; `tomAi.tomInfoSidebar.focus`):
+**@TOM INFO** (the quest notes on their own, the runs, the notifications; `tomAi.tomInfoSidebar.focus`):
 
 - QUEST NOTES — <quest> (`tomAi.questNotesPanel`): Edit tab (text area, saved as you type; asks when the file changed while you have unsaved text), View tab (rendered as in the MD Browser: folding, +/− per level, search, links; read-only), Open in MD Browser, Open in Editor
 - RUNS (`tomAi.runsOverview`): every run of every window on this machine, grouped by window — run, subject, process › position, state badge (waiting for user / waiting for event / waiting on task / running / paused / idle) with what it waits for; click this window's run to select it, another window's for its details
+- NOTIFICATIONS (`tomAi.notifications`): queue and todo events of every window on this machine — item queued / deleted, todo created / edited / status changed; one line each (time, icon, text), merged per kind, source and quest within 60 s; hover or click for who (agent: transport, profile, session, queue item, todo; you; the extension), the fields old → new and the members; toggles per kind, a window filter, Clear (this window only); filters kept per window; one shared log (global storage, last 1000 events)
 
 ## Quest TODO Panel — prefix groups
 

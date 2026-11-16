@@ -133,6 +133,8 @@ import * as os from 'os';
 import { lookupProfile, parseSessionSpec, specExtras, type ProfileSection, type SessionSpec } from '../utils/sessionSpecs';
 import { pickAnthropicProfile } from '../utils/anthropicApiKeyCheck';
 import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
+import { emitNotifications } from '../services/notificationLog';
+import { queueItemDraft } from '../utils/notificationDrafts';
 
 // ============================================================================
 // Types
@@ -2398,6 +2400,8 @@ export class PromptQueueManager {
         }
 
         this.persist();
+        // @TOM INFO › NOTIFICATIONS (vscimpb124): every path that queues an item comes through here.
+        emitNotifications([queueItemDraft('itemQueued', item)]);
         this._onDidChange.fire();
 
         if (emptyIteration) {
@@ -2487,6 +2491,7 @@ export class PromptQueueManager {
         this._items = effect.items;
         if (effect.removed) {
             logQueue(`Item removed: id=${effect.removed.id}, type=${effect.removed.type}, status=${effect.removed.status}`);
+            emitNotifications([queueItemDraft('itemDeleted', effect.removed)]);
         }
 
         // Deleting the item that is currently sending must interrupt it: abort
@@ -3985,6 +3990,7 @@ export class PromptQueueManager {
         // "Clear sent" also clears the finished chat sends shown in the queue; `run`: only that run's items.
         const matches = (i: QueuedPrompt): boolean => (i.status === status || (status === 'sent' && i.status === CHAT_SENT_STATUS)) && this._inRun(i, run);
         this._releaseClaimsOfDroppedItems(this._items.filter(matches), 'cleared');
+        emitNotifications(this._items.filter(matches).map((i) => queueItemDraft('itemDeleted', i)));
         this._items = this._items.filter(i => !matches(i));
         this.trimSentHistory();
         this.persist();
@@ -3995,6 +4001,7 @@ export class PromptQueueManager {
     clearAll(run?: string): void {
         const dropped = this._items.filter((i) => this._inRun(i, run));
         this._releaseClaimsOfDroppedItems(dropped, 'queue cleared');
+        emitNotifications(dropped.map((i) => queueItemDraft('itemDeleted', i)));
         this._items = this._items.filter((i) => !this._inRun(i, run));
         this.persist();
         this._onDidChange.fire();
@@ -4176,6 +4183,7 @@ export class PromptQueueManager {
     dropProcessMoveMarkers(quest: string, why: string, run?: string): number {
         const ids = new Set(openMarkerIds(this._items, quest, run));
         if (ids.size === 0) { return 0; }
+        emitNotifications(this._items.filter((i) => ids.has(i.id)).map((i) => queueItemDraft('itemDeleted', i, { kind: 'extension', label: why })));
         this._items = this._items.filter((i) => !ids.has(i.id));
         logQueue(`Process-move marker(s) of ${quest} removed (${why}): ${[...ids].join(', ')}`);
         this.persist();

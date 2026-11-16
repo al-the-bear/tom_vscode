@@ -33,6 +33,7 @@ import { isMap, isSeq, parse, type YAMLMap } from 'yaml';
 import { isArchivedOrDeletedTodoFile } from './todoArchiveNames';
 import { liveQuestTodoFiles, setAfterTodoWriteHook, writeTodoFileText } from './todoBlockingSync';
 import { loadTodoYaml } from './todoYamlDocument';
+import { emitNotifications } from '../services/notificationLog';
 
 export const DONE_STATUSES: ReadonlySet<string> = new Set(['completed', 'cancelled']);
 
@@ -355,6 +356,12 @@ export function applyBlockingCascade(crossings: readonly StatusCrossing[], quest
     } finally {
         applying = false;
     }
+    // @TOM INFO › NOTIFICATIONS (vscimpb124): the dependents' status changes, done by the extension.
+    emitNotifications(decisions.map((d) => ({
+        type: 'todoChanged' as const,
+        todo: { id: d.id, quest: d.quest, fields: [{ field: 'status', old: d.from, new: d.to }] },
+        who: { kind: 'extension' as const, label: 'blocked todos follow their blockers' },
+    })));
     return decisions;
 }
 
