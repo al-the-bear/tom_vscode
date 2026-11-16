@@ -277,6 +277,9 @@
         var shownWrappers = [];
         var shownLinks = {};
         var shownLinesCache = null;
+        // The fold / heading / link state of the last full render, so a live
+        // panel can append to it (appendRender) without rendering everything again.
+        var shownCtx = null;
         var renderGen = 0;
         // A large document is rendered in short tasks so the window never waits:
         // it is lexed in parts (split before headings), parsed part by part and
@@ -716,6 +719,7 @@
         function renderDocument(text, done) {
             var gen = ++renderGen;
             shownLinks = {};
+            shownCtx = null;
             if (typeof marked === 'undefined' || !marked.lexer || !marked.parser) {
                 var plain = newDocRoot();
                 plain.innerHTML = '<pre>' + escapeHtml(text || '') + '</pre>';
@@ -787,6 +791,7 @@
                 sections.forEach(function(s) { s.style.containIntrinsicSize = 'auto ' + Math.max(40, s.__mdbEstimate) + 'px'; });
                 shownBlocks = blocks;
                 shownWrappers = wrappers;
+                shownCtx = ctx;
                 indexHeadings(ctx.headings);
                 linkify(ctx.linkables);
                 var fresh = newDocRoot();
@@ -816,6 +821,73 @@
         var NEAR_KEEP = 12;
         var sectionObserver = null;
         var nearLeft = [];
+
+        /**
+         * Live mode, the file grew at its end (a live trail being written): render
+         * only the tail instead of the whole document, so the window is not busy
+         * with a full render every second. The region starts at the last block
+         * (it may have grown) — after it when it is a heading — and must stand on
+         * its own: everything before it unchanged, a blank line or a heading
+         * before it. An HTML group (`<details>` of a tool result) is a block like
+         * any other: it starts outside open HTML, or the block before it would
+         * have taken it in. Anything else (text cut at the start, a change
+         * further up, a replaced block holding a heading, a render still running,
+         * CR/LF on) answers false and the caller renders the whole document.
+         */
+        function appendRender(text) {
+            if (crlfMode || typeof marked === 'undefined' || !shownCtx || !shownBlocks.length) { return false; }
+            if (contentArea.hasAttribute('aria-busy') || docRoot.parentNode !== contentArea) { return false; }
+            if (text.length <= shownText.length) { return false; }
+            var lastIndex = shownBlocks.length - 1;
+            var last = shownBlocks[lastIndex];
+            var from = last.type === 'heading' ? shownBlocks.length : lastIndex;
+            // A replaced block must hold no heading: its fold key and heading entry would be counted twice.
+            var replaced = from < shownBlocks.length ? shownWrappers[from] : null;
+            if (replaced && (headingIn(replaced) || replaced.querySelector('.md-heading-meta'))) { return false; }
+            var startLine = from < shownBlocks.length ? last.startLine : last.endLine;
+            var oldLines = shownLines();
+            var newLines = text.replace(/\r\n|\r/g, '\n').split('\n');
+            if (newLines.length < startLine) { return false; }
+            for (var i = 0; i < startLine; i++) { if (newLines[i] !== oldLines[i]) { return false; } }
+            var before = newLines[startLine - 1];
+            if (startLine > 0 && !(before.trim() === '' || /^ {0,3}#{1,6}(\s|$)/.test(before))) { return false; }
+            var built = buildPieces(newLines.slice(startLine).join('\n'), startLine);
+            var nodes = piecesToNodes(built.pieces);
+            processNodes(nodes, shownCtx);
+            // The replaced last block (not a heading, so no fold key to give back) and anything after it go.
+            var lastSection = null;
+            if (replaced) {
+                var old = replaced;
+                lastSection = old.parentNode;
+                for (var n = old; n;) { var next = n.nextSibling; lastSection.removeChild(n); n = next; }
+                shownBlocks.length = from;
+                shownWrappers.length = from;
+            } else {
+                lastSection = docRoot.lastElementChild;
+            }
+            var hidden = !!anyFolded();
+            while (nodes.holder.firstChild) {
+                if (!lastSection || lastSection.childNodes.length >= SECTION_BLOCKS) {
+                    lastSection = document.createElement('div');
+                    lastSection.className = 'mdb-section';
+                    docRoot.appendChild(lastSection);
+                    if (sectionObserver) { sectionObserver.observe(lastSection); }
+                }
+                lastSection.appendChild(nodes.holder.firstChild);
+            }
+            Array.prototype.push.apply(shownBlocks, nodes.blocks);
+            Array.prototype.push.apply(shownWrappers, nodes.wrappers);
+            Object.assign(shownLinks, built.links || {});
+            shownText = text;
+            shownLinesCache = null;
+            indexHeadings(shownCtx.headings);
+            linkify(nodes.linkables);
+            search.texts = null;
+            if (hidden) { applyFolding(); } else { refreshFoldControls(); }
+            if (indentOn) { applyIndent(); }
+            scheduleLinePos();
+            return true;
+        }
 
         function observeSections(root) {
             if (sectionObserver) { sectionObserver.disconnect(); sectionObserver = null; }
@@ -3279,6 +3351,12 @@
                 // reload with nothing changed): what is shown is already it.
                 if (!forced && sameFile && text === shownText && crlfMode === shownCrlf && docRoot.parentNode === contentArea && docRoot.querySelector('.mdb-block')) {
                     restoreScrollTop = null;
+                    return;
+                }
+                // A live panel whose file grew at its end: only the tail is rendered.
+                if (liveMode && sameFile && !forced && !msg.anchor && crlfMode === shownCrlf && appendRender(text)) {
+                    if (search.query) { runSearch(false); }
+                    if (followTail) { requestAnimationFrame(function() { scrollToBottom(); }); }
                     return;
                 }
                 shownText = text;

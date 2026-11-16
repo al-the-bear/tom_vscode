@@ -195,7 +195,7 @@ are the four most recently used. The list follows sessions created and deleted
 while the section is open. The session is one for every sub-tab (switched on
 any, it switches on all; default: `default`, the queue's), and it and the
 selected sub-tab survive a window reload. The
-content refreshes every 2.5 s. A file larger than 256 KB is read from — and the
+content refreshes every 7 s while it is shown. A file larger than 256 KB is read from — and the
 view opens at — the end its newest content is at (the *Opens at* column below).
 Two toolbar buttons act on the selected sub-tab: **Refresh** re-reads from disk,
 **Open in editor** opens the file in a normal text editor.
@@ -342,7 +342,7 @@ View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem sta
 
 - **Orange**: Prompt sent, awaiting answer
 - **Green**: Answer received
-- Auto-refreshes every 3 seconds from `_ai/local/*.window-state.json`
+- Auto-refreshes every 15 seconds from `_ai/local/*.window-state.json`, only while the view is visible
 
 ## Trails on Disk
 

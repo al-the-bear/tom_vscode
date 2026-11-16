@@ -28,7 +28,7 @@ import { loadWebviewHtml } from '../utils/webviewLoader';
 export const VSC_RESOURCES_VIEW_ID = 'tomAi.vscResources';
 /** VS Code's own command that reveals a view: `<view id>.focus`. */
 const FOCUS_VIEW_COMMAND = `${VSC_RESOURCES_VIEW_ID}.focus`;
-const VIEW_REFRESH_MS = 5000;
+const VIEW_REFRESH_MS = 10000;
 const STATUS_REFRESH_MS = 30000;
 
 /** The profile commands the view offers, when this VS Code has them. */

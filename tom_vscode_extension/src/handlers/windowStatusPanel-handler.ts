@@ -38,7 +38,8 @@ const WINDOW_STATUS_TOM_VIEW_ID = 'tomAi.windowStatusTom';
 const WINDOW_STATE_FILE_SUFFIX = '.window-state.json';
 
 /** How often the panel auto-refreshes (ms) */
-const AUTO_REFRESH_INTERVAL_MS = 3_000;
+/** Every 15 s, and only while the view is visible (a rebuild every 3 s kept the window busy). */
+const AUTO_REFRESH_INTERVAL_MS = 15_000;
 
 // ============================================================================
 // Types
@@ -134,8 +135,11 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
         // File watcher on _ai/local/ folder
         this._setupWatcher();
 
-        // Periodic auto-refresh
-        this._startAutoRefresh();
+        // Periodic auto-refresh, only while the view is visible; shown again: refreshed at once.
+        if (webviewView.visible) { this._startAutoRefresh(); }
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) { this.refresh(); this._startAutoRefresh(); } else { this._stopAutoRefresh(); }
+        });
 
         webviewView.onDidDispose(() => {
             this._view = undefined;
@@ -146,7 +150,8 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
 
     /** Trigger a refresh of the panel contents. */
     public refresh(): void {
-        if (this._view) {
+        // A hidden view is refreshed when it is shown again.
+        if (this._view && this._view.visible) {
             this._view.webview.postMessage({ type: 'refresh' });
         }
     }

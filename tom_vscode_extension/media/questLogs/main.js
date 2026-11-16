@@ -26,7 +26,8 @@
 // them (MD Trail and Trail render the same live-trail.md).
 
 /** Poll interval. The requirement is "at least every 3 seconds". */
-var QLOG_POLL_MS = 2500;
+// Every 7 s while the tab is shown: a full re-render of a large trail every few seconds kept the window busy.
+var QLOG_POLL_MS = 7000;
 /** How close to a file's newest end still counts as "following it", in pixels. */
 var QLOG_STICKY_SLACK = 40;
 
@@ -246,6 +247,8 @@ function qlogCreateViewer(cfg) {
      */
     function request(force) {
         if (isPaneTab() || !sectionVisible()) { return; }
+        // A hidden webview (another panel in front) asks for nothing; it asks again when shown.
+        if (!force && document.visibilityState === 'hidden') { return; }
         var stale = v.loadedView !== viewKey();
         vscode.postMessage({
             type: 'qlogRequest',
@@ -350,6 +353,7 @@ function qlogCreateViewer(cfg) {
         }
         request(true);
         setInterval(function () { request(false); }, QLOG_POLL_MS);
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'hidden') { request(false); } });
     }
 
     loadState();

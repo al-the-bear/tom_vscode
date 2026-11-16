@@ -87,8 +87,8 @@ the toolbar to edit.
   `{quest}.anthropic.prompts.md` / `.answers.md`), **Current Prompt** (see below)
 - **Remembered selection**: the active sub-tab and each sub-tab's session are
   restored after a window reload
-- **Auto-refresh**: re-reads every 2.5 s while the section is expanded; a file
-  that has not changed costs no read
+- **Auto-refresh**: re-reads every 7 s while the section is expanded and the
+  panel is shown; a file that has not changed costs no read
 - **256 KB window**: a larger file is shown from the end its newest content is
   at — the last 256 KB (marked `(tail)`) of the two trail tabs, the first 256 KB
   (marked `(head)`) of the others
@@ -135,7 +135,7 @@ The Documentation section of @WS has its own sub-tabs:
 
 - **Documents** — the document editor: pick a group (Workspace, Projects,
   Notes) and a file, edit it, open it in an editor or the MD viewer.
-- The quest's documents, read-only like the Logs (the same toolbar, 2.5 s
+- The quest's documents, read-only like the Logs (the same toolbar, 7 s
   refresh and 256 KB window): **Quest Progress** (`progress.{quest}.md`),
   **Quest Overview** (`overview.{quest}.md`), **Quest Notes**
   (`quest-notes.{quest}.md`), **Quest Refresh** (`quest_refresh.{quest}.md`),
@@ -171,7 +171,7 @@ The Markdown Browser is a standalone webview panel for reading markdown document
 - **Reload** (the refresh button): renders the file again in any case — also when its text has not changed, and with a text area open (which is closed; the reading position stays)
 - **While a change is saved** — Save, Save and next, a one-click answer, accepting / rejecting / removing a mark or a comment, accept / reject all — the browser shows a *Saving…* indicator with a wait cursor and takes no clicks or typing until the change is done (or refused)
 - **While a text area is open** the search box and the review navigation (↑ / ↓ and the kinds) are disabled, so nothing scrolls or re-renders under the text you are writing; they come back when it is saved or discarded
-- **Live mode (follow-tail)**: Opened by a session's live-trail action in the @CHAT Logs section, or by `tomAi_openInMdBrowser` with `live: true`. Auto-scrolls to the bottom on each re-render as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
+- **Live mode (follow-tail)**: Opened by a session's live-trail action in the @CHAT Logs section, or by `tomAi_openInMdBrowser` with `live: true`. When the file only grew at its end (a live trail being written), only the new part is rendered, not the whole document; anything else (the start cut off, a change further up) renders it in full. Auto-scrolls to the bottom as events stream in; pauses when the user scrolls up and resumes when they return to the bottom
 - **Anchor navigation**: Heading anchors allow direct scrolling to specific sections
 - **Position in the document**: the file bar shows `Line X / N` — the source line at the top of the view and the document's line count. While you drag far into a part not shown yet it reads `≈ Line X / N` until that part is drawn.
 - **Navigation history**: Back/forward buttons with up to 100 entries; going back or forward to a document opens it where you left it (the block that was at the top of the view, at the same height)
@@ -256,7 +256,7 @@ The Window Status panel is an Explorer sidebar view showing the state of all ope
 - **Heartbeat**: every window rewrites its heartbeat (time, process id, servers) every 30 seconds; a window whose heartbeat is older than 90 seconds is shown dimmed and marked *gone*. A window of an older build writes no heartbeat and is not judged.
 - **What each window is doing**: with every heartbeat, and about a second after it changes, a window also writes its host, role, process position, the ANTHROPIC/LLM panel's profile and session, and a queue summary (auto-send, paused, items per status, the defaults, the item being sent). An agent or MCP client reads all of it, with each quest's sessions and the Anthropic profiles, through `tomAi_getQuestWindowStatus` — the lookup before `tomAi_sendItemToQuest`.
 - **Reload needed**: a window that runs an older build of the extension than the one installed is marked *reload needed*; the tooltip names both builds. Reload that window to run the installed build.
-- **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 3 seconds
+- **Auto-refresh**: File watcher on `_ai/local/*.window-state.json` with periodic refresh every 15 seconds, only while the view is visible
 - **Cleanup**: Delete button to remove stale window entries
 
 #### Which build a window runs

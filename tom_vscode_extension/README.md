@@ -604,7 +604,7 @@ extension off, so the view works on what can be controlled:
   `ztmp/`, `build/`, `.dart_tool/`, `node_modules/` in `files.watcherExclude`
   and `search.exclude`; each tooltip says what it saves and the lean value.
 
-The view refreshes every 5 s while it is visible and does nothing while
+The view refreshes every 10 s while it is visible and does nothing while
 hidden. A status-bar item (`$(server-process) 1.6 GB in 3 processes`, the
 largest groups in its tooltip) shows the total of the window's helper
 processes, refreshed every 30 s; a click opens the view.
