@@ -207,11 +207,85 @@ function closePlaceholderPopup() {
 
 var PLACEHOLDER_TOOLTIP = 'Click for placeholder help';
 
+/*
+ * Icon toggle buttons (Keep, Fresh, Wrap, the queue mode): a button with
+ * aria-pressed, reached by Tab and switched by Enter / Space like any button.
+ * initToggleButtons gives each a `checked` property and fires `change` on a
+ * click, so they are read and set as the checkboxes they replace were.
+ */
+function toggleButtonHtml(id, icon, label, title, pressed) {
+    return '<button type="button" class="icon-btn toggle-btn' + (pressed ? ' pressed' : '') + '" id="' + id + '" aria-pressed="' + (pressed ? 'true' : 'false') + '"'
+        + ' aria-label="' + label + '" title="' + title + '"><span class="codicon ' + icon + '"></span></button>';
+}
+
+/*
+ * The queue mode of a subpanel: pressed (the default), Save to Queue adds the
+ * prompt pending — the queue sends it when it gets there; not pressed, staged —
+ * it waits until it is sent from the queue editor.
+ */
+var QUEUE_MODE_TITLES = {
+    staged: 'Save to Queue adds the prompt staged: it waits in the queue until you send it. Click to add pending.',
+    pending: 'Save to Queue adds the prompt pending: the queue sends it when it gets there. Click to add staged.',
+};
+function queueModeToggleHtml(sectionId) {
+    return toggleButtonHtml(sectionId + '-queue-pending', 'codicon-play', 'Queue pending', QUEUE_MODE_TITLES.pending, true);
+}
+function updateQueueModeLook(btn) {
+    var pending = btn.getAttribute('aria-pressed') === 'true';
+    btn.title = pending ? QUEUE_MODE_TITLES.pending : QUEUE_MODE_TITLES.staged;
+    var icon = btn.querySelector('.codicon');
+    if (icon) { icon.className = 'codicon ' + (pending ? 'codicon-play' : 'codicon-debug-pause'); }
+}
+/* The status Save to Queue adds a subpanel's prompt with. */
+function queueInitialStatus(sectionId) {
+    var btn = document.getElementById(sectionId + '-queue-pending');
+    return btn && btn.checked ? 'pending' : 'staged';
+}
+
+function initToggleButtons() {
+    var buttons = document.querySelectorAll('.toggle-btn');
+    for (var i = 0; i < buttons.length; i++) {
+        (function(btn) {
+            if (btn._toggleReady) { return; }
+            btn._toggleReady = true;
+            var isQueueMode = /-queue-pending$/.test(btn.id);
+            Object.defineProperty(btn, 'checked', {
+                configurable: true,
+                get: function() { return btn.getAttribute('aria-pressed') === 'true'; },
+                set: function(v) {
+                    btn.setAttribute('aria-pressed', v ? 'true' : 'false');
+                    btn.classList.toggle('pressed', !!v);
+                    if (isQueueMode) { updateQueueModeLook(btn); }
+                },
+            });
+            btn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                btn.checked = !btn.checked;
+                btn.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        })(buttons[i]);
+    }
+    // The queue mode: from the webview state, then saved there and with the drafts on every change.
+    ['anthropic', 'copilot'].forEach(function(sectionId) {
+        var btn = document.getElementById(sectionId + '-queue-pending');
+        if (!btn) { return; }
+        btn.checked = !(state.queuePending && state.queuePending[sectionId] === false);
+        btn.addEventListener('change', function() {
+            state.queuePending = state.queuePending || {};
+            state.queuePending[sectionId] = btn.checked;
+            saveState();
+            saveDrafts();
+        });
+    });
+}
+
 function loadState() {
     try {
         var s = vscode.getState();
         if (s && s.expanded && Array.isArray(s.expanded)) {state.expanded = s.expanded;}
         if (s && s.pinned && Array.isArray(s.pinned)) {state.pinned = s.pinned;}
+        if (s && s.queuePending && typeof s.queuePending === 'object') {state.queuePending = s.queuePending;}
     } catch(e) {}
 }
 
@@ -220,6 +294,7 @@ function saveState() {
     var all = vscode.getState() || {};
     all.expanded = state.expanded;
     all.pinned = state.pinned;
+    all.queuePending = state.queuePending || {};
     vscode.setState(all);
 }
 
@@ -333,16 +408,17 @@ function getSectionContent(id) {
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
-                '<label class="checkbox-label compact-keep" title="Wrap the send in the Copilot Queue Wrapper, so Copilot writes an answer file"><input type="checkbox" id="copilot-wrap"> Wrap</label>' +
+                toggleButtonHtml('copilot-wrap', 'codicon-word-wrap', 'Wrap', 'Wrap the send in the Copilot Queue Wrapper, so Copilot writes an answer file', false) +
+                toggleButtonHtml('copilot-keep-content', 'codicon-pin', 'Keep', 'Keep the text after Send or adding to the queue (not pressed: the text is cleared)', false) +
                 '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="text" id="copilot-repeat-count" value="1" style="width:24px"></label>' +
                 '<label class="checkbox-label compact-keep" title="Answer wait minutes (0 = wait for answer file)"><span style="opacity:0.8;">W</span><input type="text" id="copilot-answer-wait" value="0" style="width:24px"></label>' +
+                queueModeToggleHtml('copilot') +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<label class="checkbox-label compact-keep"><input type="checkbox" id="copilot-keep-content"> Keep</label>' +
                 '<label class="checkbox-label compact-keep" title="Auto-hide: close the side bar Copilot Chat runs in this long after a send (Off: keep it open). Kept for this window."><span style="opacity:0.8;">Auto-hide</span><select id="copilot-autohide" class="compact-select"><option value="0">Off</option><option value="3000">3s</option><option value="5000">5s</option><option value="10000">10s</option><option value="20000">20s</option></select></label>' +
                 '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
             afterToolbarHtml:
@@ -405,13 +481,15 @@ function getSectionContent(id) {
                 // ignored by the inline send button.
                 '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
                 // Per prompt slot: keep the text after Send / a queue add, or clear it (kept over a reload).
-                '<label class="checkbox-label compact-keep" title="Keep this prompt slot&#39;s text after Send or adding to the queue (unchecked: the slot is cleared). Set per slot 1–9."><input type="checkbox" id="anthropic-keep-slot" checked> Keep</label>' +
+                toggleButtonHtml('anthropic-keep-slot', 'codicon-pin', 'Keep', 'Keep this prompt slot&#39;s text after Send or adding to the queue (not pressed: the slot is cleared). Set per slot 1–9.', true) +
                 // Fresh: Send runs the prompt in a new one-prompt session based on the panel's session,
                 // discarded when the answer is in — no follow-up reaches it (kept over a reload).
-                '<label class="checkbox-label compact-keep" title="Send in a fresh session: a new one-prompt session based on this panel&#39;s session (it starts from that conversation and changes nothing in it), deleted when the answer is in. No follow-up prompt reaches it: the next Send starts another fresh one."><input type="checkbox" id="anthropic-fresh-session"> Fresh</label>' +
-                // Queue buttons. Save to Queue stages the prompt on the prompt queue's own
+                toggleButtonHtml('anthropic-fresh-session', 'codicon-sparkle', 'Fresh', 'Send in a fresh session: a new one-prompt session based on this panel&#39;s session (it starts from that conversation and changes nothing in it), deleted when the answer is in. No follow-up prompt reaches it: the next Send starts another fresh one.', false) +
+                // Queue buttons. Save to Queue adds the prompt (pending or staged, the queue-mode toggle) on the prompt queue's own
                 // profile and session; the second pins this panel's profile and session.
                 // Both keep the panel's user-message template and repeat count.
+                // Staged / pending: how both Save to Queue buttons add the prompt.
+                queueModeToggleHtml('anthropic') +
                 '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue — runs with the prompt queue&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
                 // Queue next: pending at the front of the queue, sent next — between two
@@ -1476,6 +1554,7 @@ window.addEventListener('message', function(e) {
             var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
             var sel = document.getElementById(profileId);
             if (sel && d.profile) {sel.value = d.profile;}
+            restoreQueueMode(s, d);
             updateSlotButtonsUI(s);
         });
         // Restore Anthropic-specific state
@@ -1487,6 +1566,7 @@ window.addEventListener('message', function(e) {
             if (da.slotKeep && typeof da.slotKeep === 'object') { anthrSectionState.keep = da.slotKeep; }
             var freshRestore = document.getElementById('anthropic-fresh-session');
             if (freshRestore) { freshRestore.checked = da.fresh === true; }
+            restoreQueueMode('anthropic', da);
             var anthrTa = document.getElementById('anthropic-text');
             if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
             var anthrProfile = document.getElementById('anthropic-profile');
@@ -1501,6 +1581,17 @@ window.addEventListener('message', function(e) {
         _draftsLoaded = true;
     }
 });
+
+/* The queue mode saved with the drafts (the panel's stored settings); the webview state follows. */
+function restoreQueueMode(sectionId, draft) {
+    if (!draft || typeof draft.queuePending !== 'boolean') { return; }
+    var btn = document.getElementById(sectionId + '-queue-pending');
+    if (!btn) { return; }
+    btn.checked = draft.queuePending;
+    state.queuePending = state.queuePending || {};
+    state.queuePending[sectionId] = draft.queuePending;
+    saveState();
+}
 
 function sendCopilotPrompt() {
     var text = document.getElementById('copilot-text');
@@ -1537,14 +1628,14 @@ function addCopilotToQueue() {
     var waitEl = document.getElementById('copilot-answer-wait');
     var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot });
+    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot, initialStatus: queueInitialStatus('copilot') });
     // Reset the repeat count to 1 so the next simple prompt isn't accidentally
     // queued again with a leftover (high) repeat count.
     if (repeatEl) { repeatEl.value = '1'; }
 }
 
 function addAnthropicToQueue(usePanelTarget, next) {
-    // Stage a queue item with transport='anthropic' and the panel's
+    // Add a queue item with transport='anthropic' and the panel's
     // user-message template. Profile and session: the prompt queue's own,
     // unless usePanelTarget pins this panel's profile and session. `next`
     // queues it pending at the front instead (sent next; between the
@@ -1567,7 +1658,8 @@ function addAnthropicToQueue(usePanelTarget, next) {
         section: 'anthropic',
         slot: ensureSlotState('anthropic').activeSlot,
         ...(usePanelTarget ? { anthropicProfileId: profileId, usePanelTarget: true } : {}),
-        ...(next ? { next: true } : {}),
+        // Queue next is always pending; Save to Queue follows the subpanel's queue mode.
+        ...(next ? { next: true } : { initialStatus: queueInitialStatus('anthropic') }),
     });
     // Reset the repeat count to 1 so the next simple prompt isn't accidentally
     // queued again with a leftover (high) repeat count.
@@ -1671,6 +1763,7 @@ function initReusablePromptSelectors() {
 
 loadState();
 render();
+initToggleButtons();
 initCopilotSection();
 initReusablePromptSelectors();
 vscode.postMessage({ type: 'getProfiles' });
@@ -1706,6 +1799,7 @@ function saveDrafts() {
                 profile: sel ? sel.value : '',
                 activeSlot: sectionState.activeSlot,
                 slots: sectionState.slots,
+                queuePending: queueInitialStatus(s) === 'pending',
             };
         });
         // Anthropic section — save Anthropic-specific dropdowns in addition to the standard fields
@@ -1722,6 +1816,7 @@ function saveDrafts() {
             slots: anthrSectionState.slots,
             slotKeep: anthrSectionState.keep || {},
             fresh: !!((document.getElementById('anthropic-fresh-session') || {}).checked),
+            queuePending: queueInitialStatus('anthropic') === 'pending',
         };
         vscode.postMessage({ type: 'saveDrafts', drafts: drafts });
     }, 1000);

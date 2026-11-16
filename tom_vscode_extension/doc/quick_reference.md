@@ -173,8 +173,8 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session), Save to Queue with the panel's profile and session, Queue next (sent next — between a running loop's iterations — with the queue's profile and session), Keep per prompt slot (keep or clear the text after Send / queue), and Fresh (Send in a one-prompt session based on the panel's session, deleted once answered). Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
-| Copilot | `codicon-copilot` | Copilot integration with R/W action bar |
+| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session), Save to Queue with the panel's profile and session, Queue next (sent next — between a running loop's iterations — with the queue's profile and session), Keep per prompt slot (keep or clear the text after Send / queue), Fresh (Send in a one-prompt session based on the panel's session, deleted once answered) and the queue mode (Save to Queue adds pending, the default, or staged); Keep, Fresh and the queue mode are icon toggle buttons. Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
+| Copilot | `codicon-copilot` | Copilot integration with R/W action bar; Wrap, Keep and the queue mode (pending / staged) as icon toggle buttons |
 | Logs | `codicon-output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 
 The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.
@@ -186,6 +186,8 @@ The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels op
 | R | 24px | Repeat count (number of times to send prompt) |
 | W | 24px | Answer wait minutes (0 = wait for answer file, >0 = auto-advance after N minutes) |
 | Auto-hide | dropdown | Close the side bar Copilot Chat runs in after a send: Off, 3s, 5s, 10s, 20s (kept for this window) |
+| Wrap / Keep | toggle | Send inside the Copilot Queue Wrapper; keep the text after a send or queue add |
+| Queue mode | toggle | Pressed (▶, default): the queue button adds pending; not pressed (⏸): staged |
 
 #### Logs sub-tabs
 

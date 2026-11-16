@@ -67,3 +67,8 @@
 .extension-tool-btn { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 4px 8px; font-size: 12px; border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
 .extension-tool-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .extension-tool-btn .extension-tool-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Icon toggle buttons (Keep, Fresh, Wrap, the queue mode): pressed / not pressed (aria-pressed). */
+.icon-btn.toggle-btn { opacity: 0.6; border: 1px solid transparent; border-radius: 3px; }
+.icon-btn.toggle-btn.pressed { opacity: 1; background: var(--vscode-inputOption-activeBackground, rgba(0, 127, 212, 0.4)); border-color: var(--vscode-inputOption-activeBorder, #007acc); color: var(--vscode-inputOption-activeForeground, inherit); }
+.icon-btn.toggle-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }

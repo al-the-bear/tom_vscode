@@ -26,6 +26,11 @@
  *   CB-11 Fresh: a box after Keep, off by default; Send posts `fresh` as it is; restored from the drafts and saved
  *        with them; the status line after the answer names the fresh session's base; the host runs a Fresh send in a
  *        temporary session based on the panel's session (never busy) and discards it completely afterwards
+ *   CB-12 the icon toggles (vscimpb130): Keep, Fresh, Copilot's Keep and Wrap and each subpanel's queue mode are
+ *        buttons with aria-pressed (keyboard: buttons, focusable), switched by a click with a `change`; the queue mode
+ *        sits right before Save to Queue, pressed (pending) by default; its tooltip and icon name the mode; Save to
+ *        Queue posts `initialStatus` pending / staged as it is (Queue next stays pending); kept in the webview state
+ *        and saved with the drafts (`queuePending`), restored from either; Copilot's Keep posts setKeepContent
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
  *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
@@ -149,6 +154,8 @@ describe('chat sends and the queue buttons', () => {
         // Queue next goes through enqueueNext, pending (not deferred); the origin is echoed in queueAdded.
         assert.match(panel, /await \(next \? queue\.enqueueNext\.bind\(queue\) : queue\.enqueue\.bind\(queue\)\)\(\{/);
         assert.match(panel, /deferSend: !next,/);
+        assert.match(panel, /initialStatus: !next && transportOpts\?\.staged \? 'staged' : 'pending',/, 'pending unless the queue mode says staged');
+        assert.match(panel, /staged: message\.initialStatus === 'staged',/);
         assert.match(panel, /type: 'queueAdded', count, \.\.\.\(origin\?\.section \? \{ section: origin\.section \} : \{\}\), \.\.\.\(origin\?\.slot \? \{ slot: origin\.slot \} : \{\}\)/);
         assert.match(panel, /export async function runChatSessionAction/);
         const logs = src('handlers', 'questLogs-handler.ts');
@@ -324,6 +331,91 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(removeOf('c2').title, 'Remove from the list');
         assert.match(q.document.body.textContent, /\[waiting for session walk\]/);
     });
+    test('CB-12: the icon toggles', async () => {
+        const html = media('chatPanel', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+        const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
+        open.push(w);
+        const posted: Array<Record<string, unknown>> = [];
+        let saved: Record<string, unknown> = { expanded: ['anthropic', 'copilot'], pinned: [], queuePending: { copilot: false } };
+        w.acquireVsCodeApi = () => ({
+            postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))),
+            setState: (v: Record<string, unknown>) => { saved = JSON.parse(JSON.stringify(v)); },
+            getState: () => saved,
+        });
+        w.__INIT__ = {};
+        w.eval(media('chatPanel', 'main.js'));
+        const doc = w.document;
+        const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
+        for (const id of ['anthropic-keep-slot', 'anthropic-fresh-session', 'copilot-keep-content', 'copilot-wrap', 'anthropic-queue-pending', 'copilot-queue-pending']) {
+            const b = doc.getElementById(id);
+            assert.equal(b?.tagName, 'BUTTON', `${id} is a button`);
+            assert.equal(b.type, 'button');
+            assert.ok(b.classList.contains('toggle-btn'));
+            assert.match(String(b.getAttribute('aria-pressed')), /^(true|false)$/, `${id} has aria-pressed`);
+            assert.ok(b.getAttribute('aria-label') && b.title, `${id}: label and tooltip`);
+            assert.ok(b.querySelector('.codicon'), `${id}: an icon`);
+            assert.notEqual(b.tabIndex, -1, `${id} is reached by Tab`);
+        }
+        assert.equal(doc.querySelectorAll('#container input[type="checkbox"]').length, 0, 'no checkbox left in the action bars');
+        // The queue mode: before Save to Queue in each subpanel; pending by default; copilot staged from the webview state.
+        const aq = doc.getElementById('anthropic-queue-pending');
+        const cq = doc.getElementById('copilot-queue-pending');
+        assert.equal(aq.nextElementSibling, doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]'));
+        assert.equal(cq.nextElementSibling, doc.querySelector('[data-action="addToQueue"][data-id="copilot"]'));
+        assert.equal(aq.getAttribute('aria-pressed'), 'true', 'pending: today\'s behaviour');
+        assert.match(aq.title, /adds the prompt pending/);
+        assert.ok(aq.querySelector('.codicon-play'));
+        assert.equal(cq.getAttribute('aria-pressed'), 'false', 'from the webview state');
+        assert.match(cq.title, /adds the prompt staged/);
+        assert.ok(cq.querySelector('.codicon-debug-pause'));
+        fire({ type: 'draftsLoaded', sections: {} });
+        // Save to Queue sends the mode.
+        doc.getElementById('anthropic-text').value = 'a';
+        doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'addToQueue').pop()?.initialStatus, 'pending');
+        aq.click();
+        assert.equal(aq.getAttribute('aria-pressed'), 'false');
+        assert.ok(!aq.classList.contains('pressed'));
+        assert.match(aq.title, /adds the prompt staged/);
+        assert.deepEqual(saved.queuePending, { copilot: false, anthropic: false }, 'kept in the webview state');
+        pauseOver(w);
+        doc.getElementById('anthropic-text').value = 'b';
+        doc.querySelector('[data-action="addToQueuePanelTarget"][data-id="anthropic"]').click();
+        assert.equal(posted.filter((m) => m.type === 'addToQueue').pop()?.initialStatus, 'staged', 'both Save to Queue buttons');
+        pauseOver(w);
+        doc.getElementById('anthropic-text').value = 'c';
+        doc.querySelector('[data-action="addToQueueNext"][data-id="anthropic"]').click();
+        const nextMsg = posted.filter((m) => m.type === 'addToQueue').pop() as Record<string, unknown>;
+        assert.equal(nextMsg.next, true);
+        assert.equal(nextMsg.initialStatus, undefined, 'Queue next stays pending');
+        doc.getElementById('copilot-text').value = 'cp';
+        doc.querySelector('[data-action="addToQueue"][data-id="copilot"]').click();
+        assert.equal(posted.filter((m) => m.type === 'addToQueue').pop()?.initialStatus, 'staged');
+        // Saved with the drafts, and restored from them.
+        await new Promise((r) => setTimeout(r, 1100));
+        const drafts = (posted.filter((m) => m.type === 'saveDrafts').pop() as { drafts: Record<string, { queuePending: boolean }> }).drafts;
+        assert.equal(drafts.anthropic.queuePending, false);
+        assert.equal(drafts.copilot.queuePending, false);
+        fire({ type: 'draftsLoaded', sections: { anthropic: { queuePending: true }, copilot: { queuePending: true } } });
+        assert.equal(aq.getAttribute('aria-pressed'), 'true');
+        assert.equal(cq.getAttribute('aria-pressed'), 'true');
+        assert.deepEqual(saved.queuePending, { copilot: true, anthropic: true });
+        // Copilot's Keep posts setKeepContent; the host's keepContent sets it.
+        const ck = doc.getElementById('copilot-keep-content');
+        ck.click();
+        assert.deepEqual(posted.filter((m) => m.type === 'setKeepContent').pop(), { type: 'setKeepContent', value: true });
+        fire({ type: 'keepContent', value: false });
+        assert.equal(ck.getAttribute('aria-pressed'), 'false');
+        // Wrap: the preview posts it as it is.
+        doc.getElementById('copilot-wrap').click();
+        doc.querySelector('[data-action="preview"][data-id="copilot"]').click();
+        assert.equal(posted.filter((m) => m.type === 'preview').pop()?.wrap, true);
+        // A keyboard user: Enter on a focused button is its click (the browser's default action), so the same handler runs.
+        const fresh = doc.getElementById('anthropic-fresh-session');
+        fresh.focus();
+        assert.equal(doc.activeElement, fresh, 'focusable');
+    });
+
     test('CB-11: Fresh', async () => {
         const { w, posted } = chatPanel();
         const doc = w.document;
@@ -331,7 +423,7 @@ describe('chat sends and the queue buttons', () => {
         const fresh = doc.getElementById('anthropic-fresh-session');
         const keep = doc.getElementById('anthropic-keep-slot');
         assert.ok(fresh, 'the Fresh box');
-        assert.equal(keep.closest('label').nextElementSibling, fresh.closest('label'), 'right after Keep');
+        assert.equal(keep.nextElementSibling, fresh, 'right after Keep');
         assert.equal(fresh.checked, false, 'off by default');
         doc.getElementById('anthropic-text').value = 'one';
         doc.querySelector('[data-action="send"][data-id="anthropic"]').click();

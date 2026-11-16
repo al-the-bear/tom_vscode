@@ -48,6 +48,8 @@ export interface ChatDraftState {
     slotKeep?: Record<string, boolean>;
     /** The ANTHROPIC panel's Fresh box: Send runs in a one-prompt session based on the panel's session. */
     fresh?: boolean;
+    /** The subpanel's queue mode: Save to Queue adds the prompt pending (true, the default) or staged (false). */
+    queuePending?: boolean;
     [extra: string]: unknown;
 }
 

@@ -709,6 +709,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                                 anthropicConfigId: message.anthropicConfigId,
                                 usePanelTarget: message.usePanelTarget === true,
                                 next: message.next === true,
+                                staged: message.initialStatus === 'staged',
                             },
                             { section: typeof message.section === 'string' ? message.section : undefined, slot: typeof message.slot === 'number' ? message.slot : undefined },
                         );
@@ -2178,6 +2179,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             usePanelTarget?: boolean;
             /** Queue next: pending at the front, between a running loop's iterations (enqueueNext). */
             next?: boolean;
+            /** The subpanel's queue mode: Save to Queue adds the prompt staged instead of pending. */
+            staged?: boolean;
         },
         /** Where the prompt came from, echoed in `queueAdded` so that slot is cleared unless it keeps its text. */
         origin?: { section?: string; slot?: number },
@@ -2201,8 +2204,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     answerWaitMinutes: transport === 'copilot' && answerWaitMinutes && answerWaitMinutes > 0
                         ? answerWaitMinutes
                         : undefined,
-                    // Queue next goes out on its own (pending); Save to Queue stages it.
+                    // Pending (the queue sends it when it gets there), or staged when the subpanel's
+                    // queue mode says so; Queue next is always pending. Save to Queue does not start
+                    // a send itself (deferSend): the queue's run loop takes the item.
                     deferSend: !next,
+                    initialStatus: !next && transportOpts?.staged ? 'staged' : 'pending',
                     transport: transport === 'anthropic' ? 'anthropic' : undefined,
                     // Save to Queue: the prompt queue's own profile and session (nothing pinned).
                     // Save to Queue with the panel's target: this panel's profile and session,
@@ -2216,7 +2222,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 const count = queue.items.length;
                 vscode.window.showInformationMessage(next
                     ? `Queued next (${count} items, ${transport})`
-                    : `Added to prompt queue (${count} items, ${transport})`);
+                    : `Added to prompt queue ${transportOpts?.staged ? 'staged' : 'pending'} (${count} items, ${transport})`);
                 this._view?.webview.postMessage({ type: 'queueAdded', count, ...(origin?.section ? { section: origin.section } : {}), ...(origin?.slot ? { slot: origin.slot } : {}) });
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');
