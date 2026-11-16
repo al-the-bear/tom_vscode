@@ -63,24 +63,29 @@ function renderEntry(item, idx) {
     ? queueTextEdits[item.id] : undefined;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
   var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
-  var statusLabel = safeStatus.toUpperCase();
+  // The label: status and kind in one (vscimpb128: PENDING TODO, SENDING GROUP, STAGED PROMPT, …;
+  // queueStatusKindLabel in queueEntryUtils.js), then what holds or delays it (`stateDetail`).
+  var stateWord = safeStatus;
+  var stateDetail = '';
+  var stateDetailHtml = '';
   // Paused sending item — only meaningful in the queue editor (the template
   // editor doesn't define `autoSend`). Distinguish two cases so the user can
   // tell whether the current iteration is still running or already done:
-  //   • awaitingAnswer → a prompt is still in flight → "SENDING (PAUSED)" (green)
-  //   • else           → iteration done, idle, waiting to resume → "PAUSED" (amber)
+  //   • awaitingAnswer → a prompt is still in flight → "SENDING TODO (PAUSED)" (green)
+  //   • else           → iteration done, idle, waiting to resume → "PAUSED TODO" (amber)
   // Clicking auto-send resumes from the persisted counter.
   if (isSending && typeof autoSend !== 'undefined' && autoSend === false) {
-    statusLabel = item.awaitingAnswer ? 'SENDING (PAUSED)' : 'PAUSED';
+    if (item.awaitingAnswer) { stateDetail = '(PAUSED)'; } else { stateWord = 'paused'; }
   }
   // A direct send inside its retry loop: rate limited until the reset the API
   // stated, or backing off after an overload / 5xx (sendWait, set by the
-  // manager while the wait lasts), e.g. "SENDING — RATE LIMITED, RETRY 2 AT 14:32:05".
+  // manager while the wait lasts), e.g. "SENDING TODO — RATE LIMITED, RETRY 2 AT 14:32:05".
   if (isSending && item.sendWait && item.sendWait.until) {
     var swd = new Date(item.sendWait.until);
     var swTime = isNaN(swd.getTime()) ? '' : swd.toLocaleTimeString();
     var swWhat = item.sendWait.kind === 'rate_limit' ? 'RATE LIMITED' : 'API BUSY';
-    statusLabel = 'SENDING — ' + swWhat + ', RETRY ' + (parseInt(String(item.sendWait.attempt || 0), 10) || 0)
+    stateWord = 'sending';
+    stateDetail = '\u2014 ' + swWhat + ', RETRY ' + (parseInt(String(item.sendWait.attempt || 0), 10) || 0)
       + (swTime ? ' AT ' + swTime.toUpperCase() : '');
   }
   // Rate-limit parked item: show the human-friendly reset time from the
@@ -88,10 +93,10 @@ function renderEntry(item, idx) {
   // the API. The manager persists the stated reset label (waitingResetLabel);
   // the item auto-retries 5 min after a "resets" clause, at once after an API reset.
   if (isWaiting) {
-    statusLabel = 'WAITING FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
+    stateDetail = 'FOR ' + (item.waitingResetLabel ? String(item.waitingResetLabel).toUpperCase() : 'RESET');
   }
   // Retry-parked item: show attempt count + the next-retry clock time so the
-  // user can see the backoff progress (e.g. "RETRYING 2/7 — NEXT 11:05:30").
+  // user can see the backoff progress (e.g. "RETRYING TODO 2/7 — NEXT 11:05:30").
   if (isRetry) {
     var retryAttemptNum = Math.max(0, parseInt(String(item.retryAttempt || 0), 10) || 0);
     var retryNextTime = '';
@@ -99,17 +104,22 @@ function renderEntry(item, idx) {
       var rd = new Date(item.retryUntil);
       if (!isNaN(rd.getTime())) { retryNextTime = rd.toLocaleTimeString(); }
     }
-    statusLabel = 'RETRYING ' + retryAttemptNum + '/7' + (retryNextTime ? ' — NEXT ' + retryNextTime.toUpperCase() : '');
+    stateWord = 'retrying';
+    stateDetail = retryAttemptNum + '/7' + (retryNextTime ? ' \u2014 NEXT ' + retryNextTime.toUpperCase() : '');
   }
 
   // Interrupt-for-continuation: held on purpose; the label says what will
   // happen so the user knows re-arming auto-send is all it takes.
   if (isInterrupted) {
-    statusLabel = 'INTERRUPTED — RESENDS ON RESUME';
+    stateDetail = '\u2014 RESENDS ON RESUME';
   }
-  // Interrupt for continuation, soft (vscimpb112), and what else holds a running turn: a state of its own each.
+  // Interrupt for continuation, soft (vscimpb112), and what else holds a running turn: a state of its own each,
+  // after the label ("SENDING TODO — ❓ ANSWER NEEDED").
   var softLabel = isSending ? softInterruptRowLabel(item) : '';
-  if (softLabel) { statusLabel = softLabel; }
+  if (softLabel) { stateWord = 'sending'; stateDetail = ''; stateDetailHtml = '\u2014 ' + softLabel; }
+  var statusKind = queueStatusKindLabel(stateWord, queueItemKindOf(item));
+  var statusLabel = '<span class="' + statusKind.cls + '" title="Status and kind of the item">' + escapeHtml(statusKind.text) + '</span>' +
+    (stateDetail ? ' ' + escapeHtml(stateDetail) : '') + (stateDetailHtml ? ' ' + stateDetailHtml : '');
 
   // Green→amber header for the head-of-queue item. The queue is "active" while
   // it will proceed on its own (auto-send on) OR a prompt is genuinely in
@@ -808,7 +818,7 @@ function renderChatEntry(item, idx) {
   var session = item.session ? escapeHtml(String(item.session)) : 'chat';
   var source = item.chatSource ? escapeHtml(String(item.chatSource)) : 'chat';
   var header = '<div class="item-header chat-item-header">' +
-      '<span class="status-badge chat-badge' + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + (running ? 'CHAT' : 'CHAT SENT') + '</span>' +
+      '<span class="status-badge chat-badge ' + queueStatusKindLabel(item.status, 'chat').cls + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + queueStatusKindLabel(item.status, 'chat').text + '</span>' +
       '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
       // A running chat send waiting for the user shows it like a queue item (vscimpb81).
       (running ? waitingForUserBadge(item, safeId) : '') +

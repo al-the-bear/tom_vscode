@@ -31,7 +31,7 @@ staged → pending → sending → sent
 
 - `staged` — item exists but is not yet in the active run (held by the user).
 - `pending` — queued and waiting for the item ahead to finish.
-- `sending` — currently dispatching (may be polling for Copilot or awaiting the Anthropic API). Shown as **`SENDING (PAUSED)`** in the editor when the item is mid-flight but auto-send was turned off (see pause/resume below).
+- `sending` — currently dispatching (may be polling for Copilot or awaiting the Anthropic API). Shown as **`SENDING <KIND> (PAUSED)`** in the editor (status and kind in one label, e.g. `SENDING TODO (PAUSED)`) when the item is mid-flight but auto-send was turned off (see pause/resume below).
 - `sent` — all stages complete; `answerText` set for Anthropic items.
 - `error` — dispatch failed; `error` field holds the message; **auto-send is flipped off** so the failure doesn't cascade into the following pending items.
 
@@ -45,7 +45,7 @@ skipping a rep.
 - **Pause finishes the current rep, then holds.** Turning auto-send off lets the
   in-flight repetition complete (`DispatchOutcome = 'dispatched' | 'done' | 'paused'`);
   the item stays `'sending'` with its counters intact and the editor shows
-  `SENDING (PAUSED)`. The first dispatch of an item is always allowed even with
+  `SENDING <KIND> (PAUSED)`. The first dispatch of an item is always allowed even with
   auto-send off, so an explicit "Send" is never blocked.
 - **Resume** continues from the persisted cursor — re-enabling auto-send
   re-enters the paused item before starting the next one.

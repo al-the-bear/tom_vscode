@@ -188,7 +188,7 @@ describe('Prompt Queue editor — interrupted (held for continuation) status', (
 
         const row = window.document.querySelector('#queueList .queue-item.interrupted');
         assert.ok(row, 'row rendered with the interrupted status class');
-        assert.match(row.textContent, /INTERRUPTED — RESENDS ON RESUME/);
+        assert.match(row.textContent, /INTERRUPTED [A-Z]+ — RESENDS ON RESUME/);
         assert.ok(row.querySelector('[onclick^="resendLastPrompt("]'), 'Resend control present');
         assert.ok(row.querySelector('[onclick^="setItemStatus("][title*="Staged"]'), 'back-to-Staged control present');
     });

@@ -79,6 +79,41 @@ function normalizeQueueStatus(status) {
   return QUEUE_STATUSES.indexOf(status) >= 0 ? status : 'staged';
 }
 
+/**
+ * The status label of a queue item (vscimpb128): its status and its kind in one
+ * label, `PENDING TODO`, `SENT CHAT`, … with the class `status-kind kind-<kind>`.
+ * The twin of queueStatusKindLabel in src/utils/queueStatusLabel.ts (QL-2 holds
+ * them equal).
+ */
+function queueStatusKindLabel(status, kind) {
+  var k = kind || 'prompt';
+  var word = status === 'chat' ? 'SENDING' : status === 'chat-sent' ? 'SENT' : String(status || 'pending').toUpperCase();
+  return { text: word + ' ' + String(k).toUpperCase(), cls: 'status-kind kind-' + k };
+}
+
+/**
+ * An item's kind: its `itemKind` (vscimpb127), else derived from its fields as
+ * deriveQueueItemKind (src/utils/queueItemKind.ts) does (QL-3 holds them equal).
+ */
+function queueItemKindOf(item) {
+  if (item && typeof item.itemKind === 'string' && item.itemKind) { return item.itemKind; }
+  if (!item) { return 'prompt'; }
+  if (item.status === 'chat' || item.status === 'chat-sent' || item.chatSource) { return 'chat'; }
+  var rc = item.repeatCount;
+  if (typeof rc === 'string') {
+    var t = rc.trim();
+    if (/^(todo|group):[^/\s]+\/\S+$/.test(t)) { return t.indexOf('todo:') === 0 ? 'todo' : 'group'; }
+    if (t.length > 1 && t.charAt(t.length - 1) === '*') { return 'prefix'; }
+    if (t) {
+      var n = Number(t);
+      return isFinite(n) ? (n > 1 ? 'iteration' : 'prompt') : 'iteration';
+    }
+    return 'prompt';
+  }
+  if (typeof rc === 'number') { return rc > 1 ? 'iteration' : 'prompt'; }
+  return 'prompt';
+}
+
 function statusSortRank(status) {
   // The states that STOP the queue cluster at the very top so a halted queue
   // is immediately visible: a `decision-needed` block, an exhausted `error`, a

@@ -113,7 +113,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.match(listedText(w), /CHAT/, 'a chat send without a run: the default run\'s tab');
         assert.deepEqual(runChips(w), ['default', 'default', 'default'], 'b, e and the sending h');
         clickTab(w, 'chg2');
-        assert.match(listedText(w), /CHAT SENT/, 'a chat send in the tab of the run it ran in');
+        assert.match(listedText(w), /SENT CHAT/, 'a chat send in the tab of the run it ran in');
         assert.deepEqual(runChips(w), ['chg2', 'chg2']);
     });
 

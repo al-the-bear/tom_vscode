@@ -5,7 +5,7 @@
  *        Anthropic without a profile (the queue's own profile and session), the second pins the
  *        panel's profile (usePanelTarget, the host adds the panel's session)
  *   CB-2 the trail, history and memory buttons are no longer in the panel's action bar
- *   CB-3 the queue editor shows a chat send read-only: CHAT while it runs, CHAT SENT with its answer
+ *   CB-3 the queue editor shows a chat send read-only: SENDING CHAT while it runs, SENT CHAT with its answer (vscimpb128)
  *        (and the markdown buttons) or its error; no queue controls; the count line says a chat runs
  *   CB-4 the @CHAT Logs panel shows the six session actions behind the session switch; each posts
  *        qlogSessionAction with the selected session; the host runs runChatSessionAction
@@ -111,8 +111,8 @@ describe('chat sends and the queue buttons', () => {
         w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
         w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
         const entry = (id: string): Win => w.document.querySelector(`.queue-item.chat-item[data-qid="${id}"]`);
-        assert.equal(entry('c1').querySelector('.chat-badge').textContent, 'CHAT');
-        assert.equal(entry('c2').querySelector('.chat-badge').textContent, 'CHAT SENT');
+        assert.equal(entry('c1').querySelector('.chat-badge').textContent, 'SENDING CHAT');
+        assert.equal(entry('c2').querySelector('.chat-badge').textContent, 'SENT CHAT');
         assert.ok(entry('c2').querySelector('.answer-preview .qe-md-btn[data-qe-md-mode="overlay"]'), 'the answer with its markdown buttons');
         assert.match(entry('c3').textContent, /overloaded/);
         assert.match(entry('c1').textContent, /panel · opus-direct · session chat/);
@@ -251,7 +251,7 @@ describe('chat sends and the queue buttons', () => {
         assert.ok(!entry('c1').querySelector('.answer-preview').textContent.includes('THE-END'), 'collapsed again');
         // A running chat send without an answer: the prompt, no answer block, no error.
         const running = entry('c2');
-        assert.equal(running.querySelector('.chat-badge').textContent, 'CHAT');
+        assert.equal(running.querySelector('.chat-badge').textContent, 'SENDING CHAT');
         assert.equal(running.querySelector('.mainprompt-content').textContent, 'still running\nsecond line');
         assert.equal(running.querySelector('.answer-preview'), null);
         assert.equal(running.querySelector('.chat-error'), null);

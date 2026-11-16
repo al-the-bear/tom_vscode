@@ -641,7 +641,7 @@ instead of treating "not dispatched" as "mark sent".
 > second time.
 
 The queue editor reflects this: `queueEntryComponent.ts` renders the status
-label as **`SENDING (PAUSED)`** when `status === 'sending'` and the page-level
+label as **`SENDING <KIND> (PAUSED)`** (e.g. `SENDING TODO (PAUSED)`; status and kind in one label, `queueStatusKindLabel`, vscimpb128) when `status === 'sending'` and the page-level
 `autoSend === false` (guarded with `typeof autoSend !== 'undefined'` so the
 shared component still works in the template editor, where the global isn't
 defined).
@@ -904,7 +904,7 @@ tooltip the seconds left to the hard interrupt) and then **`HELD`**
 (`codicon-debug-disconnect`; *held since 14:05 at the result of <tool>*); after
 the first click the button shows `codicon-debug-stop` with *Soft interrupt
 requested — click again for a hard interrupt now*. A hard-interrupted row is
-labelled **`INTERRUPTED — RESENDS ON RESUME`** and offers **Resend** (replay now,
+labelled **`INTERRUPTED <KIND> — RESENDS ON RESUME`** and offers **Resend** (replay now,
 without re-arming) and **Move back to Staged** (abandon the continuation — the
 same reset as stopping). Continue on a held item offers **Resume** and **Hard
 interrupt** only. `interrupted` → `pending` is not a sanctioned transition — it
@@ -984,8 +984,8 @@ logic is pure and unit-tested in
   next pending item's) stays **green** while a prompt is processing and takes the
   amber `.status-bar.idle` background (`#ffc107`) once the queue is paused with
   nothing in flight (`queueActive = autoSend || some(sending && awaitingAnswer)`).
-  The sending label splits into **`SENDING (PAUSED)`** (iteration still running)
-  vs **`PAUSED`** (idle).
+  The sending label splits into **`SENDING <KIND> (PAUSED)`** (iteration still running)
+  vs **`PAUSED <KIND>`** (idle).
 
 - **Quest-refresh running banner.** While a Quest Refresh prompt is being
   dispatched — from either the queue's own refresh step or an interactive send —
