@@ -112,6 +112,7 @@ repository root.
 | --- | --- | --- |
 | [`yaml_graph_core`](yaml_graph_core/README.md) | YAML-graph → Mermaid conversion engine with configurable mappings. | decoupled — no longer consumed by the extension (removed in `3b0b63d`) |
 | [`yaml_graph_vscode`](yaml_graph_vscode/README.md) | VS Code custom-editor integration for YAML-graph files. | decoupled — extension glue preserved under `_extension_backup/` |
+| [`tom_tac_service`](tom_tac_service/README.md) | The TAC (Tom Agent Collaboration) coordination service, local mode: leases with fencing tokens, presence and sessions, notifications and commands, endpoints, over an HTTP and WebSocket API, with its specification ([`doc/tac_specification.md`](tom_tac_service/doc/tac_specification.md)). No runtime dependencies; a runtime starts it with `ensureLocalService()`. | standalone — not yet wired into the extension |
 
 ---
 
@@ -208,6 +209,8 @@ tom_vscode_bridge/         Dart bridge server (tom_bs) for CLI/d4rt       (binar
 
 yaml_graph_core/           YAML-graph → Mermaid engine                   (decoupled)
 yaml_graph_vscode/         YAML-graph custom editor                      (decoupled)
+
+tom_tac_service/           TAC coordination service, local mode (TS)     (standalone)
 ```
 
 Dependency direction, simplified: the TypeScript stack roots at
@@ -215,7 +218,8 @@ Dependency direction, simplified: the TypeScript stack roots at
 on; the Dart stack roots at `tom_vscode_scripting_api`, which `tom_vscode_bridge`
 and external CLI tools consume. The two stacks meet only at the extension's
 JSON-RPC CLI Integration Server. The `yaml_graph_*` packages stand alone and are
-no longer wired into the extension.
+no longer wired into the extension; `tom_tac_service` stands alone as well, with
+no dependencies, until the extension's runtime starts it.
 
 ## License
 

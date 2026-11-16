@@ -34,7 +34,7 @@ Reference for the shortcut surface. Canonical tables (with descriptions) live in
 - **Bridge + CLI + Telegram + Process Monitor** — lifecycle commands; fail-soft when subsystems aren't available.
 - **Editors** — queue, timed requests, prompt templates, reusable prompts, chat variables, raw / summary trail viewer. The window's quest, role, projects and todo are chat variables (Chat Variables Editor); the reminder alive check and the default reminder template are on the Status Page (Queue & Timer).
 - **Layout** — reset / maximize / toggle / window state flow.
-- **Notes + todos + status + config** — sidebar focus commands (`tomAi.tomSidebar.focus` opens @TOM, the quest's views; `tomAi.tomWsSidebar.focus` opens @TOM WS, the workspace's) and the status / settings pair.
+- **Notes + todos + status + config** — sidebar focus commands (`tomAi.tomSidebar.focus` opens @TOM, the quest's views; `tomAi.tomWsSidebar.focus` opens @TOM WS, the workspace's; `tomAi.tomVscSidebar.focus` opens @TOM VSC, this window's resources; `tomAi.notesSidebar.focus` opens @NOTES, the quest notes on their own) and the status / settings pair.
 
 ## Maintenance checklist
 

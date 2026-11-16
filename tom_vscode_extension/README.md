@@ -541,9 +541,12 @@ The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts two subpanels:
 | Copilot | VS Code Copilot Chat; the answer comes back through an answer file Copilot writes (the Copilot Queue Wrapper). |
 
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
-**@TOM** sidebar for the quest (process, quest notes, quest and session todos)
-and the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
-workspace todos, the todo log, window status).
+**@TOM** sidebar for the quest (process, quest notes, quest and session todos),
+the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
+workspace todos, the todo log, window status), and the **@NOTES** sidebar
+(`tomAi.questNotesPanel`): the active quest's notes on their own, with an
+**Edit** tab (a text area) and a **View** tab (rendered as the MD Browser
+renders it), which you can drag into the secondary side bar.
 
 A quest's process can also be moved from a document in the MD Browser.
 A review's results carry **Finish review round** (`${finish-review-round}`

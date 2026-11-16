@@ -37,7 +37,7 @@
 
 **@TOM** (the quest; `tomAi.tomSidebar.focus`):
 
-- PROCESS (the active quest's process: phase, step, sub-step, iterations)
+- PROCESS (the active quest's process: phase, step, sub-step, iterations; the Runs list — select, +, trash, Reset Process, Reset Run; the action bar — Proceed / Decide…, Skip, Leave out, Back, Back to the start of the current phase, Back to the start of the previous phase; Jumps lists where decision steps sent the process)
 - QUEST NOTES (toolbar: Preview Markdown, Open in Editor, Open in MD Browser, Open in MD Viewer)
 - QUEST TODOS
 - SESSIONS (the quest's named sessions: + new, Remove unused sessions, per row Reset and Delete)
@@ -50,6 +50,14 @@
 - WORKSPACE TODOS
 - TODO LOG
 - WINDOW STATUS
+
+**@TOM VSC** (this window; `tomAi.tomVscSidebar.focus`):
+
+- RESOURCES (the window's extension helper processes: Pause / Resume / Kill; Lean / Full profiles; heavy workspace settings)
+
+**@NOTES** (the quest notes on their own; `tomAi.notesSidebar.focus`):
+
+- QUEST NOTES — <quest> (`tomAi.questNotesPanel`): Edit tab (text area, saved as you type; asks when the file changed while you have unsaved text), View tab (rendered as in the MD Browser: folding, +/− per level, search, links; read-only), Open in MD Browser, Open in Editor
 
 ## Quest TODO Panel — prefix groups
 
