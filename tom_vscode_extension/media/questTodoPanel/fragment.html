@@ -38,12 +38,14 @@
     <div class="qt-top-chat-group">
         <!-- The panel's session and run (vscimpb60d): rendered by main.js (qtRenderRunSessionControls). -->
         <span class="qt-run-session" id="qt-bar-run-session"></span>
-        <label class="qt-done-notification" title="Done notification: the queue items and chat sends this panel makes for todos report back when they finish, at the todo's After done quest and run (a todo without After done gets none). The template is Todo — Done Notification in the Prompt Template Editor. Kept per quest."><input type="checkbox" id="qt-done-notification" checked> Done notification</label>
-        <label>Template:</label>
-        <select id="qt-template-select"><option value="__none__">(None)</option></select>
+        <!-- Done notification: an icon toggle (aria-pressed); main.js sets its tooltip from its state. -->
+        <button type="button" class="icon-btn qt-toggle-btn pressed" id="qt-done-notification" aria-pressed="true" aria-label="Done notification"><span class="codicon codicon-bell"></span></button>
+        <!-- The template: a button showing the selection (at most 20 characters); a click opens the picker.
+             The hidden select holds the templates offered and the selection, as before. -->
+        <button type="button" class="qt-template-btn" id="qt-template-btn" title="Template: (None) — click to pick another"><span class="codicon codicon-file-code"></span><span class="qt-template-name">(None)</span></button>
+        <select id="qt-template-select" hidden aria-hidden="true"><option value="__none__">(None)</option></select>
         <button class="icon-btn" id="qt-btn-add-queue" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>
         <button class="icon-btn primary" id="qt-btn-send-copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>
-        <button class="icon-btn" id="qt-btn-open-trail" title="Open Trail"><span class="codicon codicon-history"></span></button>
     </div>
 </div>
 <div class="qt-split" style="position:relative;">

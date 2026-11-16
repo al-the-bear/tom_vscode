@@ -43,6 +43,8 @@ var qtTagPickerScope = 'all';
 var qtPathExtAppAvailability = {};
 var qtPendingStatusChange = null;
 var qtCurrentTemplate = '__none__';
+/** The template list has arrived once: before it, the select's placeholder is no pick to keep. */
+var qtTemplatesLoaded = false;
 var qtPendingSelectTodoId = '';
 // ── Todo stack (batch send/queue) ──
 // Ordered list of stacked todos ({id, sourceFile}); the circle under each
@@ -305,7 +307,6 @@ function qtNavPush(todoId) {
     var btnReload = document.getElementById('qt-btn-reload');
     var btnDeleteAll = document.getElementById('qt-btn-delete-all');
     var btnOpenExt = document.getElementById('qt-btn-open-ext');
-    var btnOpenTrail = document.getElementById('qt-btn-open-trail');
     var templateSelect = document.getElementById('qt-template-select');
     var addQueueBtn = document.getElementById('qt-btn-add-queue');
     var sendCopilotBtn = document.getElementById('qt-btn-send-copilot');
@@ -326,9 +327,6 @@ function qtNavPush(todoId) {
     if (btnOpenExt) btnOpenExt.addEventListener('click', function() {
         vscode.postMessage({ type: 'qtOpenExtApp', questId: qtCurrentQuestId, file: qtCurrentFile });
     });
-    if (btnOpenTrail) btnOpenTrail.addEventListener('click', function() {
-        vscode.postMessage({ type: 'qtOpenTrailFiles' });
-    });
     // Import button — show in all modes
     var btnImport = document.getElementById('qt-btn-import');
     if (btnImport) {
@@ -339,6 +337,12 @@ function qtNavPush(todoId) {
     }
     if (templateSelect) templateSelect.addEventListener('change', function() {
         qtCurrentTemplate = this.value || '__none__';
+        qtRenderTemplateButton();
+    });
+    var templateBtn = document.getElementById('qt-template-btn');
+    if (templateBtn) templateBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        qtPickTemplate();
     });
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
         // Paused 2 s after a click: a double click or a bouncing mouse queues once (the host guards too).
@@ -441,10 +445,14 @@ function qtNavPush(todoId) {
     // The panel's session and run (vscimpb60d): the host answers qtRunSession, and again on every change.
     vscode.postMessage({ type: 'qtGetRunSession' });
     qtRenderRunSessionControls();
-    var qtDoneNotificationBox = document.getElementById('qt-done-notification');
-    if (qtDoneNotificationBox) {
-        qtDoneNotificationBox.addEventListener('change', function() {
-            vscode.postMessage({ type: 'qtSetDoneNotification', on: this.checked });
+    var qtDoneNotificationBtn = document.getElementById('qt-done-notification');
+    if (qtDoneNotificationBtn) {
+        qtSetDoneNotificationLook(qtDoneNotificationBtn.getAttribute('aria-pressed') !== 'false');
+        qtDoneNotificationBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var on = qtDoneNotificationBtn.getAttribute('aria-pressed') !== 'true';
+            qtSetDoneNotificationLook(on);
+            vscode.postMessage({ type: 'qtSetDoneNotification', on: on });
         });
     }
     if (qtViewConfig.mode === 'session') {
@@ -536,6 +544,43 @@ function qtSelectedTemplateId() {
     var sel = document.getElementById('qt-template-select');
     if (sel && sel.value) { qtCurrentTemplate = sel.value; }
     return qtCurrentTemplate || '__none__';
+}
+
+/** A template name on the template button: at most 20 characters, cut with an ellipsis. */
+function qtTemplateButtonText(name) {
+    var s = String(name || '');
+    return s.length > 20 ? s.slice(0, 19) + '\u2026' : s;
+}
+
+/** The template button shows the hidden select's selection (its label); the full name is in the tooltip. */
+function qtRenderTemplateButton() {
+    var btn = document.getElementById('qt-template-btn');
+    var sel = document.getElementById('qt-template-select');
+    if (!btn || !sel) { return; }
+    var opt = sel.options[sel.selectedIndex];
+    var label = opt ? opt.textContent : '(None)';
+    var nameEl = btn.querySelector('.qt-template-name');
+    if (nameEl) { nameEl.textContent = qtTemplateButtonText(label); }
+    btn.title = 'Template: ' + label + ' \u2014 the template the Save to Queue and Send buttons use; click to pick another';
+}
+
+/** Open the template picker (a QuickPick in the host) with the templates the select offers. */
+function qtPickTemplate() {
+    var sel = document.getElementById('qt-template-select');
+    if (!sel) { return; }
+    var templates = Array.prototype.map.call(sel.options, function(o) { return { id: o.value, label: o.textContent }; });
+    vscode.postMessage({ type: 'qtPickTemplate', templates: templates, selected: sel.value });
+}
+
+/** The Done notification toggle: pressed (on) or not, with a tooltip naming what it does and its state. */
+function qtSetDoneNotificationLook(on) {
+    var btn = document.getElementById('qt-done-notification');
+    if (!btn) { return; }
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('pressed', !!on);
+    var icon = btn.querySelector('.codicon');
+    if (icon) { icon.className = 'codicon ' + (on ? 'codicon-bell' : 'codicon-bell-slash'); }
+    btn.title = 'Done notification: ' + (on ? 'ON' : 'OFF') + '. When on, the queue items and chat sends this panel makes for todos report back when they finish, at the todo\'s After done quest and run (a todo without After done gets none). The template is Todo \u2014 Done Notification in the Prompt Template Editor. Kept per quest. Click to turn it ' + (on ? 'off' : 'on') + '.';
 }
 
 /** Is the group with this prefix currently expanded? Unknown ⇒ collapsed. */
@@ -3371,10 +3416,20 @@ function qtHandleMessage(msg) {
                 runs: Array.isArray(msg.runs) && msg.runs.length ? msg.runs : [{ run: 'default', label: 'default' }],
             };
             qtRenderRunSessionControls();
-            // The Done notification box, kept per quest by the host (unset: on).
-            var dnBox = document.getElementById('qt-done-notification');
-            if (dnBox) dnBox.checked = msg.doneNotification !== false;
+            // The Done notification toggle, kept per quest by the host (unset: on).
+            qtSetDoneNotificationLook(msg.doneNotification !== false);
             break;
+        case 'qtTemplatePicked': {
+            // The template picker's choice: set as the select's change did, and shown on the button.
+            var pickedSel = document.getElementById('qt-template-select');
+            var offered = pickedSel && typeof msg.id === 'string'
+                && Array.prototype.some.call(pickedSel.options, function(o) { return o.value === msg.id; });
+            if (offered) {
+                pickedSel.value = msg.id;
+                pickedSel.dispatchEvent(new Event('change'));
+            }
+            break;
+        }
         case 'qtTemplates': {
             var templateSel = document.getElementById('qt-template-select');
             if (templateSel) {
@@ -3384,7 +3439,9 @@ function qtHandleMessage(msg) {
                 // A transport switch changes the options, so a now-invalid pick
                 // correctly falls back to the new transport's default (Bug 3).
                 var prev = templateSel.value;
-                var stillValid = available.some(function(t) { return t.id === prev; });
+                // The placeholder (None) before the first list is no pick: the host's default applies then.
+                var stillValid = qtTemplatesLoaded && available.some(function(t) { return t.id === prev; });
+                qtTemplatesLoaded = true;
                 var selected = stillValid ? prev : (msg.selected || '__none__');
                 templateSel.innerHTML = available.map(function(t) {
                     return '<option value="' + qtEsc(t.id) + '">' + qtEsc(t.label) + '</option>';
@@ -3392,6 +3449,7 @@ function qtHandleMessage(msg) {
                 templateSel.value = selected;
                 if (templateSel.value !== selected) templateSel.value = '__none__';
                 qtCurrentTemplate = templateSel.value || '__none__';
+                qtRenderTemplateButton();
             }
             // Label the send button after the prompt queue's transport (Bug 3).
             var sendBtn = document.getElementById('qt-btn-send-copilot');

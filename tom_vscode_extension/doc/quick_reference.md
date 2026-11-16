@@ -61,6 +61,10 @@
 - RUNS (`tomAi.runsOverview`): every run of every window on this machine, grouped by window — run, subject, process › position, state badge (waiting for user / waiting for event / waiting on task / running / paused / idle) with what it waits for; click this window's run to select it, another window's for its details
 - NOTIFICATIONS (`tomAi.notifications`): queue and todo events of every window on this machine — item queued / deleted, todo created / edited / status changed; one line each (time, icon, text), merged per kind, source and quest within 60 s; hover or click for who (agent: transport, profile, session, queue item, todo; you; the extension), the fields old → new and the members; toggles per kind, a window filter, Clear (this window only); filters kept per window; one shared log (global storage, last 1000 events)
 
+## Quest TODO Panel — top bar
+
+- Right end: session button and Run select, **Done notification** toggle (bell, pressed = on, kept per quest), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue, Send
+
 ## Quest TODO Panel — prefix groups
 
 - Group key = todo id up to its number (`qr3-2026…` → `qr`); a leading number belongs to the key (`001_cleanup2` → `001_cleanup`, todo 2); no number after the key, or digits only → the **Unprefixed** group, always rendered last

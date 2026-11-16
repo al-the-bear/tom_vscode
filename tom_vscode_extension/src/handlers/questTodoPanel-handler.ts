@@ -1558,23 +1558,6 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             return true;
         }
-        case 'qtOpenTrailFiles': {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!wsRoot) return true;
-            const questId = WsPaths.getWorkspaceQuestId();
-            const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
-            const trailFolder = questTrailFolder(questFolder);
-            if (!fs.existsSync(trailFolder)) {
-                fs.mkdirSync(trailFolder, { recursive: true });
-            }
-            const promptsPath = path.join(trailFolder, `${questId}.copilot.prompts.md`);
-            if (!fs.existsSync(promptsPath)) {
-                fs.writeFileSync(promptsPath, '', 'utf-8');
-            }
-            const uri = vscode.Uri.file(promptsPath);
-            await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-            return true;
-        }
         case 'qtCheckExtApp': {
             // Check if there's an external app configured for .yaml files
             const wsRootChk = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1605,6 +1588,18 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtShowError': {
             const message = String(msg.message || 'Action failed');
             vscode.window.showErrorMessage(message);
+            return true;
+        }
+        case 'qtPickTemplate': {
+            // The top bar's template button: pick one of the templates its select offers.
+            const templates = Array.isArray(msg.templates) ? (msg.templates as Array<{ id?: unknown; label?: unknown }>) : [];
+            const items = templates
+                .filter((t) => typeof t.id === 'string')
+                .map((t) => ({ label: String(t.label ?? t.id), id: String(t.id), picked: t.id === msg.selected,
+                    description: t.id === msg.selected ? 'selected' : undefined }));
+            if (!items.length) { return true; }
+            const picked = await vscode.window.showQuickPick(items, { title: 'Template', placeHolder: 'The template the Save to Queue and Send buttons use' });
+            if (picked) { post({ type: 'qtTemplatePicked', id: picked.id }); }
             return true;
         }
         case 'qtGetTemplates': {
