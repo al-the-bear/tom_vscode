@@ -287,9 +287,9 @@ export async function telegramToggleHandler(): Promise<void> {
         ? {
             context: extensionContext,
             runAnthropicSend,
-            // `/cancel_chat` interrupts the running direct send via the shared
-            // guard's cancel hook; `/cancel_queue` stops the active queue item
-            // exactly like the queue's Stop button.
+            // `/cancel_chat` interrupts every running chat send (one per session) via
+            // their cancel hooks; `/cancel_queue` stops the active queue item exactly
+            // like the queue's Stop button.
             cancelChat: () => cancelAnthropicSend(),
             cancelQueue: () => PromptQueueManager.instance.stopActiveItem(),
             liveConversation: {

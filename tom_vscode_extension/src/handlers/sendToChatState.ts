@@ -1,97 +1,133 @@
 /**
- * Mutual-exclusion guard for interactive Anthropic sends.
+ * The busy slots of interactive Anthropic chat sends: one per session.
  *
- * Three entry points can start an Anthropic turn that the user perceives as
- * "the chat panel is working":
+ * Several entry points start an Anthropic turn outside the prompt queue: the
+ * @CHAT panel's Send, the Send-to-Chat command and the editor / file menus,
+ * the todo panel's Send and Guide me, Telegram's `send_prompt`, the scripting
+ * bridge's `sendToChatVce`, an assist prompt. Each claims the slot of the
+ * session it sends in (the effective session name, `<session>@<run>` included).
+ * Two sends in the same session are refused — two prompts never share a
+ * conversation — while sends in different sessions run side by side.
  *
- *   1. The chat panel's own Send button (`_handleSendAnthropic`).
- *   2. The Send-to-Chat command / context + file menus (when the target is
- *      Anthropic).
- *   3. The scripting-API bridge op `sendToChatVce` (when the target is
- *      Anthropic).
+ * Each slot holds the **cancel hook** of its send, so a remote driver (the
+ * Telegram `/cancel_chat` command) or an assist overlay can interrupt it the
+ * way the chat panel's Stop button does. The hook is supplied by whichever
+ * entry point claimed the slot (it cancels that send's
+ * `CancellationTokenSource` and aborts its pending approvals) and goes with
+ * the slot when it is released, so a stale hook never fires against a
+ * finished turn.
  *
- * The spec requires that while one of these is executing, a second one is
- * **rejected** rather than queued (the prompt-queue owns queuing). This module
- * is the single source of truth for that "is a turn in flight" flag. It is
- * deliberately dependency-free so both the router and the chat panel can import
- * it without risking an import cycle, and so it is trivially unit-testable.
- *
- * It also owns the **cancel callback** for the in-flight direct send so a
- * remote driver (the Telegram `/cancel_chat` command) can interrupt the running
- * turn the same way the chat panel's Stop button does. The callback is supplied
- * by whichever entry point claimed the slot (it cancels that send's
- * `CancellationTokenSource` and aborts any pending approvals) and is cleared
- * automatically when the slot is released, so a stale callback can never fire
- * against a finished turn.
+ * Dependency-free, so the router and the chat panel import it without an
+ * import cycle, and unit-testable.
  */
 
-let _inFlight = false;
+interface Slot {
+    onCancel?: () => void;
+    /** The prompt queue entry the send is shown as, once it has one. */
+    chatItemId?: string;
+}
+
+/** The sends in flight, by session. */
+const _slots = new Map<string, Slot>();
+
 /**
- * Cancel hook for the currently-running direct Anthropic send, registered by
- * the entry point that holds the slot. `undefined` when nothing is in flight or
- * the holder did not register one.
+ * Whether an interactive Anthropic send runs in `session`; without a session,
+ * whether one runs in any session.
  */
-let _onCancel: (() => void) | undefined;
+export function isAnthropicSendInFlight(session?: string): boolean {
+    return session === undefined ? _slots.size > 0 : _slots.has(session);
+}
 
-/** Whether an interactive Anthropic turn is currently running. */
-export function isAnthropicSendInFlight(): boolean {
-    return _inFlight;
+/** The sessions a chat send runs in now, in the order they started. */
+export function anthropicSendSessions(): string[] {
+    return [..._slots.keys()];
 }
 
 /**
- * Attempt to claim the in-flight slot.
+ * Claim the slot of `session`.
  *
- * @param onCancel Optional cancel hook for this send. Invoked by
- *                 {@link cancelAnthropicSend} (e.g. Telegram `/cancel_chat`) to
- *                 interrupt the turn. Cleared automatically on
- *                 {@link endAnthropicSend}.
- * @returns `true` if the slot was free and is now claimed by the caller (which
- *          must later call {@link endAnthropicSend}); `false` if a turn is
- *          already running and the caller should reject.
+ * @param onCancel Optional cancel hook for this send, run by
+ *                 {@link cancelAnthropicSend} (e.g. Telegram `/cancel_chat`).
+ *                 It goes with the slot on {@link endAnthropicSend}.
+ * @returns `true` if the session was free and its slot is now the caller's
+ *          (who must later call {@link endAnthropicSend} with the same
+ *          session); `false` if a send already runs in that session.
  */
-export function tryBeginAnthropicSend(onCancel?: () => void): boolean {
-    if (_inFlight) {
+export function tryBeginAnthropicSend(session: string, onCancel?: () => void): boolean {
+    if (_slots.has(session)) {
         return false;
     }
-    _inFlight = true;
-    _onCancel = onCancel;
+    _slots.set(session, { ...(onCancel ? { onCancel } : {}) });
     return true;
 }
 
 /**
- * Register (or replace) the cancel hook for the send that currently holds the
- * slot. No-op when nothing is in flight, so a late registration can never arm a
- * cancel against a finished turn. Used when the cancel target (e.g. a
- * `CancellationTokenSource`) is only created after the slot is claimed.
+ * Register (or replace) the cancel hook of the send in `session`. No-op when
+ * nothing runs there, so a late registration never arms a cancel against a
+ * finished turn. Used when the cancel target (e.g. a `CancellationTokenSource`)
+ * is only created after the slot is claimed.
  */
-export function setAnthropicSendCancel(onCancel: () => void): void {
-    if (!_inFlight) {
-        return;
-    }
-    _onCancel = onCancel;
+export function setAnthropicSendCancel(session: string, onCancel: () => void): void {
+    const slot = _slots.get(session);
+    if (slot) { slot.onCancel = onCancel; }
 }
 
-/**
- * Cancel the in-flight direct Anthropic send, if any.
- *
- * @returns `true` if a turn was in flight and its cancel hook ran; `false` if
- *          nothing was running (or no hook was registered).
- */
-export function cancelAnthropicSend(): boolean {
-    if (!_inFlight || !_onCancel) {
-        return false;
-    }
-    const cb = _onCancel;
+/** Note the prompt queue entry the send in `session` is shown as (an assist cancels by it). */
+export function setAnthropicSendChatItem(session: string, chatItemId: string): void {
+    const slot = _slots.get(session);
+    if (slot) { slot.chatItemId = chatItemId; }
+}
+
+function runCancel(slot: Slot): boolean {
+    if (!slot.onCancel) { return false; }
     try {
-        cb();
+        slot.onCancel();
     } catch {
         // best-effort — a broken cancel hook must not wedge the guard
     }
     return true;
 }
 
-/** Release the in-flight slot. Safe to call when not held. */
-export function endAnthropicSend(): void {
-    _inFlight = false;
-    _onCancel = undefined;
+/**
+ * Cancel the chat send in `session`; without a session, every running chat
+ * send.
+ *
+ * @returns the sessions whose send was cancelled (their cancel hook ran);
+ *          empty when nothing ran there (or no hook was registered).
+ */
+export function cancelAnthropicSend(session?: string): string[] {
+    const targets = session === undefined ? [..._slots.entries()] : (_slots.has(session) ? [[session, _slots.get(session)!] as [string, Slot]] : []);
+    return targets.filter(([, slot]) => runCancel(slot)).map(([name]) => name);
+}
+
+/** Cancel the chat send shown as prompt queue entry `chatItemId`; answers its session, or undefined. */
+export function cancelAnthropicSendOfChatItem(chatItemId: string): string | undefined {
+    for (const [name, slot] of _slots) {
+        if (slot.chatItemId === chatItemId) { return runCancel(slot) ? name : undefined; }
+    }
+    return undefined;
+}
+
+/** The warning for a send refused because its session is busy: it names the session. */
+export function busySessionWarning(session: string | undefined): string {
+    return `Session ${session || 'chat'} is busy — a chat send runs in it. Try again once it has finished, or pick another session.`;
+}
+
+/** Release the slot of `session`. Safe to call when not held. */
+export function endAnthropicSend(session: string): void {
+    _slots.delete(session);
+}
+
+/** Test seam: release every slot. */
+export function __resetAnthropicSendsForTests(): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam
+    _slots.clear();
+}
+
+/**
+ * The sessions of `candidates` that are free in this window: no queue item
+ * sending in them (`queueBusy`) and no chat send in flight; in their order,
+ * each once.
+ */
+export function freeChatSessions(candidates: readonly string[], queueBusy: (session: string) => boolean = () => false): string[] {
+    return candidates.filter((s, i) => candidates.indexOf(s) === i && !_slots.has(s) && !queueBusy(s));
 }

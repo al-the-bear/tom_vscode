@@ -54,7 +54,7 @@ Registered only while a live-conversation forwarder is active for the window.
 | `chat_start` / `chat_stop` | Master switch: turn live forwarding on / off. |
 | `chat_listen` / `chat_silent` | While forwarding: stream every update, or only the final answer + footer. |
 | `chat_status` | Show currently-running prompt(s) with their session and elapsed time, and the listening / forwarding mode. |
-| `cancel_chat` | Cancel the running direct prompt. |
+| `cancel_chat` | Cancel every running direct chat prompt (one may run per session); the answer says how many and in which sessions. |
 | `cancel_queue` | Cancel the running queue prompt. |
 
 ### Prompt queue

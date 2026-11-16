@@ -34,6 +34,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { todoGroupQueueRequest, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
 import { todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 import { questTrailFolder } from '../utils/questPaths.js';
+import { busySessionWarning } from './sendToChatState.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
@@ -2483,7 +2484,7 @@ async function _runTodoButton(
         onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, [todo.id]); },
     });
     if (outcome.rejected) {
-        vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+        vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sel.effectiveSession));
     } else if (!outcome.ok && outcome.error) {
         vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
     } else if (outcome.ok && use === 'userAction' && questId) {
@@ -2687,7 +2688,7 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
             onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, todoIds); },
         });
         if (outcome.rejected) {
-            vscode.window.showWarningMessage('Anthropic chat is busy — try again once the current request finishes.');
+            vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sel.effectiveSession));
         } else if (!outcome.ok && outcome.error) {
             vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
         }

@@ -66,11 +66,12 @@ export function liveAssistProgress(): import('./questionAssist').AssistProgressP
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { assistProgress } = require('./assistProgress.js') as typeof import('./assistProgress');
     const waits = require('./userWaits.js') as typeof import('./userWaits');
-    const { cancelAnthropicSend } = require('../handlers/sendToChatState.js') as typeof import('../handlers/sendToChatState');
+    const { cancelAnthropicSendOfChatItem } = require('../handlers/sendToChatState.js') as typeof import('../handlers/sendToChatState');
     /* eslint-enable @typescript-eslint/no-require-imports */
     return {
         begin(info) {
-            const id = assistProgress.start(info, () => { cancelAnthropicSend(); });
+            // Its own chat send only (the one shown as its chat item): sends in other sessions run on.
+            const id = assistProgress.start(info, () => { const chat = assistProgress.chatItemOf(id); if (chat) { cancelAnthropicSendOfChatItem(chat); } });
             const sync = (): void => {
                 const chat = assistProgress.chatItemOf(id);
                 if (chat) { assistProgress.setWaiting(id, waits.queueItemWaits().has(chat)); }

@@ -31,7 +31,7 @@ installVscodeStub({});
 import { AssistProgress, FAILED_SHOWN_MS, assistProgress } from '../assistProgress.js';
 import { liveAssistProgress } from '../assistLiveDeps.js';
 import { beginUserWait, runAsQueueItem } from '../userWaits.js';
-import { endAnthropicSend, tryBeginAnthropicSend } from '../../handlers/sendToChatState.js';
+import { endAnthropicSend, setAnthropicSendChatItem, tryBeginAnthropicSend } from '../../handlers/sendToChatState.js';
 import { runQuestionAssist, type AssistProgressPort, type QuestionAssistDeps } from '../questionAssist.js';
 
 const EXT = path.join(__dirname, '..', '..', '..');
@@ -113,7 +113,10 @@ describe('the Grill me thinking overlay', () => {
 
     test('AP-4: the live port', async () => {
         let cancelled = 0;
-        assert.equal(tryBeginAnthropicSend(() => { cancelled++; }), true);
+        let otherCancels = 0;
+        assert.equal(tryBeginAnthropicSend('assist-x', () => { cancelled++; }), true);
+        assert.equal(tryBeginAnthropicSend('chat', () => { otherCancels++; }), true);
+        setAnthropicSendChatItem('assist-x', 'chat-7');
         try {
             const handle = liveAssistProgress().begin(INFO);
             const run = assistProgress.active()!;
@@ -130,9 +133,10 @@ describe('the Grill me thinking overlay', () => {
             other();
             assert.equal(assistProgress.cancel(run.id), true);
             assert.equal(cancelled, 1, 'the chat send cancelled');
+            assert.equal(otherCancels, 0, 'a chat send in another session runs on');
             assert.equal(handle.cancelled(), true);
             handle.end();
-        } finally { endAnthropicSend(); }
+        } finally { endAnthropicSend('assist-x'); endAnthropicSend('chat'); }
         const h2 = liveAssistProgress().begin(INFO);
         h2.fail('boom');
         assert.equal(assistProgress.shown()!.error, 'boom');
@@ -225,6 +229,6 @@ describe('the Grill me thinking overlay', () => {
         const chat = src('handlers', 'chatPanel-handler.ts');
         assert.match(chat, /postMessage\(\{ type: 'assistOverlay', view: assistProgress\.shown\(\) \?\? null \}\)/);
         assert.match(chat, /case 'assistCancel':\s*\/\/[^\n]*\n\s*assistProgress\.cancel\(String\(message\.id \|\| ''\)\);/);
-        assert.match(src('handlers', 'sendToChatRouter.ts'), /onChatItem: \(itemId\) => \{ chatItemId = itemId; opts\?\.onChatItem\?\.\(itemId\); \}/);
+        assert.match(src('handlers', 'sendToChatRouter.ts'), /onChatItem: \(itemId\) => \{ chatItemId = itemId; chatItemOfSend = itemId; setAnthropicSendChatItem\(slotSession, itemId\); opts\?\.onChatItem\?\.\(itemId\); \}/);
     });
 });

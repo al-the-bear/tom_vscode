@@ -591,7 +591,7 @@ export interface CommandRegistryDeps {
      * Telegram `send_prompt`), like the chat panel's Stop button. Returns `true`
      * if a prompt was running and was cancelled.
      */
-    cancelChat: () => boolean;
+    cancelChat: () => string[];
     /**
      * Cancel the running **queue** prompt, like the queue's Stop button. Returns
      * `true` if a queue item was running and was cancelled.
@@ -783,14 +783,16 @@ async function chatStatusHandler(deps: CommandRegistryDeps): Promise<TelegramCom
  * Handle `cancel_chat` — interrupt the running **direct** chat prompt (panel
  * Send / Send-to-Chat / `send_prompt`), like clicking Stop in the chat panel.
  */
+/** What `/cancel_chat` answers: how many chat sends it stopped, and in which sessions. */
+export function cancelChatText(sessions: readonly string[]): string {
+    if (!sessions.length) { return 'ℹ️ No direct chat prompt is currently running.'; }
+    return sessions.length === 1
+        ? `🛑 Cancelled the running direct chat prompt (session ${sessions[0]}).`
+        : `🛑 Cancelled ${sessions.length} running direct chat prompts (sessions ${sessions.join(', ')}).`;
+}
+
 async function cancelChatHandler(deps: CommandRegistryDeps): Promise<TelegramCommandResult> {
-    const cancelled = deps.cancelChat();
-    return {
-        text: cancelled
-            ? '🛑 Cancelled the running direct chat prompt.'
-            : 'ℹ️ No direct chat prompt is currently running.',
-        rawText: true,
-    };
+    return { text: cancelChatText(deps.cancelChat()), rawText: true };
 }
 
 /**

@@ -16,6 +16,8 @@
  *   TR-6 a Send as another run than the window's runs with that run's process position (processRunFor)
  *   TR-7 the group walk (Queue Group Prompt, qtQueueGroupPrompt) is queued into the panel's run and session, the
  *        confirmation names them; on the panel's default (session `chat`, run `default`) it is too (vscimpb98)
+ *   TR-8 its session busy (a chat send runs in it, vscimpb135): Send and the bar's Send warn naming the session,
+ *        not "Anthropic chat"
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -104,7 +106,9 @@ const runDefaults: Record<string, Json> = { default: { defaultTransport: 'copilo
     get defaultTransport() { return 'copilot'; },
 };
 const originalSend = router.runAnthropicSend;
-(router as Json).runAnthropicSend = async (_ctx: unknown, prompt: string, opts: Json) => { sends.push({ prompt, ...opts }); return { target: 'anthropic', ok: false }; };
+// What the replaced send answers (TR-8 makes it refuse); the handler's import() keeps this one function.
+let sendOutcome: (opts: Json) => Json = () => ({ target: 'anthropic', ok: false });
+(router as Json).runAnthropicSend = async (_ctx: unknown, prompt: string, opts: Json) => { sends.push({ prompt, ...opts }); return sendOutcome(opts); };
 after(() => {
     (router as Json).runAnthropicSend = originalSend;
     (PromptQueueManager as Json)._inst = undefined;
@@ -245,6 +249,28 @@ describe('the todo panel\'s session and run', () => {
         } finally {
             win.createQuickPick = original.createQuickPick;
             win.showInformationMessage = original.info;
+        }
+    });
+
+    test('TR-8: a busy session is named', async () => {
+        const shown = vscodeStub.spies.byMethod('window.showWarningMessage').length;
+        sendOutcome = (opts) => ({ target: 'anthropic', ok: false, rejected: true, busySession: opts.session, error: 'busy' });
+        try {
+            await context.workspaceState.update(todoPanelSessionKey(QUEST), 'work');
+            const { webview } = view();
+            await send(webview, { type: 'qtSetRun', run: 'r3' });
+            runDefaults.r3 = { defaultTransport: 'anthropic' };
+            await new Promise((r) => setTimeout(r, 3100)); // past the 3 s double-click guard
+            await send(webview, { type: 'qtTodoButton', target: 'chat', todoId: 'a2' });
+            await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
+            const warnings = vscodeStub.spies.byMethod('window.showWarningMessage').slice(shown).map((c) => String(c.args[0]));
+            assert.equal(warnings.length, 2, warnings.join(' | '));
+            for (const w of warnings) {
+                assert.match(w, /^Session work@r3 is busy/);
+                assert.doesNotMatch(w, /Anthropic chat/);
+            }
+        } finally {
+            sendOutcome = () => ({ target: 'anthropic', ok: false });
         }
     });
 });

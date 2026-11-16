@@ -52,7 +52,7 @@ import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import type { SessionRecord } from '../utils/agentSdkSessions';
 import { sessionLabel } from '../utils/sessionPickerPlan';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
-import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel, isAnthropicSendInFlight } from './sendToChatState';
+import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel, setAnthropicSendChatItem, isAnthropicSendInFlight } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -508,7 +508,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'sendAnthropic':
                         if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'anthropic', profile: message.profile, template: message.userMessageTemplate })) {
                             // The webview set itself to "sending": tell it what happened.
-                            const panelBusy = isAnthropicSendInFlight();
+                            const panelBusy = this._panelBusy();
                             this._view?.webview.postMessage({ type: 'anthropicNotSent', message: 'Already sent: an identical send within 3 s was ignored.', ...(panelBusy ? { panelBusy } : {}) });
                             break;
                         }
@@ -902,6 +902,20 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _setChatRun(section: ChatRunSection, run: string): Promise<void> {
         const name = effectiveChatRun(run, this._questRuns().runs);
         await this._context.workspaceState.update(chatRunKey(WsPaths.getWorkspaceQuestId(), section), name === DEFAULT_RUN ? undefined : name);
+    }
+
+    /**
+     * The chat send slot (sendToChatState) the panel's own running send holds: its session, or for a
+     * Fresh send its own key. Unset while the panel sends nothing.
+     */
+    private _panelSendSlot: string | undefined;
+
+    /**
+     * Whether the panel is busy: its own send still runs (wherever it went), or a chat send runs in
+     * the panel's session. A chat send in another session does not make it busy.
+     */
+    private _panelBusy(): boolean {
+        return this._panelSendSlot !== undefined || isAnthropicSendInFlight(this._panelSession());
     }
 
     /** The session the ANTHROPIC/LLM subpanel sends in: its picked session in its run (`<session>@<run>`). */
@@ -1581,15 +1595,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         let targetSession = this._panelSession();
         const panelRun = this._chatRun('anthropic');
         const runContext = this._chatRunContext('anthropic');
-        // A send of this panel still runs: the replies below must not end its "sending" state,
-        // and no second send can start now (one interactive turn at a time).
-        const panelBusy = isAnthropicSendInFlight();
+        // A send of this panel, or a chat send in its session, still runs: the replies below must
+        // not end its "sending" state.
+        const panelBusy = this._panelBusy();
         // A fresh session is never busy: its base may be (it is only read).
         const busy = fresh ? { kind: 'free' as const } : await resolveBusySession({
             session: targetSession,
             send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}), run: panelRun },
             interactive: true,
-            canSendElsewhere: !panelBusy,
         });
         if (busy.kind === 'cancelled') {
             this._view?.webview.postMessage({ type: 'anthropicNotSent', message: busy.message, ...(panelBusy ? { panelBusy } : {}) });
@@ -1608,17 +1621,20 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         if (busy.kind === 'send') { targetSession = busy.session; }
-        // Spec: only one interactive Anthropic turn at a time. The webview
-        // already disables Send during a panel turn, but the shared guard also
-        // blocks a concurrent Send-to-Chat / scripting turn — and vice versa.
-        if (!tryBeginAnthropicSend()) {
+        // One chat send per session (sendToChatState): a send in another session runs on beside it.
+        // A Fresh send runs in a session of its own, so it holds a slot of its own.
+        const slotKey = fresh ? `${targetSession}~fresh-${Date.now()}` : targetSession;
+        if (this._panelSendSlot !== undefined || !tryBeginAnthropicSend(slotKey)) {
             this._view?.webview.postMessage({
                 type: 'anthropicNotSent',
-                message: 'Not sent: an Anthropic chat request is already running here, and its prompt takes no updates.',
+                message: this._panelSendSlot !== undefined
+                    ? 'Not sent: this panel\'s send still runs.'
+                    : `Not sent: a chat send already runs in session ${targetSession}, and its prompt takes no updates.`,
                 panelBusy: true,
             });
             return;
         }
+        this._panelSendSlot = slotKey;
         const config = loadSendToChatConfig();
         const userMessageTemplates: Array<{ id: string; template: string; isDefault?: boolean }> = Array.isArray(config?.anthropic?.userMessageTemplates)
             ? (config!.anthropic!.userMessageTemplates! as Array<{ id: string; template: string; isDefault?: boolean }>)
@@ -1650,7 +1666,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     type: 'anthropicError',
                     message: resolved.error + ' — add a configuration on the Status Page or pick a model.',
                 });
-                endAnthropicSend();
+                endAnthropicSend(slotKey);
+                this._panelSendSlot = undefined;
                 return;
             }
             profile = {
@@ -1680,7 +1697,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
         if (mismatch) {
             this._view?.webview.postMessage({ type: 'anthropicError', message: mismatch });
-            endAnthropicSend();
+            endAnthropicSend(slotKey);
+            this._panelSendSlot = undefined;
             return;
         }
 
@@ -1704,7 +1722,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // can interrupt this panel turn exactly like the Stop button: cancel the
         // token and abort any pending tool-approval gate. The slot was already
         // claimed above; `setAnthropicSendCancel` attaches to that claim.
-        setAnthropicSendCancel(() => {
+        setAnthropicSendCancel(slotKey, () => {
             cts.cancel();
             AnthropicHandler.instance.abortPendingApprovals((a) => isRunningChatItem(a.queueItemId) && a.run === this._chatRun('anthropic'));
         });
@@ -1747,7 +1765,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
                 })),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.
-                { cancel: (chatItemId) => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); } },
+                {
+                    cancel: (chatItemId) => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); },
+                    onChatItem: (chatItemId) => setAnthropicSendChatItem(slotKey, chatItemId),
+                },
             );
             this._updateAnthropicWindowStatus('answer-received');
             this._view?.webview.postMessage({
@@ -1771,7 +1792,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             cts.dispose();
             // A one-prompt session leaves nothing behind (its file, conversation and storage).
             if (freshSession) { discardSessionCompletely(folder, quest, freshSession); }
-            endAnthropicSend();
+            endAnthropicSend(slotKey);
+            this._panelSendSlot = undefined;
         }
     }
 

@@ -7,8 +7,9 @@
  *   - **ANTHROPIC/LLM** — the "Send to LLM" commands ({@link dispatchToLlm})
  *     handle the prompt exactly as if it had been typed into the panel: same
  *     active profile, its configuration, the default user-message template,
- *     the chat session, the full tool loop, the live trail. While a turn runs a
- *     second interactive send is **rejected** (the prompt queue owns queuing).
+ *     the chat session, the full tool loop, the live trail. While a chat send
+ *     runs in a session, a second send into that session is **rejected** (the
+ *     prompt queue owns queuing); sends in other sessions run beside it.
  *   - **Scripts** — {@link sendToChatForScript}, the scripting API's
  *     `sendToChatVce`, sends to the ANTHROPIC/LLM panel's profile unless the
  *     call names `target: 'copilot'`, and returns the answer for both.
@@ -32,8 +33,9 @@ import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { showAnthropicResultInPanel } from './chatPanel-handler';
 import {
     tryBeginAnthropicSend,
-    isAnthropicSendInFlight,
+    setAnthropicSendChatItem,
     endAnthropicSend,
+    busySessionWarning,
 } from './sendToChatState';
 import { trackChatSend, isRunningChatItem } from './chatQueueTracking';
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -46,8 +48,10 @@ export interface SendToChatOutcome {
     target: SendToChatTarget;
     /** True when the prompt was dispatched (and, for script calls, answered). */
     ok: boolean;
-    /** Rejected because an interactive Anthropic turn was already running. */
+    /** Rejected because a chat send already runs in its session (`busySession`). */
     rejected?: boolean;
+    /** With `rejected`: the session a chat send already runs in. */
+    busySession?: string;
     /** The transport's answer (Anthropic transport text, or Copilot answer-file). */
     answer?: string;
     /** Failure reason when `ok` is false. */
@@ -82,8 +86,8 @@ function defaultUserMessageTemplate(): string | undefined {
 
 /**
  * Run an Anthropic turn using the active profile, exactly as the chat panel
- * would. Rejects (without starting) when an interactive turn is already in
- * flight.
+ * would. Rejects (without starting, naming the session) when a chat send
+ * already runs in the session it would send in.
  *
  * @param context  Extension context (for the mirrored active-profile id).
  * @param prompt   The user prompt text.
@@ -148,8 +152,6 @@ export async function runAnthropicSend(
         session: targetSession,
         send: { text: prompt, ...(context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') ? { profileId: context.workspaceState.get<string>(ACTIVE_ANTHROPIC_PROFILE_KEY, '') } : {}) },
         interactive,
-        // One interactive turn at a time: while one runs, no send starts elsewhere either.
-        canSendElsewhere: !isAnthropicSendInFlight(),
     });
     if (busy.kind === 'cancelled') {
         return { target: 'anthropic', ok: false, error: busy.message };
@@ -167,19 +169,23 @@ export async function runAnthropicSend(
     // Register the cancel hook atomically with the slot claim so `/cancel_chat`
     // can interrupt this turn exactly like the chat panel's Stop button:
     // cancel the token and abort any pending tool-approval gate.
-    if (!tryBeginAnthropicSend(() => {
+    // One slot per session: a send in another session runs on; a second one in this session is refused.
+    let chatItemOfSend: string | undefined;
+    if (!tryBeginAnthropicSend(targetSession, () => {
         ownCts?.cancel();
-        // Chat sends only (this router's send is one): a queue item's approval stays open (vscimpb81).
-        AnthropicHandler.instance.abortPendingApprovals((a) => isRunningChatItem(a.queueItemId));
+        // This send's approvals only (vscimpb81): a queue item's, or another chat send's, stay open.
+        AnthropicHandler.instance.abortPendingApprovals((a) => chatItemOfSend ? a.queueItemId === chatItemOfSend : isRunningChatItem(a.queueItemId));
     })) {
         ownCts?.dispose();
         return {
             target: 'anthropic',
             ok: false,
             rejected: true,
-            error: 'An Anthropic chat request is already running.',
+            busySession: targetSession,
+            error: `Session ${targetSession} is busy: a chat send runs in it.`,
         };
     }
+    const slotSession = targetSession;
     try {
         // "Same profile as currently selected in the panel": the panel mirrors
         // its active selection into workspaceState; fall back to the default /
@@ -216,7 +222,7 @@ export async function runAnthropicSend(
             // Ended by its timeout or by removing its entry: stopped like /cancel_chat.
             {
                 cancel: (itemId) => { ownCts?.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === itemId); },
-                onChatItem: (itemId) => { chatItemId = itemId; opts?.onChatItem?.(itemId); },
+                onChatItem: (itemId) => { chatItemId = itemId; chatItemOfSend = itemId; setAnthropicSendChatItem(slotSession, itemId); opts?.onChatItem?.(itemId); },
             },
         );
 
@@ -237,7 +243,7 @@ export async function runAnthropicSend(
             error: e instanceof Error ? e.message : String(e),
         };
     } finally {
-        endAnthropicSend();
+        endAnthropicSend(slotSession);
         ownCts?.dispose();
     }
 }
@@ -254,9 +260,7 @@ export async function dispatchToLlm(
 ): Promise<void> {
     const outcome = await runAnthropicSend(context, prompt, { source: 'editor', ...(userMessageTemplate ? { userMessageTemplate } : {}) });
     if (outcome.rejected) {
-        vscode.window.showWarningMessage(
-            'The LLM chat is busy — try again once the current request finishes.',
-        );
+        vscode.window.showWarningMessage(busySessionWarning(outcome.busySession));
     } else if (!outcome.ok && outcome.error) {
         vscode.window.showErrorMessage(`Send to Anthropic/LLM failed: ${outcome.error}`);
     }

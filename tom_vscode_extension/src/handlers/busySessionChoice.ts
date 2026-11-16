@@ -22,6 +22,7 @@ import { sessionsFolder } from './sessionPicker';
 import { WsPaths } from '../utils/workspacePaths';
 import { canUpdateRunningPrompt, sendUpdateToRunningPrompt } from '../services/agentSdkLiveInputs';
 import { trackChatSend } from './chatQueueTracking';
+import { freeChatSessions } from './sendToChatState';
 
 export type BusySessionOutcome =
     | { kind: 'free' }
@@ -75,8 +76,6 @@ export async function resolveBusySession(params: {
     /** Whether a person can be asked (not on Telegram). */
     interactive: boolean;
     questId?: string;
-    /** Whether a send could start now in another session; false while this caller's one send slot is taken. Default true. */
-    canSendElsewhere?: boolean;
 }): Promise<BusySessionOutcome> {
     let queue: PromptQueueManager;
     try { queue = PromptQueueManager.instance; } catch { return { kind: 'free' }; }
@@ -85,7 +84,8 @@ export async function resolveBusySession(params: {
     if (!params.interactive) {
         return { kind: 'cancelled', message: `Not sent: ${holderText(params.session, holder)}. Two prompts never share a conversation; send it again when it has ended, or queue it.` };
     }
-    const free = params.canSendElsewhere === false ? [] : queue.freeSessions(candidateSessions(params.questId ?? WsPaths.getWorkspaceQuestId(), params.session));
+    // Free: no queue item and no chat send runs in it (each session has its own chat send slot).
+    const free = freeChatSessions(candidateSessions(params.questId ?? WsPaths.getWorkspaceQuestId(), params.session), (s) => !!queue.sessionHolder(s));
     const choice = await pick(busySessionChoices(params.session, holder, free, canUpdateRunningPrompt(params.session)), `Session ${params.session} is busy: ${holderText(params.session, holder)}`);
     if (!choice) { return { kind: 'cancelled', message: `Not sent: session ${params.session} is busy.` }; }
     if (choice.kind === 'session') { return { kind: 'send', session: choice.session! }; }

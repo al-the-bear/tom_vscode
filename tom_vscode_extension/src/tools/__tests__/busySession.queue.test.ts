@@ -18,8 +18,8 @@
  *   BS-5 chat sends one after another, with the queue reloaded from disk between them: each is listed while it
  *        runs and ends `chat-sent` with its answer
  *   BS-6 an update to the running prompt: offered first when the prompt in the session takes updates (an Agent
- *        SDK query registered in agentSdkLiveInputs), and "Send now in session Y" is not offered while the
- *        caller cannot start a second send; choosing it pushes the text into the running query, answers
+ *        SDK query registered in agentSdkLiveInputs), and "Send now in session Y" is not offered for a session
+ *        a chat send runs in (its slot taken, sendToChatState: here every other session's); choosing it pushes the text into the running query, answers
  *        `update`, and lists it as a chat send (source update) that ends `chat-sent` with the update's own
  *        answer — the running send's item stays `chat`; a prompt that ended meanwhile refuses it
  */
@@ -57,6 +57,7 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { chatTimeoutError, CHAT_REMOVED_ERROR, isChatSendActive, trackChatSend } from '../../handlers/chatQueueTracking.js';
 import { resolveBusySession, __setBusySessionPickForTests } from '../../handlers/busySessionChoice.js';
 import { registerLiveQuery } from '../../services/agentSdkLiveInputs.js';
+import { tryBeginAnthropicSend, endAnthropicSend } from '../../handlers/sendToChatState.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -267,9 +268,14 @@ describe('busy sessions', () => {
             return choices.find((c) => c.kind === 'update');
         });
         try {
-            const r = await resolveBusySession({ session: 'walk', send: { text: 'also check X' }, interactive: true, questId: QUEST, canSendElsewhere: false });
+            // Chat sends run in the other sessions: none of them is free.
+            assert.ok(tryBeginAnthropicSend('chat') && tryBeginAnthropicSend('default'));
+            let r;
+            try {
+                r = await resolveBusySession({ session: 'walk', send: { text: 'also check X' }, interactive: true, questId: QUEST });
+            } finally { endAnthropicSend('chat'); endAnthropicSend('default'); }
             assert.deepEqual(r, { kind: 'update', session: 'walk' });
-            assert.deepEqual(offered, ['Send now as an update to the running prompt in session walk', 'Run next in session walk', 'Run after the current item in session walk'], 'first, and no other session while a send runs');
+            assert.deepEqual(offered, ['Send now as an update to the running prompt in session walk', 'Run next in session walk', 'Run after the current item in session walk'], 'first, and no session a chat send runs in');
             assert.deepEqual(pushedTexts, ['also check X']);
             await wait(20);
             const update = queue().items.find((i) => i.originalText === 'also check X')!;
