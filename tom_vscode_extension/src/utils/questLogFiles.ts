@@ -24,6 +24,7 @@
 
 import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSION_TRAIL_FOLDER, SESSIONS_FOLDER } from '../services/sessionStorage';
 import { sanitizeQuestSegment } from './questPaths.js';
+import { SESSION_NAME_PATTERN } from './agentSdkSessions.js';
 
 /** Identifier of one Logs sub-tab. */
 export type QuestLogTabId =
@@ -293,9 +294,13 @@ export const MAX_QUEST_LOG_BYTES = 256 * 1024;
 /** The session the Logs tabs show when none is chosen: the prompt queue's. */
 export const DEFAULT_LOG_SESSION = MIGRATION_TARGET_SESSION;
 
-/** A session name a Logs tab may read (the rule of session names; anything else falls back to the default). */
+/**
+ * A session name a Logs tab may read — the rule of session names, a run's
+ * `<session>@<run>` included (SESSION_NAME_PATTERN); anything else falls back
+ * to the default. Without the `@` every run's session read `default`'s files.
+ */
 function safeSession(session: string | undefined | null): string {
-    return typeof session === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(session) ? session : DEFAULT_LOG_SESSION;
+    return typeof session === 'string' && SESSION_NAME_PATTERN.test(session) ? session : DEFAULT_LOG_SESSION;
 }
 
 /** Type guard for values arriving from the webview / persisted state. */

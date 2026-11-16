@@ -8,7 +8,8 @@
  *        without a role the Role link offers to set one; there is no separate session row
  *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession` with the settings run; a state update
  *        refreshes the session shown
- *   QC-3 the Session link names the default session's base and its lifetime when not `continue`
+ *   QC-3 the Session link names the default session's base and its lifetime when not `continue`; it shows the
+ *        session the run's items run in: `default@default` in the `default` run, `default@<run>` in another
  *        (`Session: walk based on prep (per iteration)`), all of it the link
  *   QC-4 an Anthropic item's session chip: a `*` after the name when its effective session has a base,
  *        the tooltip naming base and lifetime; the same for a session the item's spec will create;
@@ -56,7 +57,7 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.deepEqual(links.map((l: Win) => [l.dataset.pick, l.textContent]), [['position', '(no process)'], ['role', 'spec_author'], ['session', 'p2s3r1ss1'], ['variables', '0']]);
         assert.equal(window.document.getElementById('queueDefaultSessionRow'), null, 'the session moved into the bar');
         const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document.getElementById('contextSummary');
-        assert.equal(none.textContent, 'Quest: q  |  Run: default (this window\'s)  |  Position: (no process)  |  Role: (none)  |  Session: default  |  Variables: 0');
+        assert.equal(none.textContent, 'Quest: q  |  Run: default (this window\'s)  |  Position: (no process)  |  Role: (none)  |  Session: default@default  |  Variables: 0');
     });
 
     test('QC-2: the links open the pickers', (t) => {
@@ -81,7 +82,9 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.equal(label('walk', { walk: { mode: 'per-iteration', basedOn: 'prep' } }), 'walk based on prep (per iteration)');
         assert.equal(label('walk', { walk: { mode: 'per-iteration' } }), 'walk (per iteration)');
         assert.equal(label('walk', { walk: { mode: 'fork-from-base', basedOn: 'prep' } }), 'walk based on prep (per prompt)', 'the old name');
-        assert.equal(label('', {}), 'default', 'a session with no file: the name alone');
+        assert.equal(label('', {}), 'default@default', 'a session with no file: the name alone, the default run\'s as default@default');
+        const inRun = setup(t, { context: { quest: 'q', role: '', activeProjects: [] }, queueDefaultSession: '', sessionInfo: {}, currentRun: 'collab', processRuns: ['collab'] } as never);
+        assert.equal(inRun.window.document.querySelector('#contextSummary .ctx-link[data-pick="session"]').textContent, 'default@collab', 'a run: its own queue session');
         const { window } = setup(t, { context: { quest: 'q', role: '', activeProjects: [] }, queueDefaultSession: 'walk', sessionInfo: { walk: { mode: 'per-prompt', basedOn: 'prep' } } });
         assert.match(window.document.querySelector('#contextSummary .ctx-link[data-pick="session"]').title, /Session walk, based on prep, started again for every prompt/);
     });

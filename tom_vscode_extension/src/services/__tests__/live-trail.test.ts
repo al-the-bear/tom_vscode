@@ -32,7 +32,9 @@ installVscodeStub({ workspaceFolders: [tmpRoot] });
 // Safe to import after the stub is wired into the resolver.
 import {
     LiveTrailWriter,
+    fencedBlock,
     formatLiveTrailUsage,
+    promptHeaderLines,
     formatPromptHeaderTimestamp,
     type LiveTrailEvent,
 } from '../live-trail.js';
@@ -359,5 +361,32 @@ describe('LiveTrailWriter streamed deltas', () => {
         w.beginPrompt({ transport: 'agentSdk', config: 'default', userText: 'next' });
         const body = read(w);
         assert.match(body, /cut off\n\n## 🚀 PROMPT \d{8}_\d{6} \[agentSdk \/ default\]\n\n> User: next\n$/);
+    });
+});
+
+describe('LiveTrailWriter quoted trails', () => {
+    it('LT-Q1: a fence is longer than any backtick run in its body', () => {
+        assert.equal(fencedBlock('text', 'plain'), '```text\nplain\n```\n');
+        assert.equal(fencedBlock('text', 'a\n```json\n{}\n```'), '````text\na\n```json\n{}\n```\n````\n');
+    });
+
+    it('LT-Q2: a prompt header inside a fence is not a block', () => {
+        const lines = ['## 🚀 PROMPT 1', '````text', '## 🚀 PROMPT quoted', '```json', '```', '````', '## 🚀 PROMPT 2', '~~~', '## 🚀 PROMPT tilde', '~~~'];
+        assert.deepEqual(promptHeaderLines(lines), [0, 6]);
+    });
+
+    it('LT-Q3: trimming counts only real prompt blocks, and keeps a quoted trail whole', () => {
+        const quest = `q_${Math.random().toString(36).slice(2)}`;
+        const w = new LiveTrailWriter(quest);
+        const quoted = Array.from({ length: 8 }, (_, i) => `## 🚀 PROMPT 2026111${i}_000000 [agentSdk / x]\n\n\`\`\`json\n{}\n\`\`\``).join('\n');
+        w.beginPrompt({ transport: 'agentSdk', config: 'default', userText: 'reads another trail' });
+        w.beginToolCall('Bash', { command: 'cat live-trail.md' }, 't1');
+        w.appendToolResult(quoted, quoted.length);
+        w.endPrompt({ rounds: 1, toolCalls: 1, durationMs: 1 } as never);
+        w.beginPrompt({ transport: 'agentSdk', config: 'default', userText: 'next' });
+        const body = fs.readFileSync(w.getFilePath(), 'utf-8');
+        assert.equal(promptHeaderLines(body.split('\n')).length, 2, 'two real prompts');
+        assert.match(body, /> User: reads another trail/, 'the first prompt is not trimmed away by the quoted headers');
+        assert.match(body, /````text\n## 🚀 PROMPT 20261110_000000/, 'the quoted trail sits in a longer fence');
     });
 });

@@ -113,7 +113,8 @@ describe('session switch in the webview', () => {
         const box = w.document.getElementById('qlog-sessions');
         assert.equal(box.querySelector('select'), null, 'three sessions: no dropdown');
         assert.deepEqual([...box.querySelectorAll('button.qlog-session-btn')].map((b: Win) => [b.textContent, b.classList.contains('active')]),
-            [['default', true], ['chat', false], ['walk', false]]);
+            [['default@default', true], ['chat', false], ['walk', false]], 'the default run\'s queue session is shown as default@default');
+        assert.equal(box.querySelector('button.qlog-session-btn')?.getAttribute('data-qlog-session'), 'default', 'it still reads the session default');
 
         send(w, { type: 'qlogContent', viewer: 'logs', tab: 'mdTrail', session: 'default', exists: true, html: '<p>default trail</p>', newestAt: 'end', fileName: 'live-trail.md', bytes: 10 });
         assert.match(w.document.getElementById('qlog-body').innerHTML, /default trail/);

@@ -192,6 +192,10 @@ describe('questLogLocation', () => {
         assert.deepEqual(questLogLocation('answers', 'demo'), { area: 'questHistory', fileName: 'sessions/default/demo.anthropic.answers.md' },
             'no session: the queue\'s');
         assert.equal(questLogLocation('trail', 'demo', undefined, '../../etc').fileName, 'sessions/default/live-trail.md', 'a bad name cannot leave the folder');
+        assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'default@collab'), { area: 'questHistory', fileName: 'sessions/default@collab/live-trail.md' },
+            'a run\'s session reads its own folder, not default\'s');
+        assert.notEqual(questLogViewKey('mdTrail', undefined, 'default@collab'), questLogViewKey('mdTrail', undefined, 'default@another'), 'two runs\' sessions: two keys');
+        assert.equal(questLogLocation('trail', 'demo', undefined, 'x@../etc').fileName, 'sessions/default/live-trail.md', 'an @ name cannot leave the folder either');
         assert.deepEqual(questLogLocation('progress', 'demo', undefined, 'chat'), { area: 'quest', fileName: 'progress.demo.md' }, 'a quest document has no session');
     });
 

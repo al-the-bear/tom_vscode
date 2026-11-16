@@ -180,6 +180,9 @@ function qlogCreateViewer(cfg) {
         return html + '</span>';
     }
 
+    /** How a session is shown: the `default` run's queue session `default` as `default@default`, beside every run's `default@<run>`. */
+    function qlogSessionLabel(name) { return name === 'default' ? 'default@default' : name; }
+
     /** The session switch, from the host's plan. */
     function renderSessions() {
         var box = el('sessions');
@@ -191,13 +194,13 @@ function qlogCreateViewer(cfg) {
             html += '<select class="qlog-session-select" data-qlog-session-select title="Every session, most recently used first">';
             for (var i = 0; i < plan.sessions.length; i++) {
                 var name = plan.sessions[i];
-                html += '<option value="' + qlogEscape(name) + '"' + (name === plan.selected ? ' selected' : '') + '>' + qlogEscape(name) + '</option>';
+                html += '<option value="' + qlogEscape(name) + '"' + (name === plan.selected ? ' selected' : '') + '>' + qlogEscape(qlogSessionLabel(name)) + '</option>';
             }
             html += '</select>';
         }
         for (var j = 0; j < plan.buttons.length; j++) {
             var b = plan.buttons[j];
-            html += '<button class="qlog-session-btn' + (b === plan.selected ? ' active' : '') + '" data-qlog-session="' + qlogEscape(b) + '" title="Session ' + qlogEscape(b) + '">' + qlogEscape(b) + '</button>';
+            html += '<button class="qlog-session-btn' + (b === plan.selected ? ' active' : '') + '" data-qlog-session="' + qlogEscape(b) + '" title="Session ' + qlogEscape(b) + '">' + qlogEscape(qlogSessionLabel(b)) + '</button>';
         }
         html += sessionActionsHtml(plan.selected);
         box.innerHTML = html;

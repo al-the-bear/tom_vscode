@@ -156,6 +156,22 @@ function applyRunSettings() {
   queueDefaultMessageTemplateId = s.defaultMessageTemplateId || '';
 }
 
+/**
+ * The session a run's items run in when they name none, as runQueueSession
+ * (src/utils/runSessions.ts) resolves it: the queue default in the `default`
+ * run, `<default>@<run>` in any other (`chat`, `tmp-…` and a name already
+ * naming its run are kept).
+ */
+function runQueueSessionName(queueDefault, run) {
+  const base = queueDefault || 'default';
+  if (!run || run === 'default') { return base; }
+  if (base.indexOf('@') >= 0 || base === 'chat' || base.indexOf('tmp-') === 0) { return base; }
+  return base + '@' + run;
+}
+
+/** How a session is shown: the `default` run's queue session `default` as `default@default`, like every run's `default@<run>`. */
+function sessionDisplayName(name) { return name === 'default' ? 'default@default' : name; }
+
 /** Tell the host which run the toolbar's settings are for (the transport picker's messages carry none). */
 function postSettingsRun() { vscode.postMessage({ type: 'setSettingsRun', run: settingsRun() }); }
 // Pending items whose prompt is open for editing: item id -> the draft text.
@@ -425,9 +441,9 @@ function updateContextSummary() {
   }
   sep();
   el.appendChild(document.createTextNode('Session: '));
-  const sessionName = queueDefaultSessionLabel || 'default';
+  const sessionName = runQueueSessionName(queueDefaultSessionLabel, settingsRun());
   const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
-  el.appendChild(link('session', sessionName + session.based,
+  el.appendChild(link('session', sessionDisplayName(sessionName) + session.based,
     session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'));
   sep();
   const vars = ctx.variables || {};

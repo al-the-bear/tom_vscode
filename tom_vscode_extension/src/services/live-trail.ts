@@ -35,6 +35,40 @@ const INTERRUPTION_EMOJI: Record<InterruptionKind, string> = {
 };
 /** `## 🚀 PROMPT …` line marker used for block boundaries. */
 const PROMPT_HEADER_PREFIX = '## 🚀 PROMPT ';
+
+/**
+ * A fenced code block of `body` whose fence is longer than any backtick run
+ * in it, so a body that holds fences of its own (a tool result quoting a
+ * trail or a Markdown file) cannot close it early (CommonMark: a closing
+ * fence is at least as long as the opening one).
+ */
+export function fencedBlock(lang: string, body: string): string {
+    const longest = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length));
+    const fence = '`'.repeat(Math.max(3, longest + 1));
+    return `${fence}${lang}\n${body}\n${fence}\n`;
+}
+
+/**
+ * The lines of a live trail that open a prompt block: `## 🚀 PROMPT …` outside
+ * fenced code. A header inside a fence is quoted text (a tool result that
+ * read another trail); counting it cut the file in the middle of a code block
+ * when the trail was trimmed.
+ */
+export function promptHeaderLines(lines: readonly string[]): number[] {
+    const out: number[] = [];
+    let fence: { char: string; length: number } | undefined;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        if (fence) {
+            if (m && m[1][0] === fence.char && m[1].length >= fence.length && m[2].trim() === '') { fence = undefined; }
+            continue;
+        }
+        if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { char: m[1][0], length: m[1].length }; continue; }
+        if (line.startsWith(PROMPT_HEADER_PREFIX)) { out.push(i); }
+    }
+    return out;
+}
 /** How many past prompt blocks to keep before the current one. */
 const MAX_PROMPT_BLOCKS = 5;
 /** Truncate previews of user text / tool input / tool result previews. */
@@ -486,9 +520,7 @@ export class LiveTrailWriter {
             const inputJson = this.clip(this.safeStringify(input), TOOL_INPUT_PREVIEW_CHARS);
             this.append(
                 `\n### 🔧 ${toolName} [${replayKey}]\n\n` +
-                '```json\n' +
-                inputJson + '\n' +
-                '```\n',
+                fencedBlock('json', inputJson),
             );
             this.emit({ kind: 'toolCall', toolName, replayKey });
         } catch { /* swallowed */ }
@@ -502,9 +534,7 @@ export class LiveTrailWriter {
             const truncatedNote = fullLength > TOOL_RESULT_PREVIEW_CHARS ? ' — preview' : '';
             this.append(
                 `\n<details><summary>📤 result (${fullLength} chars)${truncatedNote}</summary>\n\n` +
-                '```text\n' +
-                preview + '\n' +
-                '```\n\n' +
+                fencedBlock('text', preview) + '\n' +
                 '</details>\n',
             );
             this.emit({ kind: 'toolResult', fullLength });
@@ -541,7 +571,7 @@ export class LiveTrailWriter {
         if (!message) { return; }
         try {
             const causeBlock = cause
-                ? '\n\n```text\n' + this.clip(cause, 1000) + '\n```\n'
+                ? '\n\n' + fencedBlock('text', this.clip(cause, 1000))
                 : '\n';
             this.append(`\n### 🔁 retry\n\n${message}${causeBlock}`);
             this.currentlyInAssistantText = false;
@@ -619,9 +649,7 @@ export class LiveTrailWriter {
             const label = interruptionLabel(kind).toUpperCase();
             this.append(
                 `\n\n### ${emoji} ${label}\n\n` +
-                '```text\n' +
-                this.clip(message, 2000) + '\n' +
-                '```\n',
+                fencedBlock('text', this.clip(message, 2000)),
             );
             this.currentlyInAssistantText = false;
             this.currentlyInThinking = false;
@@ -717,10 +745,7 @@ export class LiveTrailWriter {
         const current = this.readFileSafe();
         if (!current) { return undefined; }
         const lines = current.split(/\r?\n/);
-        const headerIdx: number[] = [];
-        for (let i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith(PROMPT_HEADER_PREFIX)) { headerIdx.push(i); }
-        }
+        const headerIdx = promptHeaderLines(lines);
         if (headerIdx.length <= keepBlocks) { return undefined; }
         const keepFromIdx = headerIdx[headerIdx.length - keepBlocks];
         const keepFromLine = Math.max(0, keepFromIdx);

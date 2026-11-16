@@ -44,6 +44,7 @@ import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
 import { listSessions } from '../services/agentSdkSessionStore.js';
 import { sessionLiveTrailFile, sessionsWithStorage } from '../services/sessionStorage.js';
 import { planSessionSwitch, type SwitchSession } from '../utils/sessionSwitch.js';
+import { runQueueSession } from '../utils/runSessions.js';
 import {
     QUEST_LOG_TABS,
     CURRENT_PROMPT_VARIANTS,
@@ -296,6 +297,24 @@ function questSessions(): SwitchSession[] {
     return [...byName].map(([name, lastUse]) => ({ name, ...(lastUse !== undefined ? { lastUse } : {}) }));
 }
 
+/**
+ * The session the Logs tabs show when none is chosen: the queue session of the
+ * window's run (`default@<run>` in a run, the queue default in `default`),
+ * else `default`.
+ */
+function windowRunLogSession(): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ProcessStateStore } = require('../managers/processStateStore.js') as typeof import('../managers/processStateStore');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { PromptQueueManager } = require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager');
+        const run = ProcessStateStore.instance?.currentRun;
+        return runQueueSession(PromptQueueManager.instance.runQueueSettings(run).defaultAgentSdkSession, run) || DEFAULT_LOG_SESSION;
+    } catch {
+        return DEFAULT_LOG_SESSION;
+    }
+}
+
 /** The session plan each webview was last sent, so an unchanged list is not re-sent every poll. */
 const lastPlan = new WeakMap<vscode.Webview, string>();
 
@@ -309,7 +328,7 @@ export async function handleQuestLogsMessage(message: any, webview: vscode.Webvi
     // A Logs tab shows one session: the plan says which (and the webview draws it).
     let session: string | undefined;
     if (isSessionTab(tab)) {
-        const plan = planSessionSwitch(questSessions(), typeof message?.session === 'string' ? message.session : undefined, DEFAULT_LOG_SESSION);
+        const plan = planSessionSwitch(questSessions(), typeof message?.session === 'string' ? message.session : undefined, windowRunLogSession());
         session = plan.selected;
         const json = JSON.stringify(plan);
         if (message?.type === 'qlogRequest' && (message.force || lastPlan.get(webview) !== json)) {

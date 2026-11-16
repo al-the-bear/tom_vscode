@@ -78,7 +78,10 @@ the toolbar to edit.
   sessions created and deleted while the section is open, and a session without
   that file yet shows a line saying so. The choice is one for the whole Logs
   section: switching the session on any sub-tab switches it on all of them, and
-  it survives a window reload; without one the tabs show `default`.
+  it survives a window reload; without one the tabs show the queue session of
+  the window's run. A run's items that name no session run in its own queue
+  session, `default@<run>` (`default@collab`), each with its own trail; the
+  `default` run's is shown as `default@default`.
 - **Sub-tabs**: **MD Trail** (the session's `live-trail.md`, rendered), **Trail**
   (the same file as highlighted source), **Prompts** / **Answers** (the session's
   `{quest}.anthropic.prompts.md` / `.answers.md`), **Current Prompt** (see below)
@@ -1034,7 +1037,7 @@ Every Anthropic session — `chat` (the panel), `default` (the queue) and every 
 
 - **History** — `compacted_history.md`, `history.json` (+ `history.md` rendering), `rawTurns.json`, `compaction_rounds.json`. Rolling compacted context used by `trim_and_summary`; read back from the same folder. SDK-managed mode keeps the conversation in the Agent SDK, its id in `<session>.session.json`.
 - **Trail pair** — `<quest>.anthropic.prompts.md` / `.answers.md`, the session's prompts and answers; **Recreate history** and **Recreate memory** rebuild from this session's own pair.
-- **Live trail** — `live-trail.md`. Rolling-window markdown (last 5 prompt blocks). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the live-trail action in the @CHAT Logs section (for the session selected there; the MD Browser in live mode follow-tails the file).
+- **Live trail** — `live-trail.md`. Rolling-window markdown (last 5 prompt blocks; a prompt header quoted inside a tool result does not count). Streams thinking / tool_use / tool_result / assistant-text events as they arrive. Best viewed via the live-trail action in the @CHAT Logs section (for the session selected there; the MD Browser in live mode follow-tails the file).
 - **Raw trail** — `trail/`. Every turn produces `<ts>_prompt_<rid>.userprompt.md`, `<ts>_payload_<rid>.payload.md`, `<ts>_answer_<rid>.answer.json`, plus tool request / answer files; `compaction/` and `memory/` hold the background passes, `tool_results/t<n>.json` the session's tool results (keys continue past what is stored, so nothing is overwritten). Inspect via the Raw Trail Viewer editor.
 - **Quest memory** — `_ai/memory/<quest>/<session>/`; `${memory}` and the memory tools use the running session's, plus `_ai/memory/shared/`.
 - **Retention** — the raw trail keeps at most **Max raw files per folder** (Status Page, Trail; default 1000) in `trail/`, `compaction/` and `memory/` each. The stored tool results (`tool_results/t<n>.json`) are pruned after each send: older than **Stored tool results — keep days** (default 30) or beyond **at most per session** (default 1000, the newest kept) go; 0 switches a limit off. `tomAi_readPastToolResult` answers a pruned key *pruned by retention*. `rawTurns.json` and `compaction_rounds.json` are the conversation itself and are kept bounded by compaction.
