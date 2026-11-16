@@ -6,7 +6,7 @@
  *        missing, whose name is taken or malformed, whose lifetime or profile is unknown; nothing is delivered then
  *   SQ-2 delivered: the inbox item holds what the sender said and who sent it; `targetRunning` and the windows follow
  *        the live heartbeats; the file goes to a running window's workspace, else the quest's own
- *   SQ-3 the tool is a write tool with the inputs the todo names
+ *   SQ-3 the tool is a write tool with the inputs the todo names (`todo` / `group`: TODO and GROUP items, vscimpb127)
  *   SQ-4 runs (vscimpb71): `run` queues the item in that run of the target, `doneNotificationQuest` /
  *        `doneNotificationRun` say where its notification goes; an unknown run or quest is refused; the sender's run
  *        travels with it
@@ -107,7 +107,7 @@ describe('tomAi_sendItemToQuest', () => {
         assert.equal(SEND_ITEM_TO_QUEST_TOOL.readOnly, false, 'a write tool: the MCP read-only floor does not serve it');
         const props = Object.keys((SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: object }).properties);
         assert.deepEqual(props.sort(), ['anthropicProfileId', 'doneNotificationPrompt', 'doneNotificationQuest', 'doneNotificationRun',
-            'newSession', 'pauseAfter', 'quest', 'repeatCount', 'run', 'session', 'template', 'text', 'todoIdPattern']);
+            'group', 'newSession', 'pauseAfter', 'quest', 'repeatCount', 'run', 'session', 'template', 'text', 'todo', 'todoIdPattern']);
     });
 
     test('SQ-4: runs and the notification\'s target', async () => {
@@ -165,5 +165,25 @@ describe('tomAi_sendItemToQuest', () => {
         const schema = SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: Record<string, unknown> };
         assert.ok(schema.properties.repeatCount && schema.properties.todoIdPattern);
         assert.match(SEND_ITEM_TO_QUEST_TOOL.description, /todo walk there/);
+    });
+});
+
+describe('TODO and GROUP items to another quest (vscimpb127)', () => {
+    test('SQ-6: todo / group become the target quest\'s walk; unknown todos and non-groups are refused', async () => {
+        const f = fakeAccess();
+        const todos: Record<string, { id: string; status?: string; comprised_of?: string[] }> = {
+            t1: { id: 't1', status: 'not-started' },
+            g1: { id: 'g1', status: 'group', comprised_of: ['t1', 'vscode_extension/v9'] },
+        };
+        f.access.findTodo = (quest, id) => (quest === 'tom_uam' ? todos[id] : undefined);
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', todo: 't1' })).ok, true);
+        assert.equal(f.delivered[0].item.repeatCount, 'todo:tom_uam/t1');
+        assert.equal(f.delivered[0].item.todoIdPattern, 't1');
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', group: 'g1' })).ok, true);
+        assert.equal(f.delivered[1].item.repeatCount, 'group:tom_uam/g1');
+        assert.equal(f.delivered[1].item.todoIdPattern, 'g1,t1', 'another quest\'s member is not walked there');
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', todo: 'nope' })).code, 'unknownTodo');
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', group: 't1' })).code, 'notAGroup');
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', todo: 't1', repeatCount: 2 })).code, 'invalidTodoItem');
     });
 });

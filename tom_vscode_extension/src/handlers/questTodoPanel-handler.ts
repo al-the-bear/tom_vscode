@@ -49,7 +49,8 @@ import { wireCompletionMessages } from '../utils/completionWiring';
 import { todoFormUnchanged } from '../utils/todoFormSave';
 import { groupPromptDirs } from '../services/groupPromptDirs';
 import { readGroupPrompts } from '../services/groupPromptStore';
-import { composeGroupPrompt, groupPromptChoices, type GroupPromptChoice } from '../utils/groupPrompts';
+import { composeGroupPrompt, effectiveGroupDefault, groupPromptChoices, type GroupPromptChoice } from '../utils/groupPrompts';
+import { TODO_ITEM_TEXT, isGroupTodo, todoQueueItemSpec } from '../utils/todoQueueItems';
 import { showMultilineInput } from './textInput-handler';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 
@@ -1671,11 +1672,13 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             return true;
         }
         case 'qtQueueTodoGroup': {
-            // A todo group's queue button (vscimpb126): the group as a GROUP item to the panel's
-            // queue target. GROUP items arrive with vscimpb127 — until then the webview hides the
-            // button (QT_GROUP_QUEUE_AVAILABLE), and a message that still comes says so.
-            const request = todoGroupQueueRequest(todoPanelSelectionNow(), effectiveQuestId(msg.questId), String(msg.todoId || ''));
-            void vscode.window.showInformationMessage(`Queuing the group ${request.groupId} as one item (${todoPanelQueueTargetText(todoPanelSelectionNow())}) comes with GROUP queue items (vscimpb127).`);
+            // A todo group's queue button (its header and its detail view, vscimpb126): a GROUP item.
+            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), 'group');
+            return true;
+        }
+        case 'qtQueueAsTodoItem': {
+            // "Queue as todo item" (a tile, the detail view; vscimpb127): a TODO item, a GROUP item for a group todo.
+            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''));
             return true;
         }
         case 'qtQueueGroupPrompt': {
@@ -3038,6 +3041,80 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
  * showing another quest is refused. The queue holds a walk with nothing to
  * walk over in `error` at once; that reason is shown.
  */
+/**
+ * Queue a todo as a TODO item, or a group todo as a GROUP item (vscimpb127), to
+ * the panel's queue target (todoGroupQueueRequest → todoPanelQueueTarget, the
+ * one function every queue button of the panel uses). A TODO item is the
+ * panel's todo prompt — {@link TODO_ITEM_TEXT} in the Todo buttons template for
+ * that todo, on Anthropic, as the Queue button beside it; a GROUP item has the
+ * quest's group prompt, as a `<prefix>*` walk. The walk appends each todo's
+ * record. Like a group walk it goes over the todos of the window's quest.
+ */
+async function queueTodoAsItem(questId: string, todoId: string, forceKind?: 'group'): Promise<void> {
+    if (!todoId) { void vscode.window.showErrorMessage('Select a todo first.'); return; }
+    let windowQuest = '';
+    try { windowQuest = ChatVariablesStore.instance.quest || ''; } catch { windowQuest = ''; }
+    if (!questId || questId !== windowQuest) {
+        void vscode.window.showWarningMessage(`A todo item walks the todos of this window's quest${windowQuest ? ` (${windowQuest})` : ''}; `
+            + `this list shows ${questId ? `"${questId}"` : 'no quest'}. Queue it from that quest's window.`);
+        return;
+    }
+    const todo = questTodo.findTodoById(questId, todoId);
+    const kind = forceKind ?? (isGroupTodo(todo) ? 'group' : 'todo');
+    const spec = todoQueueItemSpec(kind, questId, todoId, todo);
+    if (!spec.ok) { void vscode.window.showWarningMessage(spec.error); return; }
+    if (_isRepeatedTodoAction(`${questId}/${spec.id}`, `queue-${kind}-item`, undefined, `queued: ${kind} item ${spec.id}`)) { return; }
+    let text: string;
+    let template: string | undefined;
+    if (kind === 'todo') {
+        const anthropic = loadSendToChatConfig()?.anthropic;
+        const use = todoButtonTemplateUse(todo!);
+        const tpl = resolveTodoButtonTemplate(anthropic?.todoButtonTemplates, anthropic?.userMessageTemplates, use);
+        if (tpl.missing || !tpl.body) {
+            void vscode.window.showWarningMessage(`The Todo buttons template "${tpl.id}" (${TODO_BUTTON_TEMPLATE_INFO[use].label}) is not among the Anthropic templates: choose one on the Status Page (Todo buttons).`);
+            return;
+        }
+        text = TODO_ITEM_TEXT;
+        template = tpl.id;
+    } else {
+        const dirs = groupPromptDirs(questId);
+        text = effectiveGroupDefault(dirs ? readGroupPrompts(dirs) : []).text;
+    }
+    const sel = todoPanelSelectionNow();
+    const request = todoGroupQueueRequest(sel, questId, spec.id);
+    const where = todoPanelQueueTargetText(sel);
+    const enqueue = async (again: boolean) => {
+        const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+        return queue.enqueue({
+            originalText: text,
+            repeatCount: spec.repeatCount,
+            todoIdPattern: spec.todoIdPattern,
+            template,
+            ...(kind === 'todo' ? { transport: 'anthropic' as const } : {}),
+            deferSend: true,
+            run: request.run,
+            session: request.session,
+            ...(again ? { allowDuplicateTodo: true } : {}),
+            ..._todoDoneNotificationFields(),
+        });
+    };
+    const noun = kind === 'group' ? `the group ${spec.id} as a GROUP item` : `todo ${spec.id} as a TODO item`;
+    try {
+        const item = await enqueue(false);
+        if (item.status === 'error') {
+            void vscode.window.showWarningMessage(`Queued ${noun} ${where}, but held in error — ${item.error ?? 'it has nothing to walk over'}`);
+        } else {
+            void vscode.window.showInformationMessage(`Queued ${noun} ${where}.`);
+        }
+    } catch (e) {
+        if (isTodoAlreadyQueued(e)) {
+            _offerQueueAgain(e.message, async () => { await enqueue(true); void vscode.window.showInformationMessage(`Queued ${noun} again ${where}.`); });
+            return;
+        }
+        void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
+    }
+}
+
 async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
     if (!prefix) { return; }
     let windowQuest = '';

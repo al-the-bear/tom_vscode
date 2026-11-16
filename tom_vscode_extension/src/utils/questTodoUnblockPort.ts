@@ -19,10 +19,12 @@ export function questTodoUnblockPort(writeStatus: TodoUnblockPort['writeStatus']
                 // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { readAllTodos } = require('../managers/questTodoManager');
                 // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's field names
-                const todos = readAllTodos(questId) as Array<{ id: string; status?: string; blocked_by?: string[]; blocked_until?: string[] }>;
+                const todos = readAllTodos(questId) as Array<{ id: string; status?: string; blocked_by?: string[]; blocked_until?: string[]; comprised_of?: string[] }>;
                 return todos.map((t) => ({
                     id: t.id,
                     status: t.status,
+                    // A GROUP item's walk releases the blocked members of its group (vscimpb127).
+                    ...(t.comprised_of?.length ? { comprisedOf: t.comprised_of } : {}),
                     ...(t.blocked_by?.length ? { blockedBy: t.blocked_by } : {}),
                     ...(t.blocked_until?.length ? { blockedUntil: t.blocked_until } : {}),
                 }));

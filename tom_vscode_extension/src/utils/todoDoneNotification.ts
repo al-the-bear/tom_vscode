@@ -28,7 +28,7 @@ import * as yaml from 'yaml';
 
 import type { DoneNotificationItem } from './doneNotification';
 import { escapePlaceholders, fillPlaceholder } from './placeholderEscape';
-import { parseTodoPrefixPattern } from './queueStep3Utils';
+import { parseTodoWalk } from './queueStep3Utils';
 import type { TodoFiledBy, TodoOnDone } from './todoOnDone';
 
 /** The default text (BP-3, DP-part-done-notification-6). */
@@ -75,9 +75,9 @@ export function singleTodoOf(item: { todoIdPattern?: string }): string | undefin
     return p && !p.includes(',') && !p.endsWith('*') ? p : undefined;
 }
 
-/** Whether the item is a `<prefix>*` walk: it notifies per todo, its own end adds none (-2). */
+/** Whether the item walks todos — a `<prefix>*` walk, a TODO or a GROUP item (vscimpb127): it notifies per todo, its own end adds none (-2). */
 export function isWalkItem(item: { repeatCount?: number | string }): boolean {
-    return parseTodoPrefixPattern(item.repeatCount) !== undefined;
+    return parseTodoWalk(item.repeatCount) !== undefined;
 }
 
 /** `filed_by` in one line. */

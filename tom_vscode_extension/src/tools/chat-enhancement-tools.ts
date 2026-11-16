@@ -25,6 +25,10 @@ import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { SessionTodoStore } from '../managers/sessionTodoStore';
 import * as questTodo from '../managers/questTodoManager';
+import { todoItemPromptText, todoQueueItemSpec } from '../utils/todoQueueItems';
+import { effectiveGroupDefault } from '../utils/groupPrompts';
+import { groupPromptDirs } from '../services/groupPromptDirs';
+import { readGroupPrompts } from '../services/groupPromptStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { telegramNotifyTarget } from '../handlers/telegram-config';
@@ -703,6 +707,14 @@ const livePromptQueueAccess: PromptQueueAccess = {
     currentQuest() {
         return WsPaths.getWorkspaceQuestId() || 'default';
     },
+    todoQueueItem(kind, id) {
+        // A TODO / GROUP item of the window's quest (vscimpb127); its default text is the walk prompt.
+        const quest = WsPaths.getWorkspaceQuestId() || 'default';
+        const spec = todoQueueItemSpec(kind, quest, id, questTodo.findTodoById(quest, id));
+        const dirs = groupPromptDirs(quest);
+        const walkPrompt = effectiveGroupDefault(dirs ? readGroupPrompts(dirs) : []).text;
+        return { spec, text: kind === 'todo' ? todoItemPromptText(walkPrompt) : walkPrompt };
+    },
     updateItemDoneNotification(id, patch) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemDoneNotification(id, patch);
@@ -806,6 +818,7 @@ import { SEND_ITEM_TO_QUEST_TOOL as SEND_ITEM_TO_QUEST_DEF, sendItemToQuestImpl,
 
 export const liveQuestSendAccess: QuestSendAccess = {
     currentQuest: () => WsPaths.getWorkspaceQuestId() || undefined,
+    findTodo: (quest, id) => questTodo.findTodoById(quest, id),
     currentRun: () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { ProcessStateStore } = require('../managers/processStateStore') as typeof import('../managers/processStateStore');

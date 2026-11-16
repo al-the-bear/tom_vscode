@@ -52,6 +52,8 @@
  * dispatched stage without touching repetition counters).
  */
 
+import { deriveQueueItemKind } from '../utils/queueItemKind';
+import type { TodoQueueItemSpec } from '../utils/todoQueueItems';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
@@ -99,6 +101,8 @@ export interface FollowUpItem extends FollowUpSpec {
 export interface QueueItemSnapshot {
     id: string;
     status: QueueStatus;
+    /** What the item holds (utils/queueItemKind.ts): todo, group, prefix, iteration, chat or prompt. */
+    itemKind?: string;
     /** The todos it runs: a todo id, `<prefix>*`, or several separated by commas. */
     todoIdPattern?: string;
     /** "Let the next item go first" armed: yields after its running iteration (vscimpb60e). */
@@ -174,7 +178,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
-    'yieldAfterIteration', 'waitingFor', 'processItem',
+    'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -270,6 +274,12 @@ export interface PromptQueueAccess {
     questRunExists?(quest: string, run: string): boolean;
     /** This window's quest. */
     currentQuest?(): string;
+    /**
+     * A TODO / GROUP item for todo `id` of this window's quest (vscimpb127): its
+     * walk value and id pattern, or why not; and its default text (the walk
+     * prompt). Unset: `todo` / `group` are refused.
+     */
+    todoQueueItem?(kind: 'todo' | 'group', id: string): { spec: TodoQueueItemSpec; text: string };
     remove(id: string): void;
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
@@ -420,6 +430,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
     return {
         id: i.id,
         status: i.status,
+        kind: i.itemKind ?? deriveQueueItemKind(i),
         type: i.type,
         template: i.template,
         answerWrapper: !!i.answerWrapper,
@@ -460,7 +471,12 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
 // ===========================================================================
 
 export interface AddQueueItemInput {
+    /** The main prompt; with `todo` / `group` optional (default: the walk prompt). */
     text: string;
+    /** A TODO item: walks this one todo of the window's quest (vscimpb127). */
+    todo?: string;
+    /** A GROUP item: walks this group todo's members in `comprised_of` order. */
+    group?: string;
     /** The todos it runs (marked as queued in the todo panel); a `<prefix>*` repeatCount gives it when omitted. */
     todoIdPattern?: string;
     /** Queue it although an item with the same todo id pattern is staged, pending or sending. */
@@ -533,6 +549,27 @@ export function doneNotificationTargetRefusal(access: PromptQueueAccess, quest: 
 
 export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueueItemInput): Promise<string> {
     try {
+        // A TODO / GROUP item (vscimpb127): a walk over one todo, or over a group's members.
+        type TodoItemResult = { spec: Extract<TodoQueueItemSpec, { ok: true }>; text: string } | { error: string; code: string };
+        const todoItem = input.todo?.trim() || input.group?.trim() ? ((): TodoItemResult => {
+            if (input.todo?.trim() && input.group?.trim()) { return { error: '`todo` and `group` exclude each other.', code: 'invalidTodoItem' }; }
+            if (input.repeatCount !== undefined && input.repeatCount !== '') { return { error: '`repeatCount` goes with neither `todo` nor `group`: the item walks its todos.', code: 'invalidTodoItem' }; }
+            if (!access.todoQueueItem) { return { error: 'TODO and GROUP items are not available here.', code: 'invalidTodoItem' }; }
+            const kind = input.group?.trim() ? 'group' as const : 'todo' as const;
+            const r = access.todoQueueItem(kind, (input.group ?? input.todo)!.trim());
+            const spec = r.spec;
+            if (spec.ok) { return { spec, text: r.text }; }
+            return { error: spec.error, code: kind === 'group' && /no todo group/.test(spec.error) ? 'notAGroup' : 'unknownTodo' };
+        })() : undefined;
+        if (todoItem && 'error' in todoItem) { return err(todoItem.error, { code: todoItem.code }); }
+        if (todoItem) {
+            input = {
+                ...input,
+                text: input.text?.trim() ? input.text : todoItem.text,
+                repeatCount: todoItem.spec.repeatCount,
+                todoIdPattern: input.todoIdPattern?.trim() || todoItem.spec.todoIdPattern,
+            };
+        }
         if (!input.text || !input.text.trim()) {
             return err('`text` is required.');
         }
@@ -614,7 +651,7 @@ const DONE_NOTIFICATION_RUN_DOC =
     'The process run the done notification is queued in (its lane; sessions `<session>@<run>`). Default: the item\'s run in this quest, `default` in another. \'\' resets.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
-    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `session` names the session it runs in. `processItem: true` marks a process step\'s own work (what a step queues while it runs): it does not count towards the quest refresh.' + API_KEY_WARNING_DOC;
+    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `todo` / `group` queue a TODO item (one todo) / GROUP item (a group todo\'s members), run like a walk; `session` names the session it runs in. `processItem: true` marks a process step\'s own work (what a step queues while it runs): it does not count towards the quest refresh.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     name: 'tomAi_addQueueItem',
@@ -624,12 +661,13 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     readOnly: false,
     inputSchema: {
         type: 'object',
-        required: ['text'],
         properties: {
-            text: { type: 'string', description: 'Initial prompt text (main prompt).' },
+            text: { type: 'string', description: 'Initial prompt text (main prompt). Required, except with `todo` / `group` (default: the quest\'s group prompt, a TODO item\'s without "of this group walk").' },
+            todo: { type: 'string', description: 'A TODO item: one todo of the window\'s quest, run like a walk iteration — its record appended, claimed (in-progress) when sent, its completion checked with `walkContinuations`. Refused for an unknown todo; not with `repeatCount`.' },
+            group: { type: 'string', description: 'A GROUP item: a group todo (status `group`, `comprised_of`) of the window\'s quest; it walks the members of this quest in `comprised_of` order, one per iteration, by the walk\'s rules (open, not blocked, not the user\'s, decisions answered). Refused for an unknown todo or one that is no group.' },
             template: { type: 'string' },
             answerWrapper: { type: 'boolean' },
-            position: { type: 'number', description: 'Insert index. -1 appends.' },
+            position: { type: 'number', description: 'Insert index (0: the front of the queue). -1 appends.' },
             deferSend: { type: 'boolean', description: 'Default true → staged. False → enqueue as pending.' },
             todoIdPattern: { type: 'string', description: 'The todos it runs: a todo id, `<prefix>*`, or several, comma-separated; the todo panel marks them queued. Default: a `<prefix>*` repeatCount. An item with the same pattern still staged, pending or sending refuses it (the todo is already queued).' },
             allowDuplicateTodo: { type: 'boolean', description: 'Queue it although its todo id pattern is already queued (a deliberate repeat). Default false.' },
@@ -695,7 +733,7 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
 }
 
 export const LIST_QUEUE_DESCRIPTION =
-    'List queue items with status, ids, the process run each belongs to, reminder metadata, transport, and ' +
+    'List queue items with status, ids, their `kind` (todo, group, prefix, iteration, chat, prompt), the process run each belongs to, reminder metadata, transport, and ' +
     'follow-up counts. **Default excludes `sent` items** — pass ' +
     '`includeSent: true` to see the whole history. Response includes ' +
     'the queue settings of one process run (`run`, default the window\'s run; each run has its own, its lane sending ' +

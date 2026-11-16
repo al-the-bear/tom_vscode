@@ -224,6 +224,8 @@ export interface TodoIterationSource {
      * walk ran ({@link walkableRepeatIds}).
      */
     walkableRepeat?: boolean;
+    /** A group todo's members (`comprised_of`), for a GROUP item's walk (vscimpb127). */
+    comprisedOf?: string[];
 }
 
 /** A quest todo that matched a `prefix*` pattern, with its parsed number. */
@@ -268,6 +270,71 @@ export function parseTodoPrefixPattern(value: unknown): string | undefined {
     }
     const prefix = trimmed.slice(0, -1);
     return prefix.length > 0 ? prefix : undefined;
+}
+
+/**
+ * What a walk goes over (vscimpb127): a `<prefix>*` series (a PREFIX item),
+ * one todo (`todo:<quest>/<id>`, a TODO item) or a group todo's members in
+ * `comprised_of` order (`group:<quest>/<id>`, a GROUP item). All three walk
+ * the same way — the per-todo prompt with the todo's record, the claim, the
+ * completion check and its continuations, the rules for which todo is sent
+ * (open, not blocked, not the user's, decisions answered).
+ */
+export type TodoWalk =
+    | { kind: 'prefix'; prefix: string }
+    | { kind: 'todo' | 'group'; quest: string; id: string };
+
+const TODO_WALK_VALUE = /^(todo|group):([^/\s]+)\/(\S+)$/;
+
+/** The walk a repeat-count value names, or undefined (a count, a chat variable, a malformed value). */
+export function parseTodoWalk(value: unknown): TodoWalk | undefined {
+    const prefix = parseTodoPrefixPattern(value);
+    if (prefix !== undefined) { return { kind: 'prefix', prefix }; }
+    if (typeof value !== 'string') { return undefined; }
+    const m = TODO_WALK_VALUE.exec(value.trim());
+    return m ? { kind: m[1] as 'todo' | 'group', quest: m[2], id: m[3] } : undefined;
+}
+
+/** The repeat-count value of a TODO / GROUP item's walk. */
+export function todoWalkValue(kind: 'todo' | 'group', quest: string, id: string): string {
+    return `${kind}:${quest}/${id}`;
+}
+
+/** A walk as messages name it: `"dsa*"`, `todo dsa3`, `group rel1`. */
+export function todoWalkLabel(walk: TodoWalk): string {
+    return walk.kind === 'prefix' ? `"${walk.prefix}*"` : `${walk.kind} ${walk.id}`;
+}
+
+/**
+ * The todos a walk goes over, in walk order. A prefix: {@link collectPrefixTodos}.
+ * A TODO item: the one todo (number 1). A GROUP item: the group's members of
+ * the walk's quest in `comprised_of` order, numbered 1, 2, … (a member of
+ * another quest is not walked: the walk runs in the window's quest).
+ */
+export function collectWalkTodos(walk: TodoWalk, todos: readonly TodoIterationSource[]): TodoIterationEntry[] {
+    if (walk.kind === 'prefix') { return collectPrefixTodos(walk.prefix, todos); }
+    const entry = (todo: TodoIterationSource, index: number): TodoIterationEntry => ({
+        id: todo.id,
+        index,
+        title: todo.title,
+        status: normaliseStatus(todo.status),
+        ...(todo.userAction === true ? { userAction: true as const } : {}),
+        ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
+    });
+    const byId = new Map(todos.filter((t) => typeof t?.id === 'string').map((t) => [t.id, t]));
+    if (walk.kind === 'todo') {
+        const todo = byId.get(walk.id);
+        return todo ? [entry(todo, 1)] : [];
+    }
+    const group = byId.get(walk.id);
+    const out: TodoIterationEntry[] = [];
+    for (const ref of group?.comprisedOf ?? []) {
+        const slash = ref.indexOf('/');
+        if (slash >= 0 && ref.slice(0, slash) !== walk.quest) { continue; }
+        const member = byId.get(slash >= 0 ? ref.slice(slash + 1) : ref);
+        if (member && !out.some((e) => e.id === member.id)) { out.push(entry(member, out.length + 1)); }
+    }
+    return out;
 }
 
 /**
@@ -353,11 +420,11 @@ export function pickNextTodoForIteration(
     value: unknown,
     todos: readonly TodoIterationSource[],
 ): TodoIterationEntry | undefined {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
         return undefined;
     }
-    return collectPrefixTodos(prefix, todos).find(e => isWalkable(e));
+    return collectWalkTodos(walk, todos).find(e => isWalkable(e));
 }
 
 /** A todo the walk dispatches: `not-started`, or a manual repeated one it has not run; never the user's own. */
@@ -399,13 +466,24 @@ export function emptyTodoIterationReason(
     todos: readonly TodoIterationSource[],
     questId: string | undefined,
 ): string | undefined {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) { return undefined; }
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) { return undefined; }
+    const label = todoWalkLabel(walk);
     if (!questId) {
-        return `${EMPTY_TODO_ITERATION_ERROR}: "${prefix}*" walks the todos of the window's quest, and no quest is active.`;
+        return `${EMPTY_TODO_ITERATION_ERROR}: ${label} walks the todos of the window's quest, and no quest is active.`;
     }
-    const series = collectPrefixTodos(prefix, todos);
+    if (walk.kind !== 'prefix' && walk.quest !== questId) {
+        return `${EMPTY_TODO_ITERATION_ERROR}: ${label} is a todo of quest "${walk.quest}", and this window works on "${questId}".`;
+    }
+    const series = collectWalkTodos(walk, todos);
     if (series.length === 0) {
+        if (walk.kind === 'todo') { return `${EMPTY_TODO_ITERATION_ERROR}: quest "${questId}" has no todo "${walk.id}".`; }
+        if (walk.kind === 'group') {
+            return todos.some((t) => t.id === walk.id)
+                ? `${EMPTY_TODO_ITERATION_ERROR}: the group "${walk.id}" has no member in quest "${questId}".`
+                : `${EMPTY_TODO_ITERATION_ERROR}: quest "${questId}" has no todo "${walk.id}".`;
+        }
+        const prefix = walk.kind === 'prefix' ? walk.prefix : '';
         return `${EMPTY_TODO_ITERATION_ERROR}: no todo of quest "${questId}" has an id starting with "${prefix}" followed by a number.`;
     }
     const workable = series.some((e) => isWalkable(e) || e.status === 'blocked' || e.status === DECISION_NEEDED);
@@ -417,7 +495,7 @@ export function emptyTodoIterationReason(
     }
     const summary = [...counts].map(([status, n]) => `${n} ${status}`).join(', ');
     const noun = series.length === 1 ? 'todo' : 'todos';
-    return `${EMPTY_TODO_ITERATION_ERROR}: none of the ${series.length} ${noun} of "${prefix}*" in quest "${questId}" is open (${summary}). `
+    return `${EMPTY_TODO_ITERATION_ERROR}: none of the ${series.length} ${noun} of ${label} in quest "${questId}" is open (${summary}). `
         + 'Add or reopen a todo, then set the item to staged or pending.';
 }
 
@@ -429,11 +507,11 @@ export function collectUserActionTodos(
     value: unknown,
     todos: readonly TodoIterationSource[],
 ): TodoIterationEntry[] {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
         return [];
     }
-    return collectPrefixTodos(prefix, todos).filter(e => e.status === NOT_STARTED && e.userAction);
+    return collectWalkTodos(walk, todos).filter(e => e.status === NOT_STARTED && e.userAction);
 }
 
 /**
@@ -446,11 +524,11 @@ export function collectDecisionNeededTodos(
     value: unknown,
     todos: readonly TodoIterationSource[],
 ): TodoIterationEntry[] {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
         return [];
     }
-    return collectPrefixTodos(prefix, todos).filter(e => e.status === DECISION_NEEDED);
+    return collectWalkTodos(walk, todos).filter(e => e.status === DECISION_NEEDED);
 }
 
 /**
@@ -465,11 +543,11 @@ export function decisionHoldingWalk(
     value: unknown,
     todos: readonly TodoIterationSource[],
 ): TodoIterationEntry[] {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
         return [];
     }
-    const next = collectPrefixTodos(prefix, todos).find(e => e.status === DECISION_NEEDED || isWalkable(e));
+    const next = collectWalkTodos(walk, todos).find(e => e.status === DECISION_NEEDED || isWalkable(e));
     return next && next.status === DECISION_NEEDED ? [next] : [];
 }
 
@@ -514,9 +592,9 @@ export function todosToUnblock(
     todos: readonly BlockableTodo[],
     lookup: BlockerLookup,
 ): Array<{ id: string; blockers: string[] }> {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) { return []; }
-    const series = new Set(collectPrefixTodos(prefix, todos).filter((e) => e.status === 'blocked').map((e) => e.id));
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) { return []; }
+    const series = new Set(collectWalkTodos(walk, todos).filter((e) => e.status === 'blocked').map((e) => e.id));
     const out: Array<{ id: string; blockers: string[] }> = [];
     for (const todo of todos) {
         if (!series.has(todo.id)) { continue; }
@@ -617,7 +695,7 @@ export function planMainStageDispatch(
     repeatCount: number,
     todos: readonly TodoIterationSource[],
 ): MainStageDispatchPlan {
-    if (parseTodoPrefixPattern(repeatCountRaw) !== undefined) {
+    if (parseTodoWalk(repeatCountRaw) !== undefined) {
         const waiting = decisionHoldingWalk(repeatCountRaw, todos);
         if (waiting.length > 0) {
             return { mode: 'decision-needed', todos: waiting };
@@ -690,13 +768,14 @@ export function resolveResendText(
  */
 export function resolveTodoPrefixRepeatCount(
     value: number | string | undefined,
-    todoIds: readonly string[],
+    todos: ReadonlyArray<string | TodoIterationSource>,
 ): number | undefined {
-    const prefix = parseTodoPrefixPattern(value);
-    if (prefix === undefined) {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
         return undefined;
     }
-    const entries = collectPrefixTodos(prefix, todoIds.map(id => ({ id })));
+    // A TODO item is one todo; a GROUP item its members (their count); a prefix its highest number.
+    const entries = collectWalkTodos(walk, todos.map((t) => (typeof t === 'string' ? { id: t } : t)));
     const highest = entries.length > 0 ? entries[entries.length - 1].index : 0;
     return Math.max(1, highest);
 }

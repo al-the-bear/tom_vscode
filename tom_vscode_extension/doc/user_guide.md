@@ -315,6 +315,8 @@ A **group todo** (status `group`) is a todo that stands for a group of others, l
 
 In the list, each group todo heads its own section above the prefix groups, sorted by title: a header line with 🗂️ (✅ once completed), the group's title, its member count in brackets and its progress (*done / all*, counted over every member). The arrow on the left expands or collapses the members, like a prefix group (collapsed at first; **Expand all** / **Collapse all** include the todo groups). The members follow in the group's order: a member of this quest is its usual row — so a todo in a group and a prefix group appears in both —, a member of another quest is a line with its `quest/id`, title and status, and a member that is archived is marked so. A click on the header (anywhere but the arrow) opens the group todo's details, as a click on its own row does.
 
+The group's header and its detail view have a queue button (⏵): it queues the group as a GROUP item (see *TODO and GROUP items* under the Prompt Queue) in the panel's session and run; the ⏩ **Queue as todo item** button on a tile does the same for any todo (a TODO item; a GROUP item for a group).
+
 The detail view of a group shows its **Members** with their progress: each member a badge with its status, ◀ ▶ to change the order, × to remove it, ➕ to add members from this quest, another quest or the workspace. Set a todo's status to `group` to give it the Members row. A todo that belongs to groups shows them as 🗂️ chips on its row and under **Part of** in its details (read-only — edit Members on the group); a click on a chip goes to the group.
 
 #### Your own todos (👤)
@@ -671,6 +673,16 @@ A `prefix*` repeat count does not repeat a fixed number of times — it **walks 
 - **The todo comes with every prompt**: each prompt the walk sends for a todo — its pre-prompts (with the todo it picks next), the main prompt and its follow-ups (with the todo walked last) — ends with *Here is the complete YAML of the todo:* and the todo as stored (every field, decisions with their answers, notes, references; not `blocking`), headed by its file. Your own walk prompts need no placeholder for it, and a stage running in a fresh session still has the whole todo.
 - **In the queue entry header**: the current todo's full id appears as a badge next to the `[MP …]` progress, e.g. `SENDING [MP 7/9] [dsa7-review]`. The rep-number is read-only in this mode, since the walk is driven by todo status rather than by the counter.
 - **Caveat**: if a prompt resets its todo back to `not-started`, that todo will be picked up again.
+
+#### TODO and GROUP items
+
+A queue item knows what it holds — its **kind**, shown by `tomAi_listQueue` and written into its entry file (`item-kind`): **todo**, **group**, **prefix** (a `prefix*` walk), **iteration** (a repeated prompt), **chat** (a chat send) or **prompt** (a plain prompt).
+
+- A **TODO item** runs one todo the way a walk runs each of its todos: the prompt with the todo's record appended, the todo claimed (`in-progress`) when it is sent, and after the turn the completion check with its continuations (*A todo walk checks each todo*). It reports done, or needs attention when the todo is still not completed. Its repeat count is `todo:<quest>/<id>`.
+- A **GROUP item** walks a group todo's members (*Todo groups*) in their order in **Members**, one per iteration, by the walk's rules: it sends a member that is not started, releases one whose blockers are done, passes your own (👤) and the completed ones, and holds at an open decision. Members of another quest are not walked (the item runs in the window's quest). Its repeat count is `group:<quest>/<id>`.
+
+Queue them from the todo panel with **Queue as todo item** (⏩ on a tile, *Queue as todo item* in the detail view, the queue button of a todo group): a todo becomes a TODO item — its prompt is the todo panel's todo prompt, the Todo buttons template for that todo around a line naming it, on Anthropic, as the Queue button beside it does — and a group todo a GROUP item with the quest's group prompt, like a group walk. Both go to the panel's session and run. The **Queue** button beside them still queues a plain prompt with the todo's text. Agents queue them with `tomAi_addQueueItem` (`todo` / `group`, `position: 0` for the front) and into another quest's queue with `tomAi_sendItemToQuest` (`todo` / `group`).
+
 
 ### Answer Detection
 

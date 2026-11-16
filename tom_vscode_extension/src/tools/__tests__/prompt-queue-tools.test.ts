@@ -31,6 +31,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { withTiming } from './_timing.js';
+import { todoQueueItemSpec } from '../../utils/todoQueueItems.js';
 import {
     ADD_QUEUE_ITEM_TOOL,
     UPDATE_QUEUE_ITEM_TOOL,
@@ -912,5 +913,66 @@ describe('the done notification\'s quest and run', () => {
             const props = (tool.inputSchema as { properties: Record<string, unknown> }).properties;
             assert.ok(props.doneNotificationQuest && props.doneNotificationRun, tool.name);
         }
+    });
+});
+
+// ===========================================================================
+// TODO and GROUP items (vscimpb127)
+// ===========================================================================
+
+describe('TODO and GROUP items through the tools', () => {
+    /** A fake that knows the window's quest `q` and three todos; it records what was enqueued. */
+    function withTodos(): { access: FakeAccess; enqueued: EnqueueInput[] } {
+        const access = makeAccess();
+        const enqueued: EnqueueInput[] = [];
+        const original = access.enqueue.bind(access);
+        access.enqueue = async (input) => { enqueued.push(input); return original(input); };
+        const todos: Record<string, { id: string; status?: string; comprised_of?: string[] }> = {
+            t1: { id: 't1', status: 'not-started' },
+            g1: { id: 'g1', status: 'group', comprised_of: ['t1', 'q/t2', 'other/x'] },
+        };
+        access.todoQueueItem = (kind, id) => ({ spec: todoQueueItemSpec(kind, 'q', id, todos[id]), text: `walk prompt for a ${kind}` });
+        return { access, enqueued };
+    }
+
+    test('TQI-1: tomAi_addQueueItem todo / group', async () => {
+        const { access, enqueued } = withTodos();
+        const todo = JSON.parse(await addQueueItemImpl(access, { todo: 't1' } as never));
+        assert.equal(todo.ok, true, JSON.stringify(todo));
+        assert.equal(enqueued[0].repeatCount, 'todo:q/t1');
+        assert.equal(enqueued[0].todoIdPattern, 't1');
+        assert.equal(enqueued[0].originalText, 'walk prompt for a todo', 'default text: the walk prompt');
+        const group = JSON.parse(await addQueueItemImpl(access, { group: 'g1', text: 'my own ${repeatTodoId}', position: 0 } as never));
+        assert.equal(group.ok, true);
+        assert.equal(enqueued[1].repeatCount, 'group:q/g1');
+        assert.equal(enqueued[1].todoIdPattern, 'g1,t1,t2', 'the group and its members of this quest');
+        assert.equal(enqueued[1].originalText, 'my own ${repeatTodoId}');
+        assert.equal(enqueued[1].position, 0, 'the front of the queue');
+    });
+
+    test('TQI-2: refusals', async () => {
+        const { access } = withTodos();
+        const call = async (input: Record<string, unknown>) => JSON.parse(await addQueueItemImpl(access, input as never));
+        assert.equal((await call({ todo: 'nope' })).code, 'unknownTodo');
+        assert.equal((await call({ group: 't1' })).code, 'notAGroup');
+        assert.equal((await call({ group: 'nope' })).code, 'unknownTodo');
+        assert.equal((await call({ todo: 't1', group: 'g1' })).code, 'invalidTodoItem');
+        assert.equal((await call({ todo: 't1', repeatCount: 3 })).code, 'invalidTodoItem');
+        const bare = makeAccess();
+        assert.equal(JSON.parse(await addQueueItemImpl(bare, { todo: 't1' } as never)).code, 'invalidTodoItem', 'no todo access: refused');
+    });
+
+    test('TQI-3: tomAi_listQueue answers each item\'s kind; the schema has todo and group', async () => {
+        const { access } = withTodos();
+        await addQueueItemImpl(access, { todo: 't1' } as never);
+        await addQueueItemImpl(access, { group: 'g1' } as never);
+        await addQueueItemImpl(access, { text: 'walk', repeatCount: 'x*' } as never);
+        await addQueueItemImpl(access, { text: 'again', repeatCount: 2 } as never);
+        await addQueueItemImpl(access, { text: 'once' } as never);
+        const listed = JSON.parse(await listQueueImpl(access, {} as never));
+        assert.deepEqual(listed.items.map((i: { kind: string }) => i.kind), ['todo', 'group', 'prefix', 'iteration', 'prompt']);
+        const props = (ADD_QUEUE_ITEM_TOOL.inputSchema as { properties: Record<string, unknown>; required?: string[] });
+        assert.ok(props.properties.todo && props.properties.group);
+        assert.ok(!(props.required ?? []).includes('text'), 'text is optional with todo / group');
     });
 });

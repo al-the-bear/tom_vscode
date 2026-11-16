@@ -42,7 +42,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoPrefixPattern, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoWalk, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { todoForStage, todoYamlBlock, withTodoYaml, type IterationStage } from '../utils/todoIterationRecord';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
@@ -90,6 +90,7 @@ import { WaitForRegistry } from '../services/waitForRegistry';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
+import { deriveQueueItemKind, parseQueueItemKind, type QueueItemKind } from '../utils/queueItemKind';
 import { queuedItemForTodoPattern, TodoAlreadyQueuedError } from '../utils/todoQueueDuplicates';
 import { queueItemKindFromYaml } from '../utils/timedQueueItems';
 import { queueMoveTarget } from '../utils/queueMove';
@@ -591,6 +592,13 @@ export interface QueuedPrompt {
      */
     todoIdPattern?: string;
     /**
+     * What the item holds (utils/queueItemKind.ts, vscimpb127): todo, group,
+     * prefix, iteration, chat or prompt. Persisted as `item-kind`, derived for
+     * an item written before it, and written from the item's fields on every
+     * save, so it follows an edit of the repeat count.
+     */
+    itemKind?: QueueItemKind;
+    /**
      * A repeated item's main-prompt answer per repetition (the walked todo's
      * id, or the repetition number), shown as chips under the Answer in the
      * queue editor (utils/repetitionAnswers.ts). `answerText` is the latest.
@@ -903,7 +911,7 @@ export class PromptQueueManager {
      */
     private emptyIterationReason(item: QueuedPrompt): string | undefined {
         if (item.processMove || (item.prePrompts?.length ?? 0) > 0) { return undefined; }
-        if (parseTodoPrefixPattern(item.repeatCount) === undefined) { return undefined; }
+        if (parseTodoWalk(item.repeatCount) === undefined) { return undefined; }
         const questId = this.activeQuestId();
         return emptyTodoIterationReason(item.repeatCount, questId ? readQuestTodoEntries(questId, walkableRepeatIds(item)) : [], questId);
     }
@@ -1018,7 +1026,7 @@ export class PromptQueueManager {
      * pre-prompt the todo the walk picks next, a follow-up the todo walked last.
      */
     private iterationTodoBlock(item: QueuedPrompt, stage: IterationStage, claimedId?: string): string | undefined {
-        const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
+        const isTodoIteration = parseTodoWalk(item.repeatCount) !== undefined;
         const questId = isTodoIteration ? this.activeQuestId() : undefined;
         if (!questId) { return undefined; }
         const todoId = todoForStage(stage, {
@@ -2360,6 +2368,7 @@ export class PromptQueueManager {
             // its todo walks) belongs to the same position.
             ...(inherited ? { processRun: inherited } : {}),
             run: itemRun,
+            itemKind: deriveQueueItemKind({ status: opts.initialStatus ?? 'pending', repeatCount: opts.repeatCount }),
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.processItem ? { processItem: true } : {}),
@@ -3842,6 +3851,7 @@ export class PromptQueueManager {
             reminderSentCount: 0,
             prePrompts: [],
             followUps: [],
+            itemKind: 'chat',
         };
         this._items.push(item);
         settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id, isActive: isChatSendActive });
@@ -5057,9 +5067,10 @@ export class PromptQueueManager {
         // enqueue — so a series can grow between queuing and dispatch. Takes
         // priority over the variable-recovery branch below because it is
         // deterministic against the live todos rather than a sentCount guess.
-        if (typeof repeatCountRaw === 'string' && repeatCountRaw.trim().endsWith('*')) {
+        // A TODO item counts 1, a GROUP item its members in this quest (vscimpb127).
+        if (parseTodoWalk(repeatCountRaw) !== undefined) {
             const questId = await_import_ChatVariablesStore()?.quest;
-            const todoIds = questId ? readQuestTodoIds(questId) : [];
+            const todoIds = questId ? readQuestTodoEntries(questId) : [];
             const prefixCount = resolveTodoPrefixRepeatCount(repeatCountRaw, todoIds);
             if (prefixCount !== undefined) {
                 logQueue(`${scope} dispatch: resolved prefix repeat '${repeatCountRaw}' -> ${prefixCount} from quest '${questId ?? 'none'}' todos`);
@@ -6202,7 +6213,7 @@ export class PromptQueueManager {
         // TODO ITERATION (`prefix*` repeat count): the loop is driven by the
         // quest's numbered todos rather than by a counter. `planMainStageDispatch`
         // reduces both modes to one gate.
-        const isTodoIteration = parseTodoPrefixPattern(item.repeatCount) !== undefined;
+        const isTodoIteration = parseTodoWalk(item.repeatCount) !== undefined;
         const iterationQuestId = isTodoIteration ? this.activeQuestId() : undefined;
         if (iterationQuestId) {
             // A blocked todo of the series whose blockers are all done (or gone)
@@ -7229,6 +7240,8 @@ export class PromptQueueManager {
                 ...(typeof main['needs-attention'] === 'string' && main['needs-attention'] ? { needsAttention: main['needs-attention'] } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
+            // What the item holds: stored, else derived (an item written before vscimpb127).
+            prompt.itemKind = parseQueueItemKind(main['item-kind']) ?? deriveQueueItemKind(prompt);
 
             // Resend metadata + warning chip — persisted under execution.
             const ld = main.execution?.['last-dispatched'];
@@ -7379,6 +7392,7 @@ export class PromptQueueManager {
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
+            'item-kind': (item.itemKind = deriveQueueItemKind(item)),
             ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({
                 key: a.key, text: a.text, at: a.at,
                 ...(a.backgroundLeft ? { 'background-left': true } : {}),
@@ -7620,10 +7634,12 @@ function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoI
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
         // eslint-disable-next-line @typescript-eslint/naming-convention -- `user_action` is the todo schema's YAML key
-        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean; repeat?: { rule?: string } }>;
+        const todos = readAllTodos(questId) as Array<{ id: string; title?: string; description?: string; status?: string; user_action?: boolean; repeat?: { rule?: string }; comprised_of?: string[] }>;
         return todos.map(t => ({
             id: t.id, title: t.title || t.description, status: t.status,
             ...(t.user_action === true ? { userAction: true } : {}),
+            // A GROUP item walks these (vscimpb127).
+            ...(Array.isArray(t.comprised_of) ? { comprisedOf: t.comprised_of } : {}),
             // A manual repeated todo waiting to be repeated is walked, once per walk.
             ...(t.status === 'waiting-for-repeat' && t.repeat?.rule === 'manual' && !(ran?.has(t.id)) ? { walkableRepeat: true } : {}),
         }));
@@ -7645,10 +7661,6 @@ function readQuestTodoBlock(questId: string, todoId: string): string | undefined
 /** The live todo store, for {@link releaseUnblockedTodos}; the status write is the claim's own. */
 const QUEST_TODO_UNBLOCK_PORT: TodoUnblockPort = questTodoUnblockPort((questId, todoId, status) => writeQuestTodoStatus(questId, todoId, status));
 
-/** Ids only — the shape {@link resolveTodoPrefixRepeatCount} consumes. */
-function readQuestTodoIds(questId: string): string[] {
-    return readQuestTodoEntries(questId).map(t => t.id);
-}
 
 /**
  * Write a status onto a quest todo. Returns `false` when the write did not

@@ -251,3 +251,8 @@
 
 /* The Done notification box in front of the Template dropdown */
 .qt-done-notification { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; white-space: nowrap; }
+
+/* "Queue as todo item" on a tile (vscimpb127). */
+.qt-queue-item-btn { background: transparent; border: none; cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.5; color: var(--vscode-foreground); flex-shrink: 0; }
+.qt-queue-item-btn:hover { opacity: 1; }
+.qt-queue-item-btn:disabled { opacity: 0.2; cursor: default; }

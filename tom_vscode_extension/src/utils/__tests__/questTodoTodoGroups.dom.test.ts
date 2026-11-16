@@ -10,7 +10,9 @@
  *   TGP-4 a member's row shows its groups (part_of) as chips; a click goes to the group (its quest for `<quest>/<id>`)
  *   TGP-5 the detail view: Members (badges in order, ◀ ▶ reorder, × removes, the form sends comprised_of), Part of
  *         (read-only); the Members row of a todo that is no group appears when its status is set to `group`
- *   TGP-6 the queue button is hidden until GROUP items exist; shown, it asks the host to queue the group
+ *   TGP-6 the group's queue button (header, detail view) asks the host to queue the group as a GROUP item (vscimpb127)
+ *   TGP-8 "Queue as todo item" on a tile and in the detail view asks the host for a TODO item (a GROUP item for a
+ *         group todo); a done todo's tile has none
  *   TGP-7 qtTodoGroupsOf (grouping.js): the groups by title, progress over all members, members marked foreign
  */
 
@@ -140,13 +142,27 @@ describe('todo groups in the todo panel', () => {
 
     test('TGP-6: the queue button', () => {
         const { window, sent } = setupPanel(TODOS);
-        assert.equal(window.document.querySelectorAll('.qt-todogroup-queue-btn').length, 0, 'hidden until GROUP items exist');
-        window.eval('QT_GROUP_QUEUE_AVAILABLE = true; qtRenderList();');
         window.document.querySelector('.qt-todogroup-queue-btn').click();
         assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release' });
         window.qtRenderDetail({ ...TODOS[0], description: 'd' });
         window.document.getElementById('qt-d-group-queue').click();
         assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release' });
+    });
+
+    test('TGP-8: Queue as todo item', () => {
+        const { window, sent } = setupPanel(TODOS);
+        window.eval('qtExpandAllGroups()');
+        const tile = (id: string) => window.document.querySelector(`#qt-list-pane .qt-todo-item[data-qt-id="${id}"]`);
+        assert.equal(tile('rel2-changelog').querySelector('.qt-queue-item-btn'), null, 'a done todo has none');
+        tile('rel3-tag').querySelector('.qt-queue-item-btn').click();
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag' });
+        assert.equal(window.eval('qtSelectedTodoId'), '', 'the click does not select the row');
+        assert.match(tile('rel1-release').querySelector('.qt-queue-item-btn').getAttribute('title'), /GROUP item/);
+        window.qtRenderDetail({ ...TODOS[2], description: 'd' });
+        const detailBtn = window.document.querySelector('.qt-queue-item-detail-btn');
+        assert.match(detailBtn.textContent, /Queue as todo item/);
+        detailBtn.click();
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag' });
     });
 });
 

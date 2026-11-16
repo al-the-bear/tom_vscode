@@ -61,10 +61,9 @@ var qtLastRenderOrder = [];
 var qtExpandedGroups = {};
 /**
  * Queue buttons of todo groups (the group's header and its detail view) queue
- * the group as a GROUP item to the panel's queue target. GROUP items arrive
- * with vscimpb127; until then the buttons are hidden.
+ * the group as a GROUP item to the panel's queue target (vscimpb127).
  */
-var QT_GROUP_QUEUE_AVAILABLE = false;
+var QT_GROUP_QUEUE_AVAILABLE = true;
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -615,6 +614,23 @@ function qtRenderTodoGroupHeader(g, expanded) {
         '</div>';
 }
 
+/**
+ * "Queue as todo item" (vscimpb127): a TODO item for a todo, a GROUP item for a
+ * group todo — a walk the queue knows, with claim and completion check — to the
+ * panel's queue target. Beside it the Queue button still queues a plain prompt.
+ */
+function qtQueueItemButton(t) {
+    var group = t.status === 'group' || (Array.isArray(t.comprised_of) && t.comprised_of.length > 0);
+    return '<button class="qt-queue-item-btn" data-qt-queue-item="' + qtEsc(t.id) + '" title="' +
+        (group ? 'Queue as todo item: a GROUP item that walks the group\'s members in order' : 'Queue as todo item: a TODO item with claim and completion check') +
+        ', to the panel\'s session and run">\u23e9</button>';
+}
+
+/** Queue todo `id` as a TODO item (a GROUP item for a group todo). */
+function qtQueueAsTodoItem(id) {
+    vscode.postMessage({ type: 'qtQueueAsTodoItem', questId: qtCurrentQuestId, todoId: id });
+}
+
 /** The queue button of a todo group (header or detail view); hidden until GROUP items exist (vscimpb127). */
 function qtTodoGroupQueueButton(t, cls) {
     if (!QT_GROUP_QUEUE_AVAILABLE || !t) return '';
@@ -756,6 +772,7 @@ function qtRenderTodoRow(t) {
     var moveWsBtn = '';
     var trashBtn = '';
     var reopenBtn = '';
+    var queueItemBtn = '';
     // Terminal (-archived / -deleted) files refuse archive/delete moves,
     // so suppress the per-item trash button for todos sourced from them.
     var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
@@ -766,6 +783,7 @@ function qtRenderTodoRow(t) {
         // A repeated todo waiting for its next repetition: Repeat now brings it back at once.
         reopenBtn = '<button class="qt-reopen-btn qt-repeat-now-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Repeat now (set to not-started)' + (t.next_repeat ? ' — otherwise due ' + qtEsc(t.next_repeat.replace('T', ' ')) : '') + '">⏭️</button>';
     } else {
+        queueItemBtn = isQuestMode ? qtQueueItemButton(t) : '';
         moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
         moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to another group / quest / workspace / another quest…' : 'Move this todo to another group / quest / workspace / another quest…') + '">⬆️</button>';
     }
@@ -786,7 +804,7 @@ function qtRenderTodoRow(t) {
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         qtDecisionChip(t) +
         qtPartOfChips(t) +
-        priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
+        priorityBadge + queueItemBtn + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
         stackCircle +
         priorityDot +
@@ -1065,6 +1083,14 @@ function qtRenderList() {
             var circleEl = e.target.closest('.qt-stack-circle');
             if (circleEl) {
                 qtToggleStack(circleEl.getAttribute('data-qt-stackid'), e.shiftKey);
+                return;
+            }
+            var queueItem = e.target.closest('.qt-queue-item-btn');
+            if (queueItem) {
+                e.stopPropagation();
+                if (queueItem.disabled) return;
+                qtPauseButton(queueItem);
+                qtQueueAsTodoItem(queueItem.getAttribute('data-qt-queue-item') || '');
                 return;
             }
             if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn')) return;
@@ -2950,6 +2976,10 @@ function qtTodoButtonsRow(todo) {
             '<span class="codicon codicon-send"></span> Send</button>' +
         '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to the prompt queue (staged, Anthropic) in the panel\'s session and run, with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-list-ordered"></span> Queue</button>' +
+        '<button class="icon-btn qt-queue-item-detail-btn" type="button" title="Queue as todo item: ' +
+            (todo && (todo.status === 'group' || (Array.isArray(todo.comprised_of) && todo.comprised_of.length)) ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
+            ', in the panel\'s session and run">' +
+            '<span class="codicon codicon-run-all"></span> Queue as todo item</button>' +
         '</div>');
 }
 
@@ -2978,6 +3008,15 @@ function qtHandleTodoButtonClick(e) {
     });
 }
 document.addEventListener('click', qtHandleTodoButtonClick);
+
+/** The detail view's "Queue as todo item" button (vscimpb127). */
+document.addEventListener('click', function(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-queue-item-detail-btn') : null;
+    if (!btn || !qtDetailTodo || btn.disabled) { return; }
+    e.preventDefault();
+    qtPauseButton(btn);
+    qtQueueAsTodoItem(qtDetailTodo.id);
+});
 
 /** The Guide me buttons (qtUserActionRow): one delegated handler. */
 function qtHandleGuideButtonClick(e) {
