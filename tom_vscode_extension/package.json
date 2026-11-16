@@ -66,9 +66,9 @@
           "icon": "resources/tom-vsc-sidebar.svg"
         },
         {
-          "id": "tomAi-notes-sidebar",
-          "title": "@NOTES",
-          "icon": "resources/tom-notes-sidebar.svg"
+          "id": "tomAi-info-sidebar",
+          "title": "@TOM INFO",
+          "icon": "resources/tom-info-sidebar.svg"
         }
       ],
       "panel": [
@@ -369,8 +369,8 @@
         "category": "@Tom"
       },
       {
-        "command": "tomAi.notesSidebar.focus",
-        "title": "@T: Focus @NOTES Sidebar (quest notes)",
+        "command": "tomAi.tomInfoSidebar.focus",
+        "title": "@T: Focus @TOM INFO Sidebar (quest notes, runs)",
         "category": "@Tom"
       },
       {
@@ -575,12 +575,18 @@
           "icon": "$(server-process)"
         }
       ],
-      "tomAi-notes-sidebar": [
+      "tomAi-info-sidebar": [
         {
           "type": "webview",
           "id": "tomAi.questNotesPanel",
           "name": "QUEST NOTES",
           "icon": "$(book)"
+        },
+        {
+          "type": "webview",
+          "id": "tomAi.runsOverview",
+          "name": "RUNS",
+          "icon": "$(run-all)"
         }
       ],
       "explorer": [

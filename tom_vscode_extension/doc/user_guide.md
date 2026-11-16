@@ -269,14 +269,25 @@ The @TOM sidebar holds the quest's views (Process, Quest Notes, Quest Todos, Ses
 
 VS CODE NOTES (`~/.tom/notes/global_notes.md`), WORKSPACE NOTES (a notes file you pick or create) and QUEST NOTES (`quest-notes.<quest>.md`) each edit one Markdown file and save as you type. Their toolbar: 👁️ **Preview Markdown**, 📄 **Open in Editor**, 📖 **Open in MD Browser** (the file in the Markdown Browser) and ↗️ **Open in MD Viewer** (the file in the external Markdown application the workspace config maps to `.md` files in `externalApplications.mappings`; without such a mapping it warns that none is configured); VS CODE NOTES also has 📋 **Copy** and 🗑️ **Clear**, WORKSPACE NOTES 📁 **Change file**. To send notes to a model, use the @CHAT panels.
 
-#### @NOTES: the quest notes side panel
+#### @TOM INFO: the quest notes and the runs
 
-The **@NOTES** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @TOM VSC; `@T: Focus @NOTES Sidebar`) holds one view, **QUEST NOTES — <quest>**, on the active quest's notes file (`quest-notes.<quest>.md`, the same file as the @TOM QUEST NOTES view). Drag the icon into the secondary side bar to keep the notes open beside the editor. Two tabs on top, the last one used kept for the window:
+The **@TOM INFO** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @TOM VSC; `@T: Focus @TOM INFO Sidebar`) holds two views. **QUEST NOTES — <quest>** is on the active quest's notes file (`quest-notes.<quest>.md`, the same file as the @TOM QUEST NOTES view). Drag the icon into the secondary side bar to keep the notes open beside the editor. Two tabs on top, the last one used kept for the window:
 
 - **Edit** — a text area on the file (monospace, the panel's full height), saved half a second after you stop typing and when you leave it; `/` and `@` completion as in the other notes. A change made elsewhere (an editor, a reconcile) is taken in at once; while you have unsaved text, a bar asks instead: **Load the file** (your text is replaced) or **Keep my text** (written over the file).
 - **View** — the file rendered as the MD Browser renders it: headings with folding (fold all, fold one level, the +/− beside a heading), search, links (another Markdown file opens in the MD Browser, a file at a line in an editor), comments and questions shown read-only. It follows the file.
 
 The bar's 📖 opens the notes in the MD Browser, the file icon in an editor for more space. With no quest open the view says so.
+
+**RUNS** — below the notes, every process run of every VS Code window on this machine, grouped by window (its quest; this window on top; a window that has not written its heartbeat for 90 s is shown as gone, and left out 10 minutes after its last one). One line per run: its name, its subject (the run's `process-subject`), its process › position, and a badge with its state and what it waits for:
+
+- **waiting for user** — a question, approval, plan, picker or MD Browser ask of the run is open (its title), or an item is held on its todo's open decisions;
+- **waiting for event** — its turn waits in tomAi_waitFor (the reason and until when);
+- **waiting on task** — its turn waits for its own background tasks or command streams (named);
+- **running** — an item of the run is being sent, or pending items are about to be;
+- **paused** — its auto-send is off (with the pending count);
+- **idle** — nothing pending.
+
+When several apply, the first of this list wins. Click a run of this window to work on it here (as selecting it in PROCESS › Runs does); click another window's run to see its details. Each window writes its runs with its heartbeat (every 30 s) and soon after a change, and the view follows those writes; agents read the same entries from `tomAi_getQuestWindowStatus` (`runs`).
 
 ### Issues Panel
 

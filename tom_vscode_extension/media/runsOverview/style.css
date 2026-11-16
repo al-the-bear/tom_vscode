@@ -1,0 +1,30 @@
+/* @TOM INFO › RUNS — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 2px 6px 6px;
+}
+.muted { color: var(--vscode-descriptionForeground); }
+.window { border-bottom: 1px solid var(--vscode-panel-border, transparent); padding: 4px 0; }
+.window.gone { opacity: 0.55; }
+.window-head { display: flex; align-items: center; gap: 4px; font-weight: 600; }
+.window-head .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.window-head .tag { font-weight: normal; font-size: 0.85em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.run { padding: 2px 0 2px 12px; cursor: pointer; border-radius: 3px; }
+.run:hover { background: var(--vscode-list-hoverBackground); }
+.run.current { background: var(--vscode-list-inactiveSelectionBackground); }
+.run-line { display: flex; align-items: center; gap: 6px; }
+.run-line .name { font-weight: 600; white-space: nowrap; }
+.run-line .subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.run-sub { font-size: 0.9em; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.no-runs { padding-left: 12px; }
+.badge { font-size: 0.8em; padding: 0 4px; border-radius: 3px; border: 1px solid currentColor; white-space: nowrap; }
+.state-waiting-for-user { color: var(--vscode-editorError-foreground, #f14c4c); }
+.state-waiting-for-event { color: var(--vscode-charts-purple, #b180d7); }
+.state-waiting-on-task { color: var(--vscode-charts-blue, #3794ff); }
+.state-running { color: var(--vscode-charts-green, #3fb950); }
+.state-paused { color: var(--vscode-editorWarning-foreground, #cca700); }
+.state-idle { color: var(--vscode-descriptionForeground); }
+.details { margin: 3px 0 2px; padding: 3px 6px; border-left: 2px solid var(--vscode-panel-border, #555); font-size: 0.9em; }
+.details div { overflow-wrap: anywhere; }

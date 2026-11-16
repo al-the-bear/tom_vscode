@@ -543,10 +543,13 @@ The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts two subpanels:
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos),
 the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
-workspace todos, the todo log, window status), and the **@NOTES** sidebar
-(`tomAi.questNotesPanel`): the active quest's notes on their own, with an
-**Edit** tab (a text area) and a **View** tab (rendered as the MD Browser
-renders it), which you can drag into the secondary side bar.
+workspace todos, the todo log, window status), and the **@TOM INFO** sidebar:
+the active quest's notes on their own (`tomAi.questNotesPanel`, with an
+**Edit** tab, a text area, and a **View** tab, rendered as the MD Browser
+renders it; you can drag it into the secondary side bar), and **RUNS**
+(`tomAi.runsOverview`): every process run of every window on this machine with
+its subject, position and state (running, paused, idle, or waiting for you, an
+event or a task, with what it waits for).
 
 A quest's process can also be moved from a document in the MD Browser.
 A review's results carry **Finish review round** (`${finish-review-round}`

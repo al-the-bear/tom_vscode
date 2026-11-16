@@ -8,7 +8,7 @@
  *   QNP-3 save writes the file and the View follows; the MD Browser's writing messages change nothing
  *   QNP-4 a change on disk reaches the page (notesState, external) and the View
  *   QNP-5 links: an anchor scrolls the View; Open in Editor opens the notes file
- *   QNP-6 the @NOTES container and its view are contributed
+ *   QNP-6 the @TOM INFO container and its view are contributed
  */
 
 import { describe, test, after } from 'node:test';
@@ -157,10 +157,10 @@ describe('QUEST NOTES side panel (host)', () => {
 
     test('QNP-6: contributed as an activity-bar container of its own', () => {
         const pkg = JSON.parse(fs.readFileSync(path.join(EXT_ROOT, 'package.json'), 'utf8'));
-        const container = pkg.contributes.viewsContainers.activitybar.find((c: Msg) => c.id === 'tomAi-notes-sidebar');
-        assert.ok(container, '@NOTES container');
+        const container = pkg.contributes.viewsContainers.activitybar.find((c: Msg) => c.id === 'tomAi-info-sidebar');
+        assert.ok(container, '@TOM INFO container');
         assert.ok(fs.existsSync(path.join(EXT_ROOT, container.icon)));
-        assert.deepEqual(pkg.contributes.views['tomAi-notes-sidebar'].map((v: Msg) => [v.type, v.id]), [['webview', QUEST_NOTES_PANEL_VIEW_ID]]);
+        assert.deepEqual(pkg.contributes.views['tomAi-info-sidebar'].map((v: Msg) => [v.type, v.id]), [['webview', QUEST_NOTES_PANEL_VIEW_ID], ['webview', 'tomAi.runsOverview']]);
         assert.ok(pkg.contributes.views['tomAi-sidebar'].some((v: Msg) => v.id === 'tomAi.questNotes'), 'the @TOM QUEST NOTES view stays');
     });
 });

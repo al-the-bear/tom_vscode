@@ -1,6 +1,6 @@
-# @TOM, @TOM WS and @NOTES Sidebars — Notes, Todos, Log, Window Status
+# @TOM, @TOM WS and @TOM INFO Sidebars — Notes, Todos, Log, Window Status, Runs
 
-Three Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) for the active quest, **@TOM WS** (`tomAi-ws-sidebar`) for the workspace and **@NOTES** (`tomAi-notes-sidebar`) for the quest notes on their own (a fourth, **@TOM VSC**, holds RESOURCES: `vscResourcesView-handler.ts`). `tomAi.tomSidebar.focus`, `tomAi.tomWsSidebar.focus` and `tomAi.notesSidebar.focus` open them; each view also has VS Code's own `<view id>.focus`, which works whichever container holds it. `src/utils/__tests__/sidebarContainers.test.ts` (SB-1..3) pins the containers and their view lists.
+Three Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) for the active quest, **@TOM WS** (`tomAi-ws-sidebar`) for the workspace and **@TOM INFO** (`tomAi-info-sidebar`) for the quest notes on their own and the runs of every window (a fourth, **@TOM VSC**, holds RESOURCES: `vscResourcesView-handler.ts`). `tomAi.tomSidebar.focus`, `tomAi.tomWsSidebar.focus` and `tomAi.tomInfoSidebar.focus` open them; each view also has VS Code's own `<view id>.focus`, which works whichever container holds it. `src/utils/__tests__/sidebarContainers.test.ts` (SB-1..3) pins the containers and their view lists.
 
 ## Contributed views
 
@@ -24,11 +24,12 @@ Three Activity Bar view containers hold these views: **@TOM** (`tomAi-sidebar`) 
 | TODO LOG | `tomAi.todoLogTom` | Session-scoped execution log of completed todos. |
 | WINDOW STATUS | `tomAi.windowStatusTom` | Multi-window status overview with per-subsystem indicators. |
 
-**@NOTES** — the quest notes on their own:
+**@TOM INFO** — the quest notes on their own, and the runs:
 
 | View | View ID | Contents |
 | --- | --- | --- |
 | QUEST NOTES — <quest> | `tomAi.questNotesPanel` | The same `quest-notes.<quest>.md` as @TOM's QUEST NOTES, through the same `NotepadFileStorage`: an **Edit** tab (text area, saved on a 500 ms pause and on blur; a change on disk is taken in unless the text area holds unsaved text, then a bar asks Load the file / Keep my text) and a **View** tab (the MD Browser's own `blocks.js` / `teamReview.js` / `main.js`, read-only: writing controls hidden, write messages ignored); the tab is kept in the webview state. Buttons open the file in the MD Browser and in an editor. `questNotesPanel-handler.ts`, assets `media/questNotesPanel/`; links through `followMdLink` (`markdownBrowser-handler.ts`). Tests: `questNotesPanel.test.ts` (QNP-1..6), `questNotesPanel.dom.test.ts` (MQP-1..5). |
+| RUNS | `tomAi.runsOverview` | Every process run of every window on this machine, from the window-state files (`_ai/local/<window>.window-state.json`, `runs`, written with the heartbeat and 1 s after a change of the queue, the process position, a chat variable or an open user interaction: `windowActivity-handler.ts`). Grouped by window (`runsOverviewWindows`: this window first, alive, then by quest; gone after 90 s without a heartbeat, dropped after 10 minutes; other hosts left out); per run its name, subject, process › position and state badge (`runActivity`: waiting for user > waiting for event > waiting on task > running > paused > idle, with `detail`). A click on this window's run selects it (`ProcessStateStore.selectRun`), on another's opens its details in place. Refreshes on a state-file change and once per heartbeat interval while shown. `runsOverview-handler.ts`, pure rules `src/utils/runActivity.ts`, assets `media/runsOverview/`. Tests: `runActivity.test.ts` (RA-1..6). |
 
 ## Purpose
 
@@ -40,7 +41,7 @@ Each notes view edits one Markdown file; none of them sends to a model (that is 
 
 ## Notes views — picking up edits made elsewhere
 
-The notes views (VS CODE NOTES, WORKSPACE NOTES, QUEST NOTES and the @NOTES side panel) share one store, [`NotepadFileStorage`](../src/handlers/notepad/notepadFileStorage.ts), and each hands it an `onExternalChange` callback that re-renders the view. Two things about it are load-bearing:
+The notes views (VS CODE NOTES, WORKSPACE NOTES, QUEST NOTES and the @TOM INFO side panel) share one store, [`NotepadFileStorage`](../src/handlers/notepad/notepadFileStorage.ts), and each hands it an `onExternalChange` callback that re-renders the view. Two things about it are load-bearing:
 
 - **A `NOTEPAD_POLL_INTERVAL_MS` poll is the guarantee, not the `createFileSystemWatcher`.** None of the three files is reliably watchable: quest and workspace notes sit under `_ai/`, a relative symlink whose real path is outside the workspace folder, and the global notes are in `~/.tom/notes/`, outside any workspace folder. Same reason the MD Browser polls its live-trail (`markdownBrowser-handler.ts`). The watcher stays as a low-latency extra; if it never fires, the view still updates.
 - **The view's own autosave is recognised by content, not by timing.** `save()` updates the in-memory content before writing, so a change signal whose disk content matches it is our own echo. Do not reintroduce an "ignore the next event" flag: it is set on every save and cleared only when an event arrives, so on these paths it stayed armed and swallowed the *next real* external edit.

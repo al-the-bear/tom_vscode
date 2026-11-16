@@ -1,5 +1,5 @@
 // @ts-nocheck
-// QUEST NOTES side panel (@NOTES, view tomAi.questNotesPanel) —
+// QUEST NOTES side panel (@TOM INFO, view tomAi.questNotesPanel) —
 // src/handlers/questNotesPanel-handler.ts.
 //
 // Edit tab: a text area on the active quest's notes file, saved after a short

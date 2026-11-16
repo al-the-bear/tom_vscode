@@ -111,6 +111,7 @@ import { warnAboutAiFormatVersion } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
 import { setAgentSdkUsageStoreDir } from './services/agentSdkUsageSnapshots';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
+import { registerRunsOverviewView } from './handlers/runsOverview-handler';
 import { mcpLog, disposeMcpLogChannel } from './utils/mcpServerLog';
 import { refreshStatusPage } from './handlers/statusPage-handler';
 import { debounce } from './utils/debounce';
@@ -512,10 +513,15 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDsNotesViews(context);
     timeStep('dsNotesViews', stepStart);
 
-    // The QUEST NOTES side panel (@NOTES activity-bar container)
+    // The QUEST NOTES side panel (@TOM INFO activity-bar container)
     stepStart = performance.now();
     registerQuestNotesPanel(context);
     timeStep('questNotesPanel', stepStart);
+
+    // @TOM INFO › RUNS: every run of every window on this machine
+    stepStart = performance.now();
+    registerRunsOverviewView(context);
+    timeStep('runsOverview', stepStart);
 
     // Register Unified Notepad (T2) panel
     stepStart = performance.now();
@@ -1246,11 +1252,11 @@ function registerCommands(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.view.extension.tomAi-vsc-sidebar');
         }
     );
-    // Focus @NOTES: the active quest's notes, Edit and View tabs
+    // Focus @TOM INFO: the active quest's notes, Edit and View tabs
     const focusNotesSidebarCmd = vscode.commands.registerCommand(
-        'tomAi.notesSidebar.focus',
+        'tomAi.tomInfoSidebar.focus',
         async () => {
-            await vscode.commands.executeCommand('workbench.view.extension.tomAi-notes-sidebar');
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-info-sidebar');
         }
     );
 

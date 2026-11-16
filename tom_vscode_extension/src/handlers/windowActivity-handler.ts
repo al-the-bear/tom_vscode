@@ -2,7 +2,8 @@
  * What this window writes about itself into its state file, with every
  * heartbeat and when it changes (tomAi_getQuestWindowStatus reads it): the
  * host, the role, the quest's process position, the ANTHROPIC panel's profile
- * and session, and the queue summary (src/utils/windowActivity.ts).
+ * and session, the queue summary (src/utils/windowActivity.ts), and every
+ * process run of the quest with its state and subject (src/utils/runActivity.ts).
  *
  * Every part is read best-effort: a store that is not initialised (yet) is
  * left out rather than failing the heartbeat.
@@ -15,6 +16,8 @@ import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
 import { WsPaths } from '../utils/workspacePaths';
 import type { WindowActivity } from '../utils/questWindowStatus';
 import { summarizeQueue } from '../utils/windowActivity';
+import { runActivityEntries, type RunActivityItem } from '../utils/runActivity';
+import { userInteractions } from '../services/userInteractions';
 import { chatSessionFor } from './sessionPicker';
 
 /** The panel's session key when none is chosen (anthropic-handler.ts ANTHROPIC_CHAT_SESSION_KEY). */
@@ -64,6 +67,22 @@ export function collectWindowActivity(context: vscode.ExtensionContext): WindowA
             defaultSession: qm.defaultAgentSdkSession,
         });
     } catch { /* the queue is not initialised */ }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ProcessStateStore } = require('../managers/processStateStore') as typeof import('../managers/processStateStore');
+        const runs = ProcessStateStore.instance?.runs() ?? [];
+        let items: readonly RunActivityItem[] = [];
+        let pausedRuns: readonly string[] = [];
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
+            items = PromptQueueManager.instance.items as unknown as readonly RunActivityItem[];
+            pausedRuns = PromptQueueManager.instance.heldRuns;
+        } catch { /* the queue is not initialised: every run idle */ }
+        if (runs.length) {
+            activity.runs = runActivityEntries(runs, items, userInteractions.list(), pausedRuns);
+        }
+    } catch { /* the process store is not initialised */ }
     return activity;
 }
 
@@ -112,4 +131,7 @@ export function watchWindowActivity(context: vscode.ExtensionContext): void {
         // Through whenReady: this may run before the queue manager starts.
         void PromptQueueManager.whenReady().then((qm) => subscribe(qm.onDidChange as vscode.Event<unknown>));
     } catch { /* no queue module */ }
+    // An ask, approval, plan or picker opened or settled changes a run's state (RUNS).
+    const unsubscribe = userInteractions.onChange(() => soon());
+    context.subscriptions.push({ dispose: unsubscribe });
 }

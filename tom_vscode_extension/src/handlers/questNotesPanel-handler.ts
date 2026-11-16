@@ -1,6 +1,6 @@
 /**
  * QUEST NOTES side panel (vscimpb101): an activity-bar container of its own
- * (`tomAi-notes-sidebar`, @NOTES) beside @TOM, @TOM WS and @TOM VSC, holding
+ * (`tomAi-info-sidebar`, @TOM INFO) beside @TOM, @TOM WS and @TOM VSC, holding
  * one webview view, `tomAi.questNotesPanel`, on the active quest's notes file
  * (`quest-notes.<quest>.md`, path from `tomAi.notes.questNotesPattern`).
  *

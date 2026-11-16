@@ -8,7 +8,8 @@
  *   (src/utils/windowHeartbeat.ts), the servers, the subsystems active, and
  *   what each window writes about itself ({@link WindowActivity}): role,
  *   process position, the ANTHROPIC panel's profile and session, the queue
- *   summary and the item being sent. Gone windows are left out unless asked.
+ *   summary and the item being sent, and every process run of its quest with
+ *   its state and subject (`runs`, src/utils/runActivity.ts). Gone windows are left out unless asked.
  * - **quests**: per quest with a live window (and the quest asked for): its
  *   sessions — the same rows as the SESSIONS view (src/utils/sessionsViewRows.ts),
  *   with each profile resolved and temporary sessions (`tmp-*`) flagged — and
@@ -26,6 +27,7 @@ import type { BuildStatus } from './buildStamp';
 import type { DartBinariesSummary } from '../services/dartBinariesStatus';
 import { sessionRows } from './sessionsViewRows';
 import { HEARTBEAT_STALE_MS, isWindowAlive, type HeartbeatState } from './windowHeartbeat';
+import type { RunActivityEntry } from './runActivity';
 
 // ---------------------------------------------------------------------------
 // What a window writes about itself
@@ -87,6 +89,8 @@ export interface WindowActivity {
     /** The ANTHROPIC panel: its selected profile and its session. */
     panel?: { profileId?: string; session?: string };
     queue?: WindowQueueSummary;
+    /** Every process run of the window's quest with its state and subject (src/utils/runActivity.ts). */
+    runs?: RunActivityEntry[];
 }
 
 /** A window-state file as this module reads it. */
@@ -165,6 +169,8 @@ export interface WindowStatusEntry {
         defaultProfile?: ResolvedProfile;
         sending?: Omit<WindowSendingItem, 'profileId'> & { profile?: ResolvedProfile };
     };
+    /** Every process run of the window's quest: run, process, position, subject, state and what it waits for. */
+    runs?: RunActivityEntry[];
     isThisWindow: boolean;
 }
 
@@ -272,6 +278,7 @@ export function buildQuestWindowStatus(input: QuestWindowStatusInput): QuestWind
                         } : {}),
                     },
                 } : {}),
+                ...(s.runs ? { runs: s.runs } : {}),
                 isThisWindow: s.windowId === input.thisWindowId,
             };
         })
