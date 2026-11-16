@@ -3,10 +3,9 @@
  * **Reset Process**, and tomAi_resetProcess.
  *
  *  - `run` (Reset Run) clears everything process-related: the run goes to no
- *    process yet — `default` keeps its process and goes back to its first
- *    position — every level of its process stack goes, its open
- *    process-move markers go, and every custom chat variable of the run is
- *    cleared.
+ *    process yet (`default` too: it runs no process), every level of its
+ *    process stack goes, its open process-move markers go, and every custom
+ *    chat variable of the run is cleared.
  *  - `process` (Reset Process): the run goes back to its process's first
  *    position (the stack's other levels and the open markers go too), and
  *    only the variables the process declares as its `runParameters` are
@@ -15,7 +14,7 @@
  * vscode-free: what is reset, the confirmation's words and the journal entry.
  */
 
-import { DEFAULT_RUN } from './processRuns';
+import { DEFAULT_RUN, DEFAULT_RUN_NO_PROCESS } from './processRuns';
 
 export type ProcessResetMode = 'run' | 'process';
 
@@ -37,8 +36,9 @@ export interface ProcessResetPlan {
 }
 
 /** Why the reset cannot be made; undefined when it can. */
-export function processResetRefused(mode: ProcessResetMode, process: string, runParameters: readonly string[] | undefined): string | undefined {
+export function processResetRefused(mode: ProcessResetMode, process: string, runParameters: readonly string[] | undefined, run: string = ''): string | undefined {
     if (mode === 'process') {
+        if (run === DEFAULT_RUN) { return `${DEFAULT_RUN_NO_PROCESS} (Reset Run clears the process it holds)`; }
         if (!process) { return 'the run follows no process: Reset Process puts a process back to its start (Reset Run clears a run)'; }
         if (!runParameters) { return `the process ${process} could not be read`; }
     }
@@ -65,7 +65,7 @@ export function processResetPlan(input: {
         run: input.run,
         process: input.process,
         position: input.position,
-        processAfter: input.mode === 'run' && input.run !== DEFAULT_RUN ? '' : input.process,
+        processAfter: input.mode === 'run' ? '' : input.process,
         variables: names.sort((a, b) => a.localeCompare(b)).map((name) => ({ name, value: input.custom[name] ?? '' })),
         nestedLevels: input.nestedLevels,
         markers: input.markers,

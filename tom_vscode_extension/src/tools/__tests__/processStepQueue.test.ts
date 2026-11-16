@@ -106,6 +106,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
@@ -169,6 +170,7 @@ const set = (id: string, status: QueuedPrompt['status']): void => { (queue().get
 function clearQueue(): void { for (const i of [...queue().items]) { queue().remove(i.id); } }
 async function at(step: string): Promise<void> {
     clearQueue();
+    useRun(store());
     const r = store().apply({ process: 'flow', phase: 'build', step }, 'user');
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(store().state.step, step);

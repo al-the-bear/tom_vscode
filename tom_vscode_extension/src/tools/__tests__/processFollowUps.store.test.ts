@@ -104,7 +104,9 @@ describe('follow-up processes: the store', () => {
     test('FS-1: a follow-up taken in a run', async () => {
         await ProcessStateStore.ready;
         PromptQueueManager.instance.autoSendEnabled = false;
-        assert.equal(store().apply({ process: 'specs' }, 'user').ok, true, 'the quest\'s own position: elsewhere');
+        // Another run stands elsewhere (the `default` run runs no process, and refuses one).
+        assert.equal(store().apply({ process: 'specs' }, 'user').ok, false, '`default` refuses a process');
+        assert.equal(store().createRun('other', 'specs', 'user', false).ok, true, 'another run: elsewhere');
         assert.equal(store().createRun('chg7', 'change', 'user', true).ok, true);
         const chat = ChatVariablesStore.instance;
         chat.set('change', 'CHG-7', 'user');
@@ -117,7 +119,8 @@ describe('follow-up processes: the store', () => {
         // The run moved, into its own state file; the quest's own position did not.
         const run = repo().readState(QUEST, 'chg7');
         assert.deepEqual([run.process, run.phase, run.step, run.decision], ['specs', 'p2', 'draft', undefined]);
-        assert.equal(repo().readState(QUEST, DEFAULT_RUN).phase, 'p1');
+        assert.equal(repo().readState(QUEST, 'other').phase, 'p1');
+        assert.equal(repo().readState(QUEST, DEFAULT_RUN).process, '', '`default` still has none');
         assert.deepEqual(run.origins?.map((o) => [o.process, o.phase, o.step, o.level, o.carried, o.context]), [
             ['change', 'intent', 'gate1', 'phase', { change: 'CHG-7' }, { scope: 'CHG-7 (intent)' }],
         ]);

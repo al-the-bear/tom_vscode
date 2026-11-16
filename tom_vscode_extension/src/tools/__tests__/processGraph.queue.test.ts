@@ -50,6 +50,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { TEST_RUN, useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
@@ -94,7 +95,7 @@ after(() => {
 
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const chat = (): ChatVariablesStore => ChatVariablesStore.instance;
-const stateOf = () => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, 'default');
+const stateOf = () => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, TEST_RUN);
 const where = (): string => { const s = stateOf(); return `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}${s.completed ? ' (finished)' : ''}`; };
 const ok = (r: { ok: boolean }): void => { assert.equal(r.ok, true, JSON.stringify(r)); };
 const EXT = (...p: string[]): string => fs.readFileSync(path.join(EXT_ROOT, ...p), 'utf8');
@@ -104,7 +105,8 @@ describe('non-linear processes', () => {
     test('setup', async () => {
         await ProcessStateStore.ready;
         PromptQueueManager.instance.autoSendEnabled = false;
-        PromptQueueManager.instance.setRunQueueSettings('default', { autoSend: false, defaultTransport: 'anthropic' });
+        PromptQueueManager.instance.setRunQueueSettings(TEST_RUN, { autoSend: false, defaultTransport: 'anthropic' });
+        useRun(store());
         ok(store().apply({ process: 'graph' }, 'user'));
         assert.equal(where(), 'start#1/s1#1');
     });

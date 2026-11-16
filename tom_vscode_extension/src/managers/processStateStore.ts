@@ -28,7 +28,8 @@ import { ChatVariablesStore, type ChangeSource } from './chatVariablesStore';
 import { WsPaths } from '../utils/workspacePaths';
 import { ProcessRepository, type ProcessEntry, type RepositoryResult } from '../utils/processRepository';
 import { currentProcessRun } from '../services/processRunContext';
-import { DEFAULT_RUN, normalizeRun, runNameError } from '../utils/processRuns';
+import { movedToRunOf } from '../utils/defaultRunMigration';
+import { DEFAULT_RUN, DEFAULT_RUN_NO_PROCESS, defaultRunRefusesProcess, normalizeRun, runNameError } from '../utils/processRuns';
 import { sessionsOfRuns } from '../utils/runSessions';
 import type { ProcessRunEntry } from '../utils/processRepository';
 import * as fs from 'fs';
@@ -164,11 +165,29 @@ export class ProcessStateStore {
         // The window's run of this quest; a run deleted meanwhile (another window) falls back to `default`.
         const chosen = normalizeRun(this.context.workspaceState?.get<string>(runStateKey(this.quest)));
         this.run = repo && this.quest && repo.hasRun(this.quest, chosen) ? chosen : DEFAULT_RUN;
+        // The migration moved `default`'s process into a run (vscimpb122): a window on `default` follows it, once.
+        if (repo && this.quest && this.run === DEFAULT_RUN) {
+            const moved = this.movedToRun(repo);
+            if (moved) {
+                this.run = moved;
+                void this.context.workspaceState?.update(runStateKey(this.quest), moved);
+                void this.context.workspaceState?.update(movedSeenKey(this.quest), moved);
+            }
+        }
         // The run's own custom chat variables (its run parameters) are the ones read and written now.
         try { ChatVariablesStore.instance.setWindowRun(this.run); } catch { /* not initialised */ }
         this.rawLevels = repo ? repo.readStateStack(this.quest, this.run).levels : [{ ...EMPTY_PROCESS_STATE }];
         this.rawState = topLevel(this.rawLevels);
         this.fire();
+    }
+
+    /** The run `default`'s process was moved to, when this window has not followed it yet and it still exists. */
+    private movedToRun(repo: ProcessRepository): string | undefined {
+        let text = '';
+        try { text = fs.readFileSync(repo.stateFile(this.quest, DEFAULT_RUN), 'utf8'); } catch { return undefined; }
+        const moved = movedToRunOf(text);
+        if (!moved || !repo.hasRun(this.quest, moved)) { return undefined; }
+        return this.context.workspaceState?.get<string>(movedSeenKey(this.quest)) === moved ? undefined : moved;
     }
 
     private fire(): void {
@@ -261,7 +280,7 @@ export class ProcessStateStore {
         const r = this.withRun(name, () => {
             const state = this.state;
             const def = this.currentDefinition();
-            const refused = processResetRefused(mode, state.process, def ? def.runParameters ?? [] : undefined);
+            const refused = processResetRefused(mode, state.process, def ? def.runParameters ?? [] : undefined, name);
             if (refused) { return { ok: false as const, error: refused }; }
             let custom: Readonly<Record<string, string>> = {};
             try { custom = ChatVariablesStore.instance.withRun(name, () => ChatVariablesStore.instance.custom); } catch { /* not initialised */ }
@@ -424,6 +443,8 @@ export class ProcessStateStore {
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
         const levels = this.levels;
+        // Nothing nests on `default`: it runs no process (a quest that still holds one there from before is migrated).
+        if (this.run === DEFAULT_RUN) { return { ok: false, error: DEFAULT_RUN_NO_PROCESS }; }
         const check = checkNestedStart(levels, this.definitions(), kind, processId);
         if (!check.ok) { return check; }
         const before = topLevel(levels);
@@ -711,6 +732,10 @@ export class ProcessStateStore {
         }
         if (move.kind !== 'follow-up') { return this.commit(repo, this.state, move.target, source); }
         // A switch to a follow-up process: its call context resolved now, the carried variables' values recorded.
+        // Not on `default`, which runs no process: there the follow-up is started in a run of its own.
+        if (defaultRunRefusesProcess(this.run, move.target.process) && move.target.process !== this.state.process) {
+            return { ok: false, error: DEFAULT_RUN_NO_PROCESS };
+        }
         const before = this.state;
         const lookup = this.conditionOptions().lookup ?? (() => undefined);
         const target = completeFollowUpSwitch(move, followUp?.resolve ?? ((text) => text), lookup);
@@ -802,6 +827,11 @@ export class ProcessStateStore {
         const repo = this.repo();
         if (!repo) { return { ok: false, error: 'no workspace folder is open' }; }
         let before = this.state;
+        // The `default` run runs no process: starting or switching to one there is refused (a follow-up process
+        // too); a process runs in a run of its own (createRun). Clearing it (`process: ''`) stays possible.
+        if (change.process !== undefined && change.process !== before.process && defaultRunRefusesProcess(this.run, change.process)) {
+            return { ok: false, error: DEFAULT_RUN_NO_PROCESS };
+        }
         if (change.outputs !== undefined) {
             const set = setLevelOutputs(this.currentDefinition(), before, change.outputs);
             if (!set.ok) { return set; }
@@ -896,6 +926,9 @@ export class ProcessStateStore {
 
     save(def: ProcessDefinition, description: string): RepositoryResult { return this.edit((r) => r.save(def, description)); }
 }
+
+/** The run this window followed after `default`'s process moved there (once per quest and window). */
+function movedSeenKey(quest: string): string { return `tomAi.processRun.movedSeen.${quest}`; }
 
 /** The window's current run of `quest` (workspace state: per window, kept across a reload). */
 function runStateKey(quest: string): string {

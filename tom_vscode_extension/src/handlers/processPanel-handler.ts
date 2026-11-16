@@ -40,6 +40,7 @@ import { conditionText, declaresProcessSubject, evaluateCondition, findPhase, fi
 import { decisionDialog, positionText, userActionConfirmation } from '../utils/processActionPrompt';
 import { openProcessAction } from './processAction-handler';
 import { confirmProcessAction, dropHeldStep, moveOnFromHeldStep, decideInDialog, resetProcessRun } from '../services/processActionService';
+import { DEFAULT_RUN_NO_PROCESS, defaultRunRefusesProcess } from '../utils/processRuns';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { openProcessTemplateEditor } from './processTemplateEditor-handler';
 import { openMarkdownBrowser } from './markdownBrowser-handler';
@@ -243,6 +244,12 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'change':
                 if (!msg.change) { break; }
+                // The `default` run runs no process: a process is started in a run of its own (+ in the Runs list).
+                if (typeof msg.change.process === 'string' && defaultRunRefusesProcess(store.currentRun, msg.change.process)) {
+                    this.report({ ok: false, error: DEFAULT_RUN_NO_PROCESS });
+                    this.send();
+                    break;
+                }
                 // Another process for the quest leaves every level of the stack: ask first.
                 if (msg.change.process !== undefined && store.levels.length > 1 && msg.change.process !== store.levels[0].process) {
                     const leave = 'Switch and leave them';

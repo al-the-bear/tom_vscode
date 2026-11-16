@@ -114,6 +114,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { TEST_RUN, useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
@@ -176,9 +177,10 @@ const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const drive = (): Promise<void> => queue().sendNext(new Set(['default', ...queue().items.map((i) => i.processRun?.run ?? i.run ?? 'default')]));
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const set = (id: string, status: QueuedPrompt['status']): void => { (queue().getById(id) as QueuedPrompt).status = status; };
-const stateFile = (): string => fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.yaml`), 'utf8');
+const stateFile = (): string => fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.${TEST_RUN}.yaml`), 'utf8');
 function reset(): void {
     for (const i of [...queue().items]) { queue().remove(i.id); }
+    useRun(store());
     const r = store().apply({ process: '' }, 'user');
     assert.equal(r.ok, true);
     const m = store().apply({ process: 'main', phase: 'p1', step: 'plan' }, 'user');
@@ -544,9 +546,9 @@ describe('nested processes', () => {
         try {
             fs.writeFileSync(file, original.replace("      - id: plan\n        name: Plan\n", "      - id: plan\n        name: Plan\n        session: planning\n"));
             store().reload();
-            assert.deepEqual(store().inheritedSession(), { name: 'planning' });
+            assert.deepEqual(store().inheritedSession(), { name: `planning@${TEST_RUN}` }, 'the run\'s own session');
             const def = store().currentDefinition()!;
-            assert.deepEqual([actionSession(def, store().state, undefined, store().inheritedSession()).name, actionSession(def, store().state).name], ['planning', '']);
+            assert.deepEqual([actionSession(def, store().state, undefined, store().inheritedSession()).name, actionSession(def, store().state).name], [`planning@${TEST_RUN}`, '']);
         } finally {
             fs.writeFileSync(file, original);
             store().reload();

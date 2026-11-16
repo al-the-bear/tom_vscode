@@ -30,6 +30,7 @@ import {
 } from '../utils/processDefinition';
 import type { ChangeSource } from '../managers/chatVariablesStore';
 import { unescapePlaceholders } from '../utils/placeholderEscape';
+import { DEFAULT_RUN_NO_PROCESS, defaultRunRefusesProcess, normalizeRun } from '../utils/processRuns';
 import { getCurrentToolContext } from '../services/tool-execution-context';
 import { documentLinks, documentLookup, positionDocuments, type DocumentLink } from '../utils/processDocuments';
 
@@ -280,6 +281,11 @@ export async function setProcessStateImpl(deps: ProcessToolDeps, input: ProcessC
         });
         return JSON.stringify(answer, null, 2);
     }
+    // The `default` run runs no process: a process is started in a run of its own (tomAi_createProcessRun).
+    const targetRun = run ? normalizeRun(run) : deps.currentRun?.();
+    if (typeof change.process === 'string' && targetRun !== undefined && defaultRunRefusesProcess(targetRun, change.process)) {
+        return JSON.stringify({ ok: false, error: `${DEFAULT_RUN_NO_PROCESS} (tomAi_createProcessRun {run, process})` });
+    }
     const answer = onRun(deps, run, () => {
         const roleBefore = deps.currentRole();
         const result = deps.apply(change);
@@ -398,7 +404,7 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
 // Runs: tomAi_listProcessRuns, tomAi_createProcessRun, tomAi_selectProcessRun, tomAi_deleteProcessRuns
 // ===========================================================================
 
-const RUNS_NOTE = ' A run is a process position of its own in the quest (its own state file, any process); `default` is the quest\'s own position, always there and never deleted.';
+const RUNS_NOTE = ' A run is a process position of its own in the quest (its own state file, any process); `default` is the quest\'s own position, always there and never deleted, and runs no process (a process runs in a run of its own).';
 
 function needRuns(deps: ProcessToolDeps): string | null {
     return deps.runs && deps.currentRun ? null : JSON.stringify({ ok: false, error: 'runs are not available here' });
@@ -507,7 +513,7 @@ export async function resetProcessImpl(reset: ProcessResetCall, input: { mode?: 
 export const RESET_PROCESS_TOOL: SharedToolDefinition<{ mode?: string; run?: string }> = {
     name: 'tomAi_resetProcess',
     displayName: 'Reset Process Run',
-    description: 'Reset a run of the active quest, as the PROCESS view\'s buttons do (vscimpb91): `mode: "run"` (Reset Run, the default) clears everything process-related — the run goes to no process yet (`default` keeps its process, from its first position), every level of its process stack and its open process-move markers go, every custom chat variable of the run is cleared; `mode: "process"` (Reset Process) puts the run back to its process\'s first position and clears only the chat variables the process declares as `runParameters`. `run` defaults to the window\'s run. Answers what was reset; it is written to the quest\'s decisions journal. Only when the user asked for it.' + RUNS_NOTE,
+    description: 'Reset a run of the active quest, as the PROCESS view\'s buttons do (vscimpb91): `mode: "run"` (Reset Run, the default) clears everything process-related — the run goes to no process yet (`default` too: it runs no process), every level of its process stack and its open process-move markers go, every custom chat variable of the run is cleared; `mode: "process"` (Reset Process) puts the run back to its process\'s first position and clears only the chat variables the process declares as `runParameters`. `run` defaults to the window\'s run. Answers what was reset; it is written to the quest\'s decisions journal. Only when the user asked for it.' + RUNS_NOTE,
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,

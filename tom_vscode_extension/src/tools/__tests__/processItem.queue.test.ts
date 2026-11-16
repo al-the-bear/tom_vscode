@@ -47,6 +47,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { TEST_RUN, useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
@@ -101,7 +102,8 @@ describe('process items', () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
-        queue().setRunQueueSettings('default', { autoSend: false, defaultTransport: 'anthropic' });
+        queue().setRunQueueSettings(TEST_RUN, { autoSend: false, defaultTransport: 'anthropic' });
+        useRun(store());
         ok(store().apply({ process: 'two' }, 'user'));
     });
 

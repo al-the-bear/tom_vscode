@@ -8,7 +8,8 @@
  *        keeps the levels below it
  *   PS-3 the migration rewrites a flat file as a stack (its `updated` kept), leaves a stack alone, lists it
  *        in a dry run without writing, and stamps format version 2; a second run lists nothing
- *   PS-4 every reader sees the same position before and after the conversion: the repository, the chat
+ *   PS-4 every reader sees the same position before and after the conversion (after it, in the run the process
+ *        moved to off `default`, format version 9): the repository, the chat
  *        variables (processVariableValues) and the system prompt's *Current process* (processContextBlock)
  */
 
@@ -101,7 +102,8 @@ describe('process state stack', () => {
         assert.ok(dry.changes.some((c) => c.quest === 'qa' && c.step === 'process-state'));
         assert.equal(fs.readFileSync(file, 'utf8'), FLAT, 'a dry run writes nothing');
         migrate(ai, true);
-        const raw = parse(fs.readFileSync(file, 'utf8'));
+        // Format version 9 then moves the process off `default` into a run named after it: the stack goes there.
+        const raw = parse(fs.readFileSync(file.replace(/\.yaml$/, '.demo.yaml'), 'utf8'));
         assert.equal(raw.levels.length, 1);
         assert.equal(raw.updated, '2026-11-05T16:08:44.593Z', 'the time the position was set stays');
         assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);
@@ -113,7 +115,8 @@ describe('process state stack', () => {
         const { ai, file, repo } = workspace();
         fs.writeFileSync(file, FLAT);
         const read = () => {
-            const state = repo.readState('qa');
+            // Before the migration the position is the `default` run's; after it, the run it moved to (format version 9).
+            const state = repo.readState('qa', fs.existsSync(file.replace(/\.yaml$/, '.demo.yaml')) ? 'demo' : 'default');
             const def = repo.list().find((e) => e.id === 'demo')!.definition!;
             return { state, vars: processVariableValues(def, state, 'Demo process'), context: processContextBlock(def, state, 'Demo process') };
         };

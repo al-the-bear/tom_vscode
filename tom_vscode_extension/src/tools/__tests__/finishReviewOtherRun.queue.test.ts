@@ -1,14 +1,14 @@
 /**
  * Finish review round in a process run other than the window's (vscimpb89), through the real process store, the
- * queue and tomAi_askInMdBrowser. The window works on `default`; the review's run is `r2`.
+ * queue and tomAi_askInMdBrowser. The window works on `r1`; the review's run is `r2`.
  *
  *   FRO-1 step → user step: while r2's step `draft` runs, its closing item's ask (as r2) gets Finish review round,
  *         though the window's run is at no review; the click completes `draft`, confirms the review `review` and
- *         queues r2's next step (`iteration › revise`) — r2 moves, `default` does not, the window stays on `default`
+ *         queues r2's next step (`iteration › revise`) — r2 moves, `r1` does not, the window stays on `r1`
  *   FRO-2 sub-step → user sub-step: while r2's sub-step `revise` runs, the button is offered (its next position is
  *         the user sub-step `check`); the click completes it, confirms `check` and arrives at the decision after the
  *         repeatable step `iteration`
- *   FRO-3 the window's own run works as before: the same in `default`; an ask from a run at no review is refused
+ *   FRO-3 the window's own run works as before: the same in `r1`; an ask from a run at no review is refused
  *         with the reason; an unknown run is named
  *   FRO-4 the decision's choices and the gate decision in r2 (vscimpb104): r2's decision offers its choices while the
  *         window's run is elsewhere, taking one moves r2 only; at r2's running gate the gate decision offers gate
@@ -141,14 +141,16 @@ describe('Finish review round in another process run', () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
-        for (const r of ['default', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
+        for (const r of ['default', 'r1', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
+        // The window works on r1, with no process yet (`default` runs none).
+        assert.equal(store().createRun('r1', undefined, 'user', true).ok, true);
         assert.equal(store().createRun('r2', 'rev', 'user', false).ok, true);
-        assert.equal(store().currentRun, 'default', 'the window stays on default');
+        assert.equal(store().currentRun, 'r1', 'the window stays on r1');
     });
 
     test('FRO-1: step → user step, in r2', async () => {
         assert.deepEqual((await confirmProcessAction('proceed', undefined, '', undefined, undefined, 'r2')), { ok: true, queued: true, label: 'Proceed' });
-        assert.equal(store().currentRun, 'default');
+        assert.equal(store().currentRun, 'r1');
         assert.equal(queue().items.filter((i) => i.processRun?.run === 'r2').length, 2, 'r2\'s prompt and marker');
         assert.equal(finishReviewUnavailableNow('r2'), undefined, 'r2\'s running step leads to a review');
         assert.match(finishReviewUnavailableNow() ?? '', /no process set|not at a review/, 'the window\'s run is at none');
@@ -159,8 +161,8 @@ describe('Finish review round in another process run', () => {
         const r2 = stateOf('r2');
         assert.deepEqual([r2.step, r2.substep], ['iteration', 'revise'], 'r2 at its next step, its prompt queued');
         assert.ok(queue().items.some((i) => i.processRun?.run === 'r2' && i.processRun.state.substep === 'revise' && !i.processMove), 'revise queued in r2');
-        assert.equal(stateOf('default').process, '', 'default did not move');
-        assert.equal(store().currentRun, 'default', 'the window still on default');
+        assert.equal(stateOf('r1').process, '', 'r1 did not move');
+        assert.equal(store().currentRun, 'r1', 'the window still on r1');
     });
 
     test('FRO-2: sub-step → user sub-step, in r2', async () => {
@@ -171,18 +173,18 @@ describe('Finish review round in another process run', () => {
         assert.equal(review.next, 'decision', 'after check the repeatable step ends at its decision');
         const r2 = stateOf('r2');
         assert.deepEqual([r2.step, r2.substep, r2.decision], ['iteration', 'check', true]);
-        assert.equal(store().currentRun, 'default');
+        assert.equal(store().currentRun, 'r1');
     });
 
     test('FRO-3: the window\'s run, a run at no review, an unknown run', async () => {
         assert.equal(store().apply({ process: 'rev' }, 'user').ok, true);
-        assert.equal(stateOf('default').step, 'draft');
-        assert.match(finishReviewUnavailableNow() ?? '', /not at a review/, 'default: draft not running yet');
+        assert.equal(stateOf('r1').step, 'draft');
+        assert.match(finishReviewUnavailableNow() ?? '', /not at a review/, 'r1: draft not running yet');
         assert.equal((await confirmProcessAction('proceed', undefined, '')).ok, true);
-        assert.equal(finishReviewUnavailableNow(), undefined, 'default: its running step leads to a review');
-        const answer = await askAndFinish('default');
+        assert.equal(finishReviewUnavailableNow(), undefined, 'r1: its running step leads to a review');
+        const answer = await askAndFinish('r1');
         assert.equal((answer.review as Record<string, unknown>).ok, true, JSON.stringify(answer));
-        assert.deepEqual([stateOf('default').step, stateOf('default').substep], ['iteration', 'revise']);
+        assert.deepEqual([stateOf('r1').step, stateOf('r1').substep], ['iteration', 'revise']);
         // r2 is at its decision: no review, no running step.
         const refused = await askAndFinish('r2');
         assert.match(String(refused.error), /Finish review round cannot be offered: the process is not at a review/);
@@ -190,23 +192,23 @@ describe('Finish review round in another process run', () => {
     });
 
     test('FRO-4: the decision\'s choices and the gate decision in r2', async () => {
-        assert.deepEqual(decisionOptionLabels(), [], 'default is at no decision');
+        assert.deepEqual(decisionOptionLabels(), [], 'r1 is at no decision');
         const labels = decisionOptionLabels('r2');
         assert.ok(labels.some((l) => /^Go on to/.test(l)) && labels.some((l) => /^Repeat the step/.test(l)), labels.join(' | '));
         const goOn = labels.find((l) => /^Go on to/.test(l))!;
         assert.equal((await takeDecisionOption(goOn, 'r2')).ok, true);
         assert.equal(stateOf('r2').step, 'g1', 'r2 at its gate');
-        assert.deepEqual([stateOf('default').step, stateOf('default').substep], ['iteration', 'revise'], 'default unmoved');
+        assert.deepEqual([stateOf('r1').step, stateOf('r1').substep], ['iteration', 'revise'], 'r1 unmoved');
         assert.match(gateDecisionUnavailableNow('r2') ?? '', /not running/, 'the gate\'s step not started yet');
         assert.equal((await confirmProcessAction('proceed', undefined, '', undefined, undefined, 'r2')).ok, true);
         assert.equal(gateDecisionUnavailableNow('r2'), undefined);
-        assert.match(gateDecisionUnavailableNow() ?? '', /not at a gate/, 'default is not at a gate');
+        assert.match(gateDecisionUnavailableNow() ?? '', /not at a gate/, 'r1 is not at a gate');
         const gate = gateDecisionOptionLabels('r2');
         assert.deepEqual(gate, ['Gate passed — finish the process', 'Gate failed — run g1 again', 'Gate failed — back to the start of the current phase (p1)']);
         const outcome = await runGateDecision(gate[0], 'r2');
         assert.equal(outcome.ok, true, JSON.stringify(outcome));
         assert.equal(stateOf('r2').completed, true, 'r2 finished');
-        assert.equal(stateOf('default').completed ?? false, false);
-        assert.equal(store().currentRun, 'default');
+        assert.equal(stateOf('r1').completed ?? false, false);
+        assert.equal(store().currentRun, 'r1');
     });
 });

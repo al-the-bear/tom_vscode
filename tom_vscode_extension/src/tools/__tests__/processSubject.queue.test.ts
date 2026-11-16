@@ -1,7 +1,7 @@
 /**
  * What a process run works on (vscimpb118): the run's `process-subject` chat variable, set by a process's first
  * step and shown by the extension. Through the real process store and chat variables; the window works on
- * `default`, `r2` is another run of the same process.
+ * `r1` (`default` runs no process), `r2` is another run of the same process.
  *
  *   PS-1 the context line: "Working on: <subject>" when the run names it; "not named yet" with the instruction
  *        to set it when the process declares `process-subject` in its runParameters; nothing otherwise
@@ -100,10 +100,11 @@ describe('the run\'s subject (process-subject)', () => {
     test('setup', async () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
-        for (const r of ['default', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
-        assert.equal(store().apply({ process: 'des' }, 'user').ok, true);
+        for (const r of ['default', 'r1', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
+        // The window works on r1: the `default` run runs no process.
+        assert.equal(store().createRun('r1', 'des', 'user', true).ok, true);
         assert.equal(store().createRun('r2', 'des', 'user', false).ok, true);
-        assert.equal(store().currentRun, 'default');
+        assert.equal(store().currentRun, 'r1');
     });
 
     test('PS-1: the context line', () => {
@@ -122,11 +123,11 @@ describe('the run\'s subject (process-subject)', () => {
         assert.match(store().contextBlock(), /\nWorking on: not named yet/, 'declared, not set');
         assert.equal(store().subjectOf(), undefined);
         setVars('r2', { [PROCESS_SUBJECT_VARIABLE]: 'Change chg3 on tom_uam' });
-        setVars('default', { [PROCESS_SUBJECT_VARIABLE]: 'Revision of tom_specs' });
+        setVars('r1', { [PROCESS_SUBJECT_VARIABLE]: 'Revision of tom_specs' });
         assert.equal(store().subjectOf('r2'), 'Change chg3 on tom_uam');
         assert.equal(store().subjectOf(), 'Revision of tom_specs');
         const byRun = Object.fromEntries(store().runs().map((r) => [r.run, r.subject]));
-        assert.deepEqual(byRun, { default: 'Revision of tom_specs', r2: 'Change chg3 on tom_uam' });
+        assert.deepEqual(byRun, { default: undefined, r1: 'Revision of tom_specs', r2: 'Change chg3 on tom_uam' });
         const block = store().contextBlock();
         assert.match(block, /^Process: \*\*Design\*\* \(`des`\)\nWorking on: Revision of tom_specs \(`\$\{process-subject\}`\)\n/, block);
         const listed = JSON.parse(await LIST_PROCESS_RUNS_TOOL.execute({} as never));

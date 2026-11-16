@@ -5,8 +5,10 @@
  * quest's own, `process-state.<quest>.<run>.yaml`, holding a stack of levels
  * like the quest's file (any process; two runs may follow different ones).
  * The `default` run is the quest's file as it always was,
- * `process-state.<quest>.yaml`: it is always there, cannot be deleted, and a
- * quest without runs needs no migration.
+ * `process-state.<quest>.yaml`: it is always there and cannot be deleted. It
+ * runs no process: a process runs in a run of its own
+ * ({@link DEFAULT_RUN_NO_PROCESS}); Reset Run clears a process an older
+ * `default` still holds.
  *
  * Pure name rules and file names, no fs (processRepository.ts reads and
  * writes the files).
@@ -14,6 +16,14 @@
 
 /** The run every quest has: its own state file. */
 export const DEFAULT_RUN = 'default';
+
+/** Why the `default` run refuses a process. */
+export const DEFAULT_RUN_NO_PROCESS = 'the run "default" runs no process: create a new run to run a process';
+
+/** Whether writing `process` as the top of `run` is refused (the `default` run holds no process). */
+export function defaultRunRefusesProcess(run: string, process: string | undefined): boolean {
+    return normalizeRun(run) === DEFAULT_RUN && !!process;
+}
 
 /** A run name: letters, digits, `_` and `-`, starting with a letter or digit; no dot (it is part of a file name). */
 const RUN_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;

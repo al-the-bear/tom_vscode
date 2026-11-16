@@ -3,12 +3,14 @@
  * processActionService.resetProcessRun, tomAi_resetProcess and the PROCESS view's buttons, through the real
  * process store, chat variables and queue. The window works on `default`; `r2` is another run.
  *
- *   PR-1 the plan: Reset Run clears every custom variable and leaves a run other than `default` with no process,
- *        `default` keeps its process; Reset Process clears only the declared run parameters that are set; the
- *        confirmation names what is reset; the journal entry; Reset Process without a process is refused
+ *   PR-1 the plan: Reset Run clears every custom variable and leaves every run with no process, `default` too;
+ *        Reset Process clears only the declared run parameters that are set; the confirmation names what is reset;
+ *        the journal entry; Reset Process without a process, or of `default`, is refused
  *   PR-2 Reset Run of r2 (not the window's run): its stack goes (no process), its open process-move marker goes and
  *        its prompt stays, every custom variable of r2 is cleared, `default`'s are not; the decisions journal records it
- *   PR-3 Reset Run of `default`: its process kept, back at its first position; its custom variables cleared
+ *   PR-3 Reset Run of `default` (a process it holds from before): no process afterwards, its custom variables
+ *        cleared; Reset Process of `default` is refused; starting a process on `default` through
+ *        tomAi_setProcessState is refused
  *   PR-4 Reset Process of r2: back at the first position of its process, only the declared run parameters cleared
  *   PR-5 tomAi_resetProcess: modes, the default run, a wrong mode, a refusal passed on; registered in the tool lists
  *   PR-6 `runParameters` in a definition: validated (names, twice), kept by the serializer, in the JSON schema, an
@@ -59,8 +61,9 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, installProcessMoveMarkers, resetProcessRun } from '../../services/processActionService.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
+import { EMPTY_PROCESS_STATE } from '../../utils/processDefinition.js';
 import { processResetConfirmation, processResetJournalEntry, processResetLines, processResetPlan, processResetRefused } from '../../utils/processReset.js';
-import { RESET_PROCESS_TOOL, QUEST_PROCESS_TOOLS, resetProcessImpl } from '../quest-process-tools.js';
+import { RESET_PROCESS_TOOL, QUEST_PROCESS_TOOLS, SET_PROCESS_STATE_TOOL, resetProcessImpl } from '../quest-process-tools.js';
 import { parseProcessYaml as parseProcessDefinition, stringifyProcessDefinition as serializeProcessDefinition } from '../../utils/processDefinition.js';
 import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
 import { CATEGORY_MAP } from '../../utils/toolCategories.js';
@@ -113,7 +116,12 @@ describe('Reset Run and Reset Process', () => {
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
         for (const r of ['default', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
-        assert.equal(store().apply({ process: 'des' }, 'user').ok, true);
+        // `default` refuses a process; it may still hold one written before the migration (vscimpb122), as here.
+        assert.match(String((store().apply({ process: 'des' }, 'user') as { error?: string }).error), /the run "default" runs no process/);
+        new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests'))
+            .writeStateStack(QUEST, [{ ...EMPTY_PROCESS_STATE, process: 'des', phase: 'p1', step: 'start' }], 'default');
+        store().reload();
+        assert.equal(store().state.process, 'des');
         assert.equal(store().createRun('r2', 'des', 'user', false).ok, true);
         assert.equal(store().currentRun, 'default');
     });
@@ -124,7 +132,7 @@ describe('Reset Run and Reset Process', () => {
         const run = processResetPlan({ ...base, mode: 'run', run: 'r2' });
         assert.equal(run.processAfter, '', 'a run other than default: no process');
         assert.deepEqual(run.variables.map((v) => v.name), ['design', 'design-mode', 'other'], 'every custom variable');
-        assert.equal(processResetPlan({ ...base, mode: 'run', run: 'default' }).processAfter, 'des', 'default keeps its process');
+        assert.equal(processResetPlan({ ...base, mode: 'run', run: 'default' }).processAfter, '', 'default runs no process');
         const proc = processResetPlan({ ...base, mode: 'process', run: 'r2' });
         assert.equal(proc.processAfter, 'des');
         assert.deepEqual(proc.variables.map((v) => v.name), ['design', 'design-mode'], 'only the declared ones that are set');
@@ -143,6 +151,7 @@ describe('Reset Run and Reset Process', () => {
         assert.match(processResetRefused('process', '', [])!, /follows no process/);
         assert.match(processResetRefused('process', 'des', undefined)!, /could not be read/);
         assert.equal(processResetRefused('run', '', undefined), undefined);
+        assert.match(processResetRefused('process', 'des', [], 'default')!, /runs no process: create a new run/);
     });
 
     test('PR-2: Reset Run of r2', async () => {
@@ -163,14 +172,18 @@ describe('Reset Run and Reset Process', () => {
         for (const i of [...queue().items]) { queue().remove(i.id); }
     });
 
-    test('PR-3: Reset Run of default keeps its process', async () => {
+    test('PR-3: Reset Run of default clears the process it still holds', async () => {
         assert.equal(store().apply({ step: 'work' }, 'user').ok, true);
         setVars('default', { design: 'x', keep: 'yes' });
+        assert.match(JSON.stringify(await resetProcessRun('process')), /runs no process: create a new run/, 'Reset Process of default is refused');
         const outcome = await resetProcessRun('run');
         assert.equal(outcome.ok, true, JSON.stringify(outcome));
-        const st = stateOf('default');
-        assert.deepEqual([st.process, st.phase, st.step], ['des', 'p1', 'start'], 'its process, from its first position');
+        assert.equal(stateOf('default').process, '', 'no process afterwards');
         assert.deepEqual(customOf('default'), {});
+        const set = JSON.parse(await SET_PROCESS_STATE_TOOL.execute({ process: 'des' }) as string);
+        assert.match(set.error, /the run "default" runs no process: create a new run to run a process/);
+        assert.equal(stateOf('default').process, '', 'still none');
+        assert.equal(JSON.parse(await SET_PROCESS_STATE_TOOL.execute({ process: 'des', run: 'r2' }) as string).ok, true, 'another run takes it');
     });
 
     test('PR-4: Reset Process of r2 clears only the declared run parameters', async () => {

@@ -27,6 +27,9 @@
  *   - process state: a `process-state.<quest>.yaml` holding one position at
  *     its top becomes a stack of that one level (processDefinition.ts,
  *     ProcessStateStack); its `updated` time stays. Format version 2.
+ *   - default run: a process the quest still follows on `default` moves into
+ *     a run of its own with its chat variables, sessions and queued items;
+ *     `default` keeps no process (defaultRunMigration.ts). Format version 9.
  * And once for the workspace:
  *   - the legacy `mcpServer` block of `.tom/tom_vscode_extension.json` folds
  *     into each quest's existing `extension_config.<quest>.yaml` that has no
@@ -99,6 +102,7 @@ import { renameExplainTemplate } from './explainTodoTemplate';
 import { dropCopilotTemplates } from './copilotTemplates';
 import { convertTemplateText } from './templateExpression';
 import { defaultLocalLlmConfigId, dropLocalLlmPanelKeys, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
+import { migrateDefaultRunProcess } from './defaultRunMigration';
 import { isFlatProcessStateText, parseProcessStateStack, processStateUpdated, stringifyProcessStateStack } from './processDefinition';
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, localDate, readAiFormatStamp, writeAiFormatStamp } from './aiFormatVersion';
 import { expectedBlocking, sameRefs } from './todoBlocking';
@@ -140,7 +144,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'default-run' | 'format-version';
     detail: string;
 }
 
@@ -308,6 +312,17 @@ class Run {
             fs.mkdirSync(path.dirname(marker), { recursive: true });
             fs.writeFileSync(marker, `${STORAGE_VERSION}\n`);
         }
+    }
+
+    // ---- default run ------------------------------------------------------
+
+    /** The process a quest still follows on `default` moves into a run of its own (defaultRunMigration.ts). */
+    defaultRun(quest: string): void {
+        migrateDefaultRunProcess({
+            aiRoot: this.opts.aiRoot, quest, apply: this.opts.apply,
+            change: (d) => this.change(quest, 'default-run', d),
+            problem: (d) => this.problem(quest, 'default-run', d),
+        });
     }
 
     // ---- sessions ---------------------------------------------------------
@@ -742,6 +757,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
         run.sessions(quest);
         run.legacyConfig(quest);
         processStateStack(opts, run, quest);
+        run.defaultRun(quest);
         run.telegramSettings(quest);
     }
     run.mcpServer(all);

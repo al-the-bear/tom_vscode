@@ -36,8 +36,11 @@ import { parse, stringify } from 'yaml';
  *   8  the removed tools tomAi_askCopilot / tomAi_askBigBrother: localLlm.tools
  *      dropped, their names taken out of every tool list (config, user overlay,
  *      the quests' extension_config, the role types)
+ *   9  the `default` run runs no process: a process a quest still follows on
+ *      `default` moved into a run of its own, with its chat variables,
+ *      sessions and queued items (defaultRunMigration.ts)
  */
-export const AI_FORMAT_VERSION = 8;
+export const AI_FORMAT_VERSION = 9;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

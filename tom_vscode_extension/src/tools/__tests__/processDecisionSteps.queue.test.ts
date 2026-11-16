@@ -63,6 +63,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { TEST_RUN, useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
@@ -109,7 +110,7 @@ after(() => {
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const chat = (): ChatVariablesStore => ChatVariablesStore.instance;
-const stateOf = () => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, 'default');
+const stateOf = () => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, TEST_RUN);
 const journal = (): string => { const f = path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; };
 const where = (): string => { const s = stateOf(); return `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}`; };
 const setVar = (name: string, value: string): void => { chat().set(name, value, 'user'); };
@@ -121,7 +122,8 @@ describe('decision steps', () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
-        queue().setRunQueueSettings('default', { autoSend: false, defaultTransport: 'anthropic' });
+        queue().setRunQueueSettings(TEST_RUN, { autoSend: false, defaultTransport: 'anthropic' });
+        useRun(store());
         ok(store().apply({ process: 'branchy' }, 'user'));
         assert.equal(where(), 'p1#1/draft#1');
     });

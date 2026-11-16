@@ -32,6 +32,9 @@
  *   RN-10 every queue item carries its run (vscimpb45): the window's run by default, a run named, the run of the
  *        Proceed it is queued from (ahead of a named one); written to and read from the queue file; a named session
  *        becomes the run's; tomAi_addQueueItem takes `run` (an unknown one refused) and tomAi_listQueue shows it
+ *   RN-12 `default` runs no process (vscimpb122): starting one there is refused (the store, tomAi_setProcessState,
+ *        a subprocess or branch start), clearing it is not; a window on `default` whose process the migration moved
+ *        (`movedTo`) works on that run after a reload — once
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -94,6 +97,7 @@ import { ADD_TO_PROMPT_QUEUE_TOOL, QUEUE_LIST_TOOL } from '../chat-enhancement-t
 import { handleRunMessage, type RunUiPort } from '../../services/processRunActions.js';
 import { liveRunStore } from '../../handlers/processPanel-handler.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
+import { EMPTY_PROCESS_STATE } from '../../utils/processDefinition.js';
 import { DEFAULT_RUN, runNameError, runOfStateFile, runStateFileName } from '../../utils/processRuns.js';
 import {
     CREATE_PROCESS_RUN_TOOL, DELETE_PROCESS_RUNS_TOOL, GET_PROCESS_STATE_TOOL, LIST_PROCESS_RUNS_TOOL,
@@ -144,7 +148,13 @@ function clean(): void {
     for (const i of [...queue().items]) { queue().remove(i.id); }
     store().selectRun(DEFAULT_RUN);
     for (const r of store().runs()) { if (r.run !== DEFAULT_RUN) { store().deleteRuns([r.run]); } }
-    assert.equal(store().apply({ process: 'main', phase: 'p1', step: 'plan' }, 'user').ok, true);
+    // `default` refuses a process now (vscimpb122); these tests compare a run with a `default` that still holds
+    // one from before the migration, written as such a quest has it.
+    store().apply({ process: '' }, 'user');
+    new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests'))
+        .writeStateStack(QUEST, [{ ...EMPTY_PROCESS_STATE, process: 'main', phase: 'p1', step: 'plan' }], DEFAULT_RUN);
+    store().reload();
+    assert.equal(store().state.step, 'plan');
 }
 
 describe('process runs', () => {
@@ -395,8 +405,11 @@ describe('process runs', () => {
             assert.equal(r.ok, true, JSON.stringify(r));
             return queue().items.filter((i) => !i.processMove).at(-1)!;
         };
-        // The default run: the plain name.
-        assert.equal(store().apply({ process: 'sess' }, 'user').ok, true);
+        // The default run refuses the process; one it still holds from before keeps the plain name.
+        assert.equal(store().apply({ process: 'sess' }, 'user').ok, false, '`default` runs no process');
+        new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests'))
+            .writeStateStack(QUEST, [{ ...EMPTY_PROCESS_STATE, process: 'sess', phase: 'p1', step: 'plan' }], DEFAULT_RUN);
+        store().reload();
         assert.equal((await proceed()).session, 'work');
         for (const i of [...queue().items]) { queue().remove(i.id); }
         // Two runs of the same process: two sessions.
@@ -488,6 +501,30 @@ describe('process runs', () => {
         assert.ok(files.includes(`process-state.${QUEST}.chgA.yaml`) && files.includes(`process-state.${QUEST}.chgB.yaml`), files.join(', '));
         assert.match(fs.readFileSync(fileOf('chgA'), 'utf8'), /process: change[\s\S]*step: build/);
         assert.match(fs.readFileSync(fileOf('chgB'), 'utf8'), /process: change[\s\S]*step: g1/);
+        clean();
+    });
+
+    test('RN-12: no process on default; a window follows a moved process once', async () => {
+        clean();
+        store().apply({ process: '' }, 'user');
+        assert.equal(store().state.process, '', 'clearing is allowed');
+        const refused = store().apply({ process: 'main' }, 'user');
+        assert.match(String((refused as { error?: string }).error), /the run "default" runs no process: create a new run to run a process/);
+        const tool = JSON.parse(await SET_PROCESS_STATE_TOOL.execute({ process: 'main' }) as string);
+        assert.match(tool.error, /runs no process[\s\S]*tomAi_createProcessRun/);
+        const nested = store().startNested('subprocess', 'change', 'go-on', 'user');
+        assert.match(String((nested as { error?: string }).error), /runs no process/, 'nothing nests on default');
+        // The migration moved default's process into `moved`: a window on default follows it once.
+        assert.equal(store().createRun('moved', 'main', 'user', false).ok, true);
+        fs.writeFileSync(fileOf(DEFAULT_RUN), 'levels:\n  - process: ""\nupdated: 2026-11-16T12:00:00.000Z\nmovedTo: moved\n');
+        store().reload();
+        assert.equal(store().currentRun, 'moved', 'the window works on the moved run');
+        assert.equal(store().state.process, 'main');
+        assert.equal(store().selectRun(DEFAULT_RUN).ok, true);
+        store().reload();
+        assert.equal(store().currentRun, DEFAULT_RUN, 'once: back on default, it stays');
+        store().deleteRuns(['moved']);
+        fs.writeFileSync(fileOf(DEFAULT_RUN), 'levels:\n  - process: ""\n');
         clean();
     });
 });

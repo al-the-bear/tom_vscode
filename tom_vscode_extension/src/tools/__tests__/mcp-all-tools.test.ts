@@ -360,14 +360,15 @@ function inputs(): Record<string, Input> {
         tomAi_writeChatVariable: { variables: { mcpTest: 'yes' } },
         tomAi_setTimerEngineState: { activated: false },
         tomAi_readChatVariable: { key: 'mcpTest' },
+        // The window works on the run mcpRun (MA-2 selects it first): the `default` run runs no process (vscimpb122).
         tomAi_setProcessState: { process: 'flow' },
         tomAi_getProcessState: { level: -1 },
-        // A run of its own, not selected: the tools after it keep working on the quest's own position.
-        tomAi_createProcessRun: { run: 'mcpRun', process: 'flow', select: false },
+        // Another run, not selected: the tools after it keep working on mcpRun.
+        tomAi_createProcessRun: { run: 'mcpRun2', process: 'flow', select: false },
         // Reset Run of that run: back to no process, its chat variables cleared (not the window's run).
-        tomAi_resetProcess: { mode: 'run', run: 'mcpRun' },
-        tomAi_selectProcessRun: { run: 'default' },
-        tomAi_deleteProcessRuns: { runs: ['mcpRun'] },
+        tomAi_resetProcess: { mode: 'run', run: 'mcpRun2' },
+        tomAi_selectProcessRun: { run: 'mcpRun' },
+        tomAi_deleteProcessRuns: { runs: ['mcpRun2'] },
         tomAi_getSubprocessRuns: { all: true },
         // The sandbox's flow lists no processes to start: the suggestion is refused, nothing starts.
         tomAi_suggestSubprocess: { suggestions: [{ process: 'flow', reason: 'asked by the MCP test' }] },
@@ -708,6 +709,9 @@ describe('every tool over MCP, in a sandbox', () => {
     });
 
     test('MA-2: every registered tool answers', async () => {
+        // The process tools work on a run of their own: the `default` run runs no process.
+        const run = ProcessStateStore.instance!.createRun('mcpRun', undefined, 'user', true);
+        assert.equal(run.ok, true, JSON.stringify(run));
         const given = inputs();
         const unknown = Object.keys(given).filter((n) => !listed.some((t) => t.name === n));
         assert.deepEqual(unknown, [], 'inputs for tools that are not registered');
@@ -756,7 +760,7 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.ok(!fs.existsSync(path.join(WS, 'created/moved.md')), 'tomAi_moveFile then tomAi_deleteFile');
         assert.match(git(WS, 'log', '--format=%s'), /^written by the MCP test\nfixture$/, "tomAi_gitWrite's commit, in the sandbox repository");
         assert.match(fs.readFileSync(path.join(WS, 'notes/doc.md'), 'utf8'), /delta, written by the MCP test/, 'tomAi_docspecsReplaceSection');
-        assert.match(fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.yaml`), 'utf8'), /process: flow/, 'tomAi_setProcessState');
+        assert.match(fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.mcpRun.yaml`), 'utf8'), /process: flow/, 'tomAi_setProcessState');
         assert.ok(fs.existsSync(path.join(WS, 'specs/generated-doc/codespecs_extracts/gate.verdicts.yaml')), 'tomAi_specCodeSpecsSetVerdict');
         const inbox = fs.readdirSync(path.join(WS, '_ai/queue')).filter((f) => f.endsWith('.inbox.queue.yaml'));
         assert.equal(inbox.length, 1, 'tomAi_sendItemToQuest wrote one inbox file');
@@ -777,6 +781,7 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(answerOf('tomAi_getProcessStack'), /"levels": \[\s*\{\s*"level": 0/, 'the stack, bottom first');
         assert.match(answerOf('tomAi_getSubprocessRuns'), /"runs": \[\]/);
         assert.match(answerOf('tomAi_suggestSubprocess'), /"ok": ?false[\s\S]*the step lists no process/, 'refused: the step lists nothing, nothing starts');
+        assert.match(answerOf('tomAi_deleteProcessRuns'), /"ok": ?true/, 'mcpRun2 deleted');
         // The queue tools worked on one item, which the last of them removed.
         assert.match(answerOf('tomAi_updateQueueFollowUp'), /"ok": ?true/);
         assert.match(answerOf('tomAi_removeQueueItem'), /"ok": ?true/);
@@ -791,6 +796,8 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.match(answerOf('tomAi_specMergeReviews'), /nothingReturned/);
         assert.match(answerOf('tomAi_specDecideConflicts'), /unknownConflict/);
         assert.match(answerOf('tomAi_mdInsertQuestion'), /"written": ?false[\s\S]*\*\*❓ RQ-1/);
+        // The tests after this one queue on `default` again; MA-5 names mcpRun.
+        assert.equal(ProcessStateStore.instance!.selectRun('default').ok, true);
     });
 
     test('MA-8: the families the window provides for did their work in the sandbox', () => {
@@ -1015,14 +1022,14 @@ describe('every tool over MCP, in a sandbox', () => {
 
     test('MA-5: the process store remembers a step\'s iteration when it is left', async () => {
         const set = async (args: Record<string, unknown>): Promise<Json> => {
-            const r = await client.callTool({ name: 'tomAi_setProcessState', arguments: args });
+            const r = await client.callTool({ name: 'tomAi_setProcessState', arguments: { run: 'mcpRun', ...args } });
             return JSON.parse((r.content as Array<{ text: string }>)[0].text);
         };
         assert.equal((await set({ process: 'flow', step: 'review', stepIteration: 3 })).state.stepIteration, 3);
         assert.equal((await set({ step: 'gate' })).state.step, 'gate');
         const back = await set({ step: 'review' });
         assert.equal(back.state.stepIteration, 4, 'entered again: the iteration after its last');
-        const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.yaml`), 'utf8');
+        const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.mcpRun.yaml`), 'utf8');
         assert.match(file, /stepIterations:[\s\S]*review: 3/, 'the record is in the state file');
     });
 

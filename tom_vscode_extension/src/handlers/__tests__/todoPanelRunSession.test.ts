@@ -62,6 +62,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub as Record<string, unknown>).QuickPickItemKind = { Separator: -1, Default: 0 };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { seedLegacyDefault } from '../../tools/__tests__/_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -129,7 +130,10 @@ describe('the todo panel\'s session and run', () => {
 
     test('setup: a second run', async () => {
         await ProcessStateStore.ready;
-        assert.equal(store().apply({ process: 'design' }, 'user').ok, true);
+        // `default` refuses a process (vscimpb122); the window's `default` here holds one from before the migration.
+        assert.equal(store().apply({ process: 'design' }, 'user').ok, false);
+        seedLegacyDefault(store(), WS, QUEST, { process: 'design' });
+        assert.equal(store().state.process, 'design');
         assert.equal(store().createRun('r2', 'design', 'user', false).ok, true);
         assert.equal((store().withRun('r2', () => store().apply({ process: 'design', phase: 'p1', step: 'build' }, 'user')) as Json).ok, true);
     });

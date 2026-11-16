@@ -332,6 +332,7 @@
     function runList(c) {
         var runs = c.runs || [];
         var deletable = runs.some(function (r) { return r.run !== 'default'; });
+        var onDefault = runs.some(function (r) { return r.current && r.run === 'default'; });
         var rows = runs.map(function (r) {
             var where = r.process ? r.process + (r.position ? ' — ' + r.position : '') : 'no process yet';
             // What the run works on (its process-subject chat variable), before where it stands.
@@ -351,8 +352,8 @@
             + '<span class="spacer"></span>'
             + '<button class="icon" data-run-create="1" title="New run: a name, then the process it follows (optional); it becomes this window\'s run"><span class="codicon codicon-add"></span></button>'
             + '<button class="icon" data-run-delete="1" title="Delete runs (default is never deleted)"' + (deletable ? '' : ' disabled') + '><span class="codicon codicon-trash"></span></button>'
-            + '<button class="icon" data-run-reset="process" title="Reset Process: this run back to the first position of its process; the run parameters the process declares are cleared (asks first)"' + (current && current.state && current.state.process ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
-            + '<button class="icon" data-run-reset="run" title="Reset Run: everything process-related of this run goes — no process yet (default keeps its process, from its first position), every custom chat variable cleared (asks first)"><span class="codicon codicon-discard"></span></button>'
+            + '<button class="icon" data-run-reset="process" title="Reset Process: this run back to the first position of its process; the run parameters the process declares are cleared (asks first)"' + (current && current.state && current.state.process && !onDefault ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
+            + '<button class="icon" data-run-reset="run" title="Reset Run: everything process-related of this run goes — no process yet, every custom chat variable cleared (asks first)"><span class="codicon codicon-discard"></span></button>'
             + '</div>'
             + '<div class="run-list">' + (rows || '<span class="muted">No runs.</span>') + '</div>'
             + '</div>';
@@ -385,6 +386,15 @@
             root.innerHTML = '<div class="muted">No quest is active. A process state belongs to a quest — choose one in the Chat Variables.</div>';
             return;
         }
+        // The `default` run runs no process: a process runs in a run of its own.
+        var onDefault = (c.runs || []).some(function (r) { return r.current && r.run === 'default'; });
+        if (onDefault && !c.state.process) {
+            root.innerHTML = runList(c) + '<div class="default-run">'
+                + '<span class="codicon codicon-info"></span> <b>default</b> — create a new run to run a process. '
+                + '<button data-run-create="1" title="New run: a name, then the process it follows; it becomes this window\'s run"><span class="codicon codicon-add"></span> New run</button>'
+                + '</div>';
+            return;
+        }
         var levels = c.levels || [];
         var nested = levels.length > 1;
         var running = levels[levels.length - 1];
@@ -414,7 +424,9 @@
         html = top + (c.state.process && c.definition ? actionBar(c.moves) : '') + html;
         // Several runs of the quest (process positions of their own): which one this view shows and moves.
         // The quest's runs (process positions of their own), the last changed first: click one to work on it.
-        html = runList(c) + html;
+        html = runList(c) + (onDefault
+            ? '<div class="warn">The run <b>default</b> runs no process. <b>Reset Run</b> clears the process it still holds; create a new run to run a process.</div>'
+            : '') + html;
         html += nested
             ? row('Process', '<span class="lv-name">' + esc(running.name) + '</span> <code>' + esc(running.process) + '</code>', help('process') + edit, 'process', c.description)
             : row('Process', select('sel-process', procOptions, c.state.process, 'The process this quest follows'),

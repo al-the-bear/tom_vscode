@@ -45,6 +45,7 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
+import { seedLegacyDefault } from '../../tools/__tests__/_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
@@ -85,7 +86,10 @@ const lastState = (panel: Json, type: string): Json => [...panel.webview.__poste
 describe('the context of a Prompt Queue tab\'s run', () => {
     test('setup: two runs at different positions, each with its own chat variable', async () => {
         await ProcessStateStore.ready;
-        assert.equal(store().apply({ process: 'design' }, 'user').ok, true);
+        // `default` refuses a process (vscimpb122); the window's `default` here holds one from before the migration.
+        assert.equal(store().apply({ process: 'design' }, 'user').ok, false);
+        seedLegacyDefault(store(), WS, QUEST, { process: 'design' });
+        assert.equal(store().state.process, 'design');
         assert.equal(store().createRun('r2', 'design', 'user', false).ok, true);
         assert.equal((store().withRun('r2', () => store().apply({ process: 'design', phase: 'p1', step: 'build' }, 'user')) as Json).ok, true);
         chat().set('mode', 'fast', 'user');

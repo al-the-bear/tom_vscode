@@ -2,12 +2,12 @@
  * "Back to the start of the previous phase" (vscimpb93) through the real process store, chat variables and queue:
  * the PROCESS view's button (a move of kind `back-phase`), the choice of the decision after a failed gate (Decide…,
  * tomAi_askInMdBrowser's `reopenDecision` choices — both take the option by its label), the state file and the
- * decisions journal. The window works on `default`; `r2` is another run.
+ * decisions journal. The window works on `r1` (`default` runs no process); `r2` is another run.
  *
- *   BPQ-1 the decision after P2's gate offers "Gate failed — back to the start of the previous phase (P1)"; taking it moves `default` to
+ *   BPQ-1 the decision after P2's gate offers "Gate failed — back to the start of the previous phase (P1)"; taking it moves `r1` to
  *         P1's first step with P1's iteration counted on (2), records P2's iteration, drops the run's open
  *         process-move marker and writes the decisions journal
- *   BPQ-2 the action-bar move in r2 (not the window's run): r2 goes back to P1 (iteration 2), `default` stays
+ *   BPQ-2 the action-bar move in r2 (not the window's run): r2 goes back to P1 (iteration 2), `r1` stays
  *   BPQ-3 counted on again: back in P1 at iteration 2, on to P2 and back once more gives iteration 3
  *   BPQ-4 the PROCESS view shows the move with its own icon
  *   BPQ-5 "Back to the start of the current phase" (vscimpb94) in r2: the action-bar move and the decision's choice each
@@ -117,28 +117,29 @@ describe('Back to the start of the previous phase', () => {
         await ProcessStateStore.ready;
         queue().autoSendEnabled = false;
         queue().setDefaultTransport('anthropic');
-        for (const r of ['default', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
-        assert.equal(store().apply({ process: 'two' }, 'user').ok, true);
+        for (const r of ['default', 'r1', 'r2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
+        // The window works on r1: the `default` run runs no process.
+        assert.equal(store().createRun('r1', 'two', 'user', true).ok, true);
         assert.equal(store().createRun('r2', 'two', 'user', false).ok, true);
-        assert.equal(store().currentRun, 'default');
+        assert.equal(store().currentRun, 'r1');
     });
 
     test('BPQ-1: the choice after a failed gate', async () => {
-        toP2Gate('default');
+        toP2Gate('r1');
         // A Proceed at the gate leaves its prompt and an open process-move marker in the queue.
         const proceeded = await confirmProcessAction('proceed', undefined, '');
         assert.equal(proceeded.ok && proceeded.queued, true, JSON.stringify(proceeded));
         assert.equal(markers(), 1);
-        toDecision('default');
-        assert.equal(where('default'), 'p2#1/g2#1 (decision)');
-        assert.deepEqual(stateOf('default').phaseIterations, { p1: 1 }, 'P1\'s iteration recorded when it was left');
+        toDecision('r1');
+        assert.equal(where('r1'), 'p2#1/g2#1 (decision)');
+        assert.deepEqual(stateOf('r1').phaseIterations, { p1: 1 }, 'P1\'s iteration recorded when it was left');
         const labels = store().moves().filter((m) => m.branchOption).map((m) => m.label);
         assert.deepEqual(labels, ['Gate passed — finish the process', 'Gate failed — run G2 again', 'Gate failed — back to the start of the current phase (P2)', 'Gate failed — back to the start of the previous phase (P1)']);
         assert.deepEqual(decisionOptionLabels(), labels, 'Decide… and the reopenDecision choices offer it');
         const taken = await takeDecisionOption('Gate failed — back to the start of the previous phase (P1)');
         assert.equal(taken.ok, true, JSON.stringify(taken));
-        assert.equal(where('default'), 'p1#2/start#1');
-        assert.deepEqual(stateOf('default').phaseIterations, { p1: 1, p2: 1 });
+        assert.equal(where('r1'), 'p1#2/start#1');
+        assert.deepEqual(stateOf('r1').phaseIterations, { p1: 1, p2: 1 });
         assert.equal(markers(), 0, 'the run\'s open marker went');
         assert.equal(queue().items.filter((i) => i.processRun && !i.processMove).length, 1, 'the step\'s prompt stays');
         assert.match(journal(), /## \S+ — Gate failed — back to the start of the previous phase \(P1\)\n\n- \*\*From:\*\* two › .*G2.*\n- \*\*To:\*\* two › .*Start.* \(phase iteration 2\)\n/);
@@ -147,20 +148,20 @@ describe('Back to the start of the previous phase', () => {
     test('BPQ-2: the action-bar move in another run', async () => {
         assert.equal((store().withRun('r2', () => store().apply({ phase: 'p2' }, 'user')) as { ok: boolean }).ok, true);
         assert.equal(where('r2'), 'p2#1/check#1');
-        const before = where('default');
+        const before = where('r1');
         const moved = await confirmProcessAction('back-phase', undefined, '', undefined, undefined, 'r2');
         assert.equal(moved.ok, true, JSON.stringify(moved));
         assert.equal(where('r2'), 'p1#2/start#1');
-        assert.equal(where('default'), before, 'the window\'s run did not move');
+        assert.equal(where('r1'), before, 'the window\'s run did not move');
         assert.match(journal(), /— Back to the start of the previous phase \(P1\)\n\n- \*\*From:\*\* two › .*Check.*\n- \*\*To:\*\* .*\(phase iteration 2\)\n- \*\*Run:\*\* r2\n/);
     });
 
     test('BPQ-3: counted on again', async () => {
-        toP2Gate('default');
-        toDecision('default');
-        assert.deepEqual(stateOf('default').phaseIterations, { p1: 2, p2: 1 });
+        toP2Gate('r1');
+        toDecision('r1');
+        assert.deepEqual(stateOf('r1').phaseIterations, { p1: 2, p2: 1 });
         assert.equal((await takeDecisionOption('Gate failed — back to the start of the previous phase (P1)')).ok, true);
-        assert.equal(where('default'), 'p1#3/start#1');
+        assert.equal(where('r1'), 'p1#3/start#1');
         assert.equal((await confirmProcessAction('back-phase', undefined, '')).ok, false, 'P1 is the first phase: no move');
     });
 

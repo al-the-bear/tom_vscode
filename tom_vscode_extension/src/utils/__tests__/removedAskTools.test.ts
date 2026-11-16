@@ -7,7 +7,7 @@
  *         a second pass does nothing
  *   RAT-2 a YAML document: the entries go, comments and the other entries stay
  *   RAT-3 the migration: the workspace config and the user overlay, a quest's extension_config and a role type
- *         are listed, then written; the stamp becomes 8; a second run lists nothing for the step
+ *         are listed, then written; the stamp becomes the build's version (8 or later); a second run lists nothing for the step
  *   RAT-4 nothing registers or lists the tools any more: the registry, the tool categories, the default tool
  *         list, package.json, the Status Page; the Status Page keeps the Copilot answer folder
  */
@@ -51,7 +51,7 @@ describe('removed tools tomAi_askCopilot / tomAi_askBigBrother', () => {
     });
 
     test('RAT-3: the migration', () => {
-        assert.equal(AI_FORMAT_VERSION, REMOVED_ASK_TOOLS_FORMAT_VERSION);
+        assert.ok(AI_FORMAT_VERSION >= REMOVED_ASK_TOOLS_FORMAT_VERSION, 'a build at or after the step');
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'removed-ask-tools-'));
         const ai = path.join(root, '_ai');
         const put = (rel: string, text: string): void => { const p = path.join(ai, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); };
@@ -76,7 +76,7 @@ describe('removed tools tomAi_askCopilot / tomAi_askBigBrother', () => {
             assert.deepEqual(JSON.parse(fs.readFileSync(overlay, 'utf8')), { anthropic: { profiles: [{ id: 'x', enabledTools: ['tomAi_readFile'] }] } });
             assert.equal(fs.readFileSync(path.join(ai, 'quests/qa/extension_config.qa.yaml'), 'utf8'), 'mcpServer:\n  enabledTools:\n    - tomAi_readFile\n');
             assert.equal(fs.readFileSync(path.join(ai, 'role-types/coder/role-type.yaml'), 'utf8'), 'tools:\n  mode: select\n  selected:\n    - tomAi_applyEdit\n');
-            assert.equal(readAiFormatStamp(ai)?.version, 8);
+            assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);
             assert.deepEqual(run(false).changes.filter((c) => c.step === 'removed-ask-tools'), [], 'idempotent');
         } finally {
             fs.rmSync(root, { recursive: true, force: true });

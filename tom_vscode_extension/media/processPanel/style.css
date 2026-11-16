@@ -195,3 +195,4 @@ details.level > summary { cursor: pointer; }
 .flow li.current { color: var(--vscode-foreground); }
 .flow li.visited { color: var(--vscode-descriptionForeground); }
 .flow-path { margin: 2px 0 0 18px; }
+.default-run { margin: 6px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
