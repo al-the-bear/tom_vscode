@@ -484,17 +484,23 @@ export interface BlockableTodo extends TodoIterationSource {
 /** The status of a blocker, or `undefined` when no todo with that id exists any more. */
 export type BlockerLookup = (ref: string) => { status?: string } | undefined;
 
-/** A blocker counts as done when it is gone, completed or cancelled. */
+/**
+ * A blocker counts as done when it is completed or cancelled, found live or in
+ * an archived / deleted file; one that exists nowhere does not (an unknown id),
+ * as `_bin/check_todo_blocks.py` and the cascade (todoBlockingCascade.ts) read it.
+ */
 function blockerIsDone(found: { status?: string } | undefined): boolean {
-    if (!found) { return true; }
+    if (!found) { return false; }
     const status = normaliseStatus(found.status);
     return status === 'completed' || status === 'cancelled';
 }
 
 /**
  * The `blocked` todos of a `prefix*` series that may run now: every todo
- * named in `blocked_by` is done — completed, cancelled, or no longer there
- * (deleted, or archived out of the live files). The runner sets them back to
+ * named in `blocked_by` is done — completed or cancelled, live or archived /
+ * deleted. Usually the cascade has released them already when their blocker
+ * completed (todoBlockingCascade.ts); this sweep catches what it missed (a
+ * todo edited outside the extension). The runner sets them back to
  * `not-started` before picking, so a todo that waited on an earlier one of
  * the same list runs as soon as that one is done.
  *
@@ -529,6 +535,8 @@ export interface TodoUnblockPort {
     readTodos(questId: string): BlockableTodo[];
     /** Write a status; `false` when the write did not stick. */
     writeStatus(questId: string, todoId: string, status: string): boolean;
+    /** The status of a todo of the quest in its archived / deleted files; undefined when it is in none. */
+    archivedStatus?(questId: string, todoId: string): string | undefined;
 }
 
 /**
@@ -553,7 +561,10 @@ export function releaseUnblockedTodos(
             todos = new Map(port.readTodos(quest).map((t) => [t.id, t]));
             byQuest.set(quest, todos);
         }
-        return todos.get(id);
+        const live = todos.get(id);
+        if (live) { return live; }
+        const archived = port.archivedStatus?.(quest, id);
+        return archived === undefined ? undefined : { status: archived };
     };
     const released: Array<{ id: string; blockers: string[] }> = [];
     const failed: string[] = [];

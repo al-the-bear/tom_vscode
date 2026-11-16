@@ -28,6 +28,8 @@ import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
+// Registers the hook by which blocked todos follow their blockers on every write (vscimpb121).
+import '../utils/todoBlockingCascade';
 import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
 import { isCompletion } from '../utils/todoOnDoneRun';
 import {

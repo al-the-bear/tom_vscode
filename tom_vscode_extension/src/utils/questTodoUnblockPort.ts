@@ -9,6 +9,8 @@
  */
 
 import type { BlockableTodo, TodoUnblockPort } from './queueStep3Utils';
+import { questStatusIndex } from './todoBlockingCascade';
+import { todoQuestsRoot } from './todoBlockingSync';
 
 export function questTodoUnblockPort(writeStatus: TodoUnblockPort['writeStatus']): TodoUnblockPort {
     return {
@@ -29,5 +31,9 @@ export function questTodoUnblockPort(writeStatus: TodoUnblockPort['writeStatus']
             }
         },
         writeStatus,
+        archivedStatus(questId: string, todoId: string): string | undefined {
+            const root = todoQuestsRoot();
+            return root ? questStatusIndex(root).statusOf(questId, todoId) : undefined;
+        },
     };
 }

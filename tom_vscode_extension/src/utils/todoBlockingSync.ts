@@ -123,6 +123,11 @@ export function setTodoQuestsRoot(questsRoot: string | undefined): void {
     configuredQuestsRoot = questsRoot;
 }
 
+/** The configured quests folder, if any. */
+export function todoQuestsRoot(): string | undefined {
+    return configuredQuestsRoot;
+}
+
 /** The quests folder for `filePath`: the configured one, else the `_ai/quests` its path lies in. */
 function questsRootFor(filePath: string): string | undefined {
     if (configuredQuestsRoot) { return configuredQuestsRoot; }
@@ -143,12 +148,28 @@ export function writeTodoFileText(filePath: string, text: string): BlockingChang
     writeFileAtomic(filePath, text);
     const root = questsRootFor(filePath);
     if (!root) { return []; }
+    let changes: BlockingChange[] = [];
     try {
-        return syncBlockingAfterWrite(filePath, before, text, root);
+        changes = syncBlockingAfterWrite(filePath, before, text, root);
     } catch (e) {
         console.warn(`[todo blocking] sync after writing ${filePath} failed: ${e instanceof Error ? e.message : String(e)}`);
-        return [];
     }
+    // Blocked todos follow their blockers (todoBlockingCascade.ts, vscimpb121).
+    try {
+        afterTodoWriteHook?.(filePath, before, text, root);
+    } catch (e) {
+        console.warn(`[todo blocking] cascade after writing ${filePath} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return changes;
+}
+
+/** Called after every write of a todo file under a quests root (registered by todoBlockingCascade.ts). */
+export type AfterTodoWriteHook = (filePath: string, beforeText: string | undefined, afterText: string, questsRoot: string) => void;
+let afterTodoWriteHook: AfterTodoWriteHook | undefined;
+
+/** Register the hook that runs after every todo-file write (one; a later call replaces it). */
+export function setAfterTodoWriteHook(hook: AfterTodoWriteHook | undefined): void {
+    afterTodoWriteHook = hook;
 }
 
 /** One todo whose `blocking` the sync rewrote. */

@@ -2,7 +2,8 @@
  * The live unblock port over real todo files in a temp workspace.
  *
  *   UP-1  blocked_by and blocked_until are read from the YAML; archived todos are not live
- *   UP-2  end to end: a todo blocked by an earlier one is released once that one is completed, and picked
+ *   UP-2  end to end: a todo blocked by an earlier one is released once that one is completed (by the write's
+ *         blocking cascade, so the queue's sweep finds nothing left to release), and picked
  */
 
 import { describe, test } from 'node:test';
@@ -65,9 +66,8 @@ describe('questTodoUnblockPort', () => {
         ].join('\n'));
         assert.deepEqual(releaseUnblockedTodos('dsa*', 'q2', port).released, [], 'dsa1 still running');
         questTodo.updateTodo('q2', 'dsa1', { status: 'completed' } as never);
-        const r = releaseUnblockedTodos('dsa*', 'q2', port);
-        assert.deepEqual(r.released.map((u) => u.id), ['dsa2']);
-        assert.equal(questTodo.findTodoById('q2', 'dsa2')?.status, 'not-started');
+        assert.equal(questTodo.findTodoById('q2', 'dsa2')?.status, 'not-started', 'released by the completion itself');
+        assert.deepEqual(releaseUnblockedTodos('dsa*', 'q2', port).released, [], 'nothing is released twice');
         assert.equal(questTodo.findTodoById('q2', 'dsa3')?.status, 'blocked', 'a prose-only block stays');
         assert.equal(pickNextTodoForIteration('dsa*', questTodo.readAllTodos('q2'))?.id, 'dsa2');
     });

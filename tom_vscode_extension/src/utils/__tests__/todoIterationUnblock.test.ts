@@ -5,7 +5,7 @@
  * on something stays blocked and is not run.
  *
  *   UB-1  every blocker completed (or cancelled) → released
- *   UB-2  a blocker that no longer exists (deleted, archived away) counts as done
+ *   UB-2  a blocker that exists nowhere (an unknown id) keeps it blocked; one found only archived counts by its status there
  *   UB-3  one open blocker keeps the todo blocked
  *   UB-4  no `blocked_by` (a prose-only block) or a `blocked_until` condition → stays blocked
  *   UB-5  only the series' own blocked todos are considered
@@ -33,9 +33,9 @@ describe('todosToUnblock', () => {
         assert.deepEqual(r, [{ id: 'dsa3', blockers: ['dsa1', 'dsa2'] }]);
     });
 
-    test('UB-2: a blocker that no longer exists counts as done', () => {
+    test('UB-2: an unknown blocker keeps it blocked (check_todo_blocks agrees)', () => {
         const r = todosToUnblock('dsa*', [todo('dsa3', 'blocked', ['gone_ajms-x'])], lookupOf({}));
-        assert.deepEqual(r.map((u) => u.id), ['dsa3']);
+        assert.deepEqual(r, []);
     });
 
     test('UB-3: one open blocker keeps it blocked', () => {
@@ -61,8 +61,8 @@ describe('todosToUnblock', () => {
             todo('xyz3', 'blocked', ['x']),
             todo('dsa4', 'blocked', ['x']),
         ];
-        assert.deepEqual(todosToUnblock('dsa*', todos, lookupOf({})).map((u) => u.id), ['dsa4']);
-        assert.deepEqual(todosToUnblock('7', todos, lookupOf({})), [], 'not a prefix* pattern');
+        assert.deepEqual(todosToUnblock('dsa*', todos, lookupOf({ x: 'completed' })).map((u) => u.id), ['dsa4']);
+        assert.deepEqual(todosToUnblock('7', todos, lookupOf({ x: 'completed' })), [], 'not a prefix* pattern');
     });
 
     test('UB-6: a chain in the list is released one link at a time', () => {
@@ -97,10 +97,12 @@ describe('todosToUnblock', () => {
                 quests[quest].find((x) => x.id === id)!.status = status;
                 return true;
             },
+            // nope9 was completed and archived: found there.
+            archivedStatus: (quest, id) => (quest === 'q' && id === 'nope9' ? 'completed' : undefined),
         };
         const r = releaseUnblockedTodos('dsa*', 'q', port);
         assert.deepEqual(r.released.map((u) => u.id), ['dsa2']);
-        assert.deepEqual(r.failed, ['dsa4'], 'a gone blocker releases it, but the write did not stick');
+        assert.deepEqual(r.failed, ['dsa4'], 'an archived completed blocker releases it, but the write did not stick');
         assert.deepEqual(writes, ['q/dsa2=not-started', 'q/dsa4=not-started']);
         assert.deepEqual(reads, ['q', 'other'], 'each quest read once');
         assert.equal(pickNextTodoForIteration('dsa*', quests.q)?.id, 'dsa2', 'the walk now picks the released todo');

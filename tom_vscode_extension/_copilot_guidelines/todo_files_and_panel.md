@@ -328,6 +328,27 @@ cache (measured 2026-10-29: 60 live files, 175 ms cold, a few ms warm).
 Untouched todos elsewhere are not rewritten: the format migration fills the
 existing corpus.
 
+### Blocked todos follow their blockers
+
+`src/utils/todoBlockingCascade.ts` hooks into `writeTodoFileText`
+(`setAfterTodoWriteHook`, registered when `questTodoManager` loads it). After a
+write of a live quest todo file it compares each todo's status before and
+after; only a crossing between done (completed / cancelled) and not done counts
+(`crossingsOfWrite`), so the dependents' own blocked ↔ not-started writes start
+no further round. For each crossing it reads every quest's todos (live and
+archived, `questStatusIndex`) and decides with the pure `cascadeDecisions`:
+done → a `blocked` dependent whose conditions are all met becomes
+`not-started` / `decision-needed`; reopened → `not-started` /
+`decision-needed` dependents become `blocked`. "Met" agrees with
+`_bin/check_todo_blocks.py` (unknown id and bare quest name not met; archived
+statuses count; `blocked_until` against pub.dev, cached 10 minutes — an
+uncached version is fetched and the decision rerun, `blockingCascadeSettled()`
+for tests). The changes go through `writeTodoFileText` with a notes line each.
+The queue's sweep (`releaseUnblockedTodos`) applies the same `blocked_by` rule
+(archived via `port.archivedStatus`) and finds nothing left after an
+extension write; it catches edits made outside the extension. Tests:
+`managers/__tests__/todoBlockingCascade.test.ts` (BC-1–BC-6).
+
 `applyTodoUpdates` never writes `blocking`; `tomAi_createQuestTodo` /
 `tomAi_updateQuestTodo` refuse it (`validateNoBlocking`); a bridge update that
 sends the whole todo map back carries it harmlessly. The panel shows ⛓️ in a

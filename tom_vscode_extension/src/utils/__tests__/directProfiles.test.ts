@@ -38,7 +38,7 @@ const transportOf = (p: Profile): string | undefined => {
     return LOCAL.has(id) ? 'localLlm' : undefined;
 };
 const HINTS = '${file-CLAUDE-direct.md}';
-const TODO_PROFILES = ['sonnet-5-5-direct', 'opus-5-5-direct', 'fable-5-1-direct', 'haiku-5-5-direct'];
+const TODO_PROFILES = ['sonnet-5-5-direct', 'opus-5-5-direct', 'fable-5-2-direct', 'haiku-5-5-direct'];
 
 describe('the direct and Local LLM profiles', () => {
     test('DP-1: the hints file and the effort', () => {

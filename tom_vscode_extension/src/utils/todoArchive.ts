@@ -53,6 +53,8 @@ import {
 import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
 import { todayLocalDate } from './todoDates';
 import { writeTodoFileText } from './todoBlockingSync';
+// Registers the write hook that lets blocked todos follow their blockers (vscimpb121).
+import './todoBlockingCascade';
 
 // ============================================================================
 // Result types
