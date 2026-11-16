@@ -500,7 +500,9 @@ function renderEntry(item, idx) {
             ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'
             : '') +
           '#' + queuePos + '  ' + time + (sentTime ? ' \u2192 ' + sentTime : '') +
-          ' <span class="codicon ' + typeIconClass + '" style="color:#000;"></span>' +
+          ' <button class="icon-btn queue-live-trail-btn" type="button" onclick="event.stopPropagation(); openItemLiveTrail(\'' + safeId + '\')"'
+            + ' title="' + escapeHtml('Open the live trail of session ' + chipSessionName + ' (the session this prompt runs in)') + '">'
+            + '<span class="codicon ' + typeIconClass + '" style="color:#000;"></span></button>' +
         '</span>' +
       '</div>' +
     '</div>';

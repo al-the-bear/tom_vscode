@@ -16,6 +16,9 @@
  *        clicking it posts `editItemSession`
  *   QC-5 the host: `editItemSession` opens the item's session picker — it no longer falls through into
  *        `pickRole`, which opened the ROLE picker — and the state carries every session's base and lifetime
+ *   QC-6 the item headline's type icon is a button: it posts `openItemLiveTrail` with the item's id, its title names
+ *        the session the item runs in; the host opens that session's live trail (the chat panel's liveTrail action),
+ *        a Copilot item gets a note instead
  */
 
 import test, { describe } from 'node:test';
@@ -130,5 +133,21 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.match(caseBlock('editItemSession'), /pickAgentSdkSession\([\s\S]*pqm\.updateItemSession\(id, picked\)/, 'the session picker, then the item');
         assert.doesNotMatch(caseBlock('pickRole'), /editItemSession/);
         assert.match(handler, /sessionInfo = sessionInfoOf\(listSessions\(sessionsFolder\(/);
+    });
+
+    test('QC-6: the type icon opens the item\'s live trail', (t) => {
+        const { window, posted } = setup(t, {
+            items: [{ id: 'it1', status: 'sending', type: 'normal', originalText: 'x', createdAt: '2026-10-26T10:00:00Z', transport: 'anthropic', followUps: [], session: 'walk' }],
+            sessionInfo: { walk: { mode: 'continue' } },
+        });
+        const btn = window.document.querySelector('.queue-live-trail-btn');
+        assert.ok(btn, 'a button in the headline');
+        assert.ok(btn.querySelector('.codicon-comment'), 'the same icon');
+        assert.match(btn.title, /live trail of session walk/);
+        posted.length = 0;
+        window.eval(btn.getAttribute('onclick').replace('event.stopPropagation(); ', ''));
+        assert.deepEqual(posted, [{ type: 'openItemLiveTrail', id: 'it1' }]);
+        const handler = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        assert.match(handler, /case 'openItemLiveTrail': \{[\s\S]{0,400}stageSessionOf\(msg\.id\)[\s\S]{0,300}runChatSessionAction\('liveTrail', session\)/);
     });
 });

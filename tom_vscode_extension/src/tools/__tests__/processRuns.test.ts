@@ -454,6 +454,10 @@ describe('process runs', () => {
         assert.equal(store().createRun('qr1', 'main', 'user', true).ok, true);
         const inRun = await add({ session: 'notes' });
         assert.deepEqual([inRun.run, inRun.session], ['qr1', 'notes@qr1'], 'the window\'s run, and its session');
+        assert.equal(queue().stageSessionOf((await add({ session: 'notes', transport: 'anthropic' })).id), 'notes@qr1', 'its live trail: the session it runs in');
+        const runDefault = await add({ transport: 'anthropic' });
+        assert.equal(queue().stageSessionOf(runDefault.id), 'default@qr1', 'no session of its own: the run\'s queue session');
+        assert.equal(queue().stageSessionOf((await add({ transport: 'copilot' })).id), undefined, 'a Copilot item: no live trail');
         assert.equal((await add({ run: DEFAULT_RUN })).run, DEFAULT_RUN, 'a run named');
         assert.equal(store().createRun('qr2', 'main', 'user', false).ok, true);
         const proceedRun = { quest: QUEST, state: store().state, run: 'qr2' };

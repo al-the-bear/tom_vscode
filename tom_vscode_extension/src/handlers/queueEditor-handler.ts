@@ -50,6 +50,7 @@ import { questTrailFolder } from '../utils/questPaths';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
+import { runChatSessionAction } from './chatPanel-handler';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -792,6 +793,17 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'toggleReminder':
             qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
             break;
+        case 'openItemLiveTrail': {
+          // The item headline's icon: the live trail of the session the item runs in (live MD Browser).
+          const session = typeof msg.id === 'string' ? PromptQueueManager.instance.stageSessionOf(msg.id) : undefined;
+          if (!session) {
+            void vscode.window.showInformationMessage('This item goes to Copilot, which writes no live trail.');
+            return;
+          }
+          await runChatSessionAction('liveTrail', session);
+          return;
+        }
+
         case 'setPauseAfter':
             qm.setPauseAfter(msg.id, !!msg.pauseAfter);
             break;

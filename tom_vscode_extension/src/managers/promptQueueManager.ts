@@ -3912,6 +3912,19 @@ export class PromptQueueManager {
         return { requestId: pending.requestId, askedAt: pending.createdAt, ...(pending.title ? { title: pending.title } : {}), firstLine };
     }
 
+    /**
+     * The Anthropic session item `id` runs (or will run) in — its own, else its
+     * run's queue session — whose live trail the queue editor's item icon opens;
+     * undefined for an unknown item or one that goes to Copilot (no live trail).
+     */
+    stageSessionOf(id: string): string | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return undefined; }
+        const resolved = this.resolveStageTransport(item);
+        if ((item.lastDispatched?.transport ?? resolved.transport) === 'copilot') { return undefined; }
+        return resolved.session || 'default';
+    }
+
     /** The transport item `id`'s running stage went out on (its last dispatch, else as resolved now). */
     stageTransportOf(id: string): QueuedTransport | undefined {
         const item = this._items.find(i => i.id === id);
