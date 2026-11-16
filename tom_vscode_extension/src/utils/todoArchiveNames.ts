@@ -115,3 +115,18 @@ export function archivedTodoFileName(fileName: string): string {
 export function deletedTodoFileName(fileName: string): string {
     return derivedName(fileName, DELETED_SUFFIX);
 }
+
+/**
+ * The live file a terminal sibling came from: the `-archived` / `-deleted`
+ * suffix taken off its first segment (`todos-archived.q.todo.yaml` →
+ * `todos.q.todo.yaml`). A live file name is answered as it is.
+ */
+export function liveTodoFileName(fileName: string): string {
+    const dir = path.dirname(fileName);
+    const base = path.basename(fileName);
+    const dot = base.indexOf('.');
+    const first = dot === -1 ? base : base.slice(0, dot);
+    const rest = dot === -1 ? '' : base.slice(dot);
+    const live = first.replace(/-(archived|deleted)$/, '') + rest;
+    return dir === '.' && !fileName.includes(path.sep) && !fileName.includes('/') ? live : path.join(dir, live);
+}

@@ -63,6 +63,7 @@
 
 ## Quest TODO Panel — top bar
 
+- Quest scope button (one quest / the open windows' quests / all quests with checkboxes; kept per view), file toggles (live, archived, deleted — archived and deleted read-only with ↩️ Restore), order with several quests (groups of all quests / by quest then groups / by quest then list), quest prefix toggle (on by default with several quests)
 - Right end: session button and Run select, **Done notification** toggle (bell, pressed = on, kept per quest), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue, Send
 
 ## Quest TODO Panel — prefix groups

@@ -39,6 +39,8 @@ import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitc
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { isArchivedOrDeletedTodoFile } from '../utils/todoArchiveNames';
+import { restoreTodos } from '../utils/todoArchive';
+import { defaultTodoPanelScope, isPlainScope, normalizeTodoPanelScope, questPrefixShown, resolveScopeQuests, retiredKindOf, scopeButtonText, scopeFileScope, todoPanelScopeKey, type TodoPanelScope } from '../utils/todoPanelScope';
 import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
@@ -392,6 +394,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
     const isInvalidQuest = cfg.fixedQuestId === '__invalid_quest__';
 
     const effectiveQuestId = (incoming?: string): string => {
+        // A panel showing several quests (its scope, vscimpb137) acts on each todo's own quest.
+        if (incoming === '__all_quests__' && _scopeInstance(cfg)) { return incoming; }
         if (cfg.fixedQuestId) { return cfg.fixedQuestId; }
         return incoming || '';
     };
@@ -444,6 +448,42 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const run = typeof msg.run === 'string' && runs.includes(msg.run) ? msg.run : 'default';
             await _extensionContext?.workspaceState.update(todoPanelRunKey(quest), run === 'default' ? undefined : run);
             _postRunSession();
+            return true;
+        }
+        // The quest scope (vscimpb137): which quests and files the panel shows.
+        case 'qtGetScope':
+            _postScope(cfg, post);
+            return true;
+        case 'qtSetScope': {
+            const instance = _scopeInstance(cfg);
+            if (!instance) { return true; }
+            await _saveScope(instance, normalizeTodoPanelScope(msg.scope, _windowQuest()));
+            _postScope(cfg, post);
+            return true;
+        }
+        case 'qtPickScope': {
+            const instance = _scopeInstance(cfg);
+            if (!instance) { return true; }
+            const picked = await _pickScope(_scopeOf(instance, cfg));
+            if (picked) { await _saveScope(instance, picked); }
+            _postScope(cfg, post);
+            return true;
+        }
+        case 'qtRestoreTodo': {
+            // An archived or deleted todo back into the live file it came from.
+            const todoId = String(msg.todoId || '');
+            const abs = _resolveArchiveSourcePath(effectiveQuestId(msg.questId), undefined, msg.sourceFile, false, workspaceFilePath);
+            if (!todoId || !abs) {
+                vscode.window.showErrorMessage(`Restore: cannot find the file of ${todoId || 'the todo'}.`);
+                return true;
+            }
+            const result = restoreTodos(abs, [todoId]);
+            if (result.error || !result.moved.length) {
+                vscode.window.showErrorMessage(`Restore of ${todoId} refused: ${result.error ?? result.skipped.map((k) => k.reason).join('; ')}`);
+            } else {
+                void vscode.window.showInformationMessage(`Restored ${todoId} into ${path.basename(result.targetFile)}.`);
+                post({ type: 'qtRefreshRequest' });
+            }
             return true;
         }
         case 'qtSaveState':
@@ -576,6 +616,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                     const fp = WsPaths.ai('quests', cfg.fixedQuestId, ensureFile) || path.join(wsRoot, '_ai', 'quests', cfg.fixedQuestId, ensureFile);
                     questTodo.ensureTodoFile(fp, { quest: cfg.fixedQuestId });
                 }
+            }
+            // A panel with a scope shows several quests as `__all_quests__`: its scope's quests and files.
+            if (effectiveQuestId(msg.questId) === '__all_quests__' && _scopeInstance(cfg)) {
+                _sendScopedTodoList(_scopeOf(_scopeInstance(cfg)!, cfg), post);
+                return true;
             }
             _sendTodoList(effectiveQuestId(msg.questId), effectiveFile(msg.file), post);
             return true;
@@ -1896,10 +1941,9 @@ export function setupQuestTodoWatcher(refreshFn: () => void): vscode.Disposable 
 
 /** Send the full todo list refresh to the webview */
 export function sendQuestTodoRefresh(webview: vscode.Webview): void {
-    const activeQuest = WsPaths.getWorkspaceQuestId();
-    if (activeQuest === 'default') return;
-    const post = (m: any) => webview.postMessage(_withQueueMarks(m, webview));
-    _sendTodoList(activeQuest, 'all', post);
+    // The panel reloads what it shows (its quest and file, or its scope's quests): a todo file of any
+    // quest changed. Sending the window's quest list instead replaced a panel showing another quest.
+    void webview.postMessage({ type: 'qtRefreshRequest' });
 }
 
 // ============================================================================
@@ -2079,6 +2123,130 @@ function _moveTodoToSiblingByStatus(filePath: string, todoId: string): questTodo
     return questTodo.moveTodoToSiblingByStatus(filePath, todoId);
 }
 
+// ============================================================================
+// The quest scope (vscimpb137)
+// ============================================================================
+
+/** The panel instance a scope is kept for: the quest todo views; none for session, workspace and single-file panels. */
+function _scopeInstance(cfg: QuestTodoViewConfig): string | undefined {
+    if (cfg.mode === 'session' || cfg.mode === 'workspace-file' || cfg.fixedFile || cfg.fixedQuestId === '__invalid_quest__') { return undefined; }
+    return cfg.mode === 'fixed-file' ? 'quest-todos' : 'ws';
+}
+
+function _windowQuest(): string {
+    const q = WsPaths.getWorkspaceQuestId();
+    return q && q !== 'default' ? q : '';
+}
+
+/** The quests of the windows with a live heartbeat on this machine (tomAi_getQuestWindowStatus's source). */
+function _openWindowQuests(): string[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const ws = require('./windowStatusPanel-handler.js') as typeof import('./windowStatusPanel-handler');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const hb = require('../utils/windowHeartbeat.js') as typeof import('../utils/windowHeartbeat');
+        const now = Date.now();
+        return ws.loadAllWindowStates().filter((s) => hb.isWindowAlive(s, now)).map((s) => s.activeQuest).filter((q) => !!q && q !== 'default');
+    } catch {
+        return [];
+    }
+}
+
+function _scopeSources(): { all: string[]; open: string[]; windowQuest: string } {
+    const windowQuest = _windowQuest();
+    const open = _openWindowQuests();
+    return { all: listQuestIds(), open: windowQuest && !open.includes(windowQuest) ? [windowQuest, ...open] : open, windowQuest };
+}
+
+/** The panel's scope: stored per instance; unset, its own quest (the @WS section's last quest, else the window's). */
+function _scopeOf(instance: string, cfg: QuestTodoViewConfig): TodoPanelScope {
+    const stored = _extensionContext?.workspaceState.get<unknown>(todoPanelScopeKey(instance));
+    const own = cfg.fixedQuestId || (instance === 'ws' ? (_loadPanelState().questId || '') : '') || _windowQuest();
+    return stored ? normalizeTodoPanelScope(stored, own) : defaultTodoPanelScope(own);
+}
+
+async function _saveScope(instance: string, scope: TodoPanelScope): Promise<void> {
+    await _extensionContext?.workspaceState.update(todoPanelScopeKey(instance), scope);
+}
+
+/**
+ * Tell the panel its scope: the quests it resolves to, whether it is the panel as it always was
+ * (`plain`: its own quest, live files — loaded the usual way), the button text, the quest prefix.
+ */
+function _postScope(cfg: QuestTodoViewConfig, post: (m: any) => void): void {
+    const instance = _scopeInstance(cfg);
+    if (!instance) { post({ type: 'qtScope', available: false }); return; }
+    const scope = _scopeOf(instance, cfg);
+    const sources = _scopeSources();
+    const quests = resolveScopeQuests(scope, sources);
+    const plain = cfg.mode === 'fixed-file'
+        ? isPlainScope(scope, quests, cfg.fixedQuestId || '')
+        : scope.kind === 'one' && quests.length === 1 && isPlainScope(scope, quests, quests[0]);
+    post({
+        type: 'qtScope',
+        available: true,
+        scope,
+        quests,
+        plain,
+        buttonText: scopeButtonText(scope, quests, sources.all.length),
+        prefix: questPrefixShown(scope, quests.length),
+    });
+}
+
+/** The scope picker: one quest, the open windows' quests, or all quests (then which, with checkboxes). */
+async function _pickScope(current: TodoPanelScope): Promise<TodoPanelScope | undefined> {
+    const sources = _scopeSources();
+    type Item = vscode.QuickPickItem & { scope?: Partial<TodoPanelScope> };
+    const items: Item[] = [
+        { label: "$(window) Open windows' quests", description: sources.open.join(', ') || 'none open', scope: { kind: 'open' }, picked: current.kind === 'open' },
+        { label: '$(list-tree) All quests…', description: 'choose which with checkboxes', scope: { kind: 'all' }, picked: current.kind === 'all' },
+        { label: 'One quest', kind: vscode.QuickPickItemKind.Separator },
+        ...sources.all.map((q): Item => ({
+            label: q,
+            description: [q === sources.windowQuest ? 'this window' : '', current.kind === 'one' && current.quest === q ? 'shown' : ''].filter(Boolean).join(' · ') || undefined,
+            scope: { kind: 'one', quest: q },
+        })),
+    ];
+    const choice = await vscode.window.showQuickPick(items, { title: 'Quests the todo panel shows', placeHolder: "One quest, the open windows' quests, or all quests" });
+    if (!choice?.scope) { return undefined; }
+    const next: TodoPanelScope = { ...current, kind: choice.scope.kind!, quest: choice.scope.quest, picked: undefined };
+    if (next.kind !== 'one') { delete next.quest; }
+    if (next.kind === 'all') {
+        const was = new Set(current.kind === 'all' && current.picked ? current.picked : sources.all);
+        const ticked = await vscode.window.showQuickPick(sources.all.map((q) => ({ label: q, picked: was.has(q) })), {
+            title: 'All quests: the ones to see', canPickMany: true, placeHolder: 'Tick the quests the panel shows',
+        });
+        if (!ticked) { return undefined; }
+        const names = ticked.map((t) => t.label);
+        if (names.length < sources.all.length) { next.picked = names; }
+    }
+    return normalizeTodoPanelScope(next, sources.windowQuest);
+}
+
+/**
+ * The todos of the scope's quests, from the files its toggles admit: each row's
+ * source file `<quest>/<file>` (as the all-quests list has it), an archived or
+ * deleted one marked `retired`.
+ */
+function _sendScopedTodoList(scope: TodoPanelScope, post: (m: any) => void): void {
+    const quests = resolveScopeQuests(scope, _scopeSources());
+    const fileScope = scopeFileScope(scope.files);
+    const rows: TodoListItem[] = [];
+    for (const qid of quests) {
+        for (const file of questTodo.listTodoFiles(qid, fileScope)) {
+            let items: questTodo.QuestTodoItem[] = [];
+            try { items = questTodo.readTodoFile(questTodo.questTodoFilePath(qid, file)); } catch { continue; }
+            const retired = retiredKindOf(file);
+            for (const t of items) {
+                const row = todoListItem(t, `${qid}/${file}`) as TodoListItem & { retired?: string };
+                if (retired) { row.retired = retired; }
+                rows.push(row);
+            }
+        }
+    }
+    post({ type: 'qtTodos', todos: _withTodoGroups(rows, '__all_quests__'), questId: '__all_quests__', file: 'all', scoped: true });
+}
+
 function _sendTodoList(questId: string, file: string | undefined, post: (m: any) => void): void {
     if (!questId) return;
     try {
@@ -2107,8 +2275,15 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
     let todo: questTodo.QuestTodoItem | undefined;
     let resolvedQuestId = questId;
     if (questId === '__all_quests__') {
-        // Search across all quests
-        for (const qid of listQuestIds()) {
+        // The row's file (`<quest>/<file>`, archived and deleted siblings included), else every quest's live files.
+        const slash = (sourceFile ?? '').indexOf('/');
+        if (slash > 0 && !path.isAbsolute(sourceFile!)) {
+            const qid = sourceFile!.slice(0, slash);
+            const fp = questTodo.questTodoFilePath(qid, sourceFile!.slice(slash + 1));
+            todo = fs.existsSync(fp) ? questTodo.findTodoByIdInFile(fp, todoId) : undefined;
+            if (todo) { resolvedQuestId = qid; }
+        }
+        for (const qid of todo ? [] : listQuestIds()) {
             todo = questTodo.findTodoById(qid, todoId);
             if (todo) { resolvedQuestId = qid; break; }
         }
@@ -2132,6 +2307,9 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
     }
     const payload: any = todo ? { ...todo } : null;
     if (payload && resolvedQuestId !== questId) { payload._resolvedQuestId = resolvedQuestId; }
+    // An archived or deleted todo is shown read-only, with Restore (vscimpb137).
+    const retired = payload && sourceFile ? retiredKindOf(sourceFile) : undefined;
+    if (retired) { payload._retired = retired; }
     // Todo groups (vscimpb126): the groups it belongs to, and a group's members with title and status.
     if (payload && resolvedQuestId && !resolvedQuestId.startsWith('__')) {
         const root = todoQuestsRoot();
@@ -2746,6 +2924,15 @@ function _findTodoForPromptAction(questId: string, todoId: string, sourceFile?: 
     if (!questId || !todoId) return undefined;
 
     if (questId === '__all_quests__') {
+        // A row of the scoped list names its file `<quest>/<file>` (vscimpb137).
+        const slash = (sourceFile ?? '').indexOf('/');
+        if (sourceFile && slash > 0 && !path.isAbsolute(sourceFile)) {
+            const fp = questTodo.questTodoFilePath(sourceFile.slice(0, slash), sourceFile.slice(slash + 1));
+            if (fs.existsSync(fp)) {
+                const found = questTodo.findTodoByIdInFile(fp, todoId);
+                if (found) { return found; }
+            }
+        }
         if (sourceFile) {
             const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (wsRoot) {

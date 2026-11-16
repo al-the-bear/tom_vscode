@@ -61,6 +61,16 @@ var qtLastRenderOrder = [];
 // after a window reload or a VS Code restart, and an empty set on every fresh
 // script load IS that state — nothing to store, nothing to migrate.
 var qtExpandedGroups = {};
+/*
+ * The quest scope (vscimpb137), from the host's qtScope: the scope, the quests it shows, whether
+ * the panel shows several quests or files beyond the live ones (`qtScopeMulti`: the list is
+ * `__all_quests__`, each row's source file `<quest>/<file>`), how they are arranged, the quest prefix.
+ */
+var qtScopeState = null;
+var qtScopeQuests = [];
+var qtScopeMulti = false;
+var qtScopeOrder = 'combined';
+var qtShowQuestPrefix = false;
 /**
  * Queue buttons of todo groups (the group's header and its detail view) queue
  * the group as a GROUP item to the panel's queue target (vscimpb127).
@@ -313,9 +323,7 @@ function qtNavPush(todoId) {
     if (searchInput) searchInput.addEventListener('input', function() { qtFilterSearch = this.value.toLowerCase(); qtRenderList(); });
     if (btnFilter) btnFilter.addEventListener('click', function(e) { e.stopPropagation(); qtToggleFilterPicker(); });
     if (btnSort) btnSort.addEventListener('click', function(e) { e.stopPropagation(); qtToggleSortPicker(); });
-    if (btnReload) btnReload.addEventListener('click', function() {
-        vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
-    });
+    if (btnReload) btnReload.addEventListener('click', function() { qtReloadView(); });
     if (btnDeleteAll) {
         if (qtViewConfig.mode === 'session') {
             btnDeleteAll.style.display = '';
@@ -339,6 +347,7 @@ function qtNavPush(todoId) {
         qtCurrentTemplate = this.value || '__none__';
         qtRenderTemplateButton();
     });
+    qtInitScopeControls();
     var templateBtn = document.getElementById('qt-template-btn');
     if (templateBtn) templateBtn.addEventListener('click', function(e) {
         e.preventDefault();
@@ -442,6 +451,8 @@ function qtNavPush(todoId) {
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
     vscode.postMessage({ type: 'qtGetTemplates' });
+    // The quest scope (vscimpb137): the host answers qtScope.
+    vscode.postMessage({ type: 'qtGetScope' });
     // The panel's session and run (vscimpb60d): the host answers qtRunSession, and again on every change.
     vscode.postMessage({ type: 'qtGetRunSession' });
     qtRenderRunSessionControls();
@@ -546,6 +557,114 @@ function qtSelectedTemplateId() {
     return qtCurrentTemplate || '__none__';
 }
 
+/** Load again what the panel shows: its scope's quests, or its quest and file (session and workspace views too). */
+function qtReloadView() {
+    if (!qtCurrentQuestId) return;
+    vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+}
+
+/** The scope controls: the quest picker, the three file toggles, the order, the quest prefix. */
+function qtInitScopeControls() {
+    var scopeBtn = document.getElementById('qt-scope-btn');
+    if (scopeBtn) scopeBtn.addEventListener('click', function(e) { e.preventDefault(); vscode.postMessage({ type: 'qtPickScope' }); });
+    ['live', 'archived', 'deleted'].forEach(function(kind) {
+        var btn = document.getElementById('qt-files-' + kind);
+        if (!btn) return;
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!qtScopeState) return;
+            var files = Object.assign({}, qtScopeState.files);
+            files[kind] = !files[kind];
+            qtSetScope({ files: files });
+        });
+    });
+    var order = document.getElementById('qt-quest-order');
+    if (order) order.addEventListener('change', function() { qtSetScope({ order: order.value }); });
+    var prefixBtn = document.getElementById('qt-quest-prefix');
+    if (prefixBtn) prefixBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        qtSetScope({ prefix: !qtShowQuestPrefix });
+    });
+}
+
+/** Change the scope: the host keeps it for this panel and answers qtScope. */
+function qtSetScope(change) {
+    if (!qtScopeState) return;
+    vscode.postMessage({ type: 'qtSetScope', scope: Object.assign({}, qtScopeState, change) });
+}
+
+var QT_FILE_TITLES = {
+    live: ['Live todos', 'the quest and session todo files'],
+    archived: ['Archived todos', 'the -archived siblings: read-only, with Restore'],
+    deleted: ['Deleted todos', 'the -deleted siblings: read-only, with Restore'],
+};
+
+function qtSetToggle(btn, on, title) {
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('pressed', !!on);
+    if (title) btn.title = title;
+}
+
+/**
+ * The host's scope: show the controls, then load. Its own quest with live files (`plain`) is the
+ * panel as it always was; anything else lists `__all_quests__` (the host reads the scope).
+ */
+function qtApplyScope(msg) {
+    var box = document.getElementById('qt-scope-controls');
+    if (!msg.available) { if (box) box.style.display = 'none'; return; }
+    qtScopeState = msg.scope;
+    qtScopeQuests = msg.quests || [];
+    qtScopeOrder = (msg.scope && msg.scope.order) || 'combined';
+    qtShowQuestPrefix = msg.prefix === true;
+    if (box) box.style.display = '';
+    // The scope picker takes the quest select's place.
+    var questSel = document.getElementById('qt-quest-select');
+    if (questSel) { questSel.style.display = 'none'; if (questSel.previousElementSibling) questSel.previousElementSibling.style.display = 'none'; }
+    var scopeBtn = document.getElementById('qt-scope-btn');
+    if (scopeBtn) {
+        var nameEl = scopeBtn.querySelector('.qt-scope-name');
+        if (nameEl) nameEl.textContent = msg.buttonText || '';
+        scopeBtn.title = 'Quests: ' + (qtScopeQuests.join(', ') || 'none') + ' \u2014 click to pick one quest, the open windows\' quests or all quests';
+    }
+    ['live', 'archived', 'deleted'].forEach(function(kind) {
+        var on = !!(msg.scope && msg.scope.files && msg.scope.files[kind]);
+        qtSetToggle(document.getElementById('qt-files-' + kind), on, QT_FILE_TITLES[kind][0] + ': ' + (on ? 'shown' : 'hidden') + ' \u2014 ' + QT_FILE_TITLES[kind][1] + '. Click to ' + (on ? 'hide' : 'show') + ' them.');
+    });
+    var order = document.getElementById('qt-quest-order');
+    if (order) { order.value = qtScopeOrder; order.style.display = qtScopeQuests.length > 1 ? '' : 'none'; }
+    qtSetToggle(document.getElementById('qt-quest-prefix'), qtShowQuestPrefix, 'Quest in front of todo ids: ' + (qtShowQuestPrefix ? 'on' : 'off') + '. Click to turn it ' + (qtShowQuestPrefix ? 'off' : 'on') + '.');
+    var fileSel = document.getElementById('qt-file-select');
+    if (msg.plain) {
+        var quest = qtScopeQuests[0];
+        var wasMulti = qtScopeMulti;
+        qtScopeMulti = false;
+        if (fileSel && !qtViewConfig.hideFileSelect) { fileSel.style.display = ''; }
+        if (wasMulti || quest !== qtCurrentQuestId) {
+            qtCurrentQuestId = quest;
+            qtCurrentFile = qtViewConfig.defaultFile || 'all';
+            if (questSel) questSel.value = quest;
+            if (fileSel) fileSel.value = qtCurrentFile;
+            vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+            qtPersistState();
+        } else {
+            qtRenderList();
+        }
+        return;
+    }
+    qtScopeMulti = true;
+    qtCurrentQuestId = '__all_quests__';
+    qtCurrentFile = 'all';
+    if (fileSel) fileSel.style.display = 'none';
+    vscode.postMessage({ type: 'qtGetTodos', questId: '__all_quests__', file: 'all' });
+}
+
+/** Restore an archived or deleted todo into the live file it came from. */
+function qtRestoreTodo(id) {
+    if (!id) return;
+    vscode.postMessage({ type: 'qtRestoreTodo', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
+}
+
 /** A template name on the template button: at most 20 characters, cut with an ellipsis. */
 function qtTemplateButtonText(name) {
     var s = String(name || '');
@@ -602,6 +721,14 @@ function qtToggleGroup(prefix) {
 /** Open every prefix group of the todos loaded (the list is not re-rendered). */
 function qtExpandAllGroupsState() {
     qtGroupTodosByPrefix(qtTodos).forEach(function(g) { qtExpandedGroups['#' + g.prefix] = true; });
+    // Several quests by quest: every quest and each quest's groups.
+    if (qtScopeMulti) {
+        qtTodos.forEach(function(t) {
+            var q = qtQuestKey(t);
+            qtExpandedGroups['#' + qtQuestGroupKey(q)] = true;
+            qtExpandedGroups['#' + q + '::' + qtTodoPrefix(t.id)] = true;
+        });
+    }
     qtTodoGroupsOf(qtTodos, qtCurrentQuestId).forEach(function(g) { qtExpandedGroups['#' + qtTodoGroupKey(g.todo.id)] = true; });
 }
 
@@ -717,6 +844,14 @@ function qtCollapseAllGroups() {
  */
 function qtExpandGroupForTodo(id) {
     qtExpandedGroups['#' + qtTodoPrefix(id)] = true;
+    if (qtScopeMulti) {
+        var row = qtTodos.find(function(t) { return t.id === id; });
+        var q = row ? qtQuestKey(row) : '';
+        if (q) {
+            qtExpandedGroups['#' + qtQuestGroupKey(q)] = true;
+            qtExpandedGroups['#' + q + '::' + qtTodoPrefix(id)] = true;
+        }
+    }
 }
 
 /**
@@ -821,7 +956,14 @@ function qtRenderTodoRow(t) {
     // Terminal (-archived / -deleted) files refuse archive/delete moves,
     // so suppress the per-item trash button for todos sourced from them.
     var isTerminalSrc = qtIsTerminalTodoFileName(t.sourceFile || qtCurrentFile);
-    if (isDone) {
+    // An archived or deleted todo (the scope's file toggles, vscimpb137): read-only, one action, Restore.
+    var retired = t.retired || '';
+    var restoreBtn = '';
+    if (retired) {
+        cls += ' retired';
+        restoreBtn = '<span class="qt-retired-badge" title="An ' + retired + ' todo: read-only">' + retired + '</span>' +
+            '<button class="qt-restore-btn" data-qt-restore="' + qtEsc(t.id) + '" title="Restore: back into the live file it came from">↩️ Restore</button>';
+    } else if (isDone) {
         trashBtn = isTerminalSrc ? '' : '<button class="qt-trash-btn" data-qt-trash="' + qtEsc(t.id) + '" title="Delete (move to -archived/-deleted file)">🗑️</button>';
         reopenBtn = '<button class="qt-reopen-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Reopen (set to not-started)">🔄</button>';
     } else if (t.status === 'waiting-for-repeat') {
@@ -838,7 +980,9 @@ function qtRenderTodoRow(t) {
     var circleTitle = stackIdx >= 0
         ? 'Remove from todo stack (#' + (stackIdx + 1) + ')'
         : 'Add to todo stack (shift-click: add range from last picked)';
-    var stackCircle = '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
+    var stackCircle = retired ? '' : '<span class="qt-stack-circle' + (stackIdx >= 0 ? ' stacked' : '') + '" data-qt-stackid="' + qtEsc(t.id) + '" title="' + circleTitle + '">' + (stackIdx >= 0 ? (stackIdx + 1) : '') + '</span>';
+    // The quest in front of the id (the prefix toggle, vscimpb137).
+    var shownId = qtShowQuestPrefix && qtQuestKey(t) ? qtQuestKey(t) + '/' + t.id : t.id;
     return '<div class="' + cls + '" data-qt-id="' + qtEsc(t.id) + '">' +
         '<div class="qt-todo-item-row1">' +
         '<span class="status-icon">' + icon + '</span>' +
@@ -849,11 +993,11 @@ function qtRenderTodoRow(t) {
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         qtDecisionChip(t) +
         qtPartOfChips(t) +
-        priorityBadge + queueItemBtn + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
+        priorityBadge + queueItemBtn + moveBtn + moveWsBtn + trashBtn + reopenBtn + restoreBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
         stackCircle +
         priorityDot +
-        '<span class="tid">' + qtEsc(t.id) + '</span>' +
+        '<span class="tid">' + qtEsc(shownId) + '</span>' +
         srcLabel + '</div></div>';
 }
 
@@ -907,22 +1051,26 @@ function qtGroupDecisionMark(group) {
 /** The thin separator line that heads one prefix group. */
 function qtRenderGroupHeader(group, expanded) {
     var count = group.todos.length;
+    // A walk runs in one quest: the group's (several quests by quest), else the panel's own; a group
+    // combining several quests has none.
+    var showWalk = !!group.prefix && !(qtScopeMulti && !group.quest);
     return '<div class="qt-group-header' + (expanded ? '' : ' collapsed') + '"' +
-        ' data-qt-group="' + qtEsc(group.prefix) + '"' +
+        ' data-qt-group="' + qtEsc(group.key || group.prefix) + '"' +
+        (group.quest ? ' data-qt-group-quest="' + qtEsc(group.quest) + '"' : '') +
         ' title="' + (expanded ? 'Collapse' : 'Expand') + ' ' + qtEsc(group.label) + ' (' + count + ')">' +
         '<span class="codicon codicon-chevron-down"></span>' +
         '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
         qtGroupQueuedMark(group) +
         qtGroupDecisionMark(group) +
-        (group.prefix
+        (showWalk
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
         (group.prefix && qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0
             ? '<button class="qt-group-rename-btn" data-qt-group-rename="' + qtEsc(group.prefix) + '" title="Rename group ' + qtEsc(group.prefix) + '…: a new prefix for its live todos, references following, a stub per old id">✏️</button>'
             : '') +
         (qtGroupOpenTodos(group).length
-            ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.prefix) + '" title="Move the open todos of this group to another group / quest / workspace / another quest…">⬆️</button>'
+            ? '<button class="qt-group-move-btn" data-qt-group-move="' + qtEsc(group.key || group.prefix) + '" title="Move the open todos of this group to another group / quest / workspace / another quest…">⬆️</button>'
             : '') +
         '</div>';
 }
@@ -938,6 +1086,73 @@ function qtUpdateStackButtons() {
     btn.disabled = !qtStack.length;
     btn.style.opacity = qtStack.length ? '1' : '0.4';
     btn.title = qtStack.length ? 'Clear todo stack (' + qtStack.length + ' stacked)' : 'Clear todo stack (empty)';
+}
+
+/**
+ * The rows of one set of todos: the todo groups (vscimpb126) and the prefix groups, or a plain list.
+ * `quest` (several quests by quest): the groups are that quest's, their expand keys its own. Every
+ * group rendered goes into `groups` (the move button finds it there); the rows on screen into `renderOrder`.
+ */
+function qtListHtml(filtered, renderOrder, groups, quest, grouped) {
+    var html = '';
+    var prefixGroups = grouped ? qtGroupTodosByPrefix(filtered) : [];
+    prefixGroups.forEach(function(g) {
+        if (quest) { g.key = quest + '::' + g.prefix; g.quest = quest; }
+        groups.push(g);
+    });
+    // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
+    // order; a member also stays in its prefix group (shown twice). Members are
+    // not in renderOrder, so a shift-click range never counts a row twice.
+    var todoGroups = grouped ? qtTodoGroupsOf(filtered, quest || qtCurrentQuestId) : [];
+    for (var tgi = 0; tgi < todoGroups.length; tgi++) {
+        var tg = todoGroups[tgi];
+        var tgExpanded = qtIsGroupExpanded(qtTodoGroupKey(tg.todo.id));
+        html += qtRenderTodoGroupHeader(tg, tgExpanded);
+        if (!tgExpanded) continue;
+        html += '<div class="qt-todogroup-members">';
+        for (var tm = 0; tm < tg.members.length; tm++) {
+            var member = tg.members[tm];
+            if (member.row) { html += qtRenderTodoRow(member.row); continue; }
+            // A member of this quest the filter hides is left out, like any row.
+            var inList = !member.foreign && qtTodos.some(function(x) { return String(x.id) === (member.ref.indexOf('/') >= 0 ? member.ref.slice(member.ref.indexOf('/') + 1) : member.ref); });
+            if (inList) continue;
+            html += qtRenderGroupMemberLine(member);
+        }
+        html += '</div>';
+    }
+    for (var gi = 0; gi < prefixGroups.length; gi++) {
+        var group = prefixGroups[gi];
+        var expanded = qtIsGroupExpanded(group.key || group.prefix);
+        html += qtRenderGroupHeader(group, expanded);
+        if (!expanded) continue;
+        for (var gt = 0; gt < group.todos.length; gt++) {
+            html += qtRenderTodoRow(group.todos[gt]);
+            renderOrder.push(group.todos[gt].id);
+        }
+    }
+    if (!grouped) {
+        for (var pt = 0; pt < filtered.length; pt++) {
+            html += qtRenderTodoRow(filtered[pt]);
+            renderOrder.push(filtered[pt].id);
+        }
+    }
+    return html;
+}
+
+/** The expand key of a quest in a list arranged by quest. */
+function qtQuestGroupKey(quest) {
+    return 'quest:' + quest;
+}
+
+/** A quest's header in a list arranged by quest: its name and how many todos it shows. */
+function qtRenderQuestHeader(quest, count, expanded) {
+    return '<div class="qt-quest-header' + (expanded ? '' : ' collapsed') + '" data-qt-quest="' + qtEsc(quest) + '"' +
+        ' title="' + (expanded ? 'Collapse' : 'Expand') + ' quest ' + qtEsc(quest) + ' (' + count + ')">' +
+        '<span class="codicon codicon-chevron-down"></span>' +
+        '<span class="codicon codicon-library"></span>' +
+        '<span class="qt-group-label">' + qtEsc(quest) + '</span>' +
+        '<span class="qt-group-count">(' + count + ')</span>' +
+        '</div>';
 }
 
 function qtRenderList() {
@@ -1013,50 +1228,35 @@ function qtRenderList() {
 
     if (!filtered.length) { pane.innerHTML = '<div class="qt-empty-detail">No matching todos</div>'; return; }
 
-    // Group by id prefix: the groups alphabetically (the "Unprefixed"
-    // catch-all last), the todos in each in the sort above (grouping.js).
-    // Ungrouped (the sort picker's Group checkbox off): one plain list.
-    var groups = qtGroupByPrefix ? qtGroupTodosByPrefix(filtered) : [];
-    var html = '';
-    // Visual order — basis for shift-click stack ranges. Only rows the user can
-    // actually see belong in it, so a range never reaches into a collapsed
-    // group and silently stacks todos that are not on screen.
+    // Several quests (the scope, vscimpb137), arranged by quest: quests first, then each quest's groups
+    // or its todos as a list. Otherwise one set: the groups of every quest shown together.
     var renderOrder = [];
-    // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
-    // order; a member also stays in its prefix group (shown twice). Members are
-    // not in renderOrder, so a shift-click range never counts a row twice.
-    var todoGroups = qtGroupByPrefix ? qtTodoGroupsOf(filtered, qtCurrentQuestId) : [];
-    for (var tgi = 0; tgi < todoGroups.length; tgi++) {
-        var tg = todoGroups[tgi];
-        var tgExpanded = qtIsGroupExpanded(qtTodoGroupKey(tg.todo.id));
-        html += qtRenderTodoGroupHeader(tg, tgExpanded);
-        if (!tgExpanded) continue;
-        html += '<div class="qt-todogroup-members">';
-        for (var tm = 0; tm < tg.members.length; tm++) {
-            var member = tg.members[tm];
-            if (member.row) { html += qtRenderTodoRow(member.row); continue; }
-            // A member of this quest the filter hides is left out, like any row.
-            var inList = !member.foreign && qtTodos.some(function(x) { return String(x.id) === (member.ref.indexOf('/') >= 0 ? member.ref.slice(member.ref.indexOf('/') + 1) : member.ref); });
-            if (inList) continue;
-            html += qtRenderGroupMemberLine(member);
-        }
-        html += '</div>';
-    }
-    for (var gi = 0; gi < groups.length; gi++) {
-        var group = groups[gi];
-        var expanded = qtIsGroupExpanded(group.prefix);
-        html += qtRenderGroupHeader(group, expanded);
-        if (!expanded) continue;
-        for (var gt = 0; gt < group.todos.length; gt++) {
-            html += qtRenderTodoRow(group.todos[gt]);
-            renderOrder.push(group.todos[gt].id);
-        }
-    }
-    if (!qtGroupByPrefix) {
-        for (var pt = 0; pt < filtered.length; pt++) {
-            html += qtRenderTodoRow(filtered[pt]);
-            renderOrder.push(filtered[pt].id);
-        }
+    var html = '';
+    var groups = [];
+    var byQuest = qtScopeMulti && qtScopeQuests.length > 1 && qtScopeOrder !== 'combined';
+    if (byQuest) {
+        var questOrder = [];
+        var perQuest = {};
+        filtered.forEach(function(t) {
+            var q = qtQuestKey(t);
+            if (!perQuest[q]) { perQuest[q] = []; questOrder.push(q); }
+            perQuest[q].push(t);
+        });
+        questOrder.sort();
+        questOrder.forEach(function(q) {
+            var qExpanded = qtIsGroupExpanded(qtQuestGroupKey(q));
+            html += qtRenderQuestHeader(q, perQuest[q].length, qExpanded);
+            if (!qExpanded) return;
+            html += '<div class="qt-quest-members">';
+            if (qtScopeOrder === 'quest-groups') {
+                html += qtListHtml(perQuest[q], renderOrder, groups, q, true);
+            } else {
+                perQuest[q].forEach(function(t) { html += qtRenderTodoRow(t); renderOrder.push(t.id); });
+            }
+            html += '</div>';
+        });
+    } else {
+        html = qtListHtml(filtered, renderOrder, groups, '', qtGroupByPrefix);
     }
     qtLastRenderOrder = renderOrder;
     pane.innerHTML = html;
@@ -1069,7 +1269,7 @@ function qtRenderList() {
                 e.stopPropagation();
                 if (walkBtn.disabled) return;
                 qtPauseButton(walkBtn);
-                vscode.postMessage({ type: 'qtQueueGroupPrompt', questId: qtCurrentQuestId, prefix: walkBtn.getAttribute('data-qt-group-walk') || '' });
+                vscode.postMessage({ type: 'qtQueueGroupPrompt', questId: hdr.getAttribute('data-qt-group-quest') || qtCurrentQuestId, prefix: walkBtn.getAttribute('data-qt-group-walk') || '' });
                 return;
             }
             var renameBtn = e.target.closest ? e.target.closest('.qt-group-rename-btn') : null;
@@ -1084,13 +1284,22 @@ function qtRenderList() {
                 // The whole group in one move: one destination, one id decision.
                 e.stopPropagation();
                 var prefix = moveBtn.getAttribute('data-qt-group-move') || '';
-                var group = groups.find(function(g) { return g.prefix === prefix; });
+                var group = groups.find(function(g) { return (g.key || g.prefix) === prefix; });
                 if (!group) { return; }
                 var todos = qtGroupOpenTodos(group).map(function(t) { return { todoId: t.id, sourceFile: t.sourceFile || undefined }; });
                 vscode.postMessage({ type: 'qtMoveTodosToDestination', questId: qtCurrentQuestId, file: qtCurrentFile, todos: todos });
                 return;
             }
             qtToggleGroup(hdr.getAttribute('data-qt-group') || '');
+        });
+    });
+    pane.querySelectorAll('.qt-quest-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function() { qtToggleGroup(qtQuestGroupKey(hdr.getAttribute('data-qt-quest') || '')); });
+    });
+    pane.querySelectorAll('.qt-restore-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            qtRestoreTodo(btn.getAttribute('data-qt-restore') || '');
         });
     });
     pane.querySelectorAll('.qt-todogroup-header').forEach(function(hdr) {
@@ -1138,7 +1347,7 @@ function qtRenderList() {
                 qtQueueAsTodoItem(queueItem.getAttribute('data-qt-queue-item') || '');
                 return;
             }
-            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn')) return;
+            if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn') || e.target.closest('.qt-restore-btn')) return;
             qtSelectedTodoId = el.dataset.qtId;
             qtNavPush(qtSelectedTodoId);
             qtRenderList();
@@ -1711,6 +1920,29 @@ function qtRenderDetail(todo) {
     qtRequestPathExtAppAvailability(pathsToCheck);
 
     vscode.postMessage({ type: 'qtCheckExtApp', questId: qtCurrentQuestId, file: qtCurrentFile });
+    if (todo._retired) qtMakeDetailReadOnly(todo);
+}
+
+/**
+ * An archived or deleted todo's detail (vscimpb137): read-only, marked as such, with one action,
+ * Restore. Every field and button of the form is disabled; links and the Markdown views still open.
+ */
+function qtMakeDetailReadOnly(todo) {
+    var pane = document.getElementById('qt-detail-pane');
+    var form = pane && pane.querySelector('.qt-detail-form');
+    if (!form) return;
+    form.classList.add('retired');
+    form.querySelectorAll('input, textarea, select, button').forEach(function(el) {
+        if (el.classList.contains('qt-md-btn') || el.closest('.qt-md-btns')) return;
+        el.disabled = true;
+    });
+    var banner = document.createElement('div');
+    banner.className = 'qt-retired-banner';
+    banner.innerHTML = '<span class="codicon codicon-' + (todo._retired === 'archived' ? 'archive' : 'trash') + '"></span>' +
+        '<span>' + (todo._retired === 'archived' ? 'Archived' : 'Deleted') + ' todo \u2014 read-only.</span>' +
+        '<button type="button" class="qt-restore-btn" data-qt-restore="' + qtEsc(todo.id) + '" title="Restore: back into the live file it came from">↩️ Restore</button>';
+    form.insertBefore(banner, form.firstChild);
+    banner.querySelector('.qt-restore-btn').addEventListener('click', function() { qtRestoreTodo(todo.id); });
 }
 
 // ── Todo badge rendering for blocked-by / dependencies ──
@@ -3418,6 +3650,13 @@ function qtHandleMessage(msg) {
             qtRenderRunSessionControls();
             // The Done notification toggle, kept per quest by the host (unset: on).
             qtSetDoneNotificationLook(msg.doneNotification !== false);
+            break;
+        case 'qtScope':
+            qtApplyScope(msg);
+            break;
+        case 'qtRefreshRequest':
+            // A todo file changed: load again what the panel shows.
+            qtReloadView();
             break;
         case 'qtTemplatePicked': {
             // The template picker's choice: set as the select's change did, and shown on the button.

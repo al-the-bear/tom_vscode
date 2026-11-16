@@ -77,6 +77,8 @@ const CENSUS = [
     'todoArchive.ts: journalDecisions → fs.appendFileSync(file)',
     'todoArchive.ts: moveTodosOrThrow → writeTodoFileText(sourceFilePath)',
     'todoArchive.ts: moveTodosOrThrow → writeTodosIntoTarget(targetFile)',
+    'todoArchive.ts: restoreTodosOrThrow → writeTodoFileText(siblingFilePath)',
+    'todoArchive.ts: restoreTodosOrThrow → writeTodosIntoTarget(targetFile)',
 ];
 
 /** Write sites with nothing to verify, and why. */

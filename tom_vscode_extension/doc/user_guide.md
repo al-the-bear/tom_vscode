@@ -303,6 +303,17 @@ The table's **Repo** column, right of the comment count, names the repository ea
 
 The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
 
+#### Quests and files shown
+
+The two quest todo views (@TOM QUEST TODOS, @WS › Quest TODO) are todo managers across quests. They start on their own quest — the window's — and look and work as always until another quest is added. Their top bar has:
+
+- **Quest scope** — the button with the library icon, showing the quest (or *Open windows (n)* / *All quests (n)*). A click opens a picker: **one quest** (any quest folder), the **open windows' quests** (the windows on this machine with a live heartbeat, this window's first), or **all quests** — then a second picker with a checkbox per quest chooses which to see. The scope is kept per view, in this window.
+- **Which files** — three toggle icons: **live todos** (the checklist, on by default), **archived todos** (the box) and **deleted todos** (the bin): the `-archived` / `-deleted` siblings. An archived or deleted todo is shown greyed, marked *archived* / *deleted*, and read-only — in its detail every field is disabled — with one action, **↩️ Restore**: it goes back into the live file it came from, without its archive stamp. Restore is refused when the live file already holds a todo with that id.
+- **Order** (shown when more than one quest is in the list) — **Groups of all quests** (a prefix group holds the todos of that prefix from every quest shown), **By quest, then groups** (each quest a collapsible level, its prefix groups and group todos under it), **By quest, then list** (each quest's todos as a list).
+- **Quest prefix** — a toggle that shows the quest in front of every todo id (`vscode_extension/vscimpb137_…`). Off by default with one quest, on by default with several; once you set it, the view keeps your choice.
+
+Everything else works across quests: details, editing, status changes, stacking, Send and Queue each act on the todo's own quest and file. A walk over a group (🔁) needs one quest: it is offered on the groups of *By quest, then groups*, not on a group combining several quests. The view reloads when any quest's todo files change.
+
 The right end of its top bar holds what the panel's sends use: the session button and Run select (below), the **Done notification** toggle (a bell icon, pressed while it is on; the tooltip says what it does and whether it is on; what it does: *The todo done notification* below), the **template button** and **Save to Queue** / **Send**. The template button shows the selected template's name (at most 20 characters, the full name in its tooltip); a click opens a picker with the templates on offer (the queue's transport decides which), and the pick is used by Save to Queue and Send.
 
 #### Prefix groups

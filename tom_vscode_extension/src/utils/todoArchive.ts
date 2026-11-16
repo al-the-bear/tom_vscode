@@ -43,6 +43,7 @@ import {
     archivedTodoFileName,
     deletedTodoFileName,
     isArchivedOrDeletedTodoFile,
+    liveTodoFileName,
 } from './todoArchiveNames';
 import { questLogLocation } from './questLogFiles';
 import { normaliseTodoDecisions } from './todoDecisions';
@@ -600,6 +601,78 @@ export function deleteTodos(
         stamp: 'deleted',
         targetName: deletedTodoFileName,
     });
+}
+
+/**
+ * Restore todos from a terminal sibling (`-archived` / `-deleted`) into the
+ * live file it came from (the todo panel's Restore): their `archived:` /
+ * `deleted:` stamp is dropped, every other field travels. Target first, source
+ * second, as every move here. Refused per id: one the source does not hold, and
+ * one the live file already holds (an id is never in a quest twice). Refused as
+ * a whole: a source that is no terminal sibling.
+ */
+export function restoreTodos(siblingFilePath: string, todoIds: string[]): TodoMoveResult {
+    try {
+        return restoreTodosOrThrow(siblingFilePath, todoIds);
+    } catch (e) {
+        if (!(e instanceof TodoYamlError)) { throw e; }
+        return { moved: [], replaced: [], skipped: todoIds.map(id => ({ id, reason: `Todo file is malformed: ${e.filePath}` })), targetFile: '', error: e.message };
+    }
+}
+
+function restoreTodosOrThrow(siblingFilePath: string, todoIds: string[]): TodoMoveResult {
+    if (!isArchivedOrDeletedTodoFile(siblingFilePath)) {
+        const reason = 'Only an archived or deleted todo can be restored';
+        return { moved: [], replaced: [], skipped: todoIds.map(id => ({ id, reason })), targetFile: '', error: reason };
+    }
+    if (!fs.existsSync(siblingFilePath)) {
+        return { moved: [], replaced: [], skipped: [], targetFile: '', error: `Todo file not found: ${siblingFilePath}` };
+    }
+    const raw = fs.readFileSync(siblingFilePath, 'utf8');
+    const sourceDoc = parseTodoYaml(siblingFilePath, raw);
+    const todosNode = sourceDoc.get('todos', true);
+    if (!isSeq(todosNode)) {
+        return { moved: [], replaced: [], skipped: [], targetFile: '', error: `No todos list in ${siblingFilePath}` };
+    }
+    const targetFile = liveTodoFileName(siblingFilePath);
+    const inTarget = new Set<string>();
+    if (fs.existsSync(targetFile)) {
+        const targetSeq = loadTodoYaml(targetFile).get('todos', true);
+        if (isSeq(targetSeq)) {
+            for (const item of targetSeq.items) {
+                if (isMap(item)) { inTarget.add(String(item.get('id') ?? '')); }
+            }
+        }
+    }
+    const wanted = new Set(todoIds);
+    const moved: string[] = [];
+    const skipped: TodoMoveSkip[] = [];
+    const plainTodos: Record<string, unknown>[] = [];
+    const removeIdx: number[] = [];
+    todosNode.items.forEach((item, idx) => {
+        if (!isMap(item)) { return; }
+        const id = String(item.get('id') ?? '');
+        if (!wanted.has(id)) { return; }
+        wanted.delete(id);
+        if (inTarget.has(id)) {
+            skipped.push({ id, reason: `The live file ${path.basename(targetFile)} already holds a todo ${id}` });
+            return;
+        }
+        const plain = item.toJSON() as Record<string, unknown>;
+        delete plain.archived;
+        delete plain.deleted;
+        plainTodos.push(plain);
+        moved.push(id);
+        removeIdx.push(idx);
+    });
+    for (const id of wanted) { skipped.push({ id, reason: 'Todo not found in the archived / deleted file' }); }
+    if (!moved.length) { return { moved, replaced: [], skipped, targetFile }; }
+    writeTodosIntoTarget(targetFile, plainTodos, raw, sourceDoc);
+    for (const idx of removeIdx.reverse()) { todosNode.items.splice(idx, 1); }
+    stampUpdated(sourceDoc);
+    writeTodoFileText(siblingFilePath, sourceDoc.toString());
+    assertMovePersisted(siblingFilePath, targetFile, moved);
+    return { moved, replaced: [], skipped, targetFile };
 }
 
 /** Archive every completed todo in the file. */

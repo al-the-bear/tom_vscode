@@ -9,6 +9,19 @@
     <label>File:</label>
     <select id="qt-file-select"><option value="all">All files</option></select>
     <span id="qt-fixed-file-label" class="qt-scope-summary" style="display:none;"></span>
+    <!-- The quest scope (vscimpb137): which quests and files the panel shows; main.js shows it in the quest todo views. -->
+    <span class="qt-scope-controls" id="qt-scope-controls" style="display:none;">
+        <button type="button" class="qt-template-btn qt-scope-btn" id="qt-scope-btn" title="The quests the panel shows — click to pick one quest, the open windows' quests or all quests"><span class="codicon codicon-library"></span><span class="qt-scope-name"></span></button>
+        <button type="button" class="icon-btn qt-toggle-btn pressed" id="qt-files-live" data-qt-files="live" aria-pressed="true" aria-label="Live todos"><span class="codicon codicon-checklist"></span></button>
+        <button type="button" class="icon-btn qt-toggle-btn" id="qt-files-archived" data-qt-files="archived" aria-pressed="false" aria-label="Archived todos"><span class="codicon codicon-archive"></span></button>
+        <button type="button" class="icon-btn qt-toggle-btn" id="qt-files-deleted" data-qt-files="deleted" aria-pressed="false" aria-label="Deleted todos"><span class="codicon codicon-trash"></span></button>
+        <select id="qt-quest-order" class="qt-quest-order" title="How the todos of several quests are arranged" style="display:none;">
+            <option value="combined">Groups of all quests</option>
+            <option value="quest-groups">By quest, then groups</option>
+            <option value="quest-list">By quest, then list</option>
+        </select>
+        <button type="button" class="icon-btn qt-toggle-btn" id="qt-quest-prefix" aria-pressed="false" aria-label="Quest in front of todo ids"><span class="codicon codicon-symbol-namespace"></span></button>
+    </span>
     <input id="qt-search" type="text" placeholder="Search..." class="qt-search-input">
     <button class="icon-btn" id="qt-btn-filter" title="Filter"><span class="codicon codicon-filter"></span></button>
     <button class="icon-btn" id="qt-btn-sort" title="Sort"><span class="codicon codicon-list-ordered"></span></button>
