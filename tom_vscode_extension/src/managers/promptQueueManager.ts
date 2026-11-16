@@ -63,6 +63,7 @@ import { runTodoOnDone, takeDeferredTodoOnDone } from '../services/todoOnDoneRun
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
 import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
 import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
+import { groupItemMembers, parseGroupSelection, selectionOf, withMemberChoice, withSelectionFlags, type GroupMemberView, type GroupSelection } from '../utils/groupItemSelection';
 import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
@@ -599,6 +600,19 @@ export interface QueuedPrompt {
      */
     itemKind?: QueueItemKind;
     /**
+     * A GROUP item's selection of its members (utils/groupItemSelection.ts,
+     * vscimpb129): the members checked and unchecked by hand; a member without
+     * a choice follows the walk's rules. The walk sends exactly the checked
+     * members, in order. Persisted as `group-selection`.
+     */
+    groupSelection?: GroupSelection;
+    /**
+     * The todos the item's walk claimed and sent, in order (the walk's own
+     * record, beside the repetition answers, which an empty answer does not
+     * extend). Persisted as `walked-todos`.
+     */
+    walkedTodos?: string[];
+    /**
      * A repeated item's main-prompt answer per repetition (the walked todo's
      * id, or the repetition number), shown as chips under the Answer in the
      * queue editor (utils/repetitionAnswers.ts). `answerText` is the latest.
@@ -913,7 +927,7 @@ export class PromptQueueManager {
         if (item.processMove || (item.prePrompts?.length ?? 0) > 0) { return undefined; }
         if (parseTodoWalk(item.repeatCount) === undefined) { return undefined; }
         const questId = this.activeQuestId();
-        return emptyTodoIterationReason(item.repeatCount, questId ? readQuestTodoEntries(questId, walkableRepeatIds(item)) : [], questId);
+        return emptyTodoIterationReason(item.repeatCount, questId ? walkEntriesOf(item, questId) : [], questId);
     }
 
     /** The item is held in `error` because its walk had nothing to walk over. */
@@ -954,6 +968,8 @@ export class PromptQueueManager {
         const claim = claimTodo(QUEST_TODO_STATUS_PORT, questId, todo.id, todo.status);
         if (!claim) { return false; }
         item.todoClaim = claim;
+        // What the walk sent, whatever its answer: a checked member of a GROUP item is sent once (vscimpb129).
+        if (!item.walkedTodos?.includes(todo.id)) { item.walkedTodos = [...(item.walkedTodos ?? []), todo.id]; }
         return true;
     }
 
@@ -1032,7 +1048,7 @@ export class PromptQueueManager {
         const todoId = todoForStage(stage, {
             isTodoIteration,
             claimedId,
-            nextId: stage === 'prePrompt' ? pickNextTodoForIteration(item.repeatCount, readQuestTodoEntries(questId, walkableRepeatIds(item)))?.id : undefined,
+            nextId: stage === 'prePrompt' ? pickNextTodoForIteration(item.repeatCount, walkEntriesOf(item, questId))?.id : undefined,
             lastId: item.repeatTodoId,
         });
         return todoId ? readQuestTodoBlock(questId, todoId) : undefined;
@@ -2072,7 +2088,7 @@ export class PromptQueueManager {
     private _releaseResolvedDecisionItems(): void {
         if (!this._items.some(i => i.status === 'decision-needed')) { return; }
         const questId = this.activeQuestId();
-        const released = releaseResolvedDecisionItems(this._items, questId ? readQuestTodoEntries(questId) : []);
+        const released = releaseResolvedDecisionItems(this._items, (item) => (questId ? walkEntriesOf(item, questId) : []));
         if (released.length === 0) { return; }
         logQueue(`Decisions answered — releasing ${released.map(i => i.id).join(', ')} back to pending`);
         this.persist();
@@ -2877,6 +2893,56 @@ export class PromptQueueManager {
 
     getById(id: string): QueuedPrompt | undefined {
         return this._items.find(i => i.id === id);
+    }
+
+    /**
+     * A GROUP item's members with their markers (utils/groupItemSelection.ts,
+     * vscimpb129): → the member being sent, ✓ those it sent, a checkbox for the
+     * others. Undefined for an item that is no GROUP item.
+     */
+    groupMembers(id: string): GroupMemberView[] | undefined {
+        const item = this.getById(id);
+        const walk = item ? parseTodoWalk(item.repeatCount) : undefined;
+        if (!item || walk?.kind !== 'group') { return undefined; }
+        const questId = this.activeQuestId() ?? walk.quest;
+        const sent = walkableRepeatIds(item);
+        const sendingId = item.status === 'sending' && item.todoClaim && !item.todoClaim.released ? item.todoClaim.todoId : undefined;
+        if (sendingId) { sent.delete(sendingId); }
+        return groupItemMembers({ walk, todos: readQuestTodoEntries(questId), selection: item.groupSelection, sent, sendingId });
+    }
+
+    /**
+     * Change a GROUP item's selection: check or uncheck one member, check all
+     * (`all`), back to the rules (`rules`), or check exactly `checked`. Only
+     * while the item is staged, pending or sending (or held for a walk with
+     * nothing to send); a member already sent or
+     * being sent keeps its marker. False when refused.
+     */
+    setGroupSelection(id: string, change: { member: string; checked: boolean } | { all: true } | { rules: true } | { checked: readonly string[] }): boolean {
+        const item = this.getById(id);
+        // An item held because its walk had nothing to send may change too: checking a member gives it work.
+        if (!item || !(['staged', 'pending', 'sending'].includes(item.status) || this.isEmptyIterationItem(item))) { return false; }
+        const members = this.groupMembers(id);
+        if (!members) { return false; }
+        const open = members.filter((m) => m.marker === 'todo').map((m) => m.id);
+        let next: GroupSelection | undefined;
+        if ('member' in change) {
+            if (!open.includes(change.member)) { return false; }
+            next = withMemberChoice(item.groupSelection, change.member, change.checked);
+        } else if ('all' in change) {
+            next = selectionOf(open, open);
+        } else if ('rules' in change) {
+            next = undefined;
+        } else {
+            const unknown = change.checked.filter((m) => !members.some((x) => x.id === m));
+            if (unknown.length) { return false; }
+            next = selectionOf(open, change.checked);
+        }
+        item.groupSelection = next && (next.checked.length || next.unchecked.length) ? next : undefined;
+        this.recheckEmptyIteration(item);
+        this.persist();
+        this._onDidChange.fire();
+        return true;
     }
 
     /**
@@ -6231,7 +6297,7 @@ export class PromptQueueManager {
             item.repeatCount,
             mainSentCount,
             mainRepeatCount,
-            iterationQuestId ? readQuestTodoEntries(iterationQuestId, walkableRepeatIds(item)) : [],
+            iterationQuestId ? walkEntriesOf(item, iterationQuestId) : [],
         );
         if (plan.mode === 'decision-needed') {
             // The todo the walk would take next is still waiting on the user:
@@ -7234,6 +7300,8 @@ export class PromptQueueManager {
                 chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
+                ...(parseGroupSelection(main['group-selection']) ? { groupSelection: parseGroupSelection(main['group-selection']) } : {}),
+                ...(Array.isArray(main['walked-todos']) ? { walkedTodos: main['walked-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
                 ...(main['answer-background-left'] === true ? { answerBackgroundLeft: true } : {}),
                 ...(validContinuations(main['walk-continuations']) !== undefined ? { walkContinuations: validContinuations(main['walk-continuations']) } : {}),
@@ -7393,6 +7461,8 @@ export class PromptQueueManager {
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
             'item-kind': (item.itemKind = deriveQueueItemKind(item)),
+            ...(item.walkedTodos?.length ? { 'walked-todos': [...item.walkedTodos] } : {}),
+            ...(item.groupSelection ? { 'group-selection': { checked: [...item.groupSelection.checked], unchecked: [...item.groupSelection.unchecked] } } : {}),
             ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({
                 key: a.key, text: a.text, at: a.at,
                 ...(a.backgroundLeft ? { 'background-left': true } : {}),
@@ -7644,6 +7714,15 @@ function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoI
             ...(t.status === 'waiting-for-repeat' && t.repeat?.rule === 'manual' && !(ran?.has(t.id)) ? { walkableRepeat: true } : {}),
         }));
     } catch { return []; }
+}
+
+/**
+ * The todos an item's walk reads: the quest's todos with what the item ran
+ * (walkableRepeatIds) and a GROUP item's selection applied (vscimpb129).
+ */
+function walkEntriesOf(item: QueuedPrompt, questId: string): TodoIterationSource[] {
+    const ran = walkableRepeatIds(item);
+    return withSelectionFlags(readQuestTodoEntries(questId, ran), item.groupSelection, ran);
 }
 
 /** A todo's record as the block a todo iteration appends; undefined when it cannot be read. */

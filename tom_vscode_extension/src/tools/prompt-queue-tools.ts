@@ -53,6 +53,7 @@
  */
 
 import { deriveQueueItemKind } from '../utils/queueItemKind';
+import { memberMarkerText, type GroupMemberView } from '../utils/groupItemSelection';
 import type { TodoQueueItemSpec } from '../utils/todoQueueItems';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -103,6 +104,8 @@ export interface QueueItemSnapshot {
     status: QueueStatus;
     /** What the item holds (utils/queueItemKind.ts): todo, group, prefix, iteration, chat or prompt. */
     itemKind?: string;
+    /** A GROUP item's members checked and unchecked by hand (utils/groupItemSelection.ts). */
+    groupSelection?: { checked: string[]; unchecked: string[] };
     /** The todos it runs: a todo id, `<prefix>*`, or several separated by commas. */
     todoIdPattern?: string;
     /** "Let the next item go first" armed: yields after its running iteration (vscimpb60e). */
@@ -178,7 +181,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
-    'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind',
+    'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -291,6 +294,10 @@ export interface PromptQueueAccess {
         reminderTimeoutMinutes?: number;
         reminderRepeat?: boolean;
     }): void;
+    /** A GROUP item's members with their markers (vscimpb129); undefined for another item. Unset: not shown. */
+    groupMembers?(id: string): GroupMemberView[] | undefined;
+    /** Check exactly these members of a GROUP item (vscimpb129); false when refused. Unset: not offered. */
+    setGroupSelection?(id: string, change: { checked: readonly string[] }): boolean;
     /** "Let the next item go first" (vscimpb60e); unset: not offered. */
     letNextGoFirst?(id: string): { ok: true; mode: 'moved' | 'armed' | 'cancelled'; behind?: string } | { ok: false; reason: string };
     updateItemRepetition(id: string, opts: {
@@ -709,7 +716,13 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
         const includeSent = !!input.includeSent;
         const items = access.items()
             .filter((i) => includeSent || (i.status !== 'sent' && i.status !== 'chat-sent'))
-            .map(compactItem);
+            .map((i) => {
+                // A GROUP item's members with → / ✓ / ☑ / ☐ (vscimpb129).
+                const members = access.groupMembers?.(i.id);
+                return members ? { ...compactItem(i), members: members.map((m) => ({
+                    id: m.id, status: m.status, ...(m.title ? { title: m.title } : {}), marker: memberMarkerText(m), ...(m.chosen ? { chosen: true } : {}),
+                })) } : compactItem(i);
+            });
         const run = typeof input.run === 'string' && input.run.trim() ? input.run.trim() : undefined;
         const perRun = access.runSettings ? access.runSettings(run) : undefined;
         return JSON.stringify({
@@ -971,6 +984,8 @@ export interface UpdateQueueItemInput {
      * item (a pending one moves behind it now, a sending one after its running iteration); false cancels an armed one.
      */
     letNextGoFirst?: boolean;
+    /** A GROUP item: the members its walk sends (vscimpb129); the others are not sent. */
+    groupSelection?: string[];
 }
 
 export async function updateQueueItemImpl(access: PromptQueueAccess, input: UpdateQueueItemInput): Promise<string> {
@@ -1045,6 +1060,18 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 return err(`The done-notification of queue item "${input.queueItemId}" cannot be changed (the item is finished).`);
             }
         }
+        if (input.groupSelection !== undefined) {
+            if (!Array.isArray(input.groupSelection) || input.groupSelection.some((m) => typeof m !== 'string')) {
+                return err('`groupSelection` is a list of member ids.');
+            }
+            const members = access.groupMembers?.(input.queueItemId);
+            if (!members) { return err(`Queue item "${input.queueItemId}" is no GROUP item: \`groupSelection\` is refused.`); }
+            const unknown = input.groupSelection.filter((m) => !members.some((x) => x.id === m));
+            if (unknown.length) { return err(`Not members of the group: ${unknown.join(', ')}. Its members: ${members.map((m) => m.id).join(', ')}.`); }
+            if (!access.setGroupSelection?.(input.queueItemId, { checked: input.groupSelection })) {
+                return err(`The selection of queue item "${input.queueItemId}" cannot be changed (only staged, pending or sending items).`);
+            }
+        }
         let letNextGoFirst: { mode: string; behind?: string } | undefined;
         if (input.letNextGoFirst !== undefined) {
             const armed = access.getById(input.queueItemId)?.yieldAfterIteration === true;
@@ -1059,6 +1086,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         const updated = access.getById(input.queueItemId);
         return ok({
             ...(letNextGoFirst ? { letNextGoFirst } : {}),
+            ...(input.groupSelection !== undefined ? { members: (access.groupMembers?.(input.queueItemId) ?? []).map((m) => ({ id: m.id, marker: memberMarkerText(m) })) } : {}),
             id: input.queueItemId,
             status: updated?.status,
             template: updated?.template,
@@ -1090,7 +1118,8 @@ export const UPDATE_QUEUE_ITEM_DESCRIPTION =
     'can be changed until the item is finished, also while it is sending. ' +
     '`letNextGoFirst: true` on a pending or sending iteration item (a `<prefix>*` walk or a repeat count) lets the ' +
     'next pending item of its lane go first — a pending one moves behind it now, a sending one after its running ' +
-    'iteration, the walk resuming after it; `false` cancels it. Refused without a following item in its lane.';
+    'iteration, the walk resuming after it; `false` cancels it. Refused without a following item in its lane. ' +
+    '`groupSelection: [ids]`: the members a GROUP item\'s walk sends (staged, pending or sending).';
 
 export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> = {
     name: 'tomAi_updateQueueItem',
@@ -1126,6 +1155,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
             doneNotificationDisabled: { type: 'boolean', description: 'Keep the done-notification prompt but do not queue it.' },
             letNextGoFirst: { type: 'boolean', description: 'An iteration item lets the next pending item of its lane go first (a sending one after its running iteration); false cancels it.' },
+            groupSelection: { type: 'array', items: { type: 'string' }, description: 'A GROUP item: the member ids its walk sends, in the group\'s order; the other members still to come are not sent.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

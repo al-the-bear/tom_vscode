@@ -684,6 +684,14 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemRepetition(id, opts);
     },
+    groupMembers(id) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.groupMembers(id);
+    },
+    setGroupSelection(id, change) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.setGroupSelection(id, change);
+    },
     letNextGoFirst(id) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.letNextGoFirst(id);

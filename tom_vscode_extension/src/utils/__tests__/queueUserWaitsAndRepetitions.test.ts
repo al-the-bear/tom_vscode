@@ -249,6 +249,8 @@ describe('queue: waits for the user', () => {
 describe('queue: the answers of every repetition', () => {
     test('RP-1: the repetition key', () => {
         assert.equal(repetitionKeyOf({ repeatCount: 'chat*', repeatTodoId: 'chat7_x', repeatIndex: 7 }, count), 'chat7_x', 'a walk: the todo id');
+        assert.equal(repetitionKeyOf({ repeatCount: 'group:q1/g1', repeatTodoId: 'm3_x', repeatIndex: 2 }, count), 'm3_x', 'a GROUP item: the member id');
+        assert.equal(repetitionKeyOf({ repeatCount: 'todo:q1/t1_x', repeatTodoId: 't1_x', repeatIndex: 1 }, count), 't1_x', 'a TODO item: its id');
         assert.equal(repetitionKeyOf({ repeatCount: 3, repeatIndex: 2 }, count), '2');
         assert.equal(repetitionKeyOf({ repeatCount: 1, templateRepeatCount: 4, templateRepeatIndex: 3 }, count), '3');
         assert.equal(repetitionKeyOf({ repeatCount: 1, repeatIndex: 1 }, count), undefined, 'not repeated');

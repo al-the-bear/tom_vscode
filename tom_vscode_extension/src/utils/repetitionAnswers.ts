@@ -4,7 +4,8 @@
  * `answerText` holds the main prompt's latest answer, which each repetition
  * replaces. A repeated item also keeps one answer per repetition
  * (`repetitionAnswers`), so the queue editor can show any of them by a chip
- * under its Answer: the todo's id for a todo walk (`<prefix>*` repeat count),
+ * under its Answer: the todo's id for a todo walk (`<prefix>*`, `todo:<quest>/<id>`
+ * or `group:<quest>/<id>` repeat count),
  * the repetition's number for a counted repetition (repeat count, else template
  * repeat count). A repetition answered again (a resend) replaces its entry, in its place.
  *
@@ -40,8 +41,13 @@ export interface RepeatedItem {
 /** The most repetitions an item keeps answers for (the oldest go first). */
 export const MAX_REPETITION_ANSWERS = 200;
 
+/** A todo walk's repeat count: `<prefix>*`, `todo:<quest>/<id>` or `group:<quest>/<id>` (queueStep3Utils.parseTodoWalk). */
+function isTodoWalkValue(raw: number | string | undefined): boolean {
+    return typeof raw === 'string' && (raw.trim().endsWith('*') || /^(todo|group):\S+\/\S+$/.test(raw.trim()));
+}
+
 function countOf(raw: number | string | undefined, resolve: (raw: number | string | undefined) => number): number {
-    return typeof raw === 'string' && raw.trim().endsWith('*') ? 0 : resolve(raw);
+    return isTodoWalkValue(raw) ? 0 : resolve(raw);
 }
 
 /**
@@ -51,7 +57,7 @@ function countOf(raw: number | string | undefined, resolve: (raw: number | strin
  * repeat count (a number or a chat-variable name).
  */
 export function repetitionKeyOf(item: RepeatedItem, resolve: (raw: number | string | undefined) => number): string | undefined {
-    if (typeof item.repeatCount === 'string' && item.repeatCount.trim().endsWith('*')) {
+    if (isTodoWalkValue(item.repeatCount)) {
         return item.repeatTodoId || undefined;
     }
     if (countOf(item.repeatCount, resolve) > 1 && (item.repeatIndex ?? 0) > 0) { return String(item.repeatIndex); }

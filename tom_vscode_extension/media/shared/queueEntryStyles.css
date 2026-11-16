@@ -210,3 +210,16 @@
 /* The item headline's type icon is a button: opens the live trail of the item's session. */
 .queue-live-trail-btn { background: none; border: none; padding: 0; margin: 0; cursor: pointer; line-height: 1; }
 .queue-live-trail-btn:hover .codicon { opacity: 0.7; }
+
+/* A GROUP item's members (vscimpb129): → being sent, ✓ sent, a checkbox for the others. */
+.group-members { margin: 4px 0; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, #8884); border-radius: 3px; font-size: 0.85em; }
+.group-members .gm-head { font-weight: 600; margin-bottom: 2px; }
+.group-members .gm-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.group-members .gm-mark { min-width: 1.2em; }
+.group-members .gm-sending .gm-mark { color: var(--vscode-charts-blue, #3794ff); font-weight: 700; }
+.group-members .gm-sent .gm-mark { color: var(--vscode-charts-green, #89d185); white-space: nowrap; }
+.group-members .gm-id { font-family: var(--vscode-editor-font-family, monospace); }
+.group-members .gm-status { opacity: 0.75; }
+.group-members .gm-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-members .gm-chosen .gm-id { font-style: italic; }
+.group-members .gm-bar { display: flex; gap: 6px; margin-top: 4px; }

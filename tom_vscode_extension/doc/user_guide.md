@@ -683,6 +683,14 @@ A queue item knows what it holds — its **kind**, shown by `tomAi_listQueue` an
 
 Queue them from the todo panel with **Queue as todo item** (⏩ on a tile, *Queue as todo item* in the detail view, the queue button of a todo group): a todo becomes a TODO item — its prompt is the todo panel's todo prompt, the Todo buttons template for that todo around a line naming it, on Anthropic, as the Queue button beside it does — and a group todo a GROUP item with the quest's group prompt, like a group walk. Both go to the panel's session and run. The **Queue** button beside them still queues a plain prompt with the todo's text. Agents queue them with `tomAi_addQueueItem` (`todo` / `group`, `position: 0` for the front) and into another quest's queue with `tomAi_sendItemToQuest` (`todo` / `group`).
 
+A GROUP item lists its group's **members** in the queue editor, in their order in **Members**, each with its id, status and title, and a marker for what the walk does with it:
+
+- **→** the member being sent now;
+- **✓** a member this item sent, with its outcome: *completed*, or *needs attention* when it is not completed;
+- a **checkbox** for every member still to come, checked when the walk will send it.
+
+The checkboxes start from the walk's rules (open, not blocked, not your own, its decisions answered). You may check any member — a completed or blocked one too — and uncheck any; **Select all** checks every member still to come, **Reset to rules** drops your choices. The walk then sends exactly the checked members, in their order, each once. Your choices are stored on the item (`group-selection` in its entry file); a member added to the group later starts as the rules say, and a member removed from it is gone from the list. The list can be changed while the item is staged, pending or sending (for the members still to come), and while it waits because its walk had nothing to send. Agents read the members with their marker in `tomAi_listQueue` (`members`: → being sent, ✓ sent, ☑ will be sent, ☐ will not) and set them with `tomAi_updateQueueItem` (`groupSelection`: the member ids to send).
+
 
 ### Answer Detection
 

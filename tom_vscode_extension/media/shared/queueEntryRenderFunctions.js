@@ -538,6 +538,8 @@ function renderEntry(item, idx) {
 
   return '<div class="queue-item ' + cls.join(' ') + '">' +
     headerHtml +
+    // A GROUP item's members, under the header: always visible (vscimpb129).
+    renderGroupMembers(item, safeId) +
     // Waiting for its background work: always visible, with the ? list and the three choices.
     renderBackgroundWait(item, safeId) +
     renderWaitFor(item, safeId) +
@@ -584,6 +586,46 @@ function renderEntry(item, idx) {
     (item.error ? '<div style="color:var(--vscode-charts-red);font-size:0.8em;margin-top:4px;">Error: ' + escapeHtml(item.error) + '</div>' : '') +
     '</div>' +
   '</div>';
+}
+
+/*
+ * A GROUP item's members (vscimpb129, src/utils/groupItemSelection.ts), in
+ * comprised_of order: → the member being sent, ✓ with the outcome for those it
+ * sent, a checkbox for the others — checked when the walk will send it. The
+ * boxes start from the walk's rules; any member can be checked or unchecked
+ * while the item is staged, pending or sending (or held because its walk had
+ * nothing to send), with Select all and Reset to rules.
+ */
+function renderGroupMembers(item, safeId) {
+  var members = item.groupMembers;
+  if (!Array.isArray(members) || members.length === 0) { return ''; }
+  var editable = item.status === 'staged' || item.status === 'pending' || item.status === 'sending'
+    || (item.status === 'error' && typeof item.error === 'string' && item.error.indexOf('Nothing to iterate over') === 0);
+  var rows = members.map(function(m) {
+    var mark;
+    if (m.marker === 'sending') {
+      mark = '<span class="gm-mark gm-sending" title="Being sent now">\u2192</span>';
+    } else if (m.marker === 'sent') {
+      mark = '<span class="gm-mark gm-sent" title="Sent by this item">\u2713 ' + escapeHtml(m.outcome || '') + '</span>';
+    } else {
+      var why = m.chosen ? (m.checked ? 'Checked by hand' : 'Unchecked by hand') : (m.checked ? 'The walk sends it (its rules)' : 'The walk passes it (its rules)');
+      mark = '<input type="checkbox" class="gm-box" data-member="' + escapeHtml(m.id) + '"' + (m.checked ? ' checked' : '') + (editable ? '' : ' disabled')
+        + ' onchange="setGroupMember(\'' + safeId + '\', \'' + escapeHtml(m.id) + '\', this.checked)" title="' + escapeHtml(why) + '">';
+    }
+    return '<div class="gm-row gm-' + escapeHtml(m.marker) + (m.chosen ? ' gm-chosen' : '') + '" data-member="' + escapeHtml(m.id) + '">'
+      + mark
+      + ' <span class="gm-id">' + escapeHtml(m.id) + '</span>'
+      + ' <span class="gm-status">' + escapeHtml(m.status || '') + '</span>'
+      + ' <span class="gm-title">' + escapeHtml(m.title || '') + '</span>'
+      + '</div>';
+  }).join('');
+  var bar = editable
+    ? '<div class="gm-bar">'
+      + '<button type="button" class="gm-all" onclick="setGroupSelectAll(\'' + safeId + '\')" title="Check every member still to come">Select all</button>'
+      + '<button type="button" class="gm-rules" onclick="resetGroupSelection(\'' + safeId + '\')" title="Back to what the walk\'s rules send: open, not blocked, not the user\'s own">Reset to rules</button>'
+      + '</div>'
+    : '';
+  return '<div class="group-members"><div class="gm-head">Members</div>' + rows + bar + '</div>';
 }
 
 /*

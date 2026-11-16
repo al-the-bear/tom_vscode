@@ -198,6 +198,10 @@ export interface QueuePromptYaml {
     'todo-id-pattern'?: string;
     /** What the item holds (utils/queueItemKind.ts). */
     'item-kind'?: string;
+    /** A GROUP item's members checked and unchecked by hand (utils/groupItemSelection.ts). */
+    /** The todos the item's walk claimed and sent, in order. */
+    'walked-todos'?: string[];
+    'group-selection'?: { checked?: string[]; unchecked?: string[] };
     /** A repeated item's main-prompt answer per repetition (the todo id or the repetition number). */
     'repetition-answers'?: Array<{ key: string; text: string; at: string; 'background-left'?: boolean }>;
     /** The main answer's turn ended with background work still running (a red answer). */

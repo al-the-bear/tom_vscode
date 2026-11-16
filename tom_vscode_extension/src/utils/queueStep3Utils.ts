@@ -226,6 +226,10 @@ export interface TodoIterationSource {
     walkableRepeat?: boolean;
     /** A group todo's members (`comprised_of`), for a GROUP item's walk (vscimpb127). */
     comprisedOf?: string[];
+    /** A GROUP item's selection (vscimpb129): checked by the user and not yet sent by the item — sent whatever its status. */
+    forced?: boolean;
+    /** A GROUP item's selection: unchecked by the user, or already sent by the item — never sent. */
+    excluded?: boolean;
 }
 
 /** A quest todo that matched a `prefix*` pattern, with its parsed number. */
@@ -242,6 +246,10 @@ export interface TodoIterationEntry {
     userAction?: true;
     /** A manual repeated todo the walk may run although it is `waiting-for-repeat`. */
     walkableRepeat?: true;
+    /** Checked in a GROUP item's selection, not yet sent: sent whatever its status (vscimpb129). */
+    forced?: true;
+    /** Unchecked in a GROUP item's selection, or sent already: never sent. */
+    excluded?: true;
 }
 
 /** The one status that makes a todo eligible for dispatch. */
@@ -320,6 +328,8 @@ export function collectWalkTodos(walk: TodoWalk, todos: readonly TodoIterationSo
         status: normaliseStatus(todo.status),
         ...(todo.userAction === true ? { userAction: true as const } : {}),
         ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
+        ...(todo.forced === true ? { forced: true as const } : {}),
+        ...(todo.excluded === true ? { excluded: true as const } : {}),
     });
     const byId = new Map(todos.filter((t) => typeof t?.id === 'string').map((t) => [t.id, t]));
     if (walk.kind === 'todo') {
@@ -427,19 +437,32 @@ export function pickNextTodoForIteration(
     return collectWalkTodos(walk, todos).find(e => isWalkable(e));
 }
 
-/** A todo the walk dispatches: `not-started`, or a manual repeated one it has not run; never the user's own. */
+/**
+ * A todo the walk dispatches: `not-started`, or a manual repeated one it has
+ * not run; never the user's own. A GROUP item's selection (vscimpb129) wins:
+ * a checked member not yet sent is sent whatever its status, an unchecked or
+ * already sent one never.
+ */
 function isWalkable(e: TodoIterationEntry): boolean {
-    return (e.status === NOT_STARTED || (e.status === WAITING_FOR_REPEAT && e.walkableRepeat === true)) && !e.userAction;
+    if (e.excluded) { return false; }
+    if (e.forced) { return true; }
+    return walkRuleSends(e);
+}
+
+/** What the walk's usual rules send: `not-started` (or a manual repeated todo it has not run), not the user's own. */
+export function walkRuleSends(e: { status?: string; userAction?: boolean; walkableRepeat?: boolean }): boolean {
+    const status = normaliseStatus(e.status);
+    return (status === NOT_STARTED || (status === WAITING_FOR_REPEAT && e.walkableRepeat === true)) && !e.userAction;
 }
 
 /**
- * The ids a walk has run: the todos its repetition answers name, and the one
- * it walked last. A manual repeated todo among them is not run again by the
+ * The ids a walk has run: the todos its repetition answers name, the todos it
+ * claimed (`walkedTodos`), and the one it walked last. A manual repeated todo among them is not run again by the
  * same walk (it goes back to `waiting-for-repeat` when done, so its status
  * alone would not end the walk).
  */
-export function walkableRepeatIds(item: { repeatTodoId?: string; repetitionAnswers?: ReadonlyArray<{ key: string }> }): Set<string> {
-    const ran = new Set<string>((item.repetitionAnswers ?? []).map((a) => a.key));
+export function walkableRepeatIds(item: { repeatTodoId?: string; repetitionAnswers?: ReadonlyArray<{ key: string }>; walkedTodos?: readonly string[] }): Set<string> {
+    const ran = new Set<string>([...(item.repetitionAnswers ?? []).map((a) => a.key), ...(item.walkedTodos ?? [])]);
     if (item.repeatTodoId) { ran.add(item.repeatTodoId); }
     return ran;
 }
@@ -475,7 +498,10 @@ export function emptyTodoIterationReason(
     if (walk.kind !== 'prefix' && walk.quest !== questId) {
         return `${EMPTY_TODO_ITERATION_ERROR}: ${label} is a todo of quest "${walk.quest}", and this window works on "${questId}".`;
     }
-    const series = collectWalkTodos(walk, todos);
+    const series = collectWalkTodos(walk, todos).filter((e) => !e.excluded);
+    if (series.length === 0 && collectWalkTodos(walk, todos).length > 0) {
+        return `${EMPTY_TODO_ITERATION_ERROR}: every member of ${label} is unchecked in the item's selection or sent already.`;
+    }
     if (series.length === 0) {
         if (walk.kind === 'todo') { return `${EMPTY_TODO_ITERATION_ERROR}: quest "${questId}" has no todo "${walk.id}".`; }
         if (walk.kind === 'group') {
@@ -511,7 +537,7 @@ export function collectUserActionTodos(
     if (walk === undefined) {
         return [];
     }
-    return collectWalkTodos(walk, todos).filter(e => e.status === NOT_STARTED && e.userAction);
+    return collectWalkTodos(walk, todos).filter(e => e.status === NOT_STARTED && e.userAction && !e.excluded && !e.forced);
 }
 
 /**
@@ -547,7 +573,7 @@ export function decisionHoldingWalk(
     if (walk === undefined) {
         return [];
     }
-    const next = collectWalkTodos(walk, todos).find(e => e.status === DECISION_NEEDED || isWalkable(e));
+    const next = collectWalkTodos(walk, todos).find(e => (e.status === DECISION_NEEDED && !e.excluded && !e.forced) || isWalkable(e));
     return next && next.status === DECISION_NEEDED ? [next] : [];
 }
 
@@ -862,14 +888,15 @@ export interface DecisionHeldItem {
  */
 export function releaseResolvedDecisionItems<T extends DecisionHeldItem>(
     items: readonly T[],
-    todos: readonly TodoIterationSource[],
+    todos: readonly TodoIterationSource[] | ((item: T) => readonly TodoIterationSource[]),
 ): T[] {
     const released: T[] = [];
     for (const item of items) {
         if (item.status !== DECISION_NEEDED) {
             continue;
         }
-        if (decisionHoldingWalk(item.repeatCount, todos).length > 0) {
+        // Per item when a function: a GROUP item's selection changes what holds it (vscimpb129).
+        if (decisionHoldingWalk(item.repeatCount, typeof todos === 'function' ? todos(item) : todos).length > 0) {
             continue;
         }
         item.status = 'pending';

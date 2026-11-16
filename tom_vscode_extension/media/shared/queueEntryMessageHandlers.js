@@ -209,6 +209,16 @@ function previewItem(id) {
     transport: item.transport || 'copilot',
   });
 }
+/* A GROUP item's member list (vscimpb129): one member's box, Select all, Reset to rules. */
+function setGroupMember(id, member, checked) {
+  vscode.postMessage({ type: 'setGroupSelection', id: id, member: member, checked: !!checked });
+}
+function setGroupSelectAll(id) {
+  vscode.postMessage({ type: 'setGroupSelection', id: id, all: true });
+}
+function resetGroupSelection(id) {
+  vscode.postMessage({ type: 'setGroupSelection', id: id, rules: true });
+}
 function openEntryFile(id) {
   vscode.postMessage({ type: 'showEntryFile', id: id });
 }

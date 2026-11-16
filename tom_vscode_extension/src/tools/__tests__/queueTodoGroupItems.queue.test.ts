@@ -8,6 +8,9 @@
  *   TGI-3 a GROUP item walks the group's members in `comprised_of` order, one per iteration, passing a user-action,
  *         a completed and a blocked member and one of another quest; its kind is `group`
  *   TGI-4 every item carries its kind: prefix walk, repeated prompt, plain prompt
+ *   TGI-5 a GROUP item's selection (vscimpb129): members listed by the rules, checked / unchecked by hand, stored as
+ *         `group-selection` in the entry file, shown by tomAi_listQueue and set by tomAi_updateQueueItem; the walk
+ *         sends exactly the checked members, in order (a completed and a user-action one too), then the ✓ markers
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -15,6 +18,7 @@ import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
+import YAML from 'yaml';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261116_vscimpb127_items-')));
@@ -209,6 +213,52 @@ describe('TODO and GROUP items', () => {
         setStatus('mem1_x', 'in-progress');
         setStatus('mem1_x', 'completed');
         assert.equal(todoOf('grp1_x').status, 'completed', 'every member done now: the group completes (vscimpb125)');
+    });
+
+    test('TGI-5: a GROUP item\'s selection: stored, listed, and the walk sends exactly the checked', async () => {
+        reset();
+        // Added to the todo file as it is now (earlier tests rewrote it through the todo writers).
+        const file = path.join(QDIR, `todos.${QUEST}.todo.yaml`);
+        const doc = YAML.parse(fs.readFileSync(file, 'utf8')) as { todos: Json[] };
+        doc.todos.push(
+            { id: 'grp2_x', title: 'the second group', status: 'group', comprised_of: ['sel1_x', 'sel2_x', 'sel3_x', 'sel4_x'] },
+            { id: 'sel1_x', title: 'open one', status: 'not-started' },
+            { id: 'sel2_x', title: 'done one', status: 'completed' },
+            { id: 'sel3_x', title: 'open three', status: 'not-started' },
+            { id: 'sel4_x', title: 'the user\'s four', status: 'not-started', user_action: true },
+        );
+        fs.writeFileSync(file, YAML.stringify(doc));
+        const item = await queue().enqueue({ originalText: 'walk ${repeatTodoId}', repeatCount: todoWalkValue('group', QUEST, 'grp2_x'), transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-items', deferSend: true } as never);
+        const marks = (): string[] => (queue().groupMembers(item.id) ?? []).map((m) => `${m.id}:${m.marker}:${m.checked ?? m.outcome}`);
+        assert.deepEqual(marks(), ['sel1_x:todo:true', 'sel2_x:todo:false', 'sel3_x:todo:true', 'sel4_x:todo:false'], 'the rules');
+        assert.ok(queue().setGroupSelection(item.id, { member: 'sel2_x', checked: true }), 'a completed member checked by hand');
+        assert.ok(queue().setGroupSelection(item.id, { member: 'sel3_x', checked: false }));
+        assert.deepEqual(marks(), ['sel1_x:todo:true', 'sel2_x:todo:true', 'sel3_x:todo:false', 'sel4_x:todo:false']);
+        await wait(300);
+        assert.match(entryText(item.id), /group-selection:\s*\n\s+checked:\s*\n\s+- sel2_x\s*\n\s+unchecked:\s*\n\s+- sel3_x/, 'persisted in the entry file');
+
+        // The tools: listQueue shows the members with their marker; updateQueueItem takes groupSelection.
+        const { QUEUE_LIST_TOOL, QUEUE_UPDATE_ITEM_TOOL } = await import('../chat-enhancement-tools.js');
+        const listed = JSON.parse(await QUEUE_LIST_TOOL.execute({}) as string).items.find((i: Json) => i.id === item.id);
+        assert.deepEqual(listed.members.map((m: Json) => `${m.id} ${m.marker}`), ['sel1_x ☑', 'sel2_x ☑', 'sel3_x ☐', 'sel4_x ☐']);
+        assert.equal(listed.members[1].chosen, true);
+        const refused = JSON.parse(await QUEUE_UPDATE_ITEM_TOOL.execute({ queueItemId: item.id, groupSelection: ['nope_x'] }) as string);
+        assert.equal(refused.ok, false);
+        const updated = JSON.parse(await QUEUE_UPDATE_ITEM_TOOL.execute({ queueItemId: item.id, groupSelection: ['sel2_x', 'sel4_x'] }) as string);
+        assert.equal(updated.ok, true, JSON.stringify(updated));
+        assert.deepEqual(marks(), ['sel1_x:todo:false', 'sel2_x:todo:true', 'sel3_x:todo:false', 'sel4_x:todo:true']);
+
+        // Run it: exactly sel2_x and sel4_x, in order.
+        script = (opts) => { const id = walkedIn(opts); if (id) { setStatus(id, 'completed'); } return `did ${id}`; };
+        queue().setStatus(item.id, 'pending');
+        queue().autoSendEnabled = true;
+        await wait(900);
+        assert.deepEqual(turns.map(walkedIn), ['sel2_x', 'sel4_x'], 'a completed and a user-action member checked; the open unchecked ones passed');
+        assert.equal(todoOf('sel1_x').status, 'not-started');
+        assert.equal(todoOf('sel3_x').status, 'not-started');
+        assert.equal(live(item).status, 'sent');
+        assert.deepEqual(marks(), ['sel1_x:todo:false', 'sel2_x:sent:completed', 'sel3_x:todo:false', 'sel4_x:sent:completed']);
+        assert.equal(queue().setGroupSelection(item.id, { all: true }), false, 'a sent item\'s selection is fixed');
     });
 
     test('TGI-4: every item carries its kind', async () => {

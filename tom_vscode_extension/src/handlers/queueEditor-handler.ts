@@ -863,6 +863,12 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'updateText':
             await qm.updateText(msg.id, msg.text);
             break;
+        case 'setGroupSelection': {
+            // A GROUP item's member list (vscimpb129): one member's box, Select all, Reset to rules.
+            const change = msg.all ? { all: true as const } : msg.rules ? { rules: true as const } : { member: String(msg.member), checked: msg.checked === true };
+            qm.setGroupSelection(String(msg.id), change);
+            break;
+        }
         case 'updateItemTemplate':
             // Auto-set answerWrapper based on template: true if any template selected, false if "(None)"
             await qm.updateItemTemplateAndWrapper(msg.id, { 
@@ -1377,6 +1383,11 @@ const repetitionBackfillTried = new Set<string>();
  * kept them): read them back from the quest's session trails once, so its
  * chips show every todo's answer (repetitionAnswersFromTrail).
  */
+/** A GROUP item's members as the item's member list shows them (utils/groupItemSelection.ts); undefined otherwise. */
+function groupMembersOf(item: { id: string }): unknown[] | undefined {
+    try { return PromptQueueManager.instance.groupMembers(item.id); } catch { return undefined; }
+}
+
 function backfillSentWalkAnswers(qm: PromptQueueManager): void {
     const due = qm.items.filter((i) => i.status === 'sent' && !i.repetitionAnswers?.length && walkPrefixOf(i) && !repetitionBackfillTried.has(i.id));
     if (due.length === 0) { return; }
@@ -1526,6 +1537,8 @@ function buildState(): Record<string, unknown> {
                 ...(item.status === 'sending' ? { interruptTransport: stageTransportOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
+                // A GROUP item's members with → / ✓ / checkbox (vscimpb129).
+                ...(groupMembersOf(item) ? { groupMembers: groupMembersOf(item) } : {}),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),
