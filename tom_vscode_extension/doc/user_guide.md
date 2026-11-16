@@ -293,6 +293,10 @@ When several apply, the first of this list wins. Click a run of this window to w
 
 The bar on top: one toggle per kind; the window button lists the windows the events come from (tick one or several; none ticked shows every window); **Clear** hides the events there are now (in this window only — the log stays; a history button shows them again). The filters are kept per window. Every window writes its events into one log for the machine (the extension's global storage, the last 1000 events), and every NOTIFICATIONS view shows it as it changes.
 
+#### @TOM TODO: the todo panel on its own
+
+The **@TOM TODO** sidebar (its own Activity Bar icon; `@T: Focus @TOM TODO`) holds one view, **TODO**: the todo panel (see [Quest TODO Panel](#quest-todo-panel)) taking the whole side area. It is a panel of its own — its quest scope, file toggles, order, prefix, sort and filters are kept apart from QUEST TODOS' and the @WS section's — and it starts across quests: on **the open windows' quests**, with the **quest prefix** in front of every id. In a window without an active quest it starts on **all quests**. Change any of it with the panel's own controls; the panel keeps your choices.
+
 ### Issues Panel
 
 The @WS **Issues** section lists the issues of the repositories it finds in the workspace's git remotes, plus the ones the panel configuration adds (`issuePanels`; **Tests** works the same for test reports). The repository dropdown offers one repository, **All Repos**, or **My Repos (`<account>`)**: the repositories of the GitHub account VS Code is signed in with, without forks and without clones of other people's repositories. The choice appears once the account's repositories are known (it asks GitHub whether each is a fork) and only when an account is signed in. New issues need one repository chosen.
@@ -301,16 +305,16 @@ The table's **Repo** column, right of the comment count, names the repository ea
 
 ### Quest TODO Panel
 
-The Quest TODO panel (the `@WS` Quest TODO section, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
+The Quest TODO panel (the @TOM QUEST TODOS view, the `@WS` Quest TODO section, the @TOM TODO sidebar, and the editor that opens for any `*.todo.yaml` file) manages quest todos with status tracking.
 
 #### Quests and files shown
 
-The two quest todo views (@TOM QUEST TODOS, @WS › Quest TODO) are todo managers across quests. They start on their own quest — the window's — and look and work as always until another quest is added. Their top bar has:
+The quest todo views (@TOM QUEST TODOS, @WS › Quest TODO, @TOM TODO) are todo managers across quests. QUEST TODOS and the @WS section start on their own quest — the window's — and look and work as always until another quest is added; @TOM TODO starts on the open windows' quests. Their top bar has:
 
 - **Quest scope** — the button with the library icon, showing the quest (or *Open windows (n)* / *All quests (n)*). A click opens a picker: **one quest** (any quest folder), the **open windows' quests** (the windows on this machine with a live heartbeat, this window's first), or **all quests** — then a second picker with a checkbox per quest chooses which to see. The scope is kept per view, in this window.
 - **Which files** — three toggle icons: **live todos** (the checklist, on by default), **archived todos** (the box) and **deleted todos** (the bin): the `-archived` / `-deleted` siblings. An archived or deleted todo is shown greyed, marked *archived* / *deleted*, and read-only — in its detail every field is disabled — with one action, **↩️ Restore**: it goes back into the live file it came from, without its archive stamp. Restore is refused when the live file already holds a todo with that id.
 - **Order** (shown when more than one quest is in the list) — **Groups of all quests** (a prefix group holds the todos of that prefix from every quest shown), **By quest, then groups** (each quest a collapsible level, its prefix groups and group todos under it), **By quest, then list** (each quest's todos as a list).
-- **Quest prefix** — a toggle that shows the quest in front of every todo id (`vscode_extension/vscimpb137_…`). Off by default with one quest, on by default with several; once you set it, the view keeps your choice.
+- **Quest prefix** — a toggle that shows the quest in front of every todo id (`vscode_extension/vscimpb137_…`). Off by default with one quest, on by default with several and in @TOM TODO; once you set it, the view keeps your choice.
 
 Everything else works across quests: details, editing, status changes, stacking, Send and Queue each act on the todo's own quest and file. A walk over a group (🔁) needs one quest: it is offered on the groups of *By quest, then groups*, not on a group combining several quests. The view reloads when any quest's todo files change.
 

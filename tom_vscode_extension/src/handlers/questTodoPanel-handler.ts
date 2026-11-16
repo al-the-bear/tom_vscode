@@ -40,7 +40,7 @@ import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { isArchivedOrDeletedTodoFile } from '../utils/todoArchiveNames';
 import { restoreTodos } from '../utils/todoArchive';
-import { defaultTodoPanelScope, isPlainScope, normalizeTodoPanelScope, questPrefixShown, resolveScopeQuests, retiredKindOf, scopeButtonText, scopeFileScope, todoPanelScopeKey, type TodoPanelScope } from '../utils/todoPanelScope';
+import { defaultTodoPanelScope, isPlainScope, normalizeTodoPanelScope, questPrefixShown, resolveScopeQuests, retiredKindOf, scopeButtonText, scopeFileScope, todoPanelScopeKey, type TodoPanelScope, type TodoPanelScopeKind } from '../utils/todoPanelScope';
 import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
@@ -161,8 +161,13 @@ interface QtPendingSelectState {
     todoId?: string;
 }
 
-function _loadPanelState(): QtPanelState {
-    return _extensionContext?.workspaceState.get<QtPanelState>(QT_STATE_KEY) ?? {};
+/** The sort / filter / quest state of a panel: the shared one, or its own instance's (@TOM TODO). */
+function _panelStateKey(instance?: string): string {
+    return instance ? `${QT_STATE_KEY}.${instance}` : QT_STATE_KEY;
+}
+
+function _loadPanelState(instance?: string): QtPanelState {
+    return _extensionContext?.workspaceState.get<QtPanelState>(_panelStateKey(instance)) ?? {};
 }
 
 function _loadPendingSelectState(): QtPendingSelectState {
@@ -173,8 +178,8 @@ async function _clearPendingSelectState(): Promise<void> {
     await _extensionContext?.workspaceState.update(QT_PENDING_SELECT_KEY, undefined);
 }
 
-async function _savePanelState(state: QtPanelState): Promise<void> {
-    await _extensionContext?.workspaceState.update(QT_STATE_KEY, state);
+async function _savePanelState(state: QtPanelState, instance?: string): Promise<void> {
+    await _extensionContext?.workspaceState.update(_panelStateKey(instance), state);
 }
 
 export interface QuestTodoViewConfig {
@@ -202,6 +207,15 @@ export interface QuestTodoViewConfig {
      * @TOM views that need a quest (QUEST TODOS, SESSION TODOS).
      */
     questHint?: boolean;
+    /**
+     * A panel instance of its own (vscimpb138, @TOM TODO): its scope, toggles and sort / filter state are
+     * kept under this name, apart from the other todo panels'.
+     */
+    scopeInstance?: string;
+    /** The scope the instance starts on until it is changed; without an active quest it starts on all quests. */
+    defaultScopeKind?: TodoPanelScopeKind;
+    /** The quest prefix on by default, even with one quest (@TOM TODO). */
+    questPrefixByDefault?: boolean;
 }
 
 /** Call once from extension.ts / wsPanel to store the extension context. */
@@ -488,11 +502,11 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         }
         case 'qtSaveState':
             if (msg.state) {
-                await _savePanelState(msg.state as QtPanelState);
+                await _savePanelState(msg.state as QtPanelState, cfg.scopeInstance);
             }
             return true;
         case 'qtGetState': {
-            const saved = _loadPanelState();
+            const saved = _loadPanelState(cfg.scopeInstance);
             post({ type: 'qtState', state: saved });
             return true;
         }
@@ -528,7 +542,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             let activeQuest = '';
             // 1. Check persisted state first
-            const saved = _loadPanelState();
+            const saved = _loadPanelState(cfg.scopeInstance);
             if (saved.questId && quests.indexOf(saved.questId) >= 0) {
                 activeQuest = saved.questId;
             }
@@ -2130,6 +2144,7 @@ function _moveTodoToSiblingByStatus(filePath: string, todoId: string): questTodo
 /** The panel instance a scope is kept for: the quest todo views; none for session, workspace and single-file panels. */
 function _scopeInstance(cfg: QuestTodoViewConfig): string | undefined {
     if (cfg.mode === 'session' || cfg.mode === 'workspace-file' || cfg.fixedFile || cfg.fixedQuestId === '__invalid_quest__') { return undefined; }
+    if (cfg.scopeInstance) { return cfg.scopeInstance; }
     return cfg.mode === 'fixed-file' ? 'quest-todos' : 'ws';
 }
 
@@ -2162,7 +2177,12 @@ function _scopeSources(): { all: string[]; open: string[]; windowQuest: string }
 function _scopeOf(instance: string, cfg: QuestTodoViewConfig): TodoPanelScope {
     const stored = _extensionContext?.workspaceState.get<unknown>(todoPanelScopeKey(instance));
     const own = cfg.fixedQuestId || (instance === 'ws' ? (_loadPanelState().questId || '') : '') || _windowQuest();
-    return stored ? normalizeTodoPanelScope(stored, own) : defaultTodoPanelScope(own);
+    if (stored) { return normalizeTodoPanelScope(stored, own); }
+    // An instance with a start of its own (@TOM TODO: the open windows' quests); without an active quest, all quests.
+    if (cfg.defaultScopeKind && cfg.defaultScopeKind !== 'one') {
+        return normalizeTodoPanelScope({ kind: _windowQuest() ? cfg.defaultScopeKind : 'all' }, own);
+    }
+    return defaultTodoPanelScope(own);
 }
 
 async function _saveScope(instance: string, scope: TodoPanelScope): Promise<void> {
@@ -2189,7 +2209,7 @@ function _postScope(cfg: QuestTodoViewConfig, post: (m: any) => void): void {
         quests,
         plain,
         buttonText: scopeButtonText(scope, quests, sources.all.length),
-        prefix: questPrefixShown(scope, quests.length),
+        prefix: questPrefixShown(scope, quests.length, cfg.questPrefixByDefault === true),
     });
 }
 

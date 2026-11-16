@@ -36,7 +36,8 @@ const VIEW_IDS = {
     workspaceTodos: 'tomAi.workspaceTodos',
     questNotes: 'tomAi.questNotes',
     questTodos: 'tomAi.questTodos',
-    sessionTodos: 'tomAi.sessionTodos'
+    sessionTodos: 'tomAi.sessionTodos',
+    tomTodo: 'tomAi.tomTodo',
 };
 
 async function showNotesMarkdownPreview(
@@ -526,6 +527,14 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
         hideFileSelect: true,
     });
     setSessionTodosProvider(sessionTodosProvider);
+    // @TOM TODO (vscimpb138): the todo panel on its own in an activity-bar container, a panel instance with
+    // its own scope and toggles, starting on the open windows' quests with the quest prefix shown.
+    const tomTodoProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
+        scopeInstance: 'tom-todo',
+        defaultScopeKind: 'open',
+        questPrefixByDefault: true,
+        hideQuestSelect: true,
+    });
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(VIEW_IDS.tomNotepad, tomNotepadProvider, {
@@ -544,6 +553,9 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
             webviewOptions: { retainContextWhenHidden: true },
         }),
         vscode.window.registerWebviewViewProvider(VIEW_IDS.sessionTodos, sessionTodosProvider, {
+            webviewOptions: { retainContextWhenHidden: true },
+        }),
+        vscode.window.registerWebviewViewProvider(VIEW_IDS.tomTodo, tomTodoProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
         vscode.commands.registerCommand('tomAi.focusChatPanel', async () => {

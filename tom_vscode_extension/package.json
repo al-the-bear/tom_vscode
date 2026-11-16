@@ -69,6 +69,11 @@
           "id": "tomAi-info-sidebar",
           "title": "@TOM INFO",
           "icon": "resources/tom-info-sidebar.svg"
+        },
+        {
+          "id": "tomAi-todo-sidebar",
+          "title": "@TOM TODO",
+          "icon": "resources/tom-todo-sidebar.svg"
         }
       ],
       "panel": [
@@ -374,6 +379,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.tomTodoSidebar.focus",
+        "title": "@T: Focus @TOM TODO",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.sessions.add",
         "title": "@T: New Session",
         "category": "@Tom",
@@ -573,6 +583,14 @@
           "id": "tomAi.vscResources",
           "name": "RESOURCES",
           "icon": "$(server-process)"
+        }
+      ],
+      "tomAi-todo-sidebar": [
+        {
+          "type": "webview",
+          "id": "tomAi.tomTodo",
+          "name": "TODO",
+          "icon": "$(checklist)"
         }
       ],
       "tomAi-info-sidebar": [

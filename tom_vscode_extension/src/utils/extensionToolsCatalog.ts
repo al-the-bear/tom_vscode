@@ -88,6 +88,8 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
     { id: 'questNotesPanel', label: 'Quest notes, runs, notifications (@TOM INFO)', group: 'quest', icon: 'book', command: 'tomAi.tomInfoSidebar.focus',
         purpose: 'The active quest\'s notes in a side bar of their own (Edit, and View as the MD Browser renders it), RUNS: every process run of every window on this machine with its state, what it waits for and its subject, and NOTIFICATIONS: the queue and todo events of every window.',
         whenAvailable: 'a quest is open' },
+    { id: 'tomTodo', label: 'Todos across quests (@TOM TODO)', group: 'quest', icon: 'checklist', command: 'tomAi.tomTodoSidebar.focus',
+        purpose: 'The todo panel on its own in a side bar: the open windows\' quests (or one quest, or all quests you tick), live, archived and deleted todos, by quest or combined, each id with its quest.' },
     { id: 'createQuest', label: 'Create New Quest', group: 'quest', icon: 'new-folder', command: 'tomAi.createQuest',
         purpose: 'A new quest\'s files and the todo that defines it with you.' },
     { id: 'setupWorkspaceFolder', label: 'Setup New Workspace Folder', group: 'quest', icon: 'root-folder', command: 'tomAi.setupWorkspaceFolder',

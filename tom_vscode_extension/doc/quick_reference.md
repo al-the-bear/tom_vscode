@@ -61,6 +61,10 @@
 - RUNS (`tomAi.runsOverview`): every run of every window on this machine, grouped by window — run, subject, process › position, state badge (waiting for user / waiting for event / waiting on task / running / paused / idle) with what it waits for; click this window's run to select it, another window's for its details
 - NOTIFICATIONS (`tomAi.notifications`): queue and todo events of every window on this machine — item queued / deleted, todo created / edited / status changed; one line each (time, icon, text), merged per kind, source and quest within 60 s; hover or click for who (agent: transport, profile, session, queue item, todo; you; the extension), the fields old → new and the members; toggles per kind, a window filter, Clear (this window only); filters kept per window; one shared log (global storage, last 1000 events)
 
+**@TOM TODO** (the todo panel on its own; `tomAi.tomTodoSidebar.focus`, `@T: Focus @TOM TODO`):
+
+- TODO (`tomAi.tomTodo`): the todo panel across quests, a panel instance of its own (scope, toggles, sort and filters kept apart); starts on the open windows' quests with the quest prefix on, on all quests without an active quest
+
 ## Quest TODO Panel — top bar
 
 - Quest scope button (one quest / the open windows' quests / all quests with checkboxes; kept per view), file toggles (live, archived, deleted — archived and deleted read-only with ↩️ Restore), order with several quests (groups of all quests / by quest then groups / by quest then list), quest prefix toggle (on by default with several quests)

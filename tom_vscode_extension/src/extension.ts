@@ -1294,6 +1294,14 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Focus @TOM TODO: the todo panel on its own, across quests (vscimpb138)
+    const focusTomTodoSidebarCmd = vscode.commands.registerCommand(
+        'tomAi.tomTodoSidebar.focus',
+        async () => {
+            await vscode.commands.executeCommand('workbench.view.extension.tomAi-todo-sidebar');
+        }
+    );
+
     // Open in MD Viewer - dedicated command for markdown files
     const openInMdViewerCmd = vscode.commands.registerCommand(
         'tomAi.openInMdViewer',
@@ -1415,6 +1423,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         focusTomWsSidebarCmd,
         focusTomVscSidebarCmd,
         focusNotesSidebarCmd,
+        focusTomTodoSidebarCmd,
         openInMdViewerCmd,
         openExtensionSettingsCmd,
         migrateCompactionFormatCmd

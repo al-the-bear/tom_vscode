@@ -16,7 +16,7 @@
  *   QH-3 the buttons dispatch: createQuest and setupWorkspaceFolder run their commands, another action runs nothing,
  *        other messages are not taken
  *   QH-4 the panels: @CHAT, @WS, PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS load the helper and
- *        wire the host side; WORKSPACE TODOS does not
+ *        wire the host side; WORKSPACE TODOS and @TOM TODO (no quest needed) do not
  */
 
 import test, { after, describe } from 'node:test';
@@ -286,9 +286,9 @@ describe('The no-quest hint', () => {
         const ws = read('src', 'handlers', 'wsPanel-handler.ts');
         assert.ok(ws.indexOf("readMediaText('shared', 'questHint.js')") > ws.indexOf("readMediaText('shared', 'completion.js')"));
         assert.ok(ws.includes("readMediaText('shared', 'questHint.css')"));
-        // QUEST TODOS and SESSION TODOS (questHint: true), not WORKSPACE TODOS.
+        // QUEST TODOS and SESSION TODOS (questHint: true), not WORKSPACE TODOS, nor @TOM TODO (it works without a quest).
         const providers = [...notes.matchAll(/const (\w+)Provider = new QuestTodoEmbeddedViewProvider\([^{]*\{([^}]*)\}/g)].map((m) => [m[1], /questHint: true/.test(m[2])]);
-        assert.deepEqual(providers, [['workspaceTodos', false], ['questTodos', true], ['sessionTodos', true]]);
+        assert.deepEqual(providers, [['workspaceTodos', false], ['questTodos', true], ['sessionTodos', true], ['tomTodo', false]]);
         const todo = read('src', 'handlers', 'questTodoPanel-handler.ts');
         assert.match(todo, /if \(this\.config\?\.questHint\) \{\n\s+this\.context\.subscriptions\.push\(wireQuestHintMessages\(webviewView\.webview\)\);/);
         assert.match(todo, /const questHintJs = config\?\.questHint \? `<script src="\$\{shared\('questHint\.js'\)\}"><\/script>` : '';/);
