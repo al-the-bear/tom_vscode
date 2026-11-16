@@ -662,6 +662,7 @@ export async function activate(context: vscode.ExtensionContext) {
             ensureDefaultTransportRetryTemplate,
             ensureExecuteTodoUserMessageTemplate,
             ensureExplainTodoUserMessageTemplate,
+            ensureSeededUserMessageTemplatesInConfig,
         } = await import('./utils/sendToChatConfig.js');
         const stcConfig = loadSendToChatConfig();
         // One-shot seed: migrate the in-code transport-retry default into an
@@ -683,6 +684,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (ensureExplainTodoUserMessageTemplate(stcConfig)) {
                     stcDirty = true;
                     bridgeLog('Seeded "Explain TODO" Anthropic user-message template', 'INFO');
+                }
+                // With asking, the ask-tool hints, the retired templates (vscimpb120).
+                const seeded = ensureSeededUserMessageTemplatesInConfig(stcConfig);
+                if (seeded.length) {
+                    stcDirty = true;
+                    bridgeLog(`User-message templates: ${seeded.join('; ')}`, 'INFO');
                 }
                 // The Assist prompts' default templates (Grill me, Explain in detail,
                 // Explain a decision, Finish review round, Out of budget), by id.

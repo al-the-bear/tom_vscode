@@ -514,7 +514,7 @@ Timed-request entries gained `repeatCount`, `repeatPrefix`, `repeatSuffix`, `sen
 | `tomAi_updateTimedRequest` | Patch timed entry; schedule slots use `{time:"HH:MM", date?:...}`. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_removeTimedRequest` | Remove a timed entry. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_setTimerEngineState` | Enable / disable the timer engine. | ⚪ | ⚪ | ⚪ | ⚪ |
-| `tomAi_listPromptTemplates` | List prompt templates. | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_listPromptTemplates` | List prompt templates (the seeded ones include `with-asking`, `execute-todo`, `explain-todo`; `with-context` and `with-role-banner` are retired, and a reference to them resolves to `default-raw`). | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_createPromptTemplate` | Create a new prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_updatePromptTemplate` | Patch (optionally rename) a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |
 | `tomAi_deletePromptTemplate` | Delete a prompt template. | ⚪ | ⚪ | ⚪ | ⚪ |

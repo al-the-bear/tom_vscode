@@ -1,8 +1,8 @@
 /**
  * The "Explain TODO" Anthropic user-message template: a todo sent with it is
- * explained to the user in detail, the open points are asked through
- * tomAi_askUser, and the todo is changed from the answers — nothing else is
- * done. It took the place of the "Explain-then-ask scaffold"
+ * explained to the user in detail in a Markdown document whose questions are
+ * asked through tomAi_askInMdBrowser (vscimpb120), and the todo is changed from
+ * the answers — nothing else is done. It took the place of the "Explain-then-ask scaffold"
  * (`explain-and-ask`), whose id the `_ai` format migration renames
  * (aiFormatMigration.ts, format version 4).
  *
@@ -19,9 +19,10 @@ export const LEGACY_EXPLAIN_AND_ASK_TEMPLATE_ID = 'explain-and-ask';
 export const EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_NAME = 'Explain TODO';
 
 export const EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_DESCRIPTION =
-    'Explains a todo in detail (what it changes, why, its open decisions and their options), asks the user through tomAi_askUser, and changes the todo from the answers (decisions, description, notes). Does not do the work.';
+    'Explains a todo in detail (what it changes, why, its open decisions and their options), asks the user in a Markdown document through tomAi_askInMdBrowser, and changes the todo from the answers (decisions, description, notes). Does not do the work.';
 
-export const EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY = `# Explain TODO
+/** The body before vscimpb120 (asked through tomAi_askUser): brought to the current one when unedited. */
+const EXPLAIN_TODO_BODY_V1 = `# Explain TODO
 
 The todo below is to be **explained, not done**. Explain it to me in detail, ask me what is still open, and change the todo from my answers.
 
@@ -51,6 +52,41 @@ The todo below is to be **explained, not done**. Explain it to me in detail, ask
 5. **Do not start the work**: no code and no file changes besides the todo, and no other todos. End by telling me what changed in the todo.
 
 The todo is not done by this, so do not report its TODO response value.`;
+
+export const EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY = `# Explain TODO
+
+The todo below is to be **explained, not done**. Explain it to me in detail, ask me what is still open, and change the todo from my answers.
+
+## The todo
+
+\${userMessage}
+
+## How
+
+1. **Read it in full.** The todo's YAML is above; when only an id or a \`<path>/<file>.todo.yaml/<id>\` reference is there, read it with \`tomAi_getQuestTodo\` (quest \`\${quest}\` unless the reference names another). Read what it points to — its references, the todos in \`blocked_by\` and \`blocking\`, the files and code it names — so the explanation describes the situation as it is now, not as it was when the todo was filed.
+
+2. **Explain it**, in plain words:
+   - **what it changes**: the files, modules, formats and behaviour, and what I will see differently afterwards;
+   - **why**: the problem it solves, where it comes from (its references and earlier decisions), and what depends on it;
+   - **how it would be done**, step by step, and how it is checked (tests, the DONE condition);
+   - **its open decisions**: each with its options, what each option means in practice, and your recommendation with the reason;
+   - anything **unclear, contradictory or stale** in it.
+
+3. **Ask me in a Markdown document through \`tomAi_askInMdBrowser\`**, never in your reply text. Write the explanation of step 2 into \`_ai/quests/<the todo's quest>/explanations/<todo id>.md\`. Below it, insert one question block per open decision and per unclear point with \`tomAi_mdInsertQuestion\`: its options, your recommendation bold. A last block asks whether the todo should change in any other way (scope, priority, order). Show the document with \`tomAi_askInMdBrowser\`, buttons *Answered* and *Cancel*, without \`timeoutMinutes\`, and wait. Then read my answers with \`tomAi_mdQuestions\`. For one short question, \`tomAi_askUser\` (with \`choices\`) is enough; \`tomAi_askUserPicker\` for a pick from a list.
+
+4. **Change the todo from my answers** with \`tomAi_updateQuestTodo\`:
+   - write each answer into its \`decisions[].decision\`;
+   - rewrite the description where an answer changes what is to be done, keeping everything in it that still holds;
+   - add a dated note saying what was clarified — \`notes\` is replaced, not appended to, so read the existing notes first and send them with the new one;
+   - when every decision is answered and the status is \`decision-needed\`, set it to \`not-started\` in the same update.
+
+5. **Do not start the work**: no code and no file changes besides the todo and its explanation document, and no other todos. End by telling me what changed in the todo.
+
+The todo is not done by this, so do not report its TODO response value.`;
+
+/** Earlier built-in Explain TODO bodies, brought to the current one when unedited (userMessageTemplateSeeds.ts). */
+export const PREVIOUS_EXPLAIN_TODO_BODIES: readonly string[] = [EXPLAIN_TODO_BODY_V1];
+
 
 export interface UserMessageTemplateEntry {
     id: string;

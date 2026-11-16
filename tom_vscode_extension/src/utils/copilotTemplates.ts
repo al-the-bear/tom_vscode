@@ -20,6 +20,8 @@
  * that names it keeps working. vscode-free.
  */
 
+import { liveUserMessageTemplateId } from './userMessageTemplateSeeds';
+
 /** The template id that selects "no template, wrapped". */
 export const ANSWER_WRAPPER_ID = '__answer_file__';
 
@@ -42,7 +44,9 @@ export function copilotQueueWrapper(config: CopilotTemplateSource | null | undef
 /** A user-message template's body by id (or name); undefined for none, `(None)`, `__none__` and the wrapper id. */
 export function userMessageTemplateBody(config: CopilotTemplateSource | null | undefined, idOrName: string | undefined): string | undefined {
     if (!idOrName || idOrName === '(None)' || idOrName === '__none__' || idOrName === ANSWER_WRAPPER_ID) { return undefined; }
-    const match = (config?.anthropic?.userMessageTemplates ?? []).find((t) => t && (t.id === idOrName || t.name === idOrName));
+    // A retired template (with-context, with-role-banner; vscimpb120) resolves to default-raw.
+    const wanted = liveUserMessageTemplateId(idOrName);
+    const match = (config?.anthropic?.userMessageTemplates ?? []).find((t) => t && (t.id === wanted || t.name === wanted));
     return typeof match?.template === 'string' ? match.template : undefined;
 }
 

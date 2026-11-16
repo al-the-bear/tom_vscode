@@ -10,6 +10,7 @@
  */
 
 import { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID as EXPLAIN_TODO_ID, explainTodoTemplateEntry } from './explainTodoTemplate';
+import { ASK_TOOLS_PARAGRAPH, ensureSeededUserMessageTemplates } from './userMessageTemplateSeeds';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -944,7 +945,7 @@ export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY =
     'or also needs fixing, fix or do it. If you cannot do it now, create a new ' +
     'todo so it is tracked.\n\nOnce the TODO is fully done, change its status to ' +
     '"Completed".\n\nPlease verify everything stated is implemented exactly as ' +
-    'described.';
+    'described.\n\n' + ASK_TOOLS_PARAGRAPH;
 
 /**
  * Ensure the config carries the "Execute TODO" Anthropic user-message template
@@ -989,6 +990,16 @@ export function ensureExplainTodoUserMessageTemplate(config: SendToChatConfig): 
     if (templates.some((t) => t.id === EXPLAIN_TODO_ID)) { return false; }
     templates.push(explainTodoTemplateEntry() as typeof templates[number]);
     return true;
+}
+
+/**
+ * Bring the seeded user-message templates up to date (vscimpb120,
+ * userMessageTemplateSeeds.ts): "With asking" added, Execute TODO and Explain
+ * TODO brought from an unedited earlier body to the current one, the retired
+ * `with-context` / `with-role-banner` removed. Answers what changed.
+ */
+export function ensureSeededUserMessageTemplatesInConfig(config: SendToChatConfig): string[] {
+    return ensureSeededUserMessageTemplates(config as never, EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY);
 }
 
 // ============================================================================
