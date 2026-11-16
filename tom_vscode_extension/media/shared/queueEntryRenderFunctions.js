@@ -26,17 +26,23 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
-  if (item.status === 'chat' || item.status === 'chat-sent') { return renderChatEntry(item, idx); }
   var safeStatus = normalizeQueueStatus(item.status);
+  // A chat send (status `chat` while it runs, `chat-sent` after; src/utils/chatQueueItems.ts): drawn like
+  // every other item, with its own headline colour (`chat-kind`). The queue never sends it, so only the
+  // controls that read it stay (the session and run chips, the live trail, the YAML file, Delete).
+  var isChat = safeStatus === 'chat' || safeStatus === 'chat-sent';
+  var isChatRunning = safeStatus === 'chat';
   var queuePos = idx + 1;
   var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
   var cls = [safeStatus];
+  if (isChat) cls.push('chat-item');
   if (item.type === 'reminder') cls.push('reminder');
   // Yellow left border for items carrying an interruption warning
   // (rate limit / quota / overloaded / cancelled / interrupted).
   if ((item.warning && item.warning.kind) || (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0)) cls.push('warned');
   // Its running prompt waits for the user (a question or an approval is open): a colour of its own.
-  var waitingForUser = Array.isArray(item.waitingForUser) && item.waitingForUser.length > 0;
+  // (An ended chat send waits for nothing.)
+  var waitingForUser = Array.isArray(item.waitingForUser) && item.waitingForUser.length > 0 && safeStatus !== 'chat-sent';
   if (waitingForUser) cls.push('waiting-for-user');
   var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
   var sentTime = item.sentAt ? new Date(item.sentAt).toLocaleTimeString() : '';
@@ -62,7 +68,7 @@ function renderEntry(item, idx) {
   var textEditDraft = (isPending && typeof queueTextEdits !== 'undefined' && queueTextEdits && Object.prototype.hasOwnProperty.call(queueTextEdits, item.id))
     ? queueTextEdits[item.id] : undefined;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
-  var statusBarCls = item.type === 'reminder' ? 'reminder' : safeStatus;
+  var statusBarCls = item.type === 'reminder' ? 'reminder' : isChat ? 'chat-kind' + (isChatRunning ? ' running' : '') : safeStatus;
   // The label: status and kind in one (vscimpb128: PENDING TODO, SENDING GROUP, STAGED PROMPT, …;
   // queueStatusKindLabel in queueEntryUtils.js), then what holds or delays it (`stateDetail`).
   var stateWord = safeStatus;
@@ -118,7 +124,9 @@ function renderEntry(item, idx) {
   var softLabel = isSending ? softInterruptRowLabel(item) : '';
   if (softLabel) { stateWord = 'sending'; stateDetail = ''; stateDetailHtml = '\u2014 ' + softLabel; }
   var statusKind = queueStatusKindLabel(stateWord, queueItemKindOf(item));
-  var statusLabel = '<span class="' + statusKind.cls + '" title="Status and kind of the item">' + escapeHtml(statusKind.text) + '</span>' +
+  var statusLabel = '<span class="' + statusKind.cls + '" title="' + (isChat
+      ? (isChatRunning ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue'
+      : 'Status and kind of the item') + '">' + escapeHtml(statusKind.text) + '</span>' +
     (stateDetail ? ' ' + escapeHtml(stateDetail) : '') + (stateDetailHtml ? ' ' + stateDetailHtml : '');
 
   // Green→amber header for the head-of-queue item. The queue is "active" while
@@ -372,10 +380,11 @@ function renderEntry(item, idx) {
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\'' + safeId + '\')" title="Toggle details"></span>' +
           statusLabel + repeatProgress + tplRepeatProgress + transportBadge + processBadge +
-          (item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
-          (item.template && item.template !== '(None)' ? '  [AW]' : '') +
+          (!isChat && item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
+          (!isChat && item.template && item.template !== '(None)' ? '  [AW]' : '') +
+          (isChat ? chatSourceChip(item) : '') +
           '<span class="status-icons">' +
-          '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\'' + safeId + '\')" title="Preview"></span>' +
+          (isChat ? '' : '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\'' + safeId + '\')" title="Preview"></span>') +
           (isStaged ? '<span class="codicon codicon-arrow-right" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'pending\')" title="Set to Pending"></span>' : '') +
           (isPending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Move back to Staged"></span>' : '') +
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Interrupt and move to Staged"></span>' : '') +
@@ -422,7 +431,7 @@ function renderEntry(item, idx) {
           // the exact expanded text byte-for-byte; repetition
           // counters are not touched, so the queue continues from
           // where it was.
-          (item.lastDispatched && !isSending && !isError && !isRetry
+          (item.lastDispatched && !isChat && !isSending && !isError && !isRetry
             ? '<span class="codicon codicon-refresh" style="cursor:pointer;color:#000;" onclick="resendLastPrompt(\'' + safeId + '\')" title="Resend last prompt (keeps repetition counters)"></span>'
             : '') +
           // Edit the prompt of a pending item in place (the queue waits while it is open).
@@ -470,7 +479,7 @@ function renderEntry(item, idx) {
           // a sending item the next repetition uses the new transport/
           // profile. Distinct from the staged-only gear below, which opens
           // the full transport picker.
-          '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set transport/profile to the queue default (dropdowns above). Works while repeating — the next repetition uses it."></span>' +
+          (isChat ? '' : '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set transport/profile to the queue default (dropdowns above). Works while repeating — the next repetition uses it."></span>') +
           // Staged-only: once an item is pending or sending, the
           // manager rejects transport updates (isEditableStatus). Hide
           // the gear so users don't click a no-op.
@@ -485,7 +494,10 @@ function renderEntry(item, idx) {
               + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
             : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\'' + safeId + '\')" title="Open YAML file"></span>' +
-          '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="Delete"></span>' +
+          // A chat send is always removable: a send still running is stopped with its entry; a stale one is only removed.
+          '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="' + (isChat
+            ? (isChatRunning && item.chatActive ? 'Stop this chat send and remove it from the list' : 'Remove from the list')
+            : 'Delete') + '"></span>' +
           '</span>' +
         '</span>' +
         '<span style="display:flex;align-items:center;gap:6px;">' +
@@ -536,7 +548,7 @@ function renderEntry(item, idx) {
 
   var answerBlock = renderAnswerBlock(item, safeId);
 
-  return '<div class="queue-item ' + cls.join(' ') + '">' +
+  return '<div class="queue-item ' + cls.join(' ') + '" data-qid="' + escapeHtml(String(item.id)) + '">' +
     headerHtml +
     // A GROUP item's members, under the header: always visible (vscimpb129).
     renderGroupMembers(item, safeId) +
@@ -578,7 +590,7 @@ function renderEntry(item, idx) {
       ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
       : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
     templateRow +
-    (editorMode === 'template' ? '' : renderDoneNotification(item, safeId, safeStatus)) +
+    (editorMode === 'template' || isChat ? '' : renderDoneNotification(item, safeId, safeStatus)) +
     reminderRow +
     renderPrePrompts(item, safeStatus) +
     renderFollowUps(item, safeStatus) +
@@ -638,7 +650,7 @@ function renderGroupMembers(item, safeId) {
  * authoritative trail is the Anthropic trail file; this is the
  * practical at-a-glance view. Truncated to 600 chars by default
  * with a toggle to expand to full; the two markdown preview buttons show the
- * full answer. Shared by renderEntry and renderChatEntry. */
+ * full answer. Used by renderEntry. */
 /**
  * The answer chips of a repeated item (repetitionAnswers): one per repetition,
  * the todo id for a todo walk or the repetition number; the one shown is
@@ -843,34 +855,10 @@ function waitingForUserBadge(item, safeId) {
   return '  <span class="waiting-user-badge clickable" style="cursor:pointer;" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="The running prompt waits for ' + what + '. ' + where + '.">[\u23f3 waiting for ' + what + ']</span>';
 }
 
-/**
- * A chat send shown in the queue (status `chat` while it runs, `chat-sent`
- * once it ended; src/utils/chatQueueItems.ts): read-only. The queue never
- * sends it, so it has none of the queue's controls, only Remove. Like a
- * normal sent entry: the header (time, source, profile, session, usage), an
- * error as the warning chip, the complete prompt (`mainprompt-content`), and
- * the answer once it arrived (renderAnswerBlock: its first 600 characters,
- * the expand / collapse toggle, the two Markdown buttons).
- */
-function renderChatEntry(item, idx) {
-  var safeId = escapeJsSingleQuoted(item.id);
-  var running = item.status === 'chat';
-  var time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
-  var profile = item.anthropicProfileId ? escapeHtml(String(item.anthropicProfileId)) : '';
-  var session = item.session ? escapeHtml(String(item.session)) : 'chat';
-  var source = item.chatSource ? escapeHtml(String(item.chatSource)) : 'chat';
-  var header = '<div class="item-header chat-item-header">' +
-      '<span class="status-badge chat-badge ' + queueStatusKindLabel(item.status, 'chat').cls + (running ? ' running' : '') + '" title="' + (running ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue">' + queueStatusKindLabel(item.status, 'chat').text + '</span>' +
-      '<span class="chat-item-meta">' + time + ' \u00b7 ' + source + (profile ? ' \u00b7 ' + profile : '') + ' \u00b7 session ' + session + (item.sendUsageLine ? ' \u00b7 \u03a3 ' + escapeHtml(String(item.sendUsageLine)) : '') + '</span>' +
-      // A running chat send waiting for the user shows it like a queue item (vscimpb81).
-      (running ? waitingForUserBadge(item, safeId) : '') +
-      '<span class="chat-item-spacer"></span>' +
-      // Always removable: a send still running is stopped with its entry; a stale one is only removed.
-      '<button class="icon-btn" type="button" onclick="remove(\'' + safeId + '\')" title="' + (running && item.chatActive ? 'Stop this chat send and remove it from the list' : 'Remove from the list') + '"><span class="codicon codicon-trash"></span></button>' +
-    '</div>';
-  var errorChip = item.error ? '<div class="warning-chip chat-error">' + escapeHtml(String(item.error)) + '</div>' : '';
-  var prompt = '<div class="mainprompt-content chat-item-text" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(String(item.originalText || '')) + '</div>';
-  return '<div class="queue-item chat-item ' + (running ? 'chat' : 'chat-sent') + '" data-qid="' + escapeHtml(String(item.id)) + '">' + header + errorChip + prompt + renderAnswerBlock(item, safeId) + '</div>';
+/* A chat send's source (`panel`, `editor`, `todo panel`, …), beside its label. */
+function chatSourceChip(item) {
+  var source = item.chatSource ? String(item.chatSource) : 'chat';
+  return '  <span class="chat-source-chip" title="Where the chat send came from">[' + escapeHtml(source) + ']</span>';
 }
 
 function renderDoneNotification(item, safeId, safeStatus) {

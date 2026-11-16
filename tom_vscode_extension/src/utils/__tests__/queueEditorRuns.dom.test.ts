@@ -111,10 +111,10 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.deepEqual(runChips(w), ['chg1']);
         clickTab(w, 'default');
         assert.match(listedText(w), /CHAT/, 'a chat send without a run: the default run\'s tab');
-        assert.deepEqual(runChips(w), ['default', 'default', 'default'], 'b, e and the sending h');
+        assert.deepEqual(runChips(w), ['default', 'default', 'default', 'default'], 'b, e, the sending h and the chat send (its run chip, vscimpb132)');
         clickTab(w, 'chg2');
         assert.match(listedText(w), /SENT CHAT/, 'a chat send in the tab of the run it ran in');
-        assert.deepEqual(runChips(w), ['chg2', 'chg2']);
+        assert.deepEqual(runChips(w), ['chg2', 'chg2', 'chg2'], 'with the chat send g');
     });
 
     test('QR-2: a tab switch', (t) => {
@@ -305,7 +305,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.equal(w.document.querySelectorAll('#runTabs .run-tab-remove').length, 0, 'no button once the run is back');
         assert.ok(!w.document.querySelector('#runTabs .run-tab[data-run="chg2"]').classList.contains('run-tab-orphaned'));
         clickTab(w, 'chg2');
-        assert.deepEqual(runChips(w), ['chg2', 'chg2'], 'its old items are back in it');
+        assert.deepEqual(runChips(w), ['chg2', 'chg2', 'chg2'], 'its old items are back in it (a chat send has its run chip too)');
 
         // Deleted again, then its items removed by the host: the tab goes, the selection falls back to the window's run.
         const rest = ITEMS.filter((i) => !['a', 'd', 'g'].includes(i.id));

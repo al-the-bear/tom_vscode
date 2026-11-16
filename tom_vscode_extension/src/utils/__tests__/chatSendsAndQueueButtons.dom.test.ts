@@ -5,7 +5,7 @@
  *        Anthropic without a profile (the queue's own profile and session), the second pins the
  *        panel's profile (usePanelTarget, the host adds the panel's session)
  *   CB-2 the trail, history and memory buttons are no longer in the panel's action bar
- *   CB-3 the queue editor shows a chat send read-only: SENDING CHAT while it runs, SENT CHAT with its answer (vscimpb128)
+ *   CB-3 the queue editor shows a chat send (no queue controls): SENDING CHAT while it runs, SENT CHAT with its answer (vscimpb128)
  *        (and the markdown buttons) or its error; no queue controls; the count line says a chat runs
  *   CB-4 the @CHAT Logs panel shows the six session actions behind the session switch; each posts
  *        qlogSessionAction with the selected session; the host runs runChatSessionAction
@@ -26,6 +26,10 @@
  *   CB-11 Fresh: a box after Keep, off by default; Send posts `fresh` as it is; restored from the drafts and saved
  *        with them; the status line after the answer names the fresh session's base; the host runs a Fresh send in a
  *        temporary session based on the panel's session (never busy) and discards it completely afterwards
+ *   CB-13 a chat send drawn like every item (vscimpb132): the normal header with SENDING CHAT / SENT CHAT, its source,
+ *        run and session chips; the headline colour class `chat-kind` (`running` while it runs); collapse / expand
+ *        per item and Collapse / Expand all; no move, edit, reminder, pause-after, transport, stage / pending,
+ *        preview or resend controls; Delete stays
  *   CB-12 the icon toggles (vscimpb130): Keep, Fresh, Copilot's Keep and Wrap and each subpanel's queue mode are
  *        buttons with aria-pressed (keyboard: buttons, focusable), switched by a click with a `change`; the queue mode
  *        sits right before Save to Queue, pressed (pending) by default; its tooltip and icon name the mode; Save to
@@ -116,11 +120,11 @@ describe('chat sends and the queue buttons', () => {
         w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
         w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
         const entry = (id: string): Win => w.document.querySelector(`.queue-item.chat-item[data-qid="${id}"]`);
-        assert.equal(entry('c1').querySelector('.chat-badge').textContent, 'SENDING CHAT');
-        assert.equal(entry('c2').querySelector('.chat-badge').textContent, 'SENT CHAT');
+        assert.equal(entry('c1').querySelector('.status-kind').textContent, 'SENDING CHAT');
+        assert.equal(entry('c2').querySelector('.status-kind').textContent, 'SENT CHAT');
         assert.ok(entry('c2').querySelector('.answer-preview .qe-md-btn[data-qe-md-mode="overlay"]'), 'the answer with its markdown buttons');
         assert.match(entry('c3').textContent, /overloaded/);
-        assert.match(entry('c1').textContent, /panel · opus-direct · session chat/);
+        assert.match(entry('c1').querySelector('.status-bar').textContent, /\[anthropic:opus-direct\].*\[panel\]chat/);
         for (const id of ['c1', 'c2']) {
             assert.equal(entry(id).querySelectorAll('[onclick*="sendNow"], [onclick*="resend"], select').length, 0, `${id}: no queue controls`);
         }
@@ -243,7 +247,7 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(text.textContent, prompt);
         assert.equal(text.getAttribute('style'), 'margin:4px 0; white-space:pre-wrap;');
         assert.equal(sent.querySelector('.chat-item-prompt'), null);
-        assert.match(sent.querySelector('.chat-item-meta').textContent, /panel · opus-direct · session chat · Σ in 10 · out 20/);
+        assert.match(sent.querySelector('.status-bar').textContent, /\[anthropic:opus-direct\].*\[Σ in 10 · out 20\].*\[panel\]chat/);
         // The answer: the first 600 characters, the toggle, the two Markdown buttons.
         const ans = sent.querySelector('.answer-preview');
         assert.ok(ans, 'the answer block');
@@ -258,13 +262,61 @@ describe('chat sends and the queue buttons', () => {
         assert.ok(!entry('c1').querySelector('.answer-preview').textContent.includes('THE-END'), 'collapsed again');
         // A running chat send without an answer: the prompt, no answer block, no error.
         const running = entry('c2');
-        assert.equal(running.querySelector('.chat-badge').textContent, 'SENDING CHAT');
+        assert.equal(running.querySelector('.status-kind').textContent, 'SENDING CHAT');
         assert.equal(running.querySelector('.mainprompt-content').textContent, 'still running\nsecond line');
         assert.equal(running.querySelector('.answer-preview'), null);
-        assert.equal(running.querySelector('.chat-error'), null);
+        assert.doesNotMatch(running.textContent, /Error:/);
         // Its answer arrives while it still runs: the answer block appears.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: [items[0], { ...items[1], answerText: 'partial answer' }], autoSend: false } }));
         assert.match(entry('c2').querySelector('.answer-preview').textContent, /partial answer/);
+    });
+
+    test('CB-13: a chat send drawn like every item', () => {
+        const html = media('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+        const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
+        open.push(w);
+        const posted: Array<Record<string, unknown>> = [];
+        w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(m), setState: () => undefined, getState: () => undefined });
+        const base = { type: 'normal', transport: 'anthropic', template: '(none)', anthropicProfileId: 'opus-direct', session: 'chat', chatSource: 'panel', createdAt: new Date().toISOString() };
+        const items = [
+            { ...base, id: 'c1', status: 'chat', originalText: 'running prompt', expandedText: 'running prompt', chatActive: true },
+            { ...base, id: 'c2', status: 'chat-sent', originalText: 'ended prompt', expandedText: 'ended prompt', answerText: 'the answer', sentAt: new Date().toISOString() },
+            { ...base, id: 'p1', status: 'pending', originalText: 'queued', expandedText: 'queued', session: undefined },
+        ];
+        w.__INIT__ = { state: { items, autoSend: false, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
+        w.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
+        const entry = (id: string): Win => w.document.querySelector(`.queue-item[data-qid="${id}"]`);
+        for (const [id, label, running] of [['c1', 'SENDING CHAT', true], ['c2', 'SENT CHAT', false]] as const) {
+            const e = entry(id);
+            const bar = e.querySelector('.item-header .status-bar');
+            assert.ok(bar, `${id}: the normal header`);
+            assert.equal(bar.querySelector('.status-kind').textContent, label);
+            assert.ok(bar.querySelector('.status-kind').classList.contains('kind-chat'));
+            assert.ok(bar.classList.contains('chat-kind'), `${id}: the chat headline colour`);
+            assert.equal(bar.classList.contains('running'), running);
+            assert.equal(bar.classList.contains('sending') || bar.classList.contains('sent'), false, 'not the colour of a queue item');
+            assert.match(bar.querySelector('.chat-source-chip').textContent, /\[panel\]/);
+            assert.ok(bar.querySelector('.queue-run-chip:not(.movable)'), `${id}: the run chip, not movable`);
+            assert.ok(bar.querySelector('.queue-session-chip:not([onclick])'), `${id}: the session chip, read-only`);
+            assert.ok(bar.querySelector('.queue-live-trail-btn'), `${id}: the live trail button`);
+            assert.ok(bar.querySelector('[onclick^="remove("]'), `${id}: Delete stays`);
+            for (const fn of ['moveUp', 'moveDown', 'moveToFront', 'startTextEdit', 'toggleReminder', 'setPauseAfter', 'editItemTransport', 'applyQueueDefaultTransport', 'setItemStatus', 'sendNow', 'previewItem', 'resend', 'interruptForContinuation', 'continueSending', 'letNextGoFirst', 'moveItemToRun', 'editItemSession']) {
+                assert.equal(e.querySelectorAll(`[onclick*="${fn}("]`).length, 0, `${id}: no ${fn}`);
+            }
+            assert.equal(e.querySelectorAll('select, textarea').length, 0, `${id}: nothing to edit`);
+        }
+        assert.ok(!entry('p1').querySelector('.status-bar').classList.contains('chat-kind'), 'a queue item keeps its colour');
+        // Collapse / expand: per item, then all.
+        const body = (id: string): Win => entry(id).querySelector('.mainprompt-content').parentElement;
+        assert.ok(!body('c2').classList.contains('details-hidden'));
+        w.toggleDetails('c2');
+        assert.ok(body('c2').classList.contains('details-hidden'), 'collapsed');
+        assert.equal(JSON.stringify(posted.filter((m) => m.type === 'setDetailsExpanded').pop()), JSON.stringify({ type: 'setDetailsExpanded', id: 'c2', expanded: false }));
+        w.expandAll();
+        assert.ok(!body('c2').classList.contains('details-hidden') && !body('c1').classList.contains('details-hidden'), 'Expand all');
+        w.collapseAll();
+        assert.ok(body('c1').classList.contains('details-hidden') && body('c2').classList.contains('details-hidden'), 'Collapse all');
+        assert.ok(body('c2').querySelector('.answer-preview'), 'the answer is in the collapsible body, as for a sent item');
     });
 
     test('CB-10: a second Send while a send runs', () => {
@@ -324,10 +376,10 @@ describe('chat sends and the queue buttons', () => {
         ];
         q.__INIT__ = { state: { items, autoSend: true, anthropicProfiles: [] }, queueDefaultPickerHtml: '', addFormPickerHtml: '' };
         q.eval([media('shared', 'mdOverlay.js'), media('shared', 'queueEntryUtils.js'), media('shared', 'queueEntryRenderFunctions.js'), media('shared', 'queueEntryMessageHandlers.js'), media('queueEditor', 'main.js')].join('\n;\n'));
-        const removeOf = (id: string): Win => q.document.querySelector(`.queue-item.chat-item[data-qid="${id}"] button[onclick^="remove("]`);
-        assert.equal(removeOf('c1').disabled, false, 'a running chat send can be removed');
+        const removeOf = (id: string): Win => q.document.querySelector(`.queue-item.chat-item[data-qid="${id}"] [onclick^="remove("]`);
+        assert.ok(removeOf('c1'), 'a running chat send can be removed');
         assert.match(removeOf('c1').title, /Stop this chat send and remove it/);
-        assert.equal(removeOf('c2').disabled, false, 'a hung one too');
+        assert.ok(removeOf('c2'), 'a hung one too');
         assert.equal(removeOf('c2').title, 'Remove from the list');
         assert.match(q.document.body.textContent, /\[waiting for session walk\]/);
     });

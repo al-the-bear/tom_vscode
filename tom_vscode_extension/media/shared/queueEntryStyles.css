@@ -10,9 +10,9 @@
   .toolbar .toggle.active { background: var(--vscode-inputValidation-infoBorder, #007acc); }
   .queue-list { display: flex; flex-direction: column; gap: 8px; }
   .queue-item { border: 1px solid var(--border); border-radius: 4px; padding: 8px; position: relative; }
-  .queue-item.sending { border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc); }
+  .queue-item.sending, .queue-item.chat { border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc); }
   /* Sent items: dim only the header bar so the answer + content stay readable. */
-  .queue-item.sent > .item-header { opacity: 0.55; }
+  .queue-item.sent > .item-header, .queue-item.chat-sent > .item-header { opacity: 0.55; }
   .queue-item.error { border-left: 3px solid var(--vscode-inputValidation-errorBorder, #f44); }
   .queue-item.retry { border-left: 3px solid #b39ddb; }
   /* Held on an unanswered todo decision — amber, the "waiting on you" colour. */
@@ -163,13 +163,10 @@
   width: 100%;
   min-height: 3em;
 }
-  /* A chat send shown in the queue (renderChatEntry): read-only. */
-  .queue-item.chat-item { border-left: 3px solid #b180d7; }
-  .chat-item-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .chat-badge { background: #b180d7; color: #fff; padding: 0 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
-  .chat-badge.running { background: #3794ff; }
-  .chat-item-meta { opacity: 0.75; font-size: 11px; }
-  .chat-item-spacer { flex: 1; }
+  /* A chat send (status chat / chat-sent): drawn like every item, set apart by its headline colour only. */
+  .status-bar.chat-kind { background: #e1bee7; }
+  .status-bar.chat-kind.running { background: #ce93d8; }
+  .chat-source-chip { font-weight: normal; text-transform: none; }
   /* A repeated item's answers, one chip per repetition (the todo id or the repetition number). */
   .rep-answer-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .rep-answer-chip { font-size: 10px; padding: 1px 6px; border-radius: 9px; border: 1px solid #4a9eff; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
