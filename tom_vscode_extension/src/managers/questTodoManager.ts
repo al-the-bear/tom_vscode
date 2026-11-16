@@ -30,8 +30,8 @@ import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } 
 import { setTodoQuestsRoot, todoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 import { emitNotifications } from '../services/notificationLog';
 import { todoCreatedDraft, todoUpdateDraft } from '../utils/notificationDrafts';
-// Registers the hook by which blocked todos follow their blockers on every write (vscimpb121).
-import '../utils/todoBlockingCascade';
+// Registers the hook by which blocked todos follow their blockers, and groups their members, on every write (vscimpb121, vscimpb125).
+import { setGroupCompletedHook, todoPartOf as todoPartOfIn } from '../utils/todoBlockingCascade';
 import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
 import { isCompletion } from '../utils/todoOnDoneRun';
 import {
@@ -89,6 +89,7 @@ export type QuestTodoStatus =
     | 'blocked'
     | 'decision-needed'
     | 'waiting-for-repeat'
+    | 'group'
     | 'completed'
     | 'cancelled';
 
@@ -110,6 +111,19 @@ export interface QuestTodoItem {
      * path takes it.
      */
     blocking?: string[];
+    /**
+     * On a group todo (status `group`, vscimpb125): its members, as ids in the
+     * same quest or `<quest>/<id>` from another (as `blocked_by` names
+     * blockers). The group completes once every member is done
+     * (utils/todoBlockingCascade.ts).
+     */
+    comprised_of?: string[];
+    /**
+     * The groups this todo is a member of: the live group todos whose
+     * `comprised_of` names it. Derived when it is read (`todoPartOf`), never
+     * stored; the tools refuse it as input, as they do `blocking`.
+     */
+    part_of?: string[];
     /**
      * Publish conditions that block the todo, each `<package> >= <x.y.z>` (or
      * `>`): met when pub.dev's latest release satisfies it
@@ -497,7 +511,7 @@ function assertTodoFieldsPersisted(
 const VERIFIED_TODO_FIELDS = new Set<string>([
     'title', 'description', 'status', 'priority', 'notes',
     'completed_date', 'completed_by', 'last_answer',
-    'tags', 'dependencies', 'blocked_by', 'blocked_until', 'references',
+    'tags', 'dependencies', 'blocked_by', 'comprised_of', 'blocked_until', 'references',
     'decisions', 'scope', 'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
@@ -619,6 +633,8 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (blockedBy) { item.blocked_by = blockedBy; }
     const blocking = getArr('blocking');
     if (blocking) { item.blocking = blocking; }
+    const comprisedOf = getArr('comprised_of');
+    if (comprisedOf) { item.comprised_of = comprisedOf; }
     const blockedUntil = getArr('blocked_until');
     if (blockedUntil) { item.blocked_until = blockedUntil; }
     const notes = getStr('notes');
@@ -821,7 +837,7 @@ export function createTodoInFile(
  */
 const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
-    'dependencies', 'blocked_by', 'blocking', 'blocked_until', 'references', 'completed_date',
+    'dependencies', 'blocked_by', 'blocking', 'comprised_of', 'part_of', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by',
     ...TODO_ORCHESTRATION_FIELDS,
@@ -863,6 +879,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
     if (todo.blocked_by && todo.blocked_by.length) { plain.blocked_by = todo.blocked_by; }
     if (todo.blocking && todo.blocking.length) { plain.blocking = todo.blocking; }
+    if (todo.comprised_of && todo.comprised_of.length) { plain.comprised_of = todo.comprised_of; }
     if (todo.blocked_until && todo.blocked_until.length) { plain.blocked_until = todo.blocked_until; }
     if (todo.references && todo.references.length) {
         // The tools reject bare strings (SCE243). An internal caller that
@@ -945,6 +962,7 @@ function applyTodoUpdates(
     if (updates.tags !== undefined) { setOrDelete(item, 'tags', updates.tags?.length ? doc.createNode(updates.tags) : undefined); applied.tags = updates.tags; }
     if (updates.dependencies !== undefined) { setOrDelete(item, 'dependencies', updates.dependencies?.length ? doc.createNode(updates.dependencies) : undefined); applied.dependencies = updates.dependencies; }
     if (updates.blocked_by !== undefined) { setOrDelete(item, 'blocked_by', updates.blocked_by?.length ? doc.createNode(updates.blocked_by) : undefined); applied.blocked_by = updates.blocked_by; }
+    if (updates.comprised_of !== undefined) { setOrDelete(item, 'comprised_of', updates.comprised_of?.length ? doc.createNode(updates.comprised_of) : undefined); applied.comprised_of = updates.comprised_of; }
     if (updates.blocked_until !== undefined) { setOrDelete(item, 'blocked_until', updates.blocked_until?.length ? doc.createNode(updates.blocked_until) : undefined); applied.blocked_until = updates.blocked_until; }
     if (updates.decisions !== undefined) { setDecisions(doc, item, updates.decisions); applied.decisions = normaliseTodoDecisions(updates.decisions) ?? []; }
     if (completedDate !== undefined) { setOrDelete(item, 'completed_date', completedDate); applied.completed_date = completedDate; }
@@ -1301,6 +1319,25 @@ export function setTodoCompletionHook(hook: ((questId: string, todo: QuestTodoIt
 }
 
 /**
+ * The groups todo `todoId` of `questId` is a member of (`part_of`): the live
+ * group todos whose `comprised_of` names it, as their id in the same quest or
+ * `<quest>/<id>`. Derived on every read, never stored (vscimpb125).
+ */
+export function todoPartOf(questId: string, todoId: string): string[] {
+    const root = todoQuestsRoot();
+    return root ? todoPartOfIn(root, questId, todoId) : [];
+}
+
+// A group the members completed (utils/todoBlockingCascade.ts) runs its `on_done`
+// like a todo completed through updateTodo.
+setGroupCompletedHook((questId, todoId) => {
+    const group = findTodoById(questId, todoId);
+    if (group?.on_done) {
+        try { todoCompletionHook?.(questId, group); } catch { /* the follow-up never fails the write */ }
+    }
+});
+
+/**
  * Register what a call knows about where it runs (window quest, caller
  * session, process run, the queue item's claimed todo and sender), read by
  * {@link fileTodo} for `filed_by`. Set once at activation; without it a todo
@@ -1627,7 +1664,7 @@ export function moveTodoToDestination(
     origin?: string,
     /**
      * New ids for the todos moved together (a prefix chosen for the target
-     * quest): this todo takes its new id, and its `blocked_by` / `dependencies`
+     * quest): this todo takes its new id, and its `blocked_by` / `dependencies` / `comprised_of`
      * entries naming another moved todo follow that one's new id.
      */
     renames?: ReadonlyMap<string, string>,
@@ -1665,6 +1702,7 @@ export function moveTodoToDestination(
         const follow = (ids?: string[]): string[] | undefined => ids?.map((d) => renames.get(d) ?? d);
         if (todo.blocked_by) { todo.blocked_by = follow(todo.blocked_by); }
         if (todo.dependencies) { todo.dependencies = follow(todo.dependencies); }
+        if (todo.comprised_of) { todo.comprised_of = follow(todo.comprised_of); }
     }
 
     // 1. The target, verified by the create itself.
@@ -1718,7 +1756,7 @@ export type TodoRenameResult =
         dryRun: boolean;
         /** The live todo file the todo is (or would be) in. */
         file: string;
-        /** `blocked_by` / `dependencies` entries rewritten (on a dry run: that would be). */
+        /** `blocked_by` / `dependencies` / `comprised_of` entries rewritten (on a dry run: that would be). */
         references: number;
         /** The `-deleted` file holding (or that would hold) the stub under the old id; absent when the id stays or was never committed. */
         stubFile?: string;
@@ -1726,7 +1764,7 @@ export type TodoRenameResult =
     | { ok: false; reason: string };
 
 /** The todo fields that name other todos by id. */
-const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies'] as const;
+const TODO_REFERENCE_FIELDS = ['blocked_by', 'dependencies', 'comprised_of'] as const;
 
 /**
  * Rename todo `oldId` of quest `questId` to `newId`. The todo keeps every
@@ -1822,7 +1860,7 @@ export function renameQuestTodo(
 }
 
 /**
- * Rewrite every `blocked_by` / `dependencies` entry of `files` that `named`
+ * Rewrite every `blocked_by` / `dependencies` / `comprised_of` entry of `files` that `named`
  * maps to a new value, and with `renamed` every `on_done.todos` entry and
  * `filed_by.todo` naming the renamed todo (ids in their block's `quest`, else
  * the quest of the file); answers how many entries changed. With

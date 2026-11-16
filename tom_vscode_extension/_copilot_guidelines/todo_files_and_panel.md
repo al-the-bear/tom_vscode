@@ -328,6 +328,10 @@ cache (measured 2026-10-29: 60 live files, 175 ms cold, a few ms warm).
 Untouched todos elsewhere are not rewritten: the format migration fills the
 existing corpus.
 
+### Todo groups follow their members
+
+A group todo (`status: group`) lists its members in `comprised_of` (ids, `<quest>/<id>`). `src/utils/todoGroups.ts` holds the rules: `partOfRefs` derives a member's `part_of` (never stored; `todoPartOf` in the manager, answered by `tomAi_getQuestTodo`, refused as input by `validateNoBlocking`), and `groupDecisions` completes a `group` once every member is completed or cancelled (live or archived — `questStatusIndex`; an unknown member is not done) and sets a `completed` group back to `group` when a member is reopened. `applyBlockingCascade` runs it first, in rounds (a group's change is a crossing, so groups of groups follow, up to 8 levels), writes `completed_date` / removes it, and hands the groups' crossings to the blocking rule, so a todo blocked by a group is released with it. A completed group's `on_done` runs through `setGroupCompletedHook`. Renames follow `comprised_of` (`TODO_REFERENCE_FIELDS`); a `<prefix>*` walk never picks a group (only `not-started` todos are walkable). Tests: `todoGroups.test.ts` (TG-1..4), `todoGroupsManager.test.ts` (TGM-1..6).
+
 ### Blocked todos follow their blockers
 
 `src/utils/todoBlockingCascade.ts` hooks into `writeTodoFileText`

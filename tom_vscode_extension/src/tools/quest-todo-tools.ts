@@ -83,6 +83,7 @@ export interface QuestTodoFull {
     references?: Array<{ type?: string; path?: string; url?: string; description?: string; lines?: string }>;
     dependencies?: string[];
     blocked_by?: string[];
+    comprised_of?: string[];
     blocked_until?: string[];
     /** Decisions the user has to make before the todo can be started. */
     decisions?: TodoDecision[];
@@ -140,6 +141,8 @@ export interface QuestTodoStoreAccess {
 export interface QuestTodoToolsDeps {
     store: QuestTodoStoreAccess;
     onMutate?(): void;
+    /** The groups todo `todoId` of `questId` is a member of (`part_of`, derived; vscimpb125). */
+    partOf?(questId: string, todoId: string): string[];
 }
 
 /**
@@ -161,7 +164,7 @@ const DECISIONS_SCHEMA = {
     },
 } as const;
 
-const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'waiting-for-repeat', 'completed', 'cancelled'] as const;
+const STATUS_ENUM = ['not-started', 'in-progress', 'blocked', 'decision-needed', 'waiting-for-repeat', 'group', 'completed', 'cancelled'] as const;
 
 /** A schema date field: a date, or a timestamp written as the date it names. */
 const DATE_SCHEMA = {
@@ -209,6 +212,10 @@ const BLOCKED_UNTIL_SCHEMA = {
  * value replaced at once, so it is refused with the field to set instead.
  */
 export function validateNoBlocking(record: unknown): string | undefined {
+    if (record && typeof record === 'object' && 'part_of' in (record as Record<string, unknown>)) {
+        return '`part_of` is derived from the groups\' `comprised_of` and never stored; it cannot be set. '
+            + 'To put todo A into group G, add A to `comprised_of` of G (a bare id in the same quest, `<quest>/<id>` across quests).';
+    }
     if (record && typeof record === 'object' && 'blocking' in (record as Record<string, unknown>)) {
         return '`blocking` is derived from `blocked_by` and kept in step by every write; it cannot be set. '
             + 'To make todo A block todo B, set `blocked_by` on B (a bare id in the same quest, `<quest>/<id>` across quests).';
@@ -389,7 +396,9 @@ export async function getQuestTodoImpl(deps: QuestTodoToolsDeps, input: GetQuest
                 error: `Todo "${input.todoId}" not found in quest "${input.questId}". Use \`tomAi_listQuestTodos\` to see available ids.`,
             });
         }
-        return JSON.stringify({ ok: true, todo }, null, 2);
+        const partOf = deps.partOf?.(input.questId, input.todoId) ?? [];
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's key
+        return JSON.stringify({ ok: true, todo: partOf.length ? { ...todo, part_of: partOf } : todo }, null, 2);
     } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
     }
@@ -399,7 +408,7 @@ export const GET_QUEST_TODO_DESCRIPTION =
     'Get a single quest todo by id, returning every field on disk — ' +
     '`id`, `title`, `description`, `status`, `priority`, `tags`, `scope` ' +
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
-    '`dependencies`/`blocked_by`, `blocking` (the todos this one blocks, derived), `decisions[]` (the open questions behind a ' +
+    '`dependencies`/`blocked_by`, `blocking` (the todos this one blocks, derived), `comprised_of` (a group todo\'s members, status `group`) and `part_of` (the groups it is a member of, derived), `decisions[]` (the open questions behind a ' +
     '`decision-needed` status), `on_done` (what happens when it is completed) and `filed_by` (who filed it), `notes`, `created`/`updated`/`completed_date`/' +
     '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
@@ -443,6 +452,7 @@ export interface CreateQuestTodoInput {
         scope?: QuestTodoFull['scope'];
         references?: QuestTodoFull['references'];
         blocked_by?: string[];
+        comprised_of?: string[];
         blocked_until?: string[];
         decisions?: TodoDecision[];
         /** A date (YYYY-MM-DD); a timestamp is written as the date it names. */
@@ -677,6 +687,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     notes: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
+                    comprised_of: { type: 'array', items: { type: 'string' }, description: 'On a group todo (status `group`): its members, ids in this quest or `<quest>/<id>`. The group completes by itself once every member is completed or cancelled, and returns to `group` when one is reopened. Each member\'s `part_of` is derived; it cannot be set.' },
                     decisions: DECISIONS_SCHEMA,
                     references: { type: 'array', items: REFERENCE_SCHEMA },
                     completed_date: DATE_SCHEMA,
@@ -710,6 +721,7 @@ export interface UpdateQuestTodoInput {
         completed_by?: string;
         dependencies?: string[];
         blocked_by?: string[];
+        comprised_of?: string[];
         blocked_until?: string[];
         decisions?: TodoDecision[];
         /** Replaces the list; each entry an object (see `validateTodoReferences`). */
@@ -831,6 +843,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },
+                    comprised_of: { type: 'array', items: { type: 'string' }, description: 'On a group todo (status `group`): its members, ids in this quest or `<quest>/<id>`. The group completes by itself once every member is completed or cancelled, and returns to `group` when one is reopened. Each member\'s `part_of` is derived; it cannot be set.' },
                     references: { type: 'array', items: REFERENCE_SCHEMA },
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,

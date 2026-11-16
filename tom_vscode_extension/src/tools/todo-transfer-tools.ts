@@ -152,7 +152,7 @@ export async function renameTodoPrefixImpl(deps: RenameTodoPrefixDeps, input: Re
 export const RENAME_TODO_PREFIX_DESCRIPTION =
     'Rename a todo group\'s prefix in one step: every live todo of quest `questId` whose id prefix (everything before its '
     + 'number; a leading number belongs to it: `001_cleanup2` is todo 2 of `001_cleanup`) is `from` becomes `<to><the rest '
-    + 'of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file it is. Every `blocked_by` / `dependencies` '
+    + 'of its id>` (`ww3_akfd-x` → `xx3_akfd-x`), in whichever live todo file it is. Every `blocked_by` / `dependencies` / `comprised_of` '
     + 'entry naming it follows (`<quest>/<id>` in other quests too); each old id committed at HEAD keeps a cancelled stub '
     + 'naming the new id in the `-deleted` sibling of its file, for the `_ai` commit guard (an id may not vanish). Archived '
     + 'and deleted todos of the group stay. Answers `{ok, dryRun, renames: [{from, to}], references, stubs, keptArchived, '
@@ -221,7 +221,7 @@ export async function renameQuestTodoImpl(deps: RenameQuestTodoDeps, input: Rena
 
 export const RENAME_QUEST_TODO_DESCRIPTION =
     'Rename one todo of quest `questId`: `todoId` becomes `newId`, in its live todo file, with every field kept and '
-    + '`[renamed from <old>]` added to its notes. Every `blocked_by` / `dependencies` entry naming it follows — plain and '
+    + '`[renamed from <old>]` added to its notes. Every `blocked_by` / `dependencies` / `comprised_of` entry naming it follows — plain and '
     + '`<quest>/<id>` in the quest, `<quest>/<id>` in other quests; the old id, when committed at HEAD, keeps a cancelled stub naming the new id in the '
     + '`-deleted` sibling of its file, so the `_ai` commit guard (an id may not vanish) accepts the change. `group` (a prefix) '
     + 'also moves it to the end of that id group, before the group\'s finalizers. Answers `{ok, dryRun, from, to, file, '

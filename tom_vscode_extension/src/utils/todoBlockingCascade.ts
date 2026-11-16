@@ -34,6 +34,7 @@ import { isArchivedOrDeletedTodoFile } from './todoArchiveNames';
 import { liveQuestTodoFiles, setAfterTodoWriteHook, writeTodoFileText } from './todoBlockingSync';
 import { loadTodoYaml } from './todoYamlDocument';
 import { emitNotifications } from '../services/notificationLog';
+import { groupDecisions, partOfRefs, type GroupRecord } from './todoGroups';
 
 export const DONE_STATUSES: ReadonlySet<string> = new Set(['completed', 'cancelled']);
 
@@ -314,23 +315,36 @@ let lastRun: Promise<void> = Promise.resolve();
 /** Resolves once the version fetches started by earlier writes have been applied (for tests). */
 export function blockingCascadeSettled(): Promise<void> { return lastRun; }
 
-/** Apply the status changes that follow `crossings`; answers what changed. */
-export function applyBlockingCascade(crossings: readonly StatusCrossing[], questsRoot: string, today = new Date().toISOString().slice(0, 10)): BlockDecision[] {
-    if (!crossings.length || applying) { return []; }
-    const { statusOf, quests } = questStatusIndex(questsRoot);
-    const loaded = liveDependents(questsRoot);
-    const { decisions, pendingVersions } = cascadeDecisions(crossings, loaded.map((l) => l.dependent), statusOf, cachedVersion, quests);
-    if (pendingVersions.length) {
-        // Fetch the versions, then judge again (only these crossings, only blocked dependents change).
-        lastRun = lastRun.then(async () => {
-            for (const p of pendingVersions) { versionCache.set(p, { version: await versionFetcher(p), at: Date.now() }); }
-            applyBlockingCascade(crossings, questsRoot, today);
-        }).catch(() => undefined);
+/** A status change the cascade writes into a live todo file. */
+interface StatusWrite { quest: string; id: string; from: string; to: string; note: string }
+
+/** The live todos naming another in `comprised_of` (any status), with their files. */
+function liveGroups(questsRoot: string): Array<{ file: string; group: GroupRecord }> {
+    const out: Array<{ file: string; group: GroupRecord }> = [];
+    for (const file of liveQuestTodoFiles(questsRoot)) {
+        const quest = path.basename(path.dirname(file));
+        for (const t of readTodos(file)) {
+            const comprisedOf = strings(t.comprised_of);
+            if (!comprisedOf.length) { continue; }
+            out.push({ file, group: { scopeKey: `quest:${quest}`, quest, id: t.id as string, status: typeof t.status === 'string' ? t.status : '', comprisedOf } });
+        }
     }
-    if (!decisions.length) { return []; }
-    const fileOf = new Map(loaded.map((l) => [`${l.dependent.quest}/${l.dependent.id}`, l.file]));
-    const byFile = new Map<string, BlockDecision[]>();
-    for (const d of decisions) {
+    return out;
+}
+
+/**
+ * The `part_of` of todo `id` of `quest` (vscimpb125): the live group todos
+ * whose `comprised_of` names it, as their id in the same quest or
+ * `<quest>/<id>` from another. Derived on read, never stored.
+ */
+export function todoPartOf(questsRoot: string, quest: string, id: string): string[] {
+    return partOfRefs({ scopeKey: `quest:${quest}`, id }, liveGroups(questsRoot).map((g) => g.group));
+}
+
+/** Write `changes` (status, a notes line, `updated`; a completion's `completed_date`) into their live files. */
+function writeStatusChanges(changes: readonly StatusWrite[], fileOf: ReadonlyMap<string, string>, today: string): void {
+    const byFile = new Map<string, StatusWrite[]>();
+    for (const d of changes) {
         const f = fileOf.get(`${d.quest}/${d.id}`);
         if (f) { byFile.set(f, [...(byFile.get(f) ?? []), d]); }
     }
@@ -346,6 +360,8 @@ export function applyBlockingCascade(crossings: readonly StatusCrossing[], quest
                 const d = list.find((x) => x.id === map.get('id'));
                 if (!d) { continue; }
                 map.set('status', d.to);
+                if (d.to === 'completed') { map.set('completed_date', today); }
+                if (d.from === 'completed' && d.to !== 'completed') { map.delete('completed_date'); map.delete('completed_by'); }
                 const notes = map.get('notes');
                 const line = `${today}: ${d.note}.`;
                 map.set('notes', typeof notes === 'string' && notes.trim() ? `${notes.replace(/\s+$/, '')}\n\n${line}` : line);
@@ -356,6 +372,61 @@ export function applyBlockingCascade(crossings: readonly StatusCrossing[], quest
     } finally {
         applying = false;
     }
+}
+
+let groupCompletedHook: ((quest: string, id: string) => void) | undefined;
+
+/** Register what follows a group the members completed: its `on_done` (questTodoManager). */
+export function setGroupCompletedHook(hook: ((quest: string, id: string) => void) | undefined): void {
+    groupCompletedHook = hook;
+}
+
+/** How many levels of groups of groups one write follows. */
+const GROUP_ROUNDS = 8;
+
+/**
+ * Apply the status changes that follow `crossings`: first the groups naming
+ * a crossed todo (vscimpb125; a group's own change is a crossing too, so
+ * groups of groups follow, up to {@link GROUP_ROUNDS} levels), then the todos
+ * blocked by any of them (vscimpb121). Answers the blocking rule's changes.
+ */
+export function applyBlockingCascade(crossings: readonly StatusCrossing[], questsRoot: string, today = new Date().toISOString().slice(0, 10)): BlockDecision[] {
+    if (!crossings.length || applying) { return []; }
+
+    // 1. Groups follow their members.
+    const all: StatusCrossing[] = [...crossings];
+    let round: StatusCrossing[] = [...crossings];
+    for (let i = 0; i < GROUP_ROUNDS && round.length; i++) {
+        const { statusOf } = questStatusIndex(questsRoot);
+        const groups = liveGroups(questsRoot);
+        const changes = groupDecisions(round, groups.map((g) => g.group), statusOf);
+        if (!changes.length) { break; }
+        writeStatusChanges(changes, new Map(groups.map((g) => [`${g.group.quest}/${g.group.id}`, g.file])), today);
+        emitNotifications(changes.map((d) => ({
+            type: 'todoChanged' as const,
+            todo: { id: d.id, quest: d.quest, fields: [{ field: 'status', old: d.from, new: d.to }] },
+            who: { kind: 'extension' as const, label: 'todo groups follow their members' },
+        })));
+        for (const d of changes) {
+            if (d.to === 'completed') { try { groupCompletedHook?.(d.quest, d.id); } catch { /* never fails the write */ } }
+        }
+        round = changes.map((d) => ({ quest: d.quest, id: d.id, status: d.to })).filter((c) => isDone(c.status) !== isDone(changes.find((d) => d.id === c.id && d.quest === c.quest)!.from));
+        all.push(...round);
+    }
+
+    // 2. Blocked todos follow their blockers, the groups' changes included.
+    const { statusOf, quests } = questStatusIndex(questsRoot);
+    const loaded = liveDependents(questsRoot);
+    const { decisions, pendingVersions } = cascadeDecisions(all, loaded.map((l) => l.dependent), statusOf, cachedVersion, quests);
+    if (pendingVersions.length) {
+        // Fetch the versions, then judge again (only these crossings, only blocked dependents change).
+        lastRun = lastRun.then(async () => {
+            for (const p of pendingVersions) { versionCache.set(p, { version: await versionFetcher(p), at: Date.now() }); }
+            applyBlockingCascade(all, questsRoot, today);
+        }).catch(() => undefined);
+    }
+    if (!decisions.length) { return []; }
+    writeStatusChanges(decisions, new Map(loaded.map((l) => [`${l.dependent.quest}/${l.dependent.id}`, l.file])), today);
     // @TOM INFO › NOTIFICATIONS (vscimpb124): the dependents' status changes, done by the extension.
     emitNotifications(decisions.map((d) => ({
         type: 'todoChanged' as const,

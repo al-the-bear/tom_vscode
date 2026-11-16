@@ -273,6 +273,7 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
 export const liveQuestTodoDeps: QuestTodoToolsDeps = {
     store: liveQuestTodoStore,
     onMutate: () => refreshSessionPanel(),  // shared panel updates both session + quest views
+    partOf: (questId, todoId) => questTodo.todoPartOf(questId, todoId),
 };
 
 /** Every todo of a quest, the `-archived` / `-deleted` siblings included. */

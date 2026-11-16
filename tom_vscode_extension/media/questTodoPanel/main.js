@@ -838,7 +838,7 @@ function qtRenderList() {
     // Apply multi-field sort; ties (and no field chosen) by id in natural order.
     {
         var priOrd = { critical: 0, high: 1, medium: 2, low: 3 };
-        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'waiting-for-repeat': 4, 'completed': 5, 'cancelled': 6 };
+        var staOrd = { 'in-progress': 0, 'blocked': 1, 'decision-needed': 2, 'not-started': 3, 'waiting-for-repeat': 4, 'group': 5, 'completed': 6, 'cancelled': 7 };
         // Rank 0 is falsy, so `|| 9` would sort the *first* rank last. Look the
         // key up instead of leaning on truthiness.
         var rank = function(table, key) {
@@ -1103,6 +1103,7 @@ function qtStatusIcon(s) {
         case 'blocked': return '⛔';
         case 'decision-needed': return '❓';
         case 'waiting-for-repeat': return '⏳';
+        case 'group': return '🗂️';
         case 'cancelled': return '🚫';
         default: return '⬜';
     }
@@ -1160,7 +1161,7 @@ function qtToggleOnlyUserActions() {
 function qtRenderFilterPicker() {
     var el = document.getElementById('qt-filter-picker');
     if (!el) return;
-    var statuses = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','completed','cancelled'];
+    var statuses = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','group','completed','cancelled'];
     var priorities = ['critical','high','medium','low'];
     // Collect all tags from current todos
     var allTags = [];
@@ -2869,7 +2870,7 @@ function qtShowMassAddOverlay() {
 }
 function qtEsc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function qtStatusOptions(cur) {
-    var opts = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','completed','cancelled'];
+    var opts = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','group','completed','cancelled'];
     return opts.map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
 }
 function qtPriorityOptions(cur) {
