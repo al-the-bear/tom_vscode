@@ -235,10 +235,19 @@ function hasOpenDecisions(value: unknown): boolean {
     });
 }
 
+/** Parsed todo files by path, kept while the file's mtime and size are unchanged (archives are large and rarely change). */
+const parsedTodoFiles = new Map<string, { mtimeNs: bigint; size: bigint; todos: Array<Record<string, unknown>> }>();
+
 function readTodos(file: string): Array<Record<string, unknown>> {
     try {
+        // Nanosecond mtime and size: a same-size rewrite within one millisecond still reads fresh.
+        const st = fs.statSync(file, { bigint: true });
+        const hit = parsedTodoFiles.get(file);
+        if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) { return hit.todos; }
         const data = parse(fs.readFileSync(file, 'utf8')) as { todos?: unknown } | null;
-        return Array.isArray(data?.todos) ? (data!.todos as Array<Record<string, unknown>>).filter((t) => t && typeof t.id === 'string') : [];
+        const todos = Array.isArray(data?.todos) ? (data!.todos as Array<Record<string, unknown>>).filter((t) => t && typeof t.id === 'string') : [];
+        parsedTodoFiles.set(file, { mtimeNs: st.mtimeNs, size: st.size, todos });
+        return todos;
     } catch { return []; }
 }
 
@@ -330,6 +339,59 @@ function liveGroups(questsRoot: string): Array<{ file: string; group: GroupRecor
         }
     }
     return out;
+}
+
+/** A member of a group as the todo panel lists it (vscimpb126). */
+export interface GroupMemberInfo {
+    /** As written in `comprised_of`. */
+    ref: string;
+    quest: string;
+    id: string;
+    title?: string;
+    status?: string;
+    /** The member exists (live, else archived / deleted). */
+    found: boolean;
+}
+
+/**
+ * What the todo panel shows of todo groups (vscimpb126), read once per list:
+ * each todo's `part_of`, and each group's members with their title and status
+ * (live first, else archived / deleted), in `comprised_of` order.
+ */
+export function groupListInfo(questsRoot: string): {
+    partOf(quest: string, id: string): string[];
+    members(quest: string, comprisedOf: readonly string[]): GroupMemberInfo[];
+} {
+    const groups = liveGroups(questsRoot).map((g) => g.group);
+    const byQuest = new Map<string, Map<string, { title?: string; status?: string }>>();
+    const questTodos = (quest: string): Map<string, { title?: string; status?: string }> => {
+        let map = byQuest.get(quest);
+        if (map) { return map; }
+        map = new Map();
+        let names: string[] = [];
+        try { names = fs.readdirSync(path.join(questsRoot, quest)).filter((n) => n.endsWith('.todo.yaml')); } catch { /* no such quest */ }
+        const ordered = [...names.filter((n) => !isArchivedOrDeletedTodoFile(n)), ...names.filter((n) => isArchivedOrDeletedTodoFile(n))];
+        for (const n of ordered) {
+            for (const t of readTodos(path.join(questsRoot, quest, n))) {
+                if (map.has(t.id as string)) { continue; }
+                const title = typeof t.title === 'string' && t.title ? t.title
+                    : typeof t.description === 'string' ? t.description.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
+                map.set(t.id as string, { ...(title ? { title } : {}), ...(typeof t.status === 'string' ? { status: t.status } : {}) });
+            }
+        }
+        byQuest.set(quest, map);
+        return map;
+    };
+    return {
+        partOf: (quest, id) => partOfRefs({ scopeKey: `quest:${quest}`, id }, groups),
+        members: (quest, comprisedOf) => comprisedOf.map((ref) => {
+            const slash = ref.indexOf('/');
+            const mq = slash > 0 ? ref.slice(0, slash) : quest;
+            const mid = slash > 0 ? ref.slice(slash + 1) : ref;
+            const t = questTodos(mq).get(mid);
+            return { ref, quest: mq, id: mid, ...(t?.title ? { title: t.title } : {}), ...(t?.status ? { status: t.status } : {}), found: !!t };
+        }),
+    };
 }
 
 /**

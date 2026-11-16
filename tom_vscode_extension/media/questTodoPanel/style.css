@@ -29,6 +29,28 @@
 .qt-group-header .qt-group-move-btn, .qt-group-header .qt-group-walk-btn, .qt-group-header .qt-group-rename-btn { order: 2; background: transparent; border: none; cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.6; flex-shrink: 0; }
 .qt-group-header .qt-group-move-btn:hover, .qt-group-header .qt-group-walk-btn:hover, .qt-group-header .qt-group-rename-btn:hover { opacity: 1; }
 .qt-group-header::after { order: 1; }
+/* Todo groups (vscimpb126): a group todo heads its members like a prefix group; the header opens the group, the arrow collapses it. */
+.qt-todogroup-header { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; color: var(--vscode-foreground); }
+.qt-todogroup-header::after { content: ''; flex: 1; height: 1px; background: var(--vscode-panel-border); order: 1; }
+.qt-todogroup-header:hover { background: var(--vscode-list-hoverBackground); }
+.qt-todogroup-header.selected { background: var(--vscode-list-inactiveSelectionBackground); }
+.qt-todogroup-header .codicon { font-size: 12px; flex-shrink: 0; transition: transform 0.15s; }
+.qt-todogroup-header.collapsed .codicon { transform: rotate(-90deg); }
+.qt-todogroup-header .qt-group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-todogroup-header .qt-group-count { font-weight: 400; flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.qt-todogroup-progress { font-weight: 400; font-size: 10px; padding: 0 5px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex-shrink: 0; }
+.qt-todogroup-queue-btn { order: 2; background: transparent; border: none; cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.6; flex-shrink: 0; color: var(--vscode-foreground); }
+.qt-todogroup-queue-btn:hover { opacity: 1; }
+.qt-todogroup-members { border-left: 2px solid var(--vscode-panel-border); margin-left: 12px; }
+.qt-group-member-line { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.qt-group-member-line:hover { background: var(--vscode-list-hoverBackground); }
+.qt-group-member-line.missing { cursor: default; opacity: 0.6; }
+.qt-group-member-line .ttitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-partof-chip { font-size: 10px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--vscode-panel-border); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.qt-partof-chip:hover { border-color: var(--vscode-focusBorder); }
+.qt-badge-move { cursor: pointer; margin-left: 3px; opacity: 0.6; font-size: 9px; }
+.qt-badge-move:hover { opacity: 1; }
+.qt-badge-status { margin-right: 3px; }
 .qt-todo-item { padding: 6px 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
 .qt-todo-item-row1 { display: flex; align-items: center; gap: 6px; width: 100%; }
 /* Row 2 starts with the todo-stack circle, which sits in the same 16px

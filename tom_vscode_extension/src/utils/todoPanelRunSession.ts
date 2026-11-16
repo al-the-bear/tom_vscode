@@ -73,6 +73,16 @@ export function todoPanelQueueTarget(sel: TodoPanelSelection): { session: string
     return { session: sel.session, run: sel.run };
 }
 
+/**
+ * What a todo group's queue button (its header and its detail view, vscimpb126)
+ * queues: the group todo as a GROUP item (vscimpb127) to the panel's queue
+ * target — the same {@link todoPanelQueueTarget} every queue button of the
+ * panel uses.
+ */
+export function todoGroupQueueRequest(sel: TodoPanelSelection, quest: string, groupId: string): { kind: 'group'; quest: string; groupId: string; session: string; run: string } {
+    return { kind: 'group', quest, groupId, ...todoPanelQueueTarget(sel) };
+}
+
 /** Where the panel queued an item, for its confirmation: `in run <run>, session <session>`. */
 export function todoPanelQueueTargetText(sel: TodoPanelSelection): string {
     return `in run ${sel.run}, session ${sel.effectiveSession}`;

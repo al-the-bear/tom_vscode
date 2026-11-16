@@ -332,6 +332,15 @@ existing corpus.
 
 A group todo (`status: group`) lists its members in `comprised_of` (ids, `<quest>/<id>`). `src/utils/todoGroups.ts` holds the rules: `partOfRefs` derives a member's `part_of` (never stored; `todoPartOf` in the manager, answered by `tomAi_getQuestTodo`, refused as input by `validateNoBlocking`), and `groupDecisions` completes a `group` once every member is completed or cancelled (live or archived — `questStatusIndex`; an unknown member is not done) and sets a `completed` group back to `group` when a member is reopened. `applyBlockingCascade` runs it first, in rounds (a group's change is a crossing, so groups of groups follow, up to 8 levels), writes `completed_date` / removes it, and hands the groups' crossings to the blocking rule, so a todo blocked by a group is released with it. A completed group's `on_done` runs through `setGroupCompletedHook`. Renames follow `comprised_of` (`TODO_REFERENCE_FIELDS`); a `<prefix>*` walk never picks a group (only `not-started` todos are walkable). Tests: `todoGroups.test.ts` (TG-1..4), `todoGroupsManager.test.ts` (TGM-1..6).
 
+### Todo groups in the panel
+
+The quest list (`_sendTodoList`) runs through `_withTodoGroups`. It reads the corpus once (`groupListInfo` in `todoBlockingCascade.ts`, todo files cached by nanosecond mtime and size) and adds to each row its `part_of` and to each group row its `group_members` (`ref`, quest, id, title, status, `found`; live first, else archived). The detail payload (`_sendTodoDetail`) gets both too.
+
+- **List** (`media/questTodoPanel/`): `qtTodoGroupsOf` in `grouping.js` (pure, vm-tested) builds the sections (by title, members in `comprised_of` order, progress over every member). `main.js` renders a `.qt-todogroup-header` per group, expand key `#todogroup:<id>` in `qtExpandedGroups`: the arrow toggles, the rest of the header opens the group. Members follow: a row (also in its prefix group), a `.qt-group-member-line` (another quest's, archived, or not found), or nothing (a member the filter hides). Rows carry `.qt-partof-chip`s; `qtGoToTodoRef` navigates.
+- **Detail view:** `QT_BADGE_CATS` drives the badge lists: Members (`comprised-of`, ◀ ▶ reorder, the form sends `comprised_of`, `[]` clears it) and Part of (read-only).
+- **Queue button:** the header's and the detail view's post `qtQueueTodoGroup`. The handler builds `todoGroupQueueRequest` (`todoPanelQueueTarget`: the panel's run and session). The buttons are hidden while `QT_GROUP_QUEUE_AVAILABLE` is false (GROUP items: vscimpb127).
+- **Tests:** `questTodoTodoGroups.dom.test.ts` (TGP-1..7), `todoGroupList.test.ts` (TGL-1..4).
+
 ### Blocked todos follow their blockers
 
 `src/utils/todoBlockingCascade.ts` hooks into `writeTodoFileText`

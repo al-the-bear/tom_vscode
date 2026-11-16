@@ -309,6 +309,14 @@ The list is grouped by **todo-id prefix** — the characters before the id's num
 
 The list opens **fully collapsed** — after a window reload or a VS Code restart you see only the separator lines. Expand the groups you need; the **Expand all** toolbar button opens every group and **Collapse all** closes them again. Expanding a group sticks for the rest of the session, including across todo refreshes.
 
+#### Todo groups (🗂️)
+
+A **group todo** (status `group`) is a todo that stands for a group of others, listed in its **Members** (`comprised_of`; members of another quest are written `<quest>/<id>`). It is not work itself: a `prefix*` walk passes it, and it completes by itself once every member is completed or cancelled (it goes back to `group` when a member is reopened).
+
+In the list, each group todo heads its own section above the prefix groups, sorted by title: a header line with 🗂️ (✅ once completed), the group's title, its member count in brackets and its progress (*done / all*, counted over every member). The arrow on the left expands or collapses the members, like a prefix group (collapsed at first; **Expand all** / **Collapse all** include the todo groups). The members follow in the group's order: a member of this quest is its usual row — so a todo in a group and a prefix group appears in both —, a member of another quest is a line with its `quest/id`, title and status, and a member that is archived is marked so. A click on the header (anywhere but the arrow) opens the group todo's details, as a click on its own row does.
+
+The detail view of a group shows its **Members** with their progress: each member a badge with its status, ◀ ▶ to change the order, × to remove it, ➕ to add members from this quest, another quest or the workspace. Set a todo's status to `group` to give it the Members row. A todo that belongs to groups shows them as 🗂️ chips on its row and under **Part of** in its details (read-only — edit Members on the group); a click on a chip goes to the group.
+
 #### Your own todos (👤)
 
 A todo marked `user_action: true` is yours to do — a review, an answer, a look at a screen. Its title is **purple** in every todo list and it carries 👤. (A row's left border shows its status, not this mark: **blue** for in progress, **yellow** for blocked.) The **👤 toolbar button** shows only those todos and opens every prefix group, so none hides in a collapsed one; press it again to see all todos. The filter (funnel button) has a **User action** section for the same choice: your own todos, the others, or (nothing ticked) both. Set the mark with the *Your to do* checkbox when you create the todo (the new-todo form) or later in its detail form, where you can also clear it.

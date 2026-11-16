@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoPrefix, qtCompareTodoIds, tomMdOverlayShow */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoGroupsOf, qtTodoPrefix, qtCompareTodoIds, tomMdOverlayShow */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -59,6 +59,12 @@ var qtLastRenderOrder = [];
 // after a window reload or a VS Code restart, and an empty set on every fresh
 // script load IS that state — nothing to store, nothing to migrate.
 var qtExpandedGroups = {};
+/**
+ * Queue buttons of todo groups (the group's header and its detail view) queue
+ * the group as a GROUP item to the panel's queue target. GROUP items arrive
+ * with vscimpb127; until then the buttons are hidden.
+ */
+var QT_GROUP_QUEUE_AVAILABLE = false;
 
 function qtPersistState() {
     vscode.postMessage({ type: 'qtSaveState', state: {
@@ -552,6 +558,82 @@ function qtToggleGroup(prefix) {
 /** Open every prefix group of the todos loaded (the list is not re-rendered). */
 function qtExpandAllGroupsState() {
     qtGroupTodosByPrefix(qtTodos).forEach(function(g) { qtExpandedGroups['#' + g.prefix] = true; });
+    qtTodoGroupsOf(qtTodos, qtCurrentQuestId).forEach(function(g) { qtExpandedGroups['#' + qtTodoGroupKey(g.todo.id)] = true; });
+}
+
+/** The expand-state key of a todo group (vscimpb126); `:` never occurs in a prefix. */
+function qtTodoGroupKey(id) {
+    return 'todogroup:' + String(id);
+}
+
+/**
+ * Go to the todo `ref` names (an id of this quest, `<quest>/<id>` of another):
+ * select it, open its group section when it is a group, show its details.
+ */
+function qtGoToTodoRef(ref) {
+    if (!ref) return;
+    var targetQuestId = qtCurrentQuestId;
+    var targetTodoId = ref;
+    var slashIdx = ref.indexOf('/');
+    if (slashIdx > 0) {
+        targetQuestId = ref.substring(0, slashIdx);
+        targetTodoId = ref.substring(slashIdx + 1);
+        if (targetQuestId === qtCurrentQuestId) { ref = targetTodoId; }
+    }
+    if (ref === targetTodoId) { qtExpandedGroups['#' + qtTodoGroupKey(ref)] = true; }
+    qtSelectedTodoId = ref;
+    qtNavPush(ref);
+    qtRenderList();
+    vscode.postMessage({ type: 'qtGetTodo', questId: targetQuestId, todoId: targetTodoId });
+}
+
+/** The chips of the groups a todo belongs to (`part_of`); a click goes to the group. */
+function qtPartOfChips(t) {
+    if (!t || !Array.isArray(t.part_of) || !t.part_of.length) return '';
+    return t.part_of.map(function(ref) {
+        var title = 'Member of the group ' + ref;
+        var tg = qtTodos.filter(function(x) { return x.id === ref; })[0];
+        if (tg && tg.title) title += ' (' + tg.title + ')';
+        return '<span class="qt-partof-chip" data-qt-partof="' + qtEsc(ref) + '" title="' + qtEsc(title + ' \u2014 click to go to it') + '">\ud83d\uddc2\ufe0f ' + qtEsc(ref) + '</span>';
+    }).join('');
+}
+
+/** The header of a todo group: its title, member count, progress and (with GROUP items) its queue button. */
+function qtRenderTodoGroupHeader(g, expanded) {
+    var t = g.todo;
+    var name = t.title || String(t.id);
+    var done = t.status === 'completed';
+    return '<div class="qt-todogroup-header' + (expanded ? '' : ' collapsed') + (String(t.id) === qtSelectedTodoId ? ' selected' : '') + '"' +
+        ' data-qt-todogroup="' + qtEsc(t.id) + '"' +
+        ' title="' + qtEsc('Group ' + name + ' (' + t.id + '): click to open it; the arrow expands or collapses its members') + '">' +
+        '<span class="codicon codicon-chevron-down qt-todogroup-toggle" title="' + (expanded ? 'Collapse' : 'Expand') + '"></span>' +
+        '<span class="qt-todogroup-icon">' + (done ? '\u2705' : '\ud83d\uddc2\ufe0f') + '</span>' +
+        '<span class="qt-group-label">' + qtEsc(name) + '</span>' +
+        '<span class="qt-group-count">(' + g.total + ')</span>' +
+        '<span class="qt-todogroup-progress" title="' + g.done + ' of ' + g.total + ' members done">' + g.done + '/' + g.total + '</span>' +
+        qtTodoGroupQueueButton(t, 'qt-todogroup-queue-btn') +
+        '</div>';
+}
+
+/** The queue button of a todo group (header or detail view); hidden until GROUP items exist (vscimpb127). */
+function qtTodoGroupQueueButton(t, cls) {
+    if (!QT_GROUP_QUEUE_AVAILABLE || !t) return '';
+    return '<button class="' + cls + '" data-qt-todogroup-queue="' + qtEsc(t.id) + '" title="Queue this group as a GROUP item to the panel\'s queue target">\u23f5</button>';
+}
+
+/** Queue todo group `id` (a GROUP item) to the panel's queue target. */
+function qtQueueTodoGroup(id) {
+    vscode.postMessage({ type: 'qtQueueTodoGroup', questId: qtCurrentQuestId, todoId: id });
+}
+
+/** A member line for a member this list has no row of: another quest's, archived, or missing. */
+function qtRenderGroupMemberLine(m) {
+    var where = m.foreign ? '' : (m.found ? ' (archived)' : ' (not found)');
+    return '<div class="qt-group-member-line' + (m.found ? '' : ' missing') + '" data-qt-member-ref="' + qtEsc(m.ref) + '"' +
+        ' title="' + qtEsc((m.foreign ? 'A member from another quest: ' : 'A member: ') + m.ref + (m.title ? ' \u2014 ' + m.title : '') + where + (m.found ? ' \u2014 click to open it' : '')) + '">' +
+        '<span class="status-icon">' + (m.found ? qtStatusIcon(m.status) : '\u2753') + '</span>' +
+        '<span class="tid">' + qtEsc(m.ref) + '</span>' +
+        '<span class="ttitle">' + qtEsc(m.title || '') + where + '</span></div>';
 }
 
 /** Open every prefix group — the "Expand all" action-bar button. */
@@ -703,6 +785,7 @@ function qtRenderTodoRow(t) {
         qtBlockingMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         qtDecisionChip(t) +
+        qtPartOfChips(t) +
         priorityBadge + moveBtn + moveWsBtn + trashBtn + reopenBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
         stackCircle +
@@ -876,6 +959,26 @@ function qtRenderList() {
     // actually see belong in it, so a range never reaches into a collapsed
     // group and silently stacks todos that are not on screen.
     var renderOrder = [];
+    // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
+    // order; a member also stays in its prefix group (shown twice). Members are
+    // not in renderOrder, so a shift-click range never counts a row twice.
+    var todoGroups = qtGroupByPrefix ? qtTodoGroupsOf(filtered, qtCurrentQuestId) : [];
+    for (var tgi = 0; tgi < todoGroups.length; tgi++) {
+        var tg = todoGroups[tgi];
+        var tgExpanded = qtIsGroupExpanded(qtTodoGroupKey(tg.todo.id));
+        html += qtRenderTodoGroupHeader(tg, tgExpanded);
+        if (!tgExpanded) continue;
+        html += '<div class="qt-todogroup-members">';
+        for (var tm = 0; tm < tg.members.length; tm++) {
+            var member = tg.members[tm];
+            if (member.row) { html += qtRenderTodoRow(member.row); continue; }
+            // A member of this quest the filter hides is left out, like any row.
+            var inList = !member.foreign && qtTodos.some(function(x) { return String(x.id) === (member.ref.indexOf('/') >= 0 ? member.ref.slice(member.ref.indexOf('/') + 1) : member.ref); });
+            if (inList) continue;
+            html += qtRenderGroupMemberLine(member);
+        }
+        html += '</div>';
+    }
     for (var gi = 0; gi < groups.length; gi++) {
         var group = groups[gi];
         var expanded = qtIsGroupExpanded(group.prefix);
@@ -927,8 +1030,38 @@ function qtRenderList() {
             qtToggleGroup(hdr.getAttribute('data-qt-group') || '');
         });
     });
+    pane.querySelectorAll('.qt-todogroup-header').forEach(function(hdr) {
+        hdr.addEventListener('click', function(e) {
+            var id = hdr.getAttribute('data-qt-todogroup') || '';
+            if (e.target.closest('.qt-todogroup-toggle')) { qtToggleGroup(qtTodoGroupKey(id)); return; }
+            var queueBtn = e.target.closest('.qt-todogroup-queue-btn');
+            if (queueBtn) {
+                e.stopPropagation();
+                qtPauseButton(queueBtn);
+                qtQueueTodoGroup(id);
+                return;
+            }
+            // The header opens the group todo's details, as its tile does.
+            qtSelectedTodoId = id;
+            qtNavPush(id);
+            qtRenderList();
+            qtRequestTodoDetail(id);
+        });
+    });
+    pane.querySelectorAll('.qt-group-member-line').forEach(function(el) {
+        el.addEventListener('click', function() {
+            if (el.classList.contains('missing')) return;
+            qtGoToTodoRef(el.getAttribute('data-qt-member-ref') || '');
+        });
+    });
     pane.querySelectorAll('.qt-todo-item').forEach(function(el) {
         el.addEventListener('click', function(e) {
+            var chip = e.target.closest('.qt-partof-chip');
+            if (chip) {
+                e.stopPropagation();
+                qtGoToTodoRef(chip.getAttribute('data-qt-partof') || '');
+                return;
+            }
             var circleEl = e.target.closest('.qt-stack-circle');
             if (circleEl) {
                 qtToggleStack(circleEl.getAttribute('data-qt-stackid'), e.shiftKey);
@@ -1352,6 +1485,31 @@ function qtAutoSave() {
     }, 600);
 }
 
+/**
+ * The detail form's group rows (vscimpb126): Members — a group's
+ * `comprised_of`, editable (add, remove, reorder), shown for a group todo and
+ * when the status is set to `group` — with its queue button, and Part of — the
+ * groups the todo belongs to (derived, read-only).
+ */
+function qtRenderGroupRows(todo) {
+    var isGroup = todo.status === 'group' || Array.isArray(todo.comprised_of);
+    var members = todo.comprised_of || [];
+    var done = 0;
+    members.forEach(function(ref) { var i = qtMemberInfo(ref); if (i && (i.status === 'completed' || i.status === 'cancelled')) done++; });
+    var html = '<div id="qt-d-members-row"' + (isGroup ? '' : ' style="display:none;"') + '>' +
+        qtFormRow('Members' + (members.length ? ' (' + done + '/' + members.length + ' done)' : ''),
+            '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-comprised-wrap" title="The group\'s members (comprised_of), in order; the group completes once every member is done">' +
+            qtRenderTodoBadges(members, 'comprised-of') +
+            '<button class="qt-edit-btn" id="qt-d-comprised-add" title="Add member">\u2795</button></div>' +
+            (QT_GROUP_QUEUE_AVAILABLE ? '<button class="qt-edit-btn" id="qt-d-group-queue" title="Queue this group as a GROUP item to the panel\'s queue target">\u23f5 Queue group</button>' : '')) +
+        '</div>';
+    if ((todo.part_of || []).length) {
+        html += qtFormRow('Part of', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-partof-wrap" title="The groups whose members include this todo; edit Members on the group to change it">' +
+            qtRenderTodoBadges(todo.part_of, 'part-of') + '</div>');
+    }
+    return html;
+}
+
 function qtRenderDetail(todo) {
     qtDetailTodo = todo;
     var pane = document.getElementById('qt-detail-pane');
@@ -1391,6 +1549,7 @@ function qtRenderDetail(todo) {
             '<button class="qt-edit-btn" id="qt-d-deps-add" title="Add dependency">➕</button></div>') +
         qtFormRow('Blocked By', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocked-wrap">' + blockedByBadges +
             '<button class="qt-edit-btn" id="qt-d-blocked-add" title="Add blocked-by">➕</button></div>') +
+        qtRenderGroupRows(todo) +
         ((todo.blocking || []).length
             ? qtFormRow('Blocking', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;" id="qt-d-blocking-wrap" title="The todos whose Blocked By names this one; set Blocked By on those to change it">' +
                 qtRenderTodoBadges(todo.blocking, 'blocking') + '</div>')
@@ -1447,6 +1606,9 @@ function qtRenderDetail(todo) {
             vscode.postMessage({ type: 'qtConfirmStatusUpdate', status: newStatus });
             return;
         }
+        // A group's members row shows once the status is `group`.
+        var membersRow = document.getElementById('qt-d-members-row');
+        if (membersRow && newStatus === 'group') { membersRow.style.display = ''; }
         // Any non-terminal status clears completion metadata
         if (cdInput) cdInput.value = '';
         if (cbInput) cbInput.value = '';
@@ -1458,6 +1620,11 @@ function qtRenderDetail(todo) {
     qtAttachTodoBadgeHandlers('blocked-by');
     qtAttachTodoBadgeHandlers('deps');
     qtAttachTodoBadgeHandlers('blocking');
+    qtAttachTodoBadgeHandlers('comprised-of');
+    qtAttachTodoBadgeHandlers('part-of');
+    document.getElementById('qt-d-comprised-add').addEventListener('click', function() { qtShowTodoPicker('comprised-of'); });
+    var groupQueueBtn = document.getElementById('qt-d-group-queue');
+    if (groupQueueBtn) { groupQueueBtn.addEventListener('click', function() { qtPauseButton(groupQueueBtn); qtQueueTodoGroup(todo.id); }); }
     document.getElementById('qt-d-blocked-add').addEventListener('click', function() { qtShowTodoPicker('blocked-by'); });
     document.getElementById('qt-d-deps-add').addEventListener('click', function() { qtShowTodoPicker('deps'); });
 
@@ -1476,56 +1643,87 @@ function qtRenderDetail(todo) {
 }
 
 // ── Todo badge rendering for blocked-by / dependencies ──
-/** Badges of todo ids; `blocking` badges are read-only (the list is derived from the others' blocked_by). */
+/**
+ * The todo-id badge lists of the detail form, by category: the field they
+ * edit, their wrapper and add button. `blocking` and `part-of` are read-only
+ * (derived from the others' blocked_by / comprised_of); `comprised-of` (a
+ * group's members) keeps its order and can be reordered (vscimpb126).
+ */
+var QT_BADGE_CATS = {
+    'blocked-by': { field: 'blocked_by', wrap: 'qt-d-blocked-wrap', add: 'qt-d-blocked-add', addTitle: 'Add blocked-by', pickTitle: 'Blocked By' },
+    'deps': { field: 'dependencies', wrap: 'qt-d-deps-wrap', add: 'qt-d-deps-add', addTitle: 'Add dependency', pickTitle: 'Dependencies' },
+    'comprised-of': { field: 'comprised_of', wrap: 'qt-d-comprised-wrap', add: 'qt-d-comprised-add', addTitle: 'Add member', pickTitle: 'Members', ordered: true },
+    'blocking': { wrap: 'qt-d-blocking-wrap', readOnly: true },
+    'part-of': { wrap: 'qt-d-partof-wrap', readOnly: true },
+};
+
+/** A group member's title and status from the detail payload (`group_members`), for its badge. */
+function qtMemberInfo(ref) {
+    var members = qtDetailTodo && Array.isArray(qtDetailTodo.group_members) ? qtDetailTodo.group_members : [];
+    for (var i = 0; i < members.length; i++) { if (members[i].ref === ref) return members[i]; }
+    var local = qtTodos.filter(function(t) { return t.id === ref; })[0];
+    return local ? { ref: ref, title: local.title, status: local.status, found: true } : null;
+}
+
+/** Badges of todo ids; read-only categories have no remove button, `comprised-of` badges carry ◀ ▶ to reorder. */
 function qtRenderTodoBadges(ids, category) {
-    var removable = category !== 'blocking';
-    return ids.map(function(id) {
-        return '<span class="qt-todo-badge" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '" title="Navigate to ' + qtEsc(id) + '">' +
+    var cat = QT_BADGE_CATS[category] || {};
+    return ids.map(function(id, idx) {
+        var info = category === 'comprised-of' ? qtMemberInfo(id) : null;
+        var title = 'Navigate to ' + id + (info && info.title ? ' \u2014 ' + info.title : '') + (info && info.status ? ' (' + info.status + ')' : '');
+        return '<span class="qt-todo-badge" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '" title="' + qtEsc(title) + '">' +
+            (info ? '<span class="qt-badge-status">' + qtStatusIcon(info.status) + '</span>' : '') +
             qtEsc(id) +
-            (removable ? '<span class="qt-badge-remove" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '">×</span>' : '') +
+            (cat.ordered && idx > 0 ? '<span class="qt-badge-move" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '" data-qt-move-dir="-1" title="Move up">\u25c0</span>' : '') +
+            (cat.ordered && idx < ids.length - 1 ? '<span class="qt-badge-move" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '" data-qt-move-dir="1" title="Move down">\u25b6</span>' : '') +
+            (cat.readOnly ? '' : '<span class="qt-badge-remove" data-qt-badge-cat="' + category + '" data-qt-badge-id="' + qtEsc(id) + '">\u00d7</span>') +
             '</span>';
     }).join('');
 }
 
+/** Render a category's badges and its add button again, with their handlers. */
+function qtRefreshTodoBadges(category) {
+    var cat = QT_BADGE_CATS[category];
+    var wrap = cat ? document.getElementById(cat.wrap) : null;
+    if (!wrap || !qtDetailTodo) return;
+    var arr = qtDetailTodo[cat.field] || [];
+    wrap.innerHTML = qtRenderTodoBadges(arr, category) +
+        (cat.readOnly ? '' : '<button class="qt-edit-btn" id="' + cat.add + '" title="' + cat.addTitle + '">\u2795</button>');
+    qtAttachTodoBadgeHandlers(category);
+    if (!cat.readOnly) { document.getElementById(cat.add).addEventListener('click', function() { qtShowTodoPicker(category); }); }
+}
+
 function qtAttachTodoBadgeHandlers(category) {
-    var wrapId = category === 'blocked-by' ? 'qt-d-blocked-wrap' : category === 'blocking' ? 'qt-d-blocking-wrap' : 'qt-d-deps-wrap';
-    var wrap = document.getElementById(wrapId);
+    var cat = QT_BADGE_CATS[category];
+    var wrap = cat ? document.getElementById(cat.wrap) : null;
     if (!wrap) return;
     wrap.querySelectorAll('.qt-todo-badge[data-qt-badge-cat="' + category + '"]').forEach(function(badge) {
         badge.addEventListener('click', function(e) {
-            if (e.target.closest('.qt-badge-remove')) return;
-            // Navigate to the referenced todo
-            var tid = badge.dataset.qtBadgeId;
-            if (tid) {
-                var targetQuestId = qtCurrentQuestId;
-                var targetTodoId = tid;
-                var slashIdx = tid.indexOf('/');
-                if (slashIdx > 0) {
-                    targetQuestId = tid.substring(0, slashIdx);
-                    targetTodoId = tid.substring(slashIdx + 1);
-                }
-                qtSelectedTodoId = tid;
-                qtNavPush(tid);
-                qtRenderList();
-                vscode.postMessage({ type: 'qtGetTodo', questId: targetQuestId, todoId: targetTodoId });
-            }
+            if (e.target.closest('.qt-badge-remove') || e.target.closest('.qt-badge-move')) return;
+            qtGoToTodoRef(badge.dataset.qtBadgeId || '');
         });
     });
     wrap.querySelectorAll('.qt-badge-remove[data-qt-badge-cat="' + category + '"]').forEach(function(rm) {
         rm.addEventListener('click', function(e) {
             e.stopPropagation();
-            var tid = rm.dataset.qtBadgeId;
-            var field = category === 'blocked-by' ? 'blocked_by' : 'dependencies';
-            var arr = qtDetailTodo[field] || [];
-            var idx = arr.indexOf(tid);
+            var arr = qtDetailTodo[cat.field] || [];
+            var idx = arr.indexOf(rm.dataset.qtBadgeId);
             if (idx >= 0) arr.splice(idx, 1);
-            qtDetailTodo[field] = arr;
-            // Re-render badges
-            var badgesHtml = qtRenderTodoBadges(arr, category);
-            var addBtn = wrap.querySelector('#qt-d-' + (category === 'blocked-by' ? 'blocked' : 'deps') + '-add');
-            wrap.innerHTML = badgesHtml + addBtn.outerHTML;
-            qtAttachTodoBadgeHandlers(category);
-            wrap.querySelector('#qt-d-' + (category === 'blocked-by' ? 'blocked' : 'deps') + '-add').addEventListener('click', function() { qtShowTodoPicker(category); });
+            qtDetailTodo[cat.field] = arr;
+            qtRefreshTodoBadges(category);
+            qtAutoSave();
+        });
+    });
+    wrap.querySelectorAll('.qt-badge-move[data-qt-badge-cat="' + category + '"]').forEach(function(mv) {
+        mv.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var arr = (qtDetailTodo[cat.field] || []).slice();
+            var idx = arr.indexOf(mv.dataset.qtBadgeId);
+            var to = idx + Number(mv.dataset.qtMoveDir || 0);
+            if (idx < 0 || to < 0 || to >= arr.length) return;
+            arr.splice(to, 0, arr.splice(idx, 1)[0]);
+            qtDetailTodo[cat.field] = arr;
+            qtRefreshTodoBadges(category);
             qtAutoSave();
         });
     });
@@ -1545,7 +1743,7 @@ function qtShowTodoPicker(category) {
 }
 
 function qtRenderTodoPickerPopup(allTodos, category) {
-    var field = category === 'blocked-by' ? 'blocked_by' : 'dependencies';
+    var field = QT_BADGE_CATS[category].field;
     var current = (qtDetailTodo && qtDetailTodo[field]) || [];
     var currentSet = {};
     current.forEach(function(id) { currentSet[id] = true; });
@@ -1568,7 +1766,7 @@ function qtRenderTodoPickerPopup(allTodos, category) {
             questOptions.push('<option value="' + qtEsc(q) + '">' + qtEsc(q) + '</option>');
         });
     }
-    var html = '<h4>Select ' + (category === 'blocked-by' ? 'Blocked By' : 'Dependencies') + '</h4>' +
+    var html = '<h4>Select ' + QT_BADGE_CATS[category].pickTitle + '</h4>' +
         '<div class="qt-inline-row" style="margin-bottom:6px;">' +
         '<select id="qt-tp-source" style="flex:1;">' +
         '<option value="local">Local todos (current quest)</option>' +
@@ -1630,15 +1828,7 @@ function qtRenderTodoPickerPopup(allTodos, category) {
         qtClosePopup();
         window._qtTodoPickerCategory = null;
         // Re-render the badges
-        var wrapId = category === 'blocked-by' ? 'qt-d-blocked-wrap' : 'qt-d-deps-wrap';
-        var wrap = document.getElementById(wrapId);
-        if (wrap) {
-            var addBtnId = category === 'blocked-by' ? 'qt-d-blocked-add' : 'qt-d-deps-add';
-            wrap.innerHTML = qtRenderTodoBadges(merged, category) +
-                '<button class="qt-edit-btn" id="' + addBtnId + '" title="Add ' + (category === 'blocked-by' ? 'blocked-by' : 'dependency') + '">➕</button>';
-            qtAttachTodoBadgeHandlers(category);
-            document.getElementById(addBtnId).addEventListener('click', function() { qtShowTodoPicker(category); });
-        }
+        qtRefreshTodoBadges(category);
         qtAutoSave();
     });
     document.getElementById('qt-tp-cancel').addEventListener('click', function() {
@@ -1653,7 +1843,7 @@ function qtUpdateTodoPickerList(allTodos, category) {
         qtRenderTodoPickerPopup(allTodos, category);
         return;
     }
-    var field = category === 'blocked-by' ? 'blocked_by' : 'dependencies';
+    var field = QT_BADGE_CATS[category].field;
     var current = (qtDetailTodo && qtDetailTodo[field]) || [];
     var currentSet = {};
     current.forEach(function(id) { currentSet[id] = true; });
@@ -2372,6 +2562,9 @@ function qtCollectFormData() {
         tags: tags.length ? tags : undefined,
         dependencies: deps.length ? deps : undefined,
         blocked_by: blockedBy.length ? blockedBy : undefined,
+        // A group's members, in order; [] clears them. Absent when the todo has none and is no group.
+        comprised_of: qtDetailTodo && (Array.isArray(qtDetailTodo.comprised_of) || qtDetailTodo.status === 'group')
+            ? (qtDetailTodo.comprised_of || []).slice() : undefined,
         notes: document.getElementById('qt-d-notes') ? document.getElementById('qt-d-notes').value || undefined : undefined,
         scope: qtFormScope || undefined,
         references: qtFormRefs.length ? qtFormRefs : undefined,

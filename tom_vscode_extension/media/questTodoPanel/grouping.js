@@ -114,3 +114,75 @@ function qtGroupTodosByPrefix(todos) {
     if (unprefixed) { groups.push(unprefixed); }
     return groups;
 }
+
+/**
+ * @typedef {{ ref: string, quest?: string, id?: string, title?: string, status?: string, found?: boolean }} QtGroupMemberInfo
+ * @typedef {{ id?: unknown, title?: string, status?: string, comprised_of?: string[], group_members?: QtGroupMemberInfo[] }} QtGroupTodoLike
+ * @typedef {{ ref: string, row: QtTodoLike | null, title: string, status: string, foreign: boolean, found: boolean }} QtGroupMember
+ * @typedef {{ todo: QtGroupTodoLike, members: QtGroupMember[], done: number, total: number }} QtTodoGroup
+ */
+
+/** Statuses a group member counts as done with. */
+var QT_GROUP_DONE = ['completed', 'cancelled'];
+
+/**
+ * The todo groups of a list (vscimpb126): every todo with status `group` or a
+ * `comprised_of`, sorted by title (natural order), each with its members in
+ * `comprised_of` order and its progress (done / all, counted over every
+ * member, whatever the filter).
+ *
+ * A member of this quest is shown by its row when `todos` (the filtered list)
+ * holds it; one the filter hides is left out (`row` null and not foreign —
+ * the caller skips it). A member of another quest (`<quest>/<id>`) has no row
+ * here and is shown by its ref, title and status (`foreign`).
+ *
+ * @param {QtGroupTodoLike[] | null | undefined} todos the list's (filtered) rows
+ * @param {string} questId the list's quest; a member ref `<questId>/<id>` is this quest's
+ * @returns {QtTodoGroup[]}
+ */
+function qtTodoGroupsOf(todos, questId) {
+    var list = todos || [];
+    /** @type {Record<string, QtGroupTodoLike>} */
+    var byId = {};
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id !== null && list[i].id !== undefined) { byId['#' + String(list[i].id)] = list[i]; }
+    }
+    /** @type {QtTodoGroup[]} */
+    var out = [];
+    for (var k = 0; k < list.length; k++) {
+        var t = list[k];
+        if (!t) { continue; }
+        var comprised = Array.isArray(t.comprised_of) ? t.comprised_of : [];
+        if (t.status !== 'group' && !comprised.length) { continue; }
+        /** @type {QtGroupMemberInfo[]} */
+        var infos = Array.isArray(t.group_members) && t.group_members.length === comprised.length
+            ? t.group_members
+            : comprised.map(function(ref) { return { ref: ref }; });
+        /** @type {QtGroupMember[]} */
+        var members = infos.map(function(m) {
+            var ref = String(m.ref);
+            var slash = ref.indexOf('/');
+            var local = slash < 0 || (!!questId && ref.slice(0, slash) === questId);
+            var localId = slash < 0 ? ref : ref.slice(slash + 1);
+            var row = local && Object.prototype.hasOwnProperty.call(byId, '#' + localId) ? byId['#' + localId] : null;
+            return {
+                ref: ref,
+                row: row,
+                title: String((row && row.title) || m.title || ''),
+                status: String((row && row.status) || m.status || ''),
+                foreign: !local,
+                found: !!row || m.found === true,
+            };
+        });
+        var done = 0;
+        for (var d = 0; d < infos.length; d++) {
+            var st = members[d].row ? members[d].status : String(infos[d].status || '');
+            if (QT_GROUP_DONE.indexOf(st) >= 0) { done++; }
+        }
+        out.push({ todo: t, members: members, done: done, total: members.length });
+    }
+    out.sort(/** @param {QtTodoGroup} a @param {QtTodoGroup} b */ function(a, b) {
+        return qtNaturalCompare(String(a.todo.title || a.todo.id || ''), String(b.todo.title || b.todo.id || ''));
+    });
+    return out;
+}

@@ -25,11 +25,13 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as questTodo from '../managers/questTodoManager.js';
-import { todoListItem } from '../utils/todoListItem';
+import { todoListItem, withTodoGroups, type TodoListItem } from '../utils/todoListItem';
+import { groupListInfo } from '../utils/todoBlockingCascade';
+import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
-import { todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
+import { todoGroupQueueRequest, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
 import { todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
@@ -1668,6 +1670,14 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'), [todo.id]);
             return true;
         }
+        case 'qtQueueTodoGroup': {
+            // A todo group's queue button (vscimpb126): the group as a GROUP item to the panel's
+            // queue target. GROUP items arrive with vscimpb127 — until then the webview hides the
+            // button (QT_GROUP_QUEUE_AVAILABLE), and a message that still comes says so.
+            const request = todoGroupQueueRequest(todoPanelSelectionNow(), effectiveQuestId(msg.questId), String(msg.todoId || ''));
+            void vscode.window.showInformationMessage(`Queuing the group ${request.groupId} as one item (${todoPanelQueueTargetText(todoPanelSelectionNow())}) comes with GROUP queue items (vscimpb127).`);
+            return true;
+        }
         case 'qtQueueGroupPrompt': {
             const walkQuest = effectiveQuestId(msg.questId);
             const walkPrefix = String(msg.prefix || '');
@@ -2088,7 +2098,7 @@ function _sendTodoList(questId: string, file: string | undefined, post: (m: any)
             const fp = WsPaths.ai('quests', questId, mainFile) || path.join(wsRoot, '_ai', 'quests', questId, mainFile);
             items = questTodo.readTodoFile(fp);
         }
-        const list = items.map(t => todoListItem(t, t._sourceFile ?? ''));
+        const list = _withTodoGroups(items.map(t => todoListItem(t, t._sourceFile ?? '')), questId);
         post({ type: 'qtTodos', todos: list, questId, file: file ?? 'all' });
         _sendFileList(questId, post);
     } catch { /* */ }
@@ -2123,7 +2133,38 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
     }
     const payload: any = todo ? { ...todo } : null;
     if (payload && resolvedQuestId !== questId) { payload._resolvedQuestId = resolvedQuestId; }
+    // Todo groups (vscimpb126): the groups it belongs to, and a group's members with title and status.
+    if (payload && resolvedQuestId && !resolvedQuestId.startsWith('__')) {
+        const root = todoQuestsRoot();
+        if (root) {
+            const info = groupListInfo(root);
+            const partOf = info.partOf(resolvedQuestId, payload.id);
+            if (partOf.length) { payload.part_of = partOf; }
+            if (Array.isArray(payload.comprised_of) || payload.status === 'group') {
+                payload.group_members = info.members(resolvedQuestId, payload.comprised_of ?? []);
+            }
+        }
+    }
     post({ type: 'qtTodoDetail', todo: payload, questId, todoId });
+}
+
+/**
+ * A quest list with its todo groups (vscimpb126): each row's `part_of`, each
+ * group row's members. The quest of a row is the list's, or in the
+ * all-quests list the one its source file names (`<quest>/<file>`).
+ */
+function _withTodoGroups(list: TodoListItem[], questId: string): TodoListItem[] {
+    if (questId === '__all_workspace__' || questId === '__session__') { return list; }
+    const root = todoQuestsRoot();
+    if (!root) { return list; }
+    try {
+        const questOf = (item: TodoListItem): string | undefined => (questId === '__all_quests__'
+            ? (item.sourceFile.includes('/') ? item.sourceFile.split('/')[0] : undefined)
+            : questId);
+        return withTodoGroups(list, questOf, groupListInfo(root));
+    } catch {
+        return list;
+    }
 }
 
 function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any) => void): void {
