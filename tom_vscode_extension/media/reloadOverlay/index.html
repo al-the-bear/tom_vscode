@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  The reload overlay (src/handlers/reloadOverlay-handler.ts, vscimpb142b): another window migrated the workspace;
+  every run of this window is paused. The prompts still running, each with Interrupt; Reload window.
+  First paint from window.__INIT__ = { version, text, rows, idle }, then `state` messages. No inline handlers.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="ro-wrap">
+    <h2 class="ro-title" id="roTitle">Reload required</h2>
+    <p class="ro-text" id="roText"></p>
+    <div class="ro-bar">
+        <button id="roReload" class="primary">Reload window</button>
+        <span class="ro-idle" id="roIdle"></span>
+    </div>
+    <h3 class="ro-subtitle" id="roListTitle">Prompts still running</h3>
+    <p class="ro-empty" id="roEmpty" hidden>No prompt of this window was running.</p>
+    <table class="ro-list" id="roList">
+        <thead><tr><th>Status</th><th>Run</th><th>Session</th><th>Prompt</th><th></th></tr></thead>
+        <tbody id="roRows"></tbody>
+    </table>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

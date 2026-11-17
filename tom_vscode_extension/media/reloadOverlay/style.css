@@ -1,0 +1,16 @@
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 0 16px 24px; }
+.ro-wrap { max-width: 1000px; }
+.ro-text { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500); background: var(--vscode-inputValidation-warningBackground, rgba(184, 149, 0, 0.15)); }
+.ro-bar { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.ro-idle { color: var(--vscode-descriptionForeground); }
+.ro-idle.ro-ready { color: var(--vscode-testing-iconPassed, #3fb950); font-weight: 600; }
+.ro-list { border-collapse: collapse; width: 100%; }
+.ro-list th, .ro-list td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35)); vertical-align: top; }
+.ro-prompt { max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-kind { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.ro-running .status-kind { background: var(--vscode-progressBar-background, #0e70c0); color: #fff; }
+.ro-done { opacity: 0.7; }
+button { padding: 4px 12px; border: none; border-radius: 2px; cursor: pointer; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+[hidden] { display: none !important; }

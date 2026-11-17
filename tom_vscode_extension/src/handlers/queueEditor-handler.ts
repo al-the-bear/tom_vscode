@@ -122,6 +122,11 @@ function getQueueEditorWebviewOptions(ctx: vscode.ExtensionContext): vscode.Webv
     };
 }
 
+/** The column the Prompt Queue editor is open in, when it is (the reload overlay opens over it, vscimpb142b). */
+export function queueEditorViewColumn(): vscode.ViewColumn | undefined {
+    return _panel?.viewColumn;
+}
+
 function openQueueEditor(ctx: vscode.ExtensionContext): void {
     if (_panel) { _panel.reveal(); return; }
 

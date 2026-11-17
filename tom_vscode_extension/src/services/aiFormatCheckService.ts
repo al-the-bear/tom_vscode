@@ -12,8 +12,9 @@
  *     written quietly and the window starts normally;
  *   - {@link startAiFormatCheck}, in a window that started normally: another
  *     window migrates under it (the shared stamp changes): this window pauses
- *     the auto-send of every run and asks for a reload — the running prompts
- *     finish, nothing new starts.
+ *     the auto-send of every run and shows the reload overlay
+ *     (handlers/reloadOverlay-handler.ts) — the prompts still running, each
+ *     with Interrupt, and Reload window; nothing new starts.
  */
 
 import * as path from 'path';
@@ -31,6 +32,7 @@ import {
     writeLocalStamp,
 } from '../utils/aiFormatMigrationRun';
 import { registerMinimalModePanels, type MinimalModePanels } from '../handlers/minimalMode-handler';
+import { showReloadOverlay, type ReloadOverlayDeps } from '../handlers/reloadOverlay-handler';
 import { WsPaths } from '../utils/workspacePaths';
 import {
     migrationAiRoot,
@@ -75,9 +77,25 @@ function pauseAllRuns(): void {
     } catch { /* no queue */ }
 }
 
-/** The warning a window shows when another window migrated the workspace under it. */
-export function reloadRequiredText(version: number): string {
-    return `Tom AI: the workspace has been migrated to format version ${version}; a reload is required. All runs of this window have been paused: let the running prompts finish, then reload.`;
+/** The overlay's dependencies: this window's queue, its chat sends, the Prompt Queue editor's column. */
+export function reloadOverlayDeps(): ReloadOverlayDeps {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const qm = () => (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance;
+    return {
+        items: () => { try { return qm().items; } catch { return []; } },
+        autoSend: (run) => { try { return qm().runQueueSettings(run).autoSend; } catch { return false; } },
+        windowId,
+        onDidChange: (listener) => { try { return qm().onDidChange(listener); } catch { return { dispose: () => undefined }; } },
+        interruptItem: (id) => { try { return qm().interruptActiveItemForContinuation(id, undefined, { hard: true }); } catch { return false; } },
+        cancelChat: (id) => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            try { return (require('../handlers/sendToChatState.js') as typeof import('../handlers/sendToChatState')).cancelAnthropicSendOfChatItem(id) !== undefined; } catch { return false; }
+        },
+        viewColumn: () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            try { return (require('../handlers/queueEditor-handler.js') as typeof import('../handlers/queueEditor-handler')).queueEditorViewColumn(); } catch { return undefined; }
+        },
+    };
 }
 
 /** The page's dependencies for this window. */
@@ -166,7 +184,7 @@ export function aiFormatStartGate(context: vscode.ExtensionContext): boolean {
 /**
  * The check of a window that started normally (the workspace in this build's format): the migration
  * command, and the watchers — another window migrating under this one (the shared stamp changes) pauses
- * the auto-send of every run and asks for a reload; an open page follows the lock.
+ * the auto-send of every run and shows the reload overlay; an open page follows the lock.
  */
 export function startAiFormatCheck(context: vscode.ExtensionContext): void {
     registerAiFormatMigrationCommand(context);
@@ -184,8 +202,8 @@ export function startAiFormatCheck(context: vscode.ExtensionContext): void {
         if (migratedHere || warned || now === undefined || now === startedWith) { return; }
         warned = true;
         pauseAllRuns();
-        void vscode.window.showWarningMessage(reloadRequiredText(now), { modal: false }, RELOAD)
-            .then((picked) => { if (picked === RELOAD) { reloadWindow(); } });
+        // The reload overlay (vscimpb142b): the prompts still running, each with Interrupt, and Reload window.
+        showReloadOverlay(context, reloadOverlayDeps(), now);
     });
 }
 

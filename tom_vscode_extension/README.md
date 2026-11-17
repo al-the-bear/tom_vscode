@@ -493,7 +493,8 @@ compares both with the version its build understands:
 
 One migration runs at a time on a machine; another window says *Migration is
 already running in another window*. Once it is done, the other windows pause
-their runs and ask for a reload. In a checkout the same migration runs from the
+their runs and show **Reload required**: the prompts still running, each with
+Interrupt, and Reload window. In a checkout the same migration runs from the
 command line (in this folder, after `npm run compile`):
 
 ```bash

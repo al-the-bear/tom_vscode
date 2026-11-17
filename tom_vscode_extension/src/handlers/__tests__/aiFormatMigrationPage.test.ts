@@ -8,8 +8,8 @@
  *        finds it done already; while another live window holds the lock it is refused
  *   FP-3 the page: Migrate now only after "I understand it cannot be undone"; the warning names everyone sharing the
  *        workspace; done offers Reload; locked says it runs elsewhere
- *   FP-4 the start-up check: the command registered, the page opened by itself, a reload asked for after another
- *        window's migration (the text), the package.json command
+ *   FP-4 the start-up check: the command registered, the page opened by itself, the reload overlay after another
+ *        window's migration (reloadOverlay.test.ts), the package.json command
  */
 
 import test, { after, describe } from 'node:test';
@@ -23,7 +23,6 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [os.tmpdir()] });
 
 import { applyMigration, migrationPageState, type MigrationPageDeps } from '../aiFormatMigration-handler.js';
-import { reloadRequiredText } from '../../services/aiFormatCheckService.js';
 import { acquireMigrationLock, migrationLockFile, migrationNeed, readLocalStamp } from '../../utils/aiFormatMigrationRun.js';
 import { AI_FORMAT_VERSION, readAiFormatStamp, writeAiFormatStamp } from '../../utils/aiFormatVersion.js';
 
@@ -127,10 +126,9 @@ describe('the _ai format migration page', () => {
     });
 
     test('FP-4: the start-up check and the command', () => {
-        assert.equal(reloadRequiredText(9), 'Tom AI: the workspace has been migrated to format version 9; a reload is required. All runs of this window have been paused: let the running prompts finish, then reload.');
         const service = fs.readFileSync(path.join(EXT, 'src', 'services', 'aiFormatCheckService.ts'), 'utf8');
         assert.match(service, /registerAiFormatMigrationCommand\(context\);/);
-        assert.match(service, /pauseAllRuns\(\);\s*void vscode\.window\.showWarningMessage\(reloadRequiredText\(now\)/, 'another window\'s migration pauses this one');
+        assert.match(service, /pauseAllRuns\(\);[\s\S]{0,200}showReloadOverlay\(/, 'another window\'s migration pauses this one and shows the reload overlay');
         assert.match(service, /Migration is already running in another window/);
         const pkg = JSON.parse(fs.readFileSync(path.join(EXT, 'package.json'), 'utf8'));
         assert.ok(pkg.contributes.commands.some((c: Json) => c.command === 'tomAi.migrateAiFormats' && c.title === '@T: Migrate _ai Formats'));
