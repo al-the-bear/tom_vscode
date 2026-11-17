@@ -1,22 +1,38 @@
 // @ts-check
-// Minimal-mode placeholder panel webview client — extracted from the inline
-// script of MinimalModeViewProvider._getHtml() in
-// src/handlers/minimalMode-handler.ts (Phase B.8 webview restructuring).
-// Two buttons wired via addEventListener (no inline handlers), so the panel
-// uses the loader's default nonce-only CSP. No first-paint data needed.
+// Placeholder panel while Tom AI does not start — see src/handlers/minimalMode-handler.ts.
+// First paint from window.__INIT__ ({ mode: 'setup' } or { mode: 'format', hint }); a `content` message
+// replaces it. Buttons wired via addEventListener (no inline handlers), the loader's nonce-only CSP.
 
 (function () {
     const vscode = acquireVsCodeApi();
-    const setupWorkspaceBtn = document.getElementById('setupWorkspaceBtn');
-    if (setupWorkspaceBtn) {
-        setupWorkspaceBtn.addEventListener('click', function () {
-            vscode.postMessage({ type: 'setupWorkspaceFolder' });
-        });
+    /** @param {string} id */
+    function $(id) { return /** @type {HTMLElement} */ (document.getElementById(id)); }
+    /** @param {string} id @param {string} type */
+    function wire(id, type) {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('click', function () { vscode.postMessage({ type: type }); }); }
     }
-    const setupBtn = document.getElementById('setupBtn');
-    if (setupBtn) {
-        setupBtn.addEventListener('click', function () {
-            vscode.postMessage({ type: 'openSetupDoc' });
-        });
+    wire('setupWorkspaceBtn', 'setupWorkspaceFolder');
+    wire('setupBtn', 'openSetupDoc');
+    wire('upgradeBtn', 'upgradeWorkspace');
+    wire('reloadBtn', 'reload');
+
+    /** @param {any} content */
+    function render(content) {
+        const format = !!content && content.mode === 'format' && !!content.hint;
+        $('setupMode').hidden = format;
+        $('formatMode').hidden = !format;
+        if (!format) { return; }
+        const hint = content.hint;
+        $('formatTitle').textContent = hint.title || '';
+        $('formatText').textContent = hint.text || '';
+        $('upgradeBtn').hidden = !hint.upgradeButton;
+        $('reloadBtn').hidden = !hint.reloadButton;
     }
+
+    render(/** @type {any} */ (window).__INIT__ || { mode: 'setup' });
+    window.addEventListener('message', function (event) {
+        const msg = event.data;
+        if (msg && msg.type === 'content') { render(msg.content); }
+    });
 })();

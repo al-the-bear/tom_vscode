@@ -1,14 +1,16 @@
 /**
- * Minimal-mode placeholder provider for all webview panels.
+ * Placeholder panels while the extension does not start its normal parts.
  *
- * When the extension runs without a .tom/ configuration folder, this provider
- * is registered for every declared webview view ID. Instead of showing a
- * forever-spinning loading indicator, each panel displays a friendly
- * "not a TOM AI workspace" message with setup instructions.
+ * Two modes, every webview view of package.json gets the placeholder:
  *
- * Extends {@link BaseWebviewProvider} for the common webview boilerplate
- * (message routing, CSP nonce, base styles). Pilot adoption of the
- * shared base class — see Wave 2.4 of the review refactoring plan.
+ *   - **setup** (no `.tom/` configuration folder): a "not a TOM AI workspace"
+ *     message with setup instructions;
+ *   - **format** (the `_ai` files are not in this build's format,
+ *     vscimpb142a): the hint of {@link formatEmergencyHint} with
+ *     **Upgrade the workspace…** (the migration page) or, for files newer than
+ *     the build, the build to install; once migrated, **Reload window**.
+ *
+ * Extends {@link BaseWebviewProvider} for the common webview boilerplate.
  */
 
 import * as vscode from 'vscode';
@@ -17,9 +19,13 @@ import * as path from 'path';
 import { BaseWebviewProvider } from '../utils/baseWebviewProvider';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
+import type { FormatEmergencyHint } from '../utils/aiFormatMigrationRun';
 
-// All webview view IDs declared in package.json that need a provider in minimal mode
-const MINIMAL_VIEW_IDS = [
+/** The command the format hint's button runs (aiFormatMigration-handler.ts, kept here to avoid a cycle). */
+const MIGRATE_AI_FORMATS_COMMAND = 'tomAi.migrateAiFormats';
+
+/** Used when package.json cannot be read. */
+const FALLBACK_VIEW_IDS = [
     'tomAi.chatPanel',
     'tomAi.wsPanel',
     'tomAi.vscodeNotes',
@@ -33,9 +39,28 @@ const MINIMAL_VIEW_IDS = [
     'tomAi.workspaceTodos',
 ];
 
+/** Every webview view package.json contributes (a placeholder for each, so none spins forever). */
+export function minimalViewIds(packageJson: unknown): string[] {
+    const views = (packageJson as { contributes?: { views?: Record<string, Array<{ id?: string; type?: string }>> } })?.contributes?.views;
+    if (!views) { return [...FALLBACK_VIEW_IDS]; }
+    const ids: string[] = [];
+    for (const list of Object.values(views)) {
+        for (const v of list ?? []) {
+            if (v.id && v.type === 'webview' && !ids.includes(v.id)) { ids.push(v.id); }
+        }
+    }
+    return ids.length ? ids : [...FALLBACK_VIEW_IDS];
+}
+
+/** What the placeholders show. */
+export type MinimalModeContent = { mode: 'setup' } | { mode: 'format'; hint: FormatEmergencyHint };
+
 class MinimalModeViewProvider extends BaseWebviewProvider {
+    private readonly webviews = new Set<vscode.Webview>();
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
+        private content: MinimalModeContent,
     ) {
         super();
         this.registerMessageHandler('openSetupDoc', async () => {
@@ -43,6 +68,12 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
         });
         this.registerMessageHandler('setupWorkspaceFolder', async () => {
             await vscode.commands.executeCommand(SETUP_WORKSPACE_COMMAND);
+        });
+        this.registerMessageHandler('upgradeWorkspace', async () => {
+            await vscode.commands.executeCommand(MIGRATE_AI_FORMATS_COMMAND);
+        });
+        this.registerMessageHandler('reload', async () => {
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
         });
     }
 
@@ -53,7 +84,18 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
                 vscode.Uri.joinPath(this._extensionUri, 'media'),
             ],
         };
-        webview.html = this._getHtml(webview);
+        this.webviews.add(webview);
+        webview.html = loadWebviewHtml(webview, 'minimalMode', { init: this.content as unknown as Record<string, unknown> });
+        const view = this.view;
+        if (typeof view?.onDidDispose === 'function') { view.onDidDispose(() => this.webviews.delete(webview)); }
+    }
+
+    /** Show `content` in every resolved placeholder. */
+    update(content: MinimalModeContent): void {
+        this.content = content;
+        for (const webview of this.webviews) {
+            void webview.postMessage?.({ type: 'content', content });
+        }
     }
 
     private async _openSetupDoc(): Promise<void> {
@@ -68,23 +110,25 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
             );
         }
     }
+}
 
-    private _getHtml(webview: vscode.Webview): string {
-        return loadWebviewHtml(webview, 'minimalMode');
-    }
+/** The placeholders, to change what they show (format mode: once migrated). */
+export interface MinimalModePanels {
+    update(content: MinimalModeContent): void;
 }
 
 /**
- * Register placeholder webview providers for all panel view IDs in minimal mode.
+ * Register placeholder webview providers for every panel view ID.
  * This prevents the "loading" spinner from showing indefinitely.
  */
-export function registerMinimalModePanels(context: vscode.ExtensionContext): void {
-    const provider = new MinimalModeViewProvider(context.extensionUri);
-    for (const viewId of MINIMAL_VIEW_IDS) {
+export function registerMinimalModePanels(context: vscode.ExtensionContext, content: MinimalModeContent = { mode: 'setup' }): MinimalModePanels {
+    const provider = new MinimalModeViewProvider(context.extensionUri, content);
+    for (const viewId of minimalViewIds(context.extension?.packageJSON)) {
         context.subscriptions.push(
             vscode.window.registerWebviewViewProvider(viewId, provider),
         );
     }
     // Tie the provider's lifetime to the extension so disposables clear.
     context.subscriptions.push(provider);
+    return provider;
 }

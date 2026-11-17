@@ -481,13 +481,15 @@ The `_ai` files carry a format version: `_ai/format-version.yaml` (shared,
 versioned) and `_ai/local/format-version.<host>.yaml` for this machine's own
 files (queue, chat variables, sessions; not versioned). When a window starts it
 compares both with the version its build understands:
-- **files older, unstamped, or this machine's own files behind:** the page
-  **Upgrade the workspace** opens by itself (also `@T: Migrate _ai Formats`).
-  It shows a dry run of what changes, warns that it cannot be undone and that
-  everyone sharing the workspace must upgrade Tom AI too, and migrates on
-  **Migrate now** — no checkout and no Node needed;
-- **files newer:** a newer build migrated them on another machine; install
-  that build.
+- **files older, unstamped, or this machine's own files behind:** Tom AI does
+  not start; every panel shows the versions and **Upgrade the workspace…**, and
+  the page **Upgrade the workspace** opens by itself (also `@T: Migrate _ai
+  Formats`). It shows a dry run of what changes, warns that it cannot be undone
+  and that everyone sharing the workspace must upgrade Tom AI too, and migrates
+  on **Migrate now** — no checkout and no Node needed. Reload the window
+  afterwards: it then starts normally;
+- **files newer:** a newer build migrated them on another machine; Tom AI does
+  not start, and the panels name the version to install.
 
 One migration runs at a time on a machine; another window says *Migration is
 already running in another window*. Once it is done, the other windows pause

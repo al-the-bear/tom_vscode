@@ -110,7 +110,7 @@ import { initAgentSdkCliHelp } from './handlers/agentSdkCliHelp-handler';
 import { initProviderSdks } from './handlers/providerSdks-handler';
 import { dartScriptUnavailableMessage, isDartScriptAvailable } from './handlers/dartScriptGuard';
 import { loadSendToChatConfig } from './utils/sendToChatConfig';
-import { startAiFormatCheck } from './services/aiFormatCheckService';
+import { aiFormatStartGate, startAiFormatCheck } from './services/aiFormatCheckService';
 import { registerUsageLedger } from './services/usageLedgerService';
 import { setAgentSdkUsageStoreDir } from './services/agentSdkUsageSnapshots';
 import { collectWindowActivity, setWindowActivityBeat, watchWindowActivity } from './handlers/windowActivity-handler';
@@ -422,6 +422,14 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
     }
 
+    // ── The _ai files in this build's format? (vscimpb142a) ─────────
+    // Older or newer: Tom AI does not start; every panel shows a hint with
+    // Upgrade the workspace… (the migration page) or the build to install.
+    if (aiFormatStartGate(context)) {
+        bridgeLog('Tom AI: the _ai files are not in this build\'s format; emergency mode (no normal start).');
+        return;
+    }
+
     bridgeLog('Tom AI extension is now active!');
 
     stepStart = performance.now();
@@ -627,9 +635,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // The running build, compared with the installed one on every heartbeat:
     // a status-bar item asks for a reload when a newer build is installed.
     initBuildStatus(context);
-    // The _ai files' format version against this build's (vscimpb142): the
-    // migration page opens when the workspace needs it, a warning names the
-    // newer build to install; another window's migration pauses this one.
+    // The migration command, and another window's migration under this one
+    // pauses its runs and asks for a reload (vscimpb142; the start itself is
+    // gated by aiFormatStartGate above).
     startAiFormatCheck(context);
     // The heartbeat: every 30 s the time, this process and its CLI / MCP
     // servers, so other windows (WINDOW STATUS, tomAi_sendItemToQuest) can

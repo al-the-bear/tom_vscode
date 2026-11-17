@@ -50,6 +50,8 @@ export interface MigrationPageState {
     windows?: Array<{ label: string }>;
     holder?: string;
     message?: string;
+    /** Tom AI did not start in this window (emergency mode, vscimpb142a): after the migration it needs a reload. */
+    restartRequired?: boolean;
 }
 
 /** What the page needs from the window (a test may stand in). */
@@ -64,6 +66,8 @@ export interface MigrationPageDeps {
     otherWindows(): Array<{ label: string }>;
     /** Called once this window migrated (its own watcher then does not pause it). */
     onMigrated(version: number): void;
+    /** Whether the window started in emergency mode (Tom AI not started; vscimpb142a). Default false. */
+    emergency?(): boolean;
 }
 
 let panel: vscode.WebviewPanel | undefined;
@@ -80,7 +84,9 @@ export function migrationPageState(d: MigrationPageDeps, need: MigrationNeed, no
     const aiRoot = d.aiRoot();
     if (!aiRoot) { return { phase: 'current', to: AI_FORMAT_VERSION, message: 'No _ai folder in this workspace.' }; }
     if (need.kind === 'newer') { return { phase: 'newer', to: AI_FORMAT_VERSION, message: need.check.kind === 'newer' ? need.check.message : undefined }; }
-    if (need.kind === 'current') { return { phase: 'current', to: AI_FORMAT_VERSION, message: 'The migration has been done already.' }; }
+    if (need.kind === 'current') {
+        return { phase: 'current', to: AI_FORMAT_VERSION, message: 'The migration has been done already.', ...(d.emergency?.() ? { restartRequired: true } : {}) };
+    }
     const lock = readMigrationLock(aiRoot);
     if (lock && lock.windowId !== d.windowId() && lockHolds(lock, now, (id) => d.isAlive(id))) {
         return { phase: 'locked', to: need.to, from: need.from, reason: need.reason, holder: `window ${lock.windowId}, since ${lock.startedAt}`, message: 'Migration is already running in another window.' };
@@ -134,7 +140,10 @@ export function applyMigration(d: MigrationPageDeps, now = new Date()): Migratio
         return { phase: 'failed', to: need.to, from: need.from, reportHtml: renderQuestLogMarkdown(markdown), changes: result.changes.length, problems: result.problems.length };
     }
     d.onMigrated(need.to);
-    return { phase: 'done', to: need.to, from: need.from, reportHtml: renderQuestLogMarkdown(markdown), changes: result.changes.length, problems: 0, windows: d.otherWindows() };
+    return {
+        phase: 'done', to: need.to, from: need.from, reportHtml: renderQuestLogMarkdown(markdown), changes: result.changes.length, problems: 0, windows: d.otherWindows(),
+        ...(d.emergency?.() ? { restartRequired: true } : {}),
+    };
 }
 
 /** The last report, written for the MD Browser (scratch, regenerable). */

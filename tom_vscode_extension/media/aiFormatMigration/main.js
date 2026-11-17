@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Upgrade the workspace (the _ai format migration) — see src/handlers/aiFormatMigration-handler.ts.
-// The host sends `state` { phase, from, to, reason, reportHtml, changes, problems, windows, holder, message };
+// The host sends `state` { phase, from, to, reason, reportHtml, changes, problems, windows, holder, message,
+// restartRequired (Tom AI did not start in this window: emergency mode, vscimpb142a) };
 // phase: review (the dry run shown), running, done, failed, locked (another window migrates), current, newer.
 // The page posts ready, apply, openReport, reload, close.
 (function () {
@@ -26,13 +27,16 @@
                 ? 'The shared _ai files are already in format version ' + s.to + ', but this machine\'s own files (queue, chat variables, sessions) are not (version ' + from + '). The migration brings them up to date.'
                 : 'The _ai files of this workspace are in format version ' + from + '; this Tom AI build works with version ' + s.to + '. Below is what the migration changes (a dry run: nothing is written yet).';
         } else if (s.phase === 'done') {
-            intro = 'Migrated to format version ' + s.to + ': ' + s.changes + ' change(s). Reload this window so every part of Tom AI reads the new files.';
+            intro = 'Migrated to format version ' + s.to + ': ' + s.changes + ' change(s). ' + (s.restartRequired
+                ? 'Tom AI did not start in this window (the workspace was not upgraded): reload the window to start it.'
+                : 'Reload this window so every part of Tom AI reads the new files.');
         } else if (s.phase === 'failed') {
             intro = 'The migration stopped with problems: the files listed below stay as they are, and the format stamp is not written.';
         } else if (s.phase === 'locked') {
             intro = 'A migration is already running in another window (' + esc(s.holder || '') + '). Wait for it to finish, then reload.';
         } else if (s.phase === 'current') {
-            intro = 'The workspace is already in format version ' + s.to + ': nothing to migrate.';
+            intro = 'The workspace is already in format version ' + s.to + ': nothing to migrate.'
+                + (s.restartRequired ? ' Tom AI did not start in this window: reload it to start Tom AI.' : '');
         } else if (s.phase === 'newer') {
             intro = 'The _ai files are newer than this Tom AI build understands. Install the newer build and reload; a migration cannot go back.';
         }
@@ -42,7 +46,7 @@
         show('fmApply', s.phase === 'review' || s.phase === 'running');
         $('fmApply').disabled = s.phase !== 'review' || !$('fmConfirm').checked || s.problems > 0;
         $('fmApply').textContent = s.phase === 'running' ? 'Migrating…' : 'Migrate now';
-        show('fmReload', s.phase === 'done' || s.phase === 'locked');
+        show('fmReload', s.phase === 'done' || s.phase === 'locked' || s.phase === 'newer' || (s.phase === 'current' && !!s.restartRequired));
         show('fmReport', !!s.reportHtml);
         $('fmClose').textContent = s.phase === 'done' ? 'Close' : 'Not now';
         show('fmMessage', !!s.message);

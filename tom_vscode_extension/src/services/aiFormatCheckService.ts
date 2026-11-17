@@ -1,26 +1,36 @@
 /**
- * At start, and while the window runs, the `_ai` format version
- * (src/utils/aiFormatVersion.ts, aiFormatMigrationRun.ts; vscimpb142):
+ * The `_ai` format version at start and while the window runs
+ * (src/utils/aiFormatVersion.ts, aiFormatMigrationRun.ts; vscimpb142, vscimpb142a):
  *
- *   - the files are NEWER than this build: a warning to install the newer
- *     build (a migration never goes back);
- *   - the workspace needs the migration — the shared stamp is missing or
- *     older, or this machine's own files are behind (the machine-local stamp):
- *     the page **Upgrade the workspace** opens by itself (@T: Migrate _ai
- *     Formats), unless another window is migrating already ("Migration is
- *     already running in another window"). When only this machine's own files
- *     are behind and the dry run finds nothing to do, the local stamp is
- *     written quietly;
- *   - another window migrates while this one runs (the shared stamp changes
- *     under it): this window pauses the auto-send of every run and asks for a
- *     reload — the running prompts finish, nothing new starts.
+ *   - {@link aiFormatStartGate}, before the extension starts its normal parts:
+ *     the files are older than this build (the shared stamp missing or older,
+ *     or this machine's own files behind — the machine-local stamp) or NEWER
+ *     than it: Tom AI does not start; every panel shows a hint, with
+ *     **Upgrade the workspace…** (the migration page, which also opens by
+ *     itself) or the newer build to install. When only this machine's own
+ *     files are behind and the dry run finds nothing to do, the local stamp is
+ *     written quietly and the window starts normally;
+ *   - {@link startAiFormatCheck}, in a window that started normally: another
+ *     window migrates under it (the shared stamp changes): this window pauses
+ *     the auto-send of every run and asks for a reload — the running prompts
+ *     finish, nothing new starts.
  */
 
 import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { AI_FORMAT_FILE, AI_FORMAT_VERSION, readAiFormatStamp, localDate } from '../utils/aiFormatVersion';
-import { lockHolds, migrationLockFile, migrationNeed, readMigrationLock, runAiFormatMigration, writeLocalStamp, type MigrationNeed } from '../utils/aiFormatMigrationRun';
+import {
+    formatEmergencyHint,
+    formatMigratedHint,
+    lockHolds,
+    migrationLockFile,
+    migrationNeed,
+    readMigrationLock,
+    runAiFormatMigration,
+    writeLocalStamp,
+} from '../utils/aiFormatMigrationRun';
+import { registerMinimalModePanels, type MinimalModePanels } from '../handlers/minimalMode-handler';
 import { WsPaths } from '../utils/workspacePaths';
 import {
     migrationAiRoot,
@@ -32,7 +42,7 @@ import {
     MIGRATE_AI_FORMATS_COMMAND,
 } from '../handlers/aiFormatMigration-handler';
 
-const SHOW = 'Show migration';
+const UPGRADE = 'Upgrade the workspace…';
 const RELOAD = 'Reload window';
 
 /** The window id the window-state files use. */
@@ -70,17 +80,8 @@ export function reloadRequiredText(version: number): string {
     return `Tom AI: the workspace has been migrated to format version ${version}; a reload is required. All runs of this window have been paused: let the running prompts finish, then reload.`;
 }
 
-/**
- * The check at start: the migration page, the newer-build warning, or nothing; and the watchers on the
- * shared stamp and the lock. Answers what the window needs.
- */
-export function startAiFormatCheck(context: vscode.ExtensionContext): MigrationNeed | undefined {
-    const aiRoot = migrationAiRoot();
-    registerAiFormatMigrationCommand(context);
-    if (!aiRoot) { return undefined; }
-    const host = migrationHost();
-    let migratedHere = false;
-    const startedWith = readAiFormatStamp(aiRoot)?.version;
+/** The page's dependencies for this window. */
+function installMigrationDeps(aiRoot: string, host: string, emergency: boolean, onMigrated: (version: number) => void): void {
     setMigrationPageDeps({
         aiRoot: () => aiRoot,
         workspaceRoot: () => WsPaths.wsRoot,
@@ -90,44 +91,102 @@ export function startAiFormatCheck(context: vscode.ExtensionContext): MigrationN
         otherWindows: () => liveStates()
             .filter((s) => s.windowId !== windowId() && (s.workspace === path.basename(WsPaths.wsRoot ?? '') || !!s.activeQuest))
             .map((s) => ({ label: `${s.activeQuest || '(no quest)'} — ${s.workspace || s.windowId}` })),
-        onMigrated: () => { migratedHere = true; },
+        onMigrated,
+        emergency: () => emergency,
     });
+}
 
+/** A watcher on the shared stamp and the migration lock. */
+function watchStampAndLock(context: vscode.ExtensionContext, aiRoot: string, onChange: () => void): void {
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(aiRoot, `{${AI_FORMAT_FILE},local/${path.basename(migrationLockFile(aiRoot))}}`));
+    watcher.onDidChange(onChange);
+    watcher.onDidCreate(onChange);
+    watcher.onDidDelete(() => refreshAiFormatMigrationPage());
+    context.subscriptions.push(watcher);
+}
+
+function reloadWindow(): void {
+    void vscode.commands.executeCommand('workbench.action.reloadWindow');
+}
+
+/**
+ * Before the extension starts its normal parts (vscimpb142a): when the workspace's `_ai` files are not in
+ * this build's format, Tom AI does not start. Every panel shows the hint of {@link formatEmergencyHint} —
+ * **Upgrade the workspace…** for an older workspace (the page also opens by itself), the build to install for
+ * newer files — and the command @T: Migrate _ai Formats is the only one registered. Once the workspace is
+ * migrated (here or in another window) the panels and the page ask for a reload. When only this machine's
+ * own files are behind and the dry run finds nothing to do, the local stamp is written quietly and the
+ * window starts normally. Answers whether the window is in emergency mode (the caller stops activating).
+ */
+export function aiFormatStartGate(context: vscode.ExtensionContext): boolean {
+    const aiRoot = migrationAiRoot();
+    if (!aiRoot) { return false; }
+    const host = migrationHost();
     const need = migrationNeed(aiRoot, host);
-    if (need.kind === 'newer' && need.check.kind === 'newer') {
-        void vscode.window.showWarningMessage(`Tom AI: ${need.check.message}`);
-    } else if (need.kind === 'migrate') {
+    if (need.kind === 'current') { return false; }
+    if (need.kind === 'migrate' && need.reason === 'local' && quietLocalOnly(aiRoot, host)) { return false; }
+    const hint = formatEmergencyHint(need);
+    if (!hint) { return false; }
+
+    registerAiFormatMigrationCommand(context);
+    let panels: MinimalModePanels | undefined;
+    let migrated = false;
+    const showMigrated = (version: number): void => {
+        if (migrated) { return; }
+        migrated = true;
+        panels?.update({ mode: 'format', hint: formatMigratedHint(version) });
+    };
+    installMigrationDeps(aiRoot, host, true, showMigrated);
+    panels = registerMinimalModePanels(context, { mode: 'format', hint });
+
+    if (need.kind === 'newer') {
+        void vscode.window.showWarningMessage(`Tom AI does not start: ${hint.text}`, RELOAD)
+            .then((picked) => { if (picked === RELOAD) { reloadWindow(); } });
+    } else {
         const lock = readMigrationLock(aiRoot);
         const held = lock && lock.windowId !== windowId() && lockHolds(lock, new Date(), (id) => liveStates().some((s) => s.windowId === id));
         if (held) {
-            void vscode.window.showInformationMessage('Tom AI: Migration is already running in another window. Reload this window once it is done.', RELOAD)
-                .then((picked) => { if (picked === RELOAD) { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
-        } else if (need.reason === 'local' && quietLocalOnly(aiRoot, host)) {
-            // This machine's own files had nothing in an older form: stamped, nothing to show.
+            void vscode.window.showInformationMessage('Tom AI does not start: Migration is already running in another window. Reload this window once it is done.', RELOAD)
+                .then((picked) => { if (picked === RELOAD) { reloadWindow(); } });
         } else {
-            showAiFormatMigration(context);
-            void vscode.window.showWarningMessage(`Tom AI: this workspace needs the _ai format migration to version ${AI_FORMAT_VERSION}.`, SHOW)
-                .then((picked) => { if (picked === SHOW) { void vscode.commands.executeCommand(MIGRATE_AI_FORMATS_COMMAND); } });
+            void vscode.window.showWarningMessage(`Tom AI does not start: ${hint.text}`, UPGRADE)
+                .then((picked) => { if (picked === UPGRADE) { void vscode.commands.executeCommand(MIGRATE_AI_FORMATS_COMMAND); } });
         }
+        showAiFormatMigration(context);
     }
 
-    // Another window migrates under this one: pause, ask for a reload. The page follows the lock.
+    // Migrated meanwhile (this window or another): the panels ask for a reload.
+    watchStampAndLock(context, aiRoot, () => {
+        refreshAiFormatMigrationPage();
+        if (migrationNeed(aiRoot, host).kind === 'current') { showMigrated(readAiFormatStamp(aiRoot)?.version ?? AI_FORMAT_VERSION); }
+    });
+    return true;
+}
+
+/**
+ * The check of a window that started normally (the workspace in this build's format): the migration
+ * command, and the watchers — another window migrating under this one (the shared stamp changes) pauses
+ * the auto-send of every run and asks for a reload; an open page follows the lock.
+ */
+export function startAiFormatCheck(context: vscode.ExtensionContext): void {
+    registerAiFormatMigrationCommand(context);
+    const aiRoot = migrationAiRoot();
+    if (!aiRoot) { return; }
+    const host = migrationHost();
+    let migratedHere = false;
+    const startedWith = readAiFormatStamp(aiRoot)?.version;
+    installMigrationDeps(aiRoot, host, false, () => { migratedHere = true; });
+
     let warned = false;
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(aiRoot, `{${AI_FORMAT_FILE},local/${path.basename(migrationLockFile(aiRoot))}}`));
-    const onChange = (): void => {
+    watchStampAndLock(context, aiRoot, () => {
         refreshAiFormatMigrationPage();
         const now = readAiFormatStamp(aiRoot)?.version;
         if (migratedHere || warned || now === undefined || now === startedWith) { return; }
         warned = true;
         pauseAllRuns();
         void vscode.window.showWarningMessage(reloadRequiredText(now), { modal: false }, RELOAD)
-            .then((picked) => { if (picked === RELOAD) { void vscode.commands.executeCommand('workbench.action.reloadWindow'); } });
-    };
-    watcher.onDidChange(onChange);
-    watcher.onDidCreate(onChange);
-    watcher.onDidDelete(() => refreshAiFormatMigrationPage());
-    context.subscriptions.push(watcher);
-    return need;
+            .then((picked) => { if (picked === RELOAD) { reloadWindow(); } });
+    });
 }
 
 /** Only this machine's files are behind: a dry run that finds nothing writes the local stamp. Answers whether it did. */

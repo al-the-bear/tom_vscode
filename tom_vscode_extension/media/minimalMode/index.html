@@ -3,20 +3,36 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  Placeholder panel while Tom AI does not start (src/handlers/minimalMode-handler.ts).
+  window.__INIT__ = { mode: 'setup' } (no .tom/ configuration) or { mode: 'format', hint } (the _ai files not in
+  this build's format: the hint, Upgrade the workspace…, Reload window); later `content` messages replace it.
+-->
 <link rel="stylesheet" href="{{baseUri}}/style.css">
-<title>TOM AI Setup</title>
+<title>TOM AI</title>
 </head>
 <body>
-<div class="icon">&#9881;</div>
-<h3>TOM AI Setup Required</h3>
-<p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
-<ol class="steps">
-    <li><b>Setup new workspace folder</b> unpacks the workspace template (configuration, guidelines, <code>_ai/</code> roles and processes) into a folder and opens it, or</li>
-    <li>by hand: create a <code>.tom/</code> folder in the workspace root with a <code>.tom/tom_vscode_extension.json</code> config file, then reload the window</li>
-</ol>
-<div class="buttons">
-    <button id="setupWorkspaceBtn">Setup new workspace folder</button>
-    <button id="setupBtn" class="secondary">Open Setup Guide</button>
+<div id="setupMode" hidden>
+    <div class="icon">&#9881;</div>
+    <h3>TOM AI Setup Required</h3>
+    <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
+    <ol class="steps">
+        <li><b>Setup new workspace folder</b> unpacks the workspace template (configuration, guidelines, <code>_ai/</code> roles and processes) into a folder and opens it, or</li>
+        <li>by hand: create a <code>.tom/</code> folder in the workspace root with a <code>.tom/tom_vscode_extension.json</code> config file, then reload the window</li>
+    </ol>
+    <div class="buttons">
+        <button id="setupWorkspaceBtn">Setup new workspace folder</button>
+        <button id="setupBtn" class="secondary">Open Setup Guide</button>
+    </div>
+</div>
+<div id="formatMode" hidden>
+    <div class="icon">&#9888;</div>
+    <h3 id="formatTitle"></h3>
+    <p id="formatText"></p>
+    <div class="buttons">
+        <button id="upgradeBtn">Upgrade the workspace…</button>
+        <button id="reloadBtn">Reload window</button>
+    </div>
 </div>
 <script src="{{baseUri}}/main.js"></script>
 </body>

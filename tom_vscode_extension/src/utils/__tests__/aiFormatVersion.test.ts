@@ -100,6 +100,7 @@ describe('ai format version', () => {
         const src = (rel: string) => fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', rel), 'utf8');
         assert.match(src('extension.ts'), /initBuildStatus\(context\);\n[\s\S]{0,300}startAiFormatCheck\(context\);/);
         const service = src('services/aiFormatCheckService.ts');
+        assert.match(src('extension.ts'), /if \(aiFormatStartGate\(context\)\) \{[\s\S]{0,200}return;\s*\}\s*bridgeLog\('Tom AI extension is now active!'\);/, 'gated before the normal start');
         assert.match(service, /const need = migrationNeed\(aiRoot, host\);/);
         assert.match(service, /showAiFormatMigration\(context\);/, 'the migration page opens by itself');
         assert.doesNotMatch(service, /clipboard/, 'no npm command to copy');

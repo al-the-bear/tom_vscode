@@ -87,3 +87,7 @@ button.secondary {
 button.secondary:hover {
     background: var(--vscode-button-secondaryHoverBackground);
 }
+
+[hidden] {
+    display: none !important;
+}

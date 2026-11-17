@@ -208,3 +208,55 @@ export function runAiFormatMigration(opts: import('./aiFormatMigration').FormatM
     }
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// Emergency mode: what the panels say while the workspace is not in this build's format
+// ---------------------------------------------------------------------------
+
+/** The hint every panel shows while Tom AI does not start (vscimpb142a). */
+export interface FormatEmergencyHint {
+    /** `migrate`: the workspace needs the migration; `newer`: a newer build is needed; `migrated`: done, reload. */
+    kind: 'migrate' | 'newer' | 'migrated';
+    title: string;
+    text: string;
+    /** Show **Upgrade the workspace…** (opens the migration page). */
+    upgradeButton: boolean;
+    /** Show **Reload window**. */
+    reloadButton: boolean;
+}
+
+/**
+ * The hint for a window whose workspace needs `need` (undefined when it starts normally). `migrated`: the
+ * migration has been done (by this window or another) since the window started in emergency mode.
+ */
+export function formatEmergencyHint(need: MigrationNeed, known = AI_FORMAT_VERSION): FormatEmergencyHint | undefined {
+    if (need.kind === 'current') { return undefined; }
+    if (need.kind === 'newer') {
+        const files = need.check.kind === 'newer' && need.check.stamp ? need.check.stamp.version : undefined;
+        return {
+            kind: 'newer',
+            title: 'Tom AI needs a newer build',
+            text: `This workspace is in _ai format version ${files ?? '(newer)'}; this Tom AI build understands version ${known} only. `
+                + `Install a Tom AI build that knows format version ${files ?? 'of these files'} (compile_and_install.sh in a checkout, or the newest VSIX) and reload the window. `
+                + 'Tom AI does not start until then; a migration never goes back.',
+            upgradeButton: false,
+            reloadButton: true,
+        };
+    }
+    const from = need.from === undefined ? 'none (no format stamp)' : String(need.from);
+    const text = need.reason === 'local'
+        ? `This machine's own _ai files (queue, chat variables, sessions) are in format version ${from}; this Tom AI build needs version ${need.to}. Tom AI does not start until the workspace is upgraded.`
+        : `This workspace is in _ai format version ${from}; this Tom AI build needs version ${need.to}. Tom AI does not start until the workspace is upgraded.`;
+    return { kind: 'migrate', title: 'Upgrade the workspace', text, upgradeButton: true, reloadButton: false };
+}
+
+/** The hint once the workspace has been migrated while the window ran in emergency mode. */
+export function formatMigratedHint(version = AI_FORMAT_VERSION): FormatEmergencyHint {
+    return {
+        kind: 'migrated',
+        title: 'The workspace is upgraded',
+        text: `The workspace has been migrated to _ai format version ${version}. Reload the window to start Tom AI.`,
+        upgradeButton: false,
+        reloadButton: true,
+    };
+}
