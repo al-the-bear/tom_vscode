@@ -23,6 +23,8 @@ export const OPEN_QUEST_WORKSPACE = 'Open the quest workspace';
 export interface CreateQuestArgs {
     id?: string;
     name?: string;
+    /** What the quest is for (one or two sentences), for its short description; asked when the name is asked. */
+    purpose?: string;
     /** Offer to open the quest's workspace afterwards. Default true. */
     offerOpen?: boolean;
 }
@@ -47,7 +49,7 @@ export async function createQuest(args: CreateQuestArgs = {}): Promise<CreateQue
         return { ok: false, error };
     }
     const id = args.id ?? await vscode.window.showInputBox({
-        title: 'Create New Quest (1/2)',
+        title: 'Create New Quest (1/3)',
         prompt: `The quest id: letters, digits and _ (its folder is ${path.join(dir, '<id>')})`,
         placeHolder: 'my_quest',
         validateInput: (value) => questIdProblem(value.trim(), dir) ?? null,
@@ -60,13 +62,19 @@ export async function createQuest(args: CreateQuestArgs = {}): Promise<CreateQue
         return { ok: false, error: problem };
     }
     const name = args.name ?? await vscode.window.showInputBox({
-        title: 'Create New Quest (2/2)',
+        title: 'Create New Quest (2/3)',
         prompt: 'The quest name',
         value: defaultQuestName(questId),
     });
     if (name === undefined) { return { ok: false, error: 'cancelled', cancelled: true }; }
+    // What it is for, for its short description (vscimpb145): asked with the name, optional.
+    const purpose = args.purpose ?? (args.name === undefined ? await vscode.window.showInputBox({
+        title: 'Create New Quest (3/3)',
+        prompt: 'What the quest is for, in one or two sentences (optional: its first todo defines it with you)',
+        placeHolder: 'e.g. The web front end of the order system: its pages, forms and API client.',
+    }) : undefined);
 
-    const result = createQuestScaffold(root, dir, questId, name.trim() || defaultQuestName(questId));
+    const result = createQuestScaffold(root, dir, questId, name.trim() || defaultQuestName(questId), new Date(), purpose);
     const registered = result.registration === 'added' ? ' and registered it in the Active Quests table' : '';
     const message = `Created the quest ${questId} (${result.files.length} files in ${result.folder})${registered}. `
         + `Its todo ${result.todoId} defines the quest with you: run it in the queue or the chat from the quest's workspace.`;

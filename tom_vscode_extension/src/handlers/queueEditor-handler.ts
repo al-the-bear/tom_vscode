@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
-import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
+import { questShortDescription, windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { SOFT_INTERRUPT_TIMEOUT_MS, type SoftInterruptState } from '../services/softInterrupt';
 import type { LaneSummary } from '../utils/queueLanes';
@@ -835,8 +835,10 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             // The workspace's quests first (vscimpb144), All quests… for every quest.
             const ws = windowWorkspaceQuests();
             const pickOptions = { title: 'Post the done notification to the quest', placeHolder: `Now: ${item.doneNotificationQuest ?? ownQuest}` };
-            let quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live, ws && ws.source !== 'all' ? ws.quests : undefined), pickOptions);
-            if (quest?.value === ALL_QUESTS_PICK) { quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live), pickOptions); }
+            // Each with its short description (vscimpb145).
+            const describe = (q: string): string | undefined => questShortDescription(q)?.split('\n')[0];
+            let quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live, ws && ws.source !== 'all' ? ws.quests : undefined, describe), pickOptions);
+            if (quest?.value === ALL_QUESTS_PICK) { quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live, undefined, describe), pickOptions); }
             if (!quest) { break; }
             const targetQuest = quest.value || ownQuest;
             const processes = WsPaths.ai('processes');

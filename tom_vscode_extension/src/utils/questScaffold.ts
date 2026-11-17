@@ -53,14 +53,26 @@ export function questSetupTodoDescription(id: string): string {
         '4. Processes and roles: whether it follows a process from `_ai/processes/` (tomAi_listProcesses) and which roles (`_ai/roles/`) do its work.',
         '',
         `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree. Fill in the description of the quest's row in the Active Quests table (\`_copilot_guidelines/quests_and_processes.md\`).`,
+        '',
+        `Last, bring \`short_description.${id}.md\` up to date: keep its title line, write 2–4 sentences on what the quest is for and what it covers (the repositories it works on included), and a \`**State:**\` line with where it stands now. It holds the current state only; the overview stays the long form.`,
     ].join('\n');
 }
 
 /** Indent a text as a YAML literal block's body. */
 const yamlBlock = (text: string, indent: string): string => text.split('\n').map((l) => (l ? indent + l : '')).join('\n');
 
+/**
+ * `short_description.<quest>.md` (vscimpb145): a title line `# <Quest Name> (\`<id>\`)`, 2–4 sentences on what the
+ * quest is for and what it covers, and a `**State:**` line — the current state only; the overview is the long form.
+ * At creation the sentences are the purpose given, else a pointer to the setup todo.
+ */
+export function questShortDescriptionContent(id: string, name: string, purpose?: string, state?: string): string {
+    const what = purpose?.trim() || `Being defined with the user by its first todo (\`questsetup1\`).`;
+    return `# ${name} (\`${id}\`)\n\n${what}\n\n**State:** ${state?.trim() || 'New: its first todo defines it with the user.'}\n`;
+}
+
 /** The quest's files: name in the quest folder → content. */
-export function questScaffoldFiles(id: string, name: string, date: Date): Array<{ name: string; content: string }> {
+export function questScaffoldFiles(id: string, name: string, date: Date, purpose?: string): Array<{ name: string; content: string }> {
     const day = isoDate(date);
     const md = (title: string, ...sections: string[]): string =>
         [`# ${title}`, '', `**Quest ID:** ${id}`, ...sections.flatMap((s) => ['', `## ${s}`]), ''].join('\n');
@@ -83,6 +95,7 @@ export function questScaffoldFiles(id: string, name: string, date: Date): Array<
                 '',
             ].join('\n'),
         },
+        { name: `short_description.${id}.md`, content: questShortDescriptionContent(id, name, purpose) },
         {
             name: `todos.${id}.todo.yaml`,
             content: [
@@ -157,12 +170,12 @@ export interface QuestScaffoldResult {
  * Active Quests table of the workspace at `workspaceRoot`. Throws when the id
  * cannot be a new quest (see {@link questIdProblem}).
  */
-export function createQuestScaffold(workspaceRoot: string, questsDir: string, id: string, name: string, date = new Date()): QuestScaffoldResult {
+export function createQuestScaffold(workspaceRoot: string, questsDir: string, id: string, name: string, date = new Date(), purpose?: string): QuestScaffoldResult {
     const problem = questIdProblem(id, questsDir);
     if (problem) { throw new Error(problem); }
     const folder = path.join(questsDir, id);
     fs.mkdirSync(folder, { recursive: true });
-    const files = questScaffoldFiles(id, name, date);
+    const files = questScaffoldFiles(id, name, date, purpose);
     for (const f of files) { fs.writeFileSync(path.join(folder, f.name), f.content); }
     return {
         folder,

@@ -238,6 +238,8 @@ describe('done-notification', () => {
             ['q1', ''], ['q4', 'q4'], ['q3', 'q3'], ['$(list-flat) All quests…', ALL_QUESTS_PICK],
         ]);
         assert.equal(questPicks('q1', ['q1', 'q2'], new Set(), ['q1', 'q2']).some((p) => p.value === ALL_QUESTS_PICK), false, 'the workspace has every quest: no escape needed');
+        // Each quest's short description as the detail line (vscimpb145).
+        assert.deepEqual(questPicks('q1', ['q1', 'q2'], new Set(), undefined, (q) => (q === 'q2' ? 'The second quest.' : undefined)).map((p) => p.detail), [undefined, 'The second quest.']);
         assert.deepEqual(runPicks(['r2', 'default', 'r1'], true, 'r1').map((p) => [p.label, p.value]),
             [['r1', ''], ['default', 'default'], ['r2', 'r2']], 'this quest: the item\'s run is the default');
         assert.deepEqual(runPicks(['rx'], false, 'r1').map((p) => [p.label, p.value]), [['default', ''], ['rx', 'rx']], 'another quest: default');

@@ -55,13 +55,18 @@ Both subpanels are queue-compatible.
   through a symlinked `_ai`, VS Code takes the symlink's target folder as the
   root, and the workspace name follows it.
 - **Create New Quest** (`@T: Create New Quest`) asks the quest id (letters,
-  digits and `_`, not taken) and a name, creates `_ai/quests/<id>/` with the
-  quest's files (empty but for their headings), adds the quest to the Active
-  Quests table of `_copilot_guidelines/quests_and_processes.md`, and offers to
-  open the quest's workspace. Its one todo,
+  digits and `_`, not taken), a name and — optional — what the quest is for in
+  a sentence or two, creates `_ai/quests/<id>/` with the quest's files (empty
+  but for their headings; `short_description.<id>.md` holds its title, that
+  purpose or a pointer to the setup todo, and a `**State:**` line), adds the
+  quest to the Active Quests table of `_copilot_guidelines/quests_and_processes.md`,
+  and offers to open the quest's workspace. Its one todo,
   `questsetup1_<code>-define-the-quest`, defines the quest with you in question
-  rounds when you run it in the queue or the chat. Agents run the command with
-  `{ id, name, offerOpen }` (the `!create quest` pattern prompt does).
+  rounds when you run it in the queue or the chat, and fills in the short
+  description; the quest refresh keeps it current. The quest lists show it
+  (the todo panel's quest scope, the queue editor's quest picker, AI Workspace
+  Quests, `tomAi_listQuests`). Agents run the command with
+  `{ id, name, purpose, offerOpen }` (the `!create quest` pattern prompt does).
 - **No quest is open:** while the window's workspace is not a quest's (quest
   `default`), @CHAT, @WS and the @TOM views PROCESS, QUEST NOTES, QUEST TODOS,
   SESSIONS and SESSION TODOS show a banner *No quest is open. Open a quest
