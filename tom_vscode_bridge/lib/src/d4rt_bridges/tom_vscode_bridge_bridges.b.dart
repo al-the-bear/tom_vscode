@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Sources: 34 files
-// Generated: 2026-11-15T11:38:50.486128 by tom_d4rt_generator 1.66.0
+// Generated: 2026-11-17T10:58:20.359180 by tom_d4rt_generator 1.66.0
 
 // ignore_for_file: unused_import, deprecated_member_use, prefer_function_declarations_over_variables, implementation_imports, sort_child_properties_last, non_constant_identifier_names, avoid_function_literals_in_foreach_calls, invalid_use_of_protected_member, unnecessary_non_null_assertion, invalid_use_of_visible_for_testing_member, unnecessary_cast, unused_local_variable, no_leading_underscores_for_local_identifiers, prefer_is_empty, unnecessary_question_mark, unreachable_switch_case, unintended_html_in_doc_comment, empty_constructor_bodies, prefer_const_constructors_in_immutables, prefer_final_fields, unused_field, must_call_super, no_logic_in_create_state, use_key_in_widget_constructors, annotate_overrides, non_const_argument_for_const_parameter, unnecessary_import
 
@@ -17483,6 +17483,10 @@ BridgedClass _createTomTodoBridge() {
             named.containsKey('blocking') && named['blocking'] != null
             ? D4.coerceList<String>(named['blocking'], 'blocking')
             : const <String>[];
+        final comprisedOf =
+            named.containsKey('comprisedOf') && named['comprisedOf'] != null
+            ? D4.coerceList<String>(named['comprisedOf'], 'comprisedOf')
+            : const <String>[];
         final blockedUntil =
             named.containsKey('blockedUntil') && named['blockedUntil'] != null
             ? D4.coerceList<String>(named['blockedUntil'], 'blockedUntil')
@@ -17569,6 +17573,7 @@ BridgedClass _createTomTodoBridge() {
           dependencies: dependencies,
           blockedBy: blockedBy,
           blocking: blocking,
+          comprisedOf: comprisedOf,
           blockedUntil: blockedUntil,
           notes: notes,
           created: created,
@@ -17633,6 +17638,9 @@ BridgedClass _createTomTodoBridge() {
       'blocking': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .blocking,
+      'comprisedOf': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .comprisedOf,
       'blockedUntil': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .blockedUntil,
@@ -17715,6 +17723,9 @@ BridgedClass _createTomTodoBridge() {
       'isDone': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .isDone,
+      'isGroup': (visitor, target) => D4
+          .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+          .isGroup,
       'hasOpenDecision': (visitor, target) => D4
           .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
           .hasOpenDecision,
@@ -17807,6 +17818,13 @@ BridgedClass _createTomTodoBridge() {
               .blocking = D4.coerceList<String>(
             value,
             'blocking',
+          ),
+      'comprisedOf': (visitor, target, value) =>
+          D4
+              .validateTarget<$tom_todo_model_1.TomTodo>(target, 'TomTodo')
+              .comprisedOf = D4.coerceList<String>(
+            value,
+            'comprisedOf',
           ),
       'blockedUntil': (visitor, target, value) =>
           D4
@@ -18102,7 +18120,7 @@ BridgedClass _createTomTodoBridge() {
       },
     },
     constructorSignatures: {
-      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false, TomTodoRepeat? repeat, String? nextRepeat, int? repeatCount, TomTodoOnDone? onDone, TomTodoFiledBy? filedBy, List<String>? resources, bool claimHold = false, bool claimFree = false})',
+      '': 'TomTodo({required String id, required String title, String? description, TomTodoStatus status = TomTodoStatus.notStarted, TomTodoPriority? priority, DateTime? due, String? estimate, List<String> tags = const [], TomTodoScope? scope, List<TomTodoDecision> decisions = const [], List<TomTodoReference> references = const [], List<String> dependencies = const [], List<String> blockedBy = const [], List<String> blocking = const [], List<String> comprisedOf = const [], List<String> blockedUntil = const [], String? notes, DateTime? created, DateTime? updated, DateTime? completedDate, String? author, String? completedBy, String? lastAnswer, DateTime? archived, DateTime? deleted, String? executionRole, String? qaRole, String? orchestrationRole, String? bundleId, String? derivedFrom, String? feedbackSource, bool userAction = false, TomTodoRepeat? repeat, String? nextRepeat, int? repeatCount, TomTodoOnDone? onDone, TomTodoFiledBy? filedBy, List<String>? resources, bool claimHold = false, bool claimFree = false})',
     },
     methodSignatures: {
       'recordCreation':
@@ -18127,6 +18145,7 @@ BridgedClass _createTomTodoBridge() {
       'dependencies': 'List<String> get dependencies',
       'blockedBy': 'List<String> get blockedBy',
       'blocking': 'List<String> get blocking',
+      'comprisedOf': 'List<String> get comprisedOf',
       'blockedUntil': 'List<String> get blockedUntil',
       'notes': 'String? get notes',
       'author': 'String? get author',
@@ -18155,6 +18174,7 @@ BridgedClass _createTomTodoBridge() {
       'archived': 'DateTime? get archived',
       'deleted': 'DateTime? get deleted',
       'isDone': 'bool get isDone',
+      'isGroup': 'bool get isGroup',
       'hasOpenDecision': 'bool get hasOpenDecision',
       'hasBlocker': 'bool get hasBlocker',
       'hashCode': 'int get hashCode',
@@ -18172,6 +18192,7 @@ BridgedClass _createTomTodoBridge() {
       'dependencies': 'set dependencies(dynamic value)',
       'blockedBy': 'set blockedBy(dynamic value)',
       'blocking': 'set blocking(dynamic value)',
+      'comprisedOf': 'set comprisedOf(dynamic value)',
       'blockedUntil': 'set blockedUntil(dynamic value)',
       'notes': 'set notes(dynamic value)',
       'author': 'set author(dynamic value)',
