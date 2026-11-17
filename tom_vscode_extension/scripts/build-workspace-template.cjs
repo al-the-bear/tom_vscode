@@ -11,11 +11,11 @@
  *   - .tom/tom_vscode_extension.json      the workspace's config, its repositories
  *                                          and command lines emptied (genericConfig)
  *   - _copilot_guidelines/                 all but EXCLUDED_PATHS
- *   - CLAUDE.md, .github/copilot-instructions.md
+ *   - CLAUDE.md, AGENTS.md
  *   - _ai/roles/, _ai/processes/, _ai/schemas/, _ai/prompt/,
  *     _ai/format-version.yaml              all but EXCLUDED_PATHS and Python byte code
  * Markdown is packed without its `<!-- workspace-specific -->` blocks (the
- * workspace's own part of CLAUDE.md and its mirror, guideline passages about
+ * workspace's own part of CLAUDE.md and AGENTS.md, guideline passages about
  * this workspace) and without list items / table rows linking to a left-out
  * file; the Active Quests table keeps only the quests the template carries
  * (templateFileData).
@@ -57,7 +57,8 @@ const SOURCES = [
     { path: '.tom/tom_vscode_extension.json', kind: 'file' },
     { path: '_copilot_guidelines', kind: 'dir' },
     { path: 'CLAUDE.md', kind: 'file' },
-    { path: '.github/copilot-instructions.md', kind: 'file' },
+    // The workspace folder's own rules, read by Copilot and imported by CLAUDE.md (al_the_bear 01b_wslayout-6, DP-part-claude-4).
+    { path: 'AGENTS.md', kind: 'file' },
     { path: '_ai/roles', kind: 'dir' },
     // Role types (vscimpb87): optional, so a workspace without any still builds.
     { path: '_ai/role-types', kind: 'dir', optional: true },
@@ -210,7 +211,7 @@ const EXCLUDED_PATHS = new Set([
     '_ai/prompt/execute_todo_list.prompt.md',
 ]);
 
-/** Markdown between these marker lines is this workspace's own: the template leaves it out (CLAUDE.md, its mirror, guidelines). */
+/** Markdown between these marker lines is this workspace's own: the template leaves it out (CLAUDE.md, AGENTS.md, guidelines). */
 const SPECIFIC_OPEN = /^\s*<!--\s*workspace-specific\s*-->\s*$/;
 const SPECIFIC_CLOSE = /^\s*<!--\s*\/workspace-specific\s*-->\s*$/;
 

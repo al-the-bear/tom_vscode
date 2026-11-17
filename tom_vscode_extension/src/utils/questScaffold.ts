@@ -80,7 +80,7 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
     return [
         {
             name: `${id}.code-workspace`,
-            content: `${JSON.stringify({ folders: [{ path: '../../..' }] }, null, '\t')}\n`,
+            content: `${JSON.stringify({ folders: [{ path: '../../..' }], settings: { 'chat.useAgentsMdFile': true } }, null, '\t')}\n`,
         },
         {
             name: `overview.${id}.md`,

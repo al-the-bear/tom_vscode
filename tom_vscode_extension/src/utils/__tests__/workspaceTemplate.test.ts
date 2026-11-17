@@ -3,7 +3,7 @@
  * what a new workspace folder is set up from.
  *
  *   WT-1 built from this workspace: the zip holds exactly the listed sources (the config as genericConfig makes it) (the config, all of
- *        _copilot_guidelines/, CLAUDE.md, .github/copilot-instructions.md, _ai roles / processes / schemas /
+ *        _copilot_guidelines/, CLAUDE.md, AGENTS.md, _ai roles / processes / schemas /
  *        prompt / format-version.yaml, the tomai_introduction quest once it exists) plus
  *        .tom/workspace_template.json, each byte for byte; nothing else of _ai; the same bytes twice
  *   WT-2 personal paths: in the introduction quest the files of its use on this machine
@@ -17,7 +17,7 @@
  *        check requires it, git ignores both copies, the copy beside the VSIX is not packed again
  *   WT-7 the template's config: the issue / test panels' repositories and the command lines emptied, everything
  *        else as in the workspace, whose file is not changed
- *   WT-8 `<!-- workspace-specific -->` blocks are left out of the packed Markdown (CLAUDE.md, its mirror, guidelines);
+ *   WT-8 `<!-- workspace-specific -->` blocks are left out of the packed Markdown (CLAUDE.md, AGENTS.md, guidelines);
  *        unbalanced markers refuse the build
  *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
  *        them are dropped
@@ -78,7 +78,7 @@ function fakeWorkspace(): string {
     put('.tom/tom_vscode_extension.json', '{"anthropic": {"apiKeyEnvVar": "ANTHROPIC_API_KEY"}}\n');
     put('_copilot_guidelines/index.md', '# Index\n');
     put('CLAUDE.md', '# Rules\n');
-    put('.github/copilot-instructions.md', '# Rules\n');
+    put('AGENTS.md', '# Rules\n');
     put('_ai/roles/default/role.md', '# Role\n');
     put('.tom/json-schema/roles/role-type.schema.json', '{}\n');
     put('.tom/json-schema/workspaces/ai-workspace.schema.json', '{}\n');
@@ -268,7 +268,10 @@ describe('the workspace template', () => {
         if (present) {
             const live = tpl.templateFileData('CLAUDE.md', fs.readFileSync(path.join(WS, 'CLAUDE.md'))).toString('utf8');
             assert.doesNotMatch(live, /workspace-specific|tom_build_base|al_the_bear|Multi-repo workflow|Run Dart tests with `testkit`/, 'the live CLAUDE.md packs only its generic part');
-            assert.match(live, /## Quick Reference/);
+            // CLAUDE.md imports the shared rules and AGENTS.md (al_the_bear 01b_wslayout-6, DP-part-claude-4).
+            assert.match(live, /^@AGENTS\.md$/m);
+            const agents = tpl.templateFileData('AGENTS.md', fs.readFileSync(path.join(WS, 'AGENTS.md'))).toString('utf8');
+            assert.doesNotMatch(agents, /workspace-specific|tom_build_base|al_the_bear|Run Dart tests with `testkit`/, 'the live AGENTS.md packs only its generic header');
         }
     });
 

@@ -93,7 +93,7 @@ describe('Create New Quest', () => {
         assert.deepEqual(r.files, FILES('my_quest'));
         assert.deepEqual(fs.readdirSync(folder).sort(), FILES('my_quest').sort());
         assert.equal(r.workspaceFile, path.join(folder, 'my_quest.code-workspace'));
-        assert.deepEqual(JSON.parse(fs.readFileSync(r.workspaceFile, 'utf8')), { folders: [{ path: '../../..' }] });
+        assert.deepEqual(JSON.parse(fs.readFileSync(r.workspaceFile, 'utf8')), { folders: [{ path: '../../..' }], settings: { 'chat.useAgentsMdFile': true } });
         // Headings only: every Markdown file is headings, the quest id line, and fixed preamble text.
         const overview = fs.readFileSync(path.join(folder, 'overview.my_quest.md'), 'utf8');
         assert.match(overview, /^# Quest Overview: My Quest\n/);
