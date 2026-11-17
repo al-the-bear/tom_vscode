@@ -270,6 +270,18 @@ Processes live in `_ai/processes/<id>/`: `<id>.process.yaml` is the structure an
 
 The **@TOM VSC** sidebar's RESOURCES view lists the helper processes of this window's extension host (language servers, analysers, git, …) grouped by the extension that started them, with memory, CPU and age; a group opens to its processes. **Pause** stops a process or all of an extension's (SIGSTOP: no CPU, its idle memory is left to the system, the extension does not notice) — its editor features wait until you **Resume** it; **Kill** (asked first) ends a hung one, which its extension may start again. Windows offers Kill only. **Profiles**: switch to a lean VS Code profile (its own set of enabled extensions — the supported way to turn extensions off), create one from the current profile, or open the profiles editor. **Settings (this workspace)**: toggles for Dart analysis, Git's repository scan and the watcher / search excludes of `ztmp/`, `build/`, `.dart_tool/`, `node_modules/`. The view refreshes every 5 s while visible; the status-bar item with the window's total (refreshed every 30 s) opens it.
 
+
+### @TOM VSC: prerequisites and secrets
+
+A `prerequisites.yaml` at a project's root (or at a repository root, for every project of the repository) lists what the project needs that is not in its repository: the **secrets** it reads, each with its type, whether it is required, what it is for, how to get it, and the ways to provide it (an environment variable, a `.env` key, a file, the OS keychain, VS Code's secret storage, a KDBX entry, a tool's own login, ssh-agent, a cloud secret manager); and the **software** it expects on the PATH. It never holds a value. The format is in `_copilot_guidelines/prerequisites_yaml.md`; the YAML editor checks the file against the extension's schema.
+
+The **PREREQUISITES** view of the **@TOM VSC** sidebar lists every such file of the workspace as a tree — repository, project, section, secret or tool, way to provide it — each level with ✓ (every required item available), ✗ (one missing) or ? (not known) and the count of required items available. Optional items are counted but never turn a level red.
+
+- **Check now** (before the first check) and then **Refresh** run the checks: presence only, never a value. An environment variable and a tool get two marks — VS Code's environment and an interactive login shell (what a terminal has) — so you see whether it works in VS Code and in a terminal. A file readable by the group or others gets a warning; `kdbx`, cloud secret managers and `other` are ? unless the file gives a `check` command. Every program a check runs has a timeout and runs one check at a time.
+- The results and the time of the last check (shown at the top, with how long it took) are kept per VS Code installation: another window shows them at once, without checking again. Which nodes are open and the filters are kept the same way.
+- A click on a name shows its details: what it is for, how to get it, the option's fields, and the check's result with its time. The file button opens the `prerequisites.yaml` at that entry; the pencil opens the file.
+- **missing only** / **required only** narrow the tree.
+- **Projects without prerequisites.yaml** (closed at first) lists the other projects of the workspace listing; **Create** writes a starting file there and opens it. The view re-reads a file when it changes.
 ### Window Status Panel
 
 The Window Status panel is an Explorer sidebar view showing the state of all open @Tom windows:

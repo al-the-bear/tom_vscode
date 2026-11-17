@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tom-ai.dev/schemas/prerequisites.schema.json",
+  "title": "Project prerequisites (prerequisites.yaml)",
+  "description": "What a project needs before it builds or runs: the secrets it reads and how each can be provided (never a value), and the software it expects on the PATH. At a project's root, or at a repository root for repository-wide prerequisites. Guideline: _copilot_guidelines/prerequisites_yaml.md. The Tom AI extension's PREREQUISITES view (@TOM VSC) lists and checks them; parsePrerequisites (src/utils/prerequisites.ts) also enforces ids unique in a file / section.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "sections"
+  ],
+  "properties": {
+    "formatVersion": {
+      "const": 1
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/section"
+      },
+      "description": "One per component or entry point of the project."
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this component needs prerequisites for."
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/secret"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tool"
+          }
+        }
+      }
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "type",
+        "options"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "api_key",
+            "access_token",
+            "oauth_client",
+            "password",
+            "ssh_key",
+            "tls_certificate",
+            "signing_key",
+            "encryption_key",
+            "service_account",
+            "connection_string",
+            "webhook_secret",
+            "bot_token",
+            "other"
+          ],
+          "description": "What kind of secret it is."
+        },
+        "typeNote": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What it is, when type is other (optional otherwise)."
+        },
+        "required": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: only an optional feature needs it."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What it is for, what happens without it."
+        },
+        "obtain": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to get it: where to create it, which account, which scopes."
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/option"
+          },
+          "description": "The ways to provide it; the first is the default."
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "other"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "typeNote"
+        ]
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "command"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._+-]+$",
+          "description": "The command looked up on the PATH (dart, node, gh, ...)."
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the project uses it for."
+        },
+        "obtain": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to install it."
+        },
+        "check": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A command line whose exit code 0 means present (instead of the PATH lookup), e.g. a version check."
+        }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "via"
+      ],
+      "properties": {
+        "via": {
+          "enum": [
+            "env",
+            "dotenv",
+            "file",
+            "keychain",
+            "vscode_secret",
+            "kdbx",
+            "cli_login",
+            "ssh_agent",
+            "cloud_secret_manager",
+            "other"
+          ],
+          "description": "How the secret is provided: env (an environment variable), dotenv (a key in a .env file), file (a file holding it), keychain (the OS credential store), vscode_secret (VS Code SecretStorage of the Tom AI extension), kdbx (a KDBX entry, Tom Secrets Manager), cli_login (a tool's own login), ssh_agent (a key loaded in ssh-agent), cloud_secret_manager, other (with viaNote)."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to provide it this way (shell profile, launchd, .env, ...)."
+        },
+        "check": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A command line (run through the shell in the file's folder) whose exit code 0 means the secret is available; overrides the built-in check. It must never print the secret."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "env: the variable; dotenv: the key; cloud_secret_manager: the secret's name."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "dotenv: the .env file (relative to this file's folder, or ~/...)."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "file: the file holding the secret (relative to this file's folder, or ~/...)."
+        },
+        "service": {
+          "type": "string",
+          "minLength": 1,
+          "description": "keychain: the service (macOS Keychain service, libsecret attribute service)."
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "keychain: the account (optional)."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "keychain on Windows: the Credential Manager target (default: service)."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "vscode_secret: the SecretStorage key."
+        },
+        "database": {
+          "type": "string",
+          "minLength": 1,
+          "description": "kdbx: the database file."
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "description": "kdbx: the entry's path in the database."
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "cli_login: the tool (gh, gcloud, aws, az, npm, firebase, dart pub, or another with a check)."
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ssh_agent: the key's fingerprint (optional; without it any loaded key counts)."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "cloud_secret_manager: the provider (aws, gcp, azure, ...)."
+        },
+        "viaNote": {
+          "type": "string",
+          "minLength": 1,
+          "description": "other: how it is provided."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "env"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "dotenv"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "file",
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "file"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "keychain"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "service"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "vscode_secret"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "kdbx"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "database",
+              "entry"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "cli_login"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "tool"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "cloud_secret_manager"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "provider",
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "via": {
+                "const": "other"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "viaNote"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

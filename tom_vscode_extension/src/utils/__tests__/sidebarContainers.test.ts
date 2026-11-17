@@ -3,7 +3,7 @@
  *
  *   SB-1 four containers: @TOM (the quest: PROCESS, QUEST NOTES, QUEST TODOS, SESSIONS, SESSION TODOS), @TOM WS
  *        (the workspace: VS CODE NOTES, WORKSPACE NOTES, WORKSPACE TODOS, TODO LOG, WINDOW STATUS), @TOM VSC
- *        (RESOURCES: resource-hungry extensions) and @TOM INFO (the quest notes side panel, vscimpb101, and RUNS, every run
+ *        (RESOURCES: resource-hungry extensions; PREREQUISITES, vscimpb152) and @TOM INFO (the quest notes side panel, vscimpb101, and RUNS, every run
  *        of every window, vscimpb123) and @TOM TODO (the todo panel on its own, its one view TODO, vscimpb138), in that
  *        order, each with its icon on disk
  *   SB-2 the moved views keep their ids, and nothing opens a moved view through the @TOM container
@@ -42,7 +42,7 @@ describe('activity-bar containers', () => {
             ['tomAi.vscodeNotes', 'VS CODE NOTES'], ['tomAi.workspaceNotes', 'WORKSPACE NOTES'], ['tomAi.workspaceTodos', 'WORKSPACE TODOS'],
             ['tomAi.todoLogTom', 'TODO LOG'], ['tomAi.windowStatusTom', 'WINDOW STATUS'],
         ]);
-        assert.deepEqual(views('tomAi-vsc-sidebar'), [['tomAi.vscResources', 'RESOURCES']]);
+        assert.deepEqual(views('tomAi-vsc-sidebar'), [['tomAi.vscResources', 'RESOURCES'], ['tomAi.prerequisites', 'PREREQUISITES']]);
         assert.deepEqual(views('tomAi-info-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES'], ['tomAi.runsOverview', 'RUNS'], ['tomAi.notifications', 'NOTIFICATIONS']]);
         assert.deepEqual(views('tomAi-todo-sidebar'), [['tomAi.tomTodo', 'TODO']], 'the todo panel, its only view');
         assert.equal(pkg.contributes.views['tomAi-todo-sidebar'][0].type, 'webview');

@@ -141,6 +141,7 @@ import { openProcessBranchingEditor } from './handlers/processBranching-handler'
 import { registerNestedProcessCommands } from './services/nestedProcessCommands';
 import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerVscResourcesView } from './handlers/vscResourcesView-handler';
+import { registerPrerequisitesView } from './handlers/prerequisitesView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
 import { registerAiWorkspaceQuestsEditor } from './handlers/aiWorkspaceQuestsEditor-handler';
@@ -562,6 +563,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSessionsView(context);
     // @TOM VSC: this window's extension helper processes, profiles, heavy settings, and the status-bar total (vscimpb30).
     registerVscResourcesView(context);
+    registerPrerequisitesView(context);
     registerProcessEditor(context);
     registerProcessTemplateEditor(context);
     // AI Workspace Quests: the quests of this workspace, _ai/workspaces/<workspace>.yaml (vscimpb144).

@@ -593,6 +593,12 @@
           "id": "tomAi.vscResources",
           "name": "RESOURCES",
           "icon": "$(server-process)"
+        },
+        {
+          "type": "webview",
+          "id": "tomAi.prerequisites",
+          "name": "PREREQUISITES",
+          "icon": "$(key)"
         }
       ],
       "tomAi-todo-sidebar": [
@@ -671,6 +677,10 @@
       {
         "fileMatch": "*.process.yaml",
         "url": "./out/config/process.schema.json"
+      },
+      {
+        "fileMatch": "prerequisites.yaml",
+        "url": "./out/config/prerequisites.schema.json"
       }
     ],
     "keybindings": [

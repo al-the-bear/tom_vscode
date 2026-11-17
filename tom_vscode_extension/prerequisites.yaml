@@ -1,0 +1,107 @@
+# What the Tom AI extension needs before it builds or runs: the secrets it reads (never their values)
+# and the software it expects. Format: _copilot_guidelines/prerequisites_yaml.md; schema:
+# src/config/prerequisites.schema.json. The @TOM VSC › PREREQUISITES view checks it.
+formatVersion: 1
+sections:
+  - id: runtime
+    title: The extension at run time
+    description: >-
+      The model transports and the remote access the extension offers. Every secret is read from the
+      environment VS Code starts with; the configuration names the variable, never the value.
+    secrets:
+      - id: anthropic-api-key
+        title: Anthropic API key
+        type: api_key
+        required: false
+        description: >-
+          The direct Anthropic API transport, history compaction and memory extraction. The variable is
+          the one `anthropic.apiKeyEnvVar` names in .tom/tom_vscode_extension.json (default
+          ANTHROPIC_API_KEY). Without it those transports fail; VS Code LM, Copilot and local models
+          keep working.
+        obtain: >-
+          console.anthropic.com → Settings → API keys → Create key, in the organisation the usage is
+          billed to.
+        options:
+          - via: env
+            name: ANTHROPIC_API_KEY
+            description: >-
+              export it in the shell profile VS Code is started from (~/.zprofile / ~/.zshrc on macOS),
+              then start VS Code from that shell or restart it.
+      - id: claude-code-login
+        title: Claude login for the Agent SDK
+        type: access_token
+        required: false
+        description: >-
+          The Agent SDK transport runs the Claude CLI, which uses ANTHROPIC_API_KEY or its own login.
+          Without either, Agent SDK prompts fail; the other transports are not affected.
+        obtain: Run `claude` in a terminal and log in (`/login`).
+        options:
+          - via: keychain
+            service: Claude Code-credentials
+            description: macOS stores the login in the login keychain.
+          - via: file
+            path: ~/.claude/.credentials.json
+            description: Linux and Windows store the login in this file.
+      - id: mcp-api-key
+        title: MCP server bearer token
+        type: access_token
+        required: false
+        description: >-
+          The standalone MCP server accepts writing clients only with this token. The variable is the
+          one `mcpServer.apiKeyEnv` names in the quest's extension_config.<quest>.yaml; without it the
+          server serves only its read-only tools.
+        obtain: Any long random string, e.g. `openssl rand -hex 32`; give the same value to the MCP client.
+        options:
+          - via: env
+            name: TOM_MCP_KEY
+            description: export it in the shell profile VS Code is started from.
+      - id: telegram-bot-token
+        title: Telegram bot token
+        type: bot_token
+        required: false
+        description: >-
+          Telegram remote control and notifications. The variable is the one `botTokenEnv` names in the
+          quest's extension_config.<host>.<quest>.yaml (default TELEGRAM_BOT_TOKEN); one bot per quest,
+          since a bot token has only one poller.
+        obtain: Talk to @BotFather in Telegram, `/newbot`, and copy the token it gives.
+        options:
+          - via: env
+            name: TELEGRAM_BOT_TOKEN
+            description: export it in the shell profile VS Code is started from.
+    tools:
+      - id: code
+        title: VS Code command line
+        command: code
+        required: false
+        description: Installs a built VSIX (`code --install-extension`).
+        obtain: >-
+          In VS Code, the command "Shell Command: Install 'code' command in PATH".
+  - id: build
+    title: Building and installing the extension
+    description: >-
+      compile_and_install.sh compiles the TypeScript, builds the Dart binaries (tom_bs,
+      validate_codespecs, spec_checks, irspecs) from the sibling checkouts and packages the VSIX.
+    tools:
+      - id: node
+        title: Node.js 25 or later
+        command: node
+        description: The TypeScript build, the tests and vsce.
+        obtain: Install nvm, then `nvm install 25`.
+      - id: npm
+        title: npm
+        command: npm
+        description: Installs the dependencies and runs the build scripts.
+        obtain: Comes with Node.js.
+      - id: git
+        title: git
+        command: git
+        description: The build stamps record the commit; the binaries layer is committed and pushed.
+        obtain: Xcode command line tools on macOS, the distribution's package elsewhere.
+      - id: dart
+        title: Dart SDK
+        command: dart
+        required: false
+        description: >-
+          Builds tom_bs and the CodeSpecs and TomSpecs binaries from source. Without it the install
+          scripts skip every Dart step and the VSIX carries no Dart binaries.
+        obtain: Install Flutter (it brings Dart) and put its bin folder on the PATH.

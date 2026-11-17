@@ -54,6 +54,7 @@
 **@TOM VSC** (this window; `tomAi.tomVscSidebar.focus`):
 
 - RESOURCES (the window's extension helper processes: Pause / Resume / Kill; Lean / Full profiles; heavy workspace settings)
+- PREREQUISITES (every project's `prerequisites.yaml`: the secrets it needs and the software it expects, checked on Check now / Refresh — presence only; Create for a project without one)
 
 **@TOM INFO** (the quest notes on their own, the runs, the notifications; `tomAi.tomInfoSidebar.focus`):
 
