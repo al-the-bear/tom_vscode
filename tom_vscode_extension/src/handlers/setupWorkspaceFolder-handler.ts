@@ -18,6 +18,7 @@ import * as path from 'path';
 import { readZip, type ZipEntry } from '../utils/zipArchive';
 import { folderEntries, unpackReport, unpackSummary, unpackTemplate, type ExistingFileChoice, type UnpackResult } from '../utils/workspaceSetup';
 import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
+import { aiMergeDriverSummary, checkAiMergeDrivers, setUpAiMergeDrivers, type AiMergeDriverReport } from '../utils/aiMergeDriverSetup';
 
 export { SETUP_WORKSPACE_COMMAND };
 
@@ -43,6 +44,12 @@ export interface SetupUi {
     showReport(result: UnpackResult, folder: string): Promise<void>;
     /** The configuration carries the build machine's settings and paths. */
     showConfigNote(configFile: string): Promise<void>;
+    /**
+     * The `_ai` merge drivers are not all this extension's (vscimpb142c): register them for the `_ai`
+     * repository (`local`, only offered when `_ai` is in one), for every repository (`global`), or not.
+     * Optional: a UI without it skips the offer.
+     */
+    askMergeDrivers?(report: AiMergeDriverReport): Promise<'local' | 'global' | 'skip'>;
     /** What to open; `introAvailable` false leaves the introduction quest out. */
     askWhatToOpen(introAvailable: boolean): Promise<OpenChoice>;
     showError(message: string): Promise<void>;
@@ -86,6 +93,20 @@ export async function runSetupWorkspaceFolder(extensionPath: string, ui: SetupUi
 
     const config = path.join(folder, TEMPLATE_CONFIG);
     if (fs.existsSync(config)) { await ui.showConfigNote(config); }
+
+    // The _ai merge drivers (vscimpb142c): registered in git and bound in _ai/.gitattributes, if wanted.
+    const aiRoot = path.join(folder, '_ai');
+    if (ui.askMergeDrivers && fs.existsSync(aiRoot)) {
+        try {
+            const report = checkAiMergeDrivers(aiRoot);
+            if (!report.ok) {
+                const scope = await ui.askMergeDrivers(report);
+                if (scope !== 'skip') { setUpAiMergeDrivers(aiRoot, scope); }
+            }
+        } catch (e) {
+            await ui.showError(`The _ai merge drivers were not registered: ${(e as Error).message}`);
+        }
+    }
 
     const intro = path.join(folder, INTRO_WORKSPACE);
     const introAvailable = fs.existsSync(intro);
@@ -179,6 +200,22 @@ export function vscodeSetupUi(): SetupUi {
             if (answer === OPEN_CONFIG) {
                 await vscode.window.showTextDocument(vscode.Uri.file(configFile), { preview: false });
             }
+        },
+        async askMergeDrivers(report) {
+            const local = 'For this _ai repository';
+            const global = 'For all repositories (global)';
+            const buttons = report.repoRoot ? [local, global] : [global];
+            const answer = await vscode.window.showInformationMessage(
+                'Register Tom AI\'s _ai merge drivers in git?',
+                {
+                    modal: true,
+                    detail: 'Git merges the _ai files (todos, trails, histories) with them when a pull brings two copies together; '
+                        + 'without them it merges line by line and can lose entries. The rules go into _ai/.gitattributes.\n\n'
+                        + aiMergeDriverSummary(report).join('\n'),
+                },
+                ...buttons,
+            );
+            return answer === local ? 'local' : answer === global ? 'global' : 'skip';
         },
         async askWhatToOpen(introAvailable) {
             const choices: OpenChoice[] = introAvailable ? ['intro', 'folder', 'stay'] : ['folder', 'stay'];

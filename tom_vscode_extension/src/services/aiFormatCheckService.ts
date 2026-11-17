@@ -33,6 +33,7 @@ import {
 } from '../utils/aiFormatMigrationRun';
 import { registerMinimalModePanels, type MinimalModePanels } from '../handlers/minimalMode-handler';
 import { showReloadOverlay, type ReloadOverlayDeps } from '../handlers/reloadOverlay-handler';
+import { checkAiMergeDrivers, installAiMergeDrivers, outdatedDriverUpdate, setUpAiMergeDrivers } from '../utils/aiMergeDriverSetup';
 import { WsPaths } from '../utils/workspacePaths';
 import {
     migrationAiRoot,
@@ -45,6 +46,7 @@ import {
 } from '../handlers/aiFormatMigration-handler';
 
 const UPGRADE = 'Upgrade the workspace…';
+const UPDATE_DRIVERS = 'Update the merge drivers';
 const RELOAD = 'Reload window';
 
 /** The window id the window-state files use. */
@@ -111,7 +113,37 @@ function installMigrationDeps(aiRoot: string, host: string, emergency: boolean, 
             .map((s) => ({ label: `${s.activeQuest || '(no quest)'} — ${s.workspace || s.windowId}` })),
         onMigrated,
         emergency: () => emergency,
+        mergeDrivers: () => checkAiMergeDrivers(aiRoot),
+        setUpMergeDrivers: (scope) => {
+            const r = setUpAiMergeDrivers(aiRoot, scope);
+            return `Registered the extension's ${r.drivers.length} merge drivers (${scope === 'local' ? 'this repository' : 'global'})`
+                + (r.bound.length ? `; ${r.bound.length} rule(s) added to _ai/.gitattributes.` : '.');
+        },
     });
+}
+
+/**
+ * The merge drivers' upgrade check (vscimpb142c): drivers registered from an older install of the extension
+ * (another folder, another Node) are offered for an update, a few seconds after the start.
+ */
+function checkMergeDriverUpgrade(context: vscode.ExtensionContext, aiRoot: string): void {
+    const timer = setTimeout(() => {
+        let update: ReturnType<typeof outdatedDriverUpdate>;
+        try { update = outdatedDriverUpdate(checkAiMergeDrivers(aiRoot)); } catch { return; }
+        if (!update) { return; }
+        const u = update;
+        void vscode.window.showInformationMessage(`Tom AI: the _ai merge drivers git uses (${u.drivers.join(', ')}) point to an older Tom AI install.`, UPDATE_DRIVERS)
+            .then((picked) => {
+                if (picked !== UPDATE_DRIVERS) { return; }
+                try {
+                    installAiMergeDrivers(aiRoot, u.scope, { only: u.drivers });
+                    void vscode.window.showInformationMessage(`Tom AI: ${u.drivers.length} merge driver(s) updated (${u.scope}).`);
+                } catch (e) {
+                    void vscode.window.showWarningMessage(`Tom AI: the merge drivers were not updated: ${(e as Error).message}`);
+                }
+            });
+    }, 5000);
+    context.subscriptions.push({ dispose: () => clearTimeout(timer) });
 }
 
 /** A watcher on the shared stamp and the migration lock. */
@@ -194,6 +226,7 @@ export function startAiFormatCheck(context: vscode.ExtensionContext): void {
     let migratedHere = false;
     const startedWith = readAiFormatStamp(aiRoot)?.version;
     installMigrationDeps(aiRoot, host, false, () => { migratedHere = true; });
+    checkMergeDriverUpgrade(context, aiRoot);
 
     let warned = false;
     watchStampAndLock(context, aiRoot, () => {

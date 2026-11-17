@@ -22,11 +22,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { parse, stringify } from 'yaml';
 
 import { AI_FORMAT_VERSION, checkAiFormatVersion, type AiFormatCheck, type AiFormatStamp } from './aiFormatVersion';
 import type { FormatMigrationResult, MergeDriver } from './aiFormatMigration';
+import { makeBuiltinMerger } from './aiMergeDrivers';
 
 /** The machine-local stamp's file, under `_ai/local/` (not versioned). */
 export function localStampFile(aiRoot: string, host: string): string {
@@ -140,31 +140,12 @@ export function releaseMigrationLock(aiRoot: string, windowId: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Merge with the `_ai` merge drivers git has registered (`git config --global merge.<driver>.driver`): the
- * merged text, or undefined when the driver is not registered or failed. Scratch files under `scratchRoot`.
+ * The migration's merger: the extension's own `_ai` merge drivers (utils/aiMergeDrivers/, vscimpb142c), no
+ * git and no registered driver needed. The merged text, or undefined when the driver cannot merge the files
+ * (a problem in the report).
  */
-export function makeGitMerger(scratchRoot: string, run: (command: string) => string = (c) => execSync(c, { encoding: 'utf8', stdio: 'pipe' })): (driver: MergeDriver, target: string, legacy: string) => string | undefined {
-    let n = 0;
-    return (driver, target, legacy) => {
-        let command: string;
-        try { command = run(`git config --global --get merge.${driver}.driver`).trim(); } catch { command = ''; }
-        if (!command) { return undefined; }
-        const dir = path.join(scratchRoot, String(n++));
-        fs.mkdirSync(dir, { recursive: true });
-        const base = path.join(dir, 'base');
-        const ours = path.join(dir, 'ours');
-        fs.writeFileSync(base, '');
-        fs.copyFileSync(target, ours);
-        const q = (p: string): string => `"${p}"`;
-        const line = command.replace('%O', q(base)).replace('%A', q(ours)).replace('%B', q(legacy))
-            .replace('%L', '7').replace('%P', q(path.basename(target)));
-        try {
-            run(line);
-            return fs.readFileSync(ours, 'utf8');
-        } catch {
-            return undefined;
-        }
-    };
+export function makeMigrationMerger(): (driver: MergeDriver, target: string, legacy: string) => string | undefined {
+    return makeBuiltinMerger();
 }
 
 /** The changes per quest and step, and the problems, as Markdown. */

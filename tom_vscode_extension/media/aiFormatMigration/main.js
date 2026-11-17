@@ -3,7 +3,8 @@
 // The host sends `state` { phase, from, to, reason, reportHtml, changes, problems, windows, holder, message,
 // restartRequired (Tom AI did not start in this window: emergency mode, vscimpb142a) };
 // phase: review (the dry run shown), running, done, failed, locked (another window migrates), current, newer.
-// The page posts ready, apply, openReport, reload, close.
+// mergeDrivers { lines, ok, repo, outdated, note } (vscimpb142c): the merge-driver section.
+// The page posts ready, apply, openReport, reload, close, mergeDrivers { scope: local | global }.
 (function () {
     var vscode = acquireVsCodeApi();
     function $(id) { return document.getElementById(id); }
@@ -56,6 +57,16 @@
         $('fmWindows').innerHTML = '<b>Other windows on this workspace</b> (they pause their runs and ask for a reload after the migration):<ul>'
             + windows.map(function (w) { return '<li>' + esc(w.label) + '</li>'; }).join('') + '</ul>';
         $('fmReportBody').innerHTML = s.reportHtml || '';
+        var md = s.mergeDrivers;
+        show('fmDrivers', !!md);
+        if (md) {
+            $('fmDriverLines').innerHTML = (md.lines || []).map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('');
+            show('fmDriverNote', !!md.note);
+            $('fmDriverNote').textContent = md.note || '';
+            show('fmDriversLocal', !md.ok && !!md.repo);
+            show('fmDriversGlobal', !md.ok);
+            $('fmDriversLocal').textContent = md.outdated ? 'Update the extension\'s drivers for this repository' : 'Register the extension\'s drivers for this repository';
+        }
     }
 
     $('fmConfirm').addEventListener('change', render);
@@ -67,6 +78,8 @@
     });
     $('fmReport').addEventListener('click', function () { vscode.postMessage({ type: 'openReport' }); });
     $('fmReload').addEventListener('click', function () { vscode.postMessage({ type: 'reload' }); });
+    $('fmDriversLocal').addEventListener('click', function () { vscode.postMessage({ type: 'mergeDrivers', scope: 'local' }); });
+    $('fmDriversGlobal').addEventListener('click', function () { vscode.postMessage({ type: 'mergeDrivers', scope: 'global' }); });
     $('fmClose').addEventListener('click', function () { vscode.postMessage({ type: 'close' }); });
     window.addEventListener('message', function (e) {
         var m = e.data || {};

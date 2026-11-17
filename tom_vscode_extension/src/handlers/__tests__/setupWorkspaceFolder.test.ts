@@ -18,6 +18,8 @@
  *        first section of the Status Page after its Editors and pages overview (@WS the same HTML) dispatching to the command, with Create new quest
  *        beside it (tomAi.createQuest)
  *   SW-7 entries that are no file or would land outside the folder are not written
+ *   SW-8 the `_ai` merge drivers (vscimpb142c): asked after the configuration note; registered globally and bound
+ *        in `_ai/.gitattributes` on the answer; skipped, nothing changes
  */
 
 import test, { after, describe } from 'node:test';
@@ -104,7 +106,7 @@ const read = (root: string, rel: string): string => fs.readFileSync(path.join(ro
 const openFolderCalls = (): unknown[][] => stubbed.spies.byMethod('commands.executeCommand').map((c) => c.args).filter((a) => a[0] === 'vscode.openFolder');
 
 /** A scripted UI: records every step, answers from the lists given. */
-function scriptedUi(folder: string | undefined, o: { proceed?: boolean; existing?: ExistingFileChoice[]; open?: OpenChoice } = {}): SetupUi & { log: string[]; reports: UnpackResult[]; asked: string[]; introOffered: boolean[] } {
+function scriptedUi(folder: string | undefined, o: { proceed?: boolean; existing?: ExistingFileChoice[]; open?: OpenChoice; mergeDrivers?: 'local' | 'global' | 'skip' } = {}): SetupUi & { log: string[]; reports: UnpackResult[]; asked: string[]; introOffered: boolean[] } {
     const existing = [...(o.existing ?? [])];
     const ui = {
         log: [] as string[], reports: [] as UnpackResult[], asked: [] as string[], introOffered: [] as boolean[],
@@ -115,6 +117,7 @@ function scriptedUi(folder: string | undefined, o: { proceed?: boolean; existing
         async showConfigNote(c: string) { ui.log.push(`config ${c}`); },
         async askWhatToOpen(intro: boolean) { ui.log.push('open?'); ui.introOffered.push(intro); return o.open ?? 'stay'; },
         async showError(m: string) { ui.log.push(`error ${m}`); },
+        ...(o.mergeDrivers ? { async askMergeDrivers() { ui.log.push('mergeDrivers?'); return o.mergeDrivers!; } } : {}),
     };
     return ui;
 }
@@ -217,7 +220,7 @@ describe('Setup New Workspace Folder', () => {
         assert.equal(openFolderCalls().length, before);
     });
 
-    test('SW-5: VS Code\'s dialogs', async () => {
+    test('SW-5: VS Code\'s dialogs', async (t) => {
         const ext = fakeExtension({ ...TEMPLATE, [INTRO]: '{}' });
         const target = dir('vscode');
         fs.writeFileSync(path.join(target, 'CLAUDE.md'), 'mine');
@@ -225,7 +228,13 @@ describe('Setup New Workspace Folder', () => {
         pickedFolder = target;
         dialogs.length = 0;
         warningAnswers = [NON_EMPTY_CONTINUE, EXISTING_BUTTONS.skip, EXISTING_BUTTONS.overwriteAll, OPEN_CONFIG];
-        infoAnswers = [undefined, OPEN_BUTTONS.folder];
+        // The merge drivers' question (vscimpb142c) is asked against a scratch global git config: nothing registered.
+        const gitGlobalBefore = process.env.GIT_CONFIG_GLOBAL;
+        const scratchGitConfig = path.join(SANDBOX, 'sw5.gitconfig');
+        fs.writeFileSync(scratchGitConfig, '');
+        process.env.GIT_CONFIG_GLOBAL = scratchGitConfig;
+        t.after(() => { if (gitGlobalBefore === undefined) { delete process.env.GIT_CONFIG_GLOBAL; } else { process.env.GIT_CONFIG_GLOBAL = gitGlobalBefore; } });
+        infoAnswers = [undefined, undefined, OPEN_BUTTONS.folder];
         const shownBefore = stubbed.spies.byMethod('window.showTextDocument').length;
         const before = openFolderCalls().length;
         const out = await runSetupWorkspaceFolder(ext);
@@ -233,7 +242,10 @@ describe('Setup New Workspace Folder', () => {
         assert.equal(dialogs[0].kind, 'open');
         assert.equal(dialogs[0].options?.canSelectFolders, true);
         assert.equal(dialogs[0].options?.canSelectFiles, false);
-        const [nonEmpty, first, second, report, config, open] = dialogs.slice(1);
+        const [nonEmpty, first, second, report, config, drivers, open] = dialogs.slice(1);
+        assert.equal(drivers.message, 'Register Tom AI\'s _ai merge drivers in git?');
+        assert.deepEqual(drivers.buttons, ['For all repositories (global)'], 'no repository yet: global only');
+        assert.match(String(drivers.options?.detail), /ai-trail: not registered/);
         assert.equal(nonEmpty.message, `${target} is not empty.`);
         assert.equal(nonEmpty.options?.modal, true);
         assert.match(String(nonEmpty.options?.detail), /• CLAUDE\.md\n• z_last\.md/);
@@ -263,7 +275,7 @@ describe('Setup New Workspace Folder', () => {
         const empty = dir('vscode');
         pickedFolder = empty;
         warningAnswers = [undefined];
-        infoAnswers = [undefined, undefined];
+        infoAnswers = [undefined, undefined, undefined];
         const stayed = await runSetupWorkspaceFolder(ext);
         assert.equal(stayed.status === 'done' && stayed.opened, 'stay');
         // No folder picked: nothing happens.
@@ -356,5 +368,23 @@ describe('Setup New Workspace Folder', () => {
         ], target, async () => 'cancel');
         assert.deepEqual(r.written, ['ok.md']);
         assert.equal(fs.existsSync(path.join(path.dirname(target), 'evil.md')), false);
+    });
+    test('SW-8: the _ai merge drivers', async (t) => {
+        const before = process.env.GIT_CONFIG_GLOBAL;
+        const cfg = path.join(SANDBOX, 'sw8.gitconfig');
+        fs.writeFileSync(cfg, '');
+        process.env.GIT_CONFIG_GLOBAL = cfg;
+        t.after(() => { if (before === undefined) { delete process.env.GIT_CONFIG_GLOBAL; } else { process.env.GIT_CONFIG_GLOBAL = before; } });
+        const ext = fakeExtension(TEMPLATE);
+        const skipped = dir('drivers-skip');
+        const ui1 = scriptedUi(skipped, { mergeDrivers: 'skip' });
+        await runSetupWorkspaceFolder(ext, ui1);
+        assert.deepEqual(ui1.log, ['pick', 'report', `config ${path.join(skipped, TEMPLATE_CONFIG)}`, 'mergeDrivers?', 'open?']);
+        assert.equal(fs.existsSync(path.join(skipped, '_ai', '.gitattributes')), false);
+        assert.equal(fs.readFileSync(cfg, 'utf8'), '');
+        const target = dir('drivers');
+        await runSetupWorkspaceFolder(ext, scriptedUi(target, { mergeDrivers: 'global' }));
+        assert.match(fs.readFileSync(path.join(target, '_ai', '.gitattributes'), 'utf8'), /merge=ai-trail/);
+        assert.match(fs.readFileSync(cfg, 'utf8'), /\[merge "ai-history-md"\][\s\S]*aiMergeDriverCli\.js\\?" ai-history-md %O %A %B %L %P/);
     });
 });

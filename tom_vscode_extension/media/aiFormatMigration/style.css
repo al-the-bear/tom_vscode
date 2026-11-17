@@ -12,3 +12,6 @@ button { padding: 4px 12px; border: none; border-radius: 2px; cursor: pointer; b
 button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .fm-report { border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35)); padding-top: 8px; }
+.fm-drivers { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35)); border-radius: 4px; }
+.fm-drivers ul { margin: 6px 0 0 18px; padding: 0; }
+.fm-driver-note { color: var(--vscode-descriptionForeground); }

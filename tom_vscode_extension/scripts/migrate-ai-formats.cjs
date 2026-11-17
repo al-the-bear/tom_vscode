@@ -10,10 +10,9 @@
  *   node scripts/migrate-ai-formats.cjs --report FILE   # also write the changes as Markdown, per quest
  *   --workspace DIR   the workspace root holding `_ai` and `.tom/` (default: found upward from here)
  *
- * Files the session already has are merged the way a reconcile merges: with
- * the `_ai` merge drivers git has registered (`git config --global
- * merge.<driver>.driver`, set up by the al_the_bear skills). Scratch files for
- * a merge go to `<workspace>/ztmp/migrate-ai-formats-<time>/` and are removed.
+ * Files the session already has are merged the way a reconcile merges, with
+ * the extension's own `_ai` merge drivers (src/utils/aiMergeDrivers/): no git
+ * and no registered driver needed.
  *
  * Last, when nothing is left as a problem, `_ai/format-version.yaml` gets the
  * format version migrated to and the date (src/utils/aiFormatVersion.ts), and
@@ -32,7 +31,7 @@ const fs = require('fs');
 const path = require('path');
 
 const OUT = path.join(__dirname, '..', 'out', 'utils');
-const { runAiFormatMigration, makeGitMerger, migrationReportMarkdown } = require(path.join(OUT, 'aiFormatMigrationRun.js'));
+const { runAiFormatMigration, makeMigrationMerger, migrationReportMarkdown } = require(path.join(OUT, 'aiFormatMigrationRun.js'));
 const { hostSlugOf } = require(path.join(OUT, 'hostSlug.js'));
 
 function parseArgs(argv) {
@@ -62,17 +61,15 @@ function findWorkspace(start) {
 const args = parseArgs(process.argv.slice(2));
 const workspace = args.workspace ? path.resolve(args.workspace) : findWorkspace(process.cwd());
 if (!workspace) { console.error('no workspace root (a folder with _ai/quests and .tom) above the current directory; pass --workspace'); process.exit(2); }
-const scratch = path.join(workspace, 'ztmp', `migrate-ai-formats-${Date.now()}`);
 const result = runAiFormatMigration({
     aiRoot: path.join(workspace, '_ai'),
     hostSlug: hostSlugOf(),
     apply: args.apply,
-    merge: makeGitMerger(scratch),
+    merge: makeMigrationMerger(),
     workspaceConfigPath: path.join(workspace, '.tom', 'tom_vscode_extension.json'),
     userConfigPath: path.join(require('os').homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml'),
     quests: args.quests.length ? args.quests : undefined,
 });
-fs.rmSync(scratch, { recursive: true, force: true });
 
 const counts = {};
 for (const c of result.changes) { counts[c.step] = (counts[c.step] || 0) + 1; }

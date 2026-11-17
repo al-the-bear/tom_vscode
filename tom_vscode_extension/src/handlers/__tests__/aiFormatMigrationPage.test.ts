@@ -8,6 +8,8 @@
  *        finds it done already; while another live window holds the lock it is refused
  *   FP-3 the page: Migrate now only after "I understand it cannot be undone"; the warning names everyone sharing the
  *        workspace; done offers Reload; locked says it runs elsewhere
+ *   FP-5 the merge drivers (vscimpb142c): the page's section from the window's check, Register for this
+ *        repository / globally (the window's set-up, its note, a failure said), the buttons as the state asks
  *   FP-4 the start-up check: the command registered, the page opened by itself, the reload overlay after another
  *        window's migration (reloadOverlay.test.ts), the package.json command
  */
@@ -22,7 +24,7 @@ import { JSDOM } from 'jsdom';
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [os.tmpdir()] });
 
-import { applyMigration, migrationPageState, type MigrationPageDeps } from '../aiFormatMigration-handler.js';
+import { applyMigration, mergeDriversView, migrationPageState, setUpMergeDriversFromPage, type MigrationPageDeps } from '../aiFormatMigration-handler.js';
 import { acquireMigrationLock, migrationLockFile, migrationNeed, readLocalStamp } from '../../utils/aiFormatMigrationRun.js';
 import { AI_FORMAT_VERSION, readAiFormatStamp, writeAiFormatStamp } from '../../utils/aiFormatVersion.js';
 
@@ -134,5 +136,55 @@ describe('the _ai format migration page', () => {
         assert.ok(pkg.contributes.commands.some((c: Json) => c.command === 'tomAi.migrateAiFormats' && c.title === '@T: Migrate _ai Formats'));
         const cli = fs.readFileSync(path.join(EXT, 'scripts', 'migrate-ai-formats.cjs'), 'utf8');
         assert.match(cli, /runAiFormatMigration\(\{/, 'the npm script writes the local stamp too');
+    });
+    test('FP-5: the merge drivers', () => {
+        const { ws } = workspace();
+        const base = deps(ws, 'w1', new Set(['w1']));
+        assert.equal(mergeDriversView(base), undefined, 'a window without the check: no section');
+        const report = {
+            aiRoot: '/ai', repoRoot: '/ai', unboundDrivers: [] as never[], ok: false,
+            drivers: [
+                { driver: 'ai-yaml-smart', state: 'current', scope: 'local' },
+                { driver: 'ai-trail', state: 'outdated', scope: 'local' },
+                { driver: 'ai-block-history', state: 'other', scope: 'global' },
+                { driver: 'ai-history-json', state: 'missing' },
+                { driver: 'ai-history-md', state: 'missing' },
+            ],
+        };
+        const calls: string[] = [];
+        const d: MigrationPageDeps = {
+            ...base,
+            mergeDrivers: () => report as never,
+            setUpMergeDrivers: (scope) => { calls.push(scope); if (scope === 'global') { throw new Error('no git'); } return 'Registered.'; },
+        };
+        const view = mergeDriversView(d, 'note')!;
+        assert.deepEqual(view.lines, ["ai-yaml-smart: this extension's (local)", "ai-trail: an older extension's (to update) (local)", "ai-block-history: another tool's (global)", 'ai-history-json: not registered', 'ai-history-md: not registered']);
+        assert.deepEqual([view.ok, view.repo, view.outdated, view.note], [false, true, true, 'note']);
+        assert.equal(setUpMergeDriversFromPage(d, 'local'), 'Registered.');
+        assert.equal(setUpMergeDriversFromPage(d, 'global'), 'Not registered: no git');
+        assert.deepEqual(calls, ['local', 'global']);
+        // The page.
+        const read = (f: string): string => fs.readFileSync(path.join(EXT, 'media', 'aiFormatMigration', f), 'utf8');
+        const html = read('index.html').replace(/<script[\s\S]*?<\/script>/g, '').replace(/\{\{[a-zA-Z]+\}\}/g, '');
+        const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Json;
+        const posted: Json[] = [];
+        w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => posted.push(m) });
+        w.__INIT__ = { phase: 'current', to: 9, message: 'done', mergeDrivers: view };
+        w.eval(read('main.js'));
+        const $ = (id: string): Json => w.document.getElementById(id);
+        assert.equal($('fmDrivers').hidden, false);
+        assert.equal($('fmDriverLines').querySelectorAll('li').length, 5);
+        assert.equal($('fmDriverNote').textContent, 'note');
+        assert.equal($('fmDriversLocal').textContent, 'Update the extension\'s drivers for this repository');
+        $('fmDriversLocal').click();
+        $('fmDriversGlobal').click();
+        assert.equal(JSON.stringify(posted.filter((m) => m.type === 'mergeDrivers')), '[{"type":"mergeDrivers","scope":"local"},{"type":"mergeDrivers","scope":"global"}]');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', state: { phase: 'current', to: 9, mergeDrivers: { ...view, repo: false, outdated: false } } } }));
+        assert.deepEqual([$('fmDriversLocal').hidden, $('fmDriversGlobal').hidden], [true, false], 'no repository: global only');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', state: { phase: 'current', to: 9, mergeDrivers: { ...view, ok: true } } } }));
+        assert.deepEqual([$('fmDriversLocal').hidden, $('fmDriversGlobal').hidden], [true, true], 'all current: nothing to offer');
+        w.close();
+        const service = fs.readFileSync(path.join(EXT, 'src', 'services', 'aiFormatCheckService.ts'), 'utf8');
+        assert.match(service, /checkMergeDriverUpgrade\(context, aiRoot\);/, 'the upgrade check at start');
     });
 });

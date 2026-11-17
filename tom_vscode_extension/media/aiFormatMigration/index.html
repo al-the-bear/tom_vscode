@@ -30,6 +30,16 @@
         <button id="fmReload" hidden>Reload window</button>
         <button id="fmClose">Not now</button>
     </div>
+    <div class="fm-drivers" id="fmDrivers" hidden>
+        <b>The _ai merge drivers</b> — git merges the <code>_ai</code> files with them when a pull or reconcile
+        brings two copies together (the migration itself uses the extension's own drivers and needs none).
+        <ul id="fmDriverLines"></ul>
+        <p class="fm-driver-note" id="fmDriverNote" hidden></p>
+        <div class="fm-bar">
+            <button id="fmDriversLocal">Register the extension's drivers for this repository</button>
+            <button id="fmDriversGlobal">Register them for all repositories (global)</button>
+        </div>
+    </div>
     <div class="fm-report" id="fmReportBody"></div>
 </div>
 <script src="{{baseUri}}/main.js"></script>

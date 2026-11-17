@@ -30,8 +30,12 @@ Both subpanels are queue-compatible.
   end reports what was written, overwritten and skipped (**Show the file
   list**). Then it says what in `.tom/tom_vscode_extension.json` to adapt (the
   bridge profiles' paths, `bridge.executables`, the Local LLM endpoint, the API
-  key's environment variable; **Open the configuration**) and asks what to open:
-  the introduction quest or the folder, each in a new window, or stay here.
+  key's environment variable; **Open the configuration**), offers to register
+  Tom AI's `_ai` merge drivers in git (**For this _ai repository** when `_ai`
+  is one, **For all repositories (global)**; the rules go into
+  `_ai/.gitattributes`; see *Upgrading the workspace* › Merge drivers) and asks
+  what to open: the introduction quest or the folder, each in a new window, or
+  stay here.
 - **Create New Quest** (`@T: Create New Quest`) asks the quest id (letters,
   digits and `_`, not taken) and a name, creates `_ai/quests/<id>/` with the
   quest's files (empty but for their headings), adds the quest to the Active
@@ -307,7 +311,8 @@ A newer Tom AI build may store some `_ai` files differently. The files carry the
 - **The other windows**: once the files are migrated, every other window of the workspace pauses the auto-send of all its runs and brings the **Reload required** page to the front (over the Prompt Queue editor when it is open): *The workspace has been migrated to version X, a reload is required. All runs have been paused. Let the currently running prompts finish, then reload.* Below it, one list of the prompts of every run of that window that were still running — status and kind as in the prompt queue (SENDING TODO (PAUSED), SENDING CHAT, …), run, session, prompt — each with **Interrupt** (a queue item is interrupted for continuation: its resend after the reload goes on in the conversation it ran in; a chat send is cancelled). The status follows the queue: SENT … once an item is done, PAUSED … when an iteration item finished its iteration, PENDING … (PAUSED) once it is back in the queue. **Reload window** says *Nothing runs any more* when the list is done. Closed, the page comes back from the status-bar item *Reload: workspace migrated*.
 - **Another machine**: after a reconcile brings migrated files to another machine, its window opens the page for that machine's own files (its own stamp is still behind). When those have nothing in an older form, the stamp is written without asking.
 - **Newer files**: when the files are newer than the build, Tom AI does not start either: the panels name the format version the files are in and ask to install a Tom AI build that knows it, then reload. There is no migration button: a migration never goes back.
-- **Merges**: files a session already has are merged with the `_ai` merge drivers git has registered (`git config --global merge.<driver>.driver`). Without them those files are reported as problems; the stamp is not written until they are solved.
+- **Merges**: files a session already has are merged with the extension's own `_ai` merge drivers — no git and no registered driver needed. A file a driver cannot read (an unterminated history block, broken YAML) is reported as a problem; the stamp is not written until it is solved.
+- **Merge drivers for git**: when a pull or a reconcile brings two copies of an `_ai` file together, git merges it with the driver `_ai/.gitattributes` names — `ai-trail` (live trails), `ai-history-json` / `ai-history-md` (session histories), `ai-block-history` (compacted histories), `ai-yaml-smart` (todo files, memory, extension configs). The extension carries all five (`out/utils/aiMergeDriverCli.js`, run by VS Code's own Node). The page's **The _ai merge drivers** section shows, per driver, whether git uses the extension's (*this extension's*), an older install's (*to update*), another tool's (e.g. the Python drivers of the al_the_bear skills) or none, and whether `.gitattributes` binds it; **Register the extension's drivers for this repository** (the `_ai` repository's own git config) or **for all repositories (global)** registers them and adds the missing rules to `_ai/.gitattributes`. A window that starts while a driver still points to an older install (VS Code or the extension moved) offers **Update the merge drivers**.
 
 In a checkout of the extension the same migration runs as `npm run migrate:ai-formats -- --apply`.
 

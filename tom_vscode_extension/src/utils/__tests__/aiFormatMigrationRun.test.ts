@@ -8,7 +8,8 @@
  *        machine's stamp; a second run lists nothing
  *   MR-4 the lock: one window at a time; another live window's lock refuses; a gone window's or a stale lock (older
  *        than 30 minutes) is taken over; this window's own is taken again; released only by its holder
- *   MR-5 the merger uses git's registered driver (base, ours, theirs in its command line); none registered: no merge
+ *   MR-5 the merger is the extension's own drivers, no git: a live trail and its legacy copy merge (both entries,
+ *        sorted); a broken compacted history is no merge
  *   MR-6 the report: per quest and step, the problems; nothing to do says so
  */
 
@@ -22,7 +23,7 @@ import {
     acquireMigrationLock,
     localStampFile,
     lockHolds,
-    makeGitMerger,
+    makeMigrationMerger,
     migrationLockFile,
     migrationNeed,
     migrationReportMarkdown,
@@ -115,21 +116,13 @@ describe('the _ai format migration from the extension', () => {
         fs.mkdirSync(dir, { recursive: true });
         const target = path.join(dir, 'live-trail.md');
         const legacy = path.join(dir, 'legacy.md');
-        fs.writeFileSync(target, 'ours\n');
-        fs.writeFileSync(legacy, 'theirs\n');
-        const calls: string[] = [];
-        const merge = makeGitMerger(path.join(dir, 'scratch'), (command) => {
-            calls.push(command);
-            if (command.startsWith('git config')) { return 'driver %O %A %B %P\n'; }
-            const ours = /driver "[^"]+" "([^"]+)"/.exec(command)![1];
-            fs.writeFileSync(ours, 'merged\n');
-            return '';
-        });
-        assert.equal(merge('ai-trail', target, legacy), 'merged\n');
-        assert.match(calls[0], /git config --global --get merge\.ai-trail\.driver/);
-        assert.match(calls[1], /^driver "[^"]+base" "[^"]+ours" ".*legacy\.md" "live-trail\.md"$/);
-        const none = makeGitMerger(path.join(dir, 'scratch2'), () => { throw new Error('not set'); });
-        assert.equal(none('ai-trail', target, legacy), undefined);
+        fs.writeFileSync(target, '<!-- tom-ai live-trail -->\n\n## \u{1F680} PROMPT 20261117_110000 x\n\nnew place\n');
+        fs.writeFileSync(legacy, '<!-- tom-ai live-trail -->\n\n## \u{1F680} PROMPT 20261117_100000 x\n\nold place\n');
+        const merge = makeMigrationMerger();
+        assert.equal(merge('ai-trail', target, legacy), '<!-- tom-ai live-trail -->\n\n## \u{1F680} PROMPT 20261117_100000 x\n\nold place\n\n## \u{1F680} PROMPT 20261117_110000 x\n\nnew place\n');
+        const broken = path.join(dir, 'compacted_history.md');
+        fs.writeFileSync(broken, '<!-- tom:block created="a" modified="b" -->\nno end\n');
+        assert.equal(merge('ai-block-history', broken, legacy), undefined, 'a problem, not a merge');
     });
 
     test('MR-6: the report', () => {

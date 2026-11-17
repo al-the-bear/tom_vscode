@@ -494,7 +494,14 @@ compares both with the version its build understands:
 One migration runs at a time on a machine; another window says *Migration is
 already running in another window*. Once it is done, the other windows pause
 their runs and show **Reload required**: the prompts still running, each with
-Interrupt, and Reload window. In a checkout the same migration runs from the
+Interrupt, and Reload window.
+
+The migration merges with the extension's own `_ai` merge drivers, so it needs
+neither git nor registered drivers. The same five drivers serve git: the page
+(and Setup New Workspace Folder) registers them — `<VS Code's Node>
+out/utils/aiMergeDriverCli.js <driver> %O %A %B %L %P`, for the `_ai`
+repository or globally — and binds them in `_ai/.gitattributes`; a window
+offers to update them when they point to an older install. In a checkout the same migration runs from the
 command line (in this folder, after `npm run compile`):
 
 ```bash
