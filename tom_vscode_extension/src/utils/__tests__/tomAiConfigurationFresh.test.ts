@@ -14,7 +14,8 @@
  *        section reads as the defaults until the file parses again
  *   TC-7 a save writes only the saved section into the workspace file: the
  *        defaults and the user-global overlay's sections stay out of it, and the
- *        file's other sections stay as they were
+ *        file's other sections stay as they were; the read view merges the saved
+ *        keys deep with the defaults (02_wslayout-4)
  *   TC-8 after a save, a later edit of the overlay is still seen for a section
  *        the workspace file does not define
  *   TC-9 a save while the workspace file does not parse is refused and leaves
@@ -128,7 +129,9 @@ describe('TomAiConfiguration follows hand edits', () => {
         assert.deepEqual(Object.keys(onDisk).sort(), ['copilot', 'custom', 'trail']);
         assert.deepEqual(onDisk.trail, { raw: { enabled: false } });
         assert.deepEqual(onDisk.custom, { keep: 1 }, 'another section the file had');
-        assert.deepEqual(c.getTrail(), { raw: { enabled: false } });
+        // The layers merge deep: the saved key sits on the defaults' other keys of the section.
+        assert.equal((c.getTrail().raw as Record<string, unknown>).enabled, false);
+        assert.equal((c.getTrail().raw as Record<string, unknown>).stripThinking, TomAiConfiguration.defaults.trail.raw && (TomAiConfiguration.defaults.trail.raw as Record<string, unknown>).stripThinking);
         assert.deepEqual(c.getTodo().defaultColumns, ['mine'], 'the overlay still serves its section');
     });
 

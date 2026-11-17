@@ -1,5 +1,6 @@
 import * as fs from 'fs';
-import { layoutWorkspaceFolder } from './workspaceLayout';
+import { getLayout, layoutWorkspaceFolder } from './workspaceLayout';
+import { applyMergePatch, deepMerge, mergePatch, readConfigLayers } from './configLayers';
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
@@ -45,13 +46,12 @@ export interface TomAiConfigDefaults {
  * `~/.tom/vscode/...` on Linux/macOS and `%USERPROFILE%\.tom\vscode\...`
  * on Windows without any extra handling.
  *
- * **Fallback-compatible by design** — if the file is missing, the
- * extension falls back to the existing single-file workspace config
- * and behaves exactly as before. Section keys present in the workspace
- * config still "win" (workspace > user-global); the user-global file
- * only contributes keys that the workspace config does not define.
- * This shape means the current "everything in one file" workspace
- * setup keeps working without migration.
+ * **The layers** (workspace layout convention § 5): compiled defaults <
+ * this user-global file < the root's `.tom/tom_vscode_extension.json` < the
+ * workspace folder's `.tom/tom_vscode_extension.json`, deep-merged (objects
+ * merged key by key, arrays and scalars replace; `configLayers.ts`). So the
+ * user-global file fills in what the shared files leave out, down to single
+ * keys inside a section. A missing file is an empty layer.
  *
  * A documented `*.sample.yaml` file at the same path ships as part of
  * the extension examples — users rename it to `.yaml` to activate the
@@ -65,30 +65,34 @@ function userGlobalConfigPath(): string {
 
 export class TomAiConfiguration {
     private static _instance: TomAiConfiguration | undefined;
-    /** What readers see: defaults < user-global overlay < workspace file. */
+    /** What readers see: defaults < user-global < root layer (the target) < workspace layer. */
     private config: Record<string, unknown> = {};
     /**
-     * The workspace file's own sections, as parsed. Saves write this and
-     * nothing else, so the file never gains a default or an overlay section it
-     * did not have — which would then shadow the overlay for good.
+     * The target file's own content, as parsed: the root layer
+     * (`configPath`), the one file saves write. A save applies only what
+     * changed to it, so it never gains a default or a key of another layer.
      */
-    private workspace: Record<string, unknown> = {};
-    /** The workspace file exists but did not parse; a save would overwrite it. */
-    private workspaceUnreadable = false;
+    private target: Record<string, unknown> = {};
+    /** The target file exists but did not parse; a save would overwrite it. */
+    private targetUnreadable = false;
+    /**
+     * The layers above the target, lowest first: the workspace folder's
+     * `tom_vscode_extension.json` when it is another file than the root's
+     * (a symlink to it is read once). Read only, never written.
+     */
+    private upperLayers: Record<string, unknown>[] = [];
     /**
      * Raw user-global overlay as parsed from
      * `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`. Empty
-     * object when the file is absent. Kept separate from `config` so
-     * the overlay is re-applied on every workspace reload without
-     * conflating the two sources on disk.
+     * object when the file is absent.
      */
     private userGlobal: Record<string, unknown> = {};
     /**
-     * What both files looked like when `config` was built (path, mtime, ctime,
-     * size of each; see `filesStamp`). Every read compares it with the files as
-     * they are now and rebuilds `config` when they differ, so a hand edit — or
-     * an agent's text edit — reaches every reader without a reload. Unchanged
-     * files cost one stat each and are not parsed again.
+     * What the layer files looked like when `config` was built (path, mtime,
+     * ctime, size of each; see `filesStamp`). Every read compares it with the
+     * files as they are now and rebuilds `config` when they differ, so a hand
+     * edit — or an agent's text edit — reaches every reader without a reload.
+     * Unchanged files cost one stat each and are not parsed again.
      */
     private stamp: string | undefined;
 
@@ -190,9 +194,25 @@ export class TomAiConfiguration {
             : { path: path.join(os.homedir(), '.tom', 'vscode', WsPaths.configFileName), branch: 'home fallback (no workspace)' };
     }
 
-    /** The state of the workspace config and the user-global overlay, as one comparable string. */
+    /**
+     * The layer files, lowest first: the target (the root's file, or the
+     * `tomAi.configPath` file), then the workspace folder's file when the
+     * target is the root layer's and the workspace folder is another level.
+     */
+    layerPaths(): string[] {
+        const resolved = this.resolveConfigPath();
+        const paths = [resolved.path];
+        if (resolved.branch.startsWith('workspace .tom')) {
+            for (const layer of getLayout()?.configLayers.slice(1) ?? []) {
+                paths.push(path.join(layer, WsPaths.configFileName));
+            }
+        }
+        return paths;
+    }
+
+    /** The state of the layer files and the user-global overlay, as one comparable string. */
     private filesStamp(): string {
-        return [this.resolveConfigPath().path, userGlobalConfigPath()].map((filePath) => {
+        return [...this.layerPaths(), userGlobalConfigPath()].map((filePath) => {
             try {
                 const st = fs.statSync(filePath);
                 return `${filePath}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`;
@@ -202,7 +222,7 @@ export class TomAiConfiguration {
         }).join('|');
     }
 
-    /** Rebuild `config` when either file changed since it was built. */
+    /** Rebuild `config` when a file changed since it was built. */
     private refreshIfChanged(): void {
         if (this.filesStamp() !== this.stamp) { this.reload(); }
     }
@@ -234,27 +254,72 @@ export class TomAiConfiguration {
         return value;
     }
 
+    /**
+     * Save one section: only what differs from the merged view goes into the
+     * target file (a merge patch of `key`), applied to the file as it is on
+     * disk. Keys that come only from another layer or the defaults are never
+     * written into it; an unchanged section writes nothing.
+     */
     async updateSection(key: string, value: unknown): Promise<void> {
-        // Why: the workspace file is written back whole, so a hand edit not read
-        // yet would otherwise be overwritten with the copy from before it.
+        // Why: a hand edit not read yet would otherwise be overwritten with the copy from before it.
         this.refreshIfChanged();
-        if (this.workspaceUnreadable) {
+        if (this.targetUnreadable) {
             throw new Error(`Not saved: ${this.configPath} does not parse; fix the file first, then save again.`);
         }
-        this.workspace = { ...this.workspace, [key]: value };
-        this.config = this.mergeConfig(this.workspace);
+        const patch = mergePatch(this.config[key], value);
+        if (patch === undefined) { return; }
+        this.target = applyMergePatch(this.target, { [key]: patch }) as Record<string, unknown>;
+        this.config = this.mergeConfig(this.target);
         await this.persistConfig();
+    }
+
+    /**
+     * The shared files merged — user-global < root < workspace layer, no
+     * compiled defaults: what `loadSendToChatConfig()` answers. A copy.
+     */
+    sharedView(): Record<string, unknown> {
+        this.refreshIfChanged();
+        return deepMerge(this.userGlobal, this.target, ...this.upperLayers);
+    }
+
+    /**
+     * Save a whole configuration read with `sharedView()`: what differs from
+     * the shared view now is applied to the target file as a merge patch.
+     * False when the target does not parse (nothing written).
+     */
+    saveSharedView(next: Record<string, unknown>): boolean {
+        const base = this.sharedView();
+        if (this.targetUnreadable) { return false; }
+        const patch = mergePatch(base, next);
+        if (patch === undefined) { return true; }
+        this.target = applyMergePatch(this.target, patch) as Record<string, unknown>;
+        this.config = this.mergeConfig(this.target);
+        this.writeTarget();
+        return true;
     }
 
     reload(): void {
         // Taken before the reads: a change while they run makes the next read reload again.
         this.stamp = this.filesStamp();
         this.userGlobal = this.loadUserGlobal();
-        this.workspace = {};
-        this.workspaceUnreadable = false;
+        this.target = {};
+        this.targetUnreadable = false;
+        this.upperLayers = [];
 
         const filePath = this.configPath;
-        if (!FsUtils.fileExists(filePath)) {
+        const [targetLayer, ...upper] = readConfigLayers(this.layerPaths(), (raw, p) => this.parseConfig(raw, p), undefined, (p) => FsUtils.safeReadFile(p));
+        for (const layer of upper) {
+            if (layer.unreadable) {
+                logConfigAccess('TomAiConfiguration.reload', layer.path, {
+                    action: 'parse-failed',
+                    note: 'workspace layer does not parse — left out',
+                });
+            } else if (layer.content) {
+                this.upperLayers.push(layer.content);
+            }
+        }
+
+        if (!targetLayer?.exists) {
             logConfigAccess('TomAiConfiguration.reload', filePath, {
                 action: 'missing',
                 note: 'file does not exist — using defaults',
@@ -262,9 +327,16 @@ export class TomAiConfiguration {
             this.config = this.mergeConfig({});
             return;
         }
-
-        const raw = FsUtils.safeReadFile(filePath);
-        if (!raw) {
+        if (targetLayer.unreadable) {
+            logConfigAccess('TomAiConfiguration.reload', filePath, {
+                action: 'parse-failed',
+                note: 'file does not parse — using defaults; saves are refused until it does',
+            });
+            this.targetUnreadable = true;
+            this.config = this.mergeConfig({});
+            return;
+        }
+        if (!targetLayer.content) {
             logConfigAccess('TomAiConfiguration.reload', filePath, {
                 action: 'read-failed',
                 note: 'file present but unreadable/empty — using defaults',
@@ -272,44 +344,20 @@ export class TomAiConfiguration {
             this.config = this.mergeConfig({});
             return;
         }
-
-        const parsed = this.parseConfig(raw, filePath);
-        if (!parsed) {
-            logConfigAccess('TomAiConfiguration.reload', filePath, {
-                action: 'parse-failed',
-                note: 'file does not parse — using defaults; saves are refused until it does',
-            });
-            this.workspaceUnreadable = true;
-            this.config = this.mergeConfig({});
-            return;
-        }
         logConfigAccess('TomAiConfiguration.reload', filePath, {
             action: 'loaded',
-            note: `${raw.length} bytes`,
+            note: `${upper.length + 1} layer(s)`,
         });
-        this.workspace = parsed;
-        this.config = this.mergeConfig(parsed);
+        this.target = targetLayer.content;
+        this.config = this.mergeConfig(this.target);
     }
 
     /**
-     * Layer the three sources — `defaults < user-global < workspace` —
-     * at the section level. Per-section values from the workspace
-     * config win because they reflect an explicit choice for *this*
-     * project; the user-global file only contributes sections the
-     * workspace config leaves unset. This keeps the existing
-     * single-file workspace setup working as-is: everything in one
-     * workspace file behaves identically whether the user-global file
-     * is present or not.
+     * Layer the sources — `defaults < user-global < target (root) < workspace
+     * layer` — deep: objects merged key by key, arrays and scalars replace.
      */
-    private mergeConfig(workspace: Record<string, unknown>): Record<string, unknown> {
-        const merged: Record<string, unknown> = { ...TomAiConfiguration.defaults };
-        for (const [key, value] of Object.entries(this.userGlobal)) {
-            if (value !== undefined) { merged[key] = value; }
-        }
-        for (const [key, value] of Object.entries(workspace)) {
-            if (value !== undefined) { merged[key] = value; }
-        }
-        return merged;
+    private mergeConfig(target: Record<string, unknown>): Record<string, unknown> {
+        return deepMerge(TomAiConfiguration.defaults, this.userGlobal, target, ...this.upperLayers);
     }
 
     /** Read the user-global overlay file. Returns `{}` when absent. */
@@ -332,9 +380,9 @@ export class TomAiConfiguration {
     }
 
     async createDefaultConfig(): Promise<void> {
-        this.workspace = { ...TomAiConfiguration.defaults };
-        this.workspaceUnreadable = false;
-        this.config = this.mergeConfig(this.workspace);
+        this.target = { ...TomAiConfiguration.defaults };
+        this.targetUnreadable = false;
+        this.config = this.mergeConfig(this.target);
         await this.persistConfig();
     }
 
@@ -356,15 +404,20 @@ export class TomAiConfiguration {
     }
 
     private async persistConfig(): Promise<void> {
+        this.writeTarget();
+    }
+
+    /** Write `target` to the target file (synchronously). */
+    private writeTarget(): void {
         const filePath = this.configPath;
         FsUtils.ensureDir(path.dirname(filePath));
 
         if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
-            FsUtils.safeWriteYaml(filePath, this.workspace);
+            FsUtils.safeWriteYaml(filePath, this.target);
         } else {
-            FsUtils.safeWriteJson(filePath, this.workspace, 2);
+            FsUtils.safeWriteJson(filePath, this.target, 2);
         }
-        // The file now holds `workspace` and `config` is built from it: no need to parse it back.
+        // The file now holds `target` and `config` is built from it: no need to parse it back.
         this.stamp = this.filesStamp();
     }
 
@@ -375,6 +428,8 @@ export class TomAiConfiguration {
             ? expandedHome.replace(/\$\{workspaceFolder\}/g, workspaceRoot)
             : expandedHome;
 
-        return withWorkspace.replace(/\$\{home\}/g, os.homedir());
+        const tomRoot = getLayout()?.root;
+        const withRoot = tomRoot ? withWorkspace.replace(/\$\{tomRoot\}/g, tomRoot) : withWorkspace;
+        return withRoot.replace(/\$\{home\}/g, os.homedir());
     }
 }

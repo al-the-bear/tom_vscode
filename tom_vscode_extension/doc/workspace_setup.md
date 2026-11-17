@@ -112,7 +112,7 @@ Without one, the workspace folder is its own root (a standalone workspace).
 | Place | Where it is |
 | --- | --- |
 | `_ai/` | the workspace folder's `_ai` when it exists (a symlink counts), else the root's; neither: the status page reports it under Configuration Errors |
-| `.tom/` | read at the root and in the workspace folder; changes are written to the root's `tom_vscode_extension.json` |
+| `.tom/` | read at the root and in the workspace folder; `tom_vscode_extension.json` is merged deep (objects key by key, arrays and scalars replace; the workspace folder's wins), changes are written to the root's file, only the changed keys |
 | guidelines | `_agent_guidelines/` at the root and in the workspace folder |
 
 `.tom/tom_root.yaml` may rename the default folders for its root, and

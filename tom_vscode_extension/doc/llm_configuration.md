@@ -20,10 +20,21 @@ Edits to `tom_vscode_extension.json` (and to the user-global overlay
 whether they are made on the Status Page, by hand or by an agent: the
 configuration compares the files' stat on every read and parses them again only
 when they changed. No *Reload Chat Config* or window reload is needed.
-A save through the extension writes only the section it saves into the
-workspace file, so the user-global overlay keeps serving every section the
-workspace file does not define. While the workspace file does not parse, saves
-are refused with a message, so a half-finished hand edit is not overwritten.
+The configuration is read in layers, lowest first: the compiled defaults, the
+user-global file, the root's `.tom/tom_vscode_extension.json` (the root of the
+Tom workspace, the nearest folder with `.tom/tom_root.yaml`), the workspace
+folder's `.tom/tom_vscode_extension.json` (when it is another file; a symlink to
+the root's is read once). They are merged deep: objects key by key, arrays and
+scalars replace. So the user-global file fills in single keys the shared files
+leave out, also inside a section they define (`utils/configLayers.ts`).
+A save through the extension — a section, or the whole configuration of a
+Status Page form — writes only what changed into the root's file, as a merge
+patch applied to the file as it is on disk: nothing of the defaults, the
+user-global file or the workspace layer is copied into it, and a key another
+layer defines cannot be removed from there. While the root's file does not
+parse, saves are refused with a message, so a half-finished hand edit is not
+overwritten. `tomAi.configPath` names the one file for a layout without a root
+`.tom`.
 
 ---
 

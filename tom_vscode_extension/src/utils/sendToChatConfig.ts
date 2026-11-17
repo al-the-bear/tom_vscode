@@ -830,9 +830,20 @@ function getConfigPathSimple(): string | undefined {
 // ============================================================================
 
 /**
- * Load the send-to-chat configuration from the config file.
+ * Load the configuration: the shared files merged (user-global < the root's
+ * `.tom/tom_vscode_extension.json` < the workspace folder's, deep: objects
+ * merged, arrays and scalars replace; `configLayers.ts`). With a single
+ * layer it is that file's content. Before `TomAiConfiguration` exists
+ * (early startup) the target file alone.
  */
 export function loadSendToChatConfig(): SendToChatConfig | null {
+    try {
+        const tc = TomAiConfiguration.instance;
+        if (!fs.existsSync(tc.configPath)) { return null; }
+        return tc.sharedView() as unknown as SendToChatConfig;
+    } catch {
+        // Early startup — no instance yet: read the file itself.
+    }
     const configPath = getConfigPathSimple();
     if (!configPath || !fs.existsSync(configPath)) {
         return null;
@@ -846,23 +857,29 @@ export function loadSendToChatConfig(): SendToChatConfig | null {
 }
 
 /**
- * Save the send-to-chat configuration to the config file.
- *
- * `TomAiConfiguration` notices a changed file on its next read (a stat
- * per read), so its `getSection()` readers would see the new values
- * anyway. The reload after the write makes it immediate even for a
- * write the stat cannot tell apart (same size, same timestamp): a
- * setting such as `compaction.disabled` has to take effect at once,
- * not on a guess about file timestamps.
+ * Save the configuration read with `loadSendToChatConfig()`: only what
+ * differs from the merged view goes into the root file (the write target,
+ * BP-18), as a merge patch applied to the file as it is on disk — keys of
+ * the other layers are never copied into it. `TomAiConfiguration` rebuilds
+ * its view from what it wrote, so every reader sees the change at once.
+ * Before `TomAiConfiguration` exists the file is written whole.
  */
 export function saveSendToChatConfig(config: SendToChatConfig): boolean {
+    let tc: TomAiConfiguration | undefined;
+    try { tc = TomAiConfiguration.instance; } catch { tc = undefined; }
+    if (tc) {
+        try {
+            return tc.saveSharedView(config as unknown as Record<string, unknown>);
+        } catch {
+            return false;
+        }
+    }
     const configPath = getConfigPathSimple();
     if (!configPath) {
         return false;
     }
     try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-        try { TomAiConfiguration.instance.reload(); } catch { /* early startup — no instance yet */ }
         return true;
     } catch {
         return false;
