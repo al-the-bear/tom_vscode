@@ -14,6 +14,8 @@
  *   PJ-3 the order: the Dart projects in build order (dependencies first, ties by package name), the others after
  *        them; a dependency cycle keeps the walk order
  *   PJ-4 dartSort is Dart's List.sort: the same order of equal keys as the Dart VM gives (recorded reference)
+ *   PJ-5 an Electron archive (`*.asar`, any case) is never walked into nor listed, though Electron's fs shows it as a
+ *        folder (vscimpb148: buildkit sees a file)
  */
 
 import test, { after, describe } from 'node:test';
@@ -22,7 +24,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { computeBuildOrder, dartSort, listProjectsJs, scanFolders } from '../projectListingJs.js';
+import { computeBuildOrder, dartSort, isAsarArchive, listProjectsJs, nativeSourceLanguages, scanFolders } from '../projectListingJs.js';
 
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pjlisting-')));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -110,6 +112,24 @@ describe('the JavaScript project listing', () => {
         assert.equal(byPath.get('c')?.type, 'c');
         assert.equal(byPath.has('make_only'), false);
         assert.equal(byPath.has('.'), false, 'the root has no project nature here');
+    });
+
+    test('PJ-5: an Electron archive (*.asar) is never a project folder', () => {
+        // In the extension host Electron's fs shows `app.asar` as a folder; here it is one, as Electron presents it.
+        const root = path.join(tmp, 'asar');
+        put('asar/buildkit_master.yaml', '');
+        put('asar/MarkText.app/Contents/Resources/app.asar/package.json', '{"name": "marktext"}');
+        put('asar/MarkText.app/Contents/Resources/APP.ASAR/package.json', '{"name": "upper"}');
+        put('asar/real/package.json', '{"name": "real"}');
+        put('asar/native/main.c', '');
+        put('asar/native/CMakeLists.txt', 'project(native C)');
+        put('asar/native/lib.asar/x.cpp', '');
+        assert.equal(isAsarArchive('app.asar'), true);
+        assert.equal(isAsarArchive('APP.ASAR'), true);
+        assert.equal(isAsarArchive('asar'), false);
+        assert.equal(scanFolders(root).some((d) => /\.asar$/i.test(d)), false, 'the walk never enters one');
+        assert.deepEqual(listProjectsJs(root).projects.map((p) => p.name).filter((n) => n !== 'native'), ['real']);
+        assert.deepEqual([...nativeSourceLanguages(path.join(root, 'native'))], ['c'], 'nor does the source scan');
     });
 
     test('PJ-3: build order', () => {

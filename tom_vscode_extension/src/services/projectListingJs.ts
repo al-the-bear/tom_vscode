@@ -49,6 +49,14 @@ const LANGUAGE_PROJECT_FILES = [
 ];
 const NATIVE_BUILD_FILES = ['Makefile', 'makefile', 'GNUmakefile', 'CMakeLists.txt'];
 const CPP_EXTENSIONS = new Set(['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hxx', '.hh']);
+/**
+ * An Electron archive (`*.asar`): a file, but the extension host's `fs` (Electron) presents it as a folder. Dart's
+ * `Directory.list` sees a file, so the walk never enters one (vscimpb148).
+ */
+export function isAsarArchive(name: string): boolean {
+    return name.toLowerCase().endsWith('.asar');
+}
+
 const SOURCE_SKIP_DIRS = new Set(['.git', 'build', 'target', 'node_modules', 'dist', '.dart_tool', 'ztmp']);
 
 function exists(p: string): boolean {
@@ -129,6 +137,7 @@ export function nativeSourceLanguages(dir: string): Set<string> {
         let entries: fs.Dirent[];
         try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
         for (const e of entries) {
+            if (isAsarArchive(e.name)) { continue; }
             if (e.isDirectory()) {
                 if (depth < 3 && !SOURCE_SKIP_DIRS.has(e.name)) { walk(path.join(d, e.name), depth + 1); }
                 continue;
@@ -205,6 +214,8 @@ export function scanFolders(root: string): string[] {
         for (const name of rawEntries(dir)) {
             if (name.startsWith('.')) { continue; }
             if (ALWAYS_SKIP_DIRECTORIES.has(name)) { continue; }
+            // An Electron archive is a file to buildkit, whatever Electron's fs says.
+            if (isAsarArchive(name)) { continue; }
             const full = path.join(dir, name);
             // Dart's Directory.list follows links: a link to a folder is a folder.
             if (!isDir(full)) { continue; }
