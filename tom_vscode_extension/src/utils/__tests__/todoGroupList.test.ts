@@ -5,7 +5,7 @@
  *         else archived), not found ones marked
  *   TGL-2 withTodoGroups adds part_of and group_members to the rows of a quest; rows of no quest are left as they are
  *   TGL-3 todoListItem carries comprised_of
- *   TGL-4 a group's queue button queues to the panel's queue target (todoPanelQueueTarget: its run and session)
+ *   TGL-4 a group's queue button queues through the queue-target flow (vscimpb139), into the group's own quest
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- the todo schema's YAML keys */
@@ -16,7 +16,6 @@ import * as path from 'path';
 
 import { groupListInfo } from '../todoBlockingCascade.js';
 import { todoListItem, withTodoGroups } from '../todoListItem.js';
-import { todoGroupQueueRequest, todoPanelQueueTarget, todoPanelSelection } from '../todoPanelRunSession.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const root = fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261116_vscimpb126_groups-'));
@@ -89,8 +88,8 @@ describe('the panel group data', () => {
     });
 
     test('TGL-4: the queue target', () => {
-        const sel = todoPanelSelection('worker', 'collab', ['default', 'collab']);
-        assert.deepEqual(todoGroupQueueRequest(sel, 'qa', 'g1'), { kind: 'group', quest: 'qa', groupId: 'g1', ...todoPanelQueueTarget(sel) });
-        assert.deepEqual(todoPanelQueueTarget(sel), { session: 'worker', run: 'collab' });
+        const host = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
+        assert.match(host, /case 'qtQueueTodoGroup':[\s\S]{0,200}queueTodoAsItem\(effectiveQuestId\(msg\.questId\), String\(msg\.todoId \|\| ''\), instance, 'group', msg\.sourceFile\)/);
+        assert.match(host, /await queueTodoEntriesWithFlow\(instance, todoQuest, noun, \[\{[\s\S]*?\}\], todoQuest\);/, 'the flow, into the group\'s own quest');
     });
 });

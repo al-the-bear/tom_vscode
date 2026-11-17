@@ -1,23 +1,26 @@
 /**
- * The todo panel's session and run (vscimpb60d), through the real todo panel handler, process store and chat
- * variables store under the vscode stub; only the prompt queue's enqueue and the Anthropic send are replaced, so
- * the test sees what they are given.
+ * The todo panel's queue-target flow (vscimpb139; utils/todoQueueTarget.ts, utils/todoPanelRunSession.ts), through
+ * the real todo panel handler, process store and session store under the vscode stub; the prompt queue and the
+ * Anthropic send are replaced, so the test sees what they are given, and the picks are answered through the flow's
+ * test seam.
  *
- *   TR-1 the selection rules (utils/todoPanelRunSession.ts): the default session `chat`; a run of the quest kept,
- *        another `default`; the session of a run `<session>@<run>`
- *   TR-2 the host answers qtGetRunSession with the session, the run and the run select's options (`default` first);
- *        qtSetRun keeps the run (per window and quest), a run the quest does not have is `default`; every view
- *        showing the controls hears the change
- *   TR-3 Send, Queue and Guide me (qtTodoButton / qtGuideUserAction) use the panel's session and run: Send runs in
- *        `<session>@<run>` as the run; Queue names the session on the item and gives it the run
- *   TR-4 the bar: stacked Queue (one item per todo), add-to-queue and the stacked / single Send (on Anthropic) use
- *        them too; the bar's transport is the panel run's queue default
- *   TR-5 a run deleted elsewhere falls back to `default` and is forgotten
- *   TR-6 a Send as another run than the window's runs with that run's process position (processRunFor)
- *   TR-7 the group walk (Queue Group Prompt, qtQueueGroupPrompt) is queued into the panel's run and session, the
- *        confirmation names them; on the panel's default (session `chat`, run `default`) it is too (vscimpb98)
- *   TR-8 its session busy (a chat send runs in it, vscimpb135): Send and the bar's Send warn naming the session,
- *        not "Anthropic chat"
+ *   QF-1 every queue button asks quest → run → free session → next / end: the quests with an open window (this one
+ *        the default, preselected), the window's runs (`default` first, this window's marked), only the free sessions
+ *        of the run (a queue item or a chat send in one makes it busy), the queue default and "New session…", next or
+ *        end (end preselected); next goes to the front (enqueueNext), the confirmation names quest, run, session and
+ *        position
+ *   QF-2 after the first use "Last: …" comes first and queues there with one Enter; picking anew preselects the last
+ *        run, session and position
+ *   QF-3 Escape at any step queues nothing
+ *   QF-4 another quest: its runs with their state (busy, paused) from its window's run list, its free sessions from its
+ *        queue entries on disk; the item reaches it through its window's inbox with run, session and position; a new
+ *        session there is a fresh one by name
+ *   QF-5 TODO / GROUP items, the group walk and the stacked todos take the flow; a TODO item or a walk goes into its
+ *        own quest only; the todo's own quest is the default when it has a window
+ *   QF-6 direct sends (Send, Guide me's send, the bar's Send) ask for a free session of this window's runs, with
+ *        "Last: …" first; they send there, as that run
+ *   QF-7 no run and no session in the panel: the views get only the Done notification toggle's state (qtDoneNotification)
+ *   QF-8 a Send as another run runs with that run's process position (processRunFor)
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -25,9 +28,10 @@ import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parse as parseYaml } from 'yaml';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261112_vscimpb60d_todopanel-')));
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261117_vscimpb139_flow-')));
 const WS = path.join(SANDBOX, 'ws');
 const HOME = path.join(SANDBOX, 'home');
 const QUEST = 'q1';
@@ -43,6 +47,8 @@ put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
     '  - id: a2', '    title: B', '    description: do b', '    status: not-started', '    priority: medium',
     '  - id: u1', '    title: U', '    description: yours', '    status: not-started', '    priority: medium', '    user_action: true', '',
 ].join('\n'));
+put('_ai/quests/q2/overview.q2.md', '# Q2\n');
+put('_ai/quests/q2/todos.q2.todo.yaml', 'todos:\n  - id: z1\n    title: Z\n    status: not-started\n');
 put('_ai/processes/design/design.process.yaml', [
     'id: design', 'name: Design', 'phases:', '  - id: p1', '    steps:', '      - id: plan', '        name: Plan', '      - id: build', '        name: Build',
     '    gate:', '      id: g1', '',
@@ -52,6 +58,15 @@ put('.tom/tom_vscode_extension.json', JSON.stringify({ anthropic: { userMessageT
     { id: 'execute-todo', name: 'Execute TODO', template: 'EXEC ${userMessage}' },
     { id: 'guide-user-action', name: 'Guide me', template: 'GUIDE ${userMessage}' },
 ] } }, null, 2));
+// Another quest's window (q2), live, with its runs' states (vscimpb123).
+put('_ai/local/win2.window-state.json', JSON.stringify({
+    windowId: 'win2', workspace: 'q2', activeQuest: 'q2', heartbeat: new Date(Date.now() + 3_600_000).toISOString(), status: [],
+    runs: [{ run: 'default', state: 'running', detail: 'item z', pending: 1 }, { run: 'rq', state: 'paused', pending: 0 }],
+}));
+// What q2's queue has on disk: an item sending in session other2.
+put('_ai/queue/host_q2_261117_000000_q2.normal.entry.queue.yaml', [
+    'meta:', '  id: e1', '  quest: q2', '  status: sending', 'prompt-queue:', '  - id: P1', '    type: main', '    name: Main', '    prompt-text: x', '    session: other2', '    run: default', '',
+].join('\n'));
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
 process.env.USERPROFILE = HOME;
@@ -59,7 +74,6 @@ process.env.USERPROFILE = HOME;
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
-// The group walk's picker (TR-7) needs these before the handler is imported (its `vscode` namespace is copied then).
 (vscodeStub.stub as Record<string, unknown>).ThemeIcon = class { constructor(public id: string) { /* a codicon */ } };
 (vscodeStub.stub as Record<string, unknown>).QuickPickItemKind = { Separator: -1, Default: 0 };
 
@@ -69,9 +83,12 @@ import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
-import { handleQuestTodoMessage, setQuestTodoContext } from '../questTodoPanel-handler.js';
+import { __setTodoTargetPickForTests, handleQuestTodoMessage, setQuestTodoContext } from '../questTodoPanel-handler.js';
 import * as router from '../sendToChatRouter.js';
-import { TODO_PANEL_DEFAULT_SESSION, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelSelection, todoPanelSessionKey } from '../../utils/todoPanelRunSession.js';
+import { createSession } from '../../services/agentSdkSessionStore.js';
+import { sessionsFolder } from '../sessionPicker.js';
+import { tryBeginAnthropicSend, __resetAnthropicSendsForTests } from '../sendToChatState.js';
+import type { TodoPickItem } from '../../utils/todoQueueTarget.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
@@ -99,19 +116,34 @@ let context: Json;
 // What the panel hands the queue and the Anthropic send.
 const enqueued: Json[] = [];
 const sends: Json[] = [];
-const runDefaults: Record<string, Json> = { default: { defaultTransport: 'copilot' }, r2: { defaultTransport: 'anthropic' } };
+const runDefaults: Record<string, Json> = { default: { defaultTransport: 'anthropic' }, r2: { defaultTransport: 'copilot' } };
 (PromptQueueManager as Json)._inst = {
-    enqueue: async (o: Json) => { enqueued.push(o); return { id: `q${enqueued.length}`, ...o }; },
+    enqueue: async (o: Json) => { enqueued.push({ how: 'end', ...o }); return { id: `q${enqueued.length}`, status: 'staged', ...o }; },
+    enqueueNext: async (o: Json) => { enqueued.push({ how: 'next', ...o }); return { id: `q${enqueued.length}`, status: 'pending', ...o }; },
     runQueueSettings: (run?: string) => runDefaults[run ?? 'default'] ?? { defaultTransport: 'copilot' },
+    // A queue item runs in busy@r2.
+    sessionHolder: (s: string) => (s === 'busy@r2' ? { kind: 'queue', label: 'running item' } : undefined),
     get defaultTransport() { return 'copilot'; },
 };
 const originalSend = router.runAnthropicSend;
-// What the replaced send answers (TR-8 makes it refuse); the handler's import() keeps this one function.
-let sendOutcome: (opts: Json) => Json = () => ({ target: 'anthropic', ok: false });
-(router as Json).runAnthropicSend = async (_ctx: unknown, prompt: string, opts: Json) => { sends.push({ prompt, ...opts }); return sendOutcome(opts); };
+// Not ok: Guide me's closing question (which waits for the user) is not asked.
+(router as Json).runAnthropicSend = async (_ctx: unknown, prompt: string, opts: Json) => { sends.push({ prompt, ...opts }); return { target: 'anthropic', ok: false }; };
+
+// The picks: each call recorded, answered by the next scripted answer (an item's value, by label start or index).
+const picks: Array<{ title: string; items: Array<TodoPickItem<unknown>> }> = [];
+let answers: Array<string | number | undefined> = [];
+__setTodoTargetPickForTests(async (items, title) => {
+    picks.push({ title, items: items as Array<TodoPickItem<unknown>> });
+    const a = answers.shift();
+    if (a === undefined) { return undefined; }
+    const item = typeof a === 'number' ? items[a] : items.find((i) => i.label === a || i.label.startsWith(a));
+    assert.ok(item, `an item "${a}" in ${title}: ${items.map((i) => i.label).join(' | ')}`);
+    return item!.value;
+});
 after(() => {
     (router as Json).runAnthropicSend = originalSend;
     (PromptQueueManager as Json)._inst = undefined;
+    __resetAnthropicSendsForTests();
     vscodeStub.restore();
     fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
@@ -121,101 +153,136 @@ function view(): { webview: Json; posted: Json[] } {
     const posted: Json[] = [];
     return { posted, webview: { postMessage: async (m: Json) => { posted.push(JSON.parse(JSON.stringify(m))); return true; } } };
 }
-const last = (posted: Json[], type: string): Json => [...posted].reverse().find((m) => m.type === type);
 const send = (webview: Json, msg: Json): Promise<boolean> => handleQuestTodoMessage({ questId: QUEST, ...msg }, webview);
+const labels = (i: number): string[] => picks[i].items.map((x) => x.label);
+const active = (i: number): string | undefined => picks[i].items.find((x) => x.active)?.label;
+const infos = (): string[] => vscodeStub.spies.byMethod('window.showInformationMessage').map((c) => String(c.args[0]));
+const warnings = (): string[] => vscodeStub.spies.byMethod('window.showWarningMessage').map((c) => String(c.args[0]));
+const inbox = (): Json[] => fs.readdirSync(path.join(WS, '_ai', 'queue')).filter((f) => f.endsWith('.inbox.queue.yaml')).sort()
+    .map((f) => parseYaml(fs.readFileSync(path.join(WS, '_ai', 'queue', f), 'utf8')));
+let tick = 0;
+const tpl = (): string => `t${++tick}`;
 
-describe('the todo panel\'s session and run', () => {
-    test('TR-1: the selection rules', () => {
-        assert.deepEqual(todoPanelSelection(undefined, undefined, ['default']), { session: TODO_PANEL_DEFAULT_SESSION, run: 'default', effectiveSession: 'chat', runFellBack: false });
-        assert.deepEqual(todoPanelSelection('work', 'r2', ['default', 'r2']), { session: 'work', run: 'r2', effectiveSession: 'work@r2', runFellBack: false });
-        assert.deepEqual(todoPanelSelection('work', 'gone', ['default']), { session: 'work', run: 'default', effectiveSession: 'work', runFellBack: true });
-        assert.equal(todoPanelSelection('chat', 'r2', ['default', 'r2']).effectiveSession, 'chat', 'the shared chat session is never renamed');
-    });
-
-    test('setup: a second run', async () => {
+describe('the todo panel\'s queue-target flow', () => {
+    test('setup: runs and sessions', async () => {
         await ProcessStateStore.ready;
-        // `default` refuses a process (vscimpb122); the window's `default` here holds one from before the migration.
-        assert.equal(store().apply({ process: 'design' }, 'user').ok, false);
         seedLegacyDefault(store(), WS, QUEST, { process: 'design' });
-        assert.equal(store().state.process, 'design');
         assert.equal(store().createRun('r2', 'design', 'user', false).ok, true);
-        assert.equal((store().withRun('r2', () => store().apply({ process: 'design', phase: 'p1', step: 'build' }, 'user')) as Json).ok, true);
+        ChatVariablesStore.instance.set('quest', QUEST, 'user');
+        for (const name of ['work', 'work@r2', 'busy@r2']) { assert.equal(createSession(sessionsFolder(QUEST), name, {}).ok, true, name); }
+        for (const name of ['other', 'other2']) { assert.equal(createSession(sessionsFolder('q2'), name, {}).ok, true, name); }
+        // A chat send runs in session chat.
+        assert.equal(tryBeginAnthropicSend('chat'), true);
     });
 
-    test('TR-2: the controls\' state, kept per window and quest', async () => {
-        const bar = view();
-        const other = view();
-        await send(bar.webview, { type: 'qtGetRunSession' });
-        await send(other.webview, { type: 'qtGetRunSession' });
-        let state = last(bar.posted, 'qtRunSession');
-        assert.deepEqual([state.session, state.effectiveSession, state.run], ['chat', 'chat', 'default']);
-        assert.deepEqual(state.runs.map((o: Json) => o.run), ['default', 'r2'], 'default first');
-        await send(bar.webview, { type: 'qtSetRun', run: 'r2' });
-        assert.equal(context.workspaceState.get(todoPanelRunKey(QUEST)), 'r2', 'kept in the workspace state');
-        assert.equal(last(other.posted, 'qtRunSession').run, 'r2', 'the other view hears it');
-        await context.workspaceState.update(todoPanelSessionKey(QUEST), 'work');
-        await send(bar.webview, { type: 'qtGetRunSession' });
-        state = last(bar.posted, 'qtRunSession');
-        assert.deepEqual([state.session, state.effectiveSession, state.run], ['work', 'work@r2', 'r2']);
-        await send(bar.webview, { type: 'qtSetRun', run: 'nope' });
-        assert.equal(last(bar.posted, 'qtRunSession').run, 'default', 'a run the quest does not have');
-        await send(bar.webview, { type: 'qtSetRun', run: 'r2' });
-    });
-
-    test('TR-3: Send, Queue and Guide me', async () => {
+    test('QF-1: quest → run → free session → next / end', async () => {
         const { webview } = view();
+        picks.length = 0;
         enqueued.length = 0;
-        sends.length = 0;
-        await send(webview, { type: 'qtTodoButton', target: 'queue', todoId: 'a1' });
-        await send(webview, { type: 'qtGuideUserAction', target: 'queue', todoId: 'u1' });
-        assert.deepEqual(enqueued.map((o) => [o.todoIdPattern, o.session, o.run, o.transport]), [['a1', 'work', 'r2', 'anthropic'], ['u1', 'work', 'r2', 'anthropic']]);
-        await new Promise((r) => setTimeout(r, 3100)); // past the 3 s double-click guard
-        await send(webview, { type: 'qtTodoButton', target: 'chat', todoId: 'a1' });
-        await send(webview, { type: 'qtGuideUserAction', target: 'chat', todoId: 'u1' });
-        assert.deepEqual(sends.map((o) => [o.session, o.run, /todo panel/.test(o.source)]), [['work@r2', 'r2', true], ['work@r2', 'r2', true]]);
-        assert.match(sends[0].userMessageTemplate, /^EXEC/);
-        assert.match(sends[1].userMessageTemplate, /^GUIDE/);
+        answers = ['q1', 'r2', 'work@r2', '$(arrow-up) Next'];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
+        assert.equal(picks.length, 4, 'four picks');
+        assert.match(picks[0].title, /1\/4 quest/);
+        assert.deepEqual(labels(0), ['q1', 'q2'], 'the quests with an open window, no Last yet');
+        assert.equal(active(0), 'q1', 'the window\'s quest preselected');
+        assert.match(picks[0].items[1].description ?? '', /inbox/);
+        assert.deepEqual(labels(1), ['default', 'r2'], 'the window\'s runs, default first');
+        assert.match(picks[1].items[0].description ?? '', /this window's run/);
+        assert.deepEqual(labels(2), ['work@r2', '$(list-ordered) Queue default', '$(add) New session…'], 'only the free sessions: chat (a chat send) and busy@r2 (a queue item) are not offered');
+        assert.deepEqual(labels(3), ['$(arrow-up) Next', '$(arrow-down) End of the queue']);
+        assert.equal(active(3), '$(arrow-down) End of the queue', 'end preselected');
+        assert.equal(enqueued.length, 1);
+        assert.deepEqual([enqueued[0].how, enqueued[0].run, enqueued[0].session, enqueued[0].todoIdPattern], ['next', 'r2', 'work@r2', 'a1'], 'next: the front of the queue');
+        assert.match(infos().at(-1)!, /Queued todo a1 — quest q1, run r2, session work@r2, next in the queue\./);
     });
 
-    test('TR-4: the bar', async () => {
+    test('QF-2: "Last: …" first, the last choices preselected', async () => {
         const { webview } = view();
+        picks.length = 0;
         enqueued.length = 0;
-        sends.length = 0;
-        await send(webview, { type: 'qtQueueStackedTodos', todos: [{ todoId: 'a1' }, { todoId: 'a2' }], template: '__none__' });
-        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: '__none__' });
-        assert.deepEqual(enqueued.map((o) => [o.todoIdPattern, o.session, o.run]), [['a1', 'work', 'r2'], ['a2', 'work', 'r2'], ['a2', 'work', 'r2']]);
-        // r2's queue default is Anthropic: the bar's Send goes there, in the panel's session, as its run.
-        await send(webview, { type: 'qtSendStackedTodos', todos: [{ todoId: 'a1' }, { todoId: 'a2' }], template: '__none__' });
-        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
-        assert.deepEqual(sends.map((o) => [o.session, o.run]), [['work@r2', 'r2'], ['work@r2', 'r2']]);
+        answers = ['$(history) Last:'];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+        assert.equal(picks.length, 1, 'one Enter');
+        assert.equal(picks[0].items[0].label, '$(history) Last: q1 / r2 / work@r2 / next');
+        assert.equal(active(0), '$(history) Last: q1 / r2 / work@r2 / next');
+        assert.deepEqual([enqueued[0].how, enqueued[0].run, enqueued[0].session], ['next', 'r2', 'work@r2']);
+        // Picking anew: the last run, session and position preselected; end this time.
+        picks.length = 0;
+        answers = ['q1', 'r2', 'work@r2', '$(arrow-down) End'];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+        assert.equal(active(1), 'r2');
+        assert.equal(active(2), 'work@r2');
+        assert.equal(active(3), '$(arrow-up) Next');
+        assert.equal(enqueued.at(-1).how, 'end');
+        assert.equal(enqueued.at(-1).deferSend, true, 'the end: staged, as before');
     });
 
-    test('TR-5: a run deleted elsewhere', async () => {
-        const { webview, posted } = view();
-        assert.equal(store().deleteRuns(['r2']).ok, true);
-        await send(webview, { type: 'qtGetRunSession' });
-        const state = last(posted, 'qtRunSession');
-        assert.deepEqual([state.run, state.effectiveSession], ['default', 'work']);
-        assert.equal(context.workspaceState.get(todoPanelRunKey(QUEST)), undefined, 'forgotten');
+    test('QF-3: Escape at any step', async () => {
+        const { webview } = view();
+        for (let step = 0; step < 4; step++) {
+            enqueued.length = 0;
+            answers = ['q1', 'r2', 'work@r2', '$(arrow-up) Next'].slice(0, step);
+            answers.push(undefined);
+            await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
+            assert.equal(enqueued.length, 0, `nothing queued at step ${step + 1}`);
+        }
     });
 
-    test('TR-6: a Send as another run', () => {
-        assert.equal(store().createRun('r3', 'design', 'user', false).ok, true);
-        assert.equal((store().withRun('r3', () => store().apply({ process: 'design', phase: 'p1', step: 'build' }, 'user')) as Json).ok, true);
-        const position = router.processRunFor('r3');
-        assert.equal(position?.run, 'r3');
-        assert.equal(position?.state.step, 'build', 'the run\'s position');
-        assert.equal(router.processRunFor('default'), undefined, 'the window\'s run: no context needed');
-        assert.equal(router.processRunFor(undefined), undefined);
-    });
-
-    test('TR-7: the group walk uses the panel\'s run and session', async () => {
-        assert.deepEqual(todoPanelQueueTarget(todoPanelSelection('work', 'r3', ['default', 'r3'])), { session: 'work', run: 'r3' });
-        assert.equal(todoPanelQueueTargetText(todoPanelSelection('work', 'r3', ['default', 'r3'])), 'in run r3, session work@r3');
+    test('QF-4: another quest, through its window\'s inbox', async () => {
+        const { webview } = view();
+        picks.length = 0;
+        enqueued.length = 0;
+        answers = ['q2', 'default', 'other', '$(arrow-down) End'];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
+        assert.deepEqual(labels(1), ['default', 'rq'], 'its runs from its window\'s run list');
+        assert.match(picks[1].items[0].description ?? '', /^busy — running: item z, 1 pending/);
+        assert.match(picks[1].items[1].description ?? '', /^paused/);
+        assert.deepEqual(labels(2), ['other', '$(list-ordered) Queue default', '$(add) New session…'], 'other2 is busy (its queue entry on disk), no chat session there');
+        assert.equal(enqueued.length, 0, 'not this window\'s queue');
+        let items = inbox();
+        assert.equal(items.length, 1);
+        assert.deepEqual([items[0].run, items[0].session, items[0]['todo-id-pattern'], items[0].position, items[0].from.quest], ['default', 'other', 'a1', undefined, 'q1']);
+        assert.match(infos().at(-1)!, /quest q2, run default, session other, at the end of the queue \(through its window's inbox\)\./);
+        // A new session there: a fresh one, by name; next.
         const win = vscodeStub.stub.window as Json;
-        const original = { createQuickPick: win.createQuickPick, info: win.showInformationMessage };
-        const infos: string[] = [];
-        // The picker takes its first choice, the default group prompt.
+        const input = win.showInputBox;
+        win.showInputBox = async () => 'fresh';
+        try {
+            answers = ['q2', 'rq', '$(add) New session', '$(arrow-up) Next'];
+            await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+        } finally { win.showInputBox = input; }
+        items = inbox();
+        const fresh = items.find((i) => i['new-session']);
+        assert.deepEqual([fresh.run, fresh['new-session'], fresh.position, fresh.session], ['rq', { name: 'fresh@rq' }, 'next', undefined]);
+        // The last target keeps the session by name (it exists once the item ran).
+        answers = [undefined];
+        picks.length = 0;
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+        assert.equal(picks[0].items[0].label, '$(history) Last: q2 / rq / fresh@rq / next');
+    });
+
+    test('QF-5: TODO / GROUP items, the walk, the stack', async () => {
+        const { webview } = view();
+        enqueued.length = 0;
+        answers = ['q1', 'default', '$(list-ordered) Queue default', '$(arrow-down) End'];
+        await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'a1' });
+        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].run, enqueued[0].session, enqueued[0].template], ['a1', 'anthropic', 'default', undefined, 'execute-todo'], 'the queue default: no session named');
+        // A TODO item walks its own quest's todos: into another quest it is refused.
+        enqueued.length = 0;
+        const before = inbox().length;
+        answers = ['q2', 'default', 'other', '$(arrow-down) End'];
+        await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'a2' });
+        assert.equal(enqueued.length + inbox().length - before, 0);
+        assert.match(warnings().at(-1)!, /walks the todos of quest q1: queue it into q1, not q2/);
+        // The todo's own quest is the default when it has a window (a list of several quests).
+        picks.length = 0;
+        answers = [undefined];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', questId: '__all_quests__', todoId: 'z1', sourceFile: 'q2/todos.q2.todo.yaml', template: tpl() });
+        assert.match(picks[0].items.find((i) => i.label === 'q2')!.description!, /default/, 'q2 (the todo\'s quest) is the default');
+        assert.deepEqual(labels(0).slice(1), ['q2', 'q1'], 'after Last: the default first');
+        // The walk (its group prompt picker takes the first prompt).
+        const win = vscodeStub.stub.window as Json;
+        const original = win.createQuickPick;
         win.createQuickPick = () => {
             const handlers: Record<string, (x?: unknown) => void> = {};
             const qp: Json = {
@@ -227,50 +294,75 @@ describe('the todo panel\'s session and run', () => {
             };
             return qp;
         };
-        win.showInformationMessage = (m: string) => { infos.push(m); return Promise.resolve(undefined); };
         try {
-            ChatVariablesStore.instance.set('quest', QUEST, 'user');
-            const { webview } = view();
-            await send(webview, { type: 'qtSetRun', run: 'r3' });
             enqueued.length = 0;
+            answers = ['q1', 'r2', 'work@r2', '$(arrow-down) End'];
             await send(webview, { type: 'qtQueueGroupPrompt', prefix: 'a' });
-            assert.deepEqual(enqueued.map((o) => [o.repeatCount, o.session, o.run]), [['a*', 'work', 'r3']]);
-            assert.match(infos.at(-1)!, /^Queued a walk over a\* with "Default" in run r3, session work@r3\.$/);
-            // The panel's default: the chat session, run default.
-            await context.workspaceState.update(todoPanelSessionKey(QUEST), undefined);
-            await send(webview, { type: 'qtSetRun', run: 'default' });
-            await send(webview, { type: 'qtQueueGroupPrompt', prefix: 'u' });
-            assert.deepEqual(enqueued.slice(1).map((o) => [o.repeatCount, o.session, o.run]), [['u*', 'chat', 'default']]);
-            assert.match(infos.at(-1)!, /in run default, session chat\.$/);
-            // Every queue action of the panel takes the target from one place.
-            const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
-            assert.equal((host.match(/\.\.\.todoPanelQueueTarget\(sel\)/g) ?? []).length, 6, 'add-to-queue, stacked, Queue / Guide me (and again), the walk (and again)');
-            assert.doesNotMatch(host, /session: sel\.session,/);
-        } finally {
-            win.createQuickPick = original.createQuickPick;
-            win.showInformationMessage = original.info;
-        }
+            assert.deepEqual([enqueued[0].repeatCount, enqueued[0].run, enqueued[0].session], ['a*', 'r2', 'work@r2']);
+            assert.match(infos().at(-1)!, /Queued a walk over a\* with "Default" — quest q1, run r2, session work@r2, at the end of the queue\./);
+        } finally { win.createQuickPick = original; }
+        // The stack: one target for all.
+        enqueued.length = 0;
+        picks.length = 0;
+        answers = ['$(history) Last:'];
+        await send(webview, { type: 'qtQueueStackedTodos', todos: [{ todoId: 'a1' }, { todoId: 'u1' }], template: '__none__' });
+        assert.equal(picks.length, 1);
+        assert.deepEqual(enqueued.map((o) => [o.todoIdPattern, o.run, o.session]), [['a1', 'r2', 'work@r2'], ['u1', 'r2', 'work@r2']]);
+        // Guide me's queue path and a todo's Queue button: the flow too.
+        enqueued.length = 0;
+        answers = ['$(history) Last:'];
+        await send(webview, { type: 'qtTodoButton', target: 'queue', todoId: 'a2' });
+        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].template, enqueued[0].transport, enqueued[0].run], ['a2', 'execute-todo', 'anthropic', 'r2']);
     });
 
-    test('TR-8: a busy session is named', async () => {
-        const shown = vscodeStub.spies.byMethod('window.showWarningMessage').length;
-        sendOutcome = (opts) => ({ target: 'anthropic', ok: false, rejected: true, busySession: opts.session, error: 'busy' });
-        try {
-            await context.workspaceState.update(todoPanelSessionKey(QUEST), 'work');
-            const { webview } = view();
-            await send(webview, { type: 'qtSetRun', run: 'r3' });
-            runDefaults.r3 = { defaultTransport: 'anthropic' };
-            await new Promise((r) => setTimeout(r, 3100)); // past the 3 s double-click guard
-            await send(webview, { type: 'qtTodoButton', target: 'chat', todoId: 'a2' });
-            await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
-            const warnings = vscodeStub.spies.byMethod('window.showWarningMessage').slice(shown).map((c) => String(c.args[0]));
-            assert.equal(warnings.length, 2, warnings.join(' | '));
-            for (const w of warnings) {
-                assert.match(w, /^Session work@r3 is busy/);
-                assert.doesNotMatch(w, /Anthropic chat/);
-            }
-        } finally {
-            sendOutcome = () => ({ target: 'anthropic', ok: false });
-        }
+    test('QF-6: direct sends ask for a free session', async () => {
+        const { webview } = view();
+        picks.length = 0;
+        sends.length = 0;
+        await new Promise((r) => setTimeout(r, 3100)); // past the 3 s double-click guard
+        answers = ['work@r2'];
+        await send(webview, { type: 'qtTodoButton', target: 'chat', todoId: 'a1' });
+        assert.equal(picks.length, 1, 'only the session');
+        assert.deepEqual(labels(0), ['work', 'work@r2'], 'the free sessions of the window\'s runs: not chat (a chat send), not busy@r2');
+        assert.deepEqual(picks[0].items.map((i) => i.description), ['run default · free', 'run r2 · free']);
+        assert.deepEqual([sends[0].session, sends[0].run, /todo panel/.test(sends[0].source)], ['work@r2', 'r2', true]);
+        assert.match(sends[0].userMessageTemplate, /^EXEC/);
+        // Guide me's send: "Last: …" first.
+        picks.length = 0;
+        answers = ['$(history) Last:'];
+        await send(webview, { type: 'qtGuideUserAction', target: 'chat', todoId: 'u1' });
+        assert.equal(picks[0].items[0].label, '$(history) Last: work@r2 — run r2');
+        assert.deepEqual([sends[1].session, sends[1].run], ['work@r2', 'r2']);
+        assert.match(sends[1].userMessageTemplate, /^GUIDE/);
+        // The bar's Send (this window's run's transport: Anthropic): the same pick.
+        answers = ['work'];
+        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a2', template: '__none__' });
+        assert.deepEqual([sends[2].session, sends[2].run], ['work', 'default']);
+        // Escape: nothing sent.
+        answers = [undefined];
+        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
+        assert.equal(sends.length, 3);
+    });
+
+    test('QF-7: no run and no session in the panel', async () => {
+        const { webview, posted } = view();
+        await send(webview, { type: 'qtGetDoneNotification' });
+        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification'), [{ type: 'qtDoneNotification', on: true }]);
+        await send(webview, { type: 'qtSetDoneNotification', on: false });
+        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification').at(-1), { type: 'qtDoneNotification', on: false });
+        await send(webview, { type: 'qtSetDoneNotification', on: true });
+        assert.equal(posted.some((m) => m.type === 'qtRunSession'), false);
+        const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
+        assert.doesNotMatch(host, /case 'qtPickSession'|case 'qtSetRun'|case 'qtGetRunSession'|todoPanelSelectionNow|todoPanelQueueTarget/);
+    });
+
+    test('QF-8: a Send as another run', () => {
+        assert.equal(store().createRun('r3', 'design', 'user', false).ok, true);
+        assert.equal((store().withRun('r3', () => store().apply({ process: 'design', phase: 'p1', step: 'build' }, 'user')) as Json).ok, true);
+        const position = router.processRunFor('r3');
+        assert.equal(position?.run, 'r3');
+        assert.equal(position?.state.step, 'build', 'the run\'s position');
+        assert.equal(router.processRunFor('default'), undefined, 'the window\'s run: no context needed');
+        assert.equal(router.processRunFor(undefined), undefined);
     });
 });

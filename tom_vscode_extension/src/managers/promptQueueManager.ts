@@ -5742,12 +5742,16 @@ export class PromptQueueManager {
             if (made.ok) { created = c.name; } else { error = made.error; }
         }
         // An item another quest sends is deliberate: it is queued even when its todos already are.
-        const withoutSession = { ...conversion.enqueue, session: undefined, temporarySession: undefined, allowDuplicateTodo: true };
+        // `queueNext` (the todo panel's "next", vscimpb139): at the front of its run's queue.
+        const { queueNext, ...asQueued } = conversion.enqueue;
+        const withoutSession = { ...asQueued, session: undefined, temporarySession: undefined, allowDuplicateTodo: true };
         let item: QueuedPrompt;
         try {
-            item = await this.enqueue(error
-                ? { ...withoutSession, initialStatus: 'staged', deferSend: true }
-                : { ...conversion.enqueue, initialStatus: 'pending', allowDuplicateTodo: true });
+            item = error
+                ? await this.enqueue({ ...withoutSession, initialStatus: 'staged', deferSend: true })
+                : queueNext
+                    ? await this.enqueueNext({ ...asQueued, allowDuplicateTodo: true })
+                    : await this.enqueue({ ...asQueued, initialStatus: 'pending', allowDuplicateTodo: true });
         } catch (refused) {
             // The item's profile cannot continue the session's conversation (sessionRefusal).
             error = (refused as Error).message;

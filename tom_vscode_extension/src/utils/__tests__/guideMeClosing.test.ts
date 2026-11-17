@@ -52,9 +52,9 @@ describe('Guide me: what now with the todo', () => {
 
     test('GM-3: wiring', () => {
         const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
-        assert.match(src, /\} else if \(outcome\.ok && use === 'userAction' && questId\) \{\s*await _guideMeClosing\(todo\.id, questId, sourceFile\);/);
+        assert.match(src, /\} else if \(outcome\.ok && use === 'userAction' && questId\) \{\s*await _guideMeClosing\(todo\.id, questId, sourceFile, instance\);/);
         assert.match(src, /const queueTpl = resolveTodoButtonTemplate\(anthropic\?\.todoButtonTemplates, anthropic\?\.userMessageTemplates, 'other'\);/);
-        assert.match(src, /await _queueTodo\(todo, questId, sourceFile, queueTpl\);/);
+        assert.match(src, /await _queueTodo\(todo, questId, sourceFile, queueTpl, instance\);/);
         assert.match(src, /\{ status: 'completed', completed_date: todayLocalDate\(\), \.\.\.noted \}/);
         assert.match(src, /const note = pick\.kind === 'note' \? pick\.text : pick\.note;/, 'the words beside a choice go into the notes too');
     });

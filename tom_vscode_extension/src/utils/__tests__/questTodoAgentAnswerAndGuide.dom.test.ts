@@ -111,8 +111,8 @@ describe('todo detail: agent answer and guide me', () => {
         const guide = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
         assert.match(guide, /const use = msg\.type === 'qtGuideUserAction' \? 'userAction' : todoButtonTemplateUse\(todo\)/, 'Guide me: the user-action template setting');
         const run = host.slice(host.indexOf('async function _runTodoButton('));
-        assert.match(run, /template: tpl\.id,\s*transport: 'anthropic',\s*deferSend: true/, 'queued staged on Anthropic');
-        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}`, session: sel\.effectiveSession, run: sel\.run,/, 'sent with the template, in the panel\'s session and run (vscimpb60d)');
+        assert.match(host.slice(host.indexOf('async function _queueTodo(')), /template: tpl\.id,\s*transport: 'anthropic',/, 'queued on Anthropic, where the queue-target flow says (vscimpb139)');
+        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}`, session: sendTarget\.session, run: sendTarget\.run,/, 'sent with the template, in the free session picked (vscimpb139)');
         assert.match(run, /onChatItem: \(chatItemId\) => \{ void _markChatTodoNotification\(chatItemId, \[todo\.id\]\); \}/, 'its todo done notification (ww_a_collab-6)');
     });
 });

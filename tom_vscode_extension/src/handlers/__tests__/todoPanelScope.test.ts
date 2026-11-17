@@ -180,7 +180,7 @@ describe('the todo panel across quests', () => {
     test('SC-5: a changed todo file', () => {
         const { webview, posted } = view(SIDEBAR);
         sendQuestTodoRefresh(webview as Json);
-        assert.deepEqual(posted.filter((m) => m.type !== 'qtRunSession'), [{ type: 'qtRefreshRequest' }]);
+        assert.deepEqual(posted, [{ type: 'qtRefreshRequest' }]);
     });
 
     test('SC-6: views without a scope', async () => {

@@ -111,11 +111,12 @@ describe('todo detail: Send and Queue buttons', () => {
         const host = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         const cases = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
         assert.match(cases, /case 'qtGuideUserAction':\s*case 'qtTodoButton':/);
-        assert.match(cases, /_runTodoButton\(todo, questId, msg\.sourceFile, use, msg\.target === 'queue' \? 'queue' : 'chat'\)/);
+        assert.match(cases, /_runTodoButton\(todo, questId, msg\.sourceFile, use, msg\.target === 'queue' \? 'queue' : 'chat', instance\)/);
         const run = host.slice(host.indexOf('async function _runTodoButton('), host.indexOf('async function _runTodoButton(') + 3400);
         assert.match(run, /resolveTodoButtonTemplate\(anthropic\?\.todoButtonTemplates, anthropic\?\.userMessageTemplates, use\)/);
         assert.match(run, /if \(tpl\.missing \|\| !tpl\.body\) \{\s*vscode\.window\.showWarningMessage[\s\S]{0,300}return;/, 'a missing template warns');
-        assert.match(run, /todoIdPattern: todo\.id,\s*template: tpl\.id,\s*transport: 'anthropic',\s*deferSend: true/);
+        // Queue: where the queue-target flow says (vscimpb139), on Anthropic with the button's template.
+        assert.match(host.slice(host.indexOf('async function _queueTodo(')), /queueTodoEntriesWithFlow\([\s\S]{0,400}template: tpl\.id,\s*transport: 'anthropic',\s*todoIdPattern: todo\.id,/);
         assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body/);
         assert.doesNotMatch(run, /_queueSendTarget/, 'never the queue\'s transport');
     });

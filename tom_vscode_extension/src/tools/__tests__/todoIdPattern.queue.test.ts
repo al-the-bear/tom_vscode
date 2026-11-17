@@ -55,7 +55,9 @@ import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
-import { handleQuestTodoMessage } from '../../handlers/questTodoPanel-handler.js';
+import { __setTodoTargetPickForTests, handleQuestTodoMessage } from '../../handlers/questTodoPanel-handler.js';
+// The queue-target flow (vscimpb139): every pick takes its preselected item (the window's quest, its run, the first free session, the end).
+__setTodoTargetPickForTests(async (items) => (items.find((i) => i.active) ?? items[0])?.value);
 import { ADD_TO_PROMPT_QUEUE_TOOL, QUEUE_LIST_TOOL } from '../chat-enhancement-tools.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];

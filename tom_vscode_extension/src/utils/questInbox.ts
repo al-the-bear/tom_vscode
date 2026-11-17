@@ -52,7 +52,8 @@ export interface InboxSender {
 
 /** A new session in the target quest, based on one it has. */
 export interface InboxNewSession {
-    basedOn: string;
+    /** The session it starts from; unset: a fresh session (the todo panel's "New session…", vscimpb139). */
+    basedOn?: string;
     /** Unset: a temporary session, deleted once the item and its notification are done. */
     name?: string;
     lifetime?: SessionMode;
@@ -82,6 +83,10 @@ export interface InboxItem {
     todoIdPattern?: string;
     /** The item is a done notification of an item in the sender's quest (its id there). */
     notificationOf?: string;
+    /** `next`: queued at the front of its run's queue (enqueueNext); unset: at the end (vscimpb139). */
+    position?: 'next';
+    /** The transport the item runs on; unset: the target queue's default. */
+    transport?: 'anthropic';
     from: InboxSender;
 }
 
@@ -143,11 +148,13 @@ export function serializeInboxItem(item: InboxItem): string {
     if (item.anthropicProfileId) { doc['anthropic-profile-id'] = item.anthropicProfileId; }
     if (item.doneNotificationPrompt) { doc['done-notification-prompt'] = item.doneNotificationPrompt; }
     if (item.pauseAfter) { doc['pause-after'] = true; }
+    if (item.position === 'next') { doc.position = 'next'; }
+    if (item.transport) { doc.transport = item.transport; }
     if (item.session) { doc.session = item.session; }
     if (item.newSession) {
         const n = item.newSession;
         doc['new-session'] = {
-            'based-on': n.basedOn,
+            ...(n.basedOn ? { 'based-on': n.basedOn } : {}),
             ...(n.name ? { name: n.name } : {}),
             ...(n.lifetime ? { lifetime: n.lifetime } : {}),
             ...(n.profile ? { profile: n.profile } : {}),
@@ -186,6 +193,8 @@ export function parseInboxItem(content: string): ParsedInboxItem {
     if (str(r['anthropic-profile-id'])) { item.anthropicProfileId = str(r['anthropic-profile-id']); }
     if (str(r['done-notification-prompt'])) { item.doneNotificationPrompt = str(r['done-notification-prompt']); }
     if (r['pause-after'] === true) { item.pauseAfter = true; }
+    if (r.position === 'next') { item.position = 'next'; }
+    if (r.transport === 'anthropic') { item.transport = 'anthropic'; }
     if (r.session !== undefined) {
         const session = str(r.session);
         if (!session || !isValidSessionName(session)) { return { ok: false, error: `"${String(r.session)}" is not a session name` }; }
@@ -195,11 +204,12 @@ export function parseInboxItem(content: string): ParsedInboxItem {
         if (item.session) { return { ok: false, error: 'the item names both a session and a new session' }; }
         const n = (r['new-session'] && typeof r['new-session'] === 'object' ? r['new-session'] : {}) as Record<string, unknown>;
         const basedOn = str(n['based-on']);
-        if (!basedOn) { return { ok: false, error: 'a new session needs the session it is based on' }; }
+        // Without a base: a fresh session (it needs a name then: a temporary one is always based on one).
+        if (!basedOn && !str(n.name)) { return { ok: false, error: 'a new session needs the session it is based on, or a name' }; }
         const lifetime = n.lifetime === undefined ? undefined : normalizeSessionMode(n.lifetime);
         if (n.lifetime !== undefined && !lifetime) { return { ok: false, error: `"${String(n.lifetime)}" is not a session lifetime` }; }
         item.newSession = {
-            basedOn,
+            ...(basedOn ? { basedOn } : {}),
             ...(str(n.name) ? { name: str(n.name) } : {}),
             ...(lifetime ? { lifetime } : {}),
             ...(str(n.profile) ? { profile: str(n.profile) } : {}),
@@ -289,7 +299,8 @@ export interface InboxConversionContext {
 /** How the target window creates the item's new session before queuing it. */
 export interface InboxSessionToCreate {
     name: string;
-    basedOn: string;
+    /** Unset: a fresh session. */
+    basedOn?: string;
     mode: SessionMode;
     /** Unset: the base's (createSession inherits it). */
     profile?: string;
@@ -316,6 +327,8 @@ export interface InboxConversion {
         notificationOf?: string;
         from: InboxSender;
         temporarySession?: boolean;
+        /** Queued at the front of its run's queue (the item's `position: next`). */
+        queueNext?: true;
     };
     createSession?: InboxSessionToCreate;
     /** Why the item cannot run: it is queued as an error, so its done-notification still tells the sender. */
@@ -350,6 +363,8 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
         ...(item.repeatCount !== undefined ? { repeatCount: item.repeatCount } : {}),
         ...(item.todoIdPattern ? { todoIdPattern: item.todoIdPattern } : {}),
         ...(item.notificationOf ? { notificationOf: item.notificationOf } : {}),
+        ...(item.position === 'next' ? { queueNext: true as const } : {}),
+        ...(item.transport ? { transport: item.transport } : {}),
         from: item.from,
     };
     if (item.run && ctx.runExists && !ctx.runExists(item.run)) {
@@ -368,8 +383,9 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
     }
     const n = item.newSession;
     if (!n) { return { enqueue }; }
-    const base = ctx.readSession(n.basedOn);
-    if (!base) { return { enqueue, error: `This quest has no session "${n.basedOn}" to base the new session on.` }; }
+    const base = n.basedOn ? ctx.readSession(n.basedOn) : undefined;
+    if (n.basedOn && !base) { return { enqueue, error: `This quest has no session "${n.basedOn}" to base the new session on.` }; }
+    if (!n.basedOn && !n.name) { return { enqueue, error: 'A new session without a base needs a name.' }; }
     if (n.profile && !ctx.profileExists(n.profile)) {
         return { enqueue, error: `There is no Anthropic profile "${n.profile}" in this workspace.` };
     }
@@ -378,9 +394,9 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
     if (!isValidSessionName(name)) { return { enqueue, error: `"${name}" is not a session name.` }; }
     if (ctx.readSession(name)) { return { enqueue, error: `The session "${name}" already exists.` }; }
     // The profile: the one given, else the base's (inherited), else the item's own.
-    const profile = n.profile ?? (base.profileId ? undefined : item.anthropicProfileId);
+    const profile = n.profile ?? (base?.profileId ? undefined : item.anthropicProfileId);
     return {
         enqueue: { ...enqueue, session: name, ...(temporary ? { temporarySession: true } : {}) },
-        createSession: { name, basedOn: n.basedOn, mode: n.lifetime ?? 'continue', ...(profile ? { profile } : {}), temporary },
+        createSession: { name, ...(n.basedOn ? { basedOn: n.basedOn } : {}), mode: n.lifetime ?? 'continue', ...(profile ? { profile } : {}), temporary },
     };
 }

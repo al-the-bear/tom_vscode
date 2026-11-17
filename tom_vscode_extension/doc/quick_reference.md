@@ -68,7 +68,14 @@
 ## Quest TODO Panel — top bar
 
 - Quest scope button (one quest / the open windows' quests / all quests with checkboxes; kept per view), file toggles (live, archived, deleted — archived and deleted read-only with ↩️ Restore), order with several quests (groups of all quests / by quest then groups / by quest then list), quest prefix toggle (on by default with several quests)
-- Right end: session button and Run select, **Done notification** toggle (bell, pressed = on, kept per quest), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue, Send
+- Right end: **Done notification** toggle (bell, pressed = on, kept per quest), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue, Send
+
+## Quest TODO Panel — where a todo goes
+
+- Every queue button asks: quest (an open window's; default the window's, or the todo's own) → run (with its state: busy / paused / idle) → a free session, the queue default or a new session → Next or End of the queue
+- After the first use: **Last: <quest> / <run> / <session> / <next|end>** first (one Enter); the later picks preselect the last choices; kept per panel; Escape cancels
+- Another quest: through its window's inbox, with run, session and position; TODO items and walks only into their own quest
+- Send / Guide me's send: pick a free session of this window's runs (its own **Last: …**)
 
 ## Quest TODO Panel — prefix groups
 

@@ -3,7 +3,7 @@
  * picker, and no Open Trail button — in a JSDOM running the real script.
  *
  *   TB-1 Done notification is an icon toggle: aria-pressed, pressed by default; a click turns it off and posts
- *        qtSetDoneNotification {on: false}, a second click on; the host's qtRunSession sets it; the tooltip names
+ *        qtSetDoneNotification {on: false}, a second click on; the host's qtDoneNotification sets it; the tooltip names
  *        what it does and its state
  *   TB-2 the template button shows only the selected template's name, at most 20 characters (cut with an ellipsis),
  *        the full name in its tooltip; no "Template:" label, no visible dropdown
@@ -61,7 +61,7 @@ describe('todo panel top bar', () => {
         assert.deepEqual(posted.filter((m) => m.type === 'qtSetDoneNotification').pop(), { type: 'qtSetDoneNotification', on: false });
         btn.click();
         assert.deepEqual(posted.filter((m) => m.type === 'qtSetDoneNotification').pop(), { type: 'qtSetDoneNotification', on: true });
-        w.qtHandleMessage({ type: 'qtRunSession', session: 'chat', run: 'default', windowRun: 'default', runs: [], doneNotification: false });
+        w.qtHandleMessage({ type: 'qtDoneNotification', on: false });
         assert.equal(btn.getAttribute('aria-pressed'), 'false', 'the host\'s stored setting');
         assert.ok(btn.querySelector('.codicon-bell-slash'));
         assert.equal(w.document.querySelector('#qt-done-notification + label, label.qt-done-notification'), null, 'no checkbox label');

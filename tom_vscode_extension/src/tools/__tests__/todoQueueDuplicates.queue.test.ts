@@ -141,8 +141,9 @@ describe('one todo, one waiting queue item', () => {
         assert.equal(three.ok, true, JSON.stringify(three));
         assert.match(JSON.stringify(ADD_TO_PROMPT_QUEUE_TOOL.inputSchema), /"allowDuplicateTodo":\{"type":"boolean"/);
         const manager = fs.readFileSync(path.join(EXT_ROOT, 'src', 'managers', 'promptQueueManager.ts'), 'utf8');
-        assert.match(manager, /const withoutSession = \{ \.\.\.conversion\.enqueue, session: undefined, temporarySession: undefined, allowDuplicateTodo: true \};/);
-        assert.match(manager, /: \{ \.\.\.conversion\.enqueue, initialStatus: 'pending', allowDuplicateTodo: true \}\);/);
+        assert.match(manager, /const withoutSession = \{ \.\.\.asQueued, session: undefined, temporarySession: undefined, allowDuplicateTodo: true \};/);
+        // An inbox item is queued even when its todos are: at the end, or next (the todo panel's position, vscimpb139).
+        assert.match(manager, /\? await this\.enqueueNext\(\{ \.\.\.asQueued, allowDuplicateTodo: true \}\)\s*: await this\.enqueue\(\{ \.\.\.asQueued, initialStatus: 'pending', allowDuplicateTodo: true \}\);/);
         clear();
     });
 });

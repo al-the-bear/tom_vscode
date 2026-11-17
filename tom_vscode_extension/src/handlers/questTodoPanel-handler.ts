@@ -31,7 +31,12 @@ import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
-import { todoGroupQueueRequest, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelQueueTarget, todoPanelQueueTargetText, todoPanelRunKey, todoPanelRunSessionMessage, todoPanelSelection, todoPanelSessionKey, type TodoPanelSelection } from '../utils/todoPanelRunSession';
+import { storedQueueTarget, storedSendTarget, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey } from '../utils/todoPanelRunSession';
+import { busySessionsOfEntries, defaultTargetQuest, positionPickItems, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
+import { runSessionName } from '../utils/runSessions';
+import { isAnthropicSendInFlight } from './sendToChatState.js';
+import type { RunActivityEntry } from '../utils/runActivity';
+import type { InboxItem } from '../utils/questInbox';
 import { todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { busySessionWarning } from './sendToChatState.js';
@@ -55,7 +60,6 @@ import { readGroupPrompts } from '../services/groupPromptStore';
 import { composeGroupPrompt, effectiveGroupDefault, groupPromptChoices, type GroupPromptChoice } from '../utils/groupPrompts';
 import { TODO_ITEM_TEXT, isGroupTodo, todoQueueItemSpec } from '../utils/todoQueueItems';
 import { showMultilineInput } from './textInput-handler';
-import { ChatVariablesStore } from '../managers/chatVariablesStore';
 
 // Module-level state
 let _extensionContext: vscode.ExtensionContext | undefined;
@@ -223,14 +227,13 @@ export function setQuestTodoContext(ctx: vscode.ExtensionContext): void {
     _extensionContext = ctx;
 }
 
-// ---- The panel's session and run (vscimpb60d, utils/todoPanelRunSession.ts) ----
+// ---- The queue-target flow (vscimpb139, utils/todoQueueTarget.ts) ----
 
-/** The views showing the session and run controls (both quest todo views; one selection for all). */
-const _runSessionViews = new Set<vscode.Webview>();
-let _runSessionRunsListener: { dispose(): void } | undefined;
+/** The views showing the Done notification toggle (every todo panel; one setting per quest). */
+const _doneNotificationViews = new Set<vscode.Webview>();
 
-/** The active quest's runs and the window's run; `default` alone without a process store. */
-function _todoPanelRuns(): { runs: string[]; windowRun: string } {
+/** The window's runs and its own run; `default` alone without a process store. */
+function _windowRuns(): { runs: string[]; windowRun: string } {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
@@ -239,13 +242,317 @@ function _todoPanelRuns(): { runs: string[]; windowRun: string } {
     return { runs: ['default'], windowRun: 'default' };
 }
 
-/** The panel's session and run in the active quest (a run deleted elsewhere: `default`, and forgotten). */
-export function todoPanelSelectionNow(): TodoPanelSelection {
-    const quest = WsPaths.getWorkspaceQuestId();
+/** How a pick of the flow is shown: a QuickPick with the active item preselected. A test may stand in. */
+type TodoTargetPick = <T>(items: TodoPickItem<T>[], title: string, placeholder: string) => Promise<T | undefined>;
+
+let _pickTargetItem: TodoTargetPick = <T>(items: TodoPickItem<T>[], title: string, placeholder: string): Promise<T | undefined> => {
+    type Item = vscode.QuickPickItem & { value?: T };
+    const qp = vscode.window.createQuickPick<Item>();
+    qp.title = title;
+    qp.placeholder = placeholder;
+    const qpItems: Item[] = items.map((i) => (i.separator
+        ? { label: i.label, kind: vscode.QuickPickItemKind.Separator }
+        : { label: i.label, description: i.description, detail: i.detail, value: i.value }));
+    qp.items = qpItems;
+    const active = items.findIndex((i) => i.active);
+    if (active >= 0) { qp.activeItems = [qpItems[active]]; }
+    return new Promise((resolve) => {
+        let accepted = false;
+        qp.onDidAccept(() => {
+            const chosen = qp.selectedItems[0] ?? qp.activeItems[0];
+            accepted = true;
+            qp.hide();
+            resolve(chosen?.value);
+        });
+        qp.onDidHide(() => { qp.dispose(); if (!accepted) { resolve(undefined); } });
+        qp.show();
+    });
+};
+
+/** Test seam: how a pick of the flow is answered. */
+export function __setTodoTargetPickForTests(fn: TodoTargetPick): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam
+    _pickTargetItem = fn;
+}
+
+/** The quests with an open window on this machine, this window's first. */
+function _openQuestsNow(): string[] {
+    const own = _windowQuest();
+    return [...new Set([...(own ? [own] : []), ..._openWindowQuests()])];
+}
+
+/** A quest's runs with their states, from its windows' run lists (vscimpb123); this window's from its process store too. */
+function _runChoicesOf(quest: string): TodoRunChoice[] {
+    const byRun = new Map<string, TodoRunChoice>();
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const ws = require('./windowStatusPanel-handler.js') as typeof import('./windowStatusPanel-handler');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const hb = require('../utils/windowHeartbeat.js') as typeof import('../utils/windowHeartbeat');
+        const now = Date.now();
+        for (const state of ws.loadAllWindowStates()) {
+            if (state.activeQuest !== quest || !hb.isWindowAlive(state, now)) { continue; }
+            for (const r of ((state as unknown as { runs?: RunActivityEntry[] }).runs ?? [])) {
+                if (!byRun.has(r.run)) { byRun.set(r.run, { run: r.run, state: r.state, detail: r.detail, pending: r.pending }); }
+            }
+        }
+    } catch { /* no window states */ }
+    if (quest === _windowQuest()) {
+        const { runs, windowRun } = _windowRuns();
+        for (const run of runs) { if (!byRun.has(run)) { byRun.set(run, { run }); } }
+        const current = byRun.get(windowRun);
+        if (current) { current.current = true; }
+    }
+    if (!byRun.has('default')) { byRun.set('default', { run: 'default' }); }
+    return [...byRun.values()];
+}
+
+/** The quest's session names (its sessions folder). */
+function _sessionNamesOf(quest: string): string[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TwoTierMemoryService } = require('../services/memory-service.js') as typeof import('../services/memory-service');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { listSessions } = require('../services/agentSdkSessionStore.js') as typeof import('../services/agentSdkSessionStore');
+        return listSessions(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest)).map((r) => r.name);
+    } catch {
+        return [];
+    }
+}
+
+/** A quest name as a literal inside a regular expression. */
+function _regexLiteral(text: string): string {
+    return text.split('').map((c) => ('.*+?^${}()|[]\\'.includes(c) ? `\\${c}` : c)).join('');
+}
+
+/**
+ * Whether a session of `quest` is busy: in this window's quest, a queue item or a chat send runs in it
+ * (vscimpb135's per-session slot); in another quest, its queue entries on disk say an item sends in it.
+ */
+function _busyTest(quest: string): (session: string) => boolean {
+    if (quest === _windowQuest()) {
+        let holder: ((s: string) => boolean) = () => false;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const qm = (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance;
+            if (typeof qm.sessionHolder === 'function') { holder = (s) => !!qm.sessionHolder(s); }
+        } catch { /* no queue */ }
+        return (s) => isAnthropicSendInFlight(s) || holder(s);
+    }
+    const entries: Array<{ status?: string; session?: string; run?: string }> = [];
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const store = require('../storage/queueFileStorage.js') as typeof import('../storage/queueFileStorage');
+        const folder = store.getQueueFolder();
+        if (folder && fs.existsSync(folder)) {
+            const pattern = new RegExp(`_${_regexLiteral(quest)}\\.[a-z]+\\.entry\\.queue\\.yaml$`);
+            for (const f of fs.readdirSync(folder)) {
+                if (!pattern.test(f)) { continue; }
+                const entry = store.readEntry(path.join(folder, f));
+                const meta = entry?.doc.meta as unknown as Record<string, unknown> | undefined;
+                if (!entry || (meta?.quest && meta.quest !== quest)) { continue; }
+                const main = (entry.doc['prompt-queue'] as unknown as Array<Record<string, unknown>>).find((p) => p.type === 'main') ?? {};
+                entries.push({ status: String(meta?.status ?? ''), session: typeof main.session === 'string' ? main.session : undefined, run: typeof main.run === 'string' ? main.run : undefined });
+            }
+        }
+    } catch { /* no queue folder */ }
+    const busy = busySessionsOfEntries(entries);
+    return (s) => busy.has(s);
+}
+
+/**
+ * The flow every queue button of the panel calls (vscimpb139): quest (one with an open window; default the
+ * todo's own when it has one, else the window's) → run (with its state) → a free session of the run, the queue
+ * default or a new one → next or end. "Last: …" first queues where the last item went. Escape at any step: none.
+ */
+async function pickTodoQueueTarget(instance: string, todoQuest: string | undefined, what: string): Promise<TodoQueueTarget | undefined> {
+    const windowQuest = _windowQuest();
+    const open = _openQuestsNow();
+    if (!open.length) {
+        void vscode.window.showWarningMessage('Queue: no quest has an open window on this machine.');
+        return undefined;
+    }
     const state = _extensionContext?.workspaceState;
-    const sel = todoPanelSelection(state?.get<string>(todoPanelSessionKey(quest)), state?.get<string>(todoPanelRunKey(quest)), _todoPanelRuns().runs);
-    if (sel.runFellBack) { void state?.update(todoPanelRunKey(quest), undefined); }
-    return sel;
+    const last = storedQueueTarget(state?.get(todoPanelLastQueueTargetKey(instance)));
+    const title = `Queue ${what}`;
+    const q = await _pickTargetItem(questPickItems(open, defaultTargetQuest(todoQuest, windowQuest, open), windowQuest, last), `${title} — 1/4 quest`, 'The quest whose queue gets it (a quest with an open window)');
+    if (!q) { return undefined; }
+    let target: TodoQueueTarget;
+    if ('last' in q) {
+        target = q.last;
+    } else {
+        const quest = q.quest;
+        const lastHere = last && last.quest === quest ? last : undefined;
+        const run = await _pickTargetItem(runPickItems(_runChoicesOf(quest), lastHere?.run), `${title} — 2/4 run of ${quest}`, 'The process run whose queue gets it');
+        if (!run) { return undefined; }
+        const busy = _busyTest(quest);
+        const free = runSessionCandidates(_sessionNamesOf(quest), run, quest === windowQuest).filter((s) => !busy(s));
+        const lastSession = lastHere && lastHere.run === run ? lastHere : undefined;
+        const s = await _pickTargetItem(sessionPickItems(free, run, lastSession), `${title} — 3/4 session in run ${run}`, 'A free session: no item sends in it and no chat send runs in it');
+        if (!s) { return undefined; }
+        let session: string | undefined;
+        let newSession = false;
+        if ('newSession' in s) {
+            const name = await vscode.window.showInputBox({
+                title: `${title}: a new session in run ${run}`,
+                prompt: 'Its name: letters, digits, "_" and "-", starting with a letter or digit. It is made when the item is sent.',
+                validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(v.trim()) ? undefined : 'Letters, digits, "_" and "-", starting with a letter or digit.'),
+            });
+            if (!name) { return undefined; }
+            session = runSessionName(name.trim(), run);
+            newSession = true;
+        } else {
+            session = s.session;
+        }
+        const position = await _pickTargetItem(positionPickItems(lastHere?.position), `${title} — 4/4 position`, 'Next, or the end of the queue');
+        if (!position) { return undefined; }
+        target = { quest, run, ...(session ? { session } : {}), ...(newSession ? { newSession: true } : {}), position };
+    }
+    // Kept for the next queue add of this panel: the new session exists by then.
+    const keep: TodoQueueTarget = { quest: target.quest, run: target.run, ...(target.session ? { session: target.session } : {}), position: target.position };
+    await state?.update(todoPanelLastQueueTargetKey(instance), keep);
+    return target;
+}
+
+/** What one queued item carries, for this window's queue or another quest's inbox. */
+interface TodoQueueEntry {
+    todoId: string;
+    text: string;
+    template?: string;
+    transport?: 'anthropic';
+    repeatCount?: number | string;
+    todoIdPattern?: string;
+}
+
+/**
+ * Queue `entries` at `target`: in this window's queue (`enqueueNext` for next, the end otherwise), or through
+ * the target quest's inbox (its window queues them with run, session and position, as TODO / GROUP / plain
+ * items). A todo already queued here is offered to be queued again.
+ */
+async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQueueEntry[], again = false): Promise<{ added: number; error?: string; held?: string }> {
+    if (target.quest !== _windowQuest()) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { liveQuestSendAccess } = require('../tools/chat-enhancement-tools.js') as typeof import('../tools/chat-enhancement-tools');
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { postInboxItem } = require('../tools/send-to-quest-tools.js') as typeof import('../tools/send-to-quest-tools');
+            const me = liveQuestSendAccess.sender();
+            for (const e of entries) {
+                const item: InboxItem = {
+                    text: e.text,
+                    ...(e.template ? { template: e.template } : {}),
+                    ...(e.transport ? { transport: e.transport } : {}),
+                    ...(e.repeatCount !== undefined ? { repeatCount: e.repeatCount } : {}),
+                    ...(e.todoIdPattern ? { todoIdPattern: e.todoIdPattern } : {}),
+                    run: target.run,
+                    ...(target.session && !target.newSession ? { session: target.session } : {}),
+                    ...(target.session && target.newSession ? { newSession: { name: target.session } } : {}),
+                    ...(target.position === 'next' ? { position: 'next' as const } : {}),
+                    from: { quest: _windowQuest() || 'default', run: _windowRuns().windowRun, windowId: me.windowId, host: me.host, sentAt: new Date().toISOString() },
+                };
+                postInboxItem(liveQuestSendAccess, target.quest, item);
+            }
+            return { added: entries.length };
+        } catch (e) {
+            return { added: 0, error: (e as Error).message };
+        }
+    }
+    let queue: PromptQueueManager;
+    try {
+        queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+    } catch {
+        return { added: 0, error: 'Prompt queue not available' };
+    }
+    let added = 0;
+    let held: string | undefined;
+    const refused: TodoQueueEntry[] = [];
+    const notices: string[] = [];
+    for (const e of entries) {
+        const opts = {
+            originalText: e.text,
+            ...(e.template ? { template: e.template } : {}),
+            ...(e.transport ? { transport: e.transport } : {}),
+            ...(e.repeatCount !== undefined ? { repeatCount: e.repeatCount } : {}),
+            ...(e.todoIdPattern ? { todoIdPattern: e.todoIdPattern } : {}),
+            run: target.run,
+            ...(target.session ? { session: target.session } : {}),
+            ...(again ? { allowDuplicateTodo: true } : {}),
+            ..._todoDoneNotificationFields(),
+        };
+        try {
+            const item = target.position === 'next' ? await queue.enqueueNext(opts) : await queue.enqueue({ ...opts, deferSend: true });
+            added++;
+            if (item.status === 'error') { held = item.error ?? 'it has nothing to walk over'; }
+        } catch (err) {
+            if (isTodoAlreadyQueued(err)) { refused.push(e); notices.push(err.message); continue; }
+            return { added, error: (err as Error).message };
+        }
+    }
+    if (refused.length) {
+        const notice = refused.length === 1 ? notices[0] : `Already in the prompt queue, not added again: ${refused.map((r) => r.todoId).join(', ')}.`;
+        _offerQueueAgain(notice, async () => {
+            const r = await deliverTodoQueueEntries(target, refused, true);
+            if (r.added) { void vscode.window.showInformationMessage(`Queued ${r.added === 1 ? `todo ${refused[0].todoId}` : `${r.added} todos`} again — ${queueTargetSentence(target)}.`); }
+        });
+    }
+    return { added, ...(held ? { held } : {}) };
+}
+
+/** Queue entries with the flow and confirm where they went; answers the target, none when cancelled. */
+async function queueTodoEntriesWithFlow(instance: string, todoQuest: string | undefined, what: string, entries: TodoQueueEntry[], mustBeQuest?: string): Promise<TodoQueueTarget | undefined> {
+    const target = await pickTodoQueueTarget(instance, todoQuest, what);
+    if (!target) { return undefined; }
+    if (mustBeQuest && target.quest !== mustBeQuest) {
+        void vscode.window.showWarningMessage(`${what} walks the todos of quest ${mustBeQuest}: queue it into ${mustBeQuest}, not ${target.quest}.`);
+        return undefined;
+    }
+    const result = await deliverTodoQueueEntries(target, entries);
+    if (result.error) {
+        void vscode.window.showWarningMessage(`Prompt queue: ${result.error}`);
+    } else if (result.held) {
+        void vscode.window.showWarningMessage(`Queued ${what} — ${queueTargetSentence(target)} — but held in error: ${result.held}`);
+    } else if (result.added) {
+        const via = target.quest !== _windowQuest() ? ' (through its window\'s inbox)' : '';
+        void vscode.window.showInformationMessage(`Queued ${what} — ${queueTargetSentence(target)}${via}.`);
+    }
+    return target;
+}
+
+/**
+ * A direct send's session (Send to Anthropic, Guide me's send): the free sessions of this window's runs, with
+ * "Last: …" first while that one is free. It sends in the session's own slot (vscimpb135). Escape: none.
+ */
+async function pickTodoSendTarget(instance: string): Promise<TodoSendTarget | undefined> {
+    const quest = _windowQuest();
+    const busy = _busyTest(quest);
+    const names = _sessionNamesOf(quest);
+    const free: TodoSendTarget[] = [];
+    const runs = [..._windowRuns().runs].sort((x, y) => (x === 'default' ? -1 : y === 'default' ? 1 : x.localeCompare(y)));
+    for (const run of runs) {
+        for (const session of runSessionCandidates(names, run, true)) {
+            if (!busy(session)) { free.push({ run, session }); }
+        }
+    }
+    if (!free.length) {
+        void vscode.window.showWarningMessage('Send: every session of this window is busy — a queue item or a chat send runs in each. Queue it instead.');
+        return undefined;
+    }
+    const state = _extensionContext?.workspaceState;
+    const last = storedSendTarget(state?.get(todoPanelLastSendTargetKey(instance)));
+    const picked = await _pickTargetItem(sendSessionPickItems(free, last), 'Send — the session', 'A free session of this window (no item and no chat send runs in it)');
+    if (!picked) { return undefined; }
+    await state?.update(todoPanelLastSendTargetKey(instance), picked);
+    return picked;
+}
+
+/** The quest a todo of the list belongs to: the list's, or in a list of several quests the one its file names. */
+function _todoQuestOf(questId: string, sourceFile?: string, todoId?: string): string {
+    if (questId && !questId.startsWith('__')) { return questId; }
+    const slash = (sourceFile ?? '').indexOf('/');
+    if (slash > 0 && !path.isAbsolute(sourceFile!)) { return sourceFile!.slice(0, slash); }
+    if (todoId) {
+        for (const qid of listQuestIds()) { if (questTodo.findTodoById(qid, todoId)) { return qid; } }
+    }
+    return _windowQuest();
 }
 
 /** The Done notification box of the active quest (unset: on). */
@@ -270,26 +577,18 @@ async function _markChatTodoNotification(chatItemId: string | undefined, todoIds
     queueModule.PromptQueueManager.instance.markChatTodoNotification(chatItemId, todoIds, fields.doneNotificationPrompt ?? '');
 }
 
-/** Tell every view showing the controls what the panel is on now. */
-function _postRunSession(): void {
-    const { runs, windowRun } = _todoPanelRuns();
-    const message = { ...todoPanelRunSessionMessage(todoPanelSelectionNow(), runs, windowRun), doneNotification: _todoDoneNotificationOn() };
-    for (const view of [..._runSessionViews]) {
-        try { void view.postMessage(message); } catch { _runSessionViews.delete(view); }
+/** Tell every view showing the Done notification toggle its state (kept per quest). */
+function _postDoneNotification(): void {
+    const message = { type: 'qtDoneNotification', on: _todoDoneNotificationOn() };
+    for (const view of [..._doneNotificationViews]) {
+        try { void view.postMessage(message); } catch { _doneNotificationViews.delete(view); }
     }
 }
 
-/** Show the controls in `view`; the runs listener keeps them current when a run is added or deleted. */
-function _watchRunSession(view: vscode.Webview): void {
-    _runSessionViews.add(view);
-    if (!_runSessionRunsListener) {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const store = (require('../managers/processStateStore.js') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
-            if (store) { _runSessionRunsListener = store.onDidChange(() => _postRunSession()); }
-        } catch { /* no process store */ }
-    }
-    _postRunSession();
+/** Show the toggle's state in `view`, and again when it changes. */
+function _watchDoneNotification(view: vscode.Webview): void {
+    _doneNotificationViews.add(view);
+    _postDoneNotification();
 }
 
 // ---- Global provider references for cross-module access ----
@@ -405,6 +704,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
 
     const isSessionMode = cfg.mode === 'session';
     const isWorkspaceFileMode = cfg.mode === 'workspace-file';
+    // The panel instance whose last queue / send target the flow offers (vscimpb139).
+    const instance = _scopeInstance(cfg) ?? (cfg.mode || 'panel');
     const isInvalidQuest = cfg.fixedQuestId === '__invalid_quest__';
 
     const effectiveQuestId = (incoming?: string): string => {
@@ -430,38 +731,14 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
         case 'qtInitConfig':
             _webviewConfigs.set(webview, msg.config || {});
             return true;
-        // The panel's session and run (vscimpb60d): one selection for the bar, the detail and both views.
-        case 'qtGetRunSession':
-            _watchRunSession(webview);
+        // The Done notification toggle's state (kept per quest); the run and session left the bar (vscimpb139).
+        case 'qtGetDoneNotification':
+            _watchDoneNotification(webview);
             return true;
-        case 'qtPickSession': {
-            const quest = WsPaths.getWorkspaceQuestId();
-            const sel = todoPanelSelectionNow();
-            const { pickAgentSdkSession } = await import('./sessionPicker.js');
-            const picked = await pickAgentSdkSession({
-                questId: quest,
-                current: sel.session,
-                title: `Session of the todo panel's sends${sel.run !== 'default' ? ` (run ${sel.run}: its own sessions, <session>@${sel.run})` : ''}`,
-                defaultLabel: 'The chat panel\'s session name (chat)',
-            });
-            if (picked !== undefined) {
-                await _extensionContext?.workspaceState.update(todoPanelSessionKey(quest), picked || undefined);
-            }
-            _postRunSession();
-            return true;
-        }
         case 'qtSetDoneNotification': {
-            // The Done notification box, kept per quest (unset: on).
+            // The Done notification toggle, kept per quest (unset: on).
             await _extensionContext?.workspaceState.update(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId()), msg.on === false ? false : undefined);
-            _postRunSession();
-            return true;
-        }
-        case 'qtSetRun': {
-            const quest = WsPaths.getWorkspaceQuestId();
-            const runs = _todoPanelRuns().runs;
-            const run = typeof msg.run === 'string' && runs.includes(msg.run) ? msg.run : 'default';
-            await _extensionContext?.workspaceState.update(todoPanelRunKey(quest), run === 'default' ? undefined : run);
-            _postRunSession();
+            _postDoneNotification();
             return true;
         }
         // The quest scope (vscimpb137): which quests and files the panel shows.
@@ -1497,7 +1774,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 vscode.window.setStatusBarMessage(`$(info) Already ${msg.target === 'queue' ? 'queued' : 'sent'}: todo ${todo.id} within 3 s`, 4000);
                 return true;
             }
-            await _runTodoButton(todo, questId, msg.sourceFile, use, msg.target === 'queue' ? 'queue' : 'chat');
+            await _runTodoButton(todo, questId, msg.sourceFile, use, msg.target === 'queue' ? 'queue' : 'chat', instance);
             return true;
         }
         case 'qtOpenMarkdownPreview':
@@ -1692,21 +1969,10 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             const wrappedText = _todoPromptFragment(todo, questId, msg.sourceFile).yaml;
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
             if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'queue', selectedTemplate, `queued: todo ${todo.id}`)) { return true; }
-            const sel = todoPanelSelectionNow();
-            const added = await _enqueueTodoItems([{
-                todoId: todo.id,
-                opts: {
-                    originalText: wrappedText,
-                    todoIdPattern: todo.id,
-                    template: selectedTemplate,
-                    deferSend: true,
-                    // The panel's session and run (vscimpb60d).
-                    ...todoPanelQueueTarget(sel),
-                    // Its todo done notification while the box is on (ww_a_collab-6).
-                    ..._todoDoneNotificationFields(),
-                },
+            // Where it goes: quest → run → free session → next / end (vscimpb139).
+            await queueTodoEntriesWithFlow(instance, _todoQuestOf(questId, msg.sourceFile, todo.id), `todo ${todoId}`, [{
+                todoId: todo.id, text: wrappedText, template: selectedTemplate, todoIdPattern: todo.id,
             }]);
-            if (added === 1) { vscode.window.showInformationMessage(`Added todo ${todoId} to prompt queue`); }
             return true;
         }
         case 'qtSendCurrentTodoToCopilot': {
@@ -1723,24 +1989,24 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'send', String(msg.template || '__none__'), `sent: todo ${todo.id}`)) { return true; }
             const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
-            await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'), [todo.id]);
+            await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'), [todo.id], instance);
             return true;
         }
         case 'qtQueueTodoGroup': {
             // A todo group's queue button (its header and its detail view, vscimpb126): a GROUP item.
-            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), 'group');
+            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, 'group', msg.sourceFile);
             return true;
         }
         case 'qtQueueAsTodoItem': {
             // "Queue as todo item" (a tile, the detail view; vscimpb127): a TODO item, a GROUP item for a group todo.
-            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''));
+            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, undefined, msg.sourceFile);
             return true;
         }
         case 'qtQueueGroupPrompt': {
             const walkQuest = effectiveQuestId(msg.questId);
             const walkPrefix = String(msg.prefix || '');
             if (walkPrefix && _isRepeatedTodoAction(`${walkQuest}/${walkPrefix}*`, 'queue-walk', undefined, `queued: the walk over ${walkPrefix}*`)) { return true; }
-            await queueGroupWalk(walkQuest, walkPrefix);
+            await queueGroupWalk(walkQuest, walkPrefix, instance);
             return true;
         }
         case 'qtQueueStackedTodos': {
@@ -1772,23 +2038,12 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
                 return true;
             }
             if (_isRepeatedTodoAction(`${questId}/${prepared.map((x) => x.todoId).join(',')}`, 'queue', selectedTemplate, `queued: ${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'}`)) { return true; }
-            const sel = todoPanelSelectionNow();
-            const added = await _enqueueTodoItems(prepared.map(({ text: originalText, todoId }) => ({
-                todoId,
-                opts: {
-                    originalText,
-                    todoIdPattern: todoId,
-                    template: selectedTemplate,
-                    deferSend: true,
-                    // The panel's session and run (vscimpb60d).
-                    ...todoPanelQueueTarget(sel),
-                    // Its todo done notification while the box is on (ww_a_collab-6).
-                    ..._todoDoneNotificationFields(),
-                },
-            })));
-            if (added > 0) {
-                const suffix = missing.length ? ` (skipped missing: ${missing.join(', ')})` : '';
-                vscode.window.showInformationMessage(`Added ${added} stacked todo${added === 1 ? '' : 's'} to prompt queue${suffix}`);
+            // Where they go: one target for the whole stack (vscimpb139).
+            const target = await queueTodoEntriesWithFlow(instance, _todoQuestOf(questId, entries[0]?.sourceFile, prepared[0].todoId),
+                `${prepared.length} stacked todo${prepared.length === 1 ? '' : 's'}`,
+                prepared.map(({ text, todoId }) => ({ todoId, text, template: selectedTemplate, todoIdPattern: todoId })));
+            if (target && missing.length) {
+                vscode.window.showInformationMessage(`Skipped missing stacked todos: ${missing.join(', ')}`);
             }
             return true;
         }
@@ -1822,7 +2077,7 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             if (missing.length) {
                 vscode.window.showWarningMessage(`Skipping missing stacked todos: ${missing.join(', ')}`);
             }
-            await _sendTodoPromptViaQueueTransport(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'), fragments.map((f) => f.ref.split('/').pop() ?? f.ref));
+            await _sendTodoPromptViaQueueTransport(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'), fragments.map((f) => f.ref.split('/').pop() ?? f.ref), instance);
             return true;
         }
         case 'qtOpenInEditor': {
@@ -2656,6 +2911,7 @@ async function _runTodoButton(
     sourceFile: string | undefined,
     use: TodoButtonTemplateUse,
     target: 'chat' | 'queue',
+    instance = 'panel',
 ): Promise<void> {
     const anthropic = loadSendToChatConfig()?.anthropic;
     const tpl = resolveTodoButtonTemplate(anthropic?.todoButtonTemplates, anthropic?.userMessageTemplates, use);
@@ -2664,7 +2920,7 @@ async function _runTodoButton(
         return;
     }
     if (target === 'queue') {
-        await _queueTodo(todo, questId, sourceFile, tpl);
+        await _queueTodo(todo, questId, sourceFile, tpl, instance);
         return;
     }
     const ctx = _extensionContext;
@@ -2674,59 +2930,32 @@ async function _runTodoButton(
     }
     const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, sourceFile)]);
     const { runAnthropicSend } = await import('./sendToChatRouter.js');
-    // In the panel's session, as its run (vscimpb60d).
-    const sel = todoPanelSelectionNow();
+    // In a free session of this window's runs, asked for (vscimpb139).
+    const sendTarget = await pickTodoSendTarget(instance);
+    if (!sendTarget) { return; }
     const outcome = await runAnthropicSend(ctx, todoPrompt, {
-        userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session: sel.effectiveSession, run: sel.run,
+        userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session: sendTarget.session, run: sendTarget.run,
         // Sent by the panel's buttons: its todo done notification (DP-part-done-notification-1).
         onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, [todo.id]); },
     });
     if (outcome.rejected) {
-        vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sel.effectiveSession));
+        vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
     } else if (!outcome.ok && outcome.error) {
         vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
     } else if (outcome.ok && use === 'userAction' && questId) {
-        await _guideMeClosing(todo.id, questId, sourceFile);
+        await _guideMeClosing(todo.id, questId, sourceFile, instance);
     }
 }
 
-/** The todo added to the prompt queue, staged, on Anthropic, with template `tpl`. */
-async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }): Promise<void> {
-    try {
-        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-        // The panel's session and run (vscimpb60d): the item names the session and belongs to the run.
-        const sel = todoPanelSelectionNow();
-        await PromptQueueManager.instance.enqueue({
-            originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
-            todoIdPattern: todo.id,
-            template: tpl.id,
-            transport: 'anthropic',
-            deferSend: true,
-            ...todoPanelQueueTarget(sel),
-            ..._todoDoneNotificationFields(),
-        });
-        vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue with the template "${tpl.name}" (staged, Anthropic).`);
-    } catch (e) {
-        if (isTodoAlreadyQueued(e)) { _offerQueueAgain(e.message, async () => { await _queueTodoAgain(todo, questId, sourceFile, tpl); }); return; }
-        vscode.window.showWarningMessage('Prompt queue not available');
-    }
-}
-
-/** _queueTodo once more, as a deliberate repeat of a todo already queued. */
-async function _queueTodoAgain(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }): Promise<void> {
-    const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-    const sel = todoPanelSelectionNow();
-    await PromptQueueManager.instance.enqueue({
-        originalText: _todoPromptFragment(todo, questId, sourceFile).yaml,
-        todoIdPattern: todo.id,
+/** The todo added to the prompt queue on Anthropic, with template `tpl`, where the flow says (vscimpb139). */
+async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undefined, sourceFile: string | undefined, tpl: { id: string; name: string }, instance = 'panel'): Promise<void> {
+    await queueTodoEntriesWithFlow(instance, _todoQuestOf(questId ?? '', sourceFile, todo.id), `todo ${todo.id} with the template "${tpl.name}"`, [{
+        todoId: todo.id,
+        text: _todoPromptFragment(todo, questId, sourceFile).yaml,
         template: tpl.id,
         transport: 'anthropic',
-        deferSend: true,
-        ...todoPanelQueueTarget(sel),
-        ..._todoDoneNotificationFields(),
-        allowDuplicateTodo: true,
-    });
-    vscode.window.showInformationMessage(`Added todo ${todo.id} to the prompt queue again (staged, Anthropic).`);
+        todoIdPattern: todo.id,
+    }]);
 }
 
 /**
@@ -2750,48 +2979,13 @@ function _offerQueueAgain(notice: string, again: () => Promise<void>): void {
     });
 }
 
-/**
- * Enqueue todo items one by one. A todo already queued (an item with its id
- * still staged, pending or sending) is not added again: one notice names them,
- * with **Queue again**. Answers how many were added.
- */
-async function _enqueueTodoItems(entries: Array<{ todoId: string; opts: Parameters<PromptQueueManager['enqueue']>[0] }>): Promise<number> {
-    let queue: PromptQueueManager;
-    try {
-        queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-    } catch {
-        vscode.window.showWarningMessage('Prompt queue not available');
-        return 0;
-    }
-    let added = 0;
-    const refused: typeof entries = [];
-    const notices: string[] = [];
-    for (const entry of entries) {
-        try {
-            await queue.enqueue(entry.opts);
-            added++;
-        } catch (e) {
-            if (isTodoAlreadyQueued(e)) { refused.push(entry); notices.push(e.message); continue; }
-            vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
-            return added;
-        }
-    }
-    if (refused.length) {
-        const notice = refused.length === 1 ? notices[0] : `Already in the prompt queue, not added again: ${refused.map((r) => r.todoId).join(', ')}.`;
-        _offerQueueAgain(notice, async () => {
-            for (const r of refused) { await queue.enqueue({ ...r.opts, allowDuplicateTodo: true }); }
-            vscode.window.showInformationMessage(`Added ${refused.length === 1 ? `todo ${refused[0].todoId}` : `${refused.length} todos`} to the prompt queue again`);
-        });
-    }
-    return added;
-}
 
 /**
  * After Guide me's turn (guideMeClosing.ts): a todo not completed meanwhile is
  * offered to be marked completed or in progress, queued for the agent (the
  * other todos' template), or left; a typed reply goes into its notes.
  */
-async function _guideMeClosing(todoId: string, questId: string, sourceFile: string | undefined): Promise<void> {
+async function _guideMeClosing(todoId: string, questId: string, sourceFile: string | undefined, instance = 'panel'): Promise<void> {
     const todo = _findTodoForPromptAction(questId, todoId, sourceFile);
     if (!todo || todo.status === 'completed' || todo.status === 'cancelled') { return; }
     const anthropic = loadSendToChatConfig()?.anthropic;
@@ -2810,7 +3004,7 @@ async function _guideMeClosing(todoId: string, questId: string, sourceFile: stri
             return;
         }
         if (note) { questTodo.updateTodo(questId, todo.id, noted); }
-        await _queueTodo(todo, questId, sourceFile, queueTpl);
+        await _queueTodo(todo, questId, sourceFile, queueTpl, instance);
         return;
     }
     const updates: Partial<Omit<questTodo.QuestTodoItem, 'id' | '_sourceFile'>> = pick.kind === 'complete'
@@ -2847,8 +3041,8 @@ async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templ
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
         const qm = PromptQueueManager.instance;
-        // The queue defaults of the panel's run (queue settings per run, vscimpb60a / vscimpb60d).
-        const defaults = qm.runQueueSettings(todoPanelSelectionNow().run);
+        // The queue defaults of this window's run (queue settings per run, vscimpb60a).
+        const defaults = qm.runQueueSettings(_windowRuns().windowRun);
         return {
             transport: defaults.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
             templateId: defaults.defaultMessageTemplateId || undefined,
@@ -2865,7 +3059,7 @@ async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templ
  * (template body applied as the user-message wrapper), Copilot chat otherwise
  * (template applied through the ${originalPrompt} / answer-file expansion).
  */
-async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemplate: string, todoIds: string[] = []): Promise<void> {
+async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemplate: string, todoIds: string[] = [], instance = 'panel'): Promise<void> {
     const config = loadSendToChatConfig();
     const { transport } = await _queueSendTarget();
     if (transport === 'anthropic') {
@@ -2878,15 +3072,16 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
             ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
             : undefined;
         const { runAnthropicSend } = await import('./sendToChatRouter.js');
-        // In the panel's session, as its run (vscimpb60d).
-        const sel = todoPanelSelectionNow();
+        // In a free session of this window's runs, asked for (vscimpb139).
+        const sendTarget = await pickTodoSendTarget(instance);
+        if (!sendTarget) { return; }
         const outcome = await runAnthropicSend(ctx, todoPrompt, {
-            source: 'todo panel', session: sel.effectiveSession, run: sel.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
+            source: 'todo panel', session: sendTarget.session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
             // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
             onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, todoIds); },
         });
         if (outcome.rejected) {
-            vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sel.effectiveSession));
+            vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
         } else if (!outcome.ok && outcome.error) {
             vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
         }
@@ -3237,36 +3432,21 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
 }
 
 /**
- * The todo group headline's "Queue Group Prompt": pick a group prompt (the
- * default, the default with an addition, or one of the quest's own prompts)
- * or open the group prompt editor, then queue a walk over `<prefix>*` with the
- * prompt picked. A walk goes over the todos of the window's quest, so a list
- * showing another quest is refused. The queue holds a walk with nothing to
- * walk over in `error` at once; that reason is shown.
+ * Queue a todo as a TODO item, or a group todo as a GROUP item (vscimpb127), where the queue-target flow says
+ * (vscimpb139: quest → run → free session → next / end). A TODO item is the panel's todo prompt —
+ * {@link TODO_ITEM_TEXT} in the Todo buttons template for that todo, on Anthropic, as the Queue button beside it;
+ * a GROUP item has the quest's group prompt, as a `<prefix>*` walk. The walk appends each todo's record and goes
+ * over the todos of the todo's own quest, so it is queued into that quest (another quest's through its window's
+ * inbox).
  */
-/**
- * Queue a todo as a TODO item, or a group todo as a GROUP item (vscimpb127), to
- * the panel's queue target (todoGroupQueueRequest → todoPanelQueueTarget, the
- * one function every queue button of the panel uses). A TODO item is the
- * panel's todo prompt — {@link TODO_ITEM_TEXT} in the Todo buttons template for
- * that todo, on Anthropic, as the Queue button beside it; a GROUP item has the
- * quest's group prompt, as a `<prefix>*` walk. The walk appends each todo's
- * record. Like a group walk it goes over the todos of the window's quest.
- */
-async function queueTodoAsItem(questId: string, todoId: string, forceKind?: 'group'): Promise<void> {
+async function queueTodoAsItem(questId: string, todoId: string, instance = 'panel', forceKind?: 'group', sourceFile?: string): Promise<void> {
     if (!todoId) { void vscode.window.showErrorMessage('Select a todo first.'); return; }
-    let windowQuest = '';
-    try { windowQuest = ChatVariablesStore.instance.quest || ''; } catch { windowQuest = ''; }
-    if (!questId || questId !== windowQuest) {
-        void vscode.window.showWarningMessage(`A todo item walks the todos of this window's quest${windowQuest ? ` (${windowQuest})` : ''}; `
-            + `this list shows ${questId ? `"${questId}"` : 'no quest'}. Queue it from that quest's window.`);
-        return;
-    }
-    const todo = questTodo.findTodoById(questId, todoId);
+    const todoQuest = _todoQuestOf(questId, sourceFile, todoId);
+    const todo = todoQuest ? questTodo.findTodoById(todoQuest, todoId) : undefined;
     const kind = forceKind ?? (isGroupTodo(todo) ? 'group' : 'todo');
-    const spec = todoQueueItemSpec(kind, questId, todoId, todo);
+    const spec = todoQueueItemSpec(kind, todoQuest, todoId, todo);
     if (!spec.ok) { void vscode.window.showWarningMessage(spec.error); return; }
-    if (_isRepeatedTodoAction(`${questId}/${spec.id}`, `queue-${kind}-item`, undefined, `queued: ${kind} item ${spec.id}`)) { return; }
+    if (_isRepeatedTodoAction(`${todoQuest}/${spec.id}`, `queue-${kind}-item`, undefined, `queued: ${kind} item ${spec.id}`)) { return; }
     let text: string;
     let template: string | undefined;
     if (kind === 'todo') {
@@ -3280,59 +3460,37 @@ async function queueTodoAsItem(questId: string, todoId: string, forceKind?: 'gro
         text = TODO_ITEM_TEXT;
         template = tpl.id;
     } else {
-        const dirs = groupPromptDirs(questId);
+        const dirs = groupPromptDirs(todoQuest);
         text = effectiveGroupDefault(dirs ? readGroupPrompts(dirs) : []).text;
     }
-    const sel = todoPanelSelectionNow();
-    const request = todoGroupQueueRequest(sel, questId, spec.id);
-    const where = todoPanelQueueTargetText(sel);
-    const enqueue = async (again: boolean) => {
-        const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-        return queue.enqueue({
-            originalText: text,
-            repeatCount: spec.repeatCount,
-            todoIdPattern: spec.todoIdPattern,
-            template,
-            ...(kind === 'todo' ? { transport: 'anthropic' as const } : {}),
-            deferSend: true,
-            run: request.run,
-            session: request.session,
-            ...(again ? { allowDuplicateTodo: true } : {}),
-            ..._todoDoneNotificationFields(),
-        });
-    };
     const noun = kind === 'group' ? `the group ${spec.id} as a GROUP item` : `todo ${spec.id} as a TODO item`;
-    try {
-        const item = await enqueue(false);
-        if (item.status === 'error') {
-            void vscode.window.showWarningMessage(`Queued ${noun} ${where}, but held in error — ${item.error ?? 'it has nothing to walk over'}`);
-        } else {
-            void vscode.window.showInformationMessage(`Queued ${noun} ${where}.`);
-        }
-    } catch (e) {
-        if (isTodoAlreadyQueued(e)) {
-            _offerQueueAgain(e.message, async () => { await enqueue(true); void vscode.window.showInformationMessage(`Queued ${noun} again ${where}.`); });
-            return;
-        }
-        void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
-    }
+    await queueTodoEntriesWithFlow(instance, todoQuest, noun, [{
+        todoId: spec.id,
+        text,
+        ...(template ? { template } : {}),
+        ...(kind === 'todo' ? { transport: 'anthropic' as const } : {}),
+        repeatCount: spec.repeatCount,
+        todoIdPattern: spec.todoIdPattern,
+    }], todoQuest);
 }
 
-async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
+/**
+ * The todo group headline's "Queue Group Prompt": pick a group prompt (the default, the default with an addition,
+ * or one of the quest's own prompts) or open the group prompt editor, then queue a walk over `<prefix>*` with the
+ * prompt picked, where the queue-target flow says (vscimpb139). The walk goes over the todos of the group's quest,
+ * so it is queued into that quest. The queue holds a walk with nothing to walk over in `error` at once; that reason
+ * is shown.
+ */
+async function queueGroupWalk(questId: string, prefix: string, instance = 'panel'): Promise<void> {
     if (!prefix) { return; }
-    let windowQuest = '';
-    try { windowQuest = ChatVariablesStore.instance.quest || ''; } catch { windowQuest = ''; }
-    if (!questId || questId !== windowQuest) {
-        void vscode.window.showWarningMessage(`A group walk goes over the todos of this window's quest${windowQuest ? ` (${windowQuest})` : ''}; `
-            + `this list shows ${questId ? `"${questId}"` : 'no quest'}. Queue it from that quest's window.`);
-        return;
-    }
-    const dirs = groupPromptDirs(questId);
-    const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], questId);
+    const walkQuest = questId && !questId.startsWith('__') ? questId : _windowQuest();
+    if (!walkQuest) { void vscode.window.showWarningMessage('A group walk needs its quest: open the quest, or show it by quest.'); return; }
+    const dirs = groupPromptDirs(walkQuest);
+    const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], walkQuest);
     const picked = await pickGroupPrompt(prefix, choices);
     if (!picked) { return; }
     if (picked === 'editor') {
-        await vscode.commands.executeCommand('tomAi.editor.groupPrompts', questId);
+        await vscode.commands.executeCommand('tomAi.editor.groupPrompts', walkQuest);
         return;
     }
     let text = picked.choice.text;
@@ -3351,28 +3509,9 @@ async function queueGroupWalk(questId: string, prefix: string): Promise<void> {
         text = composeGroupPrompt(text, addition);
         if (addition.trim()) { label = `${label} + typed addition`; }
     }
-    // The panel's session and run (vscimpb98), as every other queue action of the panel.
-    const sel = todoPanelSelectionNow();
-    const where = todoPanelQueueTargetText(sel);
-    try {
-        const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-        const item = await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, ...todoPanelQueueTarget(sel), ..._todoDoneNotificationFields() });
-        if (item.status === 'error') {
-            void vscode.window.showWarningMessage(`Queued ${where}, but held in error — ${item.error ?? 'the walk has nothing to walk over'}`);
-        } else {
-            void vscode.window.showInformationMessage(`Queued a walk over ${prefix}* with "${label}" ${where}.`);
-        }
-    } catch (e) {
-        if (isTodoAlreadyQueued(e)) {
-            _offerQueueAgain(e.message, async () => {
-                const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
-                await queue.enqueue({ originalText: text, repeatCount: `${prefix}*`, deferSend: true, allowDuplicateTodo: true, ...todoPanelQueueTarget(sel), ..._todoDoneNotificationFields() });
-                void vscode.window.showInformationMessage(`Queued the walk over ${prefix}* again with "${label}" ${where}.`);
-            });
-            return;
-        }
-        void vscode.window.showWarningMessage(`Prompt queue: ${(e as Error).message}`);
-    }
+    await queueTodoEntriesWithFlow(instance, walkQuest, `a walk over ${prefix}* with "${label}"`, [{
+        todoId: `${prefix}*`, text, repeatCount: `${prefix}*`,
+    }], walkQuest);
 }
 
 /**

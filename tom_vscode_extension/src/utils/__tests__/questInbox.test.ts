@@ -17,6 +17,8 @@
  *   QB-9 runs (vscimpb71): the item's run, the sender's run, its notification's quest and run and the item it reports
  *        on round-trip; the conversion queues it in its run, fills ${senderRun}; a run the quest does not have makes
  *        it an error queued in `default`
+ *   QB-11 the todo panel's queue target (vscimpb139): `position: next` and the transport round-trip and reach the
+ *         conversion (queueNext, transport anthropic); a new session without a base is a fresh one by name
  */
 
 import test, { describe } from 'node:test';
@@ -83,7 +85,7 @@ describe('queue inbox', () => {
             ['text: x\n', /no sender quest/],
             ['text: x\nfrom: {quest: a}\nsession: "bad name"\n', /not a session name/],
             ['text: x\nfrom: {quest: a}\nsession: a\nnew-session: {based-on: b}\n', /both/],
-            ['text: x\nfrom: {quest: a}\nnew-session: {name: n}\n', /based on/],
+            ['text: x\nfrom: {quest: a}\nnew-session: {lifetime: continue}\n', /based on, or a name/],
             ['text: x\nfrom: {quest: a}\nnew-session: {based-on: b, lifetime: sometimes}\n', /lifetime/],
             ['- a list\n', /not an inbox item/],
             [': : :\n', /not YAML|not an inbox item/],
@@ -254,5 +256,20 @@ describe('queue inbox', () => {
         const claimed = claimInboxFile(folder, listed[0], 'starting-window');
         assert.ok(claimed);
         assert.deepEqual(parseInboxItem(fs.readFileSync(claimed!, 'utf-8')), { ok: true, item: { text: 'waiting', from: FROM } });
+    });
+
+    test('QB-11: next, the transport, a fresh session', () => {
+        const item: InboxItem = { text: 'x', run: 'rq', position: 'next', transport: 'anthropic', newSession: { name: 'fresh@rq' }, from: FROM };
+        const round = parseInboxItem(serializeInboxItem(item));
+        assert.deepEqual(round, { ok: true, item });
+        const ctx = { profileExists: () => true, readSession: () => undefined, now: new Date('2026-11-17T10:00:00Z'), token: 't1', runExists: () => true };
+        const conv = planInboxConversion(item, ctx);
+        assert.equal(conv.error, undefined);
+        assert.equal(conv.enqueue.queueNext, true);
+        assert.equal(conv.enqueue.transport, 'anthropic');
+        assert.equal(conv.enqueue.session, 'fresh@rq');
+        assert.deepEqual(conv.createSession, { name: 'fresh@rq', mode: 'continue', temporary: false }, 'fresh: no base');
+        const end = planInboxConversion({ text: 'x', from: FROM }, ctx);
+        assert.equal(end.enqueue.queueNext, undefined, 'unset: the end of the queue');
     });
 });

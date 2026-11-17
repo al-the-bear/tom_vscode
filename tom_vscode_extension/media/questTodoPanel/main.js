@@ -453,9 +453,9 @@ function qtNavPush(todoId) {
     vscode.postMessage({ type: 'qtGetTemplates' });
     // The quest scope (vscimpb137): the host answers qtScope.
     vscode.postMessage({ type: 'qtGetScope' });
-    // The panel's session and run (vscimpb60d): the host answers qtRunSession, and again on every change.
-    vscode.postMessage({ type: 'qtGetRunSession' });
-    qtRenderRunSessionControls();
+    // The Done notification toggle's state: the host answers qtDoneNotification, and again on every change.
+    // (Where an item goes is asked per queue add and send, vscimpb139: no run or session in the bar.)
+    vscode.postMessage({ type: 'qtGetDoneNotification' });
     var qtDoneNotificationBtn = document.getElementById('qt-done-notification');
     if (qtDoneNotificationBtn) {
         qtSetDoneNotificationLook(qtDoneNotificationBtn.getAttribute('aria-pressed') !== 'false');
@@ -3192,70 +3192,24 @@ function qtUserActionRow(checked, withGuide) {
         '<input type="checkbox" id="qt-d-user-action"' + (checked ? ' checked' : '') + '> 👤 user action</label>' + guide + '</div>');
 }
 
-/* ── The panel's session and run (vscimpb60d) ──────────────────────────────
- * One selection for the top bar and the detail panel (and for both quest todo
- * views): the session the panel's sends run in and the run they belong to.
- * Kept per window and quest by the host; a run deleted elsewhere is default. */
-var qtRunSessionState;
-
-/** What the panel is on: the host's last answer, else the defaults (the init code runs before this file's end). */
-function qtRunSessionNow() {
-    return qtRunSessionState || { session: 'chat', effectiveSession: 'chat', run: 'default', windowRun: 'default', runs: [{ run: 'default', label: 'default' }] };
-}
-
-/** The session button (speech bubble + name) and the Run select, as the @CHAT panel has them. */
-function qtRunSessionControlsHtml() {
-    var st = qtRunSessionNow();
-    var options = st.runs.map(function(o) {
-        return '<option value="' + qtEsc(o.run) + '"' + (o.run === st.run ? ' selected' : '') + '>' + qtEsc(o.label) + '</option>';
-    }).join('');
-    return '<button class="icon-btn qt-session-btn" type="button" data-qt-pick-session="1" title="The session the panel\'s todos are sent in and queued for (' + qtEsc(st.effectiveSession) + ') — click to pick another or create one">'
-        + '<span class="codicon codicon-comment-discussion"></span><span class="qt-session-name">' + qtEsc(st.effectiveSession) + '</span></button>'
-        + '<select class="qt-run-select' + (st.run !== st.windowRun ? ' run-other' : '') + '" title="The process run the panel\'s todos are sent and queued for: its chat variables, its process position, its own sessions">' + options + '</select>';
-}
-
-/** Fill every place that shows the controls: the top bar and the detail's Run row. */
-function qtRenderRunSessionControls() {
-    var html = qtRunSessionControlsHtml();
-    var run = qtRunSessionNow().run;
-    document.querySelectorAll('.qt-run-session').forEach(function(el) { el.innerHTML = html; el.dataset.run = run; });
-}
-
-function qtHandleRunSessionClick(e) {
-    var btn = e.target && e.target.closest ? e.target.closest('.qt-session-btn') : null;
-    if (!btn) { return; }
-    e.preventDefault();
-    vscode.postMessage({ type: 'qtPickSession' });
-}
-document.addEventListener('click', qtHandleRunSessionClick);
-
-function qtHandleRunSelectChange(e) {
-    var sel = e.target && e.target.classList && e.target.classList.contains('qt-run-select') ? e.target : null;
-    if (!sel) { return; }
-    qtRunSessionState = Object.assign({}, qtRunSessionNow(), { run: sel.value });
-    qtRenderRunSessionControls();
-    vscode.postMessage({ type: 'qtSetRun', run: sel.value });
-}
-document.addEventListener('change', qtHandleRunSelectChange);
-
 /**
  * The Send and Queue buttons of a saved todo (qtTodoButton): Send runs the todo
- * now in the @CHAT ANTHROPIC/LLM panel, Queue adds it to the prompt queue
- * (staged), both on Anthropic whatever the queue's transport, with the template
- * the Status Page's Todo buttons setting names for the todo — the user-action
- * one for a 👤 user-action todo, the other one for the rest.
+ * now in a free session the host asks for, Queue adds it to a prompt queue the
+ * host asks for (quest → run → free session → next / end, vscimpb139), both on
+ * Anthropic whatever the queue's transport, with the template the Status Page's
+ * Todo buttons setting names for the todo — the user-action one for a 👤
+ * user-action todo, the other one for the rest.
  */
 function qtTodoButtonsRow(todo) {
     var which = todo && todo.user_action === true ? 'user-action' : 'other';
     return qtFormRow('Run', '<div class="qt-todo-buttons">' +
-        '<span class="qt-run-session" data-run="' + qtEsc(qtRunSessionNow().run) + '">' + qtRunSessionControlsHtml() + '</span>' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in the panel\'s session and run (the session and Run beside it), with the ANTHROPIC/LLM panel\'s profile and the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in a free session of this window (asked for), with the ANTHROPIC/LLM panel\'s profile and the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-send"></span> Send</button>' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to the prompt queue (staged, Anthropic) in the panel\'s session and run, with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to a prompt queue (Anthropic): asks the quest, run, free session and next / end; with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-list-ordered"></span> Queue</button>' +
         '<button class="icon-btn qt-queue-item-detail-btn" type="button" title="Queue as todo item: ' +
             (todo && (todo.status === 'group' || (Array.isArray(todo.comprised_of) && todo.comprised_of.length)) ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
-            ', in the panel\'s session and run">' +
+            '; asks the quest, run, free session and next / end">' +
             '<span class="codicon codicon-run-all"></span> Queue as todo item</button>' +
         '</div>');
 }
@@ -3639,17 +3593,9 @@ function qtHandleMessage(msg) {
                 }
             }
             break;
-        case 'qtRunSession':
-            qtRunSessionState = {
-                session: msg.session || 'chat',
-                effectiveSession: msg.effectiveSession || msg.session || 'chat',
-                run: msg.run || 'default',
-                windowRun: msg.windowRun || 'default',
-                runs: Array.isArray(msg.runs) && msg.runs.length ? msg.runs : [{ run: 'default', label: 'default' }],
-            };
-            qtRenderRunSessionControls();
+        case 'qtDoneNotification':
             // The Done notification toggle, kept per quest by the host (unset: on).
-            qtSetDoneNotificationLook(msg.doneNotification !== false);
+            qtSetDoneNotificationLook(msg.on !== false);
             break;
         case 'qtScope':
             qtApplyScope(msg);

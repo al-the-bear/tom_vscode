@@ -48,6 +48,9 @@ process.env.USERPROFILE = HOME;
 
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
+// The group walk's prompt picker needs these before the handler is imported (its `vscode` namespace is copied then).
+(vscodeStub.stub as Record<string, unknown>).ThemeIcon = class { constructor(public id: string) { /* a codicon */ } };
+(vscodeStub.stub as Record<string, unknown>).QuickPickItemKind = { Separator: -1, Default: 0 };
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
@@ -57,7 +60,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { queuedItemForTodoPattern, TodoAlreadyQueuedError } from '../../utils/todoQueueDuplicates.js';
 import { todoIdPatternOf } from '../../utils/todoQueueMarks.js';
 import { setExtensionPath } from '../handler_shared.js';
-import { handleQuestTodoMessage, setQuestTodoContext } from '../questTodoPanel-handler.js';
+import { __setTodoTargetPickForTests, handleQuestTodoMessage, setQuestTodoContext } from '../questTodoPanel-handler.js';
 import * as router from '../sendToChatRouter.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +103,8 @@ const sends: Json[] = [];
     runQueueSettings: () => ({ defaultTransport: 'anthropic' }),
     get defaultTransport() { return 'anthropic'; },
 };
+// The queue-target flow (vscimpb139): every pick takes its preselected item (the window's quest, its run, the first free session, the end).
+__setTodoTargetPickForTests(async (items) => (items.find((i) => i.active) ?? items[0])?.value);
 const originalSend = router.runAnthropicSend;
 (router as Json).runAnthropicSend = async (_ctx: unknown, prompt: string, opts: Json) => { sends.push({ prompt, ...opts }); return { target: 'anthropic', ok: true }; };
 after(() => {
@@ -121,7 +126,6 @@ async function burst(msg: Json): Promise<void> {
     runs.push(send(msg));
     await Promise.all(runs);
 }
-const warnings = (): string[] => vscodeStub.spies.byMethod('window.showWarningMessage').map((c: Json) => String(c.args[0]));
 const statusNotes = (): string[] => vscodeStub.spies.byMethod('window.setStatusBarMessage').map((c: Json) => String(c.args[0]));
 
 function panelWindow(t: { after(fn: () => void): void }): { w: Json; posted: Json[] } {
@@ -187,14 +191,24 @@ describe('the todo views: one action, one item', () => {
         b = before();
         await burst({ type: 'qtSendStackedTodos', todos: [{ todoId: 'd1' }, { todoId: 'd2' }], template: '__none__' });
         assert.equal(sends.length - b.s, 1, 'stacked Send: one prompt');
-        const walkAsked = () => warnings().filter((m) => m.startsWith('A group walk goes over')).length;
-        const asked = walkAsked();
-        // The window works on another quest, so each walk that gets through is answered by the quest check (no picker).
-        const windowQuest = ChatVariablesStore.instance.quest;
-        ChatVariablesStore.instance.set('quest', 'other', 'user');
-        await burst({ type: 'qtQueueGroupPrompt', prefix: 'e' });
-        ChatVariablesStore.instance.set('quest', windowQuest || '', 'user');
-        assert.equal(walkAsked() - asked, 1, 'the group walk: handled once (here: the quest check answers)');
+        // The group walk: its prompt picker is asked once (and dismissed here: nothing queued).
+        const win = vscodeStub.stub.window as Json;
+        const originalPick = win.createQuickPick;
+        let pickers = 0;
+        win.createQuickPick = () => {
+            pickers++;
+            const handlers: Record<string, () => void> = {};
+            const qp: Json = {
+                items: [], selectedItems: [], dispose: () => undefined,
+                onDidAccept: (f: () => void) => { handlers.accept = f; }, onDidTriggerItemButton: () => undefined,
+                onDidHide: (f: () => void) => { handlers.hide = f; }, hide: () => handlers.hide?.(), show: () => handlers.hide?.(),
+            };
+            return qp;
+        };
+        try {
+            await burst({ type: 'qtQueueGroupPrompt', prefix: 'e' });
+        } finally { win.createQuickPick = originalPick; }
+        assert.equal(pickers, 1, 'the group walk: asked once');
         assert.ok(statusNotes().some((m) => /Already queued: todo a1 within 3 s/.test(m)));
         assert.ok(statusNotes().some((m) => /Already sent: todo b1 within 3 s/.test(m)));
     });

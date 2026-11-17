@@ -1,108 +1,54 @@
 /**
- * The todo panel's session and run (vscimpb60d): the quest todo views (the
- * @TOM sidebar's QUEST TODOS and @WS › Quest TODO) pick a session and a
- * process run of their own — kept per window and quest, one selection for the
- * top bar and the detail panel and for both views, independent of the @CHAT
- * panel's. Every todo the panel sends or queues uses them: a Send runs in the
- * session, with the run's chat variables and process position; a queued item
- * names the session and belongs to the run. In a run other than `default` the
- * session is the run's own, `<session>@<run>` (utils/runSessions.ts). A run
- * deleted elsewhere falls back to `default`. No run is created here.
+ * What the todo panel keeps between its sends and queue adds (vscimpb139): the
+ * last queue target and the last direct-send target of each panel instance —
+ * the "Last: …" entry of the queue-target flow (utils/todoQueueTarget.ts) — and
+ * the Done notification toggle of each quest. The panel no longer picks a run
+ * and a session of its own: every queue button asks quest → run → free session
+ * → next / end, a direct send a free session.
  *
  * Pure (no vscode, no fs).
  */
 
-import { DEFAULT_RUN } from './processRuns';
-import { chatRunOptions, effectiveChatRun } from './chatPanelRuns';
-import { runSessionName } from './runSessions';
+import type { TodoQueuePosition, TodoQueueTarget, TodoSendTarget } from './todoQueueTarget';
 
-/** The session the panel uses until another is picked: the chat panel's own session name. */
-export const TODO_PANEL_DEFAULT_SESSION = 'chat';
-
-/** The workspaceState key of the panel's session in a quest. */
-export function todoPanelSessionKey(quest: string): string {
-    return `tomAi.todoPanel.session.${quest || '(none)'}`;
-}
-
-/** The workspaceState key of the panel's run in a quest. */
-export function todoPanelRunKey(quest: string): string {
-    return `tomAi.todoPanel.run.${quest || '(none)'}`;
-}
-
-/** The workspaceState key of the panel's Done notification box in a quest (unset: on). */
+/** The workspaceState key of the panel's Done notification toggle in a quest (unset: on). */
 export function todoPanelDoneNotificationKey(quest: string): string {
     return `tomAi.todoPanel.doneNotification.${quest || '(none)'}`;
 }
 
-/** The box as stored: unset reads as on (BP-3). */
+/** The toggle as stored: unset reads as on (BP-3). */
 export function todoPanelDoneNotificationOn(stored: unknown): boolean {
     return stored !== false;
 }
 
-/** What the panel is on: the session picked (as named), the run, and the session its sends run in. */
-export interface TodoPanelSelection {
-    /** The session as picked (no run suffix). */
-    session: string;
-    /** The run: the one picked while the quest has it, else `default`. */
-    run: string;
-    /** The session the sends use: `<session>@<run>` in a run other than `default`. */
-    effectiveSession: string;
-    /** Whether a stored run is gone (it is to be forgotten). */
-    runFellBack: boolean;
+/** The workspaceState key of a panel instance's last queue target. */
+export function todoPanelLastQueueTargetKey(instance: string): string {
+    return `tomAi.todoPanel.lastQueueTarget.${instance || 'panel'}`;
 }
 
-/** The selection from what is stored and the quest's runs. */
-export function todoPanelSelection(storedSession: string | undefined, storedRun: string | undefined, runs: readonly string[]): TodoPanelSelection {
-    const session = (storedSession ?? '').trim() || TODO_PANEL_DEFAULT_SESSION;
-    const run = effectiveChatRun(storedRun, runs);
+/** The workspaceState key of a panel instance's last direct-send target. */
+export function todoPanelLastSendTargetKey(instance: string): string {
+    return `tomAi.todoPanel.lastSendTarget.${instance || 'panel'}`;
+}
+
+/** A stored last queue target, checked: undefined for anything that is not one. */
+export function storedQueueTarget(raw: unknown): TodoQueueTarget | undefined {
+    if (!raw || typeof raw !== 'object') { return undefined; }
+    const r = raw as Record<string, unknown>;
+    if (typeof r.quest !== 'string' || !r.quest || typeof r.run !== 'string' || !r.run) { return undefined; }
+    const position: TodoQueuePosition = r.position === 'next' ? 'next' : 'end';
     return {
-        session,
-        run,
-        effectiveSession: runSessionName(session, run),
-        runFellBack: !!storedRun && storedRun.trim() !== '' && storedRun.trim() !== run,
+        quest: r.quest,
+        run: r.run,
+        ...(typeof r.session === 'string' && r.session ? { session: r.session } : {}),
+        ...(r.newSession === true ? { newSession: true } : {}),
+        position,
     };
 }
 
-/**
- * What an item the panel queues names (vscimpb98): the session as picked (the
- * queue makes it the run's own, `<session>@<run>`) and the run. Every queue
- * action of the panel — a todo's Queue, add-to-queue, the stacked todos, Guide
- * me, the group walk — takes it from here.
- */
-export function todoPanelQueueTarget(sel: TodoPanelSelection): { session: string; run: string } {
-    return { session: sel.session, run: sel.run };
-}
-
-/**
- * What a todo group's queue button (its header and its detail view, vscimpb126)
- * queues: the group todo as a GROUP item (vscimpb127) to the panel's queue
- * target — the same {@link todoPanelQueueTarget} every queue button of the
- * panel uses.
- */
-export function todoGroupQueueRequest(sel: TodoPanelSelection, quest: string, groupId: string): { kind: 'group'; quest: string; groupId: string; session: string; run: string } {
-    return { kind: 'group', quest, groupId, ...todoPanelQueueTarget(sel) };
-}
-
-/** Where the panel queued an item, for its confirmation: `in run <run>, session <session>`. */
-export function todoPanelQueueTargetText(sel: TodoPanelSelection): string {
-    return `in run ${sel.run}, session ${sel.effectiveSession}`;
-}
-
-/** The message the views get: the selection and the run select's options (`default` first, the window's run marked). */
-export function todoPanelRunSessionMessage(sel: TodoPanelSelection, runs: readonly string[], windowRun: string): {
-    type: 'qtRunSession';
-    session: string;
-    effectiveSession: string;
-    run: string;
-    windowRun: string;
-    runs: Array<{ run: string; label: string }>;
-} {
-    return {
-        type: 'qtRunSession',
-        session: sel.session,
-        effectiveSession: sel.effectiveSession,
-        run: sel.run,
-        windowRun: windowRun || DEFAULT_RUN,
-        runs: chatRunOptions(runs, windowRun),
-    };
+/** A stored last direct-send target, checked. */
+export function storedSendTarget(raw: unknown): TodoSendTarget | undefined {
+    if (!raw || typeof raw !== 'object') { return undefined; }
+    const r = raw as Record<string, unknown>;
+    return typeof r.run === 'string' && r.run && typeof r.session === 'string' && r.session ? { run: r.run, session: r.session } : undefined;
 }
